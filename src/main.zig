@@ -18,10 +18,10 @@ const canvas = native_sdk.canvas;
 const geometry = native_sdk.geometry;
 
 const canvas_label = "main-canvas";
-pub const window_width: f32 = 1380;
-pub const window_height: f32 = 880;
-pub const window_min_width: f32 = 980;
-pub const window_min_height: f32 = 680;
+pub const window_width: f32 = 1240;
+pub const window_height: f32 = 760;
+pub const window_min_width: f32 = 800;
+pub const window_min_height: f32 = 560;
 const default_sidebar_split: f32 = 0.2;
 
 const max_sessions = 16;
@@ -243,6 +243,14 @@ pub const Model = struct {
         return "untitled";
     }
 
+    pub fn header_title(model: *const Model) []const u8 {
+        if (model.activeSessionConst()) |session| {
+            if (session.untitled) return "New task";
+            return session.title();
+        }
+        return "New task";
+    }
+
     pub fn selected_provider(model: *const Model) []const u8 {
         if (model.activeSessionConst()) |session| return session.provider_label();
         return Provider.default.wireName();
@@ -275,11 +283,8 @@ pub const Model = struct {
         return model.queued_storage[0..model.queued_len];
     }
 
-    pub fn composer_placeholder(model: *const Model) []const u8 {
-        if (model.activeSessionConst()) |session| {
-            if (session.provider == .fx) return "Message fx\u{2026}";
-        }
-        return "Message the agent\u{2026}";
+    pub fn composer_placeholder(_: *const Model) []const u8 {
+        return "Do anything...";
     }
 
     pub fn empty_hint(model: *const Model) []const u8 {

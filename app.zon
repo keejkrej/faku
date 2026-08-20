@@ -14,10 +14,10 @@
             .{
                 .label = "main",
                 .title = "Faku",
-                .width = 1380,
-                .height = 880,
-                .min_width = 980,
-                .min_height = 680,
+                .width = 1240,
+                .height = 760,
+                .min_width = 800,
+                .min_height = 560,
                 .titlebar = "hidden_inset_tall",
                 .views = .{
                     .{

@@ -15,12 +15,12 @@ and it is fx-first.
 
 ## UI
 
-The window is Waku-shaped chrome, not a pixel-perfect GPUI clone: ~1380×880
-(min 980×680), a Sessions sidebar, a window-drag header (Faku / fx / New),
-right-aligned user bubbles, a queued-follow-up card above the composer, and
-an Enter-to-send textarea. Cmd/Ctrl-N starts a session; Esc cancels. Live
-`fx ask` and the demo timer are unchanged — this is the shell, not a new
-backend.
+The window is Waku-shaped chrome, not a pixel-perfect GPUI clone: ~1240×760
+(min 800×560), a sidebar with New Task / Search / Today, a quiet Faku
+toolbar, right-aligned user bubbles, a queued-follow-up card, and an
+Enter-to-send composer ("Do anything...") with provider/access chips.
+Cmd/Ctrl-N starts a session; Esc cancels. Live `fx ask` and the demo timer
+are unchanged — this is the shell, not a new backend.
 
 ## Why fx
 

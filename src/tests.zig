@@ -115,7 +115,9 @@ test "boot is fx-first and New / send / ticks / stop drive the demo" {
 
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Faku");
-    _ = try expectByText(tree.root, .text, "Sessions");
+    _ = try expectByText(tree.root, .text, "Today");
+    _ = try expectByText(tree.root, .button, "New Task");
+    _ = try expectByText(tree.root, .button, "Search");
     _ = try expectByText(tree.root, .button, "New");
     _ = try expectButton(tree.root, "port waku to zig");
     _ = try expectButton(tree.root, "fix auth listener");
@@ -123,15 +125,20 @@ test "boot is fx-first and New / send / ticks / stop drive the demo" {
     _ = try expectByText(tree.root, .status_bar, "2 sessions \u{b7} demo \u{b7} fx");
     _ = try expectByText(tree.root, .text, "fx");
     if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqualStrings("Message fx\u{2026}", composer.placeholder);
+        try testing.expectEqualStrings("Do anything...", composer.placeholder);
     }
 
     const new_btn = try expectByText(tree.root, .button, "New");
     main.update(&model, tree.msgForPointer(new_btn.id, .up).?, &fx);
     try testing.expectEqual(@as(u32, 3), model.session_count);
     try testing.expectEqualStrings("untitled", model.selected_title());
+    try testing.expectEqualStrings("New task", model.header_title());
     try testing.expectEqualStrings("fx", model.selected_provider());
     try testing.expectEqual(main.Provider.fx, model.session_store[2].provider);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "New task");
+    _ = try expectByText(tree.root, .text, "What should we build?");
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "port the sidebar" } }, &fx);
     try testing.expectEqualStrings("port the sidebar", model.draft());
