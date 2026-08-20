@@ -59,14 +59,14 @@ a working ACP loop.
 ## Scope
 
 Ready: desktop shell, demo sessions + timer fallback, live `fx ask` when
-the CLI is present, waku-protocol v3 JSON builders, ACP JSON-RPC stubs,
-provider id "fx".
+the CLI is present, local session catalog + hydrate, waku-protocol v3 JSON
+builders, ACP JSON-RPC stubs, provider id "fx".
 
 Later: live waku-daemon WebSocket, live `fx acp` once a stdin-write
-effect exists, saveTaskState queue.
+effect exists.
 
-No listSessions / createSession. Catalog is loadTaskState. New session is a
-client-built AgentSession + saveTaskState.
+No listSessions / createSession. Catalog is loadTaskState (local JSON
+today). New session is a client-built session saved after first content.
 
 ## Run
 
@@ -76,6 +76,29 @@ Install the Native CLI globally, then from this directory:
     native dev --yes
     native check
     native build
+
+## Local session store
+
+Sessions persist on disk beside the app. This is **not** the Waku daemon
+and does not open a WebSocket. Native has no daemon/WebSocket client; the
+store is a local JSON document that follows Waku's catalog / hydrate /
+merge-only save rules.
+
+Path (Native `app_dirs` data directory, app name `faku`):
+
+    Linux:  $XDG_DATA_HOME/faku/sessions.json  or  ~/.local/share/faku/sessions.json
+    macOS:  ~/Library/Application Support/faku/sessions.json
+
+Boot: if that file loads, the sidebar is session skeletons only (id, title,
+provider, untitled/has_started) — no demo rows and no transcripts.
+Selecting a session hydrates its turns from the same file. Missing file
+keeps the two first-run demo sessions. A corrupt file also keeps the demos
+and is not overwritten until a successful load (`task_state_loaded`, same
+guard as waku-client). Save is merge-only; `RemoveSession` is the only
+delete. New untitled sessions are not written until they have real content.
+
+`fx ask` / demo timer behavior is unchanged. This cut does not spawn
+`fx acp`.
 
 ## Demo vs daemon
 

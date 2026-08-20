@@ -91,6 +91,13 @@ pub const ProviderId = enum {
             .pi => "pi",
         };
     }
+
+    pub fn fromWire(name: []const u8) ?ProviderId {
+        inline for (std.meta.tags(ProviderId)) |id| {
+            if (std.mem.eql(u8, id.wireName(), name)) return id;
+        }
+        return null;
+    }
 };
 
 /// Start options on `command: { type: "start", options }`.
@@ -366,6 +373,8 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"provider\":\"fx\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"binary\":\"fx\"") != null);
     try std.testing.expectEqualStrings("fx", ProviderId.default.wireName());
+    try std.testing.expectEqual(ProviderId.fx, ProviderId.fromWire("fx").?);
+    try std.testing.expectEqual(ProviderId.claude, ProviderId.fromWire("claude").?);
     try std.testing.expectEqualStrings("fx", FX_ACP_ARGV[0]);
     try std.testing.expectEqualStrings("acp", FX_ACP_ARGV[1]);
     try std.testing.expectEqualStrings("acp", FX_TRANSPORT);

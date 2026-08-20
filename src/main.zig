@@ -11,6 +11,7 @@ const runner = @import("runner");
 const native_sdk = @import("native_sdk");
 const protocol = @import("protocol.zig");
 const acp = @import("acp.zig");
+const store = @import("store.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -30,6 +31,7 @@ const max_body = 4096;
 const max_draft = 512;
 const max_queue = 1024;
 const max_fx_path = 256;
+pub const max_store_dir = 512;
 const max_line_keep = 4096;
 
 const app_permissions = [_][]const u8{ native_sdk.security.permission_command, native_sdk.security.permission_view };
@@ -70,6 +72,9 @@ pub const Session = struct {
     provider: Provider = .fx,
     busy: bool = false,
     untitled: bool = false,
+    has_started: bool = false,
+    /// Process-local. Catalog load leaves this false; hydrate sets it.
+    detail_loaded: bool = true,
 
     pub fn title(self: *const Session) []const u8 {
         return self.title_storage[0..self.title_len];
@@ -77,6 +82,11 @@ pub const Session = struct {
 
     pub fn provider_label(self: *const Session) []const u8 {
         return self.provider.wireName();
+    }
+
+    /// A skeleton came from a stored row, so it has started even without turns.
+    pub fn hasStarted(self: *const Session) bool {
+        return !self.detail_loaded or self.has_started;
     }
 };
 
@@ -151,6 +161,11 @@ pub const Model = struct {
     home_storage: [max_fx_path]u8 = [_]u8{0} ** max_fx_path,
     home_len: usize = 0,
     reply_path: ReplyPath = .demo,
+    store_dir_storage: [max_store_dir]u8 = [_]u8{0} ** max_store_dir,
+    store_dir_len: usize = 0,
+    /// Same guard as waku-client: refuse catalog writes until a successful load.
+    task_state_loaded: bool = false,
+    store_io: ?std.Io = null,
 
     pub const view_unbound = .{
         "session_store",
@@ -178,10 +193,16 @@ pub const Model = struct {
         "home_storage",
         "home_len",
         "reply_path",
+        "store_dir_storage",
+        "store_dir_len",
+        "task_state_loaded",
+        "store_io",
         "fxPath",
         "setFxPath",
         "setHome",
         "homeDir",
+        "storeDir",
+        "setStoreDir",
     };
 
     pub fn draft(model: *const Model) []const u8 {
@@ -277,6 +298,14 @@ pub const Model = struct {
         return model.home_storage[0..model.home_len];
     }
 
+    pub fn storeDir(model: *const Model) []const u8 {
+        return model.store_dir_storage[0..model.store_dir_len];
+    }
+
+    pub fn setStoreDir(model: *Model, dir: []const u8) void {
+        writeFixed(&model.store_dir_storage, &model.store_dir_len, dir);
+    }
+
     fn activeSession(model: *Model) ?*Session {
         return model.sessionById(model.selected);
     }
@@ -288,7 +317,14 @@ pub const Model = struct {
         return null;
     }
 
-    fn sessionById(model: *Model, id: u32) ?*Session {
+    pub fn sessionById(model: *Model, id: u32) ?*Session {
+        for (model.session_store[0..model.session_count]) |*session| {
+            if (session.id == id) return session;
+        }
+        return null;
+    }
+
+    pub fn sessionByIdConst(model: *const Model, id: u32) ?*const Session {
         for (model.session_store[0..model.session_count]) |*session| {
             if (session.id == id) return session;
         }
@@ -319,7 +355,71 @@ pub const Model = struct {
         model.turn_store[model.turn_count] = turn;
         model.turn_count += 1;
         model.next_turn_id += 1;
+        if (model.sessionById(session_id)) |session| session.has_started = true;
         return turn.id;
+    }
+
+    pub fn clearSessions(model: *Model) void {
+        model.session_count = 0;
+        model.turn_count = 0;
+        model.selected = 0;
+        model.next_id = 1;
+        model.next_turn_id = 1;
+    }
+
+    pub fn restoreSession(
+        model: *Model,
+        id: u32,
+        title_text: []const u8,
+        provider: Provider,
+        untitled: bool,
+        has_started: bool,
+    ) void {
+        if (model.session_count >= max_sessions) return;
+        var session = Session{
+            .id = id,
+            .provider = provider,
+            .untitled = untitled,
+            .has_started = has_started,
+            .detail_loaded = false,
+        };
+        writeFixed(&session.title_storage, &session.title_len, title_text);
+        model.session_store[model.session_count] = session;
+        model.session_count += 1;
+        if (id >= model.next_id) model.next_id = id + 1;
+    }
+
+    pub fn restoreTurn(model: *Model, id: u32, session_id: u32, role: Role, body: []const u8) void {
+        if (model.turn_count >= max_turns) return;
+        var turn = Turn{ .id = id, .session_id = session_id, .role = role };
+        writeFixed(&turn.body_storage, &turn.body_len, body);
+        model.turn_store[model.turn_count] = turn;
+        model.turn_count += 1;
+        if (id >= model.next_turn_id) model.next_turn_id = id + 1;
+    }
+
+    pub fn dropTurnsForSession(model: *Model, session_id: u32) void {
+        var kept: u32 = 0;
+        for (model.turn_store[0..model.turn_count]) |turn| {
+            if (turn.session_id == session_id) continue;
+            model.turn_store[kept] = turn;
+            kept += 1;
+        }
+        model.turn_count = kept;
+    }
+
+    pub fn dropSession(model: *Model, session_id: u32) void {
+        model.dropTurnsForSession(session_id);
+        var kept: u32 = 0;
+        for (model.session_store[0..model.session_count]) |session| {
+            if (session.id == session_id) continue;
+            model.session_store[kept] = session;
+            kept += 1;
+        }
+        model.session_count = kept;
+        if (model.selected == session_id) {
+            model.selected = if (model.session_count > 0) model.session_store[0].id else 0;
+        }
     }
 
     fn appendToTurn(model: *Model, turn_id: u32, extra: []const u8) void {
@@ -347,9 +447,14 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             if (id == 0) return;
             if (model.sessionById(id)) |session| session.untitled = true;
             model.selected = id;
+            // Client-built; persist is a no-op until first real content.
+            store.persistIfPossible(model, id);
         },
         .select => |id| {
-            if (model.sessionById(id) != null) model.selected = id;
+            if (model.sessionById(id) != null) {
+                model.selected = id;
+                store.hydrateIfPossible(model, id);
+            }
         },
         .draft_edit => |edit| model.draft_buffer.apply(edit),
         .send => handleSend(model, fx),
@@ -389,12 +494,14 @@ fn handleSend(model: *Model, fx: *Effects) void {
 
 fn startPrompt(model: *Model, fx: *Effects, text: []const u8) void {
     const session = model.activeSession() orelse return;
+    const titled = session.untitled;
     if (session.untitled) {
         writeFixed(&session.title_storage, &session.title_len, text);
         session.untitled = false;
     }
     _ = model.appendTurn(session.id, .user, text);
     const assistant_id = model.appendTurn(session.id, .assistant, "");
+    if (titled) store.persistIfPossible(model, session.id);
     session.busy = true;
     model.phase = .streaming;
     model.stream_cursor = 0;
@@ -453,12 +560,14 @@ fn tickStream(model: *Model, fx: *Effects) void {
 }
 
 fn finishStream(model: *Model, fx: *Effects) void {
-    if (model.sessionById(model.streaming_session)) |session| session.busy = false;
+    const finished_id = model.streaming_session;
+    if (model.sessionById(finished_id)) |session| session.busy = false;
     model.phase = .idle;
     model.stream_cursor = 0;
     model.stream_turn_id = 0;
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
+    store.persistIfPossible(model, finished_id);
     if (model.queued_len == 0) return;
     const queued = model.queued_storage[0..model.queued_len];
     var copy: [max_queue]u8 = undefined;
@@ -470,13 +579,15 @@ fn finishStream(model: *Model, fx: *Effects) void {
 
 fn stopStream(model: *Model, fx: *Effects) void {
     if (!model.is_streaming()) return;
-    if (model.sessionById(model.streaming_session)) |session| session.busy = false;
+    const finished_id = model.streaming_session;
+    if (model.sessionById(finished_id)) |session| session.busy = false;
     model.phase = .idle;
     model.stream_cursor = 0;
     model.stream_turn_id = 0;
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
     fx.cancel(fx_ask_key);
+    store.persistIfPossible(model, finished_id);
 }
 
 fn handleFxLine(model: *Model, line: native_sdk.EffectLine) void {
@@ -576,6 +687,14 @@ pub fn initialModel() Model {
     _ = model.appendTurn(auth, .assistant, "The handler unsubscribes before the replay buffer is flushed.");
 
     model.selected = port;
+    if (model.sessionById(port)) |session| {
+        session.has_started = true;
+        session.detail_loaded = true;
+    }
+    if (model.sessionById(auth)) |session| {
+        session.has_started = true;
+        session.detail_loaded = true;
+    }
     return model;
 }
 
@@ -593,7 +712,11 @@ pub fn main(init: std.process.Init) !void {
     });
     defer app_state.destroy();
     app_state.model = initialModel();
-    if (init.environ_map.get("HOME")) |home| app_state.model.setHome(home);
+    if (init.environ_map.get("HOME")) |home| {
+        app_state.model.setHome(home);
+        store.bindDefaultDir(&app_state.model, home, init.environ_map.get("XDG_DATA_HOME"));
+    }
+    store.boot(&app_state.model, std.heap.page_allocator, init.io);
 
     try runner.runWithOptions(app_state.app(), .{
         .app_name = "faku",
@@ -613,4 +736,5 @@ test {
     _ = @import("tests.zig");
     _ = @import("protocol.zig");
     _ = @import("acp.zig");
+    _ = @import("store.zig");
 }

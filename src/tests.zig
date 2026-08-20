@@ -2,6 +2,7 @@ const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const protocol = @import("protocol.zig");
+const store = @import("store.zig");
 
 const canvas = native_sdk.canvas;
 const testing = std.testing;
@@ -255,6 +256,45 @@ fn argvHas(argv: []const []const u8, needle: []const u8) bool {
         if (std.mem.eql(u8, arg, needle)) return true;
     }
     return false;
+}
+
+test "send + stream finish persists the selected session for a later load" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-update", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const id = model.addSession("untitled", .fx);
+    if (model.sessionById(id)) |session| session.untitled = true;
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "persist this turn" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    var n: u32 = 0;
+    while (n < 16 and model.is_streaming()) : (n += 1) {
+        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+    }
+    try testing.expect(!model.is_streaming());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 1), loaded.session_count);
+    try testing.expectEqual(id, loaded.session_store[0].id);
+    try testing.expectEqualStrings("persist this turn", loaded.session_store[0].title());
+    store.hydrateSession(&loaded, id, testing.allocator, testing.io);
+    try testing.expectEqual(@as(u32, 2), loaded.turn_count);
+    try testing.expectEqualStrings("persist this turn", loaded.turn_store[0].text());
+    try testing.expect(loaded.turn_store[1].text().len > 0);
 }
 
 test "the view lays out through the canvas engine" {
