@@ -15,10 +15,11 @@ and it is fx-first.
 
 ## UI
 
-The window is Waku-shaped chrome, not a pixel-perfect GPUI clone: ~1240×760
-(min 800×560), a sidebar with New Task / Search / Today, a quiet Faku
-toolbar, right-aligned user bubbles, a queued-follow-up card, and an
-Enter-to-send composer ("Do anything...") with provider/access chips.
+The window is Waku-shaped chrome, not a pixel-perfect GPUI clone: 1380×880
+(min 980×680), Geist light tokens mapped from Waku 0.1.9 Theme::light, a
+sidebar with New Task / Search / Today, `{header_title}` plus muted Faku
+in the toolbar, right-aligned user bubbles, a queued-follow-up card, and
+an Enter-to-send composer ("Do anything...") with provider/access chips.
 Cmd/Ctrl-N starts a session; Esc cancels. Live `fx ask` and the demo timer
 are unchanged — this is the shell, not a new backend.
 

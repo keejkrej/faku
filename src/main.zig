@@ -16,13 +16,17 @@ pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
 const canvas = native_sdk.canvas;
 const geometry = native_sdk.geometry;
+const Color = canvas.Color;
 
 const canvas_label = "main-canvas";
-pub const window_width: f32 = 1240;
-pub const window_height: f32 = 760;
-pub const window_min_width: f32 = 800;
-pub const window_min_height: f32 = 560;
-const default_sidebar_split: f32 = 0.2;
+pub const window_width: f32 = 1380;
+pub const window_height: f32 = 880;
+pub const window_min_width: f32 = 980;
+pub const window_min_height: f32 = 680;
+const sidebar_default_width: f32 = 252;
+const sidebar_min_width: f32 = 180;
+const sidebar_max_width: f32 = 420;
+const default_sidebar_split: f32 = sidebar_default_width / window_width;
 
 const max_sessions = 16;
 const max_turns = 128;
@@ -192,6 +196,7 @@ pub const Model = struct {
         "homeDir",
         "selected_title",
         "empty_hint",
+        "has_turns",
     };
 
     pub fn draft(model: *const Model) []const u8 {
@@ -403,7 +408,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .send => handleSend(model, fx),
         .stop => stopStream(model, fx),
         .clear_queue => model.queued_len = 0,
-        .sidebar_resized => |fraction| model.sidebar_split = fraction,
+        .sidebar_resized => |fraction| model.sidebar_split = clampSidebarSplit(fraction),
         .transcript_scrolled => |scroll| model.transcript_scroll = scroll.offset_y,
         .tick => |timer| {
             if (timer.outcome != .fired) return;
@@ -617,6 +622,35 @@ pub const app_markup = @embedFile("app.native");
 
 const FakuApp = native_sdk.UiApp(Model, Msg);
 
+fn clampSidebarSplit(value: f32) f32 {
+    const min_split = sidebar_min_width / window_width;
+    const max_split = sidebar_max_width / window_width;
+    return @max(min_split, @min(max_split, value));
+}
+
+/// Geist light register, with Waku 0.1.9 Theme::light hex mapped onto
+/// Native token slots. Markup cannot take raw hex. Coral is brand/caret
+/// only (focus ring); Native accent paints primary buttons, so that
+/// slot is Waku inverse graphite.
+fn themeTokens(_: *const Model) canvas.DesignTokens {
+    return canvas.DesignTokens.themeWithOverrides(.{
+        .pack = .geist,
+        .color_scheme = .light,
+    }, .{
+        .colors = .{
+            .background = Color.rgb8(0xF6, 0xF5, 0xF6),
+            .surface = Color.rgb8(0xFF, 0xFF, 0xFF),
+            .surface_subtle = Color.rgb8(0xF3, 0xF3, 0xF3),
+            .text = Color.rgb8(0x24, 0x24, 0x24),
+            .text_muted = Color.rgb8(0x66, 0x66, 0x66),
+            .accent = Color.rgb8(0x20, 0x22, 0x27),
+            .accent_text = Color.rgb8(0xF8, 0xF8, 0xF9),
+            .border = Color.rgba8(0x1C, 0x1E, 0x22, 20),
+            .focus_ring = Color.rgb8(0xC8, 0x5F, 0x44),
+        },
+    });
+}
+
 pub fn initialModel() Model {
     var model = Model{};
     const port = model.addSession("port waku to zig", .fx);
@@ -643,6 +677,7 @@ pub fn main(init: std.process.Init) !void {
         .update_fx = update,
         .init_fx = initFx,
         .on_key = onKey,
+        .tokens_fn = themeTokens,
         .markup = .{ .source = app_markup, .watch_path = "src/app.native", .io = init.io },
     });
     defer app_state.destroy();

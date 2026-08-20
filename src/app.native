@@ -1,19 +1,23 @@
 <!-- Faku: Waku-shaped chrome — sidebar, header, transcript, queue, composer. -->
 <column background="background">
   <split grow="1" value="{sidebar_split}" on-resize="sidebar_resized">
-    <column min-width="180" background="surface">
-      <column padding="8" gap="6">
-        <row height="36" window-drag="true" label="Sidebar drag">
-          <spacer grow="1" />
+    <column min-width="180" background="surface_subtle">
+      <row height="48" window-drag="true" label="Sidebar titlebar">
+        <spacer grow="1" />
+      </row>
+      <column padding="4" gap="10">
+        <row height="32">
+          <button size="sm" on-press="new_session">New Task</button>
         </row>
-        <button size="sm" on-press="new_session">New Task</button>
-        <button size="sm">Search</button>
+        <row height="32">
+          <button size="sm">Search</button>
+        </row>
         <text foreground="text_muted">Today</text>
       </column>
       <scroll grow="1">
-        <column gap="2" padding="8">
+        <column>
           <for each="session_rows" key="id" as="s">
-            <list-item selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
+            <list-item height="52" selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
               <column gap="2" padding="4">
                 <text>{s.title}</text>
                 <text foreground="text_muted">{s.provider}</text>
@@ -23,19 +27,17 @@
         </column>
       </scroll>
     </column>
-    <column grow="1" min-width="320">
-      <row height="52" padding="12" gap="10" cross="center" background="surface" window-drag="true" label="Toolbar">
+    <column grow="1" min-width="360">
+      <row height="48" padding="12" gap="10" cross="center" window-drag="true" label="Toolbar">
+        <text>{header_title}</text>
         <text foreground="text_muted">Faku</text>
         <spacer grow="1" />
         <button size="sm" on-press="new_session">New</button>
       </row>
       <separator />
-      <column grow="1" padding="12" gap="8">
-        <if test="{has_turns}">
-          <text size="heading">{header_title}</text>
-        </if>
-        <scroll grow="1" value="{transcript_scroll}" on-scroll="transcript_scrolled">
-          <column gap="8" grow="1">
+      <scroll grow="1" value="{transcript_scroll}" on-scroll="transcript_scrolled">
+        <row grow="1" main="center">
+          <column grow="1" max-width="720" gap="8">
             <for each="visible_turns" key="id" as="t">
               <if test="{t.is_user}">
                 <column gap="2" cross="end">
@@ -66,29 +68,37 @@
               </column>
             </else>
           </column>
-        </scroll>
-        <if test="{has_queued}">
-          <card size="sm" padding="10">
-            <column gap="4">
-              <row gap="8" cross="center">
-                <text>Queued</text>
+        </row>
+      </scroll>
+      <column padding="8">
+        <row>
+          <spacer width="12" />
+          <column grow="1" max-width="720" gap="8">
+            <if test="{has_queued}">
+              <card size="sm" padding="10">
+                <column gap="4">
+                  <row gap="8" cross="center">
+                    <text>Queued</text>
+                    <spacer grow="1" />
+                    <button size="sm" on-press="clear_queue">Dismiss</button>
+                  </row>
+                  <text wrap="true" foreground="text_muted">{queued_text}</text>
+                </column>
+              </card>
+            </if>
+            <input-group label="Message composer" height="88">
+              <textarea placeholder="{composer_placeholder}" text="{draft}" submit-on-enter="true" on-input="draft_edit" on-submit="send" />
+              <input-group-actions>
+                <badge>{selected_provider}</badge>
+                <badge>Full access</badge>
+                <badge>Local</badge>
                 <spacer grow="1" />
-                <button size="sm" on-press="clear_queue">Dismiss</button>
-              </row>
-              <text wrap="true" foreground="text_muted">{queued_text}</text>
-            </column>
-          </card>
-        </if>
-        <input-group label="Message composer" height="120">
-          <textarea placeholder="{composer_placeholder}" text="{draft}" submit-on-enter="true" on-input="draft_edit" on-submit="send" />
-          <input-group-actions>
-            <badge>{selected_provider}</badge>
-            <badge>Full access</badge>
-            <badge>Local</badge>
-            <spacer grow="1" />
-            <button variant="primary" on-press="send">{send_label}</button>
-          </input-group-actions>
-        </input-group>
+                <button variant="primary" on-press="send">{send_label}</button>
+              </input-group-actions>
+            </input-group>
+          </column>
+          <spacer width="12" />
+        </row>
       </column>
     </column>
   </split>
