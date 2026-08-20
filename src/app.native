@@ -1,0 +1,45 @@
+<!-- Faku: session sidebar, transcript, composer. Demo works without a daemon. -->
+<column background="background">
+  <row height="52" padding="12" gap="10" cross="center" background="surface" window-drag="true">
+    <text size="heading">Faku</text>
+    <text foreground="text_muted">fx</text>
+    <spacer grow="1" />
+    <button size="sm" on-press="new_session">New</button>
+  </row>
+  <separator />
+  <row grow="1">
+    <column width="260" background="surface" padding="8" gap="4">
+      <text>Sessions</text>
+      <scroll grow="1">
+        <column gap="2">
+          <for each="session_rows" key="id" as="s">
+            <button size="sm" selected="{s.selected}" on-press="select:{s.id}">{s.title}</button>
+          </for>
+        </column>
+      </scroll>
+    </column>
+    <separator />
+    <column grow="1" padding="12" gap="8">
+      <text size="heading">{selected_title}</text>
+      <text foreground="text_muted">{selected_provider}</text>
+      <scroll grow="1">
+        <column gap="8">
+          <for each="visible_turns" key="id" as="t">
+            <column gap="2" padding="6">
+              <text foreground="text_muted">{t.role_label}</text>
+              <text wrap="true">{t.text}</text>
+            </column>
+          </for>
+          <else>
+            <text foreground="text_muted">Message fx. Demo replies locally; live `fx acp` is not wired yet.</text>
+          </else>
+        </column>
+      </scroll>
+      <row gap="8" cross="center">
+        <text-field text="{draft}" placeholder="Message the agent..." on-input="draft_edit" on-submit="send" grow="1" />
+        <button variant="primary" on-press="send">{send_label}</button>
+      </row>
+    </column>
+  </row>
+  <status-bar>{status_line}</status-bar>
+</column>

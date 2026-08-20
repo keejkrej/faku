@@ -1,0 +1,16 @@
+Faku
+Copyright (C) 2026 Faku contributors
+
+Faku (fx + Waku) is a GPL-3.0-only desktop inspired by Waku
+(https://github.com/egoist/waku) by egoist. It is not a copy of Waku's
+Rust or TypeScript sources.
+
+This software uses the Vercel Native SDK (https://github.com/vercel-labs/native),
+licensed under the Apache License, Version 2.0.
+
+First-party provider support targets Vercel fx (https://fx.sh),
+also Apache-2.0. This tree does not vend fx.
+
+You may obtain a copy of the Apache License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
