@@ -91,11 +91,17 @@ Path (Native `app_dirs` data directory, app name `faku`):
 
 Boot: if that file loads, the sidebar is session skeletons only (id, title,
 provider, untitled/has_started) — no demo rows and no transcripts.
-Selecting a session hydrates its turns from the same file. Missing file
-keeps the two first-run demo sessions. A corrupt file also keeps the demos
-and is not overwritten until a successful load (`task_state_loaded`, same
-guard as waku-client). Save is merge-only; `RemoveSession` is the only
-delete. New untitled sessions are not written until they have real content.
+Selecting a session hydrates its turns and `queued_messages` from the same
+file. Missing file keeps the two first-run demo sessions. A corrupt file
+also keeps the demos and is not overwritten until a successful load
+(`task_state_loaded`, same guard as waku-client). Save is merge-only;
+`RemoveSession` is the only delete. New untitled sessions are not written
+until they have real content.
+
+Send while that session is streaming appends to its follow-up queue and
+persists. A successful finish (demo timer complete or `fx ask` exit 0)
+drains the next queued prompt. Stop, Esc, and a non-zero `fx ask` exit do
+not drain; partial assistant text stays, then the session is saved.
 
 `fx ask` / demo timer behavior is unchanged. This cut does not spawn
 `fx acp`.
@@ -105,7 +111,8 @@ delete. New untitled sessions are not written until they have real content.
 Demo fallback: "port waku to zig" on fx, "fix auth listener" on claude.
 New sessions default to fx. Without the fx binary, Send streams a local
 canned reply (about 12 ticks / 90ms). Send while streaming with a draft
-queues; empty Send, Stop, or Esc cancels.
+queues on that session (persisted). Successful finish drains the next
+item; empty Send, Stop, or Esc cancels without draining.
 
 Product keys (not all wired): Cmd-N new, Enter send/queue, Cmd-Enter steer,
 Esc cancel.

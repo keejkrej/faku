@@ -29,7 +29,8 @@ const max_turns = 128;
 const max_title = 64;
 const max_body = 4096;
 const max_draft = 512;
-const max_queue = 1024;
+pub const max_queued = 16;
+pub const max_queued_text = 1024;
 const max_fx_path = 256;
 pub const max_store_dir = 512;
 const max_line_keep = 4096;
@@ -123,6 +124,19 @@ pub const TurnRow = struct {
     text: []const u8,
 };
 
+/// Follow-up queued while that session is busy. Becomes its own turn after a
+/// successful finish — not after Stop/Esc or a non-zero `fx ask` exit.
+pub const QueuedMessage = struct {
+    id: u32 = 0,
+    session_id: u32 = 0,
+    text_storage: [max_queued_text]u8 = [_]u8{0} ** max_queued_text,
+    text_len: usize = 0,
+
+    pub fn text(self: *const QueuedMessage) []const u8 {
+        return self.text_storage[0..self.text_len];
+    }
+};
+
 pub const Msg = union(enum) {
     new_session,
     select: u32,
@@ -151,9 +165,10 @@ pub const Model = struct {
     stream_cursor: u32 = 0,
     stream_turn_id: u32 = 0,
     streaming_session: u32 = 0,
-    queued_storage: [max_queue]u8 = [_]u8{0} ** max_queue,
-    queued_len: usize = 0,
-    fx_available: bool = false,
+    queued_store: [max_queued]QueuedMessage = [_]QueuedMessage{.{}} ** max_queued,
+    queued_count: u32 = 0,
+    next_queued_id: u32 = 1,
+    fx_available: bool = false;
     fx_path_storage: [max_fx_path]u8 = [_]u8{0} ** max_fx_path,
     fx_path_len: usize = 0,
     fx_probe_started: bool = false,
@@ -182,8 +197,9 @@ pub const Model = struct {
         "stream_cursor",
         "stream_turn_id",
         "streaming_session",
-        "queued_storage",
-        "queued_len",
+        "queued_store",
+        "queued_count",
+        "next_queued_id",
         "is_streaming",
         "fx_available",
         "fx_path_storage",
@@ -362,9 +378,72 @@ pub const Model = struct {
     pub fn clearSessions(model: *Model) void {
         model.session_count = 0;
         model.turn_count = 0;
+        model.queued_count = 0;
         model.selected = 0;
         model.next_id = 1;
         model.next_turn_id = 1;
+        model.next_queued_id = 1;
+    }
+
+    pub fn enqueue(model: *Model, session_id: u32, text: []const u8) u32 {
+        if (model.sessionById(session_id) == null) return 0;
+        if (model.queued_count >= max_queued) return 0;
+        var item = QueuedMessage{ .id = model.next_queued_id, .session_id = session_id };
+        writeFixed(&item.text_storage, &item.text_len, text);
+        model.queued_store[model.queued_count] = item;
+        model.queued_count += 1;
+        model.next_queued_id += 1;
+        return item.id;
+    }
+
+    pub fn queuedCount(model: *const Model, session_id: u32) u32 {
+        var n: u32 = 0;
+        for (model.queued_store[0..model.queued_count]) |item| {
+            if (item.session_id == session_id) n += 1;
+        }
+        return n;
+    }
+
+    pub fn firstQueuedText(model: *const Model, session_id: u32) []const u8 {
+        for (model.queued_store[0..model.queued_count]) |*item| {
+            if (item.session_id == session_id) return item.text();
+        }
+        return "";
+    }
+
+    pub fn takeNextQueued(model: *Model, session_id: u32, dest: []u8) ?usize {
+        var i: usize = 0;
+        while (i < model.queued_count) : (i += 1) {
+            if (model.queued_store[i].session_id != session_id) continue;
+            const n = @min(dest.len, model.queued_store[i].text_len);
+            @memcpy(dest[0..n], model.queued_store[i].text_storage[0..n]);
+            var j = i;
+            while (j + 1 < model.queued_count) : (j += 1) {
+                model.queued_store[j] = model.queued_store[j + 1];
+            }
+            model.queued_count -= 1;
+            return n;
+        }
+        return null;
+    }
+
+    pub fn restoreQueued(model: *Model, id: u32, session_id: u32, text: []const u8) void {
+        if (model.queued_count >= max_queued) return;
+        var item = QueuedMessage{ .id = id, .session_id = session_id };
+        writeFixed(&item.text_storage, &item.text_len, text);
+        model.queued_store[model.queued_count] = item;
+        model.queued_count += 1;
+        if (id >= model.next_queued_id) model.next_queued_id = id + 1;
+    }
+
+    pub fn dropQueuedForSession(model: *Model, session_id: u32) void {
+        var kept: u32 = 0;
+        for (model.queued_store[0..model.queued_count]) |item| {
+            if (item.session_id == session_id) continue;
+            model.queued_store[kept] = item;
+            kept += 1;
+        }
+        model.queued_count = kept;
     }
 
     pub fn restoreSession(
@@ -410,6 +489,7 @@ pub const Model = struct {
 
     pub fn dropSession(model: *Model, session_id: u32) void {
         model.dropTurnsForSession(session_id);
+        model.dropQueuedForSession(session_id);
         var kept: u32 = 0;
         for (model.session_store[0..model.session_count]) |session| {
             if (session.id == session_id) continue;
@@ -483,17 +563,19 @@ fn handleSend(model: *Model, fx: *Effects) void {
             stopStream(model, fx);
             return;
         }
-        writeFixed(&model.queued_storage, &model.queued_len, text);
+        if (model.enqueue(model.selected, text) != 0) {
+            store.persistIfPossible(model, model.selected);
+        }
         model.draft_buffer.clear();
         return;
     }
     if (text.len == 0) return;
-    startPrompt(model, fx, text);
+    startPrompt(model, fx, model.selected, text);
     model.draft_buffer.clear();
 }
 
-fn startPrompt(model: *Model, fx: *Effects, text: []const u8) void {
-    const session = model.activeSession() orelse return;
+fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) void {
+    const session = model.sessionById(session_id) orelse return;
     const titled = session.untitled;
     if (session.untitled) {
         writeFixed(&session.title_storage, &session.title_len, text);
@@ -555,11 +637,11 @@ fn tickStream(model: *Model, fx: *Effects) void {
     const end = @min(demo_reply.len, start + stream_chunk_bytes);
     if (end > start) model.appendToTurn(model.stream_turn_id, demo_reply[start..end]);
     if (model.stream_cursor >= demo_ticks_complete or end >= demo_reply.len) {
-        finishStream(model, fx);
+        finishStream(model, fx, true);
     }
 }
 
-fn finishStream(model: *Model, fx: *Effects) void {
+fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
     const finished_id = model.streaming_session;
     if (model.sessionById(finished_id)) |session| session.busy = false;
     model.phase = .idle;
@@ -567,14 +649,15 @@ fn finishStream(model: *Model, fx: *Effects) void {
     model.stream_turn_id = 0;
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
+    if (drain) {
+        var copy: [max_queued_text]u8 = undefined;
+        if (model.takeNextQueued(finished_id, &copy)) |n| {
+            store.persistIfPossible(model, finished_id);
+            startPrompt(model, fx, finished_id, copy[0..n]);
+            return;
+        }
+    }
     store.persistIfPossible(model, finished_id);
-    if (model.queued_len == 0) return;
-    const queued = model.queued_storage[0..model.queued_len];
-    var copy: [max_queue]u8 = undefined;
-    @memcpy(copy[0..queued.len], queued);
-    const n = queued.len;
-    model.queued_len = 0;
-    startPrompt(model, fx, copy[0..n]);
 }
 
 fn stopStream(model: *Model, fx: *Effects) void {
@@ -603,7 +686,8 @@ fn handleFxLine(model: *Model, line: native_sdk.EffectLine) void {
 fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (exit.key != fx_ask_key) return;
     if (model.phase != .streaming) return;
-    finishStream(model, fx);
+    const success = exit.reason == .exited and exit.code == 0;
+    finishStream(model, fx, success);
 }
 
 fn startFxProbe(model: *Model, fx: *Effects) void {

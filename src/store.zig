@@ -7,7 +7,8 @@
 //!
 //! One JSON document `sessions.json`. Catalog load copies only session
 //! skeletons (id, title, provider, untitled, has_started) — no transcripts.
-//! Selecting a session hydrates its turns. Save is merge-only (never deletes).
+//! Selecting a session hydrates its turns and `queued_messages`. Save is
+//! merge-only (never deletes).
 //! `removeSession` is the only delete. Refuses to write until a successful
 //! load (`task_state_loaded`), same guard as waku-client.
 
@@ -101,7 +102,7 @@ pub fn hydrateSession(model: *Model, session_id: u32, allocator: std.mem.Allocat
     const bytes = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_document_bytes)) catch return;
     defer allocator.free(bytes);
 
-    applyTurns(model, allocator, bytes, session_id) catch return;
+    applyDetail(model, allocator, bytes, session_id) catch return;
     if (model.sessionById(session_id)) |loaded| loaded.detail_loaded = true;
 }
 
@@ -124,6 +125,7 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.selected = model.selected;
     document.next_id = model.next_id;
     document.next_turn_id = model.next_turn_id;
+    document.next_queued_id = model.next_queued_id;
     try writeDocument(allocator, io, dir, document);
 }
 
@@ -173,6 +175,11 @@ const StoredTurn = struct {
     body: []const u8,
 };
 
+const StoredQueued = struct {
+    id: u32,
+    text: []const u8,
+};
+
 const StoredSession = struct {
     id: u32,
     title: []const u8,
@@ -180,6 +187,7 @@ const StoredSession = struct {
     untitled: bool,
     has_started: bool,
     turns: []StoredTurn,
+    queued_messages: []StoredQueued,
 };
 
 const Document = struct {
@@ -187,6 +195,7 @@ const Document = struct {
     selected: u32 = 0,
     next_id: u32 = 1,
     next_turn_id: u32 = 1,
+    next_queued_id: u32 = 1,
     sessions: []StoredSession = &.{},
 
     fn empty(model: *const Model) Document {
@@ -194,6 +203,7 @@ const Document = struct {
             .selected = model.selected,
             .next_id = model.next_id,
             .next_turn_id = model.next_turn_id,
+            .next_queued_id = model.next_queued_id,
             .sessions = &.{},
         };
     }
@@ -207,6 +217,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.clearSessions();
     model.next_id = document.next_id;
     model.next_turn_id = document.next_turn_id;
+    model.next_queued_id = document.next_queued_id;
     for (document.sessions) |stored| {
         model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started);
     }
@@ -217,14 +228,18 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     }
 }
 
-fn applyTurns(model: *Model, allocator: std.mem.Allocator, bytes: []const u8, session_id: u32) !void {
+fn applyDetail(model: *Model, allocator: std.mem.Allocator, bytes: []const u8, session_id: u32) !void {
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
     const document = try parseDocument(arena_state.allocator(), bytes);
     const stored = findStored(document, session_id) orelse return;
     model.dropTurnsForSession(session_id);
+    model.dropQueuedForSession(session_id);
     for (stored.turns) |turn| {
         model.restoreTurn(turn.id, session_id, turn.role, turn.body);
+    }
+    for (stored.queued_messages) |queued| {
+        model.restoreQueued(queued.id, session_id, queued.text);
     }
 }
 
@@ -243,7 +258,10 @@ fn upsertSession(document: *Document, arena: std.mem.Allocator, model: *const Mo
         existing.provider = incoming.provider;
         existing.untitled = incoming.untitled;
         existing.has_started = incoming.has_started;
-        if (live.detail_loaded) existing.turns = incoming.turns;
+        if (live.detail_loaded) {
+            existing.turns = incoming.turns;
+            existing.queued_messages = incoming.queued_messages;
+        }
         return;
     }
     const next = try arena.alloc(StoredSession, document.sessions.len + 1);
@@ -264,6 +282,7 @@ fn dropStoredSession(document: *Document, session_id: u32) void {
 
 fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *const main.Session) !StoredSession {
     var turns: std.ArrayList(StoredTurn) = .empty;
+    var queued: std.ArrayList(StoredQueued) = .empty;
     if (session.detail_loaded) {
         for (model.turn_store[0..model.turn_count]) |turn| {
             if (turn.session_id != session.id) continue;
@@ -271,6 +290,13 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
                 .id = turn.id,
                 .role = turn.role,
                 .body = try arena.dupe(u8, turn.text()),
+            });
+        }
+        for (model.queued_store[0..model.queued_count]) |item| {
+            if (item.session_id != session.id) continue;
+            try queued.append(arena, .{
+                .id = item.id,
+                .text = try arena.dupe(u8, item.text()),
             });
         }
     }
@@ -281,6 +307,7 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
         .untitled = session.untitled,
         .has_started = session.hasStarted(),
         .turns = try turns.toOwnedSlice(arena),
+        .queued_messages = try queued.toOwnedSlice(arena),
     };
 }
 
@@ -316,6 +343,7 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .selected = jsonUint(obj.get("selected")) orelse 0,
         .next_id = jsonUint(obj.get("next_id")) orelse 1,
         .next_turn_id = jsonUint(obj.get("next_turn_id")) orelse 1,
+        .next_queued_id = jsonUint(obj.get("next_queued_id")) orelse 1,
         .sessions = try sessions.toOwnedSlice(arena),
     };
 }
@@ -343,6 +371,17 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         }
     }
 
+    var queued: std.ArrayList(StoredQueued) = .empty;
+    if (obj.get("queued_messages")) |queued_val| {
+        const queued_arr = switch (queued_val) {
+            .array => |a| a,
+            else => return error.Corrupt,
+        };
+        for (queued_arr.items) |item| {
+            try queued.append(arena, try parseQueued(item));
+        }
+    }
+
     return .{
         .id = id,
         .title = title,
@@ -350,7 +389,18 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         .untitled = untitled,
         .has_started = has_started,
         .turns = try turns.toOwnedSlice(arena),
+        .queued_messages = try queued.toOwnedSlice(arena),
     };
+}
+
+fn parseQueued(value: std.json.Value) !StoredQueued {
+    const obj = switch (value) {
+        .object => |o| o,
+        else => return error.Corrupt,
+    };
+    const id = jsonUint(obj.get("id")) orelse return error.Corrupt;
+    const text = jsonString(obj.get("text")) orelse return error.Corrupt;
+    return .{ .id = id, .text = text };
 }
 
 fn parseTurn(value: std.json.Value) !StoredTurn {
@@ -423,6 +473,8 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try appendUint(&out, allocator, document.next_id);
     try out.appendSlice(allocator, ",\"next_turn_id\":");
     try appendUint(&out, allocator, document.next_turn_id);
+    try out.appendSlice(allocator, ",\"next_queued_id\":");
+    try appendUint(&out, allocator, document.next_queued_id);
     try out.appendSlice(allocator, ",\"sessions\":[");
     for (document.sessions, 0..) |session, i| {
         if (i != 0) try out.append(allocator, ',');
@@ -452,6 +504,15 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
         try appendJsonString(out, allocator, roleWire(turn.role));
         try out.appendSlice(allocator, ",\"body\":");
         try appendJsonString(out, allocator, turn.body);
+        try out.append(allocator, '}');
+    }
+    try out.appendSlice(allocator, "],\"queued_messages\":[");
+    for (session.queued_messages, 0..) |queued, i| {
+        if (i != 0) try out.append(allocator, ',');
+        try out.appendSlice(allocator, "{\"id\":");
+        try appendUint(out, allocator, queued.id);
+        try out.appendSlice(allocator, ",\"text\":");
+        try appendJsonString(out, allocator, queued.text);
         try out.append(allocator, '}');
     }
     try out.appendSlice(allocator, "]}");
@@ -585,6 +646,42 @@ test "save + load round-trips two sessions and hydrate restores turns" {
     try testing.expectEqualStrings("the auth listener drops the first event", loaded.turn_store[2].text());
     try testing.expectEqual(Role.tool, loaded.turn_store[4].role);
     try testing.expectEqualStrings("read src/auth/listener.ts", loaded.turn_store[4].text());
+}
+
+test "queued_messages survive save and hydrate" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    const ids = seedTwoSessions(&source);
+    const q1 = source.enqueue(ids.a, "then port the composer");
+    const q2 = source.enqueue(ids.a, "and the status bar");
+    try testing.expect(q1 != 0);
+    try testing.expect(q2 != 0);
+    try saveSession(&source, ids.a, allocator, io);
+    try saveSession(&source, ids.b, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqual(@as(u32, 0), loaded.queued_count);
+
+    hydrateSession(&loaded, ids.a, allocator, io);
+    try testing.expectEqual(@as(u32, 2), loaded.queuedCount(ids.a));
+    try testing.expectEqual(q1, loaded.queued_store[0].id);
+    try testing.expectEqualStrings("then port the composer", loaded.firstQueuedText(ids.a));
+    try testing.expectEqualStrings("and the status bar", loaded.queued_store[1].text());
+    try testing.expectEqual(@as(u32, 0), loaded.queuedCount(ids.b));
+
+    hydrateSession(&loaded, ids.b, allocator, io);
+    try testing.expectEqual(@as(u32, 0), loaded.queuedCount(ids.b));
 }
 
 test "missing store keeps demos; corrupt store is not overwritten" {

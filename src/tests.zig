@@ -297,6 +297,94 @@ test "send + stream finish persists the selected session for a later load" {
     try testing.expect(loaded.turn_store[1].text().len > 0);
 }
 
+test "successful finish drains the next queued follow-up" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("queue drain", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "queued follow-up" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+    try testing.expectEqualStrings("queued follow-up", model.firstQueuedText(id));
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
+
+    var n: u32 = 0;
+    while (n < 16 and model.queuedCount(id) > 0) : (n += 1) {
+        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+    }
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(@as(u32, 0), model.queuedCount(id));
+    try testing.expectEqual(@as(usize, 2), countRole(&model, .user));
+    try testing.expectEqual(id, model.streaming_session);
+}
+
+test "stop does not drain the per-session queue" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-queue", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const id = model.addSession("keep queue", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "stay queued" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+
+    main.update(&model, .stop, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+    try testing.expectEqualStrings("stay queued", model.firstQueuedText(id));
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    store.hydrateSession(&loaded, id, testing.allocator, testing.io);
+    try testing.expectEqual(@as(u32, 1), loaded.queuedCount(id));
+    try testing.expectEqualStrings("stay queued", loaded.firstQueuedText(id));
+}
+
+test "non-zero fx ask exit does not drain the queue" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("fx fail", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "ask now" } }, &fx);
+    main.update(&model, .send, &fx);
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "after failure" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+
+    try fx.feedExit(main.fx_ask_key, 1);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+    try testing.expectEqualStrings("after failure", model.firstQueuedText(id));
+}
+
 test "the view lays out through the canvas engine" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
