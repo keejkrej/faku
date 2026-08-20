@@ -198,7 +198,7 @@ fn matchKey(text: []const u8, start: usize, key: []const u8) ?usize {
     if (i + 1 + key.len + 1 >= text.len) return null;
     if (!std.mem.eql(u8, text[i + 1 .. i + 1 + key.len], key)) return null;
     if (text[i + 1 + key.len] != '"') return null;
-    var j = skipWs(text, i + 1 + key.len + 1);
+    const j = skipWs(text, i + 1 + key.len + 1);
     if (j >= text.len or text[j] != ':') return null;
     return skipWs(text, j + 1);
 }
