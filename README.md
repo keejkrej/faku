@@ -29,11 +29,42 @@ over stdio), fx resume.
 
 When the fx CLI is installed, Send on an fx session runs a one-shot:
 
-    fx ask <prompt>
+    fx ask --json -- <prompt>
+    fx ask --json --resume <id> -- <prompt>
 
-Stdout lines stream into the assistant turn. Exit settles the turn and
-dequeues the next prompt if one was queued. Stop / Esc cancels the spawn
-and the demo timer; partial assistant text stays.
+`--json` prints a JSON object that includes `session_id`. Faku stores that
+id on the session (`fx_session_id` in `sessions.json`) and passes it back
+as `--resume` on later sends. The prompt stays after `--` so flag-like
+text is safe. There is no `--model` argv. `--no-save`, `--image`, and
+`--auto`/`--yolo` flags are not used.
+
+Model and access ride env, not flags. Official fx values
+([configuration](https://fx.sh/docs/configure-fx/configuration)):
+`FX_MODEL` and `FX_PERMISSION_MODE` (`ask` | `auto` | `yolo`). Native
+`SpawnOptions` has no `env` field, so Faku prefixes
+`/usr/bin/env KEY=val` on the child only and does not export on the
+Faku process. Empty `model` omits `FX_MODEL` (fx's own default).
+Waku `runtime_mode` is stored as `access_mode`: `ask` → `ask`,
+`autoAcceptEdits`/`auto` → `auto`, `fullAccess` → `yolo`. New sessions
+default to Waku `fullAccess` (`FX_PERMISSION_MODE=yolo`) and inherit
+`last_model` / `last_access_mode` when those were persisted.
+
+If that session has a non-empty `project_path` that exists on disk, the
+child's working directory is that path. Native 0.9.3 `SpawnOptions` has
+no `cwd` field (only `key`, `argv`, `stdin`, `output`, callbacks), so
+Faku starts `/bin/sh -c 'cd -- "$1" && shift && exec "$@"'` with the
+workspace as `$1` and then `fx ask`. Empty or missing paths leave the
+host process cwd (same as `fx ask` with no extra flags). `PWD` is not
+used. Protocol `StartOptions.cwd` stays unused.
+
+New sessions inherit `last_project_path` from `sessions.json` when one
+was persisted. There is no project picker and no worktree materialization.
+
+A stdout line that is JSON with `session_id` updates the stored id and
+is not appended to the assistant turn. Other lines stream as today.
+Exit settles the turn and dequeues the next prompt if one was queued.
+Stop / Esc cancels the spawn and the demo timer; partial assistant
+text stays.
 
 Probe (boot `init_fx`, or first Send): `~/.local/bin/fx --help`, then
 `fx --help` on PATH. Success stores `fx_available` and `fx_path`. Missing
@@ -59,14 +90,14 @@ a working ACP loop.
 ## Scope
 
 Ready: desktop shell, demo sessions + timer fallback, live `fx ask` when
-the CLI is present, waku-protocol v3 JSON builders, ACP JSON-RPC stubs,
-provider id "fx".
+the CLI is present, local session catalog + hydrate, waku-protocol v3 JSON
+builders, ACP JSON-RPC stubs, provider id "fx".
 
 Later: live waku-daemon WebSocket, live `fx acp` once a stdin-write
-effect exists, saveTaskState queue.
+effect exists.
 
-No listSessions / createSession. Catalog is loadTaskState. New session is a
-client-built AgentSession + saveTaskState.
+No listSessions / createSession. Catalog is loadTaskState (local JSON
+today). New session is a client-built session saved after first content.
 
 ## Run
 
@@ -77,12 +108,58 @@ Install the Native CLI globally, then from this directory:
     native check
     native build
 
+## Local session store
+
+Sessions persist on disk beside the app. This is **not** the Waku daemon
+and does not open a WebSocket. Native has no daemon/WebSocket client; the
+store is a local JSON document that follows Waku's catalog / hydrate /
+merge-only save rules.
+
+Path (Native `app_dirs` data directory, app name `faku`):
+
+    Linux:  $XDG_DATA_HOME/faku/sessions.json  or  ~/.local/share/faku/sessions.json
+    macOS:  ~/Library/Application Support/faku/sessions.json
+
+Boot: if that file loads, the sidebar is session skeletons only (id, title,
+provider, untitled/has_started, project_path, fx_session_id, model,
+access_mode) — no demo rows and no transcripts. The document also stores
+`last_project_path`, `last_model`, and `last_access_mode` so a new
+session can inherit the last workspace and last model/access.
+Selecting a session hydrates its turns and `queued_messages` from the same
+file. Composer drafts are a sibling `drafts.json` (not mixed into the
+session catalog) so a New Task can persist before the session row exists.
+Keys match Waku: `newSession` or `newSession{project_path}` for untitled
+drafts, `session{id}` after the session has started. Each record is
+`{ text, image_path }` — one optional local path, not a Waku
+`waku-attachment:` blob. When that file exists, Send adds
+`fx ask --image PATH` before `--`. A missing file omits the flag.
+Saves are cheap rewrites on each `draft_edit` and when leaving a
+session. The `newSession` key (text and image) is discarded after the
+first successful send so the next New Task does not resurrect that
+prompt. There is no Native debounce
+timer; last write wins.
+
+Missing `sessions.json` keeps the two first-run demo sessions. A corrupt file
+also keeps the demos and is not overwritten until a successful load
+(`task_state_loaded`, same guard as waku-client). Save is merge-only;
+`RemoveSession` is the only delete. New untitled sessions are not written
+until they have real content.
+
+Send while that session is streaming appends to its follow-up queue and
+persists. A successful finish (demo timer complete or `fx ask` exit 0)
+drains the next queued prompt. Stop, Esc, and a non-zero `fx ask` exit do
+not drain; partial assistant text stays, then the session is saved.
+
+`fx ask --json` mints and resumes an `fx_session_id`. This cut does not
+spawn `fx acp`.
+
 ## Demo vs daemon
 
 Demo fallback: "port waku to zig" on fx, "fix auth listener" on claude.
 New sessions default to fx. Without the fx binary, Send streams a local
 canned reply (about 12 ticks / 90ms). Send while streaming with a draft
-queues; empty Send, Stop, or Esc cancels.
+queues on that session (persisted). Successful finish drains the next
+item; empty Send, Stop, or Esc cancels without draining.
 
 Product keys (not all wired): Cmd-N new, Enter send/queue, Cmd-Enter steer,
 Esc cancel.

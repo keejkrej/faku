@@ -6,7 +6,7 @@
 //!
 //! First-party provider (this port's differentiator; Waku does not ship
 //! it): Vercel `fx` (https://fx.sh). Live first path is headless
-//! `fx ask <prompt>` (see main.zig). ACP JSON-RPC builders live in
+//! `fx ask --json -- <prompt>` (see main.zig). ACP JSON-RPC builders live in
 //! acp.zig; live `fx acp` is not spawned — Native stdin is one buffer
 //! at spawn time, and ACP needs ongoing writes. Probe `~/.local/bin/fx`
 //! then PATH. Missing binary keeps the demo timer.
@@ -90,6 +90,13 @@ pub const ProviderId = enum {
             .cursor => "cursor-agent",
             .pi => "pi",
         };
+    }
+
+    pub fn fromWire(name: []const u8) ?ProviderId {
+        inline for (std.meta.tags(ProviderId)) |id| {
+            if (std.mem.eql(u8, id.wireName(), name)) return id;
+        }
+        return null;
     }
 };
 
@@ -366,6 +373,8 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"provider\":\"fx\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"binary\":\"fx\"") != null);
     try std.testing.expectEqualStrings("fx", ProviderId.default.wireName());
+    try std.testing.expectEqual(ProviderId.fx, ProviderId.fromWire("fx").?);
+    try std.testing.expectEqual(ProviderId.claude, ProviderId.fromWire("claude").?);
     try std.testing.expectEqualStrings("fx", FX_ACP_ARGV[0]);
     try std.testing.expectEqualStrings("acp", FX_ACP_ARGV[1]);
     try std.testing.expectEqualStrings("acp", FX_TRANSPORT);
