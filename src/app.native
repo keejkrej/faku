@@ -31,7 +31,7 @@
             </column>
           </for>
           <else>
-            <text foreground="text_muted">Message fx. Demo replies locally; live `fx acp` is not wired yet.</text>
+            <text foreground="text_muted">{empty_hint}</text>
           </else>
         </column>
       </scroll>

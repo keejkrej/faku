@@ -25,18 +25,45 @@ Install lands at ~/.local/bin/fx.
 Surfaces: fx interactive, fx ask (headless), fx acp (Agent Client Protocol
 over stdio), fx resume.
 
-The embed path is ACP (fx acp), same family as cursor-agent / grok. Live mode
-will spawn argv [fx, acp] with the command permission (probe ~/.local/bin/fx,
-then PATH). One-shot demo can use fx ask. This cut does not exec fx. Demo mode
-fake-streams a canned reply that mentions fx.
+## Live path: `fx ask`
+
+When the fx CLI is installed, Send on an fx session runs a one-shot:
+
+    fx ask <prompt>
+
+Stdout lines stream into the assistant turn. Exit settles the turn and
+dequeues the next prompt if one was queued. Stop / Esc cancels the spawn
+and the demo timer; partial assistant text stays.
+
+Probe (boot `init_fx`, or first Send): `~/.local/bin/fx --help`, then
+`fx --help` on PATH. Success stores `fx_available` and `fx_path`. Missing
+or rejected binary keeps the demo timer (90ms ticks, canned reply) so
+`native test --yes` stays green without a real fx install.
+
+Non-fx providers (the claude demo session) still use the demo timer.
+The status bar shows which reply path last ran: `N sessions · fx|demo · provider`.
+
+New sessions still default to fx.
+
+## ACP (stub only)
+
+`fx acp` is the longer-term embed path (same family as cursor-agent / grok).
+`src/acp.zig` has newline-delimited JSON-RPC 2.0 builders/parsers for
+`initialize`, `session/new`, `session/prompt`, and `session/cancel`.
+
+This cut does **not** spawn `fx acp`. Native `fx.spawn` accepts stdin only
+at spawn time (one buffer). ACP needs ongoing stdin writes, and there is
+no documented write-to-running-child effect yet. Do not treat the stub as
+a working ACP loop.
 
 ## Scope
 
-Ready: desktop shell, demo sessions + timer stream, waku-protocol v3 JSON
-builders, provider id "fx".
+Ready: desktop shell, demo sessions + timer fallback, live `fx ask` when
+the CLI is present, waku-protocol v3 JSON builders, ACP JSON-RPC stubs,
+provider id "fx".
 
-Later: live waku-daemon WebSocket, live fx acp spawn, saveTaskState queue,
-provider probe.
+Later: live waku-daemon WebSocket, live `fx acp` once a stdin-write
+effect exists, saveTaskState queue.
 
 No listSessions / createSession. Catalog is loadTaskState. New session is a
 client-built AgentSession + saveTaskState.
@@ -52,9 +79,10 @@ Install the Native CLI globally, then from this directory:
 
 ## Demo vs daemon
 
-Demo (default): "port waku to zig" on fx, "fix auth listener" on claude. New
-sessions default to fx. Send streams a local canned reply (about 12 ticks / 90ms).
-Send while streaming with a draft queues; empty Send, Stop, or Esc cancels.
+Demo fallback: "port waku to zig" on fx, "fix auth listener" on claude.
+New sessions default to fx. Without the fx binary, Send streams a local
+canned reply (about 12 ticks / 90ms). Send while streaming with a draft
+queues; empty Send, Stop, or Esc cancels.
 
 Product keys (not all wired): Cmd-N new, Enter send/queue, Cmd-Enter steer,
 Esc cancel.
