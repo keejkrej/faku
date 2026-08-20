@@ -202,6 +202,7 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.last_project_path = lastProjectPathForSave(model, session);
     document.last_model = lastModelForSave(model, session);
     document.last_access_mode = lastAccessModeForSave(model, session);
+    document.last_daemon_address = lastDaemonAddressForSave(model);
     try writeDocument(allocator, io, dir, document);
 }
 
@@ -234,6 +235,7 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     document.last_project_path = model.lastProjectPath();
     document.last_model = model.lastModel();
     document.last_access_mode = model.lastAccessMode();
+    document.last_daemon_address = lastDaemonAddressForSave(model);
     try writeDocument(allocator, io, dir, document);
     model.dropSession(session_id);
 }
@@ -244,6 +246,8 @@ pub fn persistIfPossible(model: *Model, session_id: u32) void {
         if (session.model().len > 0) model.setLastModel(session.model());
         if (session.accessMode().len > 0) model.setLastAccessMode(session.accessMode());
     }
+    if (model.daemonAddress().len > 0) model.setLastDaemonAddress(model.daemonAddress());
+}
     const io = model.store_io orelse return;
     saveSession(model, session_id, std.heap.page_allocator, io) catch {};
 }
@@ -427,6 +431,7 @@ const Document = struct {
     last_project_path: []const u8 = "",
     last_model: []const u8 = "",
     last_access_mode: []const u8 = "",
+    last_daemon_address: []const u8 = "",
     sessions: []StoredSession = &.{},
 
     fn empty(model: *const Model) Document {
@@ -438,6 +443,7 @@ const Document = struct {
             .last_project_path = model.lastProjectPath(),
             .last_model = model.lastModel(),
             .last_access_mode = model.lastAccessMode(),
+            .last_daemon_address = lastDaemonAddressForSave(model),
             .sessions = &.{},
         };
     }
@@ -458,6 +464,11 @@ fn lastAccessModeForSave(model: *const Model, session: *const main.Session) []co
     return session.accessMode();
 }
 
+fn lastDaemonAddressForSave(model: *const Model) []const u8 {
+    if (model.lastDaemonAddress().len > 0) return model.lastDaemonAddress();
+    return model.daemonAddress();
+}
+
 fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) !void {
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
@@ -470,6 +481,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.setLastProjectPath(document.last_project_path);
     model.setLastModel(document.last_model);
     model.setLastAccessMode(document.last_access_mode);
+    model.setLastDaemonAddress(document.last_daemon_address);
     for (document.sessions) |stored| {
         model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode);
     }
@@ -607,6 +619,7 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .last_project_path = jsonString(obj.get("last_project_path")) orelse "",
         .last_model = jsonString(obj.get("last_model")) orelse "",
         .last_access_mode = jsonString(obj.get("last_access_mode")) orelse "",
+        .last_daemon_address = jsonString(obj.get("last_daemon_address")) orelse "",
         .sessions = try sessions.toOwnedSlice(arena),
     };
 }
@@ -748,6 +761,8 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try appendJsonString(&out, allocator, document.last_model);
     try out.appendSlice(allocator, ",\"last_access_mode\":");
     try appendJsonString(&out, allocator, document.last_access_mode);
+    try out.appendSlice(allocator, ",\"last_daemon_address\":");
+    try appendJsonString(&out, allocator, document.last_daemon_address);
     try out.appendSlice(allocator, ",\"sessions\":[");
     for (document.sessions, 0..) |session, i| {
         if (i != 0) try out.append(allocator, ',');
@@ -1021,6 +1036,30 @@ test "session model and access_mode persist; new sessions inherit last-used" {
     const inherited = loaded.addSession("next", .fx);
     try testing.expectEqualStrings("openai/gpt-5.4", loaded.sessionById(inherited).?.model());
     try testing.expectEqualStrings("ask", loaded.sessionById(inherited).?.accessMode());
+}
+
+test "last_daemon_address persists and loads without becoming the live switch" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.setDaemonAddress("127.0.0.1:8787");
+    const id = source.addSession("daemon later", .fx);
+    _ = source.appendTurn(id, .user, "remember the addr");
+    try saveSession(&source, id, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqualStrings("127.0.0.1:8787", loaded.lastDaemonAddress());
+    try testing.expectEqual(@as(usize, 0), loaded.daemonAddress().len);
 }
 
 test "draft keys are newSession until started, then session id" {

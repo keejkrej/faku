@@ -3,6 +3,7 @@ const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const protocol = @import("protocol.zig");
 const store = @import("store.zig");
+const daemon_proxy = @import("daemon_proxy.zig");
 
 const canvas = native_sdk.canvas;
 const testing = std.testing;
@@ -643,6 +644,98 @@ test "non-zero fx ask exit does not drain the queue" {
     try testing.expect(!model.is_streaming());
     try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
     try testing.expectEqualStrings("after failure", model.firstQueuedText(id));
+}
+
+test "daemon address send puts hello loadTaskState and prompt on spawn stdin" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setDaemonToken("secret");
+    model.setSidecarPath("faku");
+    const id = model.addSession("daemon session", .fx);
+    _ = model.appendTurn(id, .user, "already started");
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "trace the listener" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(model.daemon_spawn_key, request.key);
+    try testing.expect(argvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(request.argv, "127.0.0.1:8787"));
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"token\":\"secret\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"loadTaskState\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "trace the listener") != null);
+    try testing.expectEqualStrings("127.0.0.1:8787", model.lastDaemonAddress());
+}
+
+test "daemon textDelta hydrates the turn and turnFinished settles plus drains" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setDaemonAddress("127.0.0.1:8787");
+    const id = model.addSession("daemon settle", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
+    const key = model.daemon_spawn_key;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "queued follow-up" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+
+    try fx.feedLine(key, "{\"type\":\"event\",\"event\":{\"kind\":\"textDelta\",\"payload\":\"hello from sidecar\"}}");
+    drainEffects(&model, &fx);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from sidecar") != null);
+    try testing.expect(model.is_streaming());
+
+    try fx.feedLine(key, "{\"type\":\"event\",\"event\":{\"kind\":\"turnFinished\",\"payload\":{\"success\":true}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, 0), model.queuedCount(id));
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
+    try testing.expectEqual(@as(usize, 2), countRole(&model, .user));
+    var found_follow_up = false;
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key) continue;
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "queued follow-up") != null);
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "loadTaskState") != null);
+        found_follow_up = true;
+    }
+    try testing.expect(found_follow_up);
+}
+
+test "missing daemon address still uses fx ask when the CLI is present" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "keep fx ask" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(argvHas(request.argv, "ask"));
+    try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
 }
 
 test "the view lays out through the canvas engine" {

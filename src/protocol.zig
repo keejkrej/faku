@@ -1,8 +1,10 @@
-//! waku-protocol v3 stubs: types and JSON builders, not a live socket.
+//! waku-protocol v3: client JSON builders plus a server-frame parser.
 //!
 //! Daemon transport is JSON text frames over WebSocket `ws://{addr}/v1`.
-//! Native has no WebSocket client; daemon talk will be `fx.spawn` of a
-//! sidecar or the daemon's stdio later.
+//! Native has no first-party WebSocket effect. Live daemon talk is a
+//! one-shot sidecar (`daemon_proxy.zig`) spawned with `fx.spawn`; the
+//! update loop never holds a bidirectional socket. Missing
+//! `WAKU_DAEMON_ADDRESS` keeps `fx ask` / the demo timer.
 //!
 //! First-party provider (this port's differentiator; Waku does not ship
 //! it): Vercel `fx` (https://fx.sh). Live first path is headless
@@ -174,10 +176,35 @@ pub const EventKind = enum {
             .process_exited => "processExited",
         };
     }
+
+    pub fn fromWire(name: []const u8) ?EventKind {
+        inline for (std.meta.tags(EventKind)) |kind| {
+            if (std.mem.eql(u8, kind.wireName(), name)) return kind;
+        }
+        return null;
+    }
 };
 
 pub const ClientFrame = enum { hello, request, shutdown };
-pub const ServerFrame = enum { hello, rejected, response, event, task_state_changed, shutting_down };
+pub const ServerFrame = enum { hello, rejected, response, event, task_state_changed, shutting_down, invalid };
+
+/// Parsed server JSON. Slices alias `line` (or the leaky JSON arena).
+pub const ParsedServer = struct {
+    frame: ServerFrame = .invalid,
+    protocol_version: u32 = 0,
+    daemon_version: []const u8 = "",
+    message: []const u8 = "",
+    request_id: []const u8 = "",
+    response_ok: bool = false,
+    session_id: []const u8 = "",
+    runtime_id: []const u8 = "",
+    event_kind: ?EventKind = null,
+    event_kind_name: []const u8 = "",
+    /// `textDelta` payload (JSON string on the wire).
+    text_delta: []const u8 = "",
+    /// `turnFinished` payload. Missing `success` defaults to true.
+    turn_success: bool = true,
+};
 
 const WriteError = error{NoSpaceLeft};
 
@@ -344,6 +371,120 @@ pub fn writeBareCommand(
     return cur.slice();
 }
 
+fn jsonObject(value: std.json.Value) ?std.json.ObjectMap {
+    return switch (value) {
+        .object => |o| o,
+        else => null,
+    };
+}
+
+fn jsonStringValue(value: ?std.json.Value) ?[]const u8 {
+    const item = value orelse return null;
+    return switch (item) {
+        .string => |s| s,
+        else => null,
+    };
+}
+
+fn jsonUintValue(value: ?std.json.Value) ?u32 {
+    const item = value orelse return null;
+    return switch (item) {
+        .integer => |n| if (n >= 0 and n <= std.math.maxInt(u32)) @intCast(n) else null,
+        else => null,
+    };
+}
+
+fn jsonBoolValue(value: ?std.json.Value) ?bool {
+    const item = value orelse return null;
+    return switch (item) {
+        .bool => |b| b,
+        else => null,
+    };
+}
+
+fn parseOutcome(obj: std.json.ObjectMap, parsed: *ParsedServer) void {
+    const outcome_val = obj.get("outcome") orelse return;
+    const outcome = jsonObject(outcome_val) orelse return;
+    const status = jsonStringValue(outcome.get("status")) orelse return;
+    if (std.mem.eql(u8, status, "ok")) {
+        parsed.response_ok = true;
+        return;
+    }
+    if (std.mem.eql(u8, status, "error")) {
+        parsed.response_ok = false;
+        if (outcome.get("error")) |err_val| {
+            if (jsonObject(err_val)) |err_obj| {
+                parsed.message = jsonStringValue(err_obj.get("message")) orelse "";
+            }
+        }
+    }
+}
+
+fn parseEvent(obj: std.json.ObjectMap, parsed: *ParsedServer) void {
+    parsed.session_id = jsonStringValue(obj.get("sessionId")) orelse "";
+    parsed.runtime_id = jsonStringValue(obj.get("runtimeId")) orelse "";
+    const event_val = obj.get("event") orelse return;
+    const event_obj = jsonObject(event_val) orelse return;
+    const kind_name = jsonStringValue(event_obj.get("kind")) orelse return;
+    parsed.event_kind_name = kind_name;
+    parsed.event_kind = EventKind.fromWire(kind_name);
+    const payload = event_obj.get("payload") orelse return;
+    switch (payload) {
+        .string => |s| {
+            parsed.text_delta = s;
+            if (parsed.event_kind == .@"error") parsed.message = s;
+        },
+        .object => |o| {
+            if (jsonBoolValue(o.get("success"))) |ok| parsed.turn_success = ok;
+            if (jsonStringValue(o.get("summary"))) |summary| parsed.message = summary;
+            if (jsonStringValue(o.get("text"))) |text| parsed.text_delta = text;
+        },
+        else => {},
+    }
+}
+
+/// Classify one daemon stdout / WebSocket text frame. Unknown objects
+/// come back as `.invalid` rather than error so a sidecar can skip them.
+pub fn parseServerFrame(allocator: std.mem.Allocator, line: []const u8) ParsedServer {
+    var parsed = ParsedServer{};
+    const trimmed = std.mem.trim(u8, line, " \t\r\n");
+    if (trimmed.len < 2 or trimmed[0] != '{') return parsed;
+
+    const root = std.json.parseFromSliceLeaky(std.json.Value, allocator, trimmed, .{}) catch return parsed;
+    const obj = jsonObject(root) orelse return parsed;
+    const type_name = jsonStringValue(obj.get("type")) orelse return parsed;
+
+    if (std.mem.eql(u8, type_name, "hello")) {
+        parsed.frame = .hello;
+        parsed.protocol_version = jsonUintValue(obj.get("protocolVersion")) orelse 0;
+        parsed.daemon_version = jsonStringValue(obj.get("daemonVersion")) orelse "";
+    } else if (std.mem.eql(u8, type_name, "rejected")) {
+        parsed.frame = .rejected;
+        parsed.message = jsonStringValue(obj.get("message")) orelse "";
+    } else if (std.mem.eql(u8, type_name, "response")) {
+        parsed.frame = .response;
+        parsed.request_id = jsonStringValue(obj.get("requestId")) orelse "";
+        parseOutcome(obj, &parsed);
+    } else if (std.mem.eql(u8, type_name, "event")) {
+        parsed.frame = .event;
+        parseEvent(obj, &parsed);
+    } else if (std.mem.eql(u8, type_name, "taskStateChanged")) {
+        parsed.frame = .task_state_changed;
+    } else if (std.mem.eql(u8, type_name, "shuttingDown")) {
+        parsed.frame = .shutting_down;
+    }
+    return parsed;
+}
+
+/// Sidecar / desktop: stop the one-shot after these frames.
+pub fn isTerminalServerFrame(parsed: ParsedServer) bool {
+    return switch (parsed.frame) {
+        .rejected => true,
+        .event => parsed.event_kind == .turn_finished or parsed.event_kind == .@"error",
+        else => false,
+    };
+}
+
 test "client hello is camelCase protocol v3" {
     var buf: [256]u8 = undefined;
     const json = try writeClientHello(&buf, "secret", "00000000-0000-0000-0000-000000000002", &.{});
@@ -385,4 +526,52 @@ test "first-cut command tags stay camelCase on the wire" {
     try std.testing.expectEqualStrings("hydrateSession", CommandTag.hydrate_session.wireName());
     try std.testing.expectEqualStrings("turnFinished", EventKind.turn_finished.wireName());
     try std.testing.expectEqualStrings("textDelta", EventKind.text_delta.wireName());
+}
+
+test "server-frame parser round-trips hello rejected response and events" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const hello = parseServerFrame(arena, "{\"type\":\"hello\",\"protocolVersion\":3,\"daemonVersion\":\"0.1.9\"}");
+    try std.testing.expectEqual(ServerFrame.hello, hello.frame);
+    try std.testing.expectEqual(@as(u32, 3), hello.protocol_version);
+    try std.testing.expectEqualStrings("0.1.9", hello.daemon_version);
+
+    const rejected = parseServerFrame(arena, "{\"type\":\"rejected\",\"message\":\"bad token\"}");
+    try std.testing.expectEqual(ServerFrame.rejected, rejected.frame);
+    try std.testing.expectEqualStrings("bad token", rejected.message);
+    try std.testing.expect(isTerminalServerFrame(rejected));
+
+    const ok = parseServerFrame(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000001\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}");
+    try std.testing.expectEqual(ServerFrame.response, ok.frame);
+    try std.testing.expect(ok.response_ok);
+    try std.testing.expect(!isTerminalServerFrame(ok));
+
+    const err = parseServerFrame(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000001\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}");
+    try std.testing.expectEqual(ServerFrame.response, err.frame);
+    try std.testing.expect(!err.response_ok);
+    try std.testing.expectEqualStrings("nope", err.message);
+
+    const delta = parseServerFrame(arena, "{\"type\":\"event\",\"sessionId\":\"00000000-0000-0000-0000-000000000001\",\"runtimeId\":\"00000000-0000-0000-0000-000000000003\",\"epoch\":\"00000000-0000-0000-0000-000000000004\",\"sequence\":1,\"event\":{\"kind\":\"textDelta\",\"payload\":\"hello from daemon\"}}");
+    try std.testing.expectEqual(ServerFrame.event, delta.frame);
+    try std.testing.expectEqual(EventKind.text_delta, delta.event_kind.?);
+    try std.testing.expectEqualStrings("textDelta", delta.event_kind_name);
+    try std.testing.expectEqualStrings("hello from daemon", delta.text_delta);
+    try std.testing.expect(!isTerminalServerFrame(delta));
+
+    const finished = parseServerFrame(arena, "{\"type\":\"event\",\"sessionId\":\"00000000-0000-0000-0000-000000000001\",\"runtimeId\":\"00000000-0000-0000-0000-000000000003\",\"epoch\":\"00000000-0000-0000-0000-000000000004\",\"sequence\":2,\"event\":{\"kind\":\"turnFinished\",\"payload\":{\"success\":true,\"summary\":\"done\"}}}");
+    try std.testing.expectEqual(EventKind.turn_finished, finished.event_kind.?);
+    try std.testing.expect(finished.turn_success);
+    try std.testing.expect(isTerminalServerFrame(finished));
+
+    const failed = parseServerFrame(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"turnFinished\",\"payload\":{\"success\":false}}}");
+    try std.testing.expect(isTerminalServerFrame(failed));
+    try std.testing.expect(!failed.turn_success);
+
+    const boom = parseServerFrame(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"error\",\"payload\":\"provider died\"}}");
+    try std.testing.expectEqual(EventKind.@"error", boom.event_kind.?);
+    try std.testing.expect(isTerminalServerFrame(boom));
+    try std.testing.expectEqualStrings("provider died", boom.message);
 }
