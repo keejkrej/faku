@@ -237,13 +237,17 @@ test "send with fx_available spawns fx ask and streams a synthetic line" {
 
     const before_len = lastAssistant(&model).len;
     try fx.feedLine(main.fx_ask_key, "hello from fx ask");
-    main.update(&model, .{ .fx_line = .{ .key = main.fx_ask_key, .line = "hello from fx ask" } }, &fx);
+    drainEffects(&model, &fx);
     try testing.expect(lastAssistant(&model).len > before_len);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from fx ask") != null);
 
     try fx.feedExit(main.fx_ask_key, 0);
-    main.update(&model, .{ .fx_exit = .{ .key = main.fx_ask_key, .code = 0, .reason = .exited } }, &fx);
+    drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
+}
+
+fn drainEffects(model: *Model, fx: *Effects) void {
+    while (fx.takeMsg()) |msg| main.update(model, msg, fx);
 }
 
 fn argvHas(argv: []const []const u8, needle: []const u8) bool {
