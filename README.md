@@ -91,10 +91,11 @@ a working ACP loop.
 
 Ready: desktop shell, demo sessions + timer fallback, live `fx ask` when
 the CLI is present, local session catalog + hydrate, waku-protocol v3 JSON
-builders, ACP JSON-RPC stubs, provider id "fx".
+builders + server-frame parser, one-shot daemon sidecar, ACP JSON-RPC
+stubs, provider id "fx".
 
-Later: live waku-daemon WebSocket, live `fx acp` once a stdin-write
-effect exists.
+Later: a long-lived daemon socket in the update loop (not this cut),
+live `fx acp` once a stdin-write effect exists.
 
 No listSessions / createSession. Catalog is loadTaskState (local JSON
 today). New session is a client-built session saved after first content.
@@ -123,8 +124,10 @@ Path (Native `app_dirs` data directory, app name `faku`):
 Boot: if that file loads, the sidebar is session skeletons only (id, title,
 provider, untitled/has_started, project_path, fx_session_id, model,
 access_mode) — no demo rows and no transcripts. The document also stores
-`last_project_path`, `last_model`, and `last_access_mode` so a new
-session can inherit the last workspace and last model/access.
+`last_project_path`, `last_model`, `last_access_mode`, and
+`last_daemon_address` so a new session can inherit the last workspace
+and last model/access, and a later send can reuse the last sidecar
+address. There is no daemon picker.
 Selecting a session hydrates its turns and `queued_messages` from the same
 file. Composer drafts are a sibling `drafts.json` (not mixed into the
 session catalog) so a New Task can persist before the session row exists.
@@ -151,7 +154,9 @@ drains the next queued prompt. Stop, Esc, and a non-zero `fx ask` exit do
 not drain; partial assistant text stays, then the session is saved.
 
 `fx ask --json` mints and resumes an `fx_session_id`. This cut does not
-spawn `fx acp`.
+spawn `fx acp`. After a successful turn, Faku stores that workspace's
+`HEAD` sha on the session (`rewind_refs` in `sessions.json`); rewind is
+not offered yet.
 
 ## Demo vs daemon
 
@@ -164,9 +169,22 @@ item; empty Send, Stop, or Esc cancels without draining.
 Product keys (not all wired): Cmd-N new, Enter send/queue, Cmd-Enter steer,
 Esc cancel.
 
-Daemon (typed, not connected): JSON frames over ws://{addr}/v1. Native has no
-socket client for that. Env: WAKU_DAEMON_TOKEN, WAKU_DAEMON_ADDRESS. First
-stdout line: { address, protocolVersion, pid }.
+Daemon (sidecar, not embedded): when `WAKU_DAEMON_ADDRESS` is set, Send
+spawns the same binary as `faku daemon-proxy <addr>` with hello + optional
+`loadTaskState` + prompt JSON in the one-shot spawn stdin. The sidecar
+does the TCP + WebSocket handshake to `ws://{addr}/v1`, prints each
+incoming text frame as one stdout line, and exits on `turnFinished` /
+`rejected` / `error`. The desktop update loop never holds that socket.
+`textDelta` appends to the assistant turn; `turnFinished` settles and
+drains the success-only queue. Stop / Esc cancels the spawn.
+
+Missing `WAKU_DAEMON_ADDRESS` keeps live `fx ask` / the demo timer. The
+address is persisted as `last_daemon_address` in `sessions.json` for a
+later send in the same catalog; there is no picker UI. Token comes from
+`WAKU_DAEMON_TOKEN` when set. Local `sessions.json` remains the catalog;
+wire `loadTaskState` talks to the daemon only.
+
+This is a sidecar. The Waku daemon is not embedded.
 
 Client Hello: { type, protocolVersion, token, clientId, resumeFrom }.
 Request: { type, requestId, sessionId, runtimeId, command }. Nil UUID

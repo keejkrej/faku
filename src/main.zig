@@ -3,7 +3,9 @@
 //! First-party provider is Vercel `fx` (https://fx.sh). Send on an `.fx`
 //! session runs `fx ask --json -- <prompt>` when the CLI is installed
 //! (streamed stdout lines; `--resume <id>` after a minted session_id).
-//! Missing binary falls back to the demo timer so tests stay green.
+//! When `WAKU_DAEMON_ADDRESS` is set, Send instead spawns a one-shot
+//! `daemon-proxy` sidecar (hello → loadTaskState → prompt over
+//! `ws://{addr}/v1`). Missing address keeps `fx ask` / the demo timer.
 //! ACP JSON-RPC helpers live in acp.zig; live `fx acp` waits on a
 //! stdin-write effect and is not spawned.
 
@@ -13,6 +15,8 @@ const native_sdk = @import("native_sdk");
 const protocol = @import("protocol.zig");
 const acp = @import("acp.zig");
 const store = @import("store.zig");
+const daemon_proxy = @import("daemon_proxy.zig");
+const rewind = @import("rewind.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -62,6 +66,11 @@ const shell_scene: native_sdk.ShellConfig = .{ .windows = &shell_windows };
 pub const stream_timer_key: u64 = 1;
 pub const fx_ask_key: u64 = 2;
 pub const fx_probe_key: u64 = 3;
+pub const daemon_proxy_key_first: u64 = 4;
+pub const max_daemon_address = 128;
+pub const max_daemon_token = 256;
+pub const max_sidecar_path = 512;
+pub const daemon_line_bytes: usize = 64 * 1024;
 pub const stream_interval_ms: u64 = 90;
 const stream_chunk_bytes: usize = 8;
 const demo_ticks_complete: u32 = 12;
@@ -70,7 +79,7 @@ const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local
 pub const Mode = enum { demo, daemon };
 pub const Role = enum { user, assistant, tool };
 pub const Phase = enum { idle, streaming };
-pub const ReplyPath = enum { demo, fx };
+pub const ReplyPath = enum { demo, fx, daemon };
 
 pub const Provider = protocol.ProviderId;
 
@@ -96,6 +105,9 @@ pub const Session = struct {
     /// Waku `runtime_mode` (ask | autoAcceptEdits | auto | fullAccess).
     access_mode_storage: [max_access_mode]u8 = [_]u8{0} ** max_access_mode,
     access_mode_len: usize = 0,
+    /// Successful-turn HEAD snapshots. Cap last 20; no rewind UI yet.
+    rewind_refs: [rewind.max_refs]rewind.Ref = [_]rewind.Ref{.{}} ** rewind.max_refs,
+    rewind_ref_count: usize = 0,
 
     pub fn title(self: *const Session) []const u8 {
         return self.title_storage[0..self.title_len];
@@ -131,6 +143,18 @@ pub const Session = struct {
 
     pub fn setAccessMode(self: *Session, value: []const u8) void {
         writeFixed(&self.access_mode_storage, &self.access_mode_len, value);
+    }
+
+    pub fn rewindRefs(self: *const Session) []const rewind.Ref {
+        return self.rewind_refs[0..self.rewind_ref_count];
+    }
+
+    pub fn clearRewindRefs(self: *Session) void {
+        self.rewind_ref_count = 0;
+    }
+
+    pub fn appendRewindRef(self: *Session, sha: []const u8, ref_name: []const u8, recorded_at: i64) void {
+        rewind.append(&self.rewind_refs, &self.rewind_ref_count, sha, ref_name, recorded_at);
     }
 
     pub fn provider_label(self: *const Session) []const u8 {
@@ -249,6 +273,16 @@ pub const Model = struct {
     draft_image_path_len: usize = 0,
     last_spawn_image_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     last_spawn_image_path_len: usize = 0,
+    daemon_address_storage: [max_daemon_address]u8 = [_]u8{0} ** max_daemon_address,
+    daemon_address_len: usize = 0,
+    last_daemon_address_storage: [max_daemon_address]u8 = [_]u8{0} ** max_daemon_address,
+    last_daemon_address_len: usize = 0,
+    daemon_token_storage: [max_daemon_token]u8 = [_]u8{0} ** max_daemon_token,
+    daemon_token_len: usize = 0,
+    sidecar_path_storage: [max_sidecar_path]u8 = [_]u8{0} ** max_sidecar_path,
+    sidecar_path_len: usize = 0,
+    daemon_spawn_key: u64 = 0,
+    next_daemon_key: u64 = daemon_proxy_key_first,
 
     pub const view_unbound = .{
         "session_store",
@@ -313,6 +347,24 @@ pub const Model = struct {
         "setDraftImagePath",
         "lastSpawnImagePath",
         "setLastSpawnImagePath",
+        "daemon_address_storage",
+        "daemon_address_len",
+        "last_daemon_address_storage",
+        "last_daemon_address_len",
+        "daemon_token_storage",
+        "daemon_token_len",
+        "sidecar_path_storage",
+        "sidecar_path_len",
+        "daemon_spawn_key",
+        "next_daemon_key",
+        "daemonAddress",
+        "setDaemonAddress",
+        "lastDaemonAddress",
+        "setLastDaemonAddress",
+        "daemonToken",
+        "setDaemonToken",
+        "sidecarPath",
+        "setSidecarPath",
         "resolveSpawnImage",
         "resolveSpawnCwd",
         "fxPath",
@@ -381,6 +433,7 @@ pub const Model = struct {
         const path = switch (model.reply_path) {
             .demo => "demo",
             .fx => "fx",
+            .daemon => "daemon",
         };
         return std.fmt.allocPrint(arena, "{d} sessions · {s} · {s}", .{
             model.session_count,
@@ -390,6 +443,9 @@ pub const Model = struct {
     }
 
     pub fn empty_hint(model: *const Model) []const u8 {
+        if (model.daemonAddress().len > 0) {
+            return "Message the daemon sidecar. Send is one-shot hello/load/prompt over ws://{addr}/v1; missing address keeps `fx ask` / demo.";
+        }
         if (model.fx_available) {
             return "Message fx. Send runs live `fx ask` and streams stdout. `fx acp` is stubbed.";
         }
@@ -486,6 +542,40 @@ pub const Model = struct {
 
     pub fn setLastSpawnImagePath(model: *Model, path: []const u8) void {
         writeFixed(&model.last_spawn_image_path_storage, &model.last_spawn_image_path_len, path);
+    }
+
+    pub fn daemonAddress(model: *const Model) []const u8 {
+        return model.daemon_address_storage[0..model.daemon_address_len];
+    }
+
+    pub fn setDaemonAddress(model: *Model, addr: []const u8) void {
+        writeFixed(&model.daemon_address_storage, &model.daemon_address_len, addr);
+        if (addr.len > 0) model.setLastDaemonAddress(addr);
+    }
+
+    pub fn lastDaemonAddress(model: *const Model) []const u8 {
+        return model.last_daemon_address_storage[0..model.last_daemon_address_len];
+    }
+
+    pub fn setLastDaemonAddress(model: *Model, addr: []const u8) void {
+        writeFixed(&model.last_daemon_address_storage, &model.last_daemon_address_len, addr);
+    }
+
+    pub fn daemonToken(model: *const Model) []const u8 {
+        return model.daemon_token_storage[0..model.daemon_token_len];
+    }
+
+    pub fn setDaemonToken(model: *Model, token: []const u8) void {
+        writeFixed(&model.daemon_token_storage, &model.daemon_token_len, token);
+    }
+
+    pub fn sidecarPath(model: *const Model) []const u8 {
+        if (model.sidecar_path_len == 0) return "faku";
+        return model.sidecar_path_storage[0..model.sidecar_path_len];
+    }
+
+    pub fn setSidecarPath(model: *Model, path: []const u8) void {
+        writeFixed(&model.sidecar_path_storage, &model.sidecar_path_len, path);
     }
 
     /// `fx ask --image` path when the draft has a non-empty path that exists.
@@ -765,7 +855,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             if (timer.outcome != .fired) return;
             tickStream(model, fx);
         },
-        .fx_line => |line| handleFxLine(model, line),
+        .fx_line => |line| handleFxLine(model, fx, line),
         .fx_exit => |exit| handleFxExit(model, fx, exit),
         .fx_probe_exit => |exit| handleFxProbeExit(model, fx, exit),
     }
@@ -807,6 +897,7 @@ fn handleSend(model: *Model, fx: *Effects) void {
 
 fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) void {
     const session = model.sessionById(session_id) orelse return;
+    const hydrate = session.hasStarted();
     const titled = session.untitled;
     if (session.untitled) {
         writeFixed(&session.title_storage, &session.title_len, text);
@@ -820,6 +911,11 @@ fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) v
     model.stream_cursor = 0;
     model.stream_turn_id = assistant_id;
     model.streaming_session = session.id;
+    if (model.daemonAddress().len > 0) {
+        model.reply_path = .daemon;
+        startDaemonProxy(model, fx, session, text, hydrate);
+        return;
+    }
     if (session.provider == .fx and model.fx_available and model.fxPath().len > 0) {
         model.reply_path = .fx;
         startFxAsk(model, fx, session, text);
@@ -847,6 +943,35 @@ pub fn fxPermissionMode(access_mode: []const u8) []const u8 {
     if (std.mem.eql(u8, access_mode, "fullAccess")) return "yolo";
     if (std.mem.eql(u8, access_mode, "yolo")) return "yolo";
     return "";
+}
+
+fn startDaemonProxy(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8, hydrate: bool) void {
+    var id_buf: [36]u8 = undefined;
+    const session_id = daemon_proxy.wireUuid(session.id, &id_buf);
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeTurnStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .session_id = session_id,
+        .prompt = prompt,
+        .load_task_state = hydrate,
+    }) catch {
+        model.reply_path = .demo;
+        startDemoTimer(fx);
+        return;
+    };
+
+    model.setLastDaemonAddress(model.daemonAddress());
+    model.daemon_spawn_key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+
+    fx.spawn(.{
+        .key = model.daemon_spawn_key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, model.daemonAddress() },
+        .stdin = stdin,
+        .max_line_bytes = daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
 }
 
 fn startFxAsk(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) void {
@@ -974,6 +1099,7 @@ fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
     if (drain) {
+        recordRewindRefIfPossible(model, finished_id);
         var copy: [max_queued_text]u8 = undefined;
         if (model.takeNextQueued(finished_id, &copy)) |n| {
             store.persistIfPossible(model, finished_id);
@@ -982,6 +1108,14 @@ fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
         }
     }
     store.persistIfPossible(model, finished_id);
+}
+
+fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
+    const io = model.store_io orelse return;
+    const session = model.sessionById(session_id) orelse return;
+    var sha_buf: [rewind.max_sha]u8 = undefined;
+    const captured = rewind.captureHead(std.heap.page_allocator, io, session.projectPath(), &sha_buf) orelse return;
+    session.appendRewindRef(captured.sha, rewind.recorded_ref, captured.recorded_at);
 }
 
 fn stopStream(model: *Model, fx: *Effects) void {
@@ -994,11 +1128,16 @@ fn stopStream(model: *Model, fx: *Effects) void {
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
     fx.cancel(fx_ask_key);
+    if (model.daemon_spawn_key != 0) fx.cancel(model.daemon_spawn_key);
     store.persistIfPossible(model, finished_id);
 }
 
-fn handleFxLine(model: *Model, line: native_sdk.EffectLine) void {
+fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
     if (model.phase != .streaming) return;
+    if (line.key == model.daemon_spawn_key and model.daemon_spawn_key != 0) {
+        handleDaemonLine(model, fx, line);
+        return;
+    }
     if (line.key != fx_ask_key) return;
     const keep = line.line[0..@min(line.line.len, max_line_keep)];
     var id_buf: [max_fx_session_id]u8 = undefined;
@@ -1015,8 +1154,29 @@ fn handleFxLine(model: *Model, line: native_sdk.EffectLine) void {
     model.appendToTurn(model.stream_turn_id, keep);
 }
 
+fn handleDaemonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
+    const keep = line.line[0..@min(line.line.len, max_line_keep)];
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseServerFrame(arena_state.allocator(), keep);
+    switch (parsed.frame) {
+        .event => {
+            if (parsed.event_kind == .text_delta and parsed.text_delta.len > 0) {
+                model.appendToTurn(model.stream_turn_id, parsed.text_delta);
+            } else if (parsed.event_kind == .turn_finished) {
+                finishStream(model, fx, parsed.turn_success);
+            } else if (parsed.event_kind == .@"error") {
+                finishStream(model, fx, false);
+            }
+        },
+        .rejected => finishStream(model, fx, false),
+        else => {},
+    }
+}
+
 fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
-    if (exit.key != fx_ask_key) return;
+    const daemon = model.daemon_spawn_key != 0 and exit.key == model.daemon_spawn_key;
+    if (exit.key != fx_ask_key and !daemon) return;
     if (model.phase != .streaming) return;
     const success = exit.reason == .exited and exit.code == 0;
     finishStream(model, fx, success);
@@ -1115,6 +1275,7 @@ pub fn initialModel() Model {
 }
 
 pub fn main(init: std.process.Init) !void {
+    if (try daemon_proxy.maybeRun(init)) return;
     _ = protocol.FX_ACP_ARGV;
     _ = acp.PROTOCOL_VERSION;
     const app_state = try FakuApp.create(std.heap.page_allocator, .{
@@ -1132,7 +1293,11 @@ pub fn main(init: std.process.Init) !void {
         app_state.model.setHome(home);
         store.bindDefaultDir(&app_state.model, home, init.environ_map.get("XDG_DATA_HOME"));
     }
+    bindDaemonEnv(&app_state.model, init);
     _ = store.boot(&app_state.model, std.heap.page_allocator, init.io);
+    if (init.environ_map.get(protocol.DAEMON_ADDRESS_ENV)) |addr| {
+        app_state.model.setDaemonAddress(addr);
+    }
 
     try runner.runWithOptions(app_state.app(), .{
         .app_name = "faku",
@@ -1148,9 +1313,22 @@ pub fn main(init: std.process.Init) !void {
     }, init);
 }
 
+fn bindDaemonEnv(model: *Model, init: std.process.Init) void {
+    if (init.environ_map.get(protocol.DAEMON_ADDRESS_ENV)) |addr| {
+        model.setDaemonAddress(addr);
+    }
+    if (init.environ_map.get(protocol.DAEMON_TOKEN_ENV)) |token| {
+        model.setDaemonToken(token);
+    }
+    const args = init.minimal.args.toSlice(init.arena.allocator()) catch return;
+    if (args.len > 0 and args[0].len > 0) model.setSidecarPath(args[0]);
+}
+
 test {
     _ = @import("tests.zig");
     _ = @import("protocol.zig");
     _ = @import("acp.zig");
     _ = @import("store.zig");
+    _ = @import("daemon_proxy.zig");
+    _ = @import("rewind.zig");
 }
