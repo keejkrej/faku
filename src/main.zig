@@ -1,15 +1,16 @@
 //! Faku: Native SDK desktop for a Waku-protocol compatible coding-agent shell.
 //!
-//! Demo mode works without a daemon: mock sessions, a streamed fake
-//! reply, and the Geist-themed window. First-party provider is Vercel
-//! `fx` (https://fx.sh) — Waku does not ship this. Daemon / ACP types
-//! live in protocol.zig; the live socket and `fx acp` spawn are not
-//! wired yet.
+//! First-party provider is Vercel `fx` (https://fx.sh). Send on an `.fx`
+//! session runs `fx ask <prompt>` when the CLI is installed (streamed
+//! stdout lines). Missing binary falls back to the demo timer so tests
+//! stay green. ACP JSON-RPC helpers live in acp.zig; live `fx acp` waits
+//! on a stdin-write effect and is not spawned.
 
 const std = @import("std");
 const runner = @import("runner");
 const native_sdk = @import("native_sdk");
 const protocol = @import("protocol.zig");
+const acp = @import("acp.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -25,9 +26,11 @@ pub const window_min_height: f32 = 560;
 const max_sessions = 16;
 const max_turns = 128;
 const max_title = 64;
-const max_body = 512;
+const max_body = 4096;
 const max_draft = 512;
 const max_queue = 1024;
+const max_fx_path = 256;
+const max_line_keep = 4096;
 
 const app_permissions = [_][]const u8{ native_sdk.security.permission_command, native_sdk.security.permission_view };
 const shell_views = [_]native_sdk.ShellView{
@@ -46,14 +49,17 @@ const shell_windows = [_]native_sdk.ShellWindow{.{
 const shell_scene: native_sdk.ShellConfig = .{ .windows = &shell_windows };
 
 pub const stream_timer_key: u64 = 1;
+pub const fx_ask_key: u64 = 2;
+pub const fx_probe_key: u64 = 3;
 pub const stream_interval_ms: u64 = 90;
 const stream_chunk_bytes: usize = 8;
 const demo_ticks_complete: u32 = 12;
-const demo_reply = "fx here (demo). No daemon and no `fx acp` spawn yet — this is a local timer stream. I would take the prompt over ACP stdio next.";
+const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
 
 pub const Mode = enum { demo, daemon };
 pub const Role = enum { user, assistant, tool };
 pub const Phase = enum { idle, streaming };
+pub const ReplyPath = enum { demo, fx };
 
 pub const Provider = protocol.ProviderId;
 
@@ -114,8 +120,11 @@ pub const Msg = union(enum) {
     send,
     stop,
     tick: native_sdk.EffectTimer,
+    fx_line: native_sdk.EffectLine,
+    fx_exit: native_sdk.EffectExit,
+    fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop" };
+    pub const view_unbound = .{ "tick", "stop", "fx_line", "fx_exit", "fx_probe_exit" };
 };
 
 pub const Model = struct {
@@ -134,6 +143,14 @@ pub const Model = struct {
     streaming_session: u32 = 0,
     queued_storage: [max_queue]u8 = [_]u8{0} ** max_queue,
     queued_len: usize = 0,
+    fx_available: bool = false,
+    fx_path_storage: [max_fx_path]u8 = [_]u8{0} ** max_fx_path,
+    fx_path_len: usize = 0,
+    fx_probe_started: bool = false,
+    fx_probe_index: u32 = 0,
+    home_storage: [max_fx_path]u8 = [_]u8{0} ** max_fx_path,
+    home_len: usize = 0,
+    reply_path: ReplyPath = .demo,
 
     pub const view_unbound = .{
         "session_store",
@@ -153,6 +170,18 @@ pub const Model = struct {
         "queued_storage",
         "queued_len",
         "is_streaming",
+        "fx_available",
+        "fx_path_storage",
+        "fx_path_len",
+        "fx_probe_started",
+        "fx_probe_index",
+        "home_storage",
+        "home_len",
+        "reply_path",
+        "fxPath",
+        "setFxPath",
+        "setHome",
+        "homeDir",
     };
 
     pub fn draft(model: *const Model) []const u8 {
@@ -210,19 +239,42 @@ pub const Model = struct {
     }
 
     pub fn status_line(model: *const Model, arena: std.mem.Allocator) []const u8 {
-        const mode = switch (model.mode) {
+        const path = switch (model.reply_path) {
             .demo => "demo",
-            .daemon => "daemon",
+            .fx => "fx",
         };
         return std.fmt.allocPrint(arena, "{d} sessions · {s} · {s}", .{
             model.session_count,
-            mode,
+            path,
             model.selected_provider(),
         }) catch "demo";
     }
 
+    pub fn empty_hint(model: *const Model) []const u8 {
+        if (model.fx_available) {
+            return "Message fx. Send runs live `fx ask` and streams stdout. `fx acp` is stubbed.";
+        }
+        return "Message fx. Demo replies locally until the fx CLI is found; then Send runs live `fx ask`. `fx acp` is not wired.";
+    }
+
     pub fn send_label(model: *const Model) []const u8 {
         return if (model.is_streaming()) "Stop" else "Send";
+    }
+
+    pub fn fxPath(model: *const Model) []const u8 {
+        return model.fx_path_storage[0..model.fx_path_len];
+    }
+
+    pub fn setFxPath(model: *Model, path: []const u8) void {
+        writeFixed(&model.fx_path_storage, &model.fx_path_len, path);
+    }
+
+    pub fn setHome(model: *Model, home: []const u8) void {
+        writeFixed(&model.home_storage, &model.home_len, home);
+    }
+
+    pub fn homeDir(model: *const Model) []const u8 {
+        return model.home_storage[0..model.home_len];
     }
 
     fn activeSession(model: *Model) ?*Session {
@@ -306,10 +358,20 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             if (timer.outcome != .fired) return;
             tickStream(model, fx);
         },
+        .fx_line => |line| handleFxLine(model, line),
+        .fx_exit => |exit| handleFxExit(model, fx, exit),
+        .fx_probe_exit => |exit| handleFxProbeExit(model, fx, exit),
     }
 }
 
+/// Boot probe: `~/.local/bin/fx --help` then `fx --help` (PATH). Wired
+/// through `.init_fx` so the first paint already has the spawn in flight.
+pub fn initFx(model: *Model, fx: *Effects) void {
+    startFxProbe(model, fx);
+}
+
 fn handleSend(model: *Model, fx: *Effects) void {
+    if (!model.fx_probe_started) startFxProbe(model, fx);
     const text = std.mem.trim(u8, model.draft(), " \t\r\n");
     if (model.is_streaming()) {
         if (text.len == 0) {
@@ -338,12 +400,45 @@ fn startPrompt(model: *Model, fx: *Effects, text: []const u8) void {
     model.stream_cursor = 0;
     model.stream_turn_id = assistant_id;
     model.streaming_session = session.id;
+    if (session.provider == .fx and model.fx_available and model.fxPath().len > 0) {
+        model.reply_path = .fx;
+        startFxAsk(model, fx, text);
+        return;
+    }
+    model.reply_path = .demo;
+    startDemoTimer(fx);
+}
+
+fn startDemoTimer(fx: *Effects) void {
     fx.startTimer(.{
         .key = stream_timer_key,
         .interval_ms = stream_interval_ms,
         .mode = .repeating,
         .on_fire = Effects.timerMsg(.tick),
     });
+}
+
+fn startFxAsk(model: *Model, fx: *Effects, prompt: []const u8) void {
+    const path = model.fxPath();
+    if (promptStartsLikeFlag(prompt)) {
+        fx.spawn(.{
+            .key = fx_ask_key,
+            .argv = &.{ path, "ask", "--", prompt },
+            .on_line = Effects.lineMsg(.fx_line),
+            .on_exit = Effects.exitMsg(.fx_exit),
+        });
+        return;
+    }
+    fx.spawn(.{
+        .key = fx_ask_key,
+        .argv = &.{ path, "ask", prompt },
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+}
+
+fn promptStartsLikeFlag(prompt: []const u8) bool {
+    return prompt.len > 0 and prompt[0] == '-';
 }
 
 fn tickStream(model: *Model, fx: *Effects) void {
@@ -381,6 +476,81 @@ fn stopStream(model: *Model, fx: *Effects) void {
     model.stream_turn_id = 0;
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
+    fx.cancel(fx_ask_key);
+}
+
+fn handleFxLine(model: *Model, line: native_sdk.EffectLine) void {
+    if (model.phase != .streaming) return;
+    if (line.key != fx_ask_key) return;
+    const keep = line.line[0..@min(line.line.len, max_line_keep)];
+    if (model.turnById(model.stream_turn_id)) |turn| {
+        if (turn.body_len > 0) model.appendToTurn(model.stream_turn_id, "\n");
+    }
+    model.appendToTurn(model.stream_turn_id, keep);
+}
+
+fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (exit.key != fx_ask_key) return;
+    if (model.phase != .streaming) return;
+    finishStream(model, fx);
+}
+
+fn startFxProbe(model: *Model, fx: *Effects) void {
+    if (model.fx_probe_started) return;
+    model.fx_probe_started = true;
+    model.fx_probe_index = 0;
+    spawnFxProbe(model, fx);
+}
+
+fn spawnFxProbe(model: *Model, fx: *Effects) void {
+    while (model.fx_probe_index < 2) {
+        var path_buf: [max_fx_path]u8 = undefined;
+        if (fxProbePath(model, model.fx_probe_index, &path_buf)) |path| {
+            model.setFxPath(path);
+            fx.spawn(.{
+                .key = fx_probe_key,
+                .argv = &.{ model.fxPath(), "--help" },
+                .output = .collect,
+                .on_exit = Effects.exitMsg(.fx_probe_exit),
+            });
+            return;
+        }
+        model.fx_probe_index += 1;
+    }
+    model.fx_available = false;
+    model.fx_path_len = 0;
+}
+
+fn handleFxProbeExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (exit.key != fx_probe_key) return;
+    if (exit.reason == .exited and exit.code == 0) {
+        model.fx_available = true;
+        return;
+    }
+    model.fx_available = false;
+    model.fx_path_len = 0;
+    model.fx_probe_index += 1;
+    spawnFxProbe(model, fx);
+}
+
+fn fxProbePath(model: *const Model, index: u32, buf: *[max_fx_path]u8) ?[]const u8 {
+    switch (index) {
+        0 => {
+            const home = model.homeDir();
+            if (home.len == 0) return null;
+            const suffix = "/.local/bin/fx";
+            if (home.len + suffix.len > buf.len) return null;
+            @memcpy(buf[0..home.len], home);
+            @memcpy(buf[home.len..][0..suffix.len], suffix);
+            return buf[0 .. home.len + suffix.len];
+        },
+        1 => {
+            const name = "fx";
+            @memcpy(buf[0..name.len], name);
+            return buf[0..name.len];
+        },
+        else => return null,
+    }
 }
 
 pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
@@ -397,7 +567,7 @@ pub fn initialModel() Model {
     var model = Model{};
     const port = model.addSession("port waku to zig", .fx);
     _ = model.appendTurn(port, .user, "replace the GPUI desktop with a Native SDK Zig shell");
-    _ = model.appendTurn(port, .assistant, "fx-first demo: sidebar, transcript, composer. Live `fx acp` comes later.");
+    _ = model.appendTurn(port, .assistant, "fx-first demo: sidebar, transcript, composer. Send runs `fx ask` when the CLI is installed.");
 
     const auth = model.addSession("fix auth listener", .claude);
     _ = model.appendTurn(auth, .user, "the auth listener drops the first event after reconnect");
@@ -411,16 +581,19 @@ pub fn initialModel() Model {
 
 pub fn main(init: std.process.Init) !void {
     _ = protocol.FX_ACP_ARGV;
+    _ = acp.PROTOCOL_VERSION;
     const app_state = try FakuApp.create(std.heap.page_allocator, .{
         .name = "faku",
         .scene = shell_scene,
         .canvas_label = canvas_label,
         .update_fx = update,
+        .init_fx = initFx,
         .on_key = onKey,
         .markup = .{ .source = app_markup, .watch_path = "src/app.native", .io = init.io },
     });
     defer app_state.destroy();
     app_state.model = initialModel();
+    if (init.environ_map.get("HOME")) |home| app_state.model.setHome(home);
 
     try runner.runWithOptions(app_state.app(), .{
         .app_name = "faku",
@@ -439,4 +612,5 @@ pub fn main(init: std.process.Init) !void {
 test {
     _ = @import("tests.zig");
     _ = @import("protocol.zig");
+    _ = @import("acp.zig");
 }

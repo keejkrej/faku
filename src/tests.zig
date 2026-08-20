@@ -196,6 +196,63 @@ test "protocol stubs speak camelCase v3 and default to fx" {
     try testing.expect(std.mem.indexOf(u8, start, "\"provider\":\"fx\"") != null);
 }
 
+test "send without fx still starts the demo timer" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expect(!model.fx_available);
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "hello without fx" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(main.stream_timer_key, fx.pendingTimerAt(0).?.key);
+    try testing.expectEqual(@as(u64, 90), fx.pendingTimerAt(0).?.interval_ms);
+}
+
+test "send with fx_available spawns fx ask and streams a synthetic line" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "what does this repo do" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(argvHas(request.argv, "ask"));
+    try testing.expectEqualStrings("fx", request.argv[0]);
+    try testing.expectEqualStrings("what does this repo do", request.argv[request.argv.len - 1]);
+
+    const before_len = lastAssistant(&model).len;
+    try fx.feedLine(main.fx_ask_key, "hello from fx ask");
+    main.update(&model, .{ .fx_line = .{ .key = main.fx_ask_key, .line = "hello from fx ask" } }, &fx);
+    try testing.expect(lastAssistant(&model).len > before_len);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from fx ask") != null);
+
+    try fx.feedExit(main.fx_ask_key, 0);
+    main.update(&model, .{ .fx_exit = .{ .key = main.fx_ask_key, .code = 0, .reason = .exited } }, &fx);
+    try testing.expect(!model.is_streaming());
+}
+
+fn argvHas(argv: []const []const u8, needle: []const u8) bool {
+    for (argv) |arg| {
+        if (std.mem.eql(u8, arg, needle)) return true;
+    }
+    return false;
+}
+
 test "the view lays out through the canvas engine" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
