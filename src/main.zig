@@ -210,7 +210,7 @@ pub const Model = struct {
         for (model.session_store[0..model.session_count], 0..) |*session, i| {
             out[i] = .{
                 .id = session.id,
-                .title = if (session.untitled) "New task" else session.title(),
+                .title = sessionDisplayTitle(session),
                 .provider = session.provider_label(),
                 .selected = session.id == model.selected,
             };
@@ -288,16 +288,8 @@ pub const Model = struct {
         return "Do anything...";
     }
 
-    pub fn empty_hint(model: *const Model) []const u8 {
-        if (model.activeSessionConst()) |session| {
-            if (session.untitled or !model.sessionHasTurns(session.id)) {
-                return "Send runs fx ask when the CLI is found. Demo replies until then.";
-            }
-        }
-        if (model.fx_available) {
-            return "Message fx. Send runs live `fx ask` and streams stdout. `fx acp` is stubbed.";
-        }
-        return "Message fx. Demo replies locally until the fx CLI is found; then Send runs live `fx ask`. `fx acp` is not wired.";
+    pub fn empty_hint(_: *const Model) []const u8 {
+        return "Send runs fx ask when the CLI is found. Demo replies until then.";
     }
 
     pub fn send_label(model: *const Model) []const u8 {
@@ -345,13 +337,6 @@ pub const Model = struct {
         return null;
     }
 
-    fn sessionHasTurns(model: *const Model, session_id: u32) bool {
-        for (model.turn_store[0..model.turn_count]) |turn| {
-            if (turn.session_id == session_id) return true;
-        }
-        return false;
-    }
-
     pub fn addSession(model: *Model, title_text: []const u8, provider: Provider) u32 {
         if (model.session_count >= max_sessions) return 0;
         var session = Session{ .id = model.next_id, .provider = provider };
@@ -386,6 +371,11 @@ fn writeFixed(storage: []u8, len: *usize, text: []const u8) void {
     const take = @min(storage.len, text.len);
     @memcpy(storage[0..take], text[0..take]);
     len.* = take;
+}
+
+fn sessionDisplayTitle(session: *const Session) []const u8 {
+    if (session.untitled or std.mem.eql(u8, session.title(), "untitled")) return "New task";
+    return session.title();
 }
 
 pub const Effects = native_sdk.Effects(Msg);

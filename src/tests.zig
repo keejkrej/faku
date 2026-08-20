@@ -139,6 +139,8 @@ test "boot is fx-first and New / send / ticks / stop drive the demo" {
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "New task");
     _ = try expectByText(tree.root, .text, "What should we build?");
+    _ = try expectButton(tree.root, "New task");
+    try testing.expect(findByText(tree.root, .text, "untitled") == null);
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "port the sidebar" } }, &fx);
     try testing.expectEqualStrings("port the sidebar", model.draft());
