@@ -690,13 +690,13 @@ fn startDemoTimer(fx: *Effects) void {
 fn startFxAsk(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) void {
     const path = model.fxPath();
     const cwd = model.resolveSpawnCwd(session);
-    const resume = session.fxSessionId();
+    const resume_id = session.fxSessionId();
     model.setLastSpawnCwd(cwd);
     if (cwd.len > 0) {
-        if (resume.len > 0) {
+        if (resume_id.len > 0) {
             fx.spawn(.{
                 .key = fx_ask_key,
-                .argv = &.{ "/bin/sh", "-c", fx_ask_chdir_script, "sh", cwd, path, "ask", "--json", "--resume", resume, "--", prompt },
+                .argv = &.{ "/bin/sh", "-c", fx_ask_chdir_script, "sh", cwd, path, "ask", "--json", "--resume", resume_id, "--", prompt },
                 .on_line = Effects.lineMsg(.fx_line),
                 .on_exit = Effects.exitMsg(.fx_exit),
             });
@@ -710,10 +710,10 @@ fn startFxAsk(model: *Model, fx: *Effects, session: *const Session, prompt: []co
         });
         return;
     }
-    if (resume.len > 0) {
+    if (resume_id.len > 0) {
         fx.spawn(.{
             .key = fx_ask_key,
-            .argv = &.{ path, "ask", "--json", "--resume", resume, "--", prompt },
+            .argv = &.{ path, "ask", "--json", "--resume", resume_id, "--", prompt },
             .on_line = Effects.lineMsg(.fx_line),
             .on_exit = Effects.exitMsg(.fx_exit),
         });
