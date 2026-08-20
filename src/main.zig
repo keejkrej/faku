@@ -210,7 +210,7 @@ pub const Model = struct {
         for (model.session_store[0..model.session_count], 0..) |*session, i| {
             out[i] = .{
                 .id = session.id,
-                .title = session.title(),
+                .title = if (session.untitled) "New task" else session.title(),
                 .provider = session.provider_label(),
                 .selected = session.id == model.selected,
             };
@@ -289,6 +289,11 @@ pub const Model = struct {
     }
 
     pub fn empty_hint(model: *const Model) []const u8 {
+        if (model.activeSessionConst()) |session| {
+            if (session.untitled or !model.sessionHasTurns(session.id)) {
+                return "Send runs fx ask when the CLI is found. Demo replies until then.";
+            }
+        }
         if (model.fx_available) {
             return "Message fx. Send runs live `fx ask` and streams stdout. `fx acp` is stubbed.";
         }
@@ -338,6 +343,13 @@ pub const Model = struct {
             if (turn.id == id) return turn;
         }
         return null;
+    }
+
+    fn sessionHasTurns(model: *const Model, session_id: u32) bool {
+        for (model.turn_store[0..model.turn_count]) |turn| {
+            if (turn.session_id == session_id) return true;
+        }
+        return false;
     }
 
     pub fn addSession(model: *Model, title_text: []const u8, provider: Provider) u32 {

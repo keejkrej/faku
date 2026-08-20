@@ -25,7 +25,7 @@
     </column>
     <column grow="1" min-width="320">
       <row height="52" padding="12" gap="10" cross="center" background="surface" window-drag="true" label="Toolbar">
-        <text>Faku</text>
+        <text foreground="text_muted">Faku</text>
         <spacer grow="1" />
         <button size="sm" on-press="new_session">New</button>
       </row>
