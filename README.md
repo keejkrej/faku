@@ -31,6 +31,17 @@ When the fx CLI is installed, Send on an fx session runs a one-shot:
 
     fx ask <prompt>
 
+If that session has a non-empty `project_path` that exists on disk, the
+child's working directory is that path. Native 0.9.3 `SpawnOptions` has
+no `cwd` field (only `key`, `argv`, `stdin`, `output`, callbacks), so
+Faku starts `/bin/sh -c 'cd -- "$1" && shift && exec "$@"'` with the
+workspace as `$1` and then `fx ask`. Empty or missing paths leave the
+host process cwd (same as `fx ask` with no extra flags). `PWD` is not
+used. Protocol `StartOptions.cwd` stays unused.
+
+New sessions inherit `last_project_path` from `sessions.json` when one
+was persisted. There is no project picker and no worktree materialization.
+
 Stdout lines stream into the assistant turn. Exit settles the turn and
 dequeues the next prompt if one was queued. Stop / Esc cancels the spawn
 and the demo timer; partial assistant text stays.
@@ -90,7 +101,9 @@ Path (Native `app_dirs` data directory, app name `faku`):
     macOS:  ~/Library/Application Support/faku/sessions.json
 
 Boot: if that file loads, the sidebar is session skeletons only (id, title,
-provider, untitled/has_started) — no demo rows and no transcripts.
+provider, untitled/has_started, project_path) — no demo rows and no
+transcripts. The document also stores `last_project_path` so a new
+session can inherit the last workspace.
 Selecting a session hydrates its turns and `queued_messages` from the same
 file. Missing file keeps the two first-run demo sessions. A corrupt file
 also keeps the demos and is not overwritten until a successful load

@@ -6,9 +6,9 @@
 //!   macOS:  ~/Library/Application Support/faku
 //!
 //! One JSON document `sessions.json`. Catalog load copies only session
-//! skeletons (id, title, provider, untitled, has_started) — no transcripts.
-//! Selecting a session hydrates its turns and `queued_messages`. Save is
-//! merge-only (never deletes).
+//! skeletons (id, title, provider, untitled, has_started, project_path)
+//! — no transcripts. Selecting a session hydrates its turns and
+//! `queued_messages`. Save is merge-only (never deletes).
 //! `removeSession` is the only delete. Refuses to write until a successful
 //! load (`task_state_loaded`), same guard as waku-client.
 
@@ -126,6 +126,7 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.next_id = model.next_id;
     document.next_turn_id = model.next_turn_id;
     document.next_queued_id = model.next_queued_id;
+    document.last_project_path = lastProjectPathForSave(model, session);
     try writeDocument(allocator, io, dir, document);
 }
 
@@ -155,11 +156,15 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     if (document.selected == session_id) {
         document.selected = if (document.sessions.len > 0) document.sessions[0].id else 0;
     }
+    document.last_project_path = model.lastProjectPath();
     try writeDocument(allocator, io, dir, document);
     model.dropSession(session_id);
 }
 
 pub fn persistIfPossible(model: *Model, session_id: u32) void {
+    if (model.sessionById(session_id)) |session| {
+        if (session.projectPath().len > 0) model.setLastProjectPath(session.projectPath());
+    }
     const io = model.store_io orelse return;
     saveSession(model, session_id, std.heap.page_allocator, io) catch {};
 }
@@ -186,6 +191,7 @@ const StoredSession = struct {
     provider: Provider,
     untitled: bool,
     has_started: bool,
+    project_path: []const u8 = "",
     turns: []StoredTurn,
     queued_messages: []StoredQueued,
 };
@@ -196,6 +202,7 @@ const Document = struct {
     next_id: u32 = 1,
     next_turn_id: u32 = 1,
     next_queued_id: u32 = 1,
+    last_project_path: []const u8 = "",
     sessions: []StoredSession = &.{},
 
     fn empty(model: *const Model) Document {
@@ -204,10 +211,16 @@ const Document = struct {
             .next_id = model.next_id,
             .next_turn_id = model.next_turn_id,
             .next_queued_id = model.next_queued_id,
+            .last_project_path = model.lastProjectPath(),
             .sessions = &.{},
         };
     }
 };
+
+fn lastProjectPathForSave(model: *const Model, session: *const main.Session) []const u8 {
+    if (model.lastProjectPath().len > 0) return model.lastProjectPath();
+    return session.projectPath();
+}
 
 fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) !void {
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -218,8 +231,9 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.next_id = document.next_id;
     model.next_turn_id = document.next_turn_id;
     model.next_queued_id = document.next_queued_id;
+    model.setLastProjectPath(document.last_project_path);
     for (document.sessions) |stored| {
-        model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started);
+        model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path);
     }
     if (model.sessionById(document.selected) != null) {
         model.selected = document.selected;
@@ -258,6 +272,7 @@ fn upsertSession(document: *Document, arena: std.mem.Allocator, model: *const Mo
         existing.provider = incoming.provider;
         existing.untitled = incoming.untitled;
         existing.has_started = incoming.has_started;
+        existing.project_path = incoming.project_path;
         if (live.detail_loaded) {
             existing.turns = incoming.turns;
             existing.queued_messages = incoming.queued_messages;
@@ -306,6 +321,7 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
         .provider = session.provider,
         .untitled = session.untitled,
         .has_started = session.hasStarted(),
+        .project_path = try arena.dupe(u8, session.projectPath()),
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
     };
@@ -344,6 +360,7 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .next_id = jsonUint(obj.get("next_id")) orelse 1,
         .next_turn_id = jsonUint(obj.get("next_turn_id")) orelse 1,
         .next_queued_id = jsonUint(obj.get("next_queued_id")) orelse 1,
+        .last_project_path = jsonString(obj.get("last_project_path")) orelse "",
         .sessions = try sessions.toOwnedSlice(arena),
     };
 }
@@ -388,6 +405,7 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         .provider = provider,
         .untitled = untitled,
         .has_started = has_started,
+        .project_path = jsonString(obj.get("project_path")) orelse "",
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
     };
@@ -475,6 +493,8 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try appendUint(&out, allocator, document.next_turn_id);
     try out.appendSlice(allocator, ",\"next_queued_id\":");
     try appendUint(&out, allocator, document.next_queued_id);
+    try out.appendSlice(allocator, ",\"last_project_path\":");
+    try appendJsonString(&out, allocator, document.last_project_path);
     try out.appendSlice(allocator, ",\"sessions\":[");
     for (document.sessions, 0..) |session, i| {
         if (i != 0) try out.append(allocator, ',');
@@ -495,6 +515,8 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
     try out.appendSlice(allocator, if (session.untitled) "true" else "false");
     try out.appendSlice(allocator, ",\"has_started\":");
     try out.appendSlice(allocator, if (session.has_started) "true" else "false");
+    try out.appendSlice(allocator, ",\"project_path\":");
+    try appendJsonString(out, allocator, session.project_path);
     try out.appendSlice(allocator, ",\"turns\":[");
     for (session.turns, 0..) |turn, i| {
         if (i != 0) try out.append(allocator, ',');
@@ -646,6 +668,40 @@ test "save + load round-trips two sessions and hydrate restores turns" {
     try testing.expectEqualStrings("the auth listener drops the first event", loaded.turn_store[2].text());
     try testing.expectEqual(Role.tool, loaded.turn_store[4].role);
     try testing.expectEqualStrings("read src/auth/listener.ts", loaded.turn_store[4].text());
+}
+
+test "session project_path persists and new sessions inherit last_project_path" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/project", .{tmp.sub_path[0..]});
+    const io = testing.io;
+    try std.Io.Dir.cwd().createDirPath(io, project);
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("cwd session", .fx);
+    if (source.sessionById(id)) |session| session.setProjectPath(project);
+    source.setLastProjectPath(project);
+    _ = source.appendTurn(id, .user, "open this workspace");
+    try saveSession(&source, id, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqual(@as(u32, 1), loaded.session_count);
+    try testing.expectEqualStrings(project, loaded.session_store[0].projectPath());
+    try testing.expectEqualStrings(project, loaded.lastProjectPath());
+
+    const inherited = loaded.addSession("untitled next", .fx);
+    try testing.expectEqualStrings(project, loaded.sessionById(inherited).?.projectPath());
 }
 
 test "queued_messages survive save and hydrate" {

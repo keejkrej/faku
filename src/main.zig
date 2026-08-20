@@ -33,6 +33,7 @@ pub const max_queued = 16;
 pub const max_queued_text = 1024;
 const max_fx_path = 256;
 pub const max_store_dir = 512;
+pub const max_project_path = 512;
 const max_line_keep = 4096;
 
 const app_permissions = [_][]const u8{ native_sdk.security.permission_command, native_sdk.security.permission_view };
@@ -76,9 +77,20 @@ pub const Session = struct {
     has_started: bool = false,
     /// Process-local. Catalog load leaves this false; hydrate sets it.
     detail_loaded: bool = true,
+    /// Workspace path for `fx ask`. Empty means inherit the host process cwd.
+    project_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    project_path_len: usize = 0,
 
     pub fn title(self: *const Session) []const u8 {
         return self.title_storage[0..self.title_len];
+    }
+
+    pub fn projectPath(self: *const Session) []const u8 {
+        return self.project_path_storage[0..self.project_path_len];
+    }
+
+    pub fn setProjectPath(self: *Session, path: []const u8) void {
+        writeFixed(&self.project_path_storage, &self.project_path_len, path);
     }
 
     pub fn provider_label(self: *const Session) []const u8 {
@@ -181,6 +193,10 @@ pub const Model = struct {
     /// Same guard as waku-client: refuse catalog writes until a successful load.
     task_state_loaded: bool = false,
     store_io: ?std.Io = null,
+    last_project_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    last_project_path_len: usize = 0,
+    last_spawn_cwd_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    last_spawn_cwd_len: usize = 0,
 
     pub const view_unbound = .{
         "session_store",
@@ -213,6 +229,15 @@ pub const Model = struct {
         "store_dir_len",
         "task_state_loaded",
         "store_io",
+        "last_project_path_storage",
+        "last_project_path_len",
+        "last_spawn_cwd_storage",
+        "last_spawn_cwd_len",
+        "lastProjectPath",
+        "setLastProjectPath",
+        "lastSpawnCwd",
+        "setLastSpawnCwd",
+        "resolveSpawnCwd",
         "fxPath",
         "setFxPath",
         "setHome",
@@ -322,6 +347,33 @@ pub const Model = struct {
         writeFixed(&model.store_dir_storage, &model.store_dir_len, dir);
     }
 
+    pub fn lastProjectPath(model: *const Model) []const u8 {
+        return model.last_project_path_storage[0..model.last_project_path_len];
+    }
+
+    pub fn setLastProjectPath(model: *Model, path: []const u8) void {
+        writeFixed(&model.last_project_path_storage, &model.last_project_path_len, path);
+    }
+
+    pub fn lastSpawnCwd(model: *const Model) []const u8 {
+        return model.last_spawn_cwd_storage[0..model.last_spawn_cwd_len];
+    }
+
+    pub fn setLastSpawnCwd(model: *Model, path: []const u8) void {
+        writeFixed(&model.last_spawn_cwd_storage, &model.last_spawn_cwd_len, path);
+    }
+
+    /// Child cwd for `fx ask`: session project_path when it is non-empty and
+    /// a real directory. Otherwise empty — Native spawn has no cwd field
+    /// (0.9.3 SpawnOptions), so an empty result leaves the host process cwd.
+    pub fn resolveSpawnCwd(model: *const Model, session: *const Session) []const u8 {
+        const path = session.projectPath();
+        if (path.len == 0) return "";
+        const io = model.store_io orelse return "";
+        if (!directoryExists(io, path)) return "";
+        return path;
+    }
+
     fn activeSession(model: *Model) ?*Session {
         return model.sessionById(model.selected);
     }
@@ -358,6 +410,7 @@ pub const Model = struct {
         if (model.session_count >= max_sessions) return 0;
         var session = Session{ .id = model.next_id, .provider = provider };
         writeFixed(&session.title_storage, &session.title_len, title_text);
+        writeFixed(&session.project_path_storage, &session.project_path_len, model.lastProjectPath());
         model.session_store[model.session_count] = session;
         model.session_count += 1;
         model.next_id += 1;
@@ -453,6 +506,7 @@ pub const Model = struct {
         provider: Provider,
         untitled: bool,
         has_started: bool,
+        project_path: []const u8,
     ) void {
         if (model.session_count >= max_sessions) return;
         var session = Session{
@@ -463,6 +517,7 @@ pub const Model = struct {
             .detail_loaded = false,
         };
         writeFixed(&session.title_storage, &session.title_len, title_text);
+        writeFixed(&session.project_path_storage, &session.project_path_len, project_path);
         model.session_store[model.session_count] = session;
         model.session_count += 1;
         if (id >= model.next_id) model.next_id = id + 1;
@@ -517,6 +572,16 @@ fn writeFixed(storage: []u8, len: *usize, text: []const u8) void {
     @memcpy(storage[0..take], text[0..take]);
     len.* = take;
 }
+
+fn directoryExists(io: std.Io, path: []const u8) bool {
+    var dir = std.Io.Dir.cwd().openDir(io, path, .{}) catch return false;
+    dir.close(io);
+    return true;
+}
+
+/// Native `SpawnOptions` (0.9.3) has no `cwd`. `std.process.spawn` does, but
+/// Effects does not expose it. `cd` + `exec` is a real child cwd, not `PWD`.
+pub const fx_ask_chdir_script = "cd -- \"$1\" && shift && exec \"$@\"";
 
 pub const Effects = native_sdk.Effects(Msg);
 
@@ -591,7 +656,7 @@ fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) v
     model.streaming_session = session.id;
     if (session.provider == .fx and model.fx_available and model.fxPath().len > 0) {
         model.reply_path = .fx;
-        startFxAsk(model, fx, text);
+        startFxAsk(model, fx, session, text);
         return;
     }
     model.reply_path = .demo;
@@ -607,8 +672,28 @@ fn startDemoTimer(fx: *Effects) void {
     });
 }
 
-fn startFxAsk(model: *Model, fx: *Effects, prompt: []const u8) void {
+fn startFxAsk(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) void {
     const path = model.fxPath();
+    const cwd = model.resolveSpawnCwd(session);
+    model.setLastSpawnCwd(cwd);
+    if (cwd.len > 0) {
+        if (promptStartsLikeFlag(prompt)) {
+            fx.spawn(.{
+                .key = fx_ask_key,
+                .argv = &.{ "/bin/sh", "-c", fx_ask_chdir_script, "sh", cwd, path, "ask", "--", prompt },
+                .on_line = Effects.lineMsg(.fx_line),
+                .on_exit = Effects.exitMsg(.fx_exit),
+            });
+            return;
+        }
+        fx.spawn(.{
+            .key = fx_ask_key,
+            .argv = &.{ "/bin/sh", "-c", fx_ask_chdir_script, "sh", cwd, path, "ask", prompt },
+            .on_line = Effects.lineMsg(.fx_line),
+            .on_exit = Effects.exitMsg(.fx_exit),
+        });
+        return;
+    }
     if (promptStartsLikeFlag(prompt)) {
         fx.spawn(.{
             .key = fx_ask_key,

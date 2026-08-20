@@ -247,6 +247,44 @@ test "send with fx_available spawns fx ask and streams a synthetic line" {
     try testing.expect(!model.is_streaming());
 }
 
+test "fx ask spawn records session project_path as cwd" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/project", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    model.store_io = testing.io;
+    const id = model.addSession("cwd spawn", .fx);
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "what is the cwd" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expectEqualStrings(project, model.lastSpawnCwd());
+    try testing.expectEqualStrings(project, model.resolveSpawnCwd(model.sessionByIdConst(id).?));
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expectEqualStrings("/bin/sh", request.argv[0]);
+    try testing.expectEqualStrings("-c", request.argv[1]);
+    try testing.expectEqualStrings(main.fx_ask_chdir_script, request.argv[2]);
+    try testing.expectEqualStrings(project, request.argv[4]);
+    try testing.expect(argvHas(request.argv, "ask"));
+    try testing.expectEqualStrings("what is the cwd", request.argv[request.argv.len - 1]);
+}
+
 fn drainEffects(model: *Model, fx: *Effects) void {
     while (fx.takeMsg()) |msg| main.update(model, msg, fx);
 }
