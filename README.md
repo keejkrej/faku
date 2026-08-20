@@ -154,7 +154,9 @@ drains the next queued prompt. Stop, Esc, and a non-zero `fx ask` exit do
 not drain; partial assistant text stays, then the session is saved.
 
 `fx ask --json` mints and resumes an `fx_session_id`. This cut does not
-spawn `fx acp`.
+spawn `fx acp`. After a successful turn, Faku stores that workspace's
+`HEAD` sha on the session (`rewind_refs` in `sessions.json`); rewind is
+not offered yet.
 
 ## Demo vs daemon
 

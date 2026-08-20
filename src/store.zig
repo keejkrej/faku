@@ -7,9 +7,9 @@
 //!
 //! One JSON document `sessions.json`. Catalog load copies only session
 //! skeletons (id, title, provider, untitled, has_started, project_path,
-//! fx_session_id, model, access_mode) — no transcripts. Selecting a session
-//! hydrates its turns and
-//! `queued_messages`. Save is merge-only (never deletes).
+//! fx_session_id, model, access_mode, rewind_refs) — no transcripts. Selecting
+//! a session hydrates its turns,
+//! `queued_messages`, and `rewind_refs`. Save is merge-only (never deletes).
 //! `removeSession` is the only delete. Refuses to write until a successful
 //! load (`task_state_loaded`), same guard as waku-client.
 //!
@@ -24,6 +24,7 @@ const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const protocol = @import("protocol.zig");
+const rewind = @import("rewind.zig");
 
 const Model = main.Model;
 const Role = main.Role;
@@ -407,6 +408,12 @@ const StoredQueued = struct {
     text: []const u8,
 };
 
+const StoredRewind = struct {
+    sha: []const u8,
+    ref: []const u8,
+    recorded_at: i64,
+};
+
 const StoredSession = struct {
     id: u32,
     title: []const u8,
@@ -419,6 +426,7 @@ const StoredSession = struct {
     access_mode: []const u8 = "",
     turns: []StoredTurn,
     queued_messages: []StoredQueued,
+    rewind_refs: []StoredRewind = &.{},
 };
 
 const Document = struct {
@@ -483,6 +491,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.setLastDaemonAddress(document.last_daemon_address);
     for (document.sessions) |stored| {
         model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode);
+        applyRewindRefs(model, stored.id, stored.rewind_refs);
     }
     if (model.sessionById(document.selected) != null) {
         model.selected = document.selected;
@@ -504,6 +513,7 @@ fn applyDetail(model: *Model, allocator: std.mem.Allocator, bytes: []const u8, s
     for (stored.queued_messages) |queued| {
         model.restoreQueued(queued.id, session_id, queued.text);
     }
+    applyRewindRefs(model, session_id, stored.rewind_refs);
 }
 
 fn findStored(document: Document, id: u32) ?*StoredSession {
@@ -525,6 +535,7 @@ fn upsertSession(document: *Document, arena: std.mem.Allocator, model: *const Mo
         existing.fx_session_id = incoming.fx_session_id;
         existing.model = incoming.model;
         existing.access_mode = incoming.access_mode;
+        existing.rewind_refs = incoming.rewind_refs;
         if (live.detail_loaded) {
             existing.turns = incoming.turns;
             existing.queued_messages = incoming.queued_messages;
@@ -579,7 +590,29 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
         .access_mode = try arena.dupe(u8, session.accessMode()),
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
+        .rewind_refs = try snapshotRewindRefs(arena, session),
     };
+}
+
+fn snapshotRewindRefs(arena: std.mem.Allocator, session: *const main.Session) ![]StoredRewind {
+    const live = session.rewindRefs();
+    const out = try arena.alloc(StoredRewind, live.len);
+    for (live, 0..) |item, i| {
+        out[i] = .{
+            .sha = try arena.dupe(u8, item.sha()),
+            .ref = try arena.dupe(u8, item.refName()),
+            .recorded_at = item.recorded_at,
+        };
+    }
+    return out;
+}
+
+fn applyRewindRefs(model: *Model, session_id: u32, refs: []const StoredRewind) void {
+    const session = model.sessionById(session_id) orelse return;
+    session.clearRewindRefs();
+    for (refs) |item| {
+        session.appendRewindRef(item.sha, item.ref, item.recorded_at);
+    }
 }
 
 fn readDocument(arena: std.mem.Allocator, io: std.Io, dir: []const u8) !Document {
@@ -669,7 +702,36 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         .access_mode = jsonString(obj.get("access_mode")) orelse "",
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
+        .rewind_refs = try parseRewindRefs(arena, obj.get("rewind_refs")),
     };
+}
+
+fn parseRewindRefs(arena: std.mem.Allocator, value: ?std.json.Value) ![]StoredRewind {
+    const refs_val = value orelse return &.{};
+    const refs_arr = switch (refs_val) {
+        .array => |a| a,
+        else => return error.Corrupt,
+    };
+    var refs: std.ArrayList(StoredRewind) = .empty;
+    for (refs_arr.items) |item| {
+        try refs.append(arena, try parseRewind(item));
+    }
+    if (refs.items.len > rewind.max_refs) {
+        const start = refs.items.len - rewind.max_refs;
+        return refs.items[start..];
+    }
+    return refs.toOwnedSlice(arena);
+}
+
+fn parseRewind(value: std.json.Value) !StoredRewind {
+    const obj = switch (value) {
+        .object => |o| o,
+        else => return error.Corrupt,
+    };
+    const sha = jsonString(obj.get("sha")) orelse return error.Corrupt;
+    const ref = jsonString(obj.get("ref")) orelse rewind.recorded_ref;
+    const recorded_at = jsonInt(obj.get("recorded_at")) orelse 0;
+    return .{ .sha = sha, .ref = ref, .recorded_at = recorded_at };
 }
 
 fn parseQueued(value: std.json.Value) !StoredQueued {
@@ -698,6 +760,14 @@ fn jsonUint(value: ?std.json.Value) ?u32 {
     const item = value orelse return null;
     return switch (item) {
         .integer => |n| if (n >= 0 and n <= std.math.maxInt(u32)) @intCast(n) else null,
+        else => null,
+    };
+}
+
+fn jsonInt(value: ?std.json.Value) ?i64 {
+    const item = value orelse return null;
+    return switch (item) {
+        .integer => |n| n,
         else => null,
     };
 }
@@ -810,11 +880,28 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
         try appendJsonString(out, allocator, queued.text);
         try out.append(allocator, '}');
     }
+    try out.appendSlice(allocator, "],\"rewind_refs\":[");
+    for (session.rewind_refs, 0..) |item, i| {
+        if (i != 0) try out.append(allocator, ',');
+        try out.appendSlice(allocator, "{\"sha\":");
+        try appendJsonString(out, allocator, item.sha);
+        try out.appendSlice(allocator, ",\"ref\":");
+        try appendJsonString(out, allocator, item.ref);
+        try out.appendSlice(allocator, ",\"recorded_at\":");
+        try appendInt(out, allocator, item.recorded_at);
+        try out.append(allocator, '}');
+    }
     try out.appendSlice(allocator, "]}");
 }
 
 fn appendUint(out: *std.ArrayList(u8), allocator: std.mem.Allocator, value: u32) !void {
     var num: [10]u8 = undefined;
+    const piece = std.fmt.bufPrint(&num, "{d}", .{value}) catch return error.NoSpaceLeft;
+    try out.appendSlice(allocator, piece);
+}
+
+fn appendInt(out: *std.ArrayList(u8), allocator: std.mem.Allocator, value: i64) !void {
+    var num: [24]u8 = undefined;
     const piece = std.fmt.bufPrint(&num, "{d}", .{value}) catch return error.NoSpaceLeft;
     try out.appendSlice(allocator, piece);
 }
@@ -1059,6 +1146,41 @@ test "last_daemon_address persists and loads without becoming the live switch" {
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
     try testing.expectEqualStrings("127.0.0.1:8787", loaded.lastDaemonAddress());
     try testing.expectEqual(@as(usize, 0), loaded.daemonAddress().len);
+}
+
+test "session rewind_refs persist on the row and hydrate with the session" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("rewind later", .fx);
+    if (source.sessionById(id)) |session| {
+        session.appendRewindRef("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", rewind.recorded_ref, 1_700_000_000);
+        session.appendRewindRef("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", rewind.recorded_ref, 1_700_000_001);
+    }
+    _ = source.appendTurn(id, .user, "remember this head");
+    try saveSession(&source, id, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqual(@as(usize, 2), loaded.session_store[0].rewind_ref_count);
+    try testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", loaded.session_store[0].rewindRefs()[0].sha());
+    try testing.expectEqualStrings(rewind.recorded_ref, loaded.session_store[0].rewindRefs()[0].refName());
+    try testing.expectEqual(@as(i64, 1_700_000_000), loaded.session_store[0].rewindRefs()[0].recorded_at);
+    try testing.expectEqualStrings("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", loaded.session_store[0].rewindRefs()[1].sha());
+
+    hydrateSession(&loaded, id, allocator, io);
+    try testing.expectEqual(@as(usize, 2), loaded.session_store[0].rewind_ref_count);
+    try testing.expectEqualStrings("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", loaded.session_store[0].rewindRefs()[1].sha());
 }
 
 test "draft keys are newSession until started, then session id" {

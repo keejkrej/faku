@@ -16,6 +16,7 @@ const protocol = @import("protocol.zig");
 const acp = @import("acp.zig");
 const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
+const rewind = @import("rewind.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -104,6 +105,9 @@ pub const Session = struct {
     /// Waku `runtime_mode` (ask | autoAcceptEdits | auto | fullAccess).
     access_mode_storage: [max_access_mode]u8 = [_]u8{0} ** max_access_mode,
     access_mode_len: usize = 0,
+    /// Successful-turn HEAD snapshots. Cap last 20; no rewind UI yet.
+    rewind_refs: [rewind.max_refs]rewind.Ref = [_]rewind.Ref{.{}} ** rewind.max_refs,
+    rewind_ref_count: usize = 0,
 
     pub fn title(self: *const Session) []const u8 {
         return self.title_storage[0..self.title_len];
@@ -139,6 +143,18 @@ pub const Session = struct {
 
     pub fn setAccessMode(self: *Session, value: []const u8) void {
         writeFixed(&self.access_mode_storage, &self.access_mode_len, value);
+    }
+
+    pub fn rewindRefs(self: *const Session) []const rewind.Ref {
+        return self.rewind_refs[0..self.rewind_ref_count];
+    }
+
+    pub fn clearRewindRefs(self: *Session) void {
+        self.rewind_ref_count = 0;
+    }
+
+    pub fn appendRewindRef(self: *Session, sha: []const u8, ref_name: []const u8, recorded_at: i64) void {
+        rewind.append(&self.rewind_refs, &self.rewind_ref_count, sha, ref_name, recorded_at);
     }
 
     pub fn provider_label(self: *const Session) []const u8 {
@@ -1083,6 +1099,7 @@ fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
     if (drain) {
+        recordRewindRefIfPossible(model, finished_id);
         var copy: [max_queued_text]u8 = undefined;
         if (model.takeNextQueued(finished_id, &copy)) |n| {
             store.persistIfPossible(model, finished_id);
@@ -1091,6 +1108,14 @@ fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
         }
     }
     store.persistIfPossible(model, finished_id);
+}
+
+fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
+    const io = model.store_io orelse return;
+    const session = model.sessionById(session_id) orelse return;
+    var sha_buf: [rewind.max_sha]u8 = undefined;
+    const captured = rewind.captureHead(std.heap.page_allocator, io, session.projectPath(), &sha_buf) orelse return;
+    session.appendRewindRef(captured.sha, rewind.recorded_ref, captured.recorded_at);
 }
 
 fn stopStream(model: *Model, fx: *Effects) void {
@@ -1305,4 +1330,5 @@ test {
     _ = @import("acp.zig");
     _ = @import("store.zig");
     _ = @import("daemon_proxy.zig");
+    _ = @import("rewind.zig");
 }

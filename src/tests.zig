@@ -4,6 +4,7 @@ const main = @import("main.zig");
 const protocol = @import("protocol.zig");
 const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
+const rewind = @import("rewind.zig");
 
 const canvas = native_sdk.canvas;
 const testing = std.testing;
@@ -738,6 +739,155 @@ test "missing daemon address still uses fx ask when the CLI is present" {
     try testing.expectEqual(main.fx_ask_key, request.key);
     try testing.expect(argvHas(request.argv, "ask"));
     try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
+}
+
+test "successful fx ask exit records HEAD when project_path is a git work tree" {
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/rewind-git", .{tmp.sub_path[0..]});
+    const expected = try initTestGitRepo(allocator, testing.io, project);
+    defer allocator.free(expected);
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-rewind", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("rewind git", .fx);
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "record this head" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try fx.feedExit(main.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+
+    const live = model.sessionById(id).?;
+    try testing.expectEqual(@as(usize, 1), live.rewind_ref_count);
+    try testing.expectEqualStrings(expected, live.rewindRefs()[0].sha());
+    try testing.expectEqualStrings(rewind.recorded_ref, live.rewindRefs()[0].refName());
+    try testing.expect(live.rewindRefs()[0].recorded_at > 0);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, allocator, testing.io));
+    try testing.expectEqualStrings(expected, loaded.session_store[0].rewindRefs()[0].sha());
+    store.hydrateSession(&loaded, id, allocator, testing.io);
+    try testing.expectEqualStrings(expected, loaded.session_store[0].rewindRefs()[0].sha());
+}
+
+test "non-git project_path records no rewind ref after a successful exit" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/plain", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("no git", .fx);
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "no snapshot" } }, &fx);
+    main.update(&model, .send, &fx);
+    try fx.feedExit(main.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.rewind_ref_count);
+}
+
+test "failed or cancelled turns do not record a rewind ref" {
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/rewind-fail", .{tmp.sub_path[0..]});
+    const expected = try initTestGitRepo(allocator, testing.io, project);
+    defer allocator.free(expected);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("rewind fail", .fx);
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "this will fail" } }, &fx);
+    main.update(&model, .send, &fx);
+    try fx.feedExit(main.fx_ask_key, 1);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.rewind_ref_count);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "this will stop" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    main.update(&model, .stop, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.rewind_ref_count);
+}
+
+fn initTestGitRepo(allocator: std.mem.Allocator, io: std.Io, path: []const u8) ![]u8 {
+    try std.Io.Dir.cwd().createDirPath(io, path);
+    try runGit(allocator, io, &.{ "git", "-C", path, "init" });
+    var readme_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const readme = try std.fmt.bufPrint(&readme_buf, "{s}{s}README", .{ path, std.fs.path.sep_str });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = readme, .data = "rewind\n" });
+    try runGit(allocator, io, &.{ "git", "-C", path, "add", "README" });
+    try runGit(allocator, io, &.{
+        "git",
+        "-C",
+        path,
+        "-c",
+        "user.email=rewind@test",
+        "-c",
+        "user.name=Rewind",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-m",
+        "init",
+    });
+    var sha_buf: [rewind.max_sha]u8 = undefined;
+    const sha = rewind.revParseHead(allocator, io, path, &sha_buf) orelse return error.GitHead;
+    return allocator.dupe(u8, sha);
+}
+
+fn runGit(allocator: std.mem.Allocator, io: std.Io, argv: []const []const u8) !void {
+    const result = try std.process.run(allocator, io, .{
+        .argv = argv,
+        .stdout_limit = .limited(1024),
+        .stderr_limit = .limited(4096),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    if (result.term != .exited or result.term.exited != 0) return error.GitFailed;
 }
 
 test "the view lays out through the canvas engine" {
