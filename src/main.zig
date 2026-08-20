@@ -716,7 +716,7 @@ pub fn main(init: std.process.Init) !void {
         app_state.model.setHome(home);
         store.bindDefaultDir(&app_state.model, home, init.environ_map.get("XDG_DATA_HOME"));
     }
-    store.boot(&app_state.model, std.heap.page_allocator, init.io);
+    _ = store.boot(&app_state.model, std.heap.page_allocator, init.io);
 
     try runner.runWithOptions(app_state.app(), .{
         .app_name = "faku",

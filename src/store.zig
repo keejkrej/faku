@@ -27,14 +27,6 @@ pub const max_document_bytes: usize = 16 * 1024 * 1024;
 
 pub const LoadKind = enum { loaded, missing, failed };
 
-pub const SaveError = error{
-    TaskStateNotLoaded,
-    NoStoreDir,
-    NoSpaceLeft,
-    OutOfMemory,
-    Corrupt,
-} || std.Io.Dir.ReadError || std.Io.Dir.WriteError || std.Io.Dir.StatError || std.Io.Dir.CreateError;
-
 pub fn resolveDefaultDir(home: []const u8, xdg_data_home: ?[]const u8, buf: []u8) ?[]const u8 {
     return native_sdk.app_dirs.resolveOne(
         .{ .name = app_store_name },
@@ -113,7 +105,7 @@ pub fn hydrateSession(model: *Model, session_id: u32, allocator: std.mem.Allocat
     if (model.sessionById(session_id)) |loaded| loaded.detail_loaded = true;
 }
 
-pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allocator, io: std.Io) SaveError!void {
+pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allocator, io: std.Io) !void {
     if (!model.task_state_loaded) return error.TaskStateNotLoaded;
     const dir = model.storeDir();
     if (dir.len == 0) return error.NoStoreDir;
@@ -137,14 +129,14 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
 
 /// Merge-only save of every started session. Used by tests and first persist
 /// of a selected session after a successful load.
-pub fn saveStartedSessions(model: *const Model, allocator: std.mem.Allocator, io: std.Io) SaveError!void {
+pub fn saveStartedSessions(model: *const Model, allocator: std.mem.Allocator, io: std.Io) !void {
     if (!model.task_state_loaded) return error.TaskStateNotLoaded;
     for (model.sessions()) |session| {
         if (session.hasStarted()) try saveSession(model, session.id, allocator, io);
     }
 }
 
-pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocator, io: std.Io) SaveError!void {
+pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocator, io: std.Io) !void {
     if (!model.task_state_loaded) return error.TaskStateNotLoaded;
     const dir = model.storeDir();
     if (dir.len == 0) return error.NoStoreDir;
