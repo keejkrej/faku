@@ -16,9 +16,9 @@
                 .title = "Faku",
                 .width = 1380,
                 .height = 880,
-                .min_width = 980,
-                .min_height = 680,
-                .titlebar = "hidden_inset_tall",
+                .min_width = 560,
+                .min_height = 480,
+                .titlebar = "chromeless",
                 .views = .{
                     .{
                         .label = "main-canvas",

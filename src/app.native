@@ -2,37 +2,58 @@
 <column background="background">
   <split grow="1" value="{sidebar_split}" on-resize="sidebar_resized">
     <column min-width="180" background="surface_subtle">
-      <row height="48" window-drag="true" label="Sidebar titlebar">
+      <row height="48" window-drag="true" cross="center" label="Sidebar titlebar">
+        <button variant="ghost" size="icon" icon="panel-left" label="Collapse sidebar"></button>
+        <spacer width="6" />
+        <row gap="2" cross="center">
+          <button variant="ghost" size="icon" icon="chevron-left" label="Back"></button>
+          <button variant="ghost" size="icon" icon="chevron-right" label="Forward"></button>
+        </row>
         <spacer grow="1" />
       </row>
-      <column padding="4" gap="10">
-        <row height="32">
-          <button size="sm" on-press="new_session">New Task</button>
+      <column padding="10" grow="1">
+        <list-item height="32" on-press="new_session" label="New Task">
+          <row gap="10" cross="center" padding="4">
+            <icon name="edit" />
+            <text>New Task</text>
+          </row>
+        </list-item>
+        <list-item height="32" label="Search">
+          <row gap="10" cross="center" padding="4">
+            <icon name="search" />
+            <text>Search</text>
+          </row>
+        </list-item>
+        <spacer height="10" />
+        <row height="28" cross="center">
+          <spacer width="8" />
+          <text foreground="text_muted">Today</text>
+          <spacer grow="1" />
+          <button variant="ghost" size="icon" icon="folder" label="New folder"></button>
         </row>
-        <row height="32">
-          <button size="sm">Search</button>
-        </row>
-        <text foreground="text_muted">Today</text>
+        <spacer height="10" />
+        <scroll grow="1">
+          <column>
+            <for each="session_rows" key="id" as="s">
+              <list-item height="52" selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
+                <column gap="2" padding="8">
+                  <text>{s.title}</text>
+                  <text foreground="text_muted">{s.provider}</text>
+                </column>
+              </list-item>
+            </for>
+          </column>
+        </scroll>
       </column>
-      <scroll grow="1">
-        <column>
-          <for each="session_rows" key="id" as="s">
-            <list-item height="52" selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
-              <column gap="2" padding="4">
-                <text>{s.title}</text>
-                <text foreground="text_muted">{s.provider}</text>
-              </column>
-            </list-item>
-          </for>
-        </column>
-      </scroll>
+      <row height="40" padding="10">
+        <button variant="ghost" size="icon" icon="settings" label="Settings"></button>
+      </row>
     </column>
     <column grow="1" min-width="360">
-      <row height="48" padding="12" gap="10" cross="center" window-drag="true" label="Toolbar">
+      <row height="48" padding="14" gap="10" cross="center" window-drag="true" label="Toolbar">
         <text>{header_title}</text>
-        <text foreground="text_muted">Faku</text>
         <spacer grow="1" />
-        <button size="sm" on-press="new_session">New</button>
+        <button variant="ghost" size="icon" icon="x" label="Close"></button>
       </row>
       <separator />
       <scroll grow="1" value="{transcript_scroll}" on-scroll="transcript_scrolled">
@@ -89,18 +110,24 @@
             <input-group label="Message composer" height="88">
               <textarea placeholder="{composer_placeholder}" text="{draft}" submit-on-enter="true" on-input="draft_edit" on-submit="send" />
               <input-group-actions>
-                <badge>{selected_provider}</badge>
-                <badge>Full access</badge>
-                <badge>Local</badge>
+                <button variant="ghost" size="sm" icon="circle-dot">GPT-5.6-Sol</button>
+                <button variant="ghost" size="sm" icon="menu">Medium</button>
+                <button variant="ghost" size="sm" icon="eye">Full access</button>
+                <button variant="ghost" size="sm" icon="wrench">Build</button>
                 <spacer grow="1" />
-                <button variant="primary" on-press="send">{send_label}</button>
+                <button variant="primary" size="icon" icon="arrow-up" label="{send_label}" on-press="send" width="26" height="26" radius="xl"></button>
               </input-group-actions>
             </input-group>
+            <row gap="8" cross="center">
+              <button variant="ghost" size="sm" icon="folder">choose a project</button>
+              <button variant="ghost" size="sm" icon="terminal">Local</button>
+              <spacer grow="1" />
+              <icon name="circle-dot" />
+            </row>
           </column>
           <spacer width="12" />
         </row>
       </column>
     </column>
   </split>
-  <status-bar>{status_line}</status-bar>
 </column>

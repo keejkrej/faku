@@ -25,8 +25,13 @@ fn buildTree(arena: std.mem.Allocator, model: *const Model) !AppUi.Tree {
     return ui.finalize(node);
 }
 
+fn widgetName(widget: canvas.Widget) []const u8 {
+    if (widget.semantics.label.len > 0) return widget.semantics.label;
+    return widget.text;
+}
+
 fn findByText(widget: canvas.Widget, kind: canvas.WidgetKind, text: []const u8) ?canvas.Widget {
-    if (widget.kind == kind and std.mem.eql(u8, widget.text, text)) return widget;
+    if (widget.kind == kind and std.mem.eql(u8, widgetName(widget), text)) return widget;
     for (widget.children) |child| {
         if (findByText(child, kind, text)) |found| return found;
     }
@@ -42,8 +47,9 @@ fn expectByText(widget: canvas.Widget, kind: canvas.WidgetKind, text: []const u8
 }
 
 fn dumpTexts(widget: canvas.Widget, depth: usize) void {
-    if (widget.text.len > 0) {
-        std.debug.print("{d} {t} [{s}]\n", .{ depth, widget.kind, widget.text });
+    const name = widgetName(widget);
+    if (name.len > 0) {
+        std.debug.print("{d} {t} [{s}]\n", .{ depth, widget.kind, name });
     }
     for (widget.children) |child| dumpTexts(child, depth + 1);
 }
@@ -54,7 +60,7 @@ fn isPressable(kind: canvas.WidgetKind) bool {
 
 fn findPressableContaining(widget: canvas.Widget, text: []const u8) ?canvas.Widget {
     if (isPressable(widget.kind)) {
-        if (std.mem.eql(u8, widget.text, text)) return widget;
+        if (std.mem.eql(u8, widgetName(widget), text)) return widget;
         if (findByText(widget, .text, text) != null) return widget;
     }
     for (widget.children) |child| {
@@ -114,21 +120,18 @@ test "boot is fx-first and New / send / ticks / stop drive the demo" {
     try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
 
     var tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "Faku");
     _ = try expectByText(tree.root, .text, "Today");
-    _ = try expectByText(tree.root, .button, "New Task");
-    _ = try expectByText(tree.root, .button, "Search");
-    _ = try expectByText(tree.root, .button, "New");
+    _ = try expectButton(tree.root, "New Task");
+    _ = try expectButton(tree.root, "Search");
     _ = try expectButton(tree.root, "port waku to zig");
     _ = try expectButton(tree.root, "fix auth listener");
     _ = try expectByText(tree.root, .button, "Send");
-    _ = try expectByText(tree.root, .status_bar, "2 sessions \u{b7} demo \u{b7} fx");
     _ = try expectByText(tree.root, .text, "fx");
     if (findByKind(tree.root, .textarea)) |composer| {
         try testing.expectEqualStrings("Do anything...", composer.placeholder);
     }
 
-    const new_btn = try expectByText(tree.root, .button, "New");
+    const new_btn = try expectButton(tree.root, "New Task");
     main.update(&model, tree.msgForPointer(new_btn.id, .up).?, &fx);
     try testing.expectEqual(@as(u32, 3), model.session_count);
     try testing.expectEqualStrings("untitled", model.selected_title());
@@ -192,7 +195,6 @@ test "selecting the claude session shows its transcript" {
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "You");
     _ = try expectByText(tree.root, .text, "Tool");
-    _ = try expectByText(tree.root, .status_bar, "2 sessions \u{b7} demo \u{b7} claude");
 }
 
 test "escape stops a live demo stream" {
@@ -367,7 +369,6 @@ test "send while busy shows a queued card that dismiss clears" {
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Queued");
     _ = try expectByText(tree.root, .text, "follow up later");
-    _ = try expectByText(tree.root, .status_bar, "2 sessions \u{b7} demo \u{b7} fx \u{b7} queued");
     _ = try expectButton(tree.root, "port waku to zig");
     _ = try expectButton(tree.root, "fix auth listener");
 

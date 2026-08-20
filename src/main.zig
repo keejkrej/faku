@@ -21,8 +21,8 @@ const Color = canvas.Color;
 const canvas_label = "main-canvas";
 pub const window_width: f32 = 1380;
 pub const window_height: f32 = 880;
-pub const window_min_width: f32 = 980;
-pub const window_min_height: f32 = 680;
+pub const window_min_width: f32 = 560;
+pub const window_min_height: f32 = 480;
 const sidebar_default_width: f32 = 252;
 const sidebar_min_width: f32 = 180;
 const sidebar_max_width: f32 = 420;
@@ -48,7 +48,7 @@ const shell_windows = [_]native_sdk.ShellWindow{.{
     .height = window_height,
     .min_width = window_min_width,
     .min_height = window_min_height,
-    .titlebar = .hidden_inset_tall,
+    .titlebar = .chromeless,
     .views = &shell_views,
 }};
 const shell_scene: native_sdk.ShellConfig = .{ .windows = &shell_windows };
