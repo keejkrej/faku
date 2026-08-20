@@ -233,7 +233,7 @@ test "send with fx_available spawns fx ask and streams a synthetic line" {
     const request = fx.pendingSpawnAt(0).?;
     try testing.expectEqual(main.fx_ask_key, request.key);
     try testing.expect(argvHas(request.argv, "ask"));
-    try testing.expectEqualStrings("fx", request.argv[0]);
+    try testing.expect(argvHas(request.argv, "fx"));
     try testing.expectEqualStrings("what does this repo do", request.argv[request.argv.len - 1]);
 
     const before_len = lastAssistant(&model).len;
@@ -309,7 +309,7 @@ test "fx ask --json mints session_id and later send resumes" {
     main.update(&model, .send, &fx);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const first = fx.pendingSpawnAt(0).?;
-    try testing.expectEqualStrings("fx", first.argv[0]);
+    try testing.expect(argvHas(first.argv, "fx"));
     try testing.expect(argvHas(first.argv, "ask"));
     try testing.expect(argvHas(first.argv, "--json"));
     try testing.expect(argvHas(first.argv, "--"));
@@ -345,6 +345,48 @@ test "fx ask --json mints session_id and later send resumes" {
     try testing.expectEqualStrings("second turn", second.argv[second.argv.len - 1]);
     const resume_at = argvIndex(second.argv, "--resume") orelse return error.MissingResume;
     try testing.expectEqualStrings("fx-test-1", second.argv[resume_at + 1]);
+}
+
+test "fx ask spawn records FX_MODEL and FX_PERMISSION_MODE" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("env spawn", .fx);
+    if (model.sessionById(id)) |session| {
+        session.setModel("openai/gpt-5.4");
+        session.setAccessMode("fullAccess");
+    }
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "with env" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqualStrings("openai/gpt-5.4", model.lastSpawnFxModel());
+    try testing.expectEqualStrings("yolo", model.lastSpawnFxPermissionMode());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqualStrings(main.fx_env_bin, request.argv[0]);
+    try testing.expect(argvHas(request.argv, "FX_MODEL=openai/gpt-5.4"));
+    try testing.expect(argvHas(request.argv, "FX_PERMISSION_MODE=yolo"));
+    try testing.expect(argvHas(request.argv, "fx"));
+    try testing.expect(argvHas(request.argv, "ask"));
+    try testing.expect(!argvHas(request.argv, "--model"));
+    try testing.expectEqualStrings("with env", request.argv[request.argv.len - 1]);
+}
+
+test "Waku access_mode maps to verified FX_PERMISSION_MODE values" {
+    try testing.expectEqualStrings("ask", main.fxPermissionMode("ask"));
+    try testing.expectEqualStrings("auto", main.fxPermissionMode("auto"));
+    try testing.expectEqualStrings("auto", main.fxPermissionMode("autoAcceptEdits"));
+    try testing.expectEqualStrings("yolo", main.fxPermissionMode("fullAccess"));
+    try testing.expectEqualStrings("yolo", main.fxPermissionMode("yolo"));
+    try testing.expectEqualStrings("", main.fxPermissionMode("nope"));
+    try testing.expectEqualStrings("", main.fxPermissionMode(""));
 }
 
 fn drainEffects(model: *Model, fx: *Effects) void {

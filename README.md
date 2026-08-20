@@ -35,8 +35,19 @@ When the fx CLI is installed, Send on an fx session runs a one-shot:
 `--json` prints a JSON object that includes `session_id`. Faku stores that
 id on the session (`fx_session_id` in `sessions.json`) and passes it back
 as `--resume` on later sends. The prompt stays after `--` so flag-like
-text is safe. Model is `FX_MODEL` (not a `--model` flag); this cut does
-not set it. `--no-save`, `--image`, and `--auto`/`--yolo` are not used.
+text is safe. There is no `--model` argv. `--no-save`, `--image`, and
+`--auto`/`--yolo` flags are not used.
+
+Model and access ride env, not flags. Official fx values
+([configuration](https://fx.sh/docs/configure-fx/configuration)):
+`FX_MODEL` and `FX_PERMISSION_MODE` (`ask` | `auto` | `yolo`). Native
+`SpawnOptions` has no `env` field, so Faku prefixes
+`/usr/bin/env KEY=val` on the child only and does not export on the
+Faku process. Empty `model` omits `FX_MODEL` (fx's own default).
+Waku `runtime_mode` is stored as `access_mode`: `ask` → `ask`,
+`autoAcceptEdits`/`auto` → `auto`, `fullAccess` → `yolo`. New sessions
+default to Waku `fullAccess` (`FX_PERMISSION_MODE=yolo`) and inherit
+`last_model` / `last_access_mode` when those were persisted.
 
 If that session has a non-empty `project_path` that exists on disk, the
 child's working directory is that path. Native 0.9.3 `SpawnOptions` has
@@ -110,9 +121,10 @@ Path (Native `app_dirs` data directory, app name `faku`):
     macOS:  ~/Library/Application Support/faku/sessions.json
 
 Boot: if that file loads, the sidebar is session skeletons only (id, title,
-provider, untitled/has_started, project_path, fx_session_id) — no demo
-rows and no transcripts. The document also stores `last_project_path` so
-a new session can inherit the last workspace.
+provider, untitled/has_started, project_path, fx_session_id, model,
+access_mode) — no demo rows and no transcripts. The document also stores
+`last_project_path`, `last_model`, and `last_access_mode` so a new
+session can inherit the last workspace and last model/access.
 Selecting a session hydrates its turns and `queued_messages` from the same
 file. Missing file keeps the two first-run demo sessions. A corrupt file
 also keeps the demos and is not overwritten until a successful load

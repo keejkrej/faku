@@ -7,7 +7,8 @@
 //!
 //! One JSON document `sessions.json`. Catalog load copies only session
 //! skeletons (id, title, provider, untitled, has_started, project_path,
-//! fx_session_id) — no transcripts. Selecting a session hydrates its turns and
+//! fx_session_id, model, access_mode) — no transcripts. Selecting a session
+//! hydrates its turns and
 //! `queued_messages`. Save is merge-only (never deletes).
 //! `removeSession` is the only delete. Refuses to write until a successful
 //! load (`task_state_loaded`), same guard as waku-client.
@@ -127,6 +128,8 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.next_turn_id = model.next_turn_id;
     document.next_queued_id = model.next_queued_id;
     document.last_project_path = lastProjectPathForSave(model, session);
+    document.last_model = lastModelForSave(model, session);
+    document.last_access_mode = lastAccessModeForSave(model, session);
     try writeDocument(allocator, io, dir, document);
 }
 
@@ -157,6 +160,8 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
         document.selected = if (document.sessions.len > 0) document.sessions[0].id else 0;
     }
     document.last_project_path = model.lastProjectPath();
+    document.last_model = model.lastModel();
+    document.last_access_mode = model.lastAccessMode();
     try writeDocument(allocator, io, dir, document);
     model.dropSession(session_id);
 }
@@ -164,6 +169,8 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
 pub fn persistIfPossible(model: *Model, session_id: u32) void {
     if (model.sessionById(session_id)) |session| {
         if (session.projectPath().len > 0) model.setLastProjectPath(session.projectPath());
+        if (session.model().len > 0) model.setLastModel(session.model());
+        if (session.accessMode().len > 0) model.setLastAccessMode(session.accessMode());
     }
     const io = model.store_io orelse return;
     saveSession(model, session_id, std.heap.page_allocator, io) catch {};
@@ -193,6 +200,8 @@ const StoredSession = struct {
     has_started: bool,
     project_path: []const u8 = "",
     fx_session_id: []const u8 = "",
+    model: []const u8 = "",
+    access_mode: []const u8 = "",
     turns: []StoredTurn,
     queued_messages: []StoredQueued,
 };
@@ -204,6 +213,8 @@ const Document = struct {
     next_turn_id: u32 = 1,
     next_queued_id: u32 = 1,
     last_project_path: []const u8 = "",
+    last_model: []const u8 = "",
+    last_access_mode: []const u8 = "",
     sessions: []StoredSession = &.{},
 
     fn empty(model: *const Model) Document {
@@ -213,6 +224,8 @@ const Document = struct {
             .next_turn_id = model.next_turn_id,
             .next_queued_id = model.next_queued_id,
             .last_project_path = model.lastProjectPath(),
+            .last_model = model.lastModel(),
+            .last_access_mode = model.lastAccessMode(),
             .sessions = &.{},
         };
     }
@@ -221,6 +234,16 @@ const Document = struct {
 fn lastProjectPathForSave(model: *const Model, session: *const main.Session) []const u8 {
     if (model.lastProjectPath().len > 0) return model.lastProjectPath();
     return session.projectPath();
+}
+
+fn lastModelForSave(model: *const Model, session: *const main.Session) []const u8 {
+    if (model.lastModel().len > 0) return model.lastModel();
+    return session.model();
+}
+
+fn lastAccessModeForSave(model: *const Model, session: *const main.Session) []const u8 {
+    if (model.lastAccessMode().len > 0) return model.lastAccessMode();
+    return session.accessMode();
 }
 
 fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) !void {
@@ -233,8 +256,10 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.next_turn_id = document.next_turn_id;
     model.next_queued_id = document.next_queued_id;
     model.setLastProjectPath(document.last_project_path);
+    model.setLastModel(document.last_model);
+    model.setLastAccessMode(document.last_access_mode);
     for (document.sessions) |stored| {
-        model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id);
+        model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode);
     }
     if (model.sessionById(document.selected) != null) {
         model.selected = document.selected;
@@ -275,6 +300,8 @@ fn upsertSession(document: *Document, arena: std.mem.Allocator, model: *const Mo
         existing.has_started = incoming.has_started;
         existing.project_path = incoming.project_path;
         existing.fx_session_id = incoming.fx_session_id;
+        existing.model = incoming.model;
+        existing.access_mode = incoming.access_mode;
         if (live.detail_loaded) {
             existing.turns = incoming.turns;
             existing.queued_messages = incoming.queued_messages;
@@ -325,6 +352,8 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
         .has_started = session.hasStarted(),
         .project_path = try arena.dupe(u8, session.projectPath()),
         .fx_session_id = try arena.dupe(u8, session.fxSessionId()),
+        .model = try arena.dupe(u8, session.model()),
+        .access_mode = try arena.dupe(u8, session.accessMode()),
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
     };
@@ -364,6 +393,8 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .next_turn_id = jsonUint(obj.get("next_turn_id")) orelse 1,
         .next_queued_id = jsonUint(obj.get("next_queued_id")) orelse 1,
         .last_project_path = jsonString(obj.get("last_project_path")) orelse "",
+        .last_model = jsonString(obj.get("last_model")) orelse "",
+        .last_access_mode = jsonString(obj.get("last_access_mode")) orelse "",
         .sessions = try sessions.toOwnedSlice(arena),
     };
 }
@@ -410,6 +441,8 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         .has_started = has_started,
         .project_path = jsonString(obj.get("project_path")) orelse "",
         .fx_session_id = jsonString(obj.get("fx_session_id")) orelse "",
+        .model = jsonString(obj.get("model")) orelse "",
+        .access_mode = jsonString(obj.get("access_mode")) orelse "",
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
     };
@@ -499,6 +532,10 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try appendUint(&out, allocator, document.next_queued_id);
     try out.appendSlice(allocator, ",\"last_project_path\":");
     try appendJsonString(&out, allocator, document.last_project_path);
+    try out.appendSlice(allocator, ",\"last_model\":");
+    try appendJsonString(&out, allocator, document.last_model);
+    try out.appendSlice(allocator, ",\"last_access_mode\":");
+    try appendJsonString(&out, allocator, document.last_access_mode);
     try out.appendSlice(allocator, ",\"sessions\":[");
     for (document.sessions, 0..) |session, i| {
         if (i != 0) try out.append(allocator, ',');
@@ -523,6 +560,10 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
     try appendJsonString(out, allocator, session.project_path);
     try out.appendSlice(allocator, ",\"fx_session_id\":");
     try appendJsonString(out, allocator, session.fx_session_id);
+    try out.appendSlice(allocator, ",\"model\":");
+    try appendJsonString(out, allocator, session.model);
+    try out.appendSlice(allocator, ",\"access_mode\":");
+    try appendJsonString(out, allocator, session.access_mode);
     try out.appendSlice(allocator, ",\"turns\":[");
     for (session.turns, 0..) |turn, i| {
         if (i != 0) try out.append(allocator, ',');
@@ -732,6 +773,42 @@ test "session fx_session_id persists and loads" {
     loaded.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
     try testing.expectEqualStrings("fx-sess-roundtrip", loaded.session_store[0].fxSessionId());
+}
+
+test "session model and access_mode persist; new sessions inherit last-used" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("model session", .fx);
+    if (source.sessionById(id)) |session| {
+        session.setModel("openai/gpt-5.4");
+        session.setAccessMode("ask");
+    }
+    source.setLastModel("openai/gpt-5.4");
+    source.setLastAccessMode("ask");
+    _ = source.appendTurn(id, .user, "use this model");
+    try saveSession(&source, id, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqualStrings("openai/gpt-5.4", loaded.session_store[0].model());
+    try testing.expectEqualStrings("ask", loaded.session_store[0].accessMode());
+    try testing.expectEqualStrings("openai/gpt-5.4", loaded.lastModel());
+    try testing.expectEqualStrings("ask", loaded.lastAccessMode());
+
+    const inherited = loaded.addSession("next", .fx);
+    try testing.expectEqualStrings("openai/gpt-5.4", loaded.sessionById(inherited).?.model());
+    try testing.expectEqualStrings("ask", loaded.sessionById(inherited).?.accessMode());
 }
 
 test "queued_messages survive save and hydrate" {

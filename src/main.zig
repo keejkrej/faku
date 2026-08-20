@@ -36,6 +36,11 @@ const max_fx_path = 256;
 pub const max_store_dir = 512;
 pub const max_project_path = 512;
 pub const max_fx_session_id = 128;
+pub const max_fx_model = 128;
+pub const max_access_mode = 32;
+/// Waku `runtime_mode` default. Maps to fx `FX_PERMISSION_MODE=yolo`.
+pub const default_access_mode = "fullAccess";
+pub const fx_env_bin = "/usr/bin/env";
 const max_line_keep = 4096;
 
 const app_permissions = [_][]const u8{ native_sdk.security.permission_command, native_sdk.security.permission_view };
@@ -85,6 +90,12 @@ pub const Session = struct {
     /// fx CLI session id from `fx ask --json`. Empty until the first mint.
     fx_session_id_storage: [max_fx_session_id]u8 = [_]u8{0} ** max_fx_session_id,
     fx_session_id_len: usize = 0,
+    /// Gateway model id for `FX_MODEL`. Empty inherits fx's own default.
+    model_storage: [max_fx_model]u8 = [_]u8{0} ** max_fx_model,
+    model_len: usize = 0,
+    /// Waku `runtime_mode` (ask | autoAcceptEdits | auto | fullAccess).
+    access_mode_storage: [max_access_mode]u8 = [_]u8{0} ** max_access_mode,
+    access_mode_len: usize = 0,
 
     pub fn title(self: *const Session) []const u8 {
         return self.title_storage[0..self.title_len];
@@ -104,6 +115,22 @@ pub const Session = struct {
 
     pub fn setFxSessionId(self: *Session, id: []const u8) void {
         writeFixed(&self.fx_session_id_storage, &self.fx_session_id_len, id);
+    }
+
+    pub fn model(self: *const Session) []const u8 {
+        return self.model_storage[0..self.model_len];
+    }
+
+    pub fn setModel(self: *Session, value: []const u8) void {
+        writeFixed(&self.model_storage, &self.model_len, value);
+    }
+
+    pub fn accessMode(self: *const Session) []const u8 {
+        return self.access_mode_storage[0..self.access_mode_len];
+    }
+
+    pub fn setAccessMode(self: *Session, value: []const u8) void {
+        writeFixed(&self.access_mode_storage, &self.access_mode_len, value);
     }
 
     pub fn provider_label(self: *const Session) []const u8 {
@@ -210,6 +237,14 @@ pub const Model = struct {
     last_project_path_len: usize = 0,
     last_spawn_cwd_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     last_spawn_cwd_len: usize = 0,
+    last_model_storage: [max_fx_model]u8 = [_]u8{0} ** max_fx_model,
+    last_model_len: usize = 0,
+    last_access_mode_storage: [max_access_mode]u8 = [_]u8{0} ** max_access_mode,
+    last_access_mode_len: usize = 0,
+    last_spawn_fx_model_storage: [max_fx_model]u8 = [_]u8{0} ** max_fx_model,
+    last_spawn_fx_model_len: usize = 0,
+    last_spawn_fx_permission_mode_storage: [max_access_mode]u8 = [_]u8{0} ** max_access_mode,
+    last_spawn_fx_permission_mode_len: usize = 0,
 
     pub const view_unbound = .{
         "session_store",
@@ -246,10 +281,26 @@ pub const Model = struct {
         "last_project_path_len",
         "last_spawn_cwd_storage",
         "last_spawn_cwd_len",
+        "last_model_storage",
+        "last_model_len",
+        "last_access_mode_storage",
+        "last_access_mode_len",
+        "last_spawn_fx_model_storage",
+        "last_spawn_fx_model_len",
+        "last_spawn_fx_permission_mode_storage",
+        "last_spawn_fx_permission_mode_len",
         "lastProjectPath",
         "setLastProjectPath",
+        "lastModel",
+        "setLastModel",
+        "lastAccessMode",
+        "setLastAccessMode",
         "lastSpawnCwd",
         "setLastSpawnCwd",
+        "lastSpawnFxModel",
+        "setLastSpawnFxModel",
+        "lastSpawnFxPermissionMode",
+        "setLastSpawnFxPermissionMode",
         "resolveSpawnCwd",
         "fxPath",
         "setFxPath",
@@ -376,6 +427,38 @@ pub const Model = struct {
         writeFixed(&model.last_spawn_cwd_storage, &model.last_spawn_cwd_len, path);
     }
 
+    pub fn lastModel(model: *const Model) []const u8 {
+        return model.last_model_storage[0..model.last_model_len];
+    }
+
+    pub fn setLastModel(model: *Model, value: []const u8) void {
+        writeFixed(&model.last_model_storage, &model.last_model_len, value);
+    }
+
+    pub fn lastAccessMode(model: *const Model) []const u8 {
+        return model.last_access_mode_storage[0..model.last_access_mode_len];
+    }
+
+    pub fn setLastAccessMode(model: *Model, value: []const u8) void {
+        writeFixed(&model.last_access_mode_storage, &model.last_access_mode_len, value);
+    }
+
+    pub fn lastSpawnFxModel(model: *const Model) []const u8 {
+        return model.last_spawn_fx_model_storage[0..model.last_spawn_fx_model_len];
+    }
+
+    pub fn setLastSpawnFxModel(model: *Model, value: []const u8) void {
+        writeFixed(&model.last_spawn_fx_model_storage, &model.last_spawn_fx_model_len, value);
+    }
+
+    pub fn lastSpawnFxPermissionMode(model: *const Model) []const u8 {
+        return model.last_spawn_fx_permission_mode_storage[0..model.last_spawn_fx_permission_mode_len];
+    }
+
+    pub fn setLastSpawnFxPermissionMode(model: *Model, value: []const u8) void {
+        writeFixed(&model.last_spawn_fx_permission_mode_storage, &model.last_spawn_fx_permission_mode_len, value);
+    }
+
     /// Child cwd for `fx ask`: session project_path when it is non-empty and
     /// a real directory. Otherwise empty — Native spawn has no cwd field
     /// (0.9.3 SpawnOptions), so an empty result leaves the host process cwd.
@@ -424,6 +507,9 @@ pub const Model = struct {
         var session = Session{ .id = model.next_id, .provider = provider };
         writeFixed(&session.title_storage, &session.title_len, title_text);
         writeFixed(&session.project_path_storage, &session.project_path_len, model.lastProjectPath());
+        writeFixed(&session.model_storage, &session.model_len, model.lastModel());
+        const access = if (model.lastAccessMode().len > 0) model.lastAccessMode() else default_access_mode;
+        writeFixed(&session.access_mode_storage, &session.access_mode_len, access);
         model.session_store[model.session_count] = session;
         model.session_count += 1;
         model.next_id += 1;
@@ -521,6 +607,8 @@ pub const Model = struct {
         has_started: bool,
         project_path: []const u8,
         fx_session_id: []const u8,
+        model_id: []const u8,
+        access_mode: []const u8,
     ) void {
         if (model.session_count >= max_sessions) return;
         var session = Session{
@@ -533,6 +621,8 @@ pub const Model = struct {
         writeFixed(&session.title_storage, &session.title_len, title_text);
         writeFixed(&session.project_path_storage, &session.project_path_len, project_path);
         writeFixed(&session.fx_session_id_storage, &session.fx_session_id_len, fx_session_id);
+        writeFixed(&session.model_storage, &session.model_len, model_id);
+        writeFixed(&session.access_mode_storage, &session.access_mode_len, access_mode);
         model.session_store[model.session_count] = session;
         model.session_count += 1;
         if (id >= model.next_id) model.next_id = id + 1;
@@ -687,41 +777,86 @@ fn startDemoTimer(fx: *Effects) void {
     });
 }
 
+/// Waku `runtime_mode` → verified `FX_PERMISSION_MODE` (`ask`/`auto`/`yolo`).
+/// Unknown strings persist but do not set the env.
+pub fn fxPermissionMode(access_mode: []const u8) []const u8 {
+    if (std.mem.eql(u8, access_mode, "ask")) return "ask";
+    if (std.mem.eql(u8, access_mode, "autoAcceptEdits")) return "auto";
+    if (std.mem.eql(u8, access_mode, "auto")) return "auto";
+    if (std.mem.eql(u8, access_mode, "fullAccess")) return "yolo";
+    if (std.mem.eql(u8, access_mode, "yolo")) return "yolo";
+    return "";
+}
+
 fn startFxAsk(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) void {
     const path = model.fxPath();
     const cwd = model.resolveSpawnCwd(session);
     const resume_id = session.fxSessionId();
+    const model_id = session.model();
+    const permission_mode = fxPermissionMode(session.accessMode());
     model.setLastSpawnCwd(cwd);
+    model.setLastSpawnFxModel(model_id);
+    model.setLastSpawnFxPermissionMode(permission_mode);
+
+    // Native SpawnOptions has no `env`. `/usr/bin/env KEY=val` sets the
+    // child only — do not export on the Faku process.
+    var model_assign: [max_fx_model + 16]u8 = undefined;
+    var perm_assign: [max_access_mode + 24]u8 = undefined;
+    const model_arg = if (model_id.len > 0)
+        std.fmt.bufPrint(&model_assign, "FX_MODEL={s}", .{model_id}) catch ""
+    else
+        "";
+    const perm_arg = if (permission_mode.len > 0)
+        std.fmt.bufPrint(&perm_assign, "FX_PERMISSION_MODE={s}", .{permission_mode}) catch ""
+    else
+        "";
+
+    var argv_buf: [16][]const u8 = undefined;
+    var n: usize = 0;
     if (cwd.len > 0) {
-        if (resume_id.len > 0) {
-            fx.spawn(.{
-                .key = fx_ask_key,
-                .argv = &.{ "/bin/sh", "-c", fx_ask_chdir_script, "sh", cwd, path, "ask", "--json", "--resume", resume_id, "--", prompt },
-                .on_line = Effects.lineMsg(.fx_line),
-                .on_exit = Effects.exitMsg(.fx_exit),
-            });
-            return;
+        argv_buf[n] = "/bin/sh";
+        n += 1;
+        argv_buf[n] = "-c";
+        n += 1;
+        argv_buf[n] = fx_ask_chdir_script;
+        n += 1;
+        argv_buf[n] = "sh";
+        n += 1;
+        argv_buf[n] = cwd;
+        n += 1;
+    }
+    if (model_arg.len > 0 or perm_arg.len > 0) {
+        argv_buf[n] = fx_env_bin;
+        n += 1;
+        if (model_arg.len > 0) {
+            argv_buf[n] = model_arg;
+            n += 1;
         }
-        fx.spawn(.{
-            .key = fx_ask_key,
-            .argv = &.{ "/bin/sh", "-c", fx_ask_chdir_script, "sh", cwd, path, "ask", "--json", "--", prompt },
-            .on_line = Effects.lineMsg(.fx_line),
-            .on_exit = Effects.exitMsg(.fx_exit),
-        });
-        return;
+        if (perm_arg.len > 0) {
+            argv_buf[n] = perm_arg;
+            n += 1;
+        }
     }
+    argv_buf[n] = path;
+    n += 1;
+    argv_buf[n] = "ask";
+    n += 1;
+    argv_buf[n] = "--json";
+    n += 1;
     if (resume_id.len > 0) {
-        fx.spawn(.{
-            .key = fx_ask_key,
-            .argv = &.{ path, "ask", "--json", "--resume", resume_id, "--", prompt },
-            .on_line = Effects.lineMsg(.fx_line),
-            .on_exit = Effects.exitMsg(.fx_exit),
-        });
-        return;
+        argv_buf[n] = "--resume";
+        n += 1;
+        argv_buf[n] = resume_id;
+        n += 1;
     }
+    argv_buf[n] = "--";
+    n += 1;
+    argv_buf[n] = prompt;
+    n += 1;
+
     fx.spawn(.{
         .key = fx_ask_key,
-        .argv = &.{ path, "ask", "--json", "--", prompt },
+        .argv = argv_buf[0..n],
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
