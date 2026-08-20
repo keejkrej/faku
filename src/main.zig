@@ -190,6 +190,7 @@ pub const Model = struct {
         "setFxPath",
         "setHome",
         "homeDir",
+        "selected_title",
     };
 
     pub fn draft(model: *const Model) []const u8 {
