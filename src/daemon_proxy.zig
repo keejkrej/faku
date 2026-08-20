@@ -156,7 +156,7 @@ pub fn run(io: std.Io, address: []const u8, outbound: []const u8, stdout: *std.I
     defer stream.close(io);
 
     var key_raw: [16]u8 = undefined;
-    std.crypto.random.bytes(&key_raw);
+    io.random(&key_raw);
     var key_b64: [24]u8 = undefined;
     const key = std.base64.standard.Encoder.encode(&key_b64, &key_raw);
 
@@ -177,7 +177,7 @@ pub fn run(io: std.Io, address: []const u8, outbound: []const u8, stdout: *std.I
         const frame = std.mem.trim(u8, rest[0..nl], " \t\r\n");
         line_start += nl + 1;
         if (frame.len == 0) continue;
-        writeTextFrame(&writer.interface, frame) catch {
+        writeTextFrame(io, &writer.interface, frame) catch {
             try writeStdoutLine(stdout, "{\"type\":\"rejected\",\"message\":\"send failed\"}");
             return error.SendFailed;
         };
@@ -266,9 +266,9 @@ fn handshake(
     return std.mem.indexOf(u8, response, expect) != null;
 }
 
-pub fn writeTextFrame(writer: *std.Io.Writer, payload: []const u8) !void {
+pub fn writeTextFrame(io: std.Io, writer: *std.Io.Writer, payload: []const u8) !void {
     var mask: [4]u8 = undefined;
-    std.crypto.random.bytes(&mask);
+    io.random(&mask);
     try writeTextFrameMasked(writer, payload, mask);
 }
 

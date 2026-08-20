@@ -247,7 +247,6 @@ pub fn persistIfPossible(model: *Model, session_id: u32) void {
         if (session.accessMode().len > 0) model.setLastAccessMode(session.accessMode());
     }
     if (model.daemonAddress().len > 0) model.setLastDaemonAddress(model.daemonAddress());
-}
     const io = model.store_io orelse return;
     saveSession(model, session_id, std.heap.page_allocator, io) catch {};
 }

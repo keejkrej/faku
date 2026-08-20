@@ -652,6 +652,7 @@ test "daemon address send puts hello loadTaskState and prompt on spawn stdin" {
     fx.executor = .fake;
 
     var model = Model{};
+    model.fx_probe_started = true;
     model.setDaemonAddress("127.0.0.1:8787");
     model.setDaemonToken("secret");
     model.setSidecarPath("faku");
@@ -684,6 +685,7 @@ test "daemon textDelta hydrates the turn and turnFinished settles plus drains" {
     fx.executor = .fake;
 
     var model = Model{};
+    model.fx_probe_started = true;
     model.setDaemonAddress("127.0.0.1:8787");
     const id = model.addSession("daemon settle", .fx);
     model.selected = id;
