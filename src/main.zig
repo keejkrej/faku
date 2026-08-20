@@ -1,10 +1,11 @@
 //! Faku: Native SDK desktop for a Waku-protocol compatible coding-agent shell.
 //!
 //! First-party provider is Vercel `fx` (https://fx.sh). Send on an `.fx`
-//! session runs `fx ask <prompt>` when the CLI is installed (streamed
-//! stdout lines). Missing binary falls back to the demo timer so tests
-//! stay green. ACP JSON-RPC helpers live in acp.zig; live `fx acp` waits
-//! on a stdin-write effect and is not spawned.
+//! session runs `fx ask --json -- <prompt>` when the CLI is installed
+//! (streamed stdout lines; `--resume <id>` after a minted session_id).
+//! Missing binary falls back to the demo timer so tests stay green.
+//! ACP JSON-RPC helpers live in acp.zig; live `fx acp` waits on a
+//! stdin-write effect and is not spawned.
 
 const std = @import("std");
 const runner = @import("runner");
@@ -34,6 +35,7 @@ pub const max_queued_text = 1024;
 const max_fx_path = 256;
 pub const max_store_dir = 512;
 pub const max_project_path = 512;
+pub const max_fx_session_id = 128;
 const max_line_keep = 4096;
 
 const app_permissions = [_][]const u8{ native_sdk.security.permission_command, native_sdk.security.permission_view };
@@ -80,6 +82,9 @@ pub const Session = struct {
     /// Workspace path for `fx ask`. Empty means inherit the host process cwd.
     project_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     project_path_len: usize = 0,
+    /// fx CLI session id from `fx ask --json`. Empty until the first mint.
+    fx_session_id_storage: [max_fx_session_id]u8 = [_]u8{0} ** max_fx_session_id,
+    fx_session_id_len: usize = 0,
 
     pub fn title(self: *const Session) []const u8 {
         return self.title_storage[0..self.title_len];
@@ -91,6 +96,14 @@ pub const Session = struct {
 
     pub fn setProjectPath(self: *Session, path: []const u8) void {
         writeFixed(&self.project_path_storage, &self.project_path_len, path);
+    }
+
+    pub fn fxSessionId(self: *const Session) []const u8 {
+        return self.fx_session_id_storage[0..self.fx_session_id_len];
+    }
+
+    pub fn setFxSessionId(self: *Session, id: []const u8) void {
+        writeFixed(&self.fx_session_id_storage, &self.fx_session_id_len, id);
     }
 
     pub fn provider_label(self: *const Session) []const u8 {
@@ -507,6 +520,7 @@ pub const Model = struct {
         untitled: bool,
         has_started: bool,
         project_path: []const u8,
+        fx_session_id: []const u8,
     ) void {
         if (model.session_count >= max_sessions) return;
         var session = Session{
@@ -518,6 +532,7 @@ pub const Model = struct {
         };
         writeFixed(&session.title_storage, &session.title_len, title_text);
         writeFixed(&session.project_path_storage, &session.project_path_len, project_path);
+        writeFixed(&session.fx_session_id_storage, &session.fx_session_id_len, fx_session_id);
         model.session_store[model.session_count] = session;
         model.session_count += 1;
         if (id >= model.next_id) model.next_id = id + 1;
@@ -675,12 +690,13 @@ fn startDemoTimer(fx: *Effects) void {
 fn startFxAsk(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) void {
     const path = model.fxPath();
     const cwd = model.resolveSpawnCwd(session);
+    const resume = session.fxSessionId();
     model.setLastSpawnCwd(cwd);
     if (cwd.len > 0) {
-        if (promptStartsLikeFlag(prompt)) {
+        if (resume.len > 0) {
             fx.spawn(.{
                 .key = fx_ask_key,
-                .argv = &.{ "/bin/sh", "-c", fx_ask_chdir_script, "sh", cwd, path, "ask", "--", prompt },
+                .argv = &.{ "/bin/sh", "-c", fx_ask_chdir_script, "sh", cwd, path, "ask", "--json", "--resume", resume, "--", prompt },
                 .on_line = Effects.lineMsg(.fx_line),
                 .on_exit = Effects.exitMsg(.fx_exit),
             });
@@ -688,16 +704,16 @@ fn startFxAsk(model: *Model, fx: *Effects, session: *const Session, prompt: []co
         }
         fx.spawn(.{
             .key = fx_ask_key,
-            .argv = &.{ "/bin/sh", "-c", fx_ask_chdir_script, "sh", cwd, path, "ask", prompt },
+            .argv = &.{ "/bin/sh", "-c", fx_ask_chdir_script, "sh", cwd, path, "ask", "--json", "--", prompt },
             .on_line = Effects.lineMsg(.fx_line),
             .on_exit = Effects.exitMsg(.fx_exit),
         });
         return;
     }
-    if (promptStartsLikeFlag(prompt)) {
+    if (resume.len > 0) {
         fx.spawn(.{
             .key = fx_ask_key,
-            .argv = &.{ path, "ask", "--", prompt },
+            .argv = &.{ path, "ask", "--json", "--resume", resume, "--", prompt },
             .on_line = Effects.lineMsg(.fx_line),
             .on_exit = Effects.exitMsg(.fx_exit),
         });
@@ -705,14 +721,33 @@ fn startFxAsk(model: *Model, fx: *Effects, session: *const Session, prompt: []co
     }
     fx.spawn(.{
         .key = fx_ask_key,
-        .argv = &.{ path, "ask", prompt },
+        .argv = &.{ path, "ask", "--json", "--", prompt },
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
 }
 
-fn promptStartsLikeFlag(prompt: []const u8) bool {
-    return prompt.len > 0 and prompt[0] == '-';
+/// A stdout line that is a JSON object with a non-empty `session_id`.
+/// Copies the id into `dest` and returns the copied slice.
+pub fn takeFxAskSessionId(line: []const u8, dest: []u8) ?[]const u8 {
+    const trimmed = std.mem.trim(u8, line, " \t\r\n");
+    if (trimmed.len < 2 or trimmed[0] != '{') return null;
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const root = std.json.parseFromSliceLeaky(std.json.Value, arena_state.allocator(), trimmed, .{}) catch return null;
+    const obj = switch (root) {
+        .object => |o| o,
+        else => return null,
+    };
+    const raw = obj.get("session_id") orelse return null;
+    const id = switch (raw) {
+        .string => |s| s,
+        else => return null,
+    };
+    if (id.len == 0) return null;
+    const take = @min(dest.len, id.len);
+    @memcpy(dest[0..take], id[0..take]);
+    return dest[0..take];
 }
 
 fn tickStream(model: *Model, fx: *Effects) void {
@@ -762,6 +797,14 @@ fn handleFxLine(model: *Model, line: native_sdk.EffectLine) void {
     if (model.phase != .streaming) return;
     if (line.key != fx_ask_key) return;
     const keep = line.line[0..@min(line.line.len, max_line_keep)];
+    var id_buf: [max_fx_session_id]u8 = undefined;
+    if (takeFxAskSessionId(keep, &id_buf)) |session_id| {
+        if (model.sessionById(model.streaming_session)) |session| {
+            session.setFxSessionId(session_id);
+            store.persistIfPossible(model, session.id);
+        }
+        return;
+    }
     if (model.turnById(model.stream_turn_id)) |turn| {
         if (turn.body_len > 0) model.appendToTurn(model.stream_turn_id, "\n");
     }

@@ -6,7 +6,7 @@
 //!
 //! First-party provider (this port's differentiator; Waku does not ship
 //! it): Vercel `fx` (https://fx.sh). Live first path is headless
-//! `fx ask <prompt>` (see main.zig). ACP JSON-RPC builders live in
+//! `fx ask --json -- <prompt>` (see main.zig). ACP JSON-RPC builders live in
 //! acp.zig; live `fx acp` is not spawned — Native stdin is one buffer
 //! at spawn time, and ACP needs ongoing writes. Probe `~/.local/bin/fx`
 //! then PATH. Missing binary keeps the demo timer.

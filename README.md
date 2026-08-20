@@ -29,7 +29,14 @@ over stdio), fx resume.
 
 When the fx CLI is installed, Send on an fx session runs a one-shot:
 
-    fx ask <prompt>
+    fx ask --json -- <prompt>
+    fx ask --json --resume <id> -- <prompt>
+
+`--json` prints a JSON object that includes `session_id`. Faku stores that
+id on the session (`fx_session_id` in `sessions.json`) and passes it back
+as `--resume` on later sends. The prompt stays after `--` so flag-like
+text is safe. Model is `FX_MODEL` (not a `--model` flag); this cut does
+not set it. `--no-save`, `--image`, and `--auto`/`--yolo` are not used.
 
 If that session has a non-empty `project_path` that exists on disk, the
 child's working directory is that path. Native 0.9.3 `SpawnOptions` has
@@ -42,9 +49,11 @@ used. Protocol `StartOptions.cwd` stays unused.
 New sessions inherit `last_project_path` from `sessions.json` when one
 was persisted. There is no project picker and no worktree materialization.
 
-Stdout lines stream into the assistant turn. Exit settles the turn and
-dequeues the next prompt if one was queued. Stop / Esc cancels the spawn
-and the demo timer; partial assistant text stays.
+A stdout line that is JSON with `session_id` updates the stored id and
+is not appended to the assistant turn. Other lines stream as today.
+Exit settles the turn and dequeues the next prompt if one was queued.
+Stop / Esc cancels the spawn and the demo timer; partial assistant
+text stays.
 
 Probe (boot `init_fx`, or first Send): `~/.local/bin/fx --help`, then
 `fx --help` on PATH. Success stores `fx_available` and `fx_path`. Missing
@@ -101,9 +110,9 @@ Path (Native `app_dirs` data directory, app name `faku`):
     macOS:  ~/Library/Application Support/faku/sessions.json
 
 Boot: if that file loads, the sidebar is session skeletons only (id, title,
-provider, untitled/has_started, project_path) — no demo rows and no
-transcripts. The document also stores `last_project_path` so a new
-session can inherit the last workspace.
+provider, untitled/has_started, project_path, fx_session_id) — no demo
+rows and no transcripts. The document also stores `last_project_path` so
+a new session can inherit the last workspace.
 Selecting a session hydrates its turns and `queued_messages` from the same
 file. Missing file keeps the two first-run demo sessions. A corrupt file
 also keeps the demos and is not overwritten until a successful load
@@ -116,8 +125,8 @@ persists. A successful finish (demo timer complete or `fx ask` exit 0)
 drains the next queued prompt. Stop, Esc, and a non-zero `fx ask` exit do
 not drain; partial assistant text stays, then the session is saved.
 
-`fx ask` / demo timer behavior is unchanged. This cut does not spawn
-`fx acp`.
+`fx ask --json` mints and resumes an `fx_session_id`. This cut does not
+spawn `fx acp`.
 
 ## Demo vs daemon
 

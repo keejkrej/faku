@@ -6,8 +6,8 @@
 //!   macOS:  ~/Library/Application Support/faku
 //!
 //! One JSON document `sessions.json`. Catalog load copies only session
-//! skeletons (id, title, provider, untitled, has_started, project_path)
-//! — no transcripts. Selecting a session hydrates its turns and
+//! skeletons (id, title, provider, untitled, has_started, project_path,
+//! fx_session_id) — no transcripts. Selecting a session hydrates its turns and
 //! `queued_messages`. Save is merge-only (never deletes).
 //! `removeSession` is the only delete. Refuses to write until a successful
 //! load (`task_state_loaded`), same guard as waku-client.
@@ -192,6 +192,7 @@ const StoredSession = struct {
     untitled: bool,
     has_started: bool,
     project_path: []const u8 = "",
+    fx_session_id: []const u8 = "",
     turns: []StoredTurn,
     queued_messages: []StoredQueued,
 };
@@ -233,7 +234,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.next_queued_id = document.next_queued_id;
     model.setLastProjectPath(document.last_project_path);
     for (document.sessions) |stored| {
-        model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path);
+        model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id);
     }
     if (model.sessionById(document.selected) != null) {
         model.selected = document.selected;
@@ -273,6 +274,7 @@ fn upsertSession(document: *Document, arena: std.mem.Allocator, model: *const Mo
         existing.untitled = incoming.untitled;
         existing.has_started = incoming.has_started;
         existing.project_path = incoming.project_path;
+        existing.fx_session_id = incoming.fx_session_id;
         if (live.detail_loaded) {
             existing.turns = incoming.turns;
             existing.queued_messages = incoming.queued_messages;
@@ -322,6 +324,7 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
         .untitled = session.untitled,
         .has_started = session.hasStarted(),
         .project_path = try arena.dupe(u8, session.projectPath()),
+        .fx_session_id = try arena.dupe(u8, session.fxSessionId()),
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
     };
@@ -406,6 +409,7 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         .untitled = untitled,
         .has_started = has_started,
         .project_path = jsonString(obj.get("project_path")) orelse "",
+        .fx_session_id = jsonString(obj.get("fx_session_id")) orelse "",
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
     };
@@ -517,6 +521,8 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
     try out.appendSlice(allocator, if (session.has_started) "true" else "false");
     try out.appendSlice(allocator, ",\"project_path\":");
     try appendJsonString(out, allocator, session.project_path);
+    try out.appendSlice(allocator, ",\"fx_session_id\":");
+    try appendJsonString(out, allocator, session.fx_session_id);
     try out.appendSlice(allocator, ",\"turns\":[");
     for (session.turns, 0..) |turn, i| {
         if (i != 0) try out.append(allocator, ',');
@@ -702,6 +708,30 @@ test "session project_path persists and new sessions inherit last_project_path" 
 
     const inherited = loaded.addSession("untitled next", .fx);
     try testing.expectEqualStrings(project, loaded.sessionById(inherited).?.projectPath());
+}
+
+test "session fx_session_id persists and loads" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("resume later", .fx);
+    if (source.sessionById(id)) |session| session.setFxSessionId("fx-sess-roundtrip");
+    _ = source.appendTurn(id, .user, "remember this thread");
+    try saveSession(&source, id, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqualStrings("fx-sess-roundtrip", loaded.session_store[0].fxSessionId());
 }
 
 test "queued_messages survive save and hydrate" {

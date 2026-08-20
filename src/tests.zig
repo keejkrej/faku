@@ -285,15 +285,81 @@ test "fx ask spawn records session project_path as cwd" {
     try testing.expectEqualStrings("what is the cwd", request.argv[request.argv.len - 1]);
 }
 
+test "fx ask --json mints session_id and later send resumes" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-fx-id", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("resume thread", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first turn" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const first = fx.pendingSpawnAt(0).?;
+    try testing.expectEqualStrings("fx", first.argv[0]);
+    try testing.expect(argvHas(first.argv, "ask"));
+    try testing.expect(argvHas(first.argv, "--json"));
+    try testing.expect(argvHas(first.argv, "--"));
+    try testing.expect(!argvHas(first.argv, "--resume"));
+    try testing.expectEqualStrings("first turn", first.argv[first.argv.len - 1]);
+
+    try fx.feedLine(main.fx_ask_key, "{\"session_id\":\"fx-test-1\"}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("fx-test-1", model.sessionById(id).?.fxSessionId());
+    try testing.expectEqual(@as(usize, 0), lastAssistant(&model).len);
+
+    try fx.feedLine(main.fx_ask_key, "plain reply");
+    drainEffects(&model, &fx);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "plain reply") != null);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "session_id") == null);
+
+    try fx.feedExit(main.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings("fx-test-1", loaded.session_store[0].fxSessionId());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "second turn" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const second = fx.pendingSpawnAt(0).?;
+    try testing.expect(argvHas(second.argv, "--json"));
+    try testing.expect(argvHas(second.argv, "--resume"));
+    try testing.expect(argvHas(second.argv, "fx-test-1"));
+    try testing.expectEqualStrings("second turn", second.argv[second.argv.len - 1]);
+    const resume_at = argvIndex(second.argv, "--resume") orelse return error.MissingResume;
+    try testing.expectEqualStrings("fx-test-1", second.argv[resume_at + 1]);
+}
+
 fn drainEffects(model: *Model, fx: *Effects) void {
     while (fx.takeMsg()) |msg| main.update(model, msg, fx);
 }
 
 fn argvHas(argv: []const []const u8, needle: []const u8) bool {
-    for (argv) |arg| {
-        if (std.mem.eql(u8, arg, needle)) return true;
+    return argvIndex(argv, needle) != null;
+}
+
+fn argvIndex(argv: []const []const u8, needle: []const u8) ?usize {
+    for (argv, 0..) |arg, i| {
+        if (std.mem.eql(u8, arg, needle)) return i;
     }
-    return false;
+    return null;
 }
 
 test "send + stream finish persists the selected session for a later load" {
