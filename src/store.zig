@@ -17,6 +17,8 @@
 //! catalog) so an unstarted New Task can persist before the session row
 //! exists. Keys match Waku: `newSession` / `newSession{project_path}`
 //! for untitled drafts, `session{id}` after the session has started.
+//! Each record is `{ text, image_path }` — one optional local file path
+//! for `fx ask --image`, not a Waku attachment/blob.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -75,7 +77,7 @@ pub fn persistDraftIfPossible(model: *Model) void {
     const session = model.sessionById(model.selected) orelse return;
     var key_buf: [max_draft_key]u8 = undefined;
     const key = draftKey(session, &key_buf) orelse return;
-    upsertDraft(model, io, key, model.draft()) catch {};
+    upsertDraft(model, io, key, model.draft(), model.draftImagePath()) catch {};
 }
 
 pub fn loadDraftIfPossible(model: *Model) void {
@@ -85,24 +87,29 @@ pub fn loadDraftIfPossible(model: *Model) void {
 
 pub fn discardDraftIfPossible(model: *Model, key: []const u8) void {
     const io = model.store_io orelse return;
-    upsertDraft(model, io, key, "") catch {};
+    upsertDraft(model, io, key, "", "") catch {};
 }
 
 fn loadDraft(model: *Model, allocator: std.mem.Allocator, io: std.Io) void {
     const session = model.sessionById(model.selected) orelse {
         model.draft_buffer.clear();
+        model.setDraftImagePath("");
         return;
     };
     var key_buf: [max_draft_key]u8 = undefined;
     const key = draftKey(session, &key_buf) orelse {
         model.draft_buffer.clear();
+        model.setDraftImagePath("");
         return;
     };
     var text_buf: [main.max_draft]u8 = undefined;
-    if (readDraftText(allocator, io, model.storeDir(), key, &text_buf)) |text| {
-        model.draft_buffer.set(text);
+    var image_buf: [main.max_project_path]u8 = undefined;
+    if (readDraftRecord(allocator, io, model.storeDir(), key, &text_buf, &image_buf)) |record| {
+        model.draft_buffer.set(record.text);
+        model.setDraftImagePath(record.image_path);
     } else {
         model.draft_buffer.clear();
+        model.setDraftImagePath("");
     }
 }
 
@@ -246,7 +253,7 @@ pub fn hydrateIfPossible(model: *Model, session_id: u32) void {
     hydrateSession(model, session_id, std.heap.page_allocator, io);
 }
 
-fn upsertDraft(model: *const Model, io: std.Io, key: []const u8, text: []const u8) !void {
+fn upsertDraft(model: *const Model, io: std.Io, key: []const u8, text: []const u8, image_path: []const u8) !void {
     const dir = model.storeDir();
     if (dir.len == 0 or key.len == 0) return;
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -257,19 +264,33 @@ fn upsertDraft(model: *const Model, io: std.Io, key: []const u8, text: []const u
         error.FileNotFound => DraftDocument{},
         else => return,
     };
-    applyDraftChange(&document, arena, key, text) catch return;
+    applyDraftChange(&document, arena, key, text, image_path) catch return;
     try writeDraftDocument(arena, io, dir, document);
 }
 
-fn readDraftText(allocator: std.mem.Allocator, io: std.Io, dir: []const u8, key: []const u8, dest: []u8) ?[]const u8 {
+const LoadedDraft = struct {
+    text: []const u8,
+    image_path: []const u8,
+};
+
+fn readDraftRecord(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    dir: []const u8,
+    key: []const u8,
+    text_dest: []u8,
+    image_dest: []u8,
+) ?LoadedDraft {
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
     const document = readDraftDocument(arena_state.allocator(), io, dir) catch return null;
     for (document.drafts) |entry| {
         if (!std.mem.eql(u8, entry.key, key)) continue;
-        const take = @min(dest.len, entry.text.len);
-        @memcpy(dest[0..take], entry.text[0..take]);
-        return dest[0..take];
+        const text_take = @min(text_dest.len, entry.text.len);
+        @memcpy(text_dest[0..text_take], entry.text[0..text_take]);
+        const image_take = @min(image_dest.len, entry.image_path.len);
+        @memcpy(image_dest[0..image_take], entry.image_path[0..image_take]);
+        return .{ .text = text_dest[0..text_take], .image_path = image_dest[0..image_take] };
     }
     return null;
 }
@@ -277,6 +298,7 @@ fn readDraftText(allocator: std.mem.Allocator, io: std.Io, dir: []const u8, key:
 const DraftEntry = struct {
     key: []const u8,
     text: []const u8,
+    image_path: []const u8 = "",
 };
 
 const DraftDocument = struct {
@@ -284,8 +306,9 @@ const DraftDocument = struct {
     drafts: []DraftEntry = &.{},
 };
 
-fn applyDraftChange(document: *DraftDocument, arena: std.mem.Allocator, key: []const u8, text: []const u8) !void {
+fn applyDraftChange(document: *DraftDocument, arena: std.mem.Allocator, key: []const u8, text: []const u8, image_path: []const u8) !void {
     const trimmed = std.mem.trim(u8, text, " \t\r\n");
+    const image = std.mem.trim(u8, image_path, " \t\r\n");
     var kept: usize = 0;
     for (document.drafts) |entry| {
         if (std.mem.eql(u8, entry.key, key)) continue;
@@ -293,7 +316,7 @@ fn applyDraftChange(document: *DraftDocument, arena: std.mem.Allocator, key: []c
         kept += 1;
     }
     document.drafts = document.drafts[0..kept];
-    if (trimmed.len == 0) return;
+    if (trimmed.len == 0 and image.len == 0) return;
     if (document.drafts.len >= max_draft_entries) {
         document.drafts = document.drafts[1..];
     }
@@ -302,6 +325,7 @@ fn applyDraftChange(document: *DraftDocument, arena: std.mem.Allocator, key: []c
     next[document.drafts.len] = .{
         .key = try arena.dupe(u8, key),
         .text = try arena.dupe(u8, text),
+        .image_path = try arena.dupe(u8, image),
     };
     document.drafts = next;
 }
@@ -329,11 +353,15 @@ fn parseDraftDocument(arena: std.mem.Allocator, bytes: []const u8) !DraftDocumen
     var drafts: std.ArrayList(DraftEntry) = .empty;
     var it = drafts_obj.iterator();
     while (it.next()) |entry| {
-        const text = switch (entry.value_ptr.*) {
-            .string => |s| s,
+        switch (entry.value_ptr.*) {
+            .string => |s| try drafts.append(arena, .{ .key = entry.key_ptr.*, .text = s }),
+            .object => |o| try drafts.append(arena, .{
+                .key = entry.key_ptr.*,
+                .text = jsonString(o.get("text")) orelse "",
+                .image_path = jsonString(o.get("image_path")) orelse "",
+            }),
             else => continue,
-        };
-        try drafts.append(arena, .{ .key = entry.key_ptr.*, .text = text });
+        }
     }
     return .{ .version = version, .drafts = try drafts.toOwnedSlice(arena) };
 }
@@ -355,8 +383,11 @@ fn encodeDraftDocument(allocator: std.mem.Allocator, document: DraftDocument) ![
     for (document.drafts, 0..) |entry, i| {
         if (i != 0) try out.append(allocator, ',');
         try appendJsonString(&out, allocator, entry.key);
-        try out.append(allocator, ':');
+        try out.appendSlice(allocator, ":{\"text\":");
         try appendJsonString(&out, allocator, entry.text);
+        try out.appendSlice(allocator, ",\"image_path\":");
+        try appendJsonString(&out, allocator, entry.image_path);
+        try out.append(allocator, '}');
     }
     try out.appendSlice(allocator, "}}");
     return out.toOwnedSlice(allocator);
@@ -1029,6 +1060,38 @@ test "composer draft persists for a started session key" {
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
     try testing.expectEqual(id, loaded.selected);
     try testing.expectEqualStrings("unsent follow-up", loaded.draft());
+}
+
+test "draft image_path persists with the draft key" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/shot.png", .{tmp.sub_path[0..]});
+    const io = testing.io;
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = image, .data = "png" });
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("image draft", .fx);
+    _ = source.appendTurn(id, .user, "already started");
+    source.selected = id;
+    try saveSession(&source, id, allocator, io);
+    source.draft_buffer.set("look at this");
+    source.setDraftImagePath(image);
+    persistDraftIfPossible(&source);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqualStrings("look at this", loaded.draft());
+    try testing.expectEqualStrings(image, loaded.draftImagePath());
 }
 
 test "queued_messages survive save and hydrate" {

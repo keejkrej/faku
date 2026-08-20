@@ -400,7 +400,10 @@ test "newSession draft loads on New Task and is discarded after first send" {
     try testing.expectEqualStrings("newSession", store.draftKey(model.sessionById(first).?, &key_buf).?);
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt draft" } }, &fx);
+    model.setDraftImagePath("/tmp/will-be-discarded.png");
+    store.persistDraftIfPossible(&model);
     try testing.expectEqualStrings("first prompt draft", model.draft());
+    try testing.expectEqualStrings("/tmp/will-be-discarded.png", model.draftImagePath());
 
     var peek = Model{};
     peek.setStoreDir(dir);
@@ -428,6 +431,66 @@ test "newSession draft loads on New Task and is discarded after first send" {
     after.selected = next;
     store.loadDraftIfPossible(&after);
     try testing.expectEqual(@as(usize, 0), after.draft().len);
+    try testing.expectEqual(@as(usize, 0), after.draftImagePath().len);
+}
+
+test "fx ask --image when draft image_path exists" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/shot.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    model.store_io = testing.io;
+    const id = model.addSession("image send", .fx);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "describe this" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqualStrings(image, model.lastSpawnImagePath());
+    try testing.expectEqual(@as(usize, 0), model.draftImagePath().len);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(argvHas(request.argv, "--image"));
+    const image_at = argvIndex(request.argv, "--image") orelse return error.MissingImage;
+    try testing.expectEqualStrings(image, request.argv[image_at + 1]);
+    const dash_at = argvIndex(request.argv, "--") orelse return error.MissingDash;
+    try testing.expect(image_at < dash_at);
+    try testing.expect(!argvHas(request.argv, "--file"));
+    try testing.expectEqualStrings("describe this", request.argv[request.argv.len - 1]);
+}
+
+test "fx ask omits --image when the draft file is missing" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    model.store_io = testing.io;
+    const id = model.addSession("missing image", .fx);
+    model.selected = id;
+    model.setDraftImagePath(".zig-cache/tmp/faku-no-such-image.png");
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "no image" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(usize, 0), model.lastSpawnImagePath().len);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(!argvHas(request.argv, "--image"));
+    try testing.expectEqualStrings("no image", request.argv[request.argv.len - 1]);
 }
 
 test "Waku access_mode maps to verified FX_PERMISSION_MODE values" {

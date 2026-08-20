@@ -245,6 +245,10 @@ pub const Model = struct {
     last_spawn_fx_model_len: usize = 0,
     last_spawn_fx_permission_mode_storage: [max_access_mode]u8 = [_]u8{0} ** max_access_mode,
     last_spawn_fx_permission_mode_len: usize = 0,
+    draft_image_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    draft_image_path_len: usize = 0,
+    last_spawn_image_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    last_spawn_image_path_len: usize = 0,
 
     pub const view_unbound = .{
         "session_store",
@@ -289,6 +293,10 @@ pub const Model = struct {
         "last_spawn_fx_model_len",
         "last_spawn_fx_permission_mode_storage",
         "last_spawn_fx_permission_mode_len",
+        "draft_image_path_storage",
+        "draft_image_path_len",
+        "last_spawn_image_path_storage",
+        "last_spawn_image_path_len",
         "lastProjectPath",
         "setLastProjectPath",
         "lastModel",
@@ -301,6 +309,11 @@ pub const Model = struct {
         "setLastSpawnFxModel",
         "lastSpawnFxPermissionMode",
         "setLastSpawnFxPermissionMode",
+        "draftImagePath",
+        "setDraftImagePath",
+        "lastSpawnImagePath",
+        "setLastSpawnImagePath",
+        "resolveSpawnImage",
         "resolveSpawnCwd",
         "fxPath",
         "setFxPath",
@@ -457,6 +470,32 @@ pub const Model = struct {
 
     pub fn setLastSpawnFxPermissionMode(model: *Model, value: []const u8) void {
         writeFixed(&model.last_spawn_fx_permission_mode_storage, &model.last_spawn_fx_permission_mode_len, value);
+    }
+
+    pub fn draftImagePath(model: *const Model) []const u8 {
+        return model.draft_image_path_storage[0..model.draft_image_path_len];
+    }
+
+    pub fn setDraftImagePath(model: *Model, path: []const u8) void {
+        writeFixed(&model.draft_image_path_storage, &model.draft_image_path_len, path);
+    }
+
+    pub fn lastSpawnImagePath(model: *const Model) []const u8 {
+        return model.last_spawn_image_path_storage[0..model.last_spawn_image_path_len];
+    }
+
+    pub fn setLastSpawnImagePath(model: *Model, path: []const u8) void {
+        writeFixed(&model.last_spawn_image_path_storage, &model.last_spawn_image_path_len, path);
+    }
+
+    /// `fx ask --image` path when the draft has a non-empty path that exists.
+    /// Missing files omit the flag; Native spawn has no attachment/blob API.
+    pub fn resolveSpawnImage(model: *const Model) []const u8 {
+        const path = model.draftImagePath();
+        if (path.len == 0) return "";
+        const io = model.store_io orelse return "";
+        if (!fileExists(io, path)) return "";
+        return path;
     }
 
     /// Child cwd for `fx ask`: session project_path when it is non-empty and
@@ -684,6 +723,12 @@ fn directoryExists(io: std.Io, path: []const u8) bool {
     return true;
 }
 
+fn fileExists(io: std.Io, path: []const u8) bool {
+    var file = std.Io.Dir.cwd().openFile(io, path, .{}) catch return false;
+    file.close(io);
+    return true;
+}
+
 /// Native `SpawnOptions` (0.9.3) has no `cwd`. `std.process.spawn` does, but
 /// Effects does not expose it. `cd` + `exec` is a real child cwd, not `PWD`.
 pub const fx_ask_chdir_script = "cd -- \"$1\" && shift && exec \"$@\"";
@@ -750,12 +795,14 @@ fn handleSend(model: *Model, fx: *Effects) void {
         }
         model.draft_buffer.clear();
         if (draft_key) |key| store.discardDraftIfPossible(model, key);
+        model.setDraftImagePath("");
         return;
     }
     if (text.len == 0) return;
     startPrompt(model, fx, model.selected, text);
     model.draft_buffer.clear();
     if (draft_key) |key| store.discardDraftIfPossible(model, key);
+    model.setDraftImagePath("");
 }
 
 fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) void {
@@ -808,9 +855,11 @@ fn startFxAsk(model: *Model, fx: *Effects, session: *const Session, prompt: []co
     const resume_id = session.fxSessionId();
     const model_id = session.model();
     const permission_mode = fxPermissionMode(session.accessMode());
+    const image_path = model.resolveSpawnImage();
     model.setLastSpawnCwd(cwd);
     model.setLastSpawnFxModel(model_id);
     model.setLastSpawnFxPermissionMode(permission_mode);
+    model.setLastSpawnImagePath(image_path);
 
     // Native SpawnOptions has no `env`. `/usr/bin/env KEY=val` sets the
     // child only — do not export on the Faku process.
@@ -825,7 +874,7 @@ fn startFxAsk(model: *Model, fx: *Effects, session: *const Session, prompt: []co
     else
         "";
 
-    var argv_buf: [16][]const u8 = undefined;
+    var argv_buf: [20][]const u8 = undefined;
     var n: usize = 0;
     if (cwd.len > 0) {
         argv_buf[n] = "/bin/sh";
@@ -861,6 +910,12 @@ fn startFxAsk(model: *Model, fx: *Effects, session: *const Session, prompt: []co
         argv_buf[n] = "--resume";
         n += 1;
         argv_buf[n] = resume_id;
+        n += 1;
+    }
+    if (image_path.len > 0) {
+        argv_buf[n] = "--image";
+        n += 1;
+        argv_buf[n] = image_path;
         n += 1;
     }
     argv_buf[n] = "--";
