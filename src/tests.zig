@@ -79,7 +79,7 @@ fn lastAssistant(model: *const Model) []const u8 {
     var i = model.turn_count;
     while (i > 0) {
         i -= 1;
-        const turn = model.turn_store[i];
+        const turn = &model.turn_store[i];
         if (turn.session_id == model.selected and turn.role == .assistant) return turn.text();
     }
     return "";
