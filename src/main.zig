@@ -18,10 +18,11 @@ const canvas = native_sdk.canvas;
 const geometry = native_sdk.geometry;
 
 const canvas_label = "main-canvas";
-pub const window_width: f32 = 1200;
-pub const window_height: f32 = 800;
-pub const window_min_width: f32 = 800;
-pub const window_min_height: f32 = 560;
+pub const window_width: f32 = 1380;
+pub const window_height: f32 = 880;
+pub const window_min_width: f32 = 980;
+pub const window_min_height: f32 = 680;
+const default_sidebar_split: f32 = 0.2;
 
 const max_sessions = 16;
 const max_turns = 128;
@@ -111,6 +112,8 @@ pub const TurnRow = struct {
     id: u32,
     role_label: []const u8,
     text: []const u8,
+    is_user: bool,
+    is_tool: bool,
 };
 
 pub const Msg = union(enum) {
@@ -119,6 +122,9 @@ pub const Msg = union(enum) {
     draft_edit: canvas.TextInputEvent,
     send,
     stop,
+    clear_queue,
+    sidebar_resized: f32,
+    transcript_scrolled: canvas.ScrollState,
     tick: native_sdk.EffectTimer,
     fx_line: native_sdk.EffectLine,
     fx_exit: native_sdk.EffectExit,
@@ -143,6 +149,8 @@ pub const Model = struct {
     streaming_session: u32 = 0,
     queued_storage: [max_queue]u8 = [_]u8{0} ** max_queue,
     queued_len: usize = 0,
+    sidebar_split: f32 = default_sidebar_split,
+    transcript_scroll: f32 = 0,
     fx_available: bool = false,
     fx_path_storage: [max_fx_path]u8 = [_]u8{0} ** max_fx_path,
     fx_path_len: usize = 0,
@@ -222,6 +230,8 @@ pub const Model = struct {
                 .id = turn.id,
                 .role_label = turn.role_label(),
                 .text = turn.text(),
+                .is_user = turn.role == .user,
+                .is_tool = turn.role == .tool,
             };
             i += 1;
         }
@@ -243,11 +253,33 @@ pub const Model = struct {
             .demo => "demo",
             .fx => "fx",
         };
+        if (model.queued_len > 0) {
+            return std.fmt.allocPrint(arena, "{d} sessions · {s} · {s} · queued", .{
+                model.session_count,
+                path,
+                model.selected_provider(),
+            }) catch "demo";
+        }
         return std.fmt.allocPrint(arena, "{d} sessions · {s} · {s}", .{
             model.session_count,
             path,
             model.selected_provider(),
         }) catch "demo";
+    }
+
+    pub fn has_queued(model: *const Model) bool {
+        return model.queued_len > 0;
+    }
+
+    pub fn queued_text(model: *const Model) []const u8 {
+        return model.queued_storage[0..model.queued_len];
+    }
+
+    pub fn composer_placeholder(model: *const Model) []const u8 {
+        if (model.activeSessionConst()) |session| {
+            if (session.provider == .fx) return "Message fx\u{2026}";
+        }
+        return "Message the agent\u{2026}";
     }
 
     pub fn empty_hint(model: *const Model) []const u8 {
@@ -354,6 +386,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .draft_edit => |edit| model.draft_buffer.apply(edit),
         .send => handleSend(model, fx),
         .stop => stopStream(model, fx),
+        .clear_queue => model.queued_len = 0,
+        .sidebar_resized => |fraction| model.sidebar_split = fraction,
+        .transcript_scrolled => |scroll| model.transcript_scroll = scroll.offset_y,
         .tick => |timer| {
             if (timer.outcome != .fired) return;
             tickStream(model, fx);
@@ -555,6 +590,9 @@ fn fxProbePath(model: *const Model, index: u32, buf: *[max_fx_path]u8) ?[]const 
 
 pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     if (std.ascii.eqlIgnoreCase(keyboard.key, "escape")) return .stop;
+    if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "n")) {
+        return .new_session;
+    }
     return null;
 }
 

@@ -48,23 +48,35 @@ fn dumpTexts(widget: canvas.Widget, depth: usize) void {
     for (widget.children) |child| dumpTexts(child, depth + 1);
 }
 
-fn findButtonContaining(widget: canvas.Widget, text: []const u8) ?canvas.Widget {
-    if (widget.kind == .button) {
+fn isPressable(kind: canvas.WidgetKind) bool {
+    return kind == .button or kind == .list_item;
+}
+
+fn findPressableContaining(widget: canvas.Widget, text: []const u8) ?canvas.Widget {
+    if (isPressable(widget.kind)) {
         if (std.mem.eql(u8, widget.text, text)) return widget;
         if (findByText(widget, .text, text) != null) return widget;
     }
     for (widget.children) |child| {
-        if (findButtonContaining(child, text)) |found| return found;
+        if (findPressableContaining(child, text)) |found| return found;
     }
     return null;
 }
 
 fn expectButton(widget: canvas.Widget, text: []const u8) !canvas.Widget {
-    return findButtonContaining(widget, text) orelse {
-        std.debug.print("no button containing \"{s}\"\n", .{text});
+    return findPressableContaining(widget, text) orelse {
+        std.debug.print("no pressable containing \"{s}\"\n", .{text});
         dumpTexts(widget, 0);
         return error.WidgetNotFound;
     };
+}
+
+fn findByKind(widget: canvas.Widget, kind: canvas.WidgetKind) ?canvas.Widget {
+    if (widget.kind == kind) return widget;
+    for (widget.children) |child| {
+        if (findByKind(child, kind)) |found| return found;
+    }
+    return null;
 }
 
 fn countRole(model: *const Model, role: main.Role) usize {
@@ -103,12 +115,16 @@ test "boot is fx-first and New / send / ticks / stop drive the demo" {
 
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Faku");
+    _ = try expectByText(tree.root, .text, "Sessions");
     _ = try expectByText(tree.root, .button, "New");
     _ = try expectButton(tree.root, "port waku to zig");
     _ = try expectButton(tree.root, "fix auth listener");
     _ = try expectByText(tree.root, .button, "Send");
     _ = try expectByText(tree.root, .status_bar, "2 sessions \u{b7} demo \u{b7} fx");
     _ = try expectByText(tree.root, .text, "fx");
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("Message fx\u{2026}", composer.placeholder);
+    }
 
     const new_btn = try expectByText(tree.root, .button, "New");
     main.update(&model, tree.msgForPointer(new_btn.id, .up).?, &fx);
@@ -264,8 +280,12 @@ test "the view lays out through the canvas engine" {
     var model = main.initialModel();
     const tree = try buildTree(arena_state.allocator(), &model);
 
-    var nodes: [128]canvas.WidgetLayoutNode = undefined;
-    const layout = try canvas.layoutWidgetTree(tree.root, native_sdk.geometry.RectF.init(0, 0, 1200, 800), &nodes);
+    var nodes: [256]canvas.WidgetLayoutNode = undefined;
+    const layout = try canvas.layoutWidgetTree(
+        tree.root,
+        native_sdk.geometry.RectF.init(0, 0, main.window_width, main.window_height),
+        &nodes,
+    );
     try testing.expect(layout.nodes.len > 0);
 
     const send = try expectByText(tree.root, .button, "Send");
@@ -274,4 +294,79 @@ test "the view lays out through the canvas engine" {
         if (node.widget.id == send.id) saw_send = true;
     }
     try testing.expect(saw_send);
+}
+
+test "cmd-n and ctrl-n create a session via onKey" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+
+    const plain_n = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "n" };
+    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_n));
+
+    const cmd_n = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "n",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.new_session, main.onKey(cmd_n).?);
+    main.update(&model, main.onKey(cmd_n).?, &fx);
+    try testing.expectEqual(@as(u32, 3), model.session_count);
+    try testing.expectEqualStrings("untitled", model.selected_title());
+    try testing.expectEqual(main.Provider.fx, model.session_store[2].provider);
+
+    const ctrl_n = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "n",
+        .modifiers = .{ .control = true },
+    };
+    main.update(&model, main.onKey(ctrl_n).?, &fx);
+    try testing.expectEqual(@as(u32, 4), model.session_count);
+    try testing.expectEqualStrings("fx", model.selected_provider());
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+}
+
+test "send while busy shows a queued card that dismiss clears" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Queued") == null);
+    _ = try expectButton(tree.root, "port waku to zig");
+    _ = try expectButton(tree.root, "fix auth listener");
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "follow up later" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.queued_len > 0);
+    try testing.expectEqualStrings("follow up later", model.queued_text());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Queued");
+    _ = try expectByText(tree.root, .text, "follow up later");
+    _ = try expectByText(tree.root, .status_bar, "2 sessions \u{b7} demo \u{b7} fx \u{b7} queued");
+    _ = try expectButton(tree.root, "port waku to zig");
+    _ = try expectButton(tree.root, "fix auth listener");
+
+    const dismiss = try expectByText(tree.root, .button, "Dismiss");
+    main.update(&model, tree.msgForPointer(dismiss.id, .up).?, &fx);
+    try testing.expectEqual(@as(usize, 0), model.queued_len);
+    try testing.expect(model.is_streaming());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Queued") == null);
 }

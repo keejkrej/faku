@@ -13,6 +13,15 @@ This app replaces the GPUI window with Vercel Native SDK markup plus a Zig
 Model / Msg / update loop. waku-daemon can stay the brain. Faku is the window,
 and it is fx-first.
 
+## UI
+
+The window is Waku-shaped chrome, not a pixel-perfect GPUI clone: ~1380×880
+(min 980×680), a Sessions sidebar, a window-drag header (Faku / fx / New),
+right-aligned user bubbles, a queued-follow-up card above the composer, and
+an Enter-to-send textarea. Cmd/Ctrl-N starts a session; Esc cancels. Live
+`fx ask` and the demo timer are unchanged — this is the shell, not a new
+backend.
+
 ## Why fx
 
 Waku does not ship Vercel fx (https://fx.sh, https://github.com/vercel-labs/fx).
@@ -84,8 +93,8 @@ New sessions default to fx. Without the fx binary, Send streams a local
 canned reply (about 12 ticks / 90ms). Send while streaming with a draft
 queues; empty Send, Stop, or Esc cancels.
 
-Product keys (not all wired): Cmd-N new, Enter send/queue, Cmd-Enter steer,
-Esc cancel.
+Keys: Cmd/Ctrl-N new session, Enter send/queue (Shift-Enter newline),
+Cmd-Enter also submits (no live steer yet), Esc cancel.
 
 Daemon (typed, not connected): JSON frames over ws://{addr}/v1. Native has no
 socket client for that. Env: WAKU_DAEMON_TOKEN, WAKU_DAEMON_ADDRESS. First
