@@ -31,9 +31,11 @@
       </row>
       <separator />
       <column grow="1" padding="12" gap="8">
-        <text size="heading">{header_title}</text>
+        <if test="{has_turns}">
+          <text size="heading">{header_title}</text>
+        </if>
         <scroll grow="1" value="{transcript_scroll}" on-scroll="transcript_scrolled">
-          <column gap="8">
+          <column gap="8" grow="1">
             <for each="visible_turns" key="id" as="t">
               <if test="{t.is_user}">
                 <column gap="2" cross="end">
@@ -59,9 +61,8 @@
               </else>
             </for>
             <else>
-              <column gap="8">
+              <column grow="1" gap="8" main="center" cross="center">
                 <text size="heading">What should we build?</text>
-                <text foreground="text_muted">{empty_hint}</text>
               </column>
             </else>
           </column>

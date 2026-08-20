@@ -191,6 +191,7 @@ pub const Model = struct {
         "setHome",
         "homeDir",
         "selected_title",
+        "empty_hint",
     };
 
     pub fn draft(model: *const Model) []const u8 {
@@ -274,6 +275,13 @@ pub const Model = struct {
             path,
             model.selected_provider(),
         }) catch "demo";
+    }
+
+    pub fn has_turns(model: *const Model) bool {
+        for (model.turn_store[0..model.turn_count]) |turn| {
+            if (turn.session_id == model.selected) return true;
+        }
+        return false;
     }
 
     pub fn has_queued(model: *const Model) bool {
