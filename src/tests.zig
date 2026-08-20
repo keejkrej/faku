@@ -379,6 +379,57 @@ test "fx ask spawn records FX_MODEL and FX_PERMISSION_MODE" {
     try testing.expectEqualStrings("with env", request.argv[request.argv.len - 1]);
 }
 
+test "newSession draft loads on New Task and is discarded after first send" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-drafts", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    main.update(&model, .new_session, &fx);
+    const first = model.selected;
+    try testing.expect(model.sessionById(first).?.untitled);
+    var key_buf: [store.max_draft_key]u8 = undefined;
+    try testing.expectEqualStrings("newSession", store.draftKey(model.sessionById(first).?, &key_buf).?);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt draft" } }, &fx);
+    try testing.expectEqualStrings("first prompt draft", model.draft());
+
+    var peek = Model{};
+    peek.setStoreDir(dir);
+    peek.store_io = testing.io;
+    const peek_id = peek.addSession("untitled", .fx);
+    if (peek.sessionById(peek_id)) |session| session.untitled = true;
+    peek.selected = peek_id;
+    store.loadDraftIfPossible(&peek);
+    try testing.expectEqualStrings("first prompt draft", peek.draft());
+
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(@as(usize, 0), model.draft().len);
+    var n: u32 = 0;
+    while (n < 16 and model.is_streaming()) : (n += 1) {
+        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+    }
+
+    var after = Model{};
+    after.task_state_loaded = true;
+    after.setStoreDir(dir);
+    after.store_io = testing.io;
+    const next = after.addSession("untitled", .fx);
+    if (after.sessionById(next)) |session| session.untitled = true;
+    after.selected = next;
+    store.loadDraftIfPossible(&after);
+    try testing.expectEqual(@as(usize, 0), after.draft().len);
+}
+
 test "Waku access_mode maps to verified FX_PERMISSION_MODE values" {
     try testing.expectEqualStrings("ask", main.fxPermissionMode("ask"));
     try testing.expectEqualStrings("auto", main.fxPermissionMode("auto"));

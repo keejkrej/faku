@@ -29,7 +29,7 @@ const max_sessions = 16;
 const max_turns = 128;
 const max_title = 64;
 const max_body = 4096;
-const max_draft = 512;
+pub const max_draft = 512;
 pub const max_queued = 16;
 pub const max_queued_text = 1024;
 const max_fx_path = 256;
@@ -693,20 +693,27 @@ pub const Effects = native_sdk.Effects(Msg);
 pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     switch (msg) {
         .new_session => {
+            store.persistDraftIfPossible(model);
             const id = model.addSession("untitled", .fx);
             if (id == 0) return;
             if (model.sessionById(id)) |session| session.untitled = true;
             model.selected = id;
             // Client-built; persist is a no-op until first real content.
             store.persistIfPossible(model, id);
+            store.loadDraftIfPossible(model);
         },
         .select => |id| {
             if (model.sessionById(id) != null) {
+                store.persistDraftIfPossible(model);
                 model.selected = id;
                 store.hydrateIfPossible(model, id);
+                store.loadDraftIfPossible(model);
             }
         },
-        .draft_edit => |edit| model.draft_buffer.apply(edit),
+        .draft_edit => |edit| {
+            model.draft_buffer.apply(edit);
+            store.persistDraftIfPossible(model);
+        },
         .send => handleSend(model, fx),
         .stop => stopStream(model, fx),
         .tick => |timer| {
@@ -728,6 +735,11 @@ pub fn initFx(model: *Model, fx: *Effects) void {
 fn handleSend(model: *Model, fx: *Effects) void {
     if (!model.fx_probe_started) startFxProbe(model, fx);
     const text = std.mem.trim(u8, model.draft(), " \t\r\n");
+    var key_buf: [store.max_draft_key]u8 = undefined;
+    const draft_key = if (model.sessionById(model.selected)) |session|
+        store.draftKey(session, &key_buf)
+    else
+        null;
     if (model.is_streaming()) {
         if (text.len == 0) {
             stopStream(model, fx);
@@ -737,11 +749,13 @@ fn handleSend(model: *Model, fx: *Effects) void {
             store.persistIfPossible(model, model.selected);
         }
         model.draft_buffer.clear();
+        if (draft_key) |key| store.discardDraftIfPossible(model, key);
         return;
     }
     if (text.len == 0) return;
     startPrompt(model, fx, model.selected, text);
     model.draft_buffer.clear();
+    if (draft_key) |key| store.discardDraftIfPossible(model, key);
 }
 
 fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) void {

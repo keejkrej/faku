@@ -12,6 +12,11 @@
 //! `queued_messages`. Save is merge-only (never deletes).
 //! `removeSession` is the only delete. Refuses to write until a successful
 //! load (`task_state_loaded`), same guard as waku-client.
+//!
+//! Composer drafts live in a sibling `drafts.json` (not the session
+//! catalog) so an unstarted New Task can persist before the session row
+//! exists. Keys match Waku: `newSession` / `newSession{project_path}`
+//! for untitled drafts, `session{id}` after the session has started.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -23,9 +28,13 @@ const Role = main.Role;
 const Provider = main.Provider;
 
 pub const catalog_name = "sessions.json";
+pub const drafts_name = "drafts.json";
 pub const app_store_name = "faku";
 pub const format_version: u32 = 1;
 pub const max_document_bytes: usize = 16 * 1024 * 1024;
+pub const max_drafts_bytes: usize = 64 * 1024;
+pub const max_draft_key = main.max_project_path + 16;
+pub const max_draft_entries: usize = 32;
 
 pub const LoadKind = enum { loaded, missing, failed };
 
@@ -44,6 +53,59 @@ pub fn catalogPath(dir: []const u8, buf: []u8) ?[]const u8 {
     return std.fmt.bufPrint(buf, "{s}{s}{s}", .{ dir, std.fs.path.sep_str, catalog_name }) catch null;
 }
 
+pub fn draftsPath(dir: []const u8, buf: []u8) ?[]const u8 {
+    if (dir.len == 0) return null;
+    return std.fmt.bufPrint(buf, "{s}{s}{s}", .{ dir, std.fs.path.sep_str, drafts_name }) catch null;
+}
+
+/// Waku composer keys: `newSession` / `newSession{project_path}` until the
+/// session has started, then `session{id}` so the first prompt cannot
+/// resurrect on New Task.
+pub fn draftKey(session: *const main.Session, buf: []u8) ?[]const u8 {
+    if (session.untitled or !session.hasStarted()) {
+        const project = session.projectPath();
+        if (project.len == 0) return std.fmt.bufPrint(buf, "newSession", .{}) catch null;
+        return std.fmt.bufPrint(buf, "newSession{s}", .{project}) catch null;
+    }
+    return std.fmt.bufPrint(buf, "session{d}", .{session.id}) catch null;
+}
+
+pub fn persistDraftIfPossible(model: *Model) void {
+    const io = model.store_io orelse return;
+    const session = model.sessionById(model.selected) orelse return;
+    var key_buf: [max_draft_key]u8 = undefined;
+    const key = draftKey(session, &key_buf) orelse return;
+    upsertDraft(model, io, key, model.draft()) catch {};
+}
+
+pub fn loadDraftIfPossible(model: *Model) void {
+    const io = model.store_io orelse return;
+    loadDraft(model, std.heap.page_allocator, io);
+}
+
+pub fn discardDraftIfPossible(model: *Model, key: []const u8) void {
+    const io = model.store_io orelse return;
+    upsertDraft(model, io, key, "") catch {};
+}
+
+fn loadDraft(model: *Model, allocator: std.mem.Allocator, io: std.Io) void {
+    const session = model.sessionById(model.selected) orelse {
+        model.draft_buffer.clear();
+        return;
+    };
+    var key_buf: [max_draft_key]u8 = undefined;
+    const key = draftKey(session, &key_buf) orelse {
+        model.draft_buffer.clear();
+        return;
+    };
+    var text_buf: [main.max_draft]u8 = undefined;
+    if (readDraftText(allocator, io, model.storeDir(), key, &text_buf)) |text| {
+        model.draft_buffer.set(text);
+    } else {
+        model.draft_buffer.clear();
+    }
+}
+
 /// Bind Native's user-data dir and attempt a catalog load. Missing file keeps
 /// the demo rows and still marks the catalog loaded (first-run may create the
 /// store). Corrupt/unreadable files keep the demos and refuse later saves.
@@ -52,10 +114,12 @@ pub fn boot(model: *Model, allocator: std.mem.Allocator, io: std.Io) LoadKind {
     return switch (loadCatalog(model, allocator, io)) {
         .loaded => {
             hydrateSession(model, model.selected, allocator, io);
+            loadDraft(model, allocator, io);
             return .loaded;
         },
         .missing => {
             model.task_state_loaded = true;
+            loadDraft(model, allocator, io);
             return .missing;
         },
         .failed => {
@@ -85,6 +149,7 @@ pub fn loadCatalog(model: *Model, allocator: std.mem.Allocator, io: std.Io) Load
 
     applyCatalog(model, allocator, bytes) catch return .failed;
     model.task_state_loaded = true;
+    loadDraft(model, allocator, io);
     return .loaded;
 }
 
@@ -179,6 +244,122 @@ pub fn persistIfPossible(model: *Model, session_id: u32) void {
 pub fn hydrateIfPossible(model: *Model, session_id: u32) void {
     const io = model.store_io orelse return;
     hydrateSession(model, session_id, std.heap.page_allocator, io);
+}
+
+fn upsertDraft(model: *const Model, io: std.Io, key: []const u8, text: []const u8) !void {
+    const dir = model.storeDir();
+    if (dir.len == 0 or key.len == 0) return;
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var document = readDraftDocument(arena, io, dir) catch |err| switch (err) {
+        error.FileNotFound => DraftDocument{},
+        else => return,
+    };
+    applyDraftChange(&document, arena, key, text) catch return;
+    try writeDraftDocument(arena, io, dir, document);
+}
+
+fn readDraftText(allocator: std.mem.Allocator, io: std.Io, dir: []const u8, key: []const u8, dest: []u8) ?[]const u8 {
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const document = readDraftDocument(arena_state.allocator(), io, dir) catch return null;
+    for (document.drafts) |entry| {
+        if (!std.mem.eql(u8, entry.key, key)) continue;
+        const take = @min(dest.len, entry.text.len);
+        @memcpy(dest[0..take], entry.text[0..take]);
+        return dest[0..take];
+    }
+    return null;
+}
+
+const DraftEntry = struct {
+    key: []const u8,
+    text: []const u8,
+};
+
+const DraftDocument = struct {
+    version: u32 = format_version,
+    drafts: []DraftEntry = &.{},
+};
+
+fn applyDraftChange(document: *DraftDocument, arena: std.mem.Allocator, key: []const u8, text: []const u8) !void {
+    const trimmed = std.mem.trim(u8, text, " \t\r\n");
+    var kept: usize = 0;
+    for (document.drafts) |entry| {
+        if (std.mem.eql(u8, entry.key, key)) continue;
+        document.drafts[kept] = entry;
+        kept += 1;
+    }
+    document.drafts = document.drafts[0..kept];
+    if (trimmed.len == 0) return;
+    if (document.drafts.len >= max_draft_entries) {
+        document.drafts = document.drafts[1..];
+    }
+    const next = try arena.alloc(DraftEntry, document.drafts.len + 1);
+    @memcpy(next[0..document.drafts.len], document.drafts);
+    next[document.drafts.len] = .{
+        .key = try arena.dupe(u8, key),
+        .text = try arena.dupe(u8, text),
+    };
+    document.drafts = next;
+}
+
+fn readDraftDocument(arena: std.mem.Allocator, io: std.Io, dir: []const u8) !DraftDocument {
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = draftsPath(dir, &path_buf) orelse return error.NoSpaceLeft;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, arena, .limited(max_drafts_bytes));
+    return parseDraftDocument(arena, bytes);
+}
+
+fn parseDraftDocument(arena: std.mem.Allocator, bytes: []const u8) !DraftDocument {
+    const root = std.json.parseFromSliceLeaky(std.json.Value, arena, bytes, .{}) catch return error.Corrupt;
+    const obj = switch (root) {
+        .object => |o| o,
+        else => return error.Corrupt,
+    };
+    const version = jsonUint(obj.get("version")) orelse return error.Corrupt;
+    if (version != format_version) return error.Corrupt;
+    const drafts_val = obj.get("drafts") orelse return error.Corrupt;
+    const drafts_obj = switch (drafts_val) {
+        .object => |o| o,
+        else => return error.Corrupt,
+    };
+    var drafts: std.ArrayList(DraftEntry) = .empty;
+    var it = drafts_obj.iterator();
+    while (it.next()) |entry| {
+        const text = switch (entry.value_ptr.*) {
+            .string => |s| s,
+            else => continue,
+        };
+        try drafts.append(arena, .{ .key = entry.key_ptr.*, .text = text });
+    }
+    return .{ .version = version, .drafts = try drafts.toOwnedSlice(arena) };
+}
+
+fn writeDraftDocument(allocator: std.mem.Allocator, io: std.Io, dir: []const u8, document: DraftDocument) !void {
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = draftsPath(dir, &path_buf) orelse return error.NoSpaceLeft;
+    const bytes = try encodeDraftDocument(allocator, document);
+    defer allocator.free(bytes);
+    try atomicWrite(io, path, bytes);
+}
+
+fn encodeDraftDocument(allocator: std.mem.Allocator, document: DraftDocument) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+    try out.appendSlice(allocator, "{\"version\":");
+    try appendUint(&out, allocator, document.version);
+    try out.appendSlice(allocator, ",\"drafts\":{");
+    for (document.drafts, 0..) |entry, i| {
+        if (i != 0) try out.append(allocator, ',');
+        try appendJsonString(&out, allocator, entry.key);
+        try out.append(allocator, ':');
+        try appendJsonString(&out, allocator, entry.text);
+    }
+    try out.appendSlice(allocator, "}}");
+    return out.toOwnedSlice(allocator);
 }
 
 const StoredTurn = struct {
@@ -809,6 +990,45 @@ test "session model and access_mode persist; new sessions inherit last-used" {
     const inherited = loaded.addSession("next", .fx);
     try testing.expectEqualStrings("openai/gpt-5.4", loaded.sessionById(inherited).?.model());
     try testing.expectEqualStrings("ask", loaded.sessionById(inherited).?.accessMode());
+}
+
+test "draft keys are newSession until started, then session id" {
+    var session = main.Session{ .id = 7, .untitled = true };
+    var key_buf: [max_draft_key]u8 = undefined;
+    try std.testing.expectEqualStrings("newSession", draftKey(&session, &key_buf).?);
+    session.setProjectPath("/tmp/proj");
+    try std.testing.expectEqualStrings("newSession/tmp/proj", draftKey(&session, &key_buf).?);
+    session.untitled = false;
+    session.has_started = true;
+    try std.testing.expectEqualStrings("session7", draftKey(&session, &key_buf).?);
+}
+
+test "composer draft persists for a started session key" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("draft session", .fx);
+    _ = source.appendTurn(id, .user, "already started");
+    source.selected = id;
+    try saveSession(&source, id, allocator, io);
+    source.draft_buffer.set("unsent follow-up");
+    persistDraftIfPossible(&source);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqual(id, loaded.selected);
+    try testing.expectEqualStrings("unsent follow-up", loaded.draft());
 }
 
 test "queued_messages survive save and hydrate" {

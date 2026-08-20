@@ -126,7 +126,13 @@ access_mode) — no demo rows and no transcripts. The document also stores
 `last_project_path`, `last_model`, and `last_access_mode` so a new
 session can inherit the last workspace and last model/access.
 Selecting a session hydrates its turns and `queued_messages` from the same
-file. Missing file keeps the two first-run demo sessions. A corrupt file
+file. Composer drafts are a sibling `drafts.json` (not mixed into the
+session catalog) so a New Task can persist before the session row exists.
+Keys match Waku: `newSession` or `newSession{project_path}` for untitled
+drafts, `session{id}` after the session has started. Saves are cheap
+rewrites on each `draft_edit` and when leaving a session. The
+`newSession` key is discarded after the first successful send so the
+next New Task does not resurrect that prompt. Missing file keeps the two first-run demo sessions. A corrupt file
 also keeps the demos and is not overwritten until a successful load
 (`task_state_loaded`, same guard as waku-client). Save is merge-only;
 `RemoveSession` is the only delete. New untitled sessions are not written
