@@ -273,6 +273,12 @@ pub const Folder = struct {
     pub fn title(self: *const Folder) []const u8 {
         return self.title_storage[0..self.title_len];
     }
+
+    pub fn setTitle(self: *Folder, title_text: []const u8) void {
+        const trimmed = std.mem.trim(u8, title_text, " \t\r\n");
+        const resolved = if (trimmed.len == 0) "New folder" else trimmed;
+        writeFixed(&self.title_storage, &self.title_len, resolved);
+    }
 };
 
 pub const SessionRow = struct {
@@ -289,6 +295,7 @@ pub const SidebarRow = struct {
     provider: []const u8,
     selected: bool,
     is_header: bool,
+    editing: bool,
     folder_id: u32,
 };
 
@@ -350,6 +357,7 @@ pub const Msg = union(enum) {
     assign_selected: u32,
     unassign_selected,
     assign_folder: AssignFolder,
+    folder_title_edit: canvas.TextInputEvent,
     close_window,
     sidebar_resized: f32,
     transcript_scrolled: canvas.ScrollState,
@@ -395,6 +403,8 @@ pub const Model = struct {
     settings_daemon_buffer: canvas.TextBuffer(max_daemon_address) = .{},
     project_edit_active: bool = false,
     project_edit_buffer: canvas.TextBuffer(max_project_path) = .{},
+    editing_folder_id: u32 = 0,
+    folder_title_buffer: canvas.TextBuffer(max_title) = .{},
     transcript_scroll: f32 = 0,
     fx_available: bool = false,
     fx_path_storage: [max_fx_path]u8 = [_]u8{0} ** max_fx_path,
@@ -466,6 +476,11 @@ pub const Model = struct {
         "assignSessionFolder",
         "toggleFolderCollapsed",
         "nextUntitledFolderTitle",
+        "startFolderTitleEdit",
+        "closeFolderTitleEdit",
+        "applyFolderTitle",
+        "editing_folder_id",
+        "folder_title_buffer",
         "session_rows",
         "selected",
         "history_store",
@@ -686,8 +701,9 @@ pub const Model = struct {
                 .id = folder_row_id_base + folder.id,
                 .title = folder.title(),
                 .provider = "",
-                .selected = false,
+                .selected = selectedSessionInFolder(model, folder.id),
                 .is_header = true,
+                .editing = model.editing_folder_id == folder.id,
                 .folder_id = folder.id,
             };
             i += 1;
@@ -894,6 +910,7 @@ pub const Model = struct {
 
     pub fn openSettings(model: *Model) void {
         model.closeProjectEdit();
+        model.closeFolderTitleEdit();
         model.settings_open = true;
         model.settings_model_buffer.set(model.lastModel());
         model.settings_project_buffer.set(model.lastProjectPath());
@@ -993,6 +1010,27 @@ pub const Model = struct {
 
     pub fn project_edit(model: *const Model) []const u8 {
         return model.project_edit_buffer.text();
+    }
+
+    pub fn folder_title_draft(model: *const Model) []const u8 {
+        return model.folder_title_buffer.text();
+    }
+
+    pub fn startFolderTitleEdit(model: *Model, folder_id: u32) void {
+        const folder = model.folderByIdConst(folder_id) orelse return;
+        model.editing_folder_id = folder_id;
+        model.folder_title_buffer.set(folder.title());
+    }
+
+    pub fn closeFolderTitleEdit(model: *Model) void {
+        model.editing_folder_id = 0;
+        model.folder_title_buffer.clear();
+    }
+
+    pub fn applyFolderTitle(model: *Model, edit: canvas.TextInputEvent) void {
+        const folder = model.folderById(model.editing_folder_id) orelse return;
+        model.folder_title_buffer.apply(edit);
+        folder.setTitle(model.folder_title_draft());
     }
 
     pub fn startProjectEdit(model: *Model) void {
@@ -1503,8 +1541,14 @@ fn sessionSidebarRow(model: *const Model, session: *const Session) SidebarRow {
         .provider = session.provider_label(),
         .selected = session.id == model.selected,
         .is_header = false,
+        .editing = false,
         .folder_id = session.folder_id,
     };
+}
+
+fn selectedSessionInFolder(model: *const Model, folder_id: u32) bool {
+    const session = model.sessionByIdConst(model.selected) orelse return false;
+    return effectiveFolderId(model, session) == folder_id;
 }
 
 fn effectiveFolderId(model: *const Model, session: *const Session) u32 {
@@ -1593,6 +1637,7 @@ fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     if (model.sessionById(id) == null) return;
     store.persistDraftIfPossible(model);
     model.closeProjectEdit();
+    model.closeFolderTitleEdit();
     model.selected = id;
     store.hydrateIfPossible(model, id);
     store.maybeHydrateDaemonSession(model, fx, id);
@@ -1627,6 +1672,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .new_session => {
             store.persistDraftIfPossible(model);
             model.closeProjectEdit();
+            model.closeFolderTitleEdit();
             const id = model.addSession("untitled", .fx);
             if (id == 0) return;
             if (model.sessionById(id)) |session| session.untitled = true;
@@ -1655,10 +1701,23 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistFoldersIfPossible(model);
         },
         .assign_selected => |folder_id| {
+            if (model.editing_folder_id == folder_id) return;
+            if (model.editing_folder_id != 0) model.closeFolderTitleEdit();
+            // Second click on the folder that already holds the selected
+            // session edits the title and does not assign again.
+            if (selectedSessionInFolder(model, folder_id)) {
+                model.startFolderTitleEdit(folder_id);
+                return;
+            }
             persistAssignedFolder(model, model.selected, folder_id, fx);
         },
         .unassign_selected => {
+            model.closeFolderTitleEdit();
             persistAssignedFolder(model, model.selected, 0, fx);
+        },
+        .folder_title_edit => |edit| {
+            model.applyFolderTitle(edit);
+            store.persistFoldersIfPossible(model);
         },
         .assign_folder => |assign| {
             persistAssignedFolder(model, assign.session_id, assign.folder_id, fx);
@@ -1666,7 +1725,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         // Chromeless titlebar has no OS close. This is the documented
         // window-action effect (`examples/deck`): last-window close
         // follows the host exit path. Esc stays `.stop` so settings /
-        // search / project-edit / a live turn keep it.
+        // search / project-edit / folder-title-edit / a live turn keep it.
         .close_window => fx.closeWindow(main_window_label),
         .remove_session => |id| {
             store.removeIfPossible(model, id, fx);
@@ -1694,6 +1753,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             }
             if (model.project_edit_active) {
                 model.closeProjectEdit();
+                return;
+            }
+            if (model.editing_folder_id != 0) {
+                model.closeFolderTitleEdit();
                 return;
             }
             if (model.search_active or model.search_query().len > 0) {
