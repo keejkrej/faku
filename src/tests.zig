@@ -283,7 +283,7 @@ test "appending a turn renders last and pins the transcript value" {
     try testing.expect(findAnyText(tree.root, "first assistant turn"));
     _ = try expectByText(tree.root, .text, "read src/pin.ts");
     _ = try expectByText(tree.root, .text, "newest thought stays last");
-    _ = try expectByText(tree.root, .scroll, "Transcript");
+    _ = try expectByText(tree.root, .scroll_view, "Transcript");
     try testing.expect(findByText(tree.root, .button, "Jump to latest") == null);
     _ = try expectButton(tree.root, "Attach image");
     try testing.expect(findByText(tree.root, .button, "Commands") == null);
