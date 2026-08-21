@@ -2834,3 +2834,101 @@ test "sidebar search still matches session titles across folders" {
         "New folder",
     });
 }
+
+test "composer project row sets selected session project_path and reloads" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-project-row", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "choose a project");
+    _ = try expectByText(tree.root, .button, "Local");
+    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .button, "Build");
+    _ = try expectButton(tree.root, "Search");
+    _ = try expectButton(tree.root, "New folder");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Workspace path") == null);
+
+    const choose = try expectButton(tree.root, "choose a project");
+    main.update(&model, tree.msgForPointer(choose.id, .up).?, &fx);
+    try testing.expect(model.project_edit_active);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Workspace path") != null);
+    try testing.expect(findByText(tree.root, .button, "Local") == null);
+    try testing.expect(findByText(tree.root, .button, "choose a project") == null);
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = "/tmp/faku-project" } }, &fx);
+    try testing.expectEqualStrings("/tmp/faku-project", model.session_store[0].projectPath());
+    try testing.expectEqualStrings("/tmp/faku-project", model.lastProjectPath());
+    try testing.expectEqualStrings("/tmp/faku-project", model.project_label());
+    try testing.expect(!model.project_is_local());
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expect(!model.project_edit_active);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "/tmp/faku-project");
+    try testing.expect(findByText(tree.root, .button, "Local") == null);
+    try testing.expect(findByText(tree.root, .button, "choose a project") == null);
+    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .button, "Medium");
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings("/tmp/faku-project", loaded.session_store[0].projectPath());
+    try testing.expectEqualStrings("/tmp/faku-project", loaded.lastProjectPath());
+    try testing.expectEqualStrings("/tmp/faku-project", loaded.project_label());
+    try testing.expect(!loaded.project_is_local());
+
+    tree = try buildTree(arena, &loaded);
+    const path_btn = try expectButton(tree.root, "/tmp/faku-project");
+    try testing.expect(findByText(tree.root, .button, "Local") == null);
+    main.update(&loaded, tree.msgForPointer(path_btn.id, .up).?, &fx);
+    try testing.expect(loaded.project_edit_active);
+    try testing.expectEqualStrings("/tmp/faku-project", loaded.project_edit());
+
+    main.update(&loaded, .{ .project_path_edit = .clear }, &fx);
+    try testing.expectEqual(@as(usize, 0), loaded.session_store[0].projectPath().len);
+    try testing.expectEqual(@as(usize, 0), loaded.lastProjectPath().len);
+    try testing.expect(loaded.project_is_local());
+    try testing.expectEqualStrings("choose a project", loaded.project_label());
+
+    main.update(&loaded, .stop, &fx);
+    try testing.expect(!loaded.project_edit_active);
+
+    tree = try buildTree(arena, &loaded);
+    _ = try expectByText(tree.root, .button, "choose a project");
+    _ = try expectByText(tree.root, .button, "Local");
+    try testing.expect(findByText(tree.root, .button, "/tmp/faku-project") == null);
+
+    var cleared = Model{};
+    cleared.setStoreDir(dir);
+    cleared.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&cleared, testing.allocator, testing.io));
+    try testing.expectEqual(@as(usize, 0), cleared.session_store[0].projectPath().len);
+    try testing.expectEqual(@as(usize, 0), cleared.lastProjectPath().len);
+    try testing.expect(cleared.project_is_local());
+
+    const inherited = cleared.addSession("untitled next", .fx);
+    try testing.expectEqual(@as(usize, 0), cleared.sessionById(inherited).?.projectPath().len);
+}

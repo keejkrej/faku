@@ -165,12 +165,23 @@
                 <button variant="primary" size="icon" icon="arrow-up" label="{send_label}" on-press="send" width="26" height="26" radius="xl"></button>
               </input-group-actions>
             </input-group>
-            <row gap="8" cross="center">
-              <button variant="ghost" size="sm" icon="folder">choose a project</button>
-              <button variant="ghost" size="sm" icon="terminal">Local</button>
-              <spacer grow="1" />
-              <icon name="circle-dot" />
-            </row>
+            <if test="{project_edit_active}">
+              <row gap="8" cross="center">
+                <text-field grow="1" placeholder="Workspace path" text="{project_edit}" on-input="project_path_edit" autofocus="true" />
+                <spacer grow="1" />
+                <icon name="circle-dot" />
+              </row>
+            </if>
+            <else>
+              <row gap="8" cross="center">
+                <button variant="ghost" size="sm" icon="folder" on-press="start_project_edit">{project_label}</button>
+                <if test="{project_is_local}">
+                  <button variant="ghost" size="sm" icon="terminal" on-press="start_project_edit">Local</button>
+                </if>
+                <spacer grow="1" />
+                <icon name="circle-dot" />
+              </row>
+            </else>
           </column>
           <spacer width="12" />
         </row>

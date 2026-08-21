@@ -311,6 +311,8 @@ pub const Msg = union(enum) {
     cycle_access,
     cycle_interaction,
     cycle_model,
+    start_project_edit,
+    project_path_edit: canvas.TextInputEvent,
     history_back,
     history_forward,
     new_folder,
@@ -358,6 +360,8 @@ pub const Model = struct {
     settings_model_buffer: canvas.TextBuffer(max_fx_model) = .{},
     settings_project_buffer: canvas.TextBuffer(max_project_path) = .{},
     settings_daemon_buffer: canvas.TextBuffer(max_daemon_address) = .{},
+    project_edit_active: bool = false,
+    project_edit_buffer: canvas.TextBuffer(max_project_path) = .{},
     transcript_scroll: f32 = 0,
     fx_available: bool = false,
     fx_path_storage: [max_fx_path]u8 = [_]u8{0} ** max_fx_path,
@@ -460,6 +464,7 @@ pub const Model = struct {
         "settings_model_buffer",
         "settings_project_buffer",
         "settings_daemon_buffer",
+        "project_edit_buffer",
         "openSettings",
         "closeSettings",
         "toggleSettings",
@@ -470,6 +475,10 @@ pub const Model = struct {
         "cycleSelectedAccess",
         "cycleSelectedInteraction",
         "cycleSelectedModel",
+        "startProjectEdit",
+        "closeProjectEdit",
+        "applySelectedProjectPath",
+        "selectedProjectPath",
         "resolvedAccessMode",
         "resolvedInteractionMode",
         "is_streaming",
@@ -851,6 +860,7 @@ pub const Model = struct {
     }
 
     pub fn openSettings(model: *Model) void {
+        model.closeProjectEdit();
         model.settings_open = true;
         model.settings_model_buffer.set(model.lastModel());
         model.settings_project_buffer.set(model.lastProjectPath());
@@ -919,6 +929,43 @@ pub const Model = struct {
             if (session.model().len > 0) return session.model();
         }
         return "FX_MODEL";
+    }
+
+    pub fn selectedProjectPath(model: *const Model) []const u8 {
+        if (model.sessionByIdConst(model.selected)) |session| return session.projectPath();
+        return "";
+    }
+
+    pub fn project_label(model: *const Model) []const u8 {
+        const path = model.selectedProjectPath();
+        if (path.len > 0) return path;
+        return "choose a project";
+    }
+
+    pub fn project_is_local(model: *const Model) bool {
+        return model.selectedProjectPath().len == 0;
+    }
+
+    pub fn project_edit(model: *const Model) []const u8 {
+        return model.project_edit_buffer.text();
+    }
+
+    pub fn startProjectEdit(model: *Model) void {
+        model.project_edit_active = true;
+        model.project_edit_buffer.set(model.selectedProjectPath());
+    }
+
+    pub fn closeProjectEdit(model: *Model) void {
+        model.project_edit_active = false;
+    }
+
+    pub fn applySelectedProjectPath(model: *Model, edit: canvas.TextInputEvent) void {
+        model.project_edit_buffer.apply(edit);
+        const path = std.mem.trim(u8, model.project_edit(), " \t\r\n");
+        if (model.sessionById(model.selected)) |session| {
+            session.setProjectPath(path);
+        }
+        model.setLastProjectPath(path);
     }
 
     pub fn cycleSelectedAccess(model: *Model) void {
@@ -1500,6 +1547,7 @@ pub const Effects = native_sdk.Effects(Msg);
 fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     if (model.sessionById(id) == null) return;
     store.persistDraftIfPossible(model);
+    model.closeProjectEdit();
     model.selected = id;
     store.hydrateIfPossible(model, id);
     store.maybeHydrateDaemonSession(model, fx, id);
@@ -1525,6 +1573,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     switch (msg) {
         .new_session => {
             store.persistDraftIfPossible(model);
+            model.closeProjectEdit();
             const id = model.addSession("untitled", .fx);
             if (id == 0) return;
             if (model.sessionById(id)) |session| session.untitled = true;
@@ -1582,6 +1631,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 model.closeSettings();
                 return;
             }
+            if (model.project_edit_active) {
+                model.closeProjectEdit();
+                return;
+            }
             if (model.search_active or model.search_query().len > 0) {
                 model.exitSearch();
                 return;
@@ -1624,6 +1677,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .cycle_model => {
             model.cycleSelectedModel();
             persistComposerChips(model, fx);
+        },
+        .start_project_edit => model.startProjectEdit(),
+        .project_path_edit => |edit| {
+            model.applySelectedProjectPath(edit);
+            persistComposerProject(model, fx);
         },
         .clear_queue => {
             model.dropQueuedForSession(model.selected);
@@ -1755,6 +1813,11 @@ pub fn accessLabel(access_mode: []const u8) []const u8 {
 }
 
 fn persistComposerChips(model: *Model, fx: *Effects) void {
+    store.persistSettingsIfPossible(model);
+    store.persistIfPossible(model, model.selected, fx);
+}
+
+fn persistComposerProject(model: *Model, fx: *Effects) void {
     store.persistSettingsIfPossible(model);
     store.persistIfPossible(model, model.selected, fx);
 }
