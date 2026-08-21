@@ -15,7 +15,8 @@ and it is fx-first. Desktop chrome matches the stopped Waku-parity cut
 (chromeless 48px header, measured sidebar, composer send circle); sidebar
 Search filters the local `sessions.json` catalog; the sidebar collapse
 control works and is restored; the sidebar chevrons walk session
-selection history; headless paths are unchanged.
+selection history; New folder creates a local catalog folder; headless
+paths are unchanged.
 
 ## Why fx
 
@@ -170,12 +171,15 @@ Path (Native `app_dirs` data directory, app name `faku`):
 
 Boot: if that file loads, the sidebar is session skeletons only (id, title,
 provider, untitled/has_started, project_path, fx_session_id, runtime_id, model,
-access_mode, interaction_mode) — no demo rows and no transcripts. The document also stores
+access_mode, interaction_mode, folder_id) — no demo rows and no transcripts. The document also stores
 `last_project_path`, `last_model`, `last_access_mode`,
-`last_interaction_mode`, `last_daemon_address`, `sidebar_collapsed`, and
-`sidebar_width` so a new session can inherit the last workspace and last
+`last_interaction_mode`, `last_daemon_address`, `sidebar_collapsed`,
+`sidebar_width`, `folders`, and `collapsed_folder_ids` so a new session can inherit the last workspace and last
 model/access/interaction, a later send can reuse the last sidecar address,
-and the sidebar collapse control is restored. The sidebar settings gear
+the sidebar collapse control is restored, and New folder groups persist.
+Ungrouped sessions stay under Today; a session `folder_id` lists it under
+that folder. There is no drag-to-folder gesture yet (tests assign
+`folder_id` directly). The sidebar settings gear
 opens a panel that edits those persisted defaults. Composer chips are the
 quick session toggle: access cycles `ask` / `auto` / `fullAccess`, Build
 cycles `build` / `plan`, and the model chip toggles last-used vs empty
