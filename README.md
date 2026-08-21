@@ -28,7 +28,8 @@ to the latest turn via Native `scroll` `value` / `on-scroll`
 while the user is at the bottom, and Jump to latest sets that same
 `value` after they scroll away; Copy on a turn writes that turn's
 visible text through Native `fx.writeClipboard` (empty text is a
-no-op); Rewind
+no-op); Copy session joins that session's visible user / assistant /
+tool / thought text the same way (empty session is a no-op); Rewind
 resets workspace files to the last recorded HEAD and does not
 rewind the chat; headless paths are unchanged.
 

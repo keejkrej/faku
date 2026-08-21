@@ -122,6 +122,7 @@
           <text on-press="edit_session_title">{header_title}</text>
         </else>
         <spacer grow="1" />
+        <button variant="ghost" size="sm" on-press="copy_session">Copy session</button>
         <if test="{can_rewind}">
           <button variant="ghost" size="sm" on-press="rewind">Rewind</button>
         </if>

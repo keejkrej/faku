@@ -115,10 +115,16 @@ const stream_chunk_bytes: usize = 8;
 /// scroll docs + engine clamp.
 pub const transcript_pin_offset: f32 = 1_000_000;
 /// Caller-chosen identity for `fx.writeClipboard` on a transcript
-/// turn. Shares the effects key space with spawn / fetch / file;
-/// sits in the gap between daemon keys and `fx_spawn_overlap`.
-/// Verified: Native Effects `WriteClipboardOptions` + notes example.
+/// turn or a joined session. Shares the effects key space with spawn /
+/// fetch / file; sits in the gap between daemon keys and
+/// `fx_spawn_overlap`. Verified: Native Effects `WriteClipboardOptions`
+/// + notes example.
 pub const copy_turn_key: u64 = 32;
+/// Worst-case join of every in-memory turn with a blank line between.
+const max_copy_session = max_turns * max_body + (max_turns - 1) * 2;
+/// Scratch for `copySession`. `writeClipboard` copies `.text` during
+/// the call; this outlives the join so the slice stays valid.
+var copy_session_buf: [max_copy_session]u8 = undefined;
 /// Caller-chosen ImageId for the composer attach preview. `fx.loadImage`
 /// uses this as the effect key (shared with spawn / clipboard / file).
 /// 0 is the no-image sentinel. Sits in the gap after `copy_turn_key`
@@ -497,6 +503,7 @@ pub const Msg = union(enum) {
     jump_latest,
     copy_turn: u32,
     copy_last_turn,
+    copy_session,
     clipboard_done: native_sdk.EffectClipboardResult,
     attach_preview_done: native_sdk.EffectImageResult,
     tick: native_sdk.EffectTimer,
@@ -2010,18 +2017,50 @@ pub const fx_ask_chdir_script = "cd -- \"$1\" && shift && exec \"$@\"";
 
 pub const Effects = native_sdk.Effects(Msg);
 
-/// Copy a turn's visible text (markdown source / tool / thought body)
-/// through Native `fx.writeClipboard`. Empty text is a no-op — no
-/// fake clipboard, no `pbcopy` spawn.
-fn copyTurn(model: *Model, fx: *Effects, id: u32) void {
-    const turn = model.turnById(id) orelse return;
-    const text = turn.text();
+/// Copy visible transcript text through Native `fx.writeClipboard`.
+/// Empty text is a no-op — no fake clipboard, no `pbcopy` spawn.
+fn writeVisibleClipboard(fx: *Effects, text: []const u8) void {
     if (text.len == 0) return;
     fx.writeClipboard(.{
         .key = copy_turn_key,
         .text = text,
         .on_result = Effects.clipboardMsg(.clipboard_done),
     });
+}
+
+/// Copy a turn's visible text (markdown source / tool / thought body)
+/// through Native `fx.writeClipboard`. Empty text is a no-op.
+fn copyTurn(model: *Model, fx: *Effects, id: u32) void {
+    const turn = model.turnById(id) orelse return;
+    writeVisibleClipboard(fx, turn.text());
+}
+
+/// Selected session, store order. Skip empty turns. Join remaining
+/// user / assistant / tool / thought bodies with a blank line.
+/// Returns null when nothing remains so the clipboard is not requested.
+fn joinSelectedSessionText(model: *const Model) ?[]const u8 {
+    var n: usize = 0;
+    var any = false;
+    for (model.turn_store[0..model.turn_count]) |*turn| {
+        if (turn.session_id != model.selected) continue;
+        const text = turn.text();
+        if (text.len == 0) continue;
+        if (any) {
+            copy_session_buf[n] = '\n';
+            copy_session_buf[n + 1] = '\n';
+            n += 2;
+        }
+        @memcpy(copy_session_buf[n..][0..text.len], text);
+        n += text.len;
+        any = true;
+    }
+    if (!any) return null;
+    return copy_session_buf[0..n];
+}
+
+fn copySession(model: *Model, fx: *Effects) void {
+    const text = joinSelectedSessionText(model) orelse return;
+    writeVisibleClipboard(fx, text);
 }
 
 /// Selected session, newest first. Empty text is skipped so a trailing
@@ -2360,6 +2399,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .jump_latest => model.pinTranscriptToLatest(),
         .copy_turn => |id| copyTurn(model, fx, id),
         .copy_last_turn => copyLastTurn(model, fx),
+        .copy_session => copySession(model, fx),
         .clipboard_done => {},
         .attach_preview_done => |result| applyAttachPreviewResult(model, fx, result),
         .tick => |timer| {
