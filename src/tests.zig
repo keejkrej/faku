@@ -3580,7 +3580,7 @@ test "header Close requests the real window close; Esc stays with settings" {
     fx.executor = .fake;
 
     var model = main.initialModel();
-    try testing.expectEqual(native_sdk.WindowTitlebarStyle.chromeless, main.shell_scene.windows[0].titlebar);
+    try testing.expect(main.shell_scene.windows[0].titlebar == .chromeless);
     try testing.expectEqualStrings(main.main_window_label, main.shell_scene.windows[0].label);
 
     var tree = try buildTree(arena, &model);
@@ -3598,7 +3598,7 @@ test "header Close requests the real window close; Esc stays with settings" {
     try testing.expectEqual(@as(u32, 1), actions.close_count);
     try testing.expectEqual(@as(u32, 0), actions.quit_count);
     try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
-    try testing.expectEqual(native_sdk.WindowTitlebarStyle.chromeless, main.shell_scene.windows[0].titlebar);
+    try testing.expect(main.shell_scene.windows[0].titlebar == .chromeless);
 
     tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "New folder");
