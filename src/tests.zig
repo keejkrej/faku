@@ -614,6 +614,13 @@ test "fx ask --image when draft image_path exists" {
     try testing.expect(image_at < dash_at);
     try testing.expect(!argvHas(request.argv, "--file"));
     try testing.expectEqualStrings("describe this", request.argv[request.argv.len - 1]);
+
+    try fx.feedLine(request.key, "{\"output\":\"Assistant Markdown\",\"exit_code\":0,\"model\":\"provider/model-id\",\"session_id\":\"fx-ask-1\",\"steps\":1,\"tool_calls\":[]}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("fx-ask-1", model.sessionById(id).?.fxSessionId());
+    try testing.expectEqual(@as(u64, 0), model.sessionById(id).?.context_used);
+    try testing.expectEqual(@as(u64, 0), model.sessionById(id).?.context_size);
+    try testing.expectEqual(@as(f32, 0), model.context_usage());
 }
 
 test "fx ask omits --image when the draft file is missing" {
@@ -2931,4 +2938,100 @@ test "composer project row sets selected session project_path and reloads" {
 
     const inherited = cleared.addSession("untitled next", .fx);
     try testing.expectEqual(@as(usize, 0), cleared.sessionById(inherited).?.projectPath().len);
+}
+
+fn expectContextProgress(widget: canvas.Widget, expected: f32) !canvas.Widget {
+    const progress = findByText(widget, .progress, "Context usage") orelse {
+        std.debug.print("no progress labeled Context usage\n", .{});
+        dumpTexts(widget, 0);
+        return error.WidgetNotFound;
+    };
+    try testing.expectApproxEqAbs(expected, progress.value, 0.0001);
+    return progress;
+}
+
+test "ACP usage_update fills the composer progress; missing usage stays empty" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-context-usage", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("usage circle", .fx);
+    model.selected = id;
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectContextProgress(tree.root, 0);
+    _ = try expectByText(tree.root, .button, "choose a project");
+    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .button, "Build");
+    _ = try expectButton(tree.root, "New folder");
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first turn" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.fx_spawn_acp);
+    const key = model.fx_spawn_key;
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"sessionId\":\"fx-usage-1\"}}");
+    drainEffects(&model, &fx);
+    try fx.feedLine(key, "{\"output\":\"Assistant Markdown\",\"exit_code\":0,\"model\":\"provider/model-id\",\"session_id\":\"fx-usage-1\",\"steps\":1,\"tool_calls\":[]}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.sessionById(id).?.context_used);
+    try testing.expectEqual(@as(u64, 0), model.sessionById(id).?.context_size);
+    try testing.expectEqual(@as(f32, 0), model.context_usage());
+    tree = try buildTree(arena, &model);
+    _ = try expectContextProgress(tree.root, 0);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"fx-usage-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"plain reply\"}}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(f32, 0), model.context_usage());
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "plain reply") != null);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "usage_update") == null);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"fx-usage-1\",\"update\":{\"sessionUpdate\":\"usage_update\",\"used\":53000,\"size\":200000}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u64, 53000), model.sessionById(id).?.context_used);
+    try testing.expectEqual(@as(u64, 200000), model.sessionById(id).?.context_size);
+    try testing.expectApproxEqAbs(@as(f32, 0.265), model.context_usage(), 0.0001);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "53000") == null);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectContextProgress(tree.root, 0.265);
+    _ = try expectByText(tree.root, .button, "choose a project");
+    _ = try expectByText(tree.root, .button, "Full access");
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u64, 53000), loaded.session_store[0].context_used);
+    try testing.expectEqual(@as(u64, 200000), loaded.session_store[0].context_size);
+    try testing.expectApproxEqAbs(@as(f32, 0.265), loaded.context_usage(), 0.0001);
+    store.hydrateSession(&loaded, loaded.session_store[0].id, testing.allocator, testing.io);
+    try testing.expectEqual(@as(u64, 53000), loaded.session_store[0].context_used);
+    try testing.expectApproxEqAbs(@as(f32, 0.265), loaded.context_usage(), 0.0001);
+
+    tree = try buildTree(arena, &loaded);
+    _ = try expectContextProgress(tree.root, 0.265);
+    _ = try expectByText(tree.root, .button, "choose a project");
+    _ = try expectByText(tree.root, .button, "Build");
 }

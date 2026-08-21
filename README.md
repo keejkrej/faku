@@ -16,7 +16,8 @@ and it is fx-first. Desktop chrome matches the stopped Waku-parity cut
 Search filters the local `sessions.json` catalog; the sidebar collapse
 control works and is restored; the sidebar chevrons walk session
 selection history; New folder creates a local catalog folder; the
-composer project row sets the selected session cwd; headless
+composer project row sets the selected session cwd; the usage
+control stays empty unless ACP reports `usage_update`; headless
 paths are unchanged.
 
 ## Why fx
@@ -174,7 +175,7 @@ Path (Native `app_dirs` data directory, app name `faku`):
 
 Boot: if that file loads, the sidebar is session skeletons only (id, title,
 provider, untitled/has_started, project_path, fx_session_id, runtime_id, model,
-access_mode, interaction_mode, folder_id) — no demo rows and no transcripts. The document also stores
+access_mode, interaction_mode, folder_id, context_used, context_size) — no demo rows and no transcripts. The document also stores
 `last_project_path`, `last_model`, `last_access_mode`,
 `last_interaction_mode`, `last_daemon_address`, `sidebar_collapsed`,
 `sidebar_width`, `folders`, and `collapsed_folder_ids` so a new session can inherit the last workspace and last
@@ -189,7 +190,10 @@ cycles `build` / `plan`, and the model chip toggles last-used vs empty
 (fx default); Medium stays a label because fx `effort` lives in
 `~/.fx/settings.json` and Faku has no `FX_EFFORT` / `--effort` path.
 The composer project row edits the selected session cwd and persists
-it as `last_project_path`. There is no daemon picker.
+it as `last_project_path`. The under-composer usage control is Native
+`progress` (0–1): it fills from an ACP `session/update` `usage_update`
+`{used,size}` when that notification arrives; `fx ask --json` and
+current `fx acp` do not emit usage, so the control stays empty. There is no daemon picker.
 Selecting a session hydrates its turns and `queued_messages` from the same
 file. Daemon `hydrateSession` runs only when that local transcript is empty.
 Composer drafts are a sibling `drafts.json` (not mixed into the

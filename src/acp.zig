@@ -49,6 +49,10 @@ pub const MODE_ASK = "ask";
 pub const MODE_CODE = "code";
 
 pub const SESSION_UPDATE_AGENT_MESSAGE = "agent_message_chunk";
+/// Stabilized ACP v1 `session/update` variant
+/// (https://agentclientprotocol.com/protocol/v1/prompt-turn#session-usage-updates).
+/// fx.sh ACP docs and vercel-labs/fx do not emit this today.
+pub const SESSION_UPDATE_USAGE = "usage_update";
 pub const STOP_END_TURN = "end_turn";
 pub const STOP_CANCELLED = "cancelled";
 pub const STOP_REFUSAL = "refusal";
@@ -106,8 +110,17 @@ pub const Parsed = struct {
     mode_id: []const u8 = "",
     config_id: []const u8 = "",
     config_value: []const u8 = "",
+    /// ACP `usage_update` token counts. Null unless that key is a number.
+    used: ?u64 = null,
+    size: ?u64 = null,
     has_error: bool = false,
     has_result: bool = false,
+};
+
+/// Confirmed ACP `usage_update` fields (`used` + `size`). Both required.
+pub const UsageUpdate = struct {
+    used: u64,
+    size: u64,
 };
 
 pub const TurnStdin = struct {
@@ -363,6 +376,17 @@ pub fn isAgentMessageText(parsed: Parsed) bool {
         parsed.text.len > 0;
 }
 
+/// ACP v1 `usage_update`: `used` and `size` are required token counts.
+/// Missing either, or `size == 0`, is not a usable update.
+pub fn usageUpdate(parsed: Parsed) ?UsageUpdate {
+    if (parsed.method != .session_update) return null;
+    if (!std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_USAGE)) return null;
+    const used = parsed.used orelse return null;
+    const size = parsed.size orelse return null;
+    if (size == 0) return null;
+    return .{ .used = used, .size = size };
+}
+
 /// ACP v1: the `session/prompt` response carries `stopReason` and ends the turn.
 pub fn isPromptResult(parsed: Parsed) bool {
     if (parsed.id != ID_PROMPT) return false;
@@ -473,6 +497,14 @@ pub fn parseLine(line: []const u8) Parsed {
 
     if (findKey(trimmed, "value")) |at| {
         parsed.config_value = parseJsonStringAt(trimmed, at);
+    }
+
+    if (findKey(trimmed, "used")) |at| {
+        parsed.used = parseUintAt(trimmed, at);
+    }
+
+    if (findKey(trimmed, "size")) |at| {
+        parsed.size = parseUintAt(trimmed, at);
     }
 
     parsed.has_error = findKey(trimmed, "error") != null;
@@ -653,6 +685,21 @@ test "ACP parser classifies result, error, update, and stopReason" {
 
     const user = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"user_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"ignore\"}}}}");
     try std.testing.expect(!isAgentMessageText(user));
+    try std.testing.expect(usageUpdate(user) == null);
+
+    const usage = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"sess-1\",\"update\":{\"sessionUpdate\":\"usage_update\",\"used\":53000,\"size\":200000}}}");
+    try std.testing.expectEqual(Method.session_update, usage.method);
+    try std.testing.expectEqualStrings(SESSION_UPDATE_USAGE, usage.session_update);
+    const usage_fields = usageUpdate(usage) orelse return error.MissingUsage;
+    try std.testing.expectEqual(@as(u64, 53000), usage_fields.used);
+    try std.testing.expectEqual(@as(u64, 200000), usage_fields.size);
+    try std.testing.expect(!isAgentMessageText(usage));
+
+    const usage_missing_size = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"usage_update\",\"used\":12}}}");
+    try std.testing.expect(usageUpdate(usage_missing_size) == null);
+
+    const usage_zero_size = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"usage_update\",\"used\":12,\"size\":0}}}");
+    try std.testing.expect(usageUpdate(usage_zero_size) == null);
 
     const settled = parseLine("{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
     try std.testing.expect(isPromptResult(settled));

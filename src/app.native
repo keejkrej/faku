@@ -169,7 +169,7 @@
               <row gap="8" cross="center">
                 <text-field grow="1" placeholder="Workspace path" text="{project_edit}" on-input="project_path_edit" autofocus="true" />
                 <spacer grow="1" />
-                <icon name="circle-dot" />
+                <progress value="{context_usage}" width="16" height="16" label="Context usage" />
               </row>
             </if>
             <else>
@@ -179,7 +179,7 @@
                   <button variant="ghost" size="sm" icon="terminal" on-press="start_project_edit">Local</button>
                 </if>
                 <spacer grow="1" />
-                <icon name="circle-dot" />
+                <progress value="{context_usage}" width="16" height="16" label="Context usage" />
               </row>
             </else>
           </column>

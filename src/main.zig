@@ -141,6 +141,9 @@ pub const Session = struct {
     rewind_ref_count: usize = 0,
     /// 0 = ungrouped (Today). Unknown ids also render under Today.
     folder_id: u32 = 0,
+    /// Last ACP `usage_update` token counts. `context_size == 0` means unknown.
+    context_used: u64 = 0,
+    context_size: u64 = 0,
 
     pub fn title(self: *const Session) []const u8 {
         return self.title_storage[0..self.title_len];
@@ -204,6 +207,18 @@ pub const Session = struct {
 
     pub fn appendRewindRef(self: *Session, sha: []const u8, ref_name: []const u8, recorded_at: i64) void {
         rewind.append(&self.rewind_refs, &self.rewind_ref_count, sha, ref_name, recorded_at);
+    }
+
+    pub fn setContextUsage(self: *Session, used: u64, size: u64) void {
+        self.context_used = used;
+        self.context_size = size;
+    }
+
+    /// Native `progress` is a 0..1 fraction. Missing usage stays 0.
+    pub fn contextUsageFraction(self: *const Session) f32 {
+        if (self.context_size == 0) return 0;
+        const used = @min(self.context_used, self.context_size);
+        return @as(f32, @floatFromInt(used)) / @as(f32, @floatFromInt(self.context_size));
     }
 
     pub fn provider_label(self: *const Session) []const u8 {
@@ -944,6 +959,12 @@ pub const Model = struct {
 
     pub fn project_is_local(model: *const Model) bool {
         return model.selectedProjectPath().len == 0;
+    }
+
+    /// Composer usage control. 0 when the live path has not reported usage.
+    pub fn context_usage(model: *const Model) f32 {
+        const session = model.sessionByIdConst(model.selected) orelse return 0;
+        return session.contextUsageFraction();
     }
 
     pub fn project_edit(model: *const Model) []const u8 {
@@ -2130,6 +2151,13 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
             session.setFxSessionId(minted);
             store.persistIfPossible(model, session.id, fx);
         }
+    }
+    if (acp.usageUpdate(parsed)) |usage| {
+        if (model.sessionById(model.streaming_session)) |session| {
+            session.setContextUsage(usage.used, usage.size);
+            store.persistIfPossible(model, session.id, fx);
+        }
+        return;
     }
     if (acp.isAgentMessageText(parsed)) {
         model.appendToTurn(model.stream_turn_id, parsed.text);
