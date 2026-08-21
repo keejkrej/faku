@@ -1369,7 +1369,6 @@ fn persistDaemonRuntimeId(model: *Model, fx: *Effects, parsed: protocol.ParsedSe
     session.setRuntimeId(parsed.runtime_id);
     store.persistIfPossible(model, session.id, fx);
 }
-}
 
 fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (model.daemon_load_key != 0 and exit.key == model.daemon_load_key) {
