@@ -7,9 +7,10 @@
 //!
 //! One JSON document `sessions.json`. Catalog load copies only session
 //! skeletons (id, title, provider, untitled, has_started, project_path,
-//! fx_session_id, runtime_id, model, access_mode, interaction_mode, folder_id, rewind_refs) — no transcripts. Selecting
+//! fx_session_id, runtime_id, model, access_mode, interaction_mode, folder_id, rewind_refs,
+//! context_used, context_size) — no transcripts. Selecting
 //! a session hydrates its turns,
-//! `queued_messages`, and `rewind_refs`. Document extras also keep
+//! `queued_messages`, `rewind_refs`, and last-known context usage. Document extras also keep
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_project_path` / `last_daemon_address` so the settings gear and
@@ -775,6 +776,8 @@ const StoredSession = struct {
     queued_messages: []StoredQueued,
     rewind_refs: []StoredRewind = &.{},
     folder_id: u32 = 0,
+    context_used: u64 = 0,
+    context_size: u64 = 0,
 };
 
 const StoredFolder = struct {
@@ -870,6 +873,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     for (document.sessions) |stored| {
         model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode, stored.runtime_id, stored.interaction_mode, stored.folder_id);
         applyRewindRefs(model, stored.id, stored.rewind_refs);
+        applyContextUsage(model, stored.id, stored.context_used, stored.context_size);
     }
     if (model.sessionById(document.selected) != null) {
         model.selected = document.selected;
@@ -892,6 +896,7 @@ fn applyDetail(model: *Model, allocator: std.mem.Allocator, bytes: []const u8, s
         model.restoreQueued(queued.id, session_id, queued.text);
     }
     applyRewindRefs(model, session_id, stored.rewind_refs);
+    applyContextUsage(model, session_id, stored.context_used, stored.context_size);
 }
 
 fn findStored(document: Document, id: u32) ?*StoredSession {
@@ -917,6 +922,8 @@ fn upsertSession(document: *Document, arena: std.mem.Allocator, model: *const Mo
         existing.interaction_mode = incoming.interaction_mode;
         existing.folder_id = incoming.folder_id;
         existing.rewind_refs = incoming.rewind_refs;
+        existing.context_used = incoming.context_used;
+        existing.context_size = incoming.context_size;
         if (live.detail_loaded) {
             existing.turns = incoming.turns;
             existing.queued_messages = incoming.queued_messages;
@@ -972,6 +979,8 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
         .access_mode = try arena.dupe(u8, session.accessMode()),
         .interaction_mode = try arena.dupe(u8, session.interactionMode()),
         .folder_id = session.folder_id,
+        .context_used = session.context_used,
+        .context_size = session.context_size,
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
         .rewind_refs = try snapshotRewindRefs(arena, session),
@@ -997,6 +1006,11 @@ fn applyRewindRefs(model: *Model, session_id: u32, refs: []const StoredRewind) v
     for (refs) |item| {
         session.appendRewindRef(item.sha, item.ref, item.recorded_at);
     }
+}
+
+fn applyContextUsage(model: *Model, session_id: u32, used: u64, size: u64) void {
+    const session = model.sessionById(session_id) orelse return;
+    session.setContextUsage(used, size);
 }
 
 fn readDocument(arena: std.mem.Allocator, io: std.Io, dir: []const u8) !Document {
@@ -1096,6 +1110,8 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         .queued_messages = try queued.toOwnedSlice(arena),
         .rewind_refs = try parseRewindRefs(arena, obj.get("rewind_refs")),
         .folder_id = jsonUint(obj.get("folder_id")) orelse 0,
+        .context_used = jsonU64(obj.get("context_used")) orelse 0,
+        .context_size = jsonU64(obj.get("context_size")) orelse 0,
     };
 }
 
@@ -1197,6 +1213,14 @@ fn jsonUint(value: ?std.json.Value) ?u32 {
     const item = value orelse return null;
     return switch (item) {
         .integer => |n| if (n >= 0 and n <= std.math.maxInt(u32)) @intCast(n) else null,
+        else => null,
+    };
+}
+
+fn jsonU64(value: ?std.json.Value) ?u64 {
+    const item = value orelse return null;
+    return switch (item) {
+        .integer => |n| if (n >= 0) @intCast(n) else null,
         else => null,
     };
 }
@@ -1325,6 +1349,10 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
     try appendJsonString(out, allocator, session.interaction_mode);
     try out.appendSlice(allocator, ",\"folder_id\":");
     try appendUint(out, allocator, session.folder_id);
+    try out.appendSlice(allocator, ",\"context_used\":");
+    try appendU64(out, allocator, session.context_used);
+    try out.appendSlice(allocator, ",\"context_size\":");
+    try appendU64(out, allocator, session.context_size);
     try out.appendSlice(allocator, ",\"turns\":[");
     for (session.turns, 0..) |turn, i| {
         if (i != 0) try out.append(allocator, ',');
@@ -1361,6 +1389,12 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
 
 fn appendUint(out: *std.ArrayList(u8), allocator: std.mem.Allocator, value: u32) !void {
     var num: [10]u8 = undefined;
+    const piece = std.fmt.bufPrint(&num, "{d}", .{value}) catch return error.NoSpaceLeft;
+    try out.appendSlice(allocator, piece);
+}
+
+fn appendU64(out: *std.ArrayList(u8), allocator: std.mem.Allocator, value: u64) !void {
+    var num: [20]u8 = undefined;
     const piece = std.fmt.bufPrint(&num, "{d}", .{value}) catch return error.NoSpaceLeft;
     try out.appendSlice(allocator, piece);
 }
@@ -1527,6 +1561,37 @@ test "session project_path persists and new sessions inherit last_project_path" 
 
     const inherited = loaded.addSession("untitled next", .fx);
     try testing.expectEqualStrings(project, loaded.sessionById(inherited).?.projectPath());
+}
+
+test "session context usage persists and hydrates" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("usage thread", .fx);
+    if (source.sessionById(id)) |session| session.setContextUsage(53000, 200000);
+    _ = source.appendTurn(id, .user, "remember usage");
+    try saveSession(&source, id, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqual(@as(u64, 53000), loaded.session_store[0].context_used);
+    try testing.expectEqual(@as(u64, 200000), loaded.session_store[0].context_size);
+    try testing.expectApproxEqAbs(@as(f32, 0.265), loaded.context_usage(), 0.0001);
+
+    hydrateSession(&loaded, loaded.session_store[0].id, allocator, io);
+    try testing.expectEqual(@as(u64, 53000), loaded.session_store[0].context_used);
+    try testing.expectEqual(@as(u64, 200000), loaded.session_store[0].context_size);
+    try testing.expectApproxEqAbs(@as(f32, 0.265), loaded.context_usage(), 0.0001);
 }
 
 test "session fx_session_id persists and loads" {
