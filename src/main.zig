@@ -158,6 +158,13 @@ pub const Session = struct {
         return self.title_storage[0..self.title_len];
     }
 
+    pub fn setTitle(self: *Session, title_text: []const u8) void {
+        const trimmed = std.mem.trim(u8, title_text, " \t\r\n");
+        const resolved = if (trimmed.len == 0) "untitled" else trimmed;
+        writeFixed(&self.title_storage, &self.title_len, resolved);
+        if (trimmed.len > 0) self.untitled = false;
+    }
+
     pub fn projectPath(self: *const Session) []const u8 {
         return self.project_path_storage[0..self.project_path_len];
     }
@@ -359,6 +366,8 @@ pub const Msg = union(enum) {
     unassign_selected,
     assign_folder: AssignFolder,
     folder_title_edit: canvas.TextInputEvent,
+    edit_session_title,
+    session_title_edit: canvas.TextInputEvent,
     close_window,
     sidebar_resized: f32,
     transcript_scrolled: canvas.ScrollState,
@@ -406,6 +415,8 @@ pub const Model = struct {
     project_edit_buffer: canvas.TextBuffer(max_project_path) = .{},
     editing_folder_id: u32 = 0,
     folder_title_buffer: canvas.TextBuffer(max_title) = .{},
+    editing_session_id: u32 = 0,
+    session_title_buffer: canvas.TextBuffer(max_title) = .{},
     transcript_scroll: f32 = 0,
     fx_available: bool = false,
     fx_path_storage: [max_fx_path]u8 = [_]u8{0} ** max_fx_path,
@@ -483,6 +494,11 @@ pub const Model = struct {
         "applyFolderTitle",
         "editing_folder_id",
         "folder_title_buffer",
+        "startSessionTitleEdit",
+        "closeSessionTitleEdit",
+        "applySessionTitle",
+        "editing_session_id",
+        "session_title_buffer",
         "session_rows",
         "selected",
         "history_store",
@@ -937,6 +953,7 @@ pub const Model = struct {
     pub fn openSettings(model: *Model) void {
         model.closeProjectEdit();
         model.closeFolderTitleEdit();
+        model.closeSessionTitleEdit();
         model.settings_open = true;
         model.settings_model_buffer.set(model.lastModel());
         model.settings_project_buffer.set(model.lastProjectPath());
@@ -1044,6 +1061,7 @@ pub const Model = struct {
 
     pub fn startFolderTitleEdit(model: *Model, folder_id: u32) void {
         const folder = model.folderByIdConst(folder_id) orelse return;
+        model.closeSessionTitleEdit();
         model.editing_folder_id = folder_id;
         model.folder_title_buffer.set(folder.title());
     }
@@ -1057,6 +1075,32 @@ pub const Model = struct {
         const folder = model.folderById(model.editing_folder_id) orelse return;
         model.folder_title_buffer.apply(edit);
         folder.setTitle(model.folder_title_draft());
+    }
+
+    pub fn session_title_draft(model: *const Model) []const u8 {
+        return model.session_title_buffer.text();
+    }
+
+    pub fn session_title_editing(model: *const Model) bool {
+        return model.editing_session_id != 0;
+    }
+
+    pub fn startSessionTitleEdit(model: *Model, session_id: u32) void {
+        const session = model.sessionByIdConst(session_id) orelse return;
+        model.closeFolderTitleEdit();
+        model.editing_session_id = session_id;
+        model.session_title_buffer.set(session.title());
+    }
+
+    pub fn closeSessionTitleEdit(model: *Model) void {
+        model.editing_session_id = 0;
+        model.session_title_buffer.clear();
+    }
+
+    pub fn applySessionTitle(model: *Model, edit: canvas.TextInputEvent) void {
+        const session = model.sessionById(model.editing_session_id) orelse return;
+        model.session_title_buffer.apply(edit);
+        session.setTitle(model.session_title_draft());
     }
 
     pub fn startProjectEdit(model: *Model) void {
@@ -1586,7 +1630,7 @@ fn sessionSidebarRow(model: *const Model, session: *const Session) SidebarRow {
         .provider = session.provider_label(),
         .selected = session.id == model.selected,
         .is_header = false,
-        .editing = false,
+        .editing = model.editing_session_id == session.id,
         .folder_id = session.folder_id,
     };
 }
@@ -1683,6 +1727,7 @@ fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     store.persistDraftIfPossible(model);
     model.closeProjectEdit();
     model.closeFolderTitleEdit();
+    model.closeSessionTitleEdit();
     model.selected = id;
     store.hydrateIfPossible(model, id);
     store.maybeHydrateDaemonSession(model, fx, id);
@@ -1734,6 +1779,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistDraftIfPossible(model);
             model.closeProjectEdit();
             model.closeFolderTitleEdit();
+            model.closeSessionTitleEdit();
             const id = model.addSession("untitled", .fx);
             if (id == 0) return;
             if (model.sessionById(id)) |session| session.untitled = true;
@@ -1744,6 +1790,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.loadDraftIfPossible(model);
         },
         .select => |id| {
+            if (model.editing_session_id == id) return;
+            if (id == model.selected and model.sessionById(id) != null) {
+                model.startSessionTitleEdit(id);
+                return;
+            }
             if (model.sessionById(id) != null) {
                 model.pushSelectionHistory(id);
                 applySessionSelection(model, fx, id);
@@ -1781,15 +1832,25 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.applyFolderTitle(edit);
             store.persistFoldersIfPossible(model);
         },
+        .edit_session_title => {
+            if (model.selected != 0) model.startSessionTitleEdit(model.selected);
+        },
+        .session_title_edit => |edit| {
+            const session_id = model.editing_session_id;
+            model.applySessionTitle(edit);
+            store.persistIfPossible(model, session_id, fx);
+        },
         .assign_folder => |assign| {
             persistAssignedFolder(model, assign.session_id, assign.folder_id, fx);
         },
         // Chromeless titlebar has no OS close. This is the documented
         // window-action effect (`examples/deck`): last-window close
         // follows the host exit path. Esc stays `.stop` so settings /
-        // search / project-edit / folder-title-edit / a live turn keep it.
+        // search / project-edit / folder-title-edit / session-title-edit /
+        // a live turn keep it.
         .close_window => fx.closeWindow(main_window_label),
         .remove_session => |id| {
+            if (model.editing_session_id == id) model.closeSessionTitleEdit();
             store.removeIfPossible(model, id, fx);
             store.loadDraftIfPossible(model);
         },
@@ -1819,6 +1880,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             }
             if (model.editing_folder_id != 0) {
                 model.closeFolderTitleEdit();
+                return;
+            }
+            if (model.editing_session_id != 0) {
+                model.closeSessionTitleEdit();
                 return;
             }
             if (model.search_active or model.search_query().len > 0) {

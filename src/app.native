@@ -66,7 +66,12 @@
                   <list-item height="52" selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
                     <row gap="2" cross="center" padding="8">
                       <column gap="2" grow="1">
-                        <text>{s.title}</text>
+                        <if test="{s.editing}">
+                          <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
+                        </if>
+                        <else>
+                          <text>{s.title}</text>
+                        </else>
                         <text foreground="text_muted">{s.provider}</text>
                       </column>
                       <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>
@@ -110,7 +115,12 @@
       </if>
       <else>
       <row height="48" padding="14" gap="10" cross="center" window-drag="true" label="Toolbar">
-        <text>{header_title}</text>
+        <if test="{session_title_editing}">
+          <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
+        </if>
+        <else>
+          <text on-press="edit_session_title">{header_title}</text>
+        </else>
         <spacer grow="1" />
         <if test="{can_rewind}">
           <button variant="ghost" size="sm" on-press="rewind">Rewind</button>
