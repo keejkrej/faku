@@ -481,13 +481,14 @@ pub const Msg = union(enum) {
     transcript_scrolled: canvas.ScrollState,
     jump_latest,
     copy_turn: u32,
+    copy_last_turn,
     clipboard_done: native_sdk.EffectClipboardResult,
     tick: native_sdk.EffectTimer,
     fx_line: native_sdk.EffectLine,
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "clipboard_done" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "clipboard_done" };
 };
 
 pub const Model = struct {
@@ -1993,6 +1994,25 @@ fn copyTurn(model: *Model, fx: *Effects, id: u32) void {
     });
 }
 
+/// Selected session, newest first. Empty text is skipped so a trailing
+/// blank assistant/tool/thought turn does not hide the last real copy.
+fn latestNonEmptyTurnId(model: *const Model) ?u32 {
+    var i: usize = model.turn_count;
+    while (i > 0) {
+        i -= 1;
+        const turn = model.turn_store[i];
+        if (turn.session_id != model.selected) continue;
+        if (turn.text().len == 0) continue;
+        return turn.id;
+    }
+    return null;
+}
+
+fn copyLastTurn(model: *Model, fx: *Effects) void {
+    const id = latestNonEmptyTurnId(model) orelse return;
+    copyTurn(model, fx, id);
+}
+
 fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     if (model.sessionById(id) == null) return;
     store.persistDraftIfPossible(model);
@@ -2249,6 +2269,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .transcript_scrolled => |scroll| model.applyTranscriptScroll(scroll),
         .jump_latest => model.pinTranscriptToLatest(),
         .copy_turn => |id| copyTurn(model, fx, id),
+        .copy_last_turn => copyLastTurn(model, fx),
         .clipboard_done => {},
         .tick => |timer| {
             if (timer.outcome != .fired) return;
@@ -3087,6 +3108,9 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "b")) {
         return .toggle_sidebar;
+    }
+    if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "c")) {
+        return .copy_last_turn;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.mem.eql(u8, keyboard.key, ",")) {
         return .toggle_settings;

@@ -3837,6 +3837,86 @@ test "cmd-b persist extras stay merge-only" {
     try testing.expectEqual(@as(u32, 320), restored.sidebarWidthPixels());
 }
 
+test "cmd-c and ctrl-c copy the last non-empty turn via writeClipboard" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const other = model.addSession("other session", .fx);
+    const id = model.addSession("copy last", .fx);
+    model.selected = id;
+    _ = model.appendTurn(other, .assistant, "not this session");
+
+    const cmd_c = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "c",
+        .modifiers = .{ .super = true },
+    };
+    const ctrl_c = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "C",
+        .modifiers = .{ .control = true },
+    };
+    const plain_c = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "c" };
+
+    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_c));
+    try testing.expectEqual(Msg.copy_last_turn, main.onKey(cmd_c).?);
+    try testing.expectEqual(Msg.copy_last_turn, main.onKey(ctrl_c).?);
+
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    main.update(&model, main.onKey(cmd_c).?, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+
+    _ = model.appendTurn(id, .user, "");
+    _ = model.appendTurn(id, .assistant, "");
+    main.update(&model, .copy_last_turn, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+
+    _ = model.appendTurn(id, .user, "first visible");
+    _ = model.appendTurn(id, .assistant, "last non-empty body");
+    _ = model.appendTurn(id, .tool, "");
+    const tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "Copy");
+    try testing.expect(findByText(tree.root, .button, "Rewind") == null);
+
+    main.update(&model, main.onKey(cmd_c).?, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    const first = fx.pendingClipboardAt(0).?;
+    try testing.expectEqual(main.copy_turn_key, first.key);
+    try testing.expectEqual(native_sdk.EffectClipboardOp.write, first.op);
+    try testing.expectEqualStrings("last non-empty body", first.text);
+
+    main.update(&model, main.onKey(ctrl_c).?, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try testing.expectEqual(main.copy_turn_key, fx.pendingClipboardAt(0).?.key);
+    try testing.expectEqualStrings("last non-empty body", fx.pendingClipboardAt(0).?.text);
+
+    const cmd_b = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "b",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.toggle_sidebar, main.onKey(cmd_b).?);
+    const cmd_back = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "[",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.history_back, main.onKey(cmd_back).?);
+    const cmd_forward = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "]",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.history_forward, main.onKey(cmd_forward).?);
+}
+
 fn expectLaidOutHeight(root: canvas.Widget, id: canvas.ObjectId, height: f32) !void {
     var nodes: [256]canvas.WidgetLayoutNode = undefined;
     const layout = try canvas.layoutWidgetTree(
