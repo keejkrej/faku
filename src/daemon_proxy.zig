@@ -1,12 +1,14 @@
 //! One-shot waku-daemon sidecar.
 //!
 //! Native `fx.spawn` writes stdin once and then closes it. This module
-//! builds that buffer (hello + optional loadTaskState + prompt, or hello
-//! + saveTaskState) and, when run as `faku daemon-proxy <addr>`, forwards
-//! those JSON frames over `ws://{addr}/v1`, prints each incoming text
-//! frame as one stdout line, and exits on `turnFinished` / `rejected` /
-//! `error`. A save-only stdin (no prompt) exits after server hello /
-//! response so the sidecar does not wait for a turn.
+//! builds that buffer (hello + optional loadTaskState + prompt, hello +
+//! saveTaskState, or hello + loadTaskState) and, when run as
+//! `faku daemon-proxy <addr>`, forwards those JSON frames over
+//! `ws://{addr}/v1`, prints each incoming text frame as one stdout line,
+//! and exits on `turnFinished` / `rejected` / `error`. A save-only stdin
+//! (no prompt) exits after server hello / response. A load-only stdin
+//! waits for the `taskState` response (not hello) because a nil
+//! `requestId` is a notify and would never return the catalog.
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -40,6 +42,17 @@ pub const SaveStdin = struct {
     skeleton: protocol.TaskStateSkeleton,
 };
 
+/// Non-nil: a nil `requestId` is a notify and the daemon sends no `taskState`.
+pub const LOAD_REQUEST_ID = "00000000-0000-0000-0000-000000000010";
+
+pub const LoadStdin = struct {
+    token: []const u8 = "",
+    client_id: []const u8 = CLIENT_ID,
+    request_id: []const u8 = LOAD_REQUEST_ID,
+    session_id: []const u8 = protocol.NIL_UUID,
+    runtime_id: []const u8 = protocol.NIL_UUID,
+};
+
 pub const ParsedAddress = struct {
     host: []const u8,
     port: u16,
@@ -49,6 +62,15 @@ pub const ParsedAddress = struct {
 /// Format a local session id as a v3-looking nil-prefixed UUID.
 pub fn wireUuid(local_id: u32, buf: *[36]u8) []const u8 {
     return std.fmt.bufPrint(buf, "00000000-0000-0000-0000-{x:0>12}", .{local_id}) catch protocol.NIL_UUID;
+}
+
+/// Reverse of `wireUuid`. Other UUID shapes are not a local id.
+pub fn localIdFromWire(uuid: []const u8) ?u32 {
+    const prefix = "00000000-0000-0000-0000-";
+    if (!std.mem.startsWith(u8, uuid, prefix)) return null;
+    const hex = uuid[prefix.len..];
+    if (hex.len != 12) return null;
+    return std.fmt.parseInt(u32, hex, 16) catch null;
 }
 
 pub fn parseAddress(raw: []const u8) ?ParsedAddress {
@@ -139,13 +161,46 @@ pub fn writeSaveStdin(buf: []u8, args: SaveStdin) WriteError![]const u8 {
     return cur.slice();
 }
 
+/// NDJSON stdin for a first-run catalog fill. Hello + loadTaskState,
+/// no prompt. Uses a non-nil requestId so the daemon replies.
+pub fn writeLoadStdin(buf: []u8, args: LoadStdin) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    const hello = try protocol.writeClientHello(cur.remaining(), args.token, args.client_id, &.{});
+    cur.pos += hello.len;
+    try cur.write("\n");
+    const load = try protocol.writeBareCommand(
+        cur.remaining(),
+        args.request_id,
+        args.session_id,
+        args.runtime_id,
+        .load_task_state,
+    );
+    cur.pos += load.len;
+    try cur.write("\n");
+    return cur.slice();
+}
+
 fn outboundWaitsForTurn(outbound: []const u8) bool {
     return std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") != null;
+}
+
+fn outboundWaitsForLoadResponse(outbound: []const u8) bool {
+    return std.mem.indexOf(u8, outbound, "\"type\":\"loadTaskState\"") != null and
+        std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") == null and
+        std.mem.indexOf(u8, outbound, "\"type\":\"saveTaskState\"") == null;
 }
 
 fn isSaveOnlyTerminal(parsed: protocol.ParsedServer) bool {
     return switch (parsed.frame) {
         .hello, .rejected, .response, .task_state_changed, .shutting_down => true,
+        .event => parsed.event_kind == .@"error",
+        else => false,
+    };
+}
+
+fn isLoadOnlyTerminal(parsed: protocol.ParsedServer) bool {
+    return switch (parsed.frame) {
+        .rejected, .response, .shutting_down => true,
         .event => parsed.event_kind == .@"error",
         else => false,
     };
@@ -228,6 +283,7 @@ pub fn run(io: std.Io, address: []const u8, outbound: []const u8, stdout: *std.I
     }
 
     const wait_for_turn = outboundWaitsForTurn(outbound);
+    const wait_for_load = outboundWaitsForLoadResponse(outbound);
     var payload_buf: [nativeLineCap]u8 = undefined;
     while (true) {
         const n = readTextFrame(&reader.interface, &payload_buf) catch |err| switch (err) {
@@ -244,7 +300,12 @@ pub fn run(io: std.Io, address: []const u8, outbound: []const u8, stdout: *std.I
         defer arena_state.deinit();
         const parsed = protocol.parseServerFrame(arena_state.allocator(), line);
         if (protocol.isTerminalServerFrame(parsed)) return;
-        if (!wait_for_turn and isSaveOnlyTerminal(parsed)) return;
+        if (wait_for_turn) continue;
+        if (wait_for_load) {
+            if (isLoadOnlyTerminal(parsed)) return;
+            continue;
+        }
+        if (isSaveOnlyTerminal(parsed)) return;
     }
 }
 
@@ -435,6 +496,29 @@ test "writeSaveStdin emits hello and saveTaskState without a prompt" {
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "loadTaskState") == null);
     try std.testing.expect(!outboundWaitsForTurn(stdin));
+}
+
+test "writeLoadStdin emits hello and loadTaskState with a non-nil requestId" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeLoadStdin(&buf, .{
+        .token = "secret",
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadTaskState\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"saveTaskState\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ LOAD_REQUEST_ID) != null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForLoadResponse(stdin));
+}
+
+test "localIdFromWire reverses wireUuid" {
+    var buf: [36]u8 = undefined;
+    const encoded = wireUuid(7, &buf);
+    try std.testing.expectEqual(@as(?u32, 7), localIdFromWire(encoded));
+    try std.testing.expectEqual(@as(?u32, 0), localIdFromWire(protocol.NIL_UUID));
+    try std.testing.expect(localIdFromWire("a1b2c3d4-e5f6-7890-abcd-ef1234567890") == null);
 }
 
 test "parseAddress strips ws scheme and keeps /v1" {

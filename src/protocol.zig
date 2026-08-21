@@ -18,6 +18,18 @@
 //! `saveTaskState`. After `turnFinished`, dequeue local `queuedMessages`
 //! and send the next `prompt`.
 //!
+//! `loadTaskState` is a bare command. Verified against egoist/waku
+//! `crates/waku-protocol/src/protocol.rs` (`ResponsePayload::TaskState`)
+//! and `apps/web/src/lib/daemon-api.ts` (`expectResponse(..., 'taskState')`):
+//! a non-nil `requestId` is required (nil is a notify and the daemon sends
+//! no response). An ok outcome carries
+//! `{ type: "taskState", projects, sessions, defaultCwd, projectlessRoot }`.
+//! AgentSession / Project keys stay snake_case (`id`, `title`, `provider`,
+//! `project_id`, `path`). `has_started` and `project_path` are Faku extras
+//! on the session object (same extras `saveTaskState` sends); they are
+//! parsed when present. Local `sessions.json` stays canonical; a daemon
+//! load is only a first-run fill when that file is missing.
+//!
 //! `saveTaskState` is not a bare command. Verified against egoist/waku
 //! `crates/waku-protocol/src/protocol.rs` and `persistSession` in
 //! `apps/web/src/lib/daemon-api.ts`: `{ type, projects, liveSessionIds,
@@ -210,6 +222,21 @@ pub const ParsedServer = struct {
     text_delta: []const u8 = "",
     /// `turnFinished` payload. Missing `success` defaults to true.
     turn_success: bool = true,
+    /// `outcome.payload.type` on a response (`taskState`, `ack`, …).
+    payload_type: []const u8 = "",
+};
+
+pub const max_task_state_sessions: usize = 16;
+
+/// Session skeletons taken from a verified `taskState` response payload.
+/// Slices alias the JSON arena used to parse the line.
+pub const ParsedTaskState = struct {
+    sessions: [max_task_state_sessions]TaskStateSkeleton = [_]TaskStateSkeleton{.{
+        .session_id = "",
+        .title = "",
+        .provider = "",
+    }} ** max_task_state_sessions,
+    session_count: usize = 0,
 };
 
 const WriteError = error{NoSpaceLeft};
@@ -491,6 +518,11 @@ fn parseOutcome(obj: std.json.ObjectMap, parsed: *ParsedServer) void {
     const status = jsonStringValue(outcome.get("status")) orelse return;
     if (std.mem.eql(u8, status, "ok")) {
         parsed.response_ok = true;
+        if (outcome.get("payload")) |payload_val| {
+            if (jsonObject(payload_val)) |payload| {
+                parsed.payload_type = jsonStringValue(payload.get("type")) orelse "";
+            }
+        }
         return;
     }
     if (std.mem.eql(u8, status, "error")) {
@@ -501,6 +533,74 @@ fn parseOutcome(obj: std.json.ObjectMap, parsed: *ParsedServer) void {
             }
         }
     }
+}
+
+fn projectPathFor(projects: []const std.json.Value, project_id: []const u8) []const u8 {
+    if (project_id.len == 0) return "";
+    for (projects) |item| {
+        const obj = jsonObject(item) orelse continue;
+        const id = jsonStringValue(obj.get("id")) orelse continue;
+        if (!std.mem.eql(u8, id, project_id)) continue;
+        return jsonStringValue(obj.get("path")) orelse "";
+    }
+    return "";
+}
+
+/// Extract session skeletons from a `taskState` response. Empty on any
+/// other frame, a failed outcome, or a payload that is not `taskState`.
+/// Parses confirmed AgentSession keys plus Faku extras `project_path` /
+/// `has_started` when present. Missing `has_started` defaults to true
+/// (daemon catalog rows are stored started sessions). Missing
+/// `project_path` falls back to `projects[].path` via `project_id`.
+pub fn parseTaskStateSkeletons(allocator: std.mem.Allocator, line: []const u8) ParsedTaskState {
+    var parsed = ParsedTaskState{};
+    const trimmed = std.mem.trim(u8, line, " \t\r\n");
+    if (trimmed.len < 2 or trimmed[0] != '{') return parsed;
+
+    const root = std.json.parseFromSliceLeaky(std.json.Value, allocator, trimmed, .{}) catch return parsed;
+    const obj = jsonObject(root) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(obj.get("type")) orelse "", "response")) return parsed;
+    const outcome = jsonObject(obj.get("outcome") orelse return parsed) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(outcome.get("status")) orelse "", "ok")) return parsed;
+    const payload = jsonObject(outcome.get("payload") orelse return parsed) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(payload.get("type")) orelse "", "taskState")) return parsed;
+
+    const projects: []const std.json.Value = blk: {
+        const projects_val = payload.get("projects") orelse break :blk &.{};
+        break :blk switch (projects_val) {
+            .array => |arr| arr.items,
+            else => &.{},
+        };
+    };
+
+    const sessions_val = payload.get("sessions") orelse return parsed;
+    const sessions = switch (sessions_val) {
+        .array => |arr| arr.items,
+        else => return parsed,
+    };
+
+    for (sessions) |item| {
+        if (parsed.session_count >= max_task_state_sessions) break;
+        const session = jsonObject(item) orelse continue;
+        const session_id = jsonStringValue(session.get("id")) orelse continue;
+        const title = jsonStringValue(session.get("title")) orelse continue;
+        const provider = jsonStringValue(session.get("provider")) orelse continue;
+        if (session_id.len == 0) continue;
+        var project_path = jsonStringValue(session.get("project_path")) orelse "";
+        if (project_path.len == 0) {
+            const project_id = jsonStringValue(session.get("project_id")) orelse "";
+            project_path = projectPathFor(projects, project_id);
+        }
+        parsed.sessions[parsed.session_count] = .{
+            .session_id = session_id,
+            .title = title,
+            .provider = provider,
+            .project_path = project_path,
+            .has_started = jsonBoolValue(session.get("has_started")) orelse true,
+        };
+        parsed.session_count += 1;
+    }
+    return parsed;
 }
 
 fn parseEvent(obj: std.json.ObjectMap, parsed: *ParsedServer) void {
@@ -661,6 +761,7 @@ test "server-frame parser round-trips hello rejected response and events" {
     const ok = parseServerFrame(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000001\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}");
     try std.testing.expectEqual(ServerFrame.response, ok.frame);
     try std.testing.expect(ok.response_ok);
+    try std.testing.expectEqualStrings("ack", ok.payload_type);
     try std.testing.expect(!isTerminalServerFrame(ok));
 
     const err = parseServerFrame(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000001\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}");
@@ -688,4 +789,32 @@ test "server-frame parser round-trips hello rejected response and events" {
     try std.testing.expectEqual(EventKind.@"error", boom.event_kind.?);
     try std.testing.expect(isTerminalServerFrame(boom));
     try std.testing.expectEqualStrings("provider died", boom.message);
+}
+
+test "taskState response yields session skeletons and project path fallback" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const line =
+        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000010","outcome":{"status":"ok","payload":{"type":"taskState","projects":[{"id":"00000000-0000-0000-0000-000000000007","name":"faku","path":"/tmp/from-project","created_at":0}],"sessions":[{"id":"00000000-0000-0000-0000-000000000007","title":"from daemon","project_id":"00000000-0000-0000-0000-000000000007","provider":"fx","runtime_mode":"fullAccess","status":"idle","created_at":0,"updated_at":0,"has_started":true},{"id":"00000000-0000-0000-0000-000000000008","title":"extra path","provider":"claude","project_path":"/tmp/extra","has_started":false}],"defaultCwd":"/tmp","projectlessRoot":null}}}
+    ;
+    const parsed = parseTaskStateSkeletons(arena, line);
+    try std.testing.expectEqual(@as(usize, 2), parsed.session_count);
+    try std.testing.expectEqualStrings("00000000-0000-0000-0000-000000000007", parsed.sessions[0].session_id);
+    try std.testing.expectEqualStrings("from daemon", parsed.sessions[0].title);
+    try std.testing.expectEqualStrings("fx", parsed.sessions[0].provider);
+    try std.testing.expectEqualStrings("/tmp/from-project", parsed.sessions[0].project_path);
+    try std.testing.expect(parsed.sessions[0].has_started);
+    try std.testing.expectEqualStrings("extra path", parsed.sessions[1].title);
+    try std.testing.expectEqualStrings("claude", parsed.sessions[1].provider);
+    try std.testing.expectEqualStrings("/tmp/extra", parsed.sessions[1].project_path);
+    try std.testing.expect(!parsed.sessions[1].has_started);
+
+    const empty = parseTaskStateSkeletons(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}");
+    try std.testing.expectEqual(@as(usize, 0), empty.session_count);
+
+    const failed = parseTaskStateSkeletons(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}");
+    try std.testing.expectEqual(@as(usize, 0), failed.session_count);
 }
