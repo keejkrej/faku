@@ -39,18 +39,28 @@
             <spacer width="8" />
             <text foreground="text_muted">Today</text>
             <spacer grow="1" />
-            <button variant="ghost" size="icon" icon="folder" label="New folder"></button>
+            <button variant="ghost" size="icon" icon="folder" label="New folder" on-press="new_folder"></button>
           </row>
           <spacer height="10" />
           <scroll grow="1">
             <column>
-              <for each="session_rows" key="id" as="s">
-                <list-item height="52" selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
-                  <column gap="2" padding="8">
-                    <text>{s.title}</text>
-                    <text foreground="text_muted">{s.provider}</text>
-                  </column>
-                </list-item>
+              <for each="sidebar_rows" key="id" as="s">
+                <if test="{s.is_header}">
+                  <list-item height="32" on-press="toggle_folder:{s.folder_id}" label="{s.title}">
+                    <row height="28" cross="center" padding="4">
+                      <icon name="folder" />
+                      <text foreground="text_muted">{s.title}</text>
+                    </row>
+                  </list-item>
+                </if>
+                <else>
+                  <list-item height="52" selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
+                    <column gap="2" padding="8">
+                      <text>{s.title}</text>
+                      <text foreground="text_muted">{s.provider}</text>
+                    </column>
+                  </list-item>
+                </else>
               </for>
             </column>
           </scroll>

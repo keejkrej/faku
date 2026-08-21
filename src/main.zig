@@ -37,6 +37,9 @@ pub const sidebar_rail_width: f32 = 48;
 const default_sidebar_split: f32 = sidebar_default_width / window_width;
 
 const max_sessions = 16;
+const max_folders = 16;
+/// Sidebar folder-header keys sit above session ids so `for` keys stay unique.
+pub const folder_row_id_base: u32 = 1_000_000;
 /// In-memory session selection history for sidebar Back / Forward.
 pub const selection_history_cap: u32 = 32;
 const max_turns = 128;
@@ -136,6 +139,8 @@ pub const Session = struct {
     /// Successful-turn HEAD snapshots. Cap last 20; no rewind UI yet.
     rewind_refs: [rewind.max_refs]rewind.Ref = [_]rewind.Ref{.{}} ** rewind.max_refs,
     rewind_ref_count: usize = 0,
+    /// 0 = ungrouped (Today). Unknown ids also render under Today.
+    folder_id: u32 = 0,
 
     pub fn title(self: *const Session) []const u8 {
         return self.title_storage[0..self.title_len];
@@ -231,11 +236,37 @@ pub const Turn = struct {
     }
 };
 
+pub const Folder = struct {
+    id: u32 = 0,
+    title_storage: [max_title]u8 = [_]u8{0} ** max_title,
+    title_len: usize = 0,
+    collapsed: bool = false,
+
+    pub fn title(self: *const Folder) []const u8 {
+        return self.title_storage[0..self.title_len];
+    }
+};
+
 pub const SessionRow = struct {
     id: u32,
     title: []const u8,
     provider: []const u8,
     selected: bool,
+};
+
+/// Flattened Today sessions + folder headers + folder sessions for the sidebar.
+pub const SidebarRow = struct {
+    id: u32,
+    title: []const u8,
+    provider: []const u8,
+    selected: bool,
+    is_header: bool,
+    folder_id: u32,
+};
+
+pub const AssignFolder = struct {
+    session_id: u32,
+    folder_id: u32,
 };
 
 pub const TurnRow = struct {
@@ -282,6 +313,9 @@ pub const Msg = union(enum) {
     cycle_model,
     history_back,
     history_forward,
+    new_folder,
+    toggle_folder: u32,
+    assign_folder: AssignFolder,
     sidebar_resized: f32,
     transcript_scrolled: canvas.ScrollState,
     tick: native_sdk.EffectTimer,
@@ -289,12 +323,15 @@ pub const Msg = union(enum) {
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "remove_session", "fx_line", "fx_exit", "fx_probe_exit" };
+    pub const view_unbound = .{ "tick", "stop", "remove_session", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit" };
 };
 
 pub const Model = struct {
     session_store: [max_sessions]Session = [_]Session{.{}} ** max_sessions,
     session_count: u32 = 0,
+    folder_store: [max_folders]Folder = [_]Folder{.{}} ** max_folders,
+    folder_count: u32 = 0,
+    next_folder_id: u32 = 1,
     selected: u32 = 0,
     history_store: [selection_history_cap]u32 = [_]u32{0} ** selection_history_cap,
     history_count: u32 = 0,
@@ -380,6 +417,19 @@ pub const Model = struct {
         "session_store",
         "sessions",
         "session_count",
+        "folder_store",
+        "folders",
+        "folder_count",
+        "next_folder_id",
+        "addFolder",
+        "restoreFolder",
+        "clearFolders",
+        "folderById",
+        "folderByIdConst",
+        "assignSessionFolder",
+        "toggleFolderCollapsed",
+        "nextUntitledFolderTitle",
+        "session_rows",
         "selected",
         "history_store",
         "history_count",
@@ -552,6 +602,59 @@ pub const Model = struct {
                 .selected = session.id == model.selected,
             };
             i += 1;
+        }
+        return out[0..i];
+    }
+
+    pub fn folders(model: *const Model) []const Folder {
+        return model.folder_store[0..model.folder_count];
+    }
+
+    pub fn sidebar_rows(model: *const Model, arena: std.mem.Allocator) []const SidebarRow {
+        const query = std.mem.trim(u8, model.search_query(), " \t\r\n");
+        var count: usize = 0;
+        for (model.session_store[0..model.session_count]) |*session| {
+            if (effectiveFolderId(model, session) == 0 and sessionMatchesQuery(session, query)) count += 1;
+        }
+        for (model.folder_store[0..model.folder_count]) |*folder| {
+            var matches: usize = 0;
+            for (model.session_store[0..model.session_count]) |*session| {
+                if (effectiveFolderId(model, session) == folder.id and sessionMatchesQuery(session, query)) matches += 1;
+            }
+            const show_header = query.len == 0 or matches > 0;
+            if (!show_header) continue;
+            count += 1;
+            if (!folder.collapsed or query.len > 0) count += matches;
+        }
+        const out = arena.alloc(SidebarRow, count) catch return &.{};
+        var i: usize = 0;
+        for (model.session_store[0..model.session_count]) |*session| {
+            if (effectiveFolderId(model, session) != 0 or !sessionMatchesQuery(session, query)) continue;
+            out[i] = sessionSidebarRow(model, session);
+            i += 1;
+        }
+        for (model.folder_store[0..model.folder_count]) |*folder| {
+            var matches: usize = 0;
+            for (model.session_store[0..model.session_count]) |*session| {
+                if (effectiveFolderId(model, session) == folder.id and sessionMatchesQuery(session, query)) matches += 1;
+            }
+            const show_header = query.len == 0 or matches > 0;
+            if (!show_header) continue;
+            out[i] = .{
+                .id = folder_row_id_base + folder.id,
+                .title = folder.title(),
+                .provider = "",
+                .selected = false,
+                .is_header = true,
+                .folder_id = folder.id,
+            };
+            i += 1;
+            if (folder.collapsed and query.len == 0) continue;
+            for (model.session_store[0..model.session_count]) |*session| {
+                if (effectiveFolderId(model, session) != folder.id or !sessionMatchesQuery(session, query)) continue;
+                out[i] = sessionSidebarRow(model, session);
+                i += 1;
+            }
         }
         return out[0..i];
     }
@@ -1035,6 +1138,66 @@ pub const Model = struct {
         return null;
     }
 
+    pub fn addFolder(model: *Model, title_text: []const u8) u32 {
+        if (model.folder_count >= max_folders) return 0;
+        var folder = Folder{ .id = model.next_folder_id };
+        writeFixed(&folder.title_storage, &folder.title_len, title_text);
+        model.folder_store[model.folder_count] = folder;
+        model.folder_count += 1;
+        model.next_folder_id += 1;
+        return folder.id;
+    }
+
+    pub fn restoreFolder(model: *Model, id: u32, title_text: []const u8, collapsed: bool) void {
+        if (model.folder_count >= max_folders) return;
+        var folder = Folder{ .id = id, .collapsed = collapsed };
+        writeFixed(&folder.title_storage, &folder.title_len, title_text);
+        model.folder_store[model.folder_count] = folder;
+        model.folder_count += 1;
+        if (id >= model.next_folder_id) model.next_folder_id = id + 1;
+    }
+
+    pub fn clearFolders(model: *Model) void {
+        model.folder_count = 0;
+        model.next_folder_id = 1;
+    }
+
+    pub fn folderById(model: *Model, id: u32) ?*Folder {
+        for (model.folder_store[0..model.folder_count]) |*folder| {
+            if (folder.id == id) return folder;
+        }
+        return null;
+    }
+
+    pub fn folderByIdConst(model: *const Model, id: u32) ?*const Folder {
+        for (model.folder_store[0..model.folder_count]) |*folder| {
+            if (folder.id == id) return folder;
+        }
+        return null;
+    }
+
+    pub fn assignSessionFolder(model: *Model, session_id: u32, folder_id: u32) bool {
+        const session = model.sessionById(session_id) orelse return false;
+        if (folder_id != 0 and model.folderById(folder_id) == null) return false;
+        session.folder_id = folder_id;
+        return true;
+    }
+
+    pub fn toggleFolderCollapsed(model: *Model, folder_id: u32) void {
+        const folder = model.folderById(folder_id) orelse return;
+        folder.collapsed = !folder.collapsed;
+    }
+
+    pub fn nextUntitledFolderTitle(model: *const Model, buf: []u8) []const u8 {
+        if (!folderTitleTaken(model, "New folder")) return "New folder";
+        var n: u32 = 2;
+        while (n < 1000) : (n += 1) {
+            const title = std.fmt.bufPrint(buf, "New folder {d}", .{n}) catch return "New folder";
+            if (!folderTitleTaken(model, title)) return title;
+        }
+        return "New folder";
+    }
+
     pub fn addSession(model: *Model, title_text: []const u8, provider: Provider) u32 {
         if (model.session_count >= max_sessions) return 0;
         var session = Session{ .id = model.next_id, .provider = provider };
@@ -1156,6 +1319,7 @@ pub const Model = struct {
         access_mode: []const u8,
         runtime_id: []const u8,
         interaction_mode: []const u8,
+        folder_id: u32,
     ) void {
         if (model.session_count >= max_sessions) return;
         var session = Session{
@@ -1172,6 +1336,7 @@ pub const Model = struct {
         writeFixed(&session.access_mode_storage, &session.access_mode_len, access_mode);
         writeFixed(&session.runtime_id_storage, &session.runtime_id_len, runtime_id);
         writeFixed(&session.interaction_mode_storage, &session.interaction_mode_len, interaction_mode);
+        session.folder_id = folder_id;
         model.session_store[model.session_count] = session;
         model.session_count += 1;
         if (id >= model.next_id) model.next_id = id + 1;
@@ -1237,6 +1402,30 @@ fn sessionMatchesQuery(session: *const Session, query: []const u8) bool {
     if (asciiContainsIgnoreCase(sessionDisplayTitle(session), query)) return true;
     if (asciiContainsIgnoreCase(session.title(), query)) return true;
     return asciiContainsIgnoreCase(session.provider_label(), query);
+}
+
+fn sessionSidebarRow(model: *const Model, session: *const Session) SidebarRow {
+    return .{
+        .id = session.id,
+        .title = sessionDisplayTitle(session),
+        .provider = session.provider_label(),
+        .selected = session.id == model.selected,
+        .is_header = false,
+        .folder_id = session.folder_id,
+    };
+}
+
+fn effectiveFolderId(model: *const Model, session: *const Session) u32 {
+    if (session.folder_id == 0) return 0;
+    if (model.folderByIdConst(session.folder_id) == null) return 0;
+    return session.folder_id;
+}
+
+fn folderTitleTaken(model: *const Model, title: []const u8) bool {
+    for (model.folder_store[0..model.folder_count]) |*folder| {
+        if (std.mem.eql(u8, folder.title(), title)) return true;
+    }
+    return false;
 }
 
 fn asciiContainsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
@@ -1353,6 +1542,23 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .history_back => goHistory(-1, model, fx),
         .history_forward => goHistory(1, model, fx),
+        .new_folder => {
+            var title_buf: [max_title]u8 = undefined;
+            const title = model.nextUntitledFolderTitle(&title_buf);
+            if (model.addFolder(title) == 0) return;
+            store.persistFoldersIfPossible(model);
+        },
+        .toggle_folder => |folder_id| {
+            model.toggleFolderCollapsed(folder_id);
+            store.persistFoldersIfPossible(model);
+        },
+        .assign_folder => |assign| {
+            if (!model.assignSessionFolder(assign.session_id, assign.folder_id)) return;
+            store.persistFoldersIfPossible(model);
+            if (model.sessionByIdConst(assign.session_id)) |session| {
+                if (session.hasStarted()) store.persistIfPossible(model, assign.session_id, fx);
+            }
+        },
         .remove_session => |id| {
             store.removeIfPossible(model, id, fx);
             store.loadDraftIfPossible(model);

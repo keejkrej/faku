@@ -7,13 +7,15 @@
 //!
 //! One JSON document `sessions.json`. Catalog load copies only session
 //! skeletons (id, title, provider, untitled, has_started, project_path,
-//! fx_session_id, runtime_id, model, access_mode, interaction_mode, rewind_refs) — no transcripts. Selecting
+//! fx_session_id, runtime_id, model, access_mode, interaction_mode, folder_id, rewind_refs) — no transcripts. Selecting
 //! a session hydrates its turns,
 //! `queued_messages`, and `rewind_refs`. Document extras also keep
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_project_path` / `last_daemon_address` so the settings gear and
-//! composer chips can edit persisted defaults.
+//! composer chips can edit persisted defaults, and `folders` /
+//! `collapsed_folder_ids` so New folder groups persist. A session
+//! `folder_id` of 0 (or omitted) stays under Today.
 //! Save is merge-only (never deletes).
 //! `removeSession` is the only delete. Refuses to write until a successful
 //! load (`task_state_loaded`), same guard as waku-client. After a successful
@@ -228,6 +230,7 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.last_interaction_mode = lastInteractionModeForSave(model, session);
     document.last_daemon_address = lastDaemonAddressForSave(model);
     applySidebarExtras(&document, model);
+    try applyFolderExtras(&document, arena, model);
     try writeDocument(allocator, io, dir, document);
 }
 
@@ -263,6 +266,7 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     document.last_interaction_mode = model.lastInteractionMode();
     document.last_daemon_address = lastDaemonAddressForSave(model);
     applySidebarExtras(&document, model);
+    try applyFolderExtras(&document, arena, model);
     try writeDocument(allocator, io, dir, document);
     model.dropSession(session_id);
 }
@@ -308,7 +312,15 @@ pub fn persistSettingsIfPossible(model: *const Model) void {
     saveExtras(model, std.heap.page_allocator, io, .settings) catch {};
 }
 
-const ExtrasKind = enum { layout, settings };
+/// Merge-only write of folder extras (`folders`, `next_folder_id`,
+/// `collapsed_folder_ids`). Same first-run rule as sidebar collapse:
+/// does not create `sessions.json` and does not spawn a daemon sidecar.
+pub fn persistFoldersIfPossible(model: *const Model) void {
+    const io = model.store_io orelse return;
+    saveExtras(model, std.heap.page_allocator, io, .folders) catch {};
+}
+
+const ExtrasKind = enum { layout, settings, folders };
 
 fn saveExtras(model: *const Model, allocator: std.mem.Allocator, io: std.Io, kind: ExtrasKind) !void {
     if (!model.task_state_loaded) return error.TaskStateNotLoaded;
@@ -326,6 +338,7 @@ fn saveExtras(model: *const Model, allocator: std.mem.Allocator, io: std.Io, kin
     switch (kind) {
         .layout => applySidebarExtras(&document, model),
         .settings => applySettingsExtras(&document, model),
+        .folders => try applyFolderExtras(&document, arena, model),
     }
     try writeDocument(allocator, io, dir, document);
 }
@@ -341,6 +354,28 @@ fn applySettingsExtras(document: *Document, model: *const Model) void {
     document.last_access_mode = model.lastAccessMode();
     document.last_interaction_mode = model.lastInteractionMode();
     document.last_daemon_address = model.lastDaemonAddress();
+}
+
+fn applyFolderExtras(document: *Document, arena: std.mem.Allocator, model: *const Model) !void {
+    document.next_folder_id = model.next_folder_id;
+    const folders = try arena.alloc(StoredFolder, model.folder_count);
+    var collapsed_n: usize = 0;
+    for (model.folder_store[0..model.folder_count], folders) |folder, *out| {
+        out.* = .{
+            .id = folder.id,
+            .title = try arena.dupe(u8, folder.title()),
+        };
+        if (folder.collapsed) collapsed_n += 1;
+    }
+    document.folders = folders;
+    const collapsed = try arena.alloc(u32, collapsed_n);
+    var i: usize = 0;
+    for (model.folder_store[0..model.folder_count]) |folder| {
+        if (!folder.collapsed) continue;
+        collapsed[i] = folder.id;
+        i += 1;
+    }
+    document.collapsed_folder_ids = collapsed;
 }
 
 /// Live `WAKU_DAEMON_ADDRESS` wins; otherwise the last persisted sidecar address.
@@ -424,6 +459,7 @@ fn applyDaemonSkeletons(model: *Model, skeletons: []const protocol.TaskStateSkel
             "",
             "",
             "",
+            0,
         );
     }
     if (model.session_count == 0) return;
@@ -738,6 +774,12 @@ const StoredSession = struct {
     turns: []StoredTurn,
     queued_messages: []StoredQueued,
     rewind_refs: []StoredRewind = &.{},
+    folder_id: u32 = 0,
+};
+
+const StoredFolder = struct {
+    id: u32,
+    title: []const u8,
 };
 
 const Document = struct {
@@ -746,6 +788,7 @@ const Document = struct {
     next_id: u32 = 1,
     next_turn_id: u32 = 1,
     next_queued_id: u32 = 1,
+    next_folder_id: u32 = 1,
     last_project_path: []const u8 = "",
     last_model: []const u8 = "",
     last_access_mode: []const u8 = "",
@@ -753,6 +796,8 @@ const Document = struct {
     last_daemon_address: []const u8 = "",
     sidebar_collapsed: bool = false,
     sidebar_width: u32 = 0,
+    folders: []StoredFolder = &.{},
+    collapsed_folder_ids: []u32 = &.{},
     sessions: []StoredSession = &.{},
 
     fn empty(model: *const Model) Document {
@@ -761,6 +806,7 @@ const Document = struct {
             .next_id = model.next_id,
             .next_turn_id = model.next_turn_id,
             .next_queued_id = model.next_queued_id,
+            .next_folder_id = model.next_folder_id,
             .last_project_path = model.lastProjectPath(),
             .last_model = model.lastModel(),
             .last_access_mode = model.lastAccessMode(),
@@ -804,9 +850,11 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     const document = try parseDocument(arena_state.allocator(), bytes);
 
     model.clearSessions();
+    model.clearFolders();
     model.next_id = document.next_id;
     model.next_turn_id = document.next_turn_id;
     model.next_queued_id = document.next_queued_id;
+    model.next_folder_id = if (document.next_folder_id > 0) document.next_folder_id else 1;
     model.setLastProjectPath(document.last_project_path);
     model.setLastModel(document.last_model);
     model.setLastAccessMode(document.last_access_mode);
@@ -815,8 +863,12 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.sidebar_collapsed = document.sidebar_collapsed;
     model.applySidebarWidth(document.sidebar_width);
     model.syncSidebarSplit();
+    for (document.folders) |folder| {
+        const collapsed = folderIdCollapsed(document.collapsed_folder_ids, folder.id);
+        model.restoreFolder(folder.id, folder.title, collapsed);
+    }
     for (document.sessions) |stored| {
-        model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode, stored.runtime_id, stored.interaction_mode);
+        model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode, stored.runtime_id, stored.interaction_mode, stored.folder_id);
         applyRewindRefs(model, stored.id, stored.rewind_refs);
     }
     if (model.sessionById(document.selected) != null) {
@@ -863,6 +915,7 @@ fn upsertSession(document: *Document, arena: std.mem.Allocator, model: *const Mo
         existing.model = incoming.model;
         existing.access_mode = incoming.access_mode;
         existing.interaction_mode = incoming.interaction_mode;
+        existing.folder_id = incoming.folder_id;
         existing.rewind_refs = incoming.rewind_refs;
         if (live.detail_loaded) {
             existing.turns = incoming.turns;
@@ -918,6 +971,7 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
         .model = try arena.dupe(u8, session.model()),
         .access_mode = try arena.dupe(u8, session.accessMode()),
         .interaction_mode = try arena.dupe(u8, session.interactionMode()),
+        .folder_id = session.folder_id,
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
         .rewind_refs = try snapshotRewindRefs(arena, session),
@@ -985,6 +1039,9 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .last_daemon_address = jsonString(obj.get("last_daemon_address")) orelse "",
         .sidebar_collapsed = jsonBool(obj.get("sidebar_collapsed")) orelse false,
         .sidebar_width = jsonUint(obj.get("sidebar_width")) orelse 0,
+        .next_folder_id = jsonUint(obj.get("next_folder_id")) orelse 1,
+        .folders = try parseFolders(arena, obj.get("folders")),
+        .collapsed_folder_ids = try parseUintList(arena, obj.get("collapsed_folder_ids")),
         .sessions = try sessions.toOwnedSlice(arena),
     };
 }
@@ -1038,7 +1095,52 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
         .rewind_refs = try parseRewindRefs(arena, obj.get("rewind_refs")),
+        .folder_id = jsonUint(obj.get("folder_id")) orelse 0,
     };
+}
+
+fn parseFolders(arena: std.mem.Allocator, value: ?std.json.Value) ![]StoredFolder {
+    const folders_val = value orelse return &.{};
+    const folders_arr = switch (folders_val) {
+        .array => |a| a,
+        else => return error.Corrupt,
+    };
+    var folders: std.ArrayList(StoredFolder) = .empty;
+    for (folders_arr.items) |item| {
+        try folders.append(arena, try parseFolder(item));
+    }
+    return folders.toOwnedSlice(arena);
+}
+
+fn parseFolder(value: std.json.Value) !StoredFolder {
+    const obj = switch (value) {
+        .object => |o| o,
+        else => return error.Corrupt,
+    };
+    const id = jsonUint(obj.get("id")) orelse return error.Corrupt;
+    const title = jsonString(obj.get("title")) orelse return error.Corrupt;
+    return .{ .id = id, .title = title };
+}
+
+fn parseUintList(arena: std.mem.Allocator, value: ?std.json.Value) ![]u32 {
+    const list_val = value orelse return &.{};
+    const list_arr = switch (list_val) {
+        .array => |a| a,
+        else => return error.Corrupt,
+    };
+    var ids: std.ArrayList(u32) = .empty;
+    for (list_arr.items) |item| {
+        const id = jsonUint(item) orelse return error.Corrupt;
+        try ids.append(arena, id);
+    }
+    return ids.toOwnedSlice(arena);
+}
+
+fn folderIdCollapsed(ids: []const u32, folder_id: u32) bool {
+    for (ids) |id| {
+        if (id == folder_id) return true;
+    }
+    return false;
 }
 
 fn parseRewindRefs(arena: std.mem.Allocator, value: ?std.json.Value) ![]StoredRewind {
@@ -1173,7 +1275,23 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try out.appendSlice(allocator, if (document.sidebar_collapsed) "true" else "false");
     try out.appendSlice(allocator, ",\"sidebar_width\":");
     try appendUint(&out, allocator, document.sidebar_width);
-    try out.appendSlice(allocator, ",\"sessions\":[");
+    try out.appendSlice(allocator, ",\"next_folder_id\":");
+    try appendUint(&out, allocator, document.next_folder_id);
+    try out.appendSlice(allocator, ",\"folders\":[");
+    for (document.folders, 0..) |folder, i| {
+        if (i != 0) try out.append(allocator, ',');
+        try out.appendSlice(allocator, "{\"id\":");
+        try appendUint(&out, allocator, folder.id);
+        try out.appendSlice(allocator, ",\"title\":");
+        try appendJsonString(&out, allocator, folder.title);
+        try out.append(allocator, '}');
+    }
+    try out.appendSlice(allocator, "],\"collapsed_folder_ids\":[");
+    for (document.collapsed_folder_ids, 0..) |id, i| {
+        if (i != 0) try out.append(allocator, ',');
+        try appendUint(&out, allocator, id);
+    }
+    try out.appendSlice(allocator, "],\"sessions\":[");
     for (document.sessions, 0..) |session, i| {
         if (i != 0) try out.append(allocator, ',');
         try appendSession(&out, allocator, session);
@@ -1205,6 +1323,8 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
     try appendJsonString(out, allocator, session.access_mode);
     try out.appendSlice(allocator, ",\"interaction_mode\":");
     try appendJsonString(out, allocator, session.interaction_mode);
+    try out.appendSlice(allocator, ",\"folder_id\":");
+    try appendUint(out, allocator, session.folder_id);
     try out.appendSlice(allocator, ",\"turns\":[");
     for (session.turns, 0..) |turn, i| {
         if (i != 0) try out.append(allocator, ',');
@@ -1595,6 +1715,55 @@ test "settings extras persist last_model access path and daemon; missing catalog
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&cleared, allocator, io));
     try testing.expectEqual(@as(usize, 0), cleared.lastDaemonAddress().len);
     try testing.expectEqualStrings("openai/gpt-5.4", cleared.lastModel());
+}
+
+test "folder extras persist untitled folders; missing catalog is not created" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var missing = Model{};
+    missing.task_state_loaded = true;
+    missing.setStoreDir(dir);
+    missing.store_io = io;
+    _ = missing.addFolder("New folder");
+    persistFoldersIfPossible(&missing);
+    var missing_path: [std.fs.max_path_bytes]u8 = undefined;
+    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &missing_path).?, allocator, .limited(64)));
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("folder later", .fx);
+    _ = source.appendTurn(id, .user, "remember folders");
+    try saveSession(&source, id, allocator, io);
+
+    const folder_id = source.addFolder("New folder");
+    try testing.expect(source.assignSessionFolder(id, folder_id));
+    persistFoldersIfPossible(&source);
+    try saveSession(&source, id, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqual(@as(u32, 1), loaded.folder_count);
+    try testing.expectEqual(folder_id, loaded.folder_store[0].id);
+    try testing.expectEqualStrings("New folder", loaded.folder_store[0].title());
+    try testing.expectEqual(folder_id, loaded.session_store[0].folder_id);
+
+    loaded.toggleFolderCollapsed(folder_id);
+    persistFoldersIfPossible(&loaded);
+    var collapsed = Model{};
+    collapsed.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&collapsed, allocator, io));
+    try testing.expect(collapsed.folder_store[0].collapsed);
+    try testing.expectEqual(folder_id, collapsed.session_store[0].folder_id);
 }
 
 test "last_daemon_address persists and loads without becoming the live switch" {

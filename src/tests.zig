@@ -1971,6 +1971,13 @@ fn expectRowTitles(rows: []const main.SessionRow, expected: []const []const u8) 
     }
 }
 
+fn expectSidebarTitles(rows: []const main.SidebarRow, expected: []const []const u8) !void {
+    try testing.expectEqual(expected.len, rows.len);
+    for (rows, expected) |row, title| {
+        try testing.expectEqualStrings(title, row.title);
+    }
+}
+
 test "sidebar search filters the local catalog by title substring" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -2640,4 +2647,190 @@ test "selection history cap drops the oldest entry" {
     try testing.expectEqual(main.selection_history_cap + 1, model.history_store[model.history_count - 1]);
     try testing.expect(model.can_go_back());
     try testing.expect(!model.can_go_forward());
+}
+
+test "sidebar New folder creates a persisted catalog folder" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-folders", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var missing = main.initialModel();
+    missing.task_state_loaded = true;
+    missing.setStoreDir(dir);
+    missing.store_io = testing.io;
+    var tree = try buildTree(arena, &missing);
+    const new_folder = try expectButton(tree.root, "New folder");
+    main.update(&missing, tree.msgForPointer(new_folder.id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 1), missing.folder_count);
+    try testing.expectEqualStrings("New folder", missing.folder_store[0].title());
+    var missing_path: [std.fs.max_path_bytes]u8 = undefined;
+    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().readFileAlloc(testing.io, store.catalogPath(dir, &missing_path).?, testing.allocator, .limited(64)));
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Today");
+    _ = try expectButton(tree.root, "Search");
+    _ = try expectButton(tree.root, "Collapse sidebar");
+    _ = try expectButton(tree.root, "Settings");
+    _ = try expectByText(tree.root, .button, "Full access");
+    main.update(&model, tree.msgForPointer((try expectButton(tree.root, "New folder")).id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 1), model.folder_count);
+    try testing.expectEqualStrings("New folder", model.folder_store[0].title());
+    main.update(&model, .new_folder, &fx);
+    try testing.expectEqual(@as(u32, 2), model.folder_count);
+    try testing.expectEqualStrings("New folder 2", model.folder_store[1].title());
+
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "port waku to zig",
+        "fix auth listener",
+        "New folder",
+        "New folder 2",
+    });
+    try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Today");
+    _ = try expectByText(tree.root, .list_item, "New folder");
+    _ = try expectByText(tree.root, .list_item, "New folder 2");
+    _ = try expectButton(tree.root, "port waku to zig");
+    _ = try expectButton(tree.root, "Search");
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 2), loaded.folder_count);
+    try testing.expectEqualStrings("New folder", loaded.folder_store[0].title());
+    try testing.expectEqualStrings("New folder 2", loaded.folder_store[1].title());
+}
+
+test "session with folder_id appears under that folder not Today" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-folder-assign", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+
+    main.update(&model, .new_folder, &fx);
+    const folder_id = model.folder_store[0].id;
+    const auth_id = model.session_store[1].id;
+    main.update(&model, .{ .assign_folder = .{ .session_id = auth_id, .folder_id = folder_id } }, &fx);
+    try testing.expectEqual(folder_id, model.session_store[1].folder_id);
+
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "port waku to zig",
+        "New folder",
+        "fix auth listener",
+    });
+    try testing.expect(model.sidebar_rows(arena)[1].is_header);
+    try testing.expectEqual(folder_id, model.sidebar_rows(arena)[1].folder_id);
+    try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Today");
+    _ = try expectByText(tree.root, .list_item, "New folder");
+    _ = try expectButton(tree.root, "port waku to zig");
+    _ = try expectButton(tree.root, "fix auth listener");
+    _ = try expectButton(tree.root, "Search");
+    _ = try expectButton(tree.root, "Back");
+    _ = try expectButton(tree.root, "Settings");
+
+    main.update(&model, .{ .toggle_folder = folder_id }, &fx);
+    try testing.expect(model.folder_store[0].collapsed);
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "port waku to zig",
+        "New folder",
+    });
+    tree = try buildTree(arena, &model);
+    try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
+    _ = try expectByText(tree.root, .list_item, "New folder");
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(folder_id, loaded.session_store[1].folder_id);
+    try testing.expect(loaded.folder_store[0].collapsed);
+    try expectSidebarTitles(loaded.sidebar_rows(arena), &.{
+        "port waku to zig",
+        "New folder",
+    });
+}
+
+test "sidebar search still matches session titles across folders" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .new_folder, &fx);
+    const folder_id = model.folder_store[0].id;
+    main.update(&model, .{ .assign_folder = .{
+        .session_id = model.session_store[0].id,
+        .folder_id = folder_id,
+    } }, &fx);
+
+    try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "fix auth listener",
+        "New folder",
+        "port waku to zig",
+    });
+
+    main.update(&model, .{ .search_edit = .{ .insert_text = "WAKU" } }, &fx);
+    try expectRowTitles(model.session_rows(arena), &.{"port waku to zig"});
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "New folder",
+        "port waku to zig",
+    });
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "port waku to zig");
+    try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
+    _ = try expectByText(tree.root, .text, "Today");
+    _ = try expectByText(tree.root, .list_item, "New folder");
+
+    main.update(&model, .{ .toggle_folder = folder_id }, &fx);
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "New folder",
+        "port waku to zig",
+    });
+
+    main.update(&model, .stop, &fx);
+    try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "fix auth listener",
+        "New folder",
+    });
 }
