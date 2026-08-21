@@ -350,14 +350,14 @@ test "copy of a fixture turn writes fx.writeClipboard; empty is a no-op" {
     const id = model.addSession("copy turn", .fx);
     model.selected = id;
 
-    const user_id = model.appendTurn(id, .user, "fixture user markdown **bold**");
+    const user_id = model.appendTurn(id, .user, "fixture user markdown source");
     _ = model.appendTurn(id, .assistant, "fixture assistant reply");
     _ = model.appendTurn(id, .tool, "read src/copy.ts");
     _ = model.appendTurn(id, .reasoning, "fixture thought");
     const empty_id = model.appendTurn(id, .assistant, "");
 
     var tree = try buildTree(arena, &model);
-    try testing.expect(findAnyText(tree.root, "fixture user markdown **bold**"));
+    try testing.expect(findAnyText(tree.root, "fixture user markdown source"));
     try testing.expect(findAnyText(tree.root, "fixture assistant reply"));
     _ = try expectByText(tree.root, .text, "read src/copy.ts");
     _ = try expectByText(tree.root, .text, "fixture thought");
@@ -381,7 +381,7 @@ test "copy of a fixture turn writes fx.writeClipboard; empty is a no-op" {
     const first = fx.pendingClipboardAt(0).?;
     try testing.expectEqual(main.copy_turn_key, first.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, first.op);
-    try testing.expectEqualStrings("fixture user markdown **bold**", first.text);
+    try testing.expectEqualStrings("fixture user markdown source", first.text);
 }
 
 test "user and assistant **bold** bind to markdown source" {
