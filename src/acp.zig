@@ -114,7 +114,7 @@ pub const Parsed = struct {
     text: []const u8 = "",
     tool_call_id: []const u8 = "",
     title: []const u8 = "",
-    kind: []const u8 = "",
+    tool_kind: []const u8 = "",
     status: []const u8 = "",
     stop_reason: []const u8 = "",
     mode_id: []const u8 = "",
@@ -407,7 +407,7 @@ pub fn toolUpdate(parsed: Parsed) ?ToolUpdate {
     return .{
         .tool_call_id = parsed.tool_call_id,
         .title = parsed.title,
-        .kind = parsed.kind,
+        .kind = parsed.tool_kind,
         .status = parsed.status,
     };
 }
@@ -548,7 +548,7 @@ pub fn parseLine(line: []const u8) Parsed {
     }
 
     if (findKey(trimmed, "kind")) |at| {
-        parsed.kind = parseJsonStringAt(trimmed, at);
+        parsed.tool_kind = parseJsonStringAt(trimmed, at);
     }
 
     if (findKey(trimmed, "status")) |at| {
