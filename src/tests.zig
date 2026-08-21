@@ -3824,6 +3824,80 @@ test "cmd-n and ctrl-n create a session via onKey" {
     try testing.expectEqual(Msg.steer, main.onKey(ctrl_enter).?);
 }
 
+test "new task and cmd-n focus the composer via the same autofocus edge" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    try testing.expect(!model.composer_active);
+    try testing.expect(!model.search_active);
+
+    var tree = try buildTree(arena, &model);
+    const new_btn = try expectButton(tree.root, "New Task");
+    try testing.expectEqual(Msg.new_session, tree.msgForPointer(new_btn.id, .up).?);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("Do anything...", composer.placeholder);
+        try testing.expect(!composer.autofocus);
+    } else return error.WidgetNotFound;
+    _ = try expectByText(tree.root, .button, "Copy session");
+
+    main.update(&model, tree.msgForPointer(new_btn.id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 3), model.session_count);
+    try testing.expect(model.sessionById(model.selected).?.untitled);
+    try testing.expectEqualStrings("untitled", model.selected_title());
+    try testing.expect(model.composer_active);
+
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expect(composer.autofocus);
+    } else return error.WidgetNotFound;
+    _ = try expectByText(tree.root, .button, "Copy session");
+
+    main.update(&model, .start_search, &fx);
+    try testing.expect(model.search_active);
+    try testing.expect(!model.composer_active);
+
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .search_field)) |field| {
+        try testing.expectEqualStrings("Search", field.placeholder);
+        try testing.expect(field.autofocus);
+    } else return error.WidgetNotFound;
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expect(!composer.autofocus);
+    } else return error.WidgetNotFound;
+
+    const cmd_n = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "n",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.new_session, main.onKey(cmd_n).?);
+    main.update(&model, main.onKey(cmd_n).?, &fx);
+    try testing.expectEqual(@as(u32, 4), model.session_count);
+    try testing.expect(model.sessionById(model.selected).?.untitled);
+    try testing.expect(model.composer_active);
+    try testing.expect(model.search_active);
+
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expect(composer.autofocus);
+    } else return error.WidgetNotFound;
+    _ = try expectByText(tree.root, .button, "Copy session");
+
+    const cmd_l = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "l",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.focus_composer, main.onKey(cmd_l).?);
+}
+
 test "cmd-[ / cmd-] and ctrl-[ / ctrl-] walk session history via onKey" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();

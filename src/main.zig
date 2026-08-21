@@ -2212,6 +2212,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistIfPossible(model, id, fx);
             store.loadDraftIfPossible(model);
             refreshAttachPreview(model, fx);
+            model.composer_active = true;
         },
         .select => |id| {
             if (model.editing_session_id == id) return;
