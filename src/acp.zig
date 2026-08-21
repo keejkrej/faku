@@ -125,6 +125,8 @@ pub const SESSION_UPDATE_AVAILABLE_COMMANDS = "available_commands_update";
 pub const SESSION_UPDATE_SESSION_INFO = "session_info_update";
 /// Cap matches the session store. Extra wire items are dropped.
 pub const max_available_commands: usize = 32;
+/// Renderable ACP `ToolCallContent` text (joined). Matches the turn body cap.
+pub const max_tool_content: usize = 4096;
 pub const STOP_END_TURN = "end_turn";
 pub const STOP_CANCELLED = "cancelled";
 pub const STOP_REFUSAL = "refusal";
@@ -197,6 +199,11 @@ pub const Parsed = struct {
     has_available_commands: bool = false,
     available_commands: [max_available_commands]ParsedCommand = [_]ParsedCommand{.{}} ** max_available_commands,
     available_command_count: usize = 0,
+    /// True when `tool_call` / `tool_call_update` carried a `content` array
+    /// (empty is a real replace/clear). Missing / null / non-array is ignore.
+    has_tool_content: bool = false,
+    tool_content_storage: [max_tool_content]u8 = [_]u8{0} ** max_tool_content,
+    tool_content_len: usize = 0,
     /// ACP `usage_update` token counts. Null unless that key is a number.
     used: ?u64 = null,
     size: ?u64 = null,
@@ -217,12 +224,15 @@ pub const UsageUpdate = struct {
 };
 
 /// Confirmed ACP/fx tool-call fields. `toolCallId` is required; the
-/// others are optional on `tool_call_update`.
+/// others are optional on `tool_call_update`. `content` aliases
+/// `Parsed.tool_content_storage` when `has_content` is set.
 pub const ToolUpdate = struct {
     tool_call_id: []const u8,
     title: []const u8 = "",
     kind: []const u8 = "",
     status: []const u8 = "",
+    content: []const u8 = "",
+    has_content: bool = false,
 };
 
 pub const TurnStdin = struct {
@@ -561,8 +571,10 @@ pub fn isAgentThoughtText(parsed: Parsed) bool {
 
 /// ACP v1 / fx `tool_call` and `tool_call_update`. `toolCallId` is required.
 /// Title, kind, and status are whatever the frame carried (updates omit
-/// unchanged fields).
-pub fn toolUpdate(parsed: Parsed) ?ToolUpdate {
+/// unchanged fields). `content` is a replace when the frame carried an
+/// array (fx writes text blocks on updates). Missing `content` keeps
+/// the previous body.
+pub fn toolUpdate(parsed: *const Parsed) ?ToolUpdate {
     if (parsed.method != .session_update) return null;
     const is_call = std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_TOOL_CALL);
     const is_update = std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_TOOL_CALL_UPDATE);
@@ -573,6 +585,8 @@ pub fn toolUpdate(parsed: Parsed) ?ToolUpdate {
         .title = parsed.title,
         .kind = parsed.tool_kind,
         .status = parsed.status,
+        .content = parsed.tool_content_storage[0..parsed.tool_content_len],
+        .has_content = parsed.has_tool_content,
     };
 }
 
@@ -593,6 +607,28 @@ pub fn toolTurnText(buf: []u8, title: []const u8, kind: []const u8, status: []co
         cur += take;
     }
     return buf[0..cur];
+}
+
+/// Header plus renderable ACP content. Empty content keeps today's
+/// `title · kind · status` string so status-only updates stay stable.
+pub fn toolTurnBody(
+    buf: []u8,
+    title: []const u8,
+    kind: []const u8,
+    status: []const u8,
+    content: []const u8,
+) []const u8 {
+    const header = toolTurnText(buf, title, kind, status);
+    if (content.len == 0) return header;
+    var cur = header.len;
+    if (cur > 0) {
+        if (cur >= buf.len) return header;
+        buf[cur] = '\n';
+        cur += 1;
+    }
+    const take = @min(buf.len - cur, content.len);
+    @memcpy(buf[cur..][0..take], content[0..take]);
+    return buf[0 .. cur + take];
 }
 
 /// Official ACP v1 `current_mode_update`. `currentModeId` (or docs
@@ -868,6 +904,35 @@ fn skipJsonContainer(text: []const u8, start: usize) usize {
     return text.len;
 }
 
+/// Immediate object field of one JSON object. Returns the `{` index.
+fn objectObjectField(text: []const u8, start: usize, end: usize, key: []const u8) ?usize {
+    if (start >= end or text[start] != '{') return null;
+    var i = start + 1;
+    while (i < end) {
+        i = skipWs(text, i);
+        if (i >= end or text[i] == '}') break;
+        if (text[i] != '"') {
+            i = skipJsonValue(text, i);
+            continue;
+        }
+        const key_start = i + 1;
+        const after_key = skipJsonString(text, i);
+        if (after_key <= key_start) break;
+        const key_slice = text[key_start .. after_key - 1];
+        i = skipWs(text, after_key);
+        if (i >= end or text[i] != ':') break;
+        i = skipWs(text, i + 1);
+        if (std.mem.eql(u8, key_slice, key)) {
+            if (i < end and text[i] == '{') return i;
+            return null;
+        }
+        i = skipJsonValue(text, i);
+        i = skipWs(text, i);
+        if (i < end and text[i] == ',') i += 1;
+    }
+    return null;
+}
+
 /// Immediate array field of one JSON object. Returns the `[` index.
 fn objectArrayField(text: []const u8, start: usize, end: usize, key: []const u8) ?usize {
     if (start >= end or text[start] != '{') return null;
@@ -1057,13 +1122,176 @@ fn scanConfigOptionModel(text: []const u8) ?[]const u8 {
     return null;
 }
 
+fn updateObjectRange(text: []const u8) ?struct { start: usize, close: usize } {
+    const at = findKey(text, "update") orelse return null;
+    const start = skipWs(text, at);
+    if (start >= text.len or text[start] != '{') return null;
+    const end = skipJsonValue(text, start);
+    const close = if (end > start) end - 1 else end;
+    return .{ .start = start, .close = close };
+}
+
+fn appendRaw(dest: []u8, cur: usize, bytes: []const u8) usize {
+    const take = @min(dest.len -| cur, bytes.len);
+    if (take == 0) return cur;
+    @memcpy(dest[cur..][0..take], bytes[0..take]);
+    return cur + take;
+}
+
+/// Copy a JSON string body, turning `\\n` / `\\t` / quotes into bytes.
+fn appendUnescapedJson(dest: []u8, cur: usize, raw: []const u8) usize {
+    var i: usize = 0;
+    var o = cur;
+    while (i < raw.len and o < dest.len) {
+        if (raw[i] == '\\' and i + 1 < raw.len) {
+            i += 1;
+            dest[o] = switch (raw[i]) {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '"' => '"',
+                '\\' => '\\',
+                '/' => '/',
+                else => raw[i],
+            };
+            o += 1;
+            i += 1;
+            continue;
+        }
+        dest[o] = raw[i];
+        o += 1;
+        i += 1;
+    }
+    return o;
+}
+
+fn appendSeparatedUnescaped(dest: []u8, cur: usize, raw: []const u8) usize {
+    if (raw.len == 0) return cur;
+    var next = cur;
+    if (next > 0) next = appendRaw(dest, next, "\n\n");
+    return appendUnescapedJson(dest, next, raw);
+}
+
+/// Official `ContentBlock` inside `ToolCallContent` `{ type: "content" }`.
+/// Text and embedded text resources are shown. Image / audio / blob skip.
+fn appendNestedContentBlock(text: []const u8, start: usize, close: usize, dest: []u8, cur: usize) usize {
+    const nested_at = objectObjectField(text, start, close, "content") orelse return cur;
+    const nested_end = skipJsonValue(text, nested_at);
+    const nested_close = if (nested_end > nested_at) nested_end - 1 else nested_end;
+    const nested_type = objectStringField(text, nested_at, nested_close, "type") orelse return cur;
+    if (std.mem.eql(u8, nested_type, "text")) {
+        const raw = objectStringField(text, nested_at, nested_close, "text") orelse return cur;
+        return appendSeparatedUnescaped(dest, cur, raw);
+    }
+    if (std.mem.eql(u8, nested_type, "resource")) {
+        const res_at = objectObjectField(text, nested_at, nested_close, "resource") orelse return cur;
+        const res_end = skipJsonValue(text, res_at);
+        const res_close = if (res_end > res_at) res_end - 1 else res_end;
+        if (objectStringField(text, res_at, res_close, "blob") != null) return cur;
+        const raw = objectStringField(text, res_at, res_close, "text") orelse return cur;
+        return appendSeparatedUnescaped(dest, cur, raw);
+    }
+    if (std.mem.eql(u8, nested_type, "resource_link")) {
+        const label = objectStringField(text, nested_at, nested_close, "title") orelse
+            objectStringField(text, nested_at, nested_close, "name") orelse "";
+        const uri = objectStringField(text, nested_at, nested_close, "uri") orelse "";
+        if (label.len == 0 and uri.len == 0) return cur;
+        var next = cur;
+        if (next > 0) next = appendRaw(dest, next, "\n\n");
+        if (label.len > 0) next = appendUnescapedJson(dest, next, label);
+        if (uri.len > 0) {
+            if (label.len > 0) next = appendRaw(dest, next, "\n");
+            next = appendUnescapedJson(dest, next, uri);
+        }
+        return next;
+    }
+    return cur;
+}
+
+/// Official `ToolCallContent` `{ type: "diff" }`. Native has no diff
+/// widget — path + old/new text as markdown/plain patch source.
+fn appendDiffBlock(text: []const u8, start: usize, close: usize, dest: []u8, cur: usize) usize {
+    const path = objectStringField(text, start, close, "path") orelse "";
+    const old_text = objectStringField(text, start, close, "oldText");
+    const new_text = objectStringField(text, start, close, "newText");
+    if (path.len == 0 and old_text == null and new_text == null) return cur;
+    var next = cur;
+    if (next > 0) next = appendRaw(dest, next, "\n\n");
+    if (path.len > 0) {
+        next = appendUnescapedJson(dest, next, path);
+        if (old_text != null or new_text != null) next = appendRaw(dest, next, "\n");
+    }
+    if (old_text) |old| {
+        next = appendRaw(dest, next, "---\n");
+        next = appendUnescapedJson(dest, next, old);
+        if (new_text != null) next = appendRaw(dest, next, "\n");
+    }
+    if (new_text) |new| {
+        next = appendRaw(dest, next, "+++\n");
+        next = appendUnescapedJson(dest, next, new);
+    }
+    return next;
+}
+
+fn appendToolContentItem(text: []const u8, start: usize, close: usize, dest: []u8, cur: usize) usize {
+    const typ = objectStringField(text, start, close, "type") orelse return cur;
+    if (std.mem.eql(u8, typ, "content")) return appendNestedContentBlock(text, start, close, dest, cur);
+    if (std.mem.eql(u8, typ, "diff")) return appendDiffBlock(text, start, close, dest, cur);
+    return cur;
+}
+
+/// Official ACP v1 `ToolCallContent[]` on the `update` object.
+/// Schema kinds: `content`, `diff`, `terminal`. Missing / null /
+/// non-array is ignore. Empty array is a replace/clear.
+fn scanToolCallContent(text: []const u8, dest: []u8) ?usize {
+    const range = updateObjectRange(text) orelse return null;
+    const arr_at = objectArrayField(text, range.start, range.close, "content") orelse return null;
+    var i = arr_at + 1;
+    var cur: usize = 0;
+    while (i < text.len) {
+        i = skipWs(text, i);
+        if (i >= text.len or text[i] == ']') break;
+        if (text[i] == ',') {
+            i += 1;
+            continue;
+        }
+        if (text[i] != '{') {
+            i = skipJsonValue(text, i);
+            continue;
+        }
+        const obj_end = skipJsonValue(text, i);
+        const close = if (obj_end > i) obj_end - 1 else obj_end;
+        cur = appendToolContentItem(text, i, close, dest, cur);
+        i = obj_end;
+    }
+    return cur;
+}
+
+fn applyToolCallWireFields(text: []const u8, parsed: *Parsed) void {
+    if (updateObjectRange(text)) |range| {
+        if (objectStringField(text, range.start, range.close, "toolCallId")) |id| {
+            parsed.tool_call_id = id;
+        }
+        // Immediate update fields only — nested content `title` / `kind`
+        // must not shadow a missing tool-call title on updates.
+        parsed.title = objectStringField(text, range.start, range.close, "title") orelse "";
+        parsed.tool_kind = objectStringField(text, range.start, range.close, "kind") orelse "";
+        parsed.status = objectStringField(text, range.start, range.close, "status") orelse "";
+    }
+    if (scanToolCallContent(text, parsed.tool_content_storage[0..])) |n| {
+        parsed.has_tool_content = true;
+        parsed.tool_content_len = n;
+    }
+}
+
 /// Parse one NDJSON JSON-RPC line. Slices alias `line` and die with it.
 /// Field scanner — classifies the methods above and pulls `id`,
 /// `sessionId`, `sessionUpdate`, `text`, `toolCallId`, `title`, `kind`,
 /// `status`, `stopReason`, `currentModeId` / `modeId`,
 /// `config_option_update` `configOptions` `id: "model"` `currentValue`,
 /// `available_commands_update` `availableCommands` name/description,
-/// and `session_info_update` `title`.
+/// `session_info_update` `title`, and tool-call `content` blocks
+/// (text / diff as markdown/plain; image, audio, terminal skipped).
 pub fn parseLine(line: []const u8) Parsed {
     var parsed = Parsed{};
     const trimmed = std.mem.trim(u8, line, " \t\r\n");
@@ -1143,6 +1371,12 @@ pub fn parseLine(line: []const u8) Parsed {
             parsed.has_available_commands = true;
             parsed.available_command_count = count;
         }
+    }
+
+    if (std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_TOOL_CALL) or
+        std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_TOOL_CALL_UPDATE))
+    {
+        applyToolCallWireFields(trimmed, &parsed);
     }
 
     if (findKey(trimmed, "used")) |at| {
@@ -1347,7 +1581,7 @@ test "ACP parser classifies result, error, update, and stopReason" {
     try std.testing.expect(isAgentThoughtText(thought));
     try std.testing.expect(!isAgentMessageText(thought));
     try std.testing.expectEqualStrings("need to inspect the loop", thought.text);
-    try std.testing.expect(toolUpdate(thought) == null);
+    try std.testing.expect(toolUpdate(&thought) == null);
     try std.testing.expect(usageUpdate(thought) == null);
     try std.testing.expect(currentModeUpdate(thought) == null);
     try std.testing.expect(configOptionModel(thought) == null);
@@ -1361,7 +1595,7 @@ test "ACP parser classifies result, error, update, and stopReason" {
     try std.testing.expectEqualStrings("ask", currentModeUpdate(mode_ask).?);
     try std.testing.expect(!isAgentMessageText(mode_ask));
     try std.testing.expect(!isAgentThoughtText(mode_ask));
-    try std.testing.expect(toolUpdate(mode_ask) == null);
+    try std.testing.expect(toolUpdate(&mode_ask) == null);
     try std.testing.expect(usageUpdate(mode_ask) == null);
 
     const mode_code = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"current_mode_update\",\"currentModeId\":\"code\"}}}");
@@ -1388,7 +1622,7 @@ test "ACP parser classifies result, error, update, and stopReason" {
     try std.testing.expect(!isAgentMessageText(config_model));
     try std.testing.expect(!isAgentThoughtText(config_model));
     try std.testing.expect(currentModeUpdate(config_model) == null);
-    try std.testing.expect(toolUpdate(config_model) == null);
+    try std.testing.expect(toolUpdate(&config_model) == null);
     try std.testing.expect(usageUpdate(config_model) == null);
     try std.testing.expect(availableCommandsUpdate(&config_model) == null);
     try std.testing.expect(sessionInfoTitle(config_model) == null);
@@ -1424,7 +1658,7 @@ test "ACP parser classifies result, error, update, and stopReason" {
     try std.testing.expect(!isAgentThoughtText(commands));
     try std.testing.expect(currentModeUpdate(commands) == null);
     try std.testing.expect(configOptionModel(commands) == null);
-    try std.testing.expect(toolUpdate(commands) == null);
+    try std.testing.expect(toolUpdate(&commands) == null);
     try std.testing.expect(usageUpdate(commands) == null);
     try std.testing.expect(sessionInfoTitle(commands) == null);
 
@@ -1455,7 +1689,7 @@ test "ACP parser classifies result, error, update, and stopReason" {
     try std.testing.expect(currentModeUpdate(info_title) == null);
     try std.testing.expect(configOptionModel(info_title) == null);
     try std.testing.expect(availableCommandsUpdate(&info_title) == null);
-    try std.testing.expect(toolUpdate(info_title) == null);
+    try std.testing.expect(toolUpdate(&info_title) == null);
     try std.testing.expect(usageUpdate(info_title) == null);
 
     const info_empty = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"session_info_update\",\"title\":\"\"}}}");
@@ -1492,11 +1726,13 @@ test "ACP parser classifies result, error, update, and stopReason" {
     const tool_call = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"sess-1\",\"update\":{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"call_001\",\"title\":\"Reading file\",\"kind\":\"read\",\"status\":\"pending\"}}}");
     try std.testing.expectEqual(Method.session_update, tool_call.method);
     try std.testing.expectEqualStrings(SESSION_UPDATE_TOOL_CALL, tool_call.session_update);
-    const tool_fields = toolUpdate(tool_call) orelse return error.MissingTool;
+    const tool_fields = toolUpdate(&tool_call) orelse return error.MissingTool;
     try std.testing.expectEqualStrings("call_001", tool_fields.tool_call_id);
     try std.testing.expectEqualStrings("Reading file", tool_fields.title);
     try std.testing.expectEqualStrings("read", tool_fields.kind);
     try std.testing.expectEqualStrings("pending", tool_fields.status);
+    try std.testing.expect(!tool_fields.has_content);
+    try std.testing.expectEqualStrings("", tool_fields.content);
     try std.testing.expect(!isAgentMessageText(tool_call));
     try std.testing.expect(usageUpdate(tool_call) == null);
     try std.testing.expect(sessionInfoTitle(tool_call) == null);
@@ -1507,15 +1743,50 @@ test "ACP parser classifies result, error, update, and stopReason" {
     );
 
     const tool_progress = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_001\",\"status\":\"in_progress\"}}}");
-    const progress_fields = toolUpdate(tool_progress) orelse return error.MissingToolUpdate;
+    const progress_fields = toolUpdate(&tool_progress) orelse return error.MissingToolUpdate;
     try std.testing.expectEqualStrings(SESSION_UPDATE_TOOL_CALL_UPDATE, tool_progress.session_update);
     try std.testing.expectEqualStrings("call_001", progress_fields.tool_call_id);
     try std.testing.expectEqualStrings("", progress_fields.title);
     try std.testing.expectEqualStrings("", progress_fields.kind);
     try std.testing.expectEqualStrings("in_progress", progress_fields.status);
+    try std.testing.expect(!progress_fields.has_content);
+
+    const tool_text_content = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"call_002\",\"title\":\"Reading file\",\"kind\":\"read\",\"status\":\"pending\",\"content\":[{\"type\":\"content\",\"content\":{\"type\":\"text\",\"text\":\"Found 3 files\"}},{\"type\":\"diff\",\"path\":\"src/config.json\",\"oldText\":\"{\\n  \\\"debug\\\": false\\n}\",\"newText\":\"{\\n  \\\"debug\\\": true\\n}\"},{\"type\":\"content\",\"content\":{\"type\":\"image\",\"mimeType\":\"image/png\",\"data\":\"aaaa\"}},{\"type\":\"terminal\",\"terminalId\":\"term_1\"},{\"type\":\"not_a_real_block\",\"text\":\"ignore\"}]}}}");
+    const text_content_fields = toolUpdate(&tool_text_content) orelse return error.MissingToolContent;
+    try std.testing.expect(text_content_fields.has_content);
+    try std.testing.expectEqualStrings(
+        "Found 3 files\n\nsrc/config.json\n---\n{\n  \"debug\": false\n}\n+++\n{\n  \"debug\": true\n}",
+        text_content_fields.content,
+    );
+    try std.testing.expectEqualStrings("Reading file", text_content_fields.title);
+    try std.testing.expectEqualStrings("pending", text_content_fields.status);
+    try std.testing.expect(std.mem.indexOf(u8, text_content_fields.content, "aaaa") == null);
+    try std.testing.expect(std.mem.indexOf(u8, text_content_fields.content, "term_1") == null);
+    try std.testing.expect(std.mem.indexOf(u8, text_content_fields.content, "ignore") == null);
+    var tool_body_buf: [256]u8 = undefined;
+    try std.testing.expectEqualStrings(
+        "Reading file · read · pending\nFound 3 files\n\nsrc/config.json\n---\n{\n  \"debug\": false\n}\n+++\n{\n  \"debug\": true\n}",
+        toolTurnBody(&tool_body_buf, text_content_fields.title, text_content_fields.kind, text_content_fields.status, text_content_fields.content),
+    );
+
+    const tool_replace = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_002\",\"status\":\"completed\",\"content\":[{\"type\":\"content\",\"content\":{\"type\":\"text\",\"text\":\"done now\"}}]}}}");
+    const replace_fields = toolUpdate(&tool_replace) orelse return error.MissingToolReplace;
+    try std.testing.expect(replace_fields.has_content);
+    try std.testing.expectEqualStrings("done now", replace_fields.content);
+    try std.testing.expectEqualStrings("completed", replace_fields.status);
+    try std.testing.expectEqualStrings("", replace_fields.title);
+
+    const tool_empty_content = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_002\",\"content\":[]}}}");
+    const empty_content_fields = toolUpdate(&tool_empty_content) orelse return error.MissingEmptyContent;
+    try std.testing.expect(empty_content_fields.has_content);
+    try std.testing.expectEqualStrings("", empty_content_fields.content);
+
+    const tool_null_content = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_002\",\"content\":null}}}");
+    const null_content_fields = toolUpdate(&tool_null_content) orelse return error.MissingNullContent;
+    try std.testing.expect(!null_content_fields.has_content);
 
     const tool_missing_id = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"tool_call\",\"title\":\"Reading file\",\"kind\":\"read\",\"status\":\"pending\"}}}");
-    try std.testing.expect(toolUpdate(tool_missing_id) == null);
+    try std.testing.expect(toolUpdate(&tool_missing_id) == null);
 
     const settled = parseLine("{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
     try std.testing.expect(isPromptResult(settled));

@@ -702,6 +702,67 @@ test "ACP session/update tool_call adds a tool turn; tool_call_update changes st
     try testing.expectEqual(@as(u32, 0), model.queuedCount(id));
 }
 
+test "ACP tool_call content shows text and diff; update replaces; unknown kinds ignored" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("acp tool content", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "edit the file" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.fx_spawn_acp);
+    const key = model.fx_spawn_key;
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"sessionId\":\"acp-tool-content-1\"}}");
+    drainEffects(&model, &fx);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-tool-content-1\",\"update\":{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"call_content\",\"title\":\"Editing file\",\"kind\":\"edit\",\"status\":\"pending\",\"content\":[{\"type\":\"content\",\"content\":{\"type\":\"text\",\"text\":\"Found 3 files\"}},{\"type\":\"diff\",\"path\":\"src/config.json\",\"oldText\":\"debug: false\",\"newText\":\"debug: true\"},{\"type\":\"content\",\"content\":{\"type\":\"image\",\"mimeType\":\"image/png\",\"data\":\"aaaa\"}},{\"type\":\"terminal\",\"terminalId\":\"term_1\"},{\"type\":\"not_a_real_block\",\"text\":\"ignore me\"}]}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .tool));
+    try testing.expectEqualStrings(
+        "Editing file · edit · pending\nFound 3 files\n\nsrc/config.json\n---\ndebug: false\n+++\ndebug: true",
+        lastTool(&model),
+    );
+    try testing.expect(std.mem.indexOf(u8, lastTool(&model), "aaaa") == null);
+    try testing.expect(std.mem.indexOf(u8, lastTool(&model), "term_1") == null);
+    try testing.expect(std.mem.indexOf(u8, lastTool(&model), "ignore me") == null);
+
+    const tree = try buildTree(arena, &model);
+    try testing.expect(findAnyText(tree.root, lastTool(&model)));
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_content\",\"status\":\"completed\",\"content\":[{\"type\":\"content\",\"content\":{\"type\":\"text\",\"text\":\"File written successfully\"}}]}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .tool));
+    try testing.expectEqualStrings(
+        "Editing file · edit · completed\nFile written successfully",
+        lastTool(&model),
+    );
+    try testing.expect(std.mem.indexOf(u8, lastTool(&model), "Found 3 files") == null);
+    try testing.expect(std.mem.indexOf(u8, lastTool(&model), "debug: false") == null);
+    try testing.expect(std.mem.indexOf(u8, lastTool(&model), "pending") == null);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_content\",\"status\":\"in_progress\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(
+        "Editing file · edit · in_progress\nFile written successfully",
+        lastTool(&model),
+    );
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .tool));
+}
+
 test "ACP session/update agent_thought_chunk adds a reasoning row; later chunk appends" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
