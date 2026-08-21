@@ -11,7 +11,9 @@ https://x.com/localhost_5173/status/2090464458695192842
 
 This app replaces the GPUI window with Vercel Native SDK markup plus a Zig
 Model / Msg / update loop. waku-daemon can stay the brain. Faku is the window,
-and it is fx-first.
+and it is fx-first. Desktop chrome matches the stopped Waku-parity cut
+(chromeless 48px header, measured sidebar, composer send circle); headless
+paths are unchanged.
 
 ## Why fx
 
@@ -111,7 +113,8 @@ or rejected binary keeps the demo timer (90ms ticks, canned reply) so
 `native test --yes` stays green without a real fx install.
 
 Non-fx providers (the claude demo session) still use the demo timer.
-The status bar shows which reply path last ran: `N sessions · fx|demo · provider`.
+Reply path is still `fx` / `demo` / `daemon` on the model; the chrome no longer
+shows a status-bar.
 
 New sessions still default to fx.
 
@@ -218,8 +221,8 @@ canned reply (about 12 ticks / 90ms). Send while streaming with a draft
 queues on that session (persisted). Successful finish drains the next
 item; empty Send, Stop, or Esc cancels without draining.
 
-Product keys (not all wired): Cmd-N new, Enter send/queue, Cmd-Enter steer,
-Esc cancel.
+Keys: Cmd/Ctrl-N new session, Enter send/queue, Esc cancel. Cmd-Enter is
+not a live steer yet.
 
 Daemon (sidecar, not embedded): when `WAKU_DAEMON_ADDRESS` is set, Send
 spawns the same binary as `faku daemon-proxy <addr>` with hello +

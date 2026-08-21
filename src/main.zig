@@ -26,10 +26,14 @@ const canvas = native_sdk.canvas;
 const geometry = native_sdk.geometry;
 
 const canvas_label = "main-canvas";
-pub const window_width: f32 = 1200;
-pub const window_height: f32 = 800;
-pub const window_min_width: f32 = 800;
-pub const window_min_height: f32 = 560;
+pub const window_width: f32 = 1380;
+pub const window_height: f32 = 880;
+pub const window_min_width: f32 = 560;
+pub const window_min_height: f32 = 480;
+const sidebar_default_width: f32 = 252;
+const sidebar_min_width: f32 = 180;
+const sidebar_max_width: f32 = 420;
+const default_sidebar_split: f32 = sidebar_default_width / window_width;
 
 const max_sessions = 16;
 const max_turns = 128;
@@ -61,7 +65,7 @@ const shell_windows = [_]native_sdk.ShellWindow{.{
     .height = window_height,
     .min_width = window_min_width,
     .min_height = window_min_height,
-    .titlebar = .hidden_inset_tall,
+    .titlebar = .chromeless,
     .views = &shell_views,
 }};
 const shell_scene: native_sdk.ShellConfig = .{ .windows = &shell_windows };
@@ -220,6 +224,8 @@ pub const TurnRow = struct {
     id: u32,
     role_label: []const u8,
     text: []const u8,
+    is_user: bool,
+    is_tool: bool,
 };
 
 /// Follow-up queued while that session is busy. Becomes its own turn after a
@@ -242,6 +248,9 @@ pub const Msg = union(enum) {
     draft_edit: canvas.TextInputEvent,
     send,
     stop,
+    clear_queue,
+    sidebar_resized: f32,
+    transcript_scrolled: canvas.ScrollState,
     tick: native_sdk.EffectTimer,
     fx_line: native_sdk.EffectLine,
     fx_exit: native_sdk.EffectExit,
@@ -267,6 +276,8 @@ pub const Model = struct {
     queued_store: [max_queued]QueuedMessage = [_]QueuedMessage{.{}} ** max_queued,
     queued_count: u32 = 0,
     next_queued_id: u32 = 1,
+    sidebar_split: f32 = default_sidebar_split,
+    transcript_scroll: f32 = 0,
     fx_available: bool = false,
     fx_path_storage: [max_fx_path]u8 = [_]u8{0} ** max_fx_path,
     fx_path_len: usize = 0,
@@ -417,6 +428,11 @@ pub const Model = struct {
         "homeDir",
         "storeDir",
         "setStoreDir",
+        "selected_title",
+        "selected_provider",
+        "status_line",
+        "empty_hint",
+        "has_turns",
     };
 
     pub fn draft(model: *const Model) []const u8 {
@@ -436,7 +452,7 @@ pub const Model = struct {
         for (model.session_store[0..model.session_count], 0..) |*session, i| {
             out[i] = .{
                 .id = session.id,
-                .title = session.title(),
+                .title = sessionDisplayTitle(session),
                 .provider = session.provider_label(),
                 .selected = session.id == model.selected,
             };
@@ -457,6 +473,8 @@ pub const Model = struct {
                 .id = turn.id,
                 .role_label = turn.role_label(),
                 .text = turn.text(),
+                .is_user = turn.role == .user,
+                .is_tool = turn.role == .tool,
             };
             i += 1;
         }
@@ -466,6 +484,14 @@ pub const Model = struct {
     pub fn selected_title(model: *const Model) []const u8 {
         if (model.activeSessionConst()) |session| return session.title();
         return "untitled";
+    }
+
+    pub fn header_title(model: *const Model) []const u8 {
+        if (model.activeSessionConst()) |session| {
+            if (session.untitled) return "New task";
+            return session.title();
+        }
+        return "New task";
     }
 
     pub fn selected_provider(model: *const Model) []const u8 {
@@ -494,6 +520,22 @@ pub const Model = struct {
             return "Message fx. Send runs one-shot `fx acp` (initialize / session/new|resume / set model|mode / session/prompt). Images still use `fx ask --image`.";
         }
         return "Message fx. Demo replies locally until the fx CLI is found; then Send runs one-shot `fx acp`. Images still use `fx ask --image`.";
+    }
+
+    pub fn has_turns(model: *const Model) bool {
+        return model.turnCount(model.selected) > 0;
+    }
+
+    pub fn has_queued(model: *const Model) bool {
+        return model.queuedCount(model.selected) > 0;
+    }
+
+    pub fn queued_text(model: *const Model) []const u8 {
+        return model.firstQueuedText(model.selected);
+    }
+
+    pub fn composer_placeholder(_: *const Model) []const u8 {
+        return "Do anything...";
     }
 
     pub fn send_label(model: *const Model) []const u8 {
@@ -870,6 +912,17 @@ fn writeFixed(storage: []u8, len: *usize, text: []const u8) void {
     len.* = take;
 }
 
+fn sessionDisplayTitle(session: *const Session) []const u8 {
+    if (session.untitled or std.mem.eql(u8, session.title(), "untitled")) return "New task";
+    return session.title();
+}
+
+fn clampSidebarSplit(value: f32) f32 {
+    const min_split = sidebar_min_width / window_width;
+    const max_split = sidebar_max_width / window_width;
+    return @max(min_split, @min(max_split, value));
+}
+
 fn directoryExists(io: std.Io, path: []const u8) bool {
     var dir = std.Io.Dir.cwd().openDir(io, path, .{}) catch return false;
     dir.close(io);
@@ -919,6 +972,12 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .send => handleSend(model, fx),
         .stop => stopStream(model, fx),
+        .clear_queue => {
+            model.dropQueuedForSession(model.selected);
+            store.persistIfPossible(model, model.selected, fx);
+        },
+        .sidebar_resized => |fraction| model.sidebar_split = clampSidebarSplit(fraction),
+        .transcript_scrolled => |scroll| model.transcript_scroll = scroll.offset_y,
         .tick => |timer| {
             if (timer.outcome != .fired) return;
             tickStream(model, fx);
@@ -1458,6 +1517,9 @@ fn fxProbePath(model: *const Model, index: u32, buf: *[max_fx_path]u8) ?[]const 
 
 pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     if (std.ascii.eqlIgnoreCase(keyboard.key, "escape")) return .stop;
+    if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "n")) {
+        return .new_session;
+    }
     return null;
 }
 
