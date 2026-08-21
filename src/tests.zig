@@ -129,6 +129,7 @@ test "boot is fx-first and New / send / ticks / stop drive the demo" {
     _ = try expectButton(tree.root, "Search");
     _ = try expectButton(tree.root, "port waku to zig");
     _ = try expectButton(tree.root, "fix auth listener");
+    _ = try expectButton(tree.root, "Remove session");
     _ = try expectByText(tree.root, .button, "Send");
     _ = try expectByText(tree.root, .text, "fx");
     _ = try expectByText(tree.root, .button, "Full access");
@@ -3264,6 +3265,38 @@ test "sidebar back hydrates an empty session the same way select does" {
     try testing.expectEqual(spawn.key, model.daemon_hydrate_key);
 }
 
+test "remove drops the session id from selection history" {
+    var model = Model{};
+    const first = model.addSession("first", .fx);
+    const second = model.addSession("second", .fx);
+    const third = model.addSession("third", .fx);
+    model.selected = first;
+    model.pushSelectionHistory(first);
+    model.pushSelectionHistory(second);
+    model.pushSelectionHistory(third);
+    try testing.expectEqual(@as(u32, 3), model.history_count);
+    try testing.expectEqual(third, model.history_store[model.history_index]);
+
+    model.dropSession(second);
+    try testing.expectEqual(@as(u32, 2), model.history_count);
+    try testing.expectEqual(first, model.history_store[0]);
+    try testing.expectEqual(third, model.history_store[1]);
+    try testing.expectEqual(@as(u32, 1), model.history_index);
+    try testing.expect(model.can_go_back());
+    try testing.expect(!model.can_go_forward());
+
+    model.dropSession(third);
+    try testing.expectEqual(@as(u32, 1), model.history_count);
+    try testing.expectEqual(first, model.history_store[0]);
+    try testing.expectEqual(@as(u32, 0), model.history_index);
+    try testing.expectEqual(first, model.selected);
+    try testing.expect(!model.can_go_back());
+
+    model.dropSession(first);
+    try testing.expectEqual(@as(u32, 0), model.history_count);
+    try testing.expectEqual(@as(u32, 0), model.selected);
+}
+
 test "selection history cap drops the oldest entry" {
     var model = Model{};
     const first: u32 = 1;
@@ -3727,8 +3760,10 @@ test "deleting a folder unassigns its sessions; they stay in Today" {
     tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "Collapse folder");
     const trash = try expectButton(tree.root, "Delete folder");
+    const remove_session = try expectButton(tree.root, "Remove session");
     try testing.expect(trash.id != (try expectByText(tree.root, .list_item, "New folder")).id);
     try testing.expect(trash.id != (try expectButton(tree.root, "Collapse folder")).id);
+    try testing.expect(trash.id != remove_session.id);
     main.update(&model, tree.msgForPointer(trash.id, .up).?, &fx);
 
     try testing.expectEqual(@as(u32, 0), model.folder_count);
@@ -3749,6 +3784,7 @@ test "deleting a folder unassigns its sessions; they stay in Today" {
     try testing.expect(findPressableContaining(tree.root, "Collapse folder") == null);
     _ = try expectButton(tree.root, "port waku to zig");
     _ = try expectButton(tree.root, "fix auth listener");
+    _ = try expectButton(tree.root, "Remove session");
     _ = try expectByText(tree.root, .text, "Today");
     _ = try expectButton(tree.root, "New folder");
     _ = try expectButton(tree.root, "Close");
@@ -3801,6 +3837,149 @@ test "deleting a folder unassigns its sessions; they stay in Today" {
     _ = try expectButton(tree.root, "Collapse folder");
     _ = try expectButton(tree.root, "Delete folder");
     _ = try expectButton(tree.root, "Close");
+}
+
+test "sidebar trash removes a session and it stays gone after reload" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-session-remove", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const port_id = model.session_store[0].id;
+    const auth_id = model.session_store[1].id;
+    try store.saveSession(&model, port_id, testing.allocator, testing.io);
+    try store.saveSession(&model, auth_id, testing.allocator, testing.io);
+    model.pushSelectionHistory(auth_id);
+    model.selected = auth_id;
+
+    var tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectButton(tree.root, "New folder")).id, .up).?, &fx);
+    const folder_id = model.folder_store[0].id;
+
+    tree = try buildTree(arena, &model);
+    const folder_trash = try expectButton(tree.root, "Delete folder");
+    const auth_row = try expectByText(tree.root, .list_item, "fix auth listener");
+    const remove = try expectButton(auth_row, "Remove session");
+    try testing.expect(remove.id != folder_trash.id);
+    try testing.expect(remove.id != auth_row.id);
+    try testing.expect(remove.id != (try expectButton(tree.root, "Collapse folder")).id);
+    try testing.expectEqual(Msg{ .remove_session = auth_id }, tree.msgForPointer(remove.id, .up).?);
+
+    main.update(&model, tree.msgForPointer(remove.id, .up).?, &fx);
+    try testing.expect(model.sessionById(auth_id) == null);
+    try testing.expectEqual(@as(u32, 1), model.session_count);
+    try testing.expectEqual(@as(u32, 1), model.folder_count);
+    try testing.expectEqual(folder_id, model.folder_store[0].id);
+    try testing.expectEqual(port_id, model.selected);
+    try testing.expectEqual(port_id, model.session_store[0].id);
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{ "port waku to zig", "New folder" });
+    try expectRowTitles(model.session_rows(arena), &.{"port waku to zig"});
+    var hist_i: u32 = 0;
+    while (hist_i < model.history_count) : (hist_i += 1) {
+        try testing.expect(model.history_store[hist_i] != auth_id);
+    }
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .list_item, "fix auth listener") == null);
+    try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
+    _ = try expectButton(tree.root, "port waku to zig");
+    _ = try expectButton(tree.root, "Remove session");
+    _ = try expectButton(tree.root, "New folder");
+    _ = try expectButton(tree.root, "Delete folder");
+    _ = try expectButton(tree.root, "Close");
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 1), loaded.session_count);
+    try testing.expectEqual(@as(u32, 1), loaded.folder_count);
+    try testing.expectEqual(port_id, loaded.session_store[0].id);
+    try testing.expectEqualStrings("port waku to zig", loaded.session_store[0].title());
+    try testing.expect(loaded.sessionById(auth_id) == null);
+    try expectSidebarTitles(loaded.sidebar_rows(arena), &.{ "port waku to zig", "New folder" });
+
+    tree = try buildTree(arena, &loaded);
+    const last_row = try expectByText(tree.root, .list_item, "port waku to zig");
+    const last_remove = try expectButton(last_row, "Remove session");
+    main.update(&loaded, tree.msgForPointer(last_remove.id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 0), loaded.session_count);
+    try testing.expectEqual(@as(u32, 1), loaded.folder_count);
+    try testing.expectEqual(@as(u32, 0), loaded.selected);
+    try testing.expectEqualStrings("New task", loaded.header_title());
+    try expectSidebarTitles(loaded.sidebar_rows(arena), &.{"New folder"});
+
+    tree = try buildTree(arena, &loaded);
+    try testing.expect(findPressableContaining(tree.root, "port waku to zig") == null);
+    try testing.expect(findPressableContaining(tree.root, "Remove session") == null);
+    _ = try expectButton(tree.root, "New Task");
+    _ = try expectByText(tree.root, .text, "What should we build?");
+
+    var reread = Model{};
+    reread.setStoreDir(dir);
+    reread.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&reread, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 0), reread.session_count);
+}
+
+test "sidebar Remove session with a daemon address records closeSession" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-session-remove-close", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const kept = model.addSession("keep me", .fx);
+    _ = model.appendTurn(kept, .user, "stays");
+    try store.saveSession(&model, kept, testing.allocator, testing.io);
+    const gone = model.addSession("remove me", .fx);
+    _ = model.appendTurn(gone, .user, "bye");
+    try store.saveSession(&model, gone, testing.allocator, testing.io);
+    model.selected = gone;
+
+    var tree = try buildTree(arena, &model);
+    const gone_row = try expectByText(tree.root, .list_item, "remove me");
+    const remove = try expectButton(gone_row, "Remove session");
+    try testing.expectEqual(Msg{ .remove_session = gone }, tree.msgForPointer(remove.id, .up).?);
+    main.update(&model, tree.msgForPointer(remove.id, .up).?, &fx);
+
+    const spawn = findCloseOnlySpawn(&fx) orelse return error.CloseSpawnMissing;
+    try testing.expect(argvHas(spawn.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(spawn.argv, "127.0.0.1:8787"));
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"closeSession\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"command\":{\"type\":\"closeSession\"}") != null);
+    var gone_id_buf: [36]u8 = undefined;
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, daemon_proxy.wireUuid(gone, &gone_id_buf)) != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"removeSession\"") == null);
+    try testing.expect(model.sessionById(gone) == null);
+    try testing.expectEqual(@as(u32, 1), model.session_count);
+    try testing.expectEqual(kept, model.selected);
 }
 
 test "header Close requests the real window close; Esc stays with settings" {

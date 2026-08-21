@@ -367,7 +367,7 @@ pub const Msg = union(enum) {
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "remove_session", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit" };
 };
 
 pub const Model = struct {
@@ -491,6 +491,7 @@ pub const Model = struct {
         "can_go_back",
         "can_go_forward",
         "pushSelectionHistory",
+        "dropSelectionHistory",
         "next_id",
         "turn_store",
         "turn_count",
@@ -854,6 +855,29 @@ pub const Model = struct {
         model.history_store[model.history_count] = id;
         model.history_count += 1;
         model.history_index = model.history_count - 1;
+    }
+
+    /// Drop every occurrence of `id` so Back / Forward cannot land on a
+    /// removed session. Index stays on the last remaining entry at or
+    /// before the old cursor (or 0 when the stack is empty).
+    pub fn dropSelectionHistory(model: *Model, id: u32) void {
+        if (id == 0 or model.history_count == 0) return;
+        var kept: u32 = 0;
+        var new_index: u32 = 0;
+        var i: u32 = 0;
+        while (i < model.history_count) : (i += 1) {
+            if (model.history_store[i] == id) continue;
+            if (i <= model.history_index) new_index = kept;
+            model.history_store[kept] = model.history_store[i];
+            kept += 1;
+        }
+        model.history_count = kept;
+        if (kept == 0) {
+            model.history_index = 0;
+            return;
+        }
+        if (new_index >= kept) new_index = kept - 1;
+        model.history_index = new_index;
     }
 
     pub fn sidebarWidthPixels(model: *const Model) u32 {
@@ -1514,6 +1538,7 @@ pub const Model = struct {
     pub fn dropSession(model: *Model, session_id: u32) void {
         model.dropTurnsForSession(session_id);
         model.dropQueuedForSession(session_id);
+        model.dropSelectionHistory(session_id);
         var kept: u32 = 0;
         for (model.session_store[0..model.session_count]) |session| {
             if (session.id == session_id) continue;
