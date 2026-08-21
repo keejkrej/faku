@@ -136,7 +136,7 @@
                 <column gap="2" cross="end">
                   <text foreground="text_muted">{t.role_label}</text>
                   <bubble variant="primary">
-                    <text wrap="true">{t.text}</text>
+                    <markdown source="{t.text}" />
                   </bubble>
                 </column>
               </if>

@@ -220,7 +220,7 @@ test "selecting the claude session shows its transcript" {
     try testing.expect(findByKind(tree.root, .status_bar) == null);
 }
 
-test "assistant **bold** binds to markdown source; user bubbles stay plain" {
+test "user and assistant **bold** bind to markdown source" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -228,19 +228,26 @@ test "assistant **bold** binds to markdown source; user bubbles stay plain" {
     var model = Model{};
     const id = model.addSession("markdown turn", .fx);
     model.selected = id;
-    _ = model.appendTurn(id, .user, "**keep raw**");
-    _ = model.appendTurn(id, .assistant, "**bold**");
+    _ = model.appendTurn(id, .user, "**bold**");
+    _ = model.appendTurn(id, .assistant, "**also**");
 
     const tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "**keep raw**");
     try testing.expect(findByText(tree.root, .text, "**bold**") == null);
-    const rendered = findBoldSpanText(tree.root, "bold") orelse {
-        std.debug.print("no bold markdown span for \"bold\"\n", .{});
+    try testing.expect(findByText(tree.root, .text, "**also**") == null);
+    const user_rendered = findBoldSpanText(tree.root, "bold") orelse {
+        std.debug.print("no bold markdown span for user \"bold\"\n", .{});
         dumpTexts(tree.root, 0);
         return error.WidgetNotFound;
     };
-    try testing.expectEqual(canvas.WidgetKind.text, rendered.kind);
-    try testing.expectEqualStrings("bold", rendered.text);
+    try testing.expectEqual(canvas.WidgetKind.text, user_rendered.kind);
+    try testing.expectEqualStrings("bold", user_rendered.text);
+    const assistant_rendered = findBoldSpanText(tree.root, "also") orelse {
+        std.debug.print("no bold markdown span for assistant \"also\"\n", .{});
+        dumpTexts(tree.root, 0);
+        return error.WidgetNotFound;
+    };
+    try testing.expectEqual(canvas.WidgetKind.text, assistant_rendered.kind);
+    try testing.expectEqualStrings("also", assistant_rendered.text);
 }
 
 test "escape stops a live demo stream" {
