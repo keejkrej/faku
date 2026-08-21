@@ -14,7 +14,10 @@
 //! load (`task_state_loaded`), same guard as waku-client. After a successful
 //! started-session save, a one-shot sidecar may send `saveTaskState` when
 //! `WAKU_DAEMON_ADDRESS` or `last_daemon_address` is set. Sidecar failure
-//! does not roll back the local catalog.
+//! does not roll back the local catalog. When the local catalog is missing
+//! and a daemon address is set, a one-shot sidecar may send `loadTaskState`
+//! and fill session skeletons. That daemon load does not run when the
+//! local file loaded or is corrupt.
 //!
 //! Composer drafts live in a sibling `drafts.json` (not the session
 //! catalog) so an unstarted New Task can persist before the session row
@@ -125,17 +128,22 @@ pub fn boot(model: *Model, allocator: std.mem.Allocator, io: std.Io) LoadKind {
     model.store_io = io;
     return switch (loadCatalog(model, allocator, io)) {
         .loaded => {
+            model.pending_daemon_catalog = false;
             hydrateSession(model, model.selected, allocator, io);
             loadDraft(model, allocator, io);
             return .loaded;
         },
         .missing => {
             model.task_state_loaded = true;
+            if (resolveDaemonMirrorAddress(model).len > 0) {
+                model.pending_daemon_catalog = true;
+            }
             loadDraft(model, allocator, io);
             return .missing;
         },
         .failed => {
             model.task_state_loaded = false;
+            model.pending_daemon_catalog = false;
             return .failed;
         },
     };
@@ -261,6 +269,87 @@ pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void
 pub fn resolveDaemonMirrorAddress(model: *const Model) []const u8 {
     if (model.daemonAddress().len > 0) return model.daemonAddress();
     return model.lastDaemonAddress();
+}
+
+/// First-run fill: hello + loadTaskState when the local catalog is missing
+/// and a daemon address is set. No-op when the file loaded, is corrupt, or
+/// there is no address. Sidecar failure keeps the demo sessions.
+pub fn maybeLoadDaemonCatalog(model: *Model, fx: *main.Effects) void {
+    if (!model.pending_daemon_catalog) return;
+    if (!model.task_state_loaded) {
+        model.pending_daemon_catalog = false;
+        return;
+    }
+    const address = resolveDaemonMirrorAddress(model);
+    if (address.len == 0) {
+        model.pending_daemon_catalog = false;
+        return;
+    }
+
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeLoadStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+    }) catch {
+        model.pending_daemon_catalog = false;
+        return;
+    };
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.daemon_load_key = key;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = main.Effects.lineMsg(.fx_line),
+        .on_exit = main.Effects.exitMsg(.fx_exit),
+    });
+}
+
+/// Apply a sidecar stdout line only while a first-run daemon fill is pending.
+/// Empty / unparsed / non-taskState lines leave the demo sessions in place.
+pub fn applyDaemonCatalogLine(model: *Model, line: []const u8) void {
+    if (!model.pending_daemon_catalog) return;
+    if (!model.task_state_loaded) return;
+
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseTaskStateSkeletons(arena_state.allocator(), line);
+    if (parsed.session_count == 0) return;
+    applyDaemonSkeletons(model, parsed.sessions[0..parsed.session_count]);
+}
+
+fn applyDaemonSkeletons(model: *Model, skeletons: []const protocol.TaskStateSkeleton) void {
+    var valid: usize = 0;
+    for (skeletons) |skel| {
+        if (skel.session_id.len == 0 or skel.title.len == 0) continue;
+        if (Provider.fromWire(skel.provider) == null) continue;
+        valid += 1;
+    }
+    if (valid == 0) return;
+
+    model.clearSessions();
+    for (skeletons) |skel| {
+        const provider = Provider.fromWire(skel.provider) orelse continue;
+        const parsed_id = daemon_proxy.localIdFromWire(skel.session_id);
+        const id = if (parsed_id) |n| (if (n == 0) model.next_id else n) else model.next_id;
+        model.restoreSession(
+            id,
+            skel.title,
+            provider,
+            !skel.has_started,
+            skel.has_started,
+            skel.project_path,
+            "",
+            "",
+            "",
+        );
+    }
+    if (model.session_count == 0) return;
+    model.selected = model.session_store[0].id;
+    model.task_state_loaded = true;
+    model.pending_daemon_catalog = false;
 }
 
 /// Best-effort one-shot hello + saveTaskState. Missing address is a no-op.
@@ -1362,6 +1451,10 @@ test "missing store keeps demos; corrupt store is not overwritten" {
     try testing.expectEqual(@as(u32, 2), corrupt.session_count);
     try testing.expect(!corrupt.task_state_loaded);
     try testing.expectError(error.TaskStateNotLoaded, saveSession(&corrupt, corrupt.selected, allocator, io));
+
+    corrupt.setDaemonAddress("127.0.0.1:8787");
+    try testing.expect(!corrupt.pending_daemon_catalog);
+    try testing.expect(!corrupt.task_state_loaded);
 
     var path_buf: [256]u8 = undefined;
     const leftover = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64));

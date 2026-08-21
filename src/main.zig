@@ -289,6 +289,10 @@ pub const Model = struct {
     sidecar_path_len: usize = 0,
     daemon_spawn_key: u64 = 0,
     next_daemon_key: u64 = daemon_proxy_key_first,
+    /// First-run `loadTaskState` sidecar. Distinct from `daemon_spawn_key`
+    /// so a catalog fill cannot settle a live turn.
+    daemon_load_key: u64 = 0,
+    pending_daemon_catalog: bool = false,
     fx_spawn_key: u64 = 0,
     next_fx_key: u64 = fx_spawn_overlap_key_first,
     fx_spawn_live: bool = false,
@@ -367,6 +371,8 @@ pub const Model = struct {
         "sidecar_path_len",
         "daemon_spawn_key",
         "next_daemon_key",
+        "daemon_load_key",
+        "pending_daemon_catalog",
         "fx_spawn_key",
         "next_fx_key",
         "fx_spawn_live",
@@ -888,6 +894,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
 /// Boot probe: `~/.local/bin/fx --help` then `fx --help` (PATH). Wired
 /// through `.init_fx` so the first paint already has the spawn in flight.
 pub fn initFx(model: *Model, fx: *Effects) void {
+    store.maybeLoadDaemonCatalog(model, fx);
     startFxProbe(model, fx);
 }
 
@@ -1239,6 +1246,10 @@ fn stopStream(model: *Model, fx: *Effects) void {
 }
 
 fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
+    if (model.daemon_load_key != 0 and line.key == model.daemon_load_key) {
+        store.applyDaemonCatalogLine(model, line.line);
+        return;
+    }
     if (model.phase != .streaming) return;
     if (line.key == model.daemon_spawn_key and model.daemon_spawn_key != 0) {
         handleDaemonLine(model, fx, line);
@@ -1307,6 +1318,11 @@ fn handleDaemonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
 }
 
 fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (model.daemon_load_key != 0 and exit.key == model.daemon_load_key) {
+        model.daemon_load_key = 0;
+        model.pending_daemon_catalog = false;
+        return;
+    }
     const daemon = model.daemon_spawn_key != 0 and exit.key == model.daemon_spawn_key;
     const fx_child = model.fx_spawn_key != 0 and exit.key == model.fx_spawn_key;
     if (exit.key != fx_ask_key and !daemon and !fx_child) return;

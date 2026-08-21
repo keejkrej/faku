@@ -1160,6 +1160,231 @@ fn runGit(allocator: std.mem.Allocator, io: std.Io, argv: []const []const u8) !v
     if (result.term != .exited or result.term.exited != 0) return error.GitFailed;
 }
 
+fn isLoadOnlyStdin(stdin: []const u8) bool {
+    return std.mem.indexOf(u8, stdin, "\"type\":\"loadTaskState\"") != null and
+        std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null and
+        std.mem.indexOf(u8, stdin, "\"type\":\"saveTaskState\"") == null;
+}
+
+fn findLoadOnlySpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (isLoadOnlyStdin(spawn.stdin)) return spawn;
+    }
+    return null;
+}
+
+const fake_task_state_line =
+    \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000010","outcome":{"status":"ok","payload":{"type":"taskState","projects":[{"id":"00000000-0000-0000-0000-000000000007","name":"faku","path":"/tmp/from-daemon","created_at":0}],"sessions":[{"id":"00000000-0000-0000-0000-000000000007","title":"from daemon","project_id":"00000000-0000-0000-0000-000000000007","provider":"fx","runtime_mode":"fullAccess","status":"idle","created_at":0,"updated_at":0,"has_started":true}],"defaultCwd":"/tmp","projectlessRoot":null}}}
+;
+
+test "missing catalog plus daemon address records hello and loadTaskState on spawn stdin" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-load-missing", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setDaemonToken("secret");
+    model.setSidecarPath("faku");
+    try testing.expectEqual(store.LoadKind.missing, store.boot(&model, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    try testing.expectEqualStrings("port waku to zig", model.selected_title());
+
+    store.maybeLoadDaemonCatalog(&model, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const spawn = findLoadOnlySpawn(&fx) orelse return error.LoadSpawnMissing;
+    try testing.expect(argvHas(spawn.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(spawn.argv, "127.0.0.1:8787"));
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"token\":\"secret\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"loadTaskState\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, daemon_proxy.LOAD_REQUEST_ID) != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"prompt\"") == null);
+    try testing.expect(spawn.key != model.daemon_spawn_key);
+    try testing.expectEqual(spawn.key, model.daemon_load_key);
+}
+
+test "last_daemon_address with a missing catalog still records loadTaskState" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-load-last", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
+    try testing.expectEqual(store.LoadKind.missing, store.boot(&model, testing.allocator, testing.io));
+    store.maybeLoadDaemonCatalog(&model, &fx);
+    const spawn = findLoadOnlySpawn(&fx) orelse return error.LoadSpawnMissing;
+    try testing.expect(argvHas(spawn.argv, "10.0.0.2:9"));
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"loadTaskState\"") != null);
+}
+
+test "fake loadTaskState response installs daemon skeletons and not demos" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-load-apply", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    try testing.expectEqual(store.LoadKind.missing, store.boot(&model, testing.allocator, testing.io));
+    store.maybeLoadDaemonCatalog(&model, &fx);
+    const spawn = findLoadOnlySpawn(&fx) orelse return error.LoadSpawnMissing;
+
+    try fx.feedLine(spawn.key, fake_task_state_line);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, 1), model.session_count);
+    try testing.expectEqual(@as(u32, 7), model.session_store[0].id);
+    try testing.expectEqualStrings("from daemon", model.session_store[0].title());
+    try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
+    try testing.expectEqualStrings("/tmp/from-daemon", model.session_store[0].projectPath());
+    try testing.expect(model.session_store[0].hasStarted());
+    try testing.expect(!model.session_store[0].detail_loaded);
+    try testing.expectEqual(@as(u32, 0), model.turn_count);
+    try testing.expect(model.task_state_loaded);
+    try testing.expect(!model.pending_daemon_catalog);
+}
+
+test "missing catalog without a daemon address still uses demos" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-load-demos", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
+    try testing.expectEqual(@as(usize, 0), model.lastDaemonAddress().len);
+    try testing.expectEqual(store.LoadKind.missing, store.boot(&model, testing.allocator, testing.io));
+    store.maybeLoadDaemonCatalog(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    try testing.expectEqualStrings("port waku to zig", model.selected_title());
+    try testing.expect(model.task_state_loaded);
+}
+
+test "failed loadTaskState sidecar keeps the demo sessions" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-load-fail", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    try testing.expectEqual(store.LoadKind.missing, store.boot(&model, testing.allocator, testing.io));
+    store.maybeLoadDaemonCatalog(&model, &fx);
+    const spawn = findLoadOnlySpawn(&fx) orelse return error.LoadSpawnMissing;
+    try fx.feedExit(spawn.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    try testing.expectEqualStrings("port waku to zig", model.selected_title());
+    try testing.expect(model.task_state_loaded);
+    try testing.expect(!model.pending_daemon_catalog);
+}
+
+test "existing local catalog is not replaced by a daemon load" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-load-local", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = testing.io;
+    const id = source.addSession("local catalog", .fx);
+    _ = source.appendTurn(id, .user, "already persisted");
+    try store.saveSession(&source, id, testing.allocator, testing.io);
+
+    var model = main.initialModel();
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    try testing.expectEqual(store.LoadKind.loaded, store.boot(&model, testing.allocator, testing.io));
+    store.maybeLoadDaemonCatalog(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expectEqual(@as(u32, 1), model.session_count);
+    try testing.expectEqualStrings("local catalog", model.session_store[0].title());
+
+    store.applyDaemonCatalogLine(&model, fake_task_state_line);
+    try testing.expectEqual(@as(u32, 1), model.session_count);
+    try testing.expectEqualStrings("local catalog", model.session_store[0].title());
+}
+
+test "corrupt catalog plus a daemon address still refuses overwrite" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-load-corrupt", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try std.Io.Dir.cwd().createDirPath(testing.io, dir);
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = store.catalogPath(dir, &path_buf).?;
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = path, .data = "{not json" });
+
+    var model = main.initialModel();
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    try testing.expectEqual(store.LoadKind.failed, store.boot(&model, testing.allocator, testing.io));
+    store.maybeLoadDaemonCatalog(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expect(!model.task_state_loaded);
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    try testing.expectEqualStrings("port waku to zig", model.selected_title());
+
+    store.applyDaemonCatalogLine(&model, fake_task_state_line);
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    try testing.expectEqualStrings("port waku to zig", model.selected_title());
+    try testing.expect(!model.task_state_loaded);
+    try testing.expectError(error.TaskStateNotLoaded, store.saveSession(&model, model.selected, testing.allocator, testing.io));
+}
+
 test "the view lays out through the canvas engine" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

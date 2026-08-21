@@ -184,7 +184,11 @@ first successful send so the next New Task does not resurrect that
 prompt. There is no Native debounce
 timer; last write wins.
 
-Missing `sessions.json` keeps the two first-run demo sessions. A corrupt file
+Missing `sessions.json` keeps the two first-run demo sessions. When
+`WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set, a one-shot
+sidecar may send `loadTaskState` and replace those demos with returned
+session skeletons — `loadTaskState` is only a first-run fill when the local
+catalog is missing. A corrupt file
 also keeps the demos and is not overwritten until a successful load
 (`task_state_loaded`, same guard as waku-client). Save is merge-only;
 `RemoveSession` is the only delete. New untitled sessions are not written
@@ -228,7 +232,8 @@ address is persisted as `last_daemon_address` in `sessions.json` for a
 later send in the same catalog; there is no picker UI. Token comes from
 `WAKU_DAEMON_TOKEN` when set. Local `sessions.json` remains the catalog
 of record; `saveTaskState` is a best-effort one-shot mirror when a daemon
-address is set. Wire `loadTaskState` talks to the daemon only.
+address is set. Wire `loadTaskState` talks to the daemon only, and is
+only a first-run fill when that local catalog is missing.
 
 This is a sidecar. The Waku daemon is not embedded.
 
