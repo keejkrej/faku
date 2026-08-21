@@ -66,6 +66,9 @@ pub const max_runtime_id = 36;
 pub const max_fx_model = 128;
 pub const max_access_mode = 32;
 pub const max_interaction_mode = 16;
+pub const max_available_commands = acp.max_available_commands;
+pub const max_command_name = 64;
+pub const max_command_description = 256;
 /// Waku `runtime_mode` default. Maps to fx `FX_PERMISSION_MODE=yolo`.
 pub const default_access_mode = "fullAccess";
 /// Waku `StartOptions.interaction_mode` default (`build` | `plan`).
@@ -113,6 +116,22 @@ pub const ReplyPath = enum { demo, fx, daemon };
 
 pub const Provider = protocol.ProviderId;
 
+/// Stored ACP slash command (name + optional description). Not a palette row.
+pub const AvailableCommand = struct {
+    name_storage: [max_command_name]u8 = [_]u8{0} ** max_command_name,
+    name_len: usize = 0,
+    description_storage: [max_command_description]u8 = [_]u8{0} ** max_command_description,
+    description_len: usize = 0,
+
+    pub fn name(self: *const AvailableCommand) []const u8 {
+        return self.name_storage[0..self.name_len];
+    }
+
+    pub fn description(self: *const AvailableCommand) []const u8 {
+        return self.description_storage[0..self.description_len];
+    }
+};
+
 pub const Session = struct {
     id: u32 = 0,
     title_storage: [max_title]u8 = [_]u8{0} ** max_title,
@@ -156,6 +175,9 @@ pub const Session = struct {
     /// Last ACP `usage_update` token counts. `context_size == 0` means unknown.
     context_used: u64 = 0,
     context_size: u64 = 0,
+    /// Last ACP `available_commands_update`. Replace, not append. No palette.
+    available_commands: [max_available_commands]AvailableCommand = [_]AvailableCommand{.{}} ** max_available_commands,
+    available_command_count: usize = 0,
 
     pub fn title(self: *const Session) []const u8 {
         return self.title_storage[0..self.title_len];
@@ -235,6 +257,31 @@ pub const Session = struct {
     pub fn setContextUsage(self: *Session, used: u64, size: u64) void {
         self.context_used = used;
         self.context_size = size;
+    }
+
+    pub fn availableCommands(self: *const Session) []const AvailableCommand {
+        return self.available_commands[0..self.available_command_count];
+    }
+
+    pub fn clearAvailableCommands(self: *Session) void {
+        self.available_command_count = 0;
+    }
+
+    pub fn appendAvailableCommand(self: *Session, name: []const u8, description: []const u8) void {
+        if (name.len == 0) return;
+        if (self.available_command_count >= max_available_commands) return;
+        var stored = AvailableCommand{};
+        writeFixed(&stored.name_storage, &stored.name_len, name);
+        writeFixed(&stored.description_storage, &stored.description_len, description);
+        self.available_commands[self.available_command_count] = stored;
+        self.available_command_count += 1;
+    }
+
+    pub fn replaceAvailableCommands(self: *Session, commands: []const acp.ParsedCommand) void {
+        self.clearAvailableCommands();
+        for (commands) |cmd| {
+            self.appendAvailableCommand(cmd.name, cmd.description);
+        }
     }
 
     /// Native `progress` is a 0..1 fraction. Missing usage stays 0.
@@ -2556,6 +2603,10 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
         applyAcpConfigModel(model, fx, model_value);
         return;
     }
+    if (acp.availableCommandsUpdate(&parsed)) |commands| {
+        applyAcpAvailableCommands(model, fx, commands);
+        return;
+    }
     if (acp.toolUpdate(parsed)) |tool| {
         applyAcpToolUpdate(model, fx, tool);
         return;
@@ -2588,6 +2639,14 @@ fn applyAcpCurrentMode(model: *Model, fx: *Effects, access_mode: []const u8) voi
 fn applyAcpConfigModel(model: *Model, fx: *Effects, value: []const u8) void {
     const session = model.sessionById(model.streaming_session) orelse return;
     session.setModel(value);
+    store.persistIfPossible(model, session.id, fx);
+}
+
+/// Official ACP `available_commands_update`. Replaces the session list
+/// (empty clears). Names and descriptions only; no palette, no clicks.
+fn applyAcpAvailableCommands(model: *Model, fx: *Effects, commands: []const acp.ParsedCommand) void {
+    const session = model.sessionById(model.streaming_session) orelse return;
+    session.replaceAvailableCommands(commands);
     store.persistIfPossible(model, session.id, fx);
 }
 
