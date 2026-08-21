@@ -2474,3 +2474,169 @@ test "composer chips persist access interaction and last-used model and reload" 
     _ = try expectByText(tree.root, .button, "Plan");
     _ = try expectByText(tree.root, .button, "Medium");
 }
+
+test "sidebar back and forward walk session selection history" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expect(!model.can_go_back());
+    try testing.expect(!model.can_go_forward());
+    try testing.expectEqualStrings("port waku to zig", model.selected_title());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "Search");
+    _ = try expectButton(tree.root, "Settings");
+    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .button, "Build");
+    _ = try expectByText(tree.root, .button, "Medium");
+    const back_start = try expectButton(tree.root, "Back");
+    const forward_start = try expectButton(tree.root, "Forward");
+    main.update(&model, tree.msgForPointer(back_start.id, .up).?, &fx);
+    try testing.expectEqualStrings("port waku to zig", model.selected_title());
+    try testing.expect(!model.can_go_back());
+    main.update(&model, tree.msgForPointer(forward_start.id, .up).?, &fx);
+    try testing.expectEqualStrings("port waku to zig", model.selected_title());
+    try testing.expect(!model.can_go_forward());
+
+    const auth = try expectButton(tree.root, "fix auth listener");
+    main.update(&model, tree.msgForPointer(auth.id, .up).?, &fx);
+    try testing.expectEqualStrings("fix auth listener", model.selected_title());
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
+    try testing.expectEqual(@as(usize, 2), countRole(&model, .assistant));
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .tool));
+    try testing.expect(model.can_go_back());
+    try testing.expect(!model.can_go_forward());
+
+    main.update(&model, .{ .select = model.session_store[1].id }, &fx);
+    try testing.expectEqual(@as(u32, 2), model.history_count);
+    try testing.expect(!model.can_go_forward());
+
+    const third = model.addSession("third", .fx);
+    _ = model.appendTurn(third, .user, "third user");
+    _ = model.appendTurn(third, .assistant, "third assistant");
+    if (model.sessionById(third)) |session| {
+        session.has_started = true;
+        session.detail_loaded = true;
+    }
+    main.update(&model, .{ .select = third }, &fx);
+    try testing.expectEqualStrings("third", model.selected_title());
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .assistant));
+
+    tree = try buildTree(arena, &model);
+    const back_to_b = try expectButton(tree.root, "Back");
+    main.update(&model, tree.msgForPointer(back_to_b.id, .up).?, &fx);
+    try testing.expectEqualStrings("fix auth listener", model.selected_title());
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
+    try testing.expectEqual(@as(usize, 2), countRole(&model, .assistant));
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .tool));
+    try testing.expect(model.can_go_back());
+    try testing.expect(model.can_go_forward());
+
+    tree = try buildTree(arena, &model);
+    const forward_to_c = try expectButton(tree.root, "Forward");
+    main.update(&model, tree.msgForPointer(forward_to_c.id, .up).?, &fx);
+    try testing.expectEqualStrings("third", model.selected_title());
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .assistant));
+    try testing.expect(model.can_go_back());
+    try testing.expect(!model.can_go_forward());
+
+    tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectButton(tree.root, "Back")).id, .up).?, &fx);
+    try testing.expectEqualStrings("fix auth listener", model.selected_title());
+
+    const fourth = model.addSession("fourth", .fx);
+    _ = model.appendTurn(fourth, .user, "fourth user");
+    if (model.sessionById(fourth)) |session| {
+        session.has_started = true;
+        session.detail_loaded = true;
+    }
+    main.update(&model, .{ .select = fourth }, &fx);
+    try testing.expectEqualStrings("fourth", model.selected_title());
+    try testing.expect(!model.can_go_forward());
+
+    tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectButton(tree.root, "Forward")).id, .up).?, &fx);
+    try testing.expectEqualStrings("fourth", model.selected_title());
+
+    tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectButton(tree.root, "Back")).id, .up).?, &fx);
+    try testing.expectEqualStrings("fix auth listener", model.selected_title());
+    tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectButton(tree.root, "Back")).id, .up).?, &fx);
+    try testing.expectEqualStrings("port waku to zig", model.selected_title());
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
+    try testing.expectEqual(@as(usize, 2), countRole(&model, .assistant));
+    try testing.expect(!model.can_go_back());
+    try testing.expect(model.can_go_forward());
+
+    tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectButton(tree.root, "Back")).id, .up).?, &fx);
+    try testing.expectEqualStrings("port waku to zig", model.selected_title());
+    try testing.expect(!model.can_go_back());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "Search");
+    _ = try expectButton(tree.root, "Collapse sidebar");
+    _ = try expectButton(tree.root, "Settings");
+    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .button, "Medium");
+}
+
+test "sidebar back hydrates an empty session the same way select does" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    const filled = model.addSession("has local turns", .fx);
+    _ = model.appendTurn(filled, .user, "already here");
+    const empty = model.addSession("empty transcript", .fx);
+    const later = model.addSession("later filled", .fx);
+    _ = model.appendTurn(later, .user, "later user");
+    model.selected = filled;
+    model.pushSelectionHistory(filled);
+
+    main.update(&model, .{ .select = empty }, &fx);
+    main.update(&model, .{ .select = later }, &fx);
+    try testing.expect(findHydrateOnlySpawn(&fx) == null);
+
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    main.update(&model, .history_back, &fx);
+    try testing.expectEqual(empty, model.selected);
+    const spawn = findHydrateOnlySpawn(&fx) orelse return error.HydrateSpawnMissing;
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hydrateSession\"") != null);
+    try testing.expectEqual(empty, model.daemon_hydrate_session);
+
+    main.update(&model, .history_back, &fx);
+    try testing.expectEqual(filled, model.selected);
+    try testing.expectEqual(@as(u32, 1), model.turnCount(filled));
+    try testing.expectEqual(spawn.key, model.daemon_hydrate_key);
+}
+
+test "selection history cap drops the oldest entry" {
+    var model = Model{};
+    const first: u32 = 1;
+    model.selected = first;
+    model.pushSelectionHistory(first);
+
+    var id: u32 = 2;
+    while (id <= main.selection_history_cap + 1) : (id += 1) {
+        model.pushSelectionHistory(id);
+        model.selected = id;
+    }
+
+    try testing.expectEqual(main.selection_history_cap, model.history_count);
+    try testing.expect(model.history_store[0] != first);
+    try testing.expectEqual(main.selection_history_cap + 1, model.history_store[model.history_count - 1]);
+    try testing.expect(model.can_go_back());
+    try testing.expect(!model.can_go_forward());
+}
