@@ -3898,6 +3898,126 @@ test "new task and cmd-n focus the composer via the same autofocus edge" {
     try testing.expectEqual(Msg.focus_composer, main.onKey(cmd_l).?);
 }
 
+test "selecting a session focuses the composer; rename and search do not" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const port_id = model.session_store[0].id;
+    const auth_id = model.session_store[1].id;
+    try testing.expectEqual(port_id, model.selected);
+    try testing.expect(!model.composer_active);
+    try testing.expect(!model.search_active);
+    try testing.expectEqual(@as(u32, 0), model.editing_session_id);
+    try testing.expectEqual(@as(u32, 0), model.editing_folder_id);
+
+    var tree = try buildTree(arena, &model);
+    const auth_row = try expectButton(tree.root, "fix auth listener");
+    try testing.expectEqual(Msg{ .select = auth_id }, tree.msgForPointer(auth_row.id, .up).?);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("Do anything...", composer.placeholder);
+        try testing.expect(!composer.autofocus);
+    } else return error.WidgetNotFound;
+    _ = try expectByText(tree.root, .button, "Copy session");
+
+    main.update(&model, tree.msgForPointer(auth_row.id, .up).?, &fx);
+    try testing.expectEqual(auth_id, model.selected);
+    try testing.expectEqualStrings("fix auth listener", model.selected_title());
+    try testing.expect(model.composer_active);
+    try testing.expectEqual(@as(u32, 0), model.editing_session_id);
+
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expect(composer.autofocus);
+    } else return error.WidgetNotFound;
+    _ = try expectByText(tree.root, .button, "Copy session");
+
+    // Second click on the selected row starts rename and must not steal
+    // into the composer.
+    const auth_again = try expectButton(tree.root, "fix auth listener");
+    try testing.expectEqual(Msg{ .select = auth_id }, tree.msgForPointer(auth_again.id, .up).?);
+    main.update(&model, tree.msgForPointer(auth_again.id, .up).?, &fx);
+    try testing.expectEqual(auth_id, model.selected);
+    try testing.expectEqual(auth_id, model.editing_session_id);
+    try testing.expect(!model.composer_active);
+
+    tree = try buildTree(arena, &model);
+    if (findByPlaceholder(tree.root, .text_field, "untitled")) |field| {
+        try testing.expect(field.autofocus);
+    } else return error.WidgetNotFound;
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expect(!composer.autofocus);
+    } else return error.WidgetNotFound;
+
+    main.update(&model, .stop, &fx);
+    try testing.expectEqual(@as(u32, 0), model.editing_session_id);
+    try testing.expectEqual(auth_id, model.selected);
+
+    main.update(&model, .start_search, &fx);
+    try testing.expect(model.search_active);
+    try testing.expect(!model.composer_active);
+    main.update(&model, .{ .search_edit = .{ .insert_text = "auth" } }, &fx);
+    try testing.expect(model.search_active);
+    try testing.expect(!model.composer_active);
+    try testing.expectEqual(auth_id, model.selected);
+
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .search_field)) |field| {
+        try testing.expectEqualStrings("Search", field.placeholder);
+        try testing.expect(field.autofocus);
+    } else return error.WidgetNotFound;
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expect(!composer.autofocus);
+    } else return error.WidgetNotFound;
+
+    main.update(&model, .stop, &fx);
+    try testing.expect(!model.search_active);
+    try testing.expectEqual(auth_id, model.selected);
+
+    main.update(&model, .new_folder, &fx);
+    const folder_id = model.folder_store[0].id;
+    main.update(&model, .{ .assign_selected = folder_id }, &fx);
+    try testing.expectEqual(folder_id, model.sessionById(auth_id).?.folder_id);
+    try testing.expectEqual(@as(u32, 0), model.editing_folder_id);
+    try testing.expectEqual(auth_id, model.selected);
+
+    main.update(&model, .{ .assign_selected = folder_id }, &fx);
+    try testing.expectEqual(folder_id, model.editing_folder_id);
+    try testing.expectEqual(auth_id, model.selected);
+    try testing.expect(!model.composer_active);
+
+    tree = try buildTree(arena, &model);
+    if (findByPlaceholder(tree.root, .text_field, "New folder")) |field| {
+        try testing.expect(field.autofocus);
+    } else return error.WidgetNotFound;
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expect(!composer.autofocus);
+    } else return error.WidgetNotFound;
+
+    main.update(&model, .stop, &fx);
+    try testing.expectEqual(@as(u32, 0), model.editing_folder_id);
+
+    // History back is a normal select, so it uses the same autofocus edge.
+    try testing.expect(model.can_go_back());
+    main.update(&model, .history_back, &fx);
+    try testing.expectEqual(port_id, model.selected);
+    try testing.expectEqualStrings("port waku to zig", model.selected_title());
+    try testing.expect(model.composer_active);
+    try testing.expectEqual(@as(u32, 0), model.editing_session_id);
+    try testing.expectEqual(@as(u32, 0), model.editing_folder_id);
+
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expect(composer.autofocus);
+    } else return error.WidgetNotFound;
+    _ = try expectByText(tree.root, .button, "Copy session");
+}
+
 test "cmd-[ / cmd-] and ctrl-[ / ctrl-] walk session history via onKey" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
