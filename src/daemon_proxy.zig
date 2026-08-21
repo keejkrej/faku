@@ -1,7 +1,7 @@
 //! One-shot waku-daemon sidecar.
 //!
 //! Native `fx.spawn` writes stdin once and then closes it. This module
-//! builds that buffer (hello + optional loadTaskState + prompt, hello +
+//! builds that buffer (hello + attachSession + prompt, hello +
 //! saveTaskState, hello + loadTaskState, hello + hydrateSession, or
 //! hello + closeSession) and,
 //! when run as `faku daemon-proxy <addr>`, forwards those JSON frames over
@@ -31,10 +31,10 @@ pub const TurnStdin = struct {
     token: []const u8 = "",
     client_id: []const u8 = CLIENT_ID,
     request_id: []const u8 = protocol.NIL_UUID,
+    attach_request_id: []const u8 = ATTACH_REQUEST_ID,
     session_id: []const u8 = protocol.NIL_UUID,
     runtime_id: []const u8 = protocol.NIL_UUID,
     prompt: []const u8,
-    load_task_state: bool = false,
 };
 
 pub const SaveStdin = struct {
@@ -49,6 +49,8 @@ pub const SaveStdin = struct {
 pub const LOAD_REQUEST_ID = "00000000-0000-0000-0000-000000000010";
 /// Non-nil: a nil `requestId` is a notify and the daemon sends no `session`.
 pub const HYDRATE_REQUEST_ID = "00000000-0000-0000-0000-000000000011";
+/// Non-nil: a nil `requestId` is a notify and the daemon sends no `sessionRuntime`.
+pub const ATTACH_REQUEST_ID = "00000000-0000-0000-0000-000000000012";
 
 pub const LoadStdin = struct {
     token: []const u8 = "",
@@ -134,23 +136,21 @@ const Cursor = struct {
 };
 
 /// NDJSON stdin for one sidecar spawn. Fits Native's 4 KiB stdin cap
-/// for a 512-byte composer draft.
+/// for a 512-byte composer draft. Hello + bare attachSession + prompt.
+/// Start / loadTaskState are not part of the verified attach-then-prompt
+/// flow. Prompt may carry a persisted runtime id; attach uses nil.
 pub fn writeTurnStdin(buf: []u8, args: TurnStdin) WriteError![]const u8 {
     var cur = Cursor{ .buf = buf };
     const hello = try protocol.writeClientHello(cur.remaining(), args.token, args.client_id, &.{});
     cur.pos += hello.len;
     try cur.write("\n");
-    if (args.load_task_state) {
-        const load = try protocol.writeBareCommand(
-            cur.remaining(),
-            args.request_id,
-            args.session_id,
-            args.runtime_id,
-            .load_task_state,
-        );
-        cur.pos += load.len;
-        try cur.write("\n");
-    }
+    const attach = try protocol.writeAttachSession(
+        cur.remaining(),
+        args.attach_request_id,
+        args.session_id,
+    );
+    cur.pos += attach.len;
+    try cur.write("\n");
     const prompt = try protocol.writePrompt(
         cur.remaining(),
         args.request_id,
@@ -507,31 +507,38 @@ pub fn readTextFrame(reader: *std.Io.Reader, dest: []u8) !usize {
     }
 }
 
-test "writeTurnStdin emits hello loadTaskState and prompt JSON" {
+test "writeTurnStdin emits hello attachSession and prompt JSON" {
     var buf: [1024]u8 = undefined;
     const stdin = try writeTurnStdin(&buf, .{
         .token = "secret",
         .session_id = "00000000-0000-0000-0000-000000000001",
+        .runtime_id = "00000000-0000-0000-0000-000000000003",
         .prompt = "trace the listener",
-        .load_task_state = true,
     });
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"protocolVersion\":3") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadTaskState\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ ATTACH_REQUEST_ID) != null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"00000000-0000-0000-0000-000000000003\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "trace the listener") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadTaskState\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"start\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\n") != null);
+    const attach_at = std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"").?;
+    const prompt_at = std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"").?;
+    try std.testing.expect(attach_at < prompt_at);
 }
 
-test "writeTurnStdin skips loadTaskState for a new session" {
+test "writeTurnStdin still attaches before prompt for a new session" {
     var buf: [1024]u8 = undefined;
     const stdin = try writeTurnStdin(&buf, .{
         .prompt = "first",
-        .load_task_state = false,
     });
     try std.testing.expect(std.mem.indexOf(u8, stdin, "loadTaskState") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") != null);
 }
 
