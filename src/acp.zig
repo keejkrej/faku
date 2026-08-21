@@ -6,11 +6,15 @@
 //! fx reports protocol version 1. Each connection has one active session
 //! and one active prompt.
 //!
-//! This cut writes one NDJSON stdin buffer at spawn (initialize, then
-//! session/new or session/resume, then session/set_mode and/or
-//! session/set_config_option, then session/prompt) and closes stdin.
-//! Native `fx.spawn` has no write-to-running-child, so `session/cancel`
-//! cannot be sent after spawn — Stop/Esc uses `fx.cancel`. This is not a
+//! Native `fx.spawn` writes one stdin buffer and closes it, so Send
+//! spawns `faku acp-proxy -- … fx acp`. The sidecar writes that same
+//! NDJSON batch (initialize, session/new or session/resume, then
+//! session/set_mode and/or session/set_config_option, then
+//! session/prompt) and keeps fx stdin open. Official ACP v1
+//! `session/request_permission` is auto-answered from the access mode
+//! already on that run (FX_PERMISSION_MODE / session/set_mode), not a
+//! window dialog. Mid-turn `session/cancel` still cannot be written
+//! from the window — Stop/Esc uses `fx.cancel`. This is not a
 //! long-lived ACP loop. `session/load` is not used (resume, not replay).
 //!
 //! Frames are one JSON object per line. This file never execs a binary.
@@ -38,6 +42,22 @@ pub const METHOD_SESSION_CANCEL = "session/cancel";
 pub const METHOD_SESSION_UPDATE = "session/update";
 pub const METHOD_SESSION_SET_MODE = "session/set_mode";
 pub const METHOD_SESSION_SET_CONFIG = "session/set_config_option";
+/// Official ACP v1 client method (agent → client).
+/// https://agentclientprotocol.com/protocol/v1/tool-calls#requesting-permission
+/// vercel-labs/fx `src/acp/prompt.zig` `writePermissionOption`.
+pub const METHOD_SESSION_REQUEST_PERMISSION = "session/request_permission";
+
+/// Official ACP v1 `PermissionOptionKind`. optionId is a free string;
+/// fx uses these same spellings as optionId. Docs examples use hyphens
+/// (`allow-once`). Always read optionId from the request.
+pub const KIND_ALLOW_ONCE = "allow_once";
+pub const KIND_ALLOW_ALWAYS = "allow_always";
+pub const KIND_REJECT_ONCE = "reject_once";
+pub const KIND_REJECT_ALWAYS = "reject_always";
+pub const OUTCOME_SELECTED = "selected";
+pub const OUTCOME_CANCELLED = "cancelled";
+/// Cap matches fx (3 options) plus the docs pair. Extra items drop.
+pub const max_permission_options: usize = 8;
 
 /// fx ACP config option ids (https://fx.sh/docs/using-fx/acp + fx e2e).
 pub const CONFIG_ID_MODEL = "model";
@@ -107,6 +127,7 @@ pub const Method = enum {
     session_update,
     session_set_mode,
     session_set_config_option,
+    session_request_permission,
     unknown,
 
     pub fn wireName(method: Method) []const u8 {
@@ -119,6 +140,7 @@ pub const Method = enum {
             .session_update => METHOD_SESSION_UPDATE,
             .session_set_mode => METHOD_SESSION_SET_MODE,
             .session_set_config_option => METHOD_SESSION_SET_CONFIG,
+            .session_request_permission => METHOD_SESSION_REQUEST_PERMISSION,
             .unknown => "",
         };
     }
@@ -132,6 +154,7 @@ pub const Method = enum {
         if (std.mem.eql(u8, name, METHOD_SESSION_UPDATE)) return .session_update;
         if (std.mem.eql(u8, name, METHOD_SESSION_SET_MODE)) return .session_set_mode;
         if (std.mem.eql(u8, name, METHOD_SESSION_SET_CONFIG)) return .session_set_config_option;
+        if (std.mem.eql(u8, name, METHOD_SESSION_REQUEST_PERMISSION)) return .session_request_permission;
         return .unknown;
     }
 };
@@ -197,6 +220,13 @@ pub const TurnStdin = struct {
     prompt: []const u8,
     model: []const u8 = "",
     access_mode: []const u8 = "",
+};
+
+/// One ACP `PermissionOption`. Slices alias the parsed line.
+/// `optionId` is what the reply must echo; `kind` is the official hint.
+pub const PermissionOption = struct {
+    option_id: []const u8 = "",
+    kind: []const u8 = "",
 };
 
 const WriteError = error{NoSpaceLeft};
@@ -389,6 +419,61 @@ pub fn writeSessionSetConfigOption(
     return cur.slice();
 }
 
+/// Official ACP v1 `RequestPermissionResponse`.
+/// `{ outcome: { outcome: "selected", optionId } }` or `{ outcome: { outcome: "cancelled" } }`.
+/// `id_json` is the raw JSON id token from the request (number or string).
+pub fn writePermissionResponse(buf: []u8, id_json: []const u8, option_id: ?[]const u8) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    try cur.write("{\"jsonrpc\":\"");
+    try cur.write(JSONRPC_VERSION);
+    try cur.write("\",\"id\":");
+    try cur.write(id_json);
+    try cur.write(",\"result\":{\"outcome\":{\"outcome\":");
+    if (option_id) |id| {
+        try writeJsonString(&cur, OUTCOME_SELECTED);
+        try cur.write(",\"optionId\":");
+        try writeJsonString(&cur, id);
+        try cur.write("}}}\n");
+    } else {
+        try writeJsonString(&cur, OUTCOME_CANCELLED);
+        try cur.write("}}}\n");
+    }
+    return cur.slice();
+}
+
+/// JSON-RPC 2.0 method-not-found so an unknown agent request does not hang.
+pub fn writeMethodNotFound(buf: []u8, id_json: []const u8) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    try cur.write("{\"jsonrpc\":\"");
+    try cur.write(JSONRPC_VERSION);
+    try cur.write("\",\"id\":");
+    try cur.write(id_json);
+    try cur.write(",\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}\n");
+    return cur.slice();
+}
+
+/// Sidecar stdin write for one agent stdout line, or null to only forward.
+/// `session/request_permission` is answered from `access_mode`. Other
+/// requests with an id are rejected. Notifications / responses / missing
+/// id do not block.
+pub fn replyForAgentRequest(line: []const u8, access_mode: []const u8, buf: []u8) ?[]const u8 {
+    const parsed = parseLine(line);
+    if (parsed.has_result or parsed.has_error) return null;
+    const id_json = rawIdJson(line);
+    if (id_json.len == 0) return null;
+    if (parsed.method == .session_request_permission) {
+        var options: [max_permission_options]PermissionOption = [_]PermissionOption{.{}} ** max_permission_options;
+        const count = scanPermissionOptions(line, options[0..]) orelse 0;
+        const option_id = pickPermissionOptionId(access_mode, options[0..count]);
+        return writePermissionResponse(buf, id_json, option_id) catch null;
+    }
+    // Unknown agent→client methods still have an id; reject so fx does not hang.
+    if (parsed.method == .unknown and parsed.method_name.len > 0) {
+        return writeMethodNotFound(buf, id_json) catch null;
+    }
+    return null;
+}
+
 /// `session/cancel` notification (no `id`; no response expected).
 /// Built for the stub/tests; one-shot spawn cannot write this after start.
 pub fn writeSessionCancel(buf: []u8, session_id: []const u8) WriteError![]const u8 {
@@ -546,6 +631,93 @@ pub fn isPromptResult(parsed: Parsed) bool {
     return parsed.kind == .response or parsed.kind == .error_response;
 }
 
+/// Official ACP v1 `session/request_permission` (agent → client).
+pub fn isRequestPermission(parsed: Parsed) bool {
+    return parsed.method == .session_request_permission and parsed.kind == .request;
+}
+
+/// `ask` is restrict. `auto` / `fullAccess` / `yolo` / `code` allow.
+/// Unknown / empty stay restrict so a missing mode does not auto-allow.
+pub fn permissionAllows(access_mode: []const u8) bool {
+    if (std.mem.eql(u8, access_mode, "auto")) return true;
+    if (std.mem.eql(u8, access_mode, "autoAcceptEdits")) return true;
+    if (std.mem.eql(u8, access_mode, "fullAccess")) return true;
+    if (std.mem.eql(u8, access_mode, "yolo")) return true;
+    if (std.mem.eql(u8, access_mode, MODE_CODE)) return true;
+    return false;
+}
+
+/// Pick an optionId the request actually listed. Allow modes prefer
+/// `allow_once` then `allow_always`. Ask / unknown prefer `reject_always`
+/// then `reject_once`. Null means official `cancelled` (no invented id).
+pub fn pickPermissionOptionId(access_mode: []const u8, options: []const PermissionOption) ?[]const u8 {
+    if (permissionAllows(access_mode)) {
+        if (findOptionId(options, KIND_ALLOW_ONCE)) |id| return id;
+        if (findOptionId(options, KIND_ALLOW_ALWAYS)) |id| return id;
+        return null;
+    }
+    if (findOptionId(options, KIND_REJECT_ALWAYS)) |id| return id;
+    if (findOptionId(options, KIND_REJECT_ONCE)) |id| return id;
+    return null;
+}
+
+/// Access mode already on this sidecar run: `FX_PERMISSION_MODE=` in
+/// the child argv, else `session/set_mode` `modeId` in the stdin batch.
+/// `ask` on either side wins (more restrictive).
+pub fn accessModeFromSidecarRun(argv: []const []const u8, stdin: []const u8) []const u8 {
+    const env_mode = permissionModeFromArgv(argv);
+    const set_mode = sessionModeFromStdin(stdin);
+    if (isAskMode(env_mode) or isAskMode(set_mode)) return "ask";
+    if (env_mode.len > 0) return env_mode;
+    if (set_mode.len > 0) return set_mode;
+    return "";
+}
+
+fn isAskMode(mode: []const u8) bool {
+    return std.mem.eql(u8, mode, "ask") or std.mem.eql(u8, mode, MODE_ASK);
+}
+
+fn permissionModeFromArgv(argv: []const []const u8) []const u8 {
+    const prefix = "FX_PERMISSION_MODE=";
+    for (argv) |arg| {
+        if (std.mem.startsWith(u8, arg, prefix)) return arg[prefix.len..];
+    }
+    return "";
+}
+
+fn sessionModeFromStdin(stdin: []const u8) []const u8 {
+    var line_start: usize = 0;
+    var found: []const u8 = "";
+    while (line_start < stdin.len) {
+        const nl = std.mem.indexOfScalarPos(u8, stdin, line_start, '\n') orelse stdin.len;
+        const parsed = parseLine(stdin[line_start..nl]);
+        line_start = if (nl < stdin.len) nl + 1 else stdin.len;
+        if (parsed.method == .session_set_mode and parsed.mode_id.len > 0) {
+            found = parsed.mode_id;
+        }
+    }
+    return found;
+}
+
+fn findOptionId(options: []const PermissionOption, kind: []const u8) ?[]const u8 {
+    for (options) |opt| {
+        if (opt.option_id.len == 0) continue;
+        if (kindMatches(opt.kind, kind) or kindMatches(opt.option_id, kind)) return opt.option_id;
+    }
+    return null;
+}
+
+/// Official kinds use underscores. Docs optionIds use hyphens.
+fn kindMatches(got: []const u8, kind: []const u8) bool {
+    if (std.mem.eql(u8, got, kind)) return true;
+    if (got.len != kind.len) return false;
+    for (got, kind) |g, k| {
+        const gn: u8 = if (g == '-') '_' else g;
+        if (gn != k) return false;
+    }
+    return true;
+}
+
 /// Drain the success-only queue unless the prompt was cancelled, refused,
 /// or returned a JSON-RPC error.
 pub fn promptSucceeded(parsed: Parsed) bool {
@@ -674,6 +846,35 @@ fn skipJsonContainer(text: []const u8, start: usize) usize {
     return text.len;
 }
 
+/// Immediate array field of one JSON object. Returns the `[` index.
+fn objectArrayField(text: []const u8, start: usize, end: usize, key: []const u8) ?usize {
+    if (start >= end or text[start] != '{') return null;
+    var i = start + 1;
+    while (i < end) {
+        i = skipWs(text, i);
+        if (i >= end or text[i] == '}') break;
+        if (text[i] != '"') {
+            i = skipJsonValue(text, i);
+            continue;
+        }
+        const key_start = i + 1;
+        const after_key = skipJsonString(text, i);
+        if (after_key <= key_start) break;
+        const key_slice = text[key_start .. after_key - 1];
+        i = skipWs(text, after_key);
+        if (i >= end or text[i] != ':') break;
+        i = skipWs(text, i + 1);
+        if (std.mem.eql(u8, key_slice, key)) {
+            if (i < end and text[i] == '[') return i;
+            return null;
+        }
+        i = skipJsonValue(text, i);
+        i = skipWs(text, i);
+        if (i < end and text[i] == ',') i += 1;
+    }
+    return null;
+}
+
 /// Immediate string field of one JSON object. Nested objects/arrays are
 /// skipped so `options[].value` cannot shadow `currentValue`.
 fn objectStringField(text: []const u8, start: usize, end: usize, key: []const u8) ?[]const u8 {
@@ -744,6 +945,62 @@ fn scanAvailableCommands(text: []const u8, dest: []ParsedCommand) ?usize {
         i = obj_end;
     }
     return count;
+}
+
+/// `params.options` on `session/request_permission`. Missing / non-array
+/// is empty. Items without a string `optionId` are skipped. Nested
+/// `toolCall.rawInput.options` is not this array.
+fn scanPermissionOptions(text: []const u8, dest: []PermissionOption) ?usize {
+    const params_at = findKey(text, "params") orelse return null;
+    const at = skipWs(text, params_at);
+    if (at >= text.len or text[at] != '{') return null;
+    const params_end = skipJsonValue(text, at);
+    const options_at = objectArrayField(text, at, params_end, "options") orelse return null;
+    var i = skipWs(text, options_at);
+    if (i >= text.len or text[i] != '[') return null;
+    i += 1;
+    var count: usize = 0;
+    while (i < text.len) {
+        i = skipWs(text, i);
+        if (i >= text.len or text[i] == ']') break;
+        if (text[i] == ',') {
+            i += 1;
+            continue;
+        }
+        if (text[i] != '{') {
+            i = skipJsonValue(text, i);
+            continue;
+        }
+        const obj_end = skipJsonValue(text, i);
+        const close = if (obj_end > i) obj_end - 1 else obj_end;
+        const option_id = objectStringField(text, i, close, "optionId") orelse {
+            i = obj_end;
+            continue;
+        };
+        if (option_id.len == 0) {
+            i = obj_end;
+            continue;
+        }
+        if (count < dest.len) {
+            dest[count] = .{
+                .option_id = option_id,
+                .kind = objectStringField(text, i, close, "kind") orelse "",
+            };
+            count += 1;
+        }
+        i = obj_end;
+    }
+    return count;
+}
+
+/// Raw JSON-RPC `id` token so the reply can echo a number or a string.
+fn rawIdJson(text: []const u8) []const u8 {
+    const at = findKey(text, "id") orelse return "";
+    const start = skipWs(text, at);
+    if (start >= text.len) return "";
+    const end = skipJsonValue(text, start);
+    if (end <= start) return "";
+    return text[start..end];
 }
 
 /// `configOptions` entry whose `id` is `model` and whose `currentValue`
@@ -1209,6 +1466,123 @@ test "ACP parser classifies result, error, update, and stopReason" {
     const cancelled = parseLine("{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"cancelled\"}}");
     try std.testing.expect(isPromptResult(cancelled));
     try std.testing.expect(!promptSucceeded(cancelled));
+}
+
+/// vercel-labs/fx `src/acp/prompt.zig` `writePermissionOption` + e2e.
+const fx_request_permission =
+    "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"session/request_permission\",\"params\":{\"sessionId\":\"sess_abc123def456\",\"toolCall\":{\"toolCallId\":\"call_001\",\"title\":\"Run command\",\"kind\":\"execute\",\"status\":\"pending\"},\"options\":[{\"optionId\":\"allow_once\",\"name\":\"Allow once\",\"kind\":\"allow_once\"},{\"optionId\":\"allow_always\",\"name\":\"Allow for this session\",\"kind\":\"allow_always\"},{\"optionId\":\"reject_once\",\"name\":\"Reject\",\"kind\":\"reject_once\"}]}}";
+
+/// Official ACP v1 docs example (hyphenated optionIds, kinds underscored).
+const docs_request_permission =
+    "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"session/request_permission\",\"params\":{\"sessionId\":\"sess_abc123def456\",\"toolCall\":{\"toolCallId\":\"call_001\"},\"options\":[{\"optionId\":\"allow-once\",\"name\":\"Allow once\",\"kind\":\"allow_once\"},{\"optionId\":\"reject-once\",\"name\":\"Reject\",\"kind\":\"reject_once\"}]}}";
+
+test "permission picker reads fx option ids; ask vs auto/fullAccess differ" {
+    var options: [max_permission_options]PermissionOption = [_]PermissionOption{.{}} ** max_permission_options;
+    const count = scanPermissionOptions(fx_request_permission, options[0..]) orelse return error.MissingOptions;
+    try std.testing.expectEqual(@as(usize, 3), count);
+    try std.testing.expectEqualStrings("allow_once", options[0].option_id);
+    try std.testing.expectEqualStrings(KIND_ALLOW_ONCE, options[0].kind);
+    try std.testing.expectEqualStrings("allow_always", options[1].option_id);
+    try std.testing.expectEqualStrings(KIND_ALLOW_ALWAYS, options[1].kind);
+    try std.testing.expectEqualStrings("reject_once", options[2].option_id);
+    try std.testing.expectEqualStrings(KIND_REJECT_ONCE, options[2].kind);
+
+    try std.testing.expectEqualStrings("reject_once", pickPermissionOptionId("ask", options[0..count]).?);
+    try std.testing.expectEqualStrings("allow_once", pickPermissionOptionId("auto", options[0..count]).?);
+    try std.testing.expectEqualStrings("allow_once", pickPermissionOptionId("fullAccess", options[0..count]).?);
+    try std.testing.expectEqualStrings("allow_once", pickPermissionOptionId("yolo", options[0..count]).?);
+    try std.testing.expectEqualStrings("allow_once", pickPermissionOptionId(MODE_CODE, options[0..count]).?);
+    try std.testing.expect(pickPermissionOptionId("", options[0..count]) != null);
+    try std.testing.expectEqualStrings("reject_once", pickPermissionOptionId("", options[0..count]).?);
+    try std.testing.expectEqualStrings("reject_once", pickPermissionOptionId("nope", options[0..count]).?);
+
+    try std.testing.expect(!permissionAllows("ask"));
+    try std.testing.expect(permissionAllows("auto"));
+    try std.testing.expect(permissionAllows("fullAccess"));
+    try std.testing.expect(permissionAllows(MODE_CODE));
+    try std.testing.expect(!permissionAllows(""));
+
+    var buf: [256]u8 = undefined;
+    const ask_reply = replyForAgentRequest(fx_request_permission, "ask", &buf) orelse return error.MissingAskReply;
+    try std.testing.expect(std.mem.indexOf(u8, ask_reply, "\"id\":5") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ask_reply, "\"outcome\":\"selected\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ask_reply, "\"optionId\":\"reject_once\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ask_reply, "allow_once") == null);
+
+    const auto_reply = replyForAgentRequest(fx_request_permission, "auto", &buf) orelse return error.MissingAutoReply;
+    try std.testing.expect(std.mem.indexOf(u8, auto_reply, "\"optionId\":\"allow_once\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, auto_reply, "reject_once") == null);
+
+    const full_reply = replyForAgentRequest(fx_request_permission, "fullAccess", &buf) orelse return error.MissingFullReply;
+    try std.testing.expect(std.mem.indexOf(u8, full_reply, "\"optionId\":\"allow_once\"") != null);
+
+    const parsed_req = parseLine(fx_request_permission);
+    try std.testing.expect(isRequestPermission(parsed_req));
+    try std.testing.expectEqual(Method.session_request_permission, parsed_req.method);
+    try std.testing.expectEqual(FrameKind.request, parsed_req.kind);
+    try std.testing.expectEqual(@as(?u64, 5), parsed_req.id);
+}
+
+test "permission picker uses docs optionIds, not invented allow" {
+    var options: [max_permission_options]PermissionOption = [_]PermissionOption{.{}} ** max_permission_options;
+    const count = scanPermissionOptions(docs_request_permission, options[0..]) orelse return error.MissingDocsOptions;
+    try std.testing.expectEqual(@as(usize, 2), count);
+    try std.testing.expectEqualStrings("allow-once", options[0].option_id);
+    try std.testing.expectEqualStrings("reject-once", options[1].option_id);
+
+    try std.testing.expectEqualStrings("allow-once", pickPermissionOptionId("auto", options[0..count]).?);
+    try std.testing.expectEqualStrings("reject-once", pickPermissionOptionId("ask", options[0..count]).?);
+
+    var buf: [256]u8 = undefined;
+    const auto_reply = replyForAgentRequest(docs_request_permission, "code", &buf) orelse return error.MissingDocsReply;
+    try std.testing.expect(std.mem.indexOf(u8, auto_reply, "\"optionId\":\"allow-once\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, auto_reply, "\"optionId\":\"allow\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, auto_reply, "allow_once") == null);
+}
+
+test "malformed request_permission does not hang; unknown requests reject" {
+    var buf: [256]u8 = undefined;
+
+    const no_options = "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"session/request_permission\",\"params\":{\"sessionId\":\"s\",\"toolCall\":{\"toolCallId\":\"c\"}}}";
+    const cancelled = replyForAgentRequest(no_options, "auto", &buf) orelse return error.MissingCancel;
+    try std.testing.expect(std.mem.indexOf(u8, cancelled, "\"id\":9") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cancelled, "\"outcome\":\"cancelled\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cancelled, "optionId") == null);
+
+    const empty_options = "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"session/request_permission\",\"params\":{\"options\":[]}}";
+    const empty_reply = replyForAgentRequest(empty_options, "fullAccess", &buf) orelse return error.MissingEmptyCancel;
+    try std.testing.expect(std.mem.indexOf(u8, empty_reply, "\"outcome\":\"cancelled\"") != null);
+
+    const no_id = "{\"jsonrpc\":\"2.0\",\"method\":\"session/request_permission\",\"params\":{\"options\":[{\"optionId\":\"allow_once\",\"kind\":\"allow_once\"}]}}";
+    try std.testing.expect(replyForAgentRequest(no_id, "auto", &buf) == null);
+
+    const not_json = "not-json";
+    try std.testing.expect(replyForAgentRequest(not_json, "auto", &buf) == null);
+
+    const update = "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"x\"}}}}";
+    try std.testing.expect(replyForAgentRequest(update, "auto", &buf) == null);
+
+    const unknown = "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"fs/read_text_file\",\"params\":{\"path\":\"/tmp/x\"}}";
+    const rejected = replyForAgentRequest(unknown, "auto", &buf) orelse return error.MissingReject;
+    try std.testing.expect(std.mem.indexOf(u8, rejected, "\"id\":4") != null);
+    try std.testing.expect(std.mem.indexOf(u8, rejected, "\"code\":-32601") != null);
+    try std.testing.expect(std.mem.indexOf(u8, rejected, "Method not found") != null);
+}
+
+test "sidecar access mode comes from env or set_mode; ask wins" {
+    const argv_ask = [_][]const u8{ "env", "FX_PERMISSION_MODE=ask", "fx", "acp" };
+    const argv_yolo = [_][]const u8{ "env", "FX_PERMISSION_MODE=yolo", "fx", "acp" };
+    const argv_auto = [_][]const u8{ "env", "FX_PERMISSION_MODE=auto", "fx", "acp" };
+    const stdin_ask = "{\"method\":\"session/set_mode\",\"params\":{\"modeId\":\"ask\"}}\n";
+    const stdin_code = "{\"method\":\"session/set_mode\",\"params\":{\"modeId\":\"code\"}}\n";
+
+    try std.testing.expectEqualStrings("ask", accessModeFromSidecarRun(&argv_ask, stdin_code));
+    try std.testing.expectEqualStrings("ask", accessModeFromSidecarRun(&argv_yolo, stdin_ask));
+    try std.testing.expectEqualStrings("yolo", accessModeFromSidecarRun(&argv_yolo, stdin_code));
+    try std.testing.expectEqualStrings("auto", accessModeFromSidecarRun(&argv_auto, ""));
+    try std.testing.expectEqualStrings("code", accessModeFromSidecarRun(&.{}, stdin_code));
+    try std.testing.expectEqualStrings("ask", accessModeFromSidecarRun(&.{}, stdin_ask));
+    try std.testing.expectEqualStrings("", accessModeFromSidecarRun(&.{}, ""));
 }
 
 fn expectMethodsInOrder(stdin: []const u8, expected: []const Method) !void {

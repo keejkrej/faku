@@ -1,18 +1,19 @@
 //! Faku: Native SDK desktop for a Waku-protocol compatible coding-agent shell.
 //!
 //! First-party provider is Vercel `fx` (https://fx.sh). Send on an `.fx`
-//! session runs one-shot `fx acp` when the CLI is installed (NDJSON
-//! stdin: initialize, session/new or session/resume, set model/mode,
-//! session/prompt).
-//! Draft `image_path` still uses `fx ask --image` (ACP rejects image
-//! blocks). When `WAKU_DAEMON_ADDRESS` is set, Send instead spawns a
-//! one-shot `daemon-proxy` sidecar (hello + attachSession + start +
-//! prompt when no runtime id; later sends keep attach + prompt).
+//! session runs one-shot `faku acp-proxy -- … fx acp` when the CLI is
+//! installed (NDJSON stdin: initialize, session/new or session/resume,
+//! set model/mode, session/prompt). The sidecar keeps fx stdin open and
+//! auto-answers `session/request_permission` from that run's access
+//! mode. Draft `image_path` still uses `fx ask --image` (ACP rejects
+//! image blocks). When `WAKU_DAEMON_ADDRESS` is set, Send instead
+//! spawns a one-shot `daemon-proxy` sidecar (hello + attachSession +
+//! start + prompt when no runtime id; later sends keep attach + prompt).
 //! Stop / Esc of that daemon turn `fx.cancel`s the prompt spawn and
 //! one-shots hello + `cancel` on a distinct key. Missing address /
 //! image / ACP stdin overflow keep `fx ask` or the demo timer. This
 //! is not a long-lived ACP or daemon runtime loop — Native stdin is
-//! one buffer, then it closes.
+//! one buffer, then it closes. The ACP sidecar owns the child stdin.
 
 const std = @import("std");
 const runner = @import("runner");
@@ -21,6 +22,7 @@ const protocol = @import("protocol.zig");
 const acp = @import("acp.zig");
 const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
+const acp_proxy = @import("acp_proxy.zig");
 const rewind = @import("rewind.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
@@ -872,7 +874,7 @@ pub const Model = struct {
             return "Message the daemon sidecar. Send is one-shot hello/attachSession/start/prompt over ws://{addr}/v1 when no runtime id; later sends keep attach + prompt. Missing address keeps `fx ask` / demo.";
         }
         if (model.fx_available) {
-            return "Message fx. Send runs one-shot `fx acp` (initialize / session/new|resume / set model|mode / session/prompt). Images still use `fx ask --image`.";
+            return "Message fx. Send runs one-shot `fx acp` via acp-proxy (initialize / session/new|resume / set model|mode / session/prompt). Images still use `fx ask --image`.";
         }
         return "Message fx. Demo replies locally until the fx CLI is found; then Send runs one-shot `fx acp`. Images still use `fx ask --image`.";
     }
@@ -2263,8 +2265,14 @@ fn startFxAcp(model: *Model, fx: *Effects, session: *const Session, prompt: []co
     else
         "";
 
-    var argv_buf: [12][]const u8 = undefined;
+    var argv_buf: [16][]const u8 = undefined;
     var n: usize = 0;
+    argv_buf[n] = model.sidecarPath();
+    n += 1;
+    argv_buf[n] = acp_proxy.SUBCOMMAND;
+    n += 1;
+    argv_buf[n] = "--";
+    n += 1;
     if (model_arg.len > 0 or perm_arg.len > 0) {
         argv_buf[n] = fx_env_bin;
         n += 1;
@@ -2885,6 +2893,7 @@ pub fn initialModel() Model {
 
 pub fn main(init: std.process.Init) !void {
     if (try daemon_proxy.maybeRun(init)) return;
+    if (try acp_proxy.maybeRun(init)) return;
     _ = protocol.FX_ACP_ARGV;
     _ = acp.PROTOCOL_VERSION;
     const app_state = try FakuApp.create(std.heap.page_allocator, .{
@@ -2939,5 +2948,6 @@ test {
     _ = @import("acp.zig");
     _ = @import("store.zig");
     _ = @import("daemon_proxy.zig");
+    _ = @import("acp_proxy.zig");
     _ = @import("rewind.zig");
 }
