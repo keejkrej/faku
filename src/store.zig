@@ -1473,6 +1473,7 @@ test "sidebar collapsed flag and last width reload from document extras" {
 
     var loaded = Model{};
     loaded.setStoreDir(dir);
+    loaded.store_io = io;
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
     try testing.expect(loaded.sidebar_collapsed);
     try testing.expectEqual(@as(u32, 300), loaded.sidebarWidthPixels());
