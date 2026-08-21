@@ -2128,7 +2128,7 @@ test "sidebar collapsed flag reloads and hides the session list" {
     try testing.expectEqual(@as(u32, 320), loaded.sidebarWidthPixels());
     try testing.expectEqual(main.sidebar_rail_width / main.window_width, loaded.sidebar_split);
 
-    var tree = try buildTree(arena, &loaded);
+    const tree = try buildTree(arena, &loaded);
     try testing.expect(findByText(tree.root, .text, "Today") == null);
     try testing.expect(findPressableContaining(tree.root, "Search") == null);
     try testing.expect(findPressableContaining(tree.root, "port waku to zig") == null);
