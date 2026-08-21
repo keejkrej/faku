@@ -18,7 +18,8 @@ Search filters the local `sessions.json` catalog; the sidebar collapse
 control works and is restored; the sidebar chevrons walk session
 selection history; New folder creates a local catalog folder; clicking
 a folder (or the move control) assigns the selected session; folder
-titles are editable; the composer project row sets the selected session cwd; the usage
+titles are editable; deleting a folder unassigns its sessions;
+the composer project row sets the selected session cwd; the usage
 control stays empty unless ACP reports `usage_update`; Rewind
 resets workspace files to the last recorded HEAD and does not
 rewind the chat; headless paths are unchanged.
@@ -189,6 +190,8 @@ Ungrouped sessions stay under Today; a session `folder_id` lists it under
 that folder. Clicking a folder header (or its move control) assigns the
 selected session; clicking Today unassigns it (`folder_id` 0). A second
 click on a folder already holding the selected session edits its title.
+Deleting a folder unassigns its sessions (`folder_id` 0); it does not
+remove them.
 The sidebar settings gear
 opens a panel that edits those persisted defaults. Composer chips are the
 quick session toggle: access cycles `ask` / `auto` / `fullAccess`, Build

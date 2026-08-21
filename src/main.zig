@@ -354,6 +354,7 @@ pub const Msg = union(enum) {
     history_forward,
     new_folder,
     toggle_folder: u32,
+    delete_folder: u32,
     assign_selected: u32,
     unassign_selected,
     assign_folder: AssignFolder,
@@ -475,6 +476,7 @@ pub const Model = struct {
         "folderByIdConst",
         "assignSessionFolder",
         "toggleFolderCollapsed",
+        "deleteFolder",
         "nextUntitledFolderTitle",
         "startFolderTitleEdit",
         "closeFolderTitleEdit",
@@ -1318,6 +1320,24 @@ pub const Model = struct {
         folder.collapsed = !folder.collapsed;
     }
 
+    /// Drop folder F and unassign its sessions (`folder_id` 0 → Today).
+    /// Sessions stay. This is Waku-style group delete, not `removeSession`.
+    pub fn deleteFolder(model: *Model, folder_id: u32) bool {
+        if (model.folderById(folder_id) == null) return false;
+        if (model.editing_folder_id == folder_id) model.closeFolderTitleEdit();
+        for (model.session_store[0..model.session_count]) |*session| {
+            if (session.folder_id == folder_id) session.folder_id = 0;
+        }
+        var kept: u32 = 0;
+        for (model.folder_store[0..model.folder_count]) |folder| {
+            if (folder.id == folder_id) continue;
+            model.folder_store[kept] = folder;
+            kept += 1;
+        }
+        model.folder_count = kept;
+        return true;
+    }
+
     pub fn nextUntitledFolderTitle(model: *const Model, buf: []u8) []const u8 {
         if (!folderTitleTaken(model, "New folder")) return "New folder";
         var n: u32 = 2;
@@ -1667,6 +1687,22 @@ fn persistAssignedFolder(model: *Model, session_id: u32, folder_id: u32, fx: *Ef
     }
 }
 
+fn persistDeletedFolder(model: *Model, folder_id: u32, fx: *Effects) void {
+    if (model.folderById(folder_id) == null) return;
+    var started: [max_sessions]u32 = undefined;
+    var started_n: usize = 0;
+    for (model.session_store[0..model.session_count]) |session| {
+        if (session.folder_id != folder_id or !session.hasStarted()) continue;
+        started[started_n] = session.id;
+        started_n += 1;
+    }
+    if (!model.deleteFolder(folder_id)) return;
+    store.persistFoldersIfPossible(model);
+    for (started[0..started_n]) |session_id| {
+        store.persistIfPossible(model, session_id, fx);
+    }
+}
+
 pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     switch (msg) {
         .new_session => {
@@ -1700,6 +1736,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.toggleFolderCollapsed(folder_id);
             store.persistFoldersIfPossible(model);
         },
+        .delete_folder => |folder_id| persistDeletedFolder(model, folder_id, fx),
         .assign_selected => |folder_id| {
             if (model.editing_folder_id == folder_id) return;
             if (model.editing_folder_id != 0) model.closeFolderTitleEdit();

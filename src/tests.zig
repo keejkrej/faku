@@ -3688,6 +3688,121 @@ test "second click on a folder title edits it; empty name becomes New folder" {
     _ = try expectButton(tree.root, "Collapse folder");
 }
 
+test "deleting a folder unassigns its sessions; they stay in Today" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-folder-delete", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+    try store.saveSession(&model, model.session_store[1].id, testing.allocator, testing.io);
+
+    var tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectButton(tree.root, "New folder")).id, .up).?, &fx);
+    const folder_id = model.folder_store[0].id;
+    const auth_id = model.session_store[1].id;
+    const port_id = model.session_store[0].id;
+
+    tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectButton(tree.root, "fix auth listener")).id, .up).?, &fx);
+    try testing.expectEqual(auth_id, model.selected);
+
+    tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectByText(tree.root, .list_item, "New folder")).id, .up).?, &fx);
+    try testing.expectEqual(folder_id, model.session_store[1].folder_id);
+    try testing.expectEqual(@as(u32, 0), model.session_store[0].folder_id);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "Collapse folder");
+    const trash = try expectButton(tree.root, "Delete folder");
+    try testing.expect(trash.id != (try expectByText(tree.root, .list_item, "New folder")).id);
+    try testing.expect(trash.id != (try expectButton(tree.root, "Collapse folder")).id);
+    main.update(&model, tree.msgForPointer(trash.id, .up).?, &fx);
+
+    try testing.expectEqual(@as(u32, 0), model.folder_count);
+    try testing.expectEqual(@as(u32, 0), model.session_store[1].folder_id);
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    try testing.expectEqual(auth_id, model.session_store[1].id);
+    try testing.expectEqual(port_id, model.session_store[0].id);
+    try testing.expectEqual(auth_id, model.selected);
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "port waku to zig",
+        "fix auth listener",
+    });
+    try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .list_item, "New folder") == null);
+    try testing.expect(findPressableContaining(tree.root, "Delete folder") == null);
+    try testing.expect(findPressableContaining(tree.root, "Collapse folder") == null);
+    _ = try expectButton(tree.root, "port waku to zig");
+    _ = try expectButton(tree.root, "fix auth listener");
+    _ = try expectByText(tree.root, .text, "Today");
+    _ = try expectButton(tree.root, "New folder");
+    _ = try expectButton(tree.root, "Close");
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 0), loaded.folder_count);
+    try testing.expectEqual(@as(u32, 2), loaded.session_count);
+    try testing.expectEqual(@as(u32, 0), loaded.session_store[0].folder_id);
+    try testing.expectEqual(@as(u32, 0), loaded.session_store[1].folder_id);
+    try expectSidebarTitles(loaded.sidebar_rows(arena), &.{
+        "port waku to zig",
+        "fix auth listener",
+    });
+
+    tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectButton(tree.root, "New folder")).id, .up).?, &fx);
+    const next_id = model.folder_store[0].id;
+    try testing.expect(next_id != folder_id);
+    try testing.expectEqual(@as(u32, 1), model.folder_count);
+
+    tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectByText(tree.root, .list_item, "New folder")).id, .up).?, &fx);
+    try testing.expectEqual(next_id, model.session_store[1].folder_id);
+    try testing.expectEqual(@as(u32, 0), model.editing_folder_id);
+
+    tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectByText(tree.root, .list_item, "New folder")).id, .up).?, &fx);
+    try testing.expectEqual(next_id, model.editing_folder_id);
+    main.update(&model, .{ .folder_title_edit = .clear }, &fx);
+    main.update(&model, .{ .folder_title_edit = .{ .insert_text = "Work" } }, &fx);
+    try testing.expectEqualStrings("Work", model.folder_store[0].title());
+    main.update(&model, .stop, &fx);
+    try testing.expectEqual(@as(u32, 0), model.editing_folder_id);
+
+    tree = try buildTree(arena, &model);
+    const collapse = try expectButton(tree.root, "Collapse folder");
+    _ = try expectButton(tree.root, "Delete folder");
+    main.update(&model, tree.msgForPointer(collapse.id, .up).?, &fx);
+    try testing.expect(model.folder_store[0].collapsed);
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "port waku to zig",
+        "Work",
+    });
+    tree = try buildTree(arena, &model);
+    try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
+    _ = try expectByText(tree.root, .list_item, "Work");
+    _ = try expectButton(tree.root, "Collapse folder");
+    _ = try expectButton(tree.root, "Delete folder");
+    _ = try expectButton(tree.root, "Close");
+}
+
 test "header Close requests the real window close; Esc stays with settings" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
