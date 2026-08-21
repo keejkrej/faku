@@ -147,10 +147,10 @@
             <input-group label="Message composer" height="88">
               <textarea placeholder="{composer_placeholder}" text="{draft}" submit-on-enter="true" on-input="draft_edit" on-submit="send" />
               <input-group-actions>
-                <button variant="ghost" size="sm" icon="circle-dot">GPT-5.6-Sol</button>
+                <button variant="ghost" size="sm" icon="circle-dot" on-press="cycle_model">{model_label}</button>
                 <button variant="ghost" size="sm" icon="menu">Medium</button>
-                <button variant="ghost" size="sm" icon="eye">Full access</button>
-                <button variant="ghost" size="sm" icon="wrench">Build</button>
+                <button variant="ghost" size="sm" icon="eye" on-press="cycle_access">{access_label}</button>
+                <button variant="ghost" size="sm" icon="wrench" on-press="cycle_interaction">{interaction_label}</button>
                 <spacer grow="1" />
                 <button variant="primary" size="icon" icon="arrow-up" label="{send_label}" on-press="send" width="26" height="26" radius="xl"></button>
               </input-group-actions>
