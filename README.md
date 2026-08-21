@@ -76,6 +76,8 @@ turn. `agent_thought_chunk` text shows as a muted reasoning turn.
 `current_mode_update` (`ask` → ask / Ask, `code` → fullAccess / Full access).
 The model chip follows ACP `config_option_update` (`configOptions` id
 `model` `currentValue`; empty stays `FX_MODEL`).
+ACP `available_commands_update` stores command names (and descriptions)
+on the session; there is no command palette and slash commands are not executed.
 The `session/prompt` result `stopReason`
 settles the turn and drains the success-only queue (`cancelled` /
 `refusal` / JSON-RPC error do not drain). This is **not** a long-lived
@@ -188,7 +190,8 @@ Path (Native `app_dirs` data directory, app name `faku`):
 
 Boot: if that file loads, the sidebar is session skeletons only (id, title,
 provider, untitled/has_started, project_path, fx_session_id, runtime_id, model,
-access_mode, interaction_mode, folder_id, context_used, context_size) — no demo rows and no transcripts. The document also stores
+access_mode, interaction_mode, folder_id, context_used, context_size,
+available_commands) — no demo rows and no transcripts. The document also stores
 `last_project_path`, `last_model`, `last_access_mode`,
 `last_interaction_mode`, `last_daemon_address`, `sidebar_collapsed`,
 `sidebar_width`, `folders`, and `collapsed_folder_ids` so a new session can inherit the last workspace and last

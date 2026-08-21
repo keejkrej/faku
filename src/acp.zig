@@ -82,6 +82,18 @@ pub const SESSION_UPDATE_CURRENT_MODE = "current_mode_update";
 /// `options` catalog is not stored. vercel-labs/fx `src/acp/types.zig`
 /// and fx.sh ACP docs do not emit this today.
 pub const SESSION_UPDATE_CONFIG_OPTION = "config_option_update";
+/// Official ACP v1 `session/update` when slash commands change
+/// (https://agentclientprotocol.com/protocol/v1/schema `AvailableCommandsUpdate`,
+/// https://agentclientprotocol.com/protocol/v1/slash-commands).
+/// Wire field is `availableCommands` (array of `AvailableCommand`:
+/// required `name`, usually `description`, optional `input`/`hint`).
+/// This cut stores name + description on the session (replace, not
+/// append). `input` is ignored. No palette and no slash execution.
+/// vercel-labs/fx `writeAvailableCommandsUpdate` emits this after
+/// `session/new` (e2e expects `compact`).
+pub const SESSION_UPDATE_AVAILABLE_COMMANDS = "available_commands_update";
+/// Cap matches the session store. Extra wire items are dropped.
+pub const max_available_commands: usize = 32;
 pub const STOP_END_TURN = "end_turn";
 pub const STOP_CANCELLED = "cancelled";
 pub const STOP_REFUSAL = "refusal";
@@ -146,11 +158,22 @@ pub const Parsed = struct {
     /// True when `config_option_update` carried a string `currentValue`
     /// on the `id: "model"` option (empty string is still a value).
     has_config_model: bool = false,
+    /// True when `available_commands_update` carried an `availableCommands`
+    /// array (empty is a real replace/clear). Missing or non-array is ignore.
+    has_available_commands: bool = false,
+    available_commands: [max_available_commands]ParsedCommand = [_]ParsedCommand{.{}} ** max_available_commands,
+    available_command_count: usize = 0,
     /// ACP `usage_update` token counts. Null unless that key is a number.
     used: ?u64 = null,
     size: ?u64 = null,
     has_error: bool = false,
     has_result: bool = false,
+};
+
+/// One ACP `AvailableCommand`. Slices alias the parsed line.
+pub const ParsedCommand = struct {
+    name: []const u8 = "",
+    description: []const u8 = "",
 };
 
 /// Confirmed ACP `usage_update` fields (`used` + `size`). Both required.
@@ -496,6 +519,16 @@ pub fn configOptionModel(parsed: Parsed) ?[]const u8 {
     return parsed.config_value;
 }
 
+/// Official ACP v1 `available_commands_update`. Empty array is a
+/// clear. Missing / non-array `availableCommands` is ignored.
+/// Nameless items are skipped (`x-deserialize-skip-invalid-items`).
+pub fn availableCommandsUpdate(parsed: Parsed) ?[]const ParsedCommand {
+    if (parsed.method != .session_update) return null;
+    if (!std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_AVAILABLE_COMMANDS)) return null;
+    if (!parsed.has_available_commands) return null;
+    return parsed.available_commands[0..parsed.available_command_count];
+}
+
 /// ACP v1 `usage_update`: `used` and `size` are required token counts.
 /// Missing either, or `size == 0`, is not a usable update.
 pub fn usageUpdate(parsed: Parsed) ?UsageUpdate {
@@ -671,6 +704,48 @@ fn objectStringField(text: []const u8, start: usize, end: usize, key: []const u8
     return null;
 }
 
+/// `availableCommands` array. Missing key or non-array is ignore.
+/// Items without a string `name` are skipped. `description` is optional.
+/// Nested `input.hint` is not stored.
+fn scanAvailableCommands(text: []const u8, dest: []ParsedCommand) ?usize {
+    const at = findKey(text, "availableCommands") orelse return null;
+    var i = skipWs(text, at);
+    if (i >= text.len or text[i] != '[') return null;
+    i += 1;
+    var count: usize = 0;
+    while (i < text.len) {
+        i = skipWs(text, i);
+        if (i >= text.len or text[i] == ']') break;
+        if (text[i] == ',') {
+            i += 1;
+            continue;
+        }
+        if (text[i] != '{') {
+            i = skipJsonValue(text, i);
+            continue;
+        }
+        const obj_end = skipJsonValue(text, i);
+        const close = if (obj_end > i) obj_end - 1 else obj_end;
+        const name = objectStringField(text, i, close, "name") orelse {
+            i = obj_end;
+            continue;
+        };
+        if (name.len == 0) {
+            i = obj_end;
+            continue;
+        }
+        if (count < dest.len) {
+            dest[count] = .{
+                .name = name,
+                .description = objectStringField(text, i, close, "description") orelse "",
+            };
+            count += 1;
+        }
+        i = obj_end;
+    }
+    return count;
+}
+
 /// `configOptions` entry whose `id` is `model` and whose `currentValue`
 /// is a string. Other options, boolean values, and missing fields drop.
 fn scanConfigOptionModel(text: []const u8) ?[]const u8 {
@@ -706,8 +781,9 @@ fn scanConfigOptionModel(text: []const u8) ?[]const u8 {
 /// Parse one NDJSON JSON-RPC line. Slices alias `line` and die with it.
 /// Field scanner — classifies the methods above and pulls `id`,
 /// `sessionId`, `sessionUpdate`, `text`, `toolCallId`, `title`, `kind`,
-/// `status`, `stopReason`, `currentModeId` / `modeId`, and
-/// `config_option_update` `configOptions` `id: "model"` `currentValue`.
+/// `status`, `stopReason`, `currentModeId` / `modeId`,
+/// `config_option_update` `configOptions` `id: "model"` `currentValue`,
+/// and `available_commands_update` `availableCommands` name/description.
 pub fn parseLine(line: []const u8) Parsed {
     var parsed = Parsed{};
     const trimmed = std.mem.trim(u8, line, " \t\r\n");
@@ -779,6 +855,13 @@ pub fn parseLine(line: []const u8) Parsed {
             parsed.config_id = CONFIG_ID_MODEL;
             parsed.config_value = value;
             parsed.has_config_model = true;
+        }
+    }
+
+    if (std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_AVAILABLE_COMMANDS)) {
+        if (scanAvailableCommands(trimmed, parsed.available_commands[0..])) |count| {
+            parsed.has_available_commands = true;
+            parsed.available_command_count = count;
         }
     }
 
@@ -988,6 +1071,7 @@ test "ACP parser classifies result, error, update, and stopReason" {
     try std.testing.expect(usageUpdate(thought) == null);
     try std.testing.expect(currentModeUpdate(thought) == null);
     try std.testing.expect(configOptionModel(thought) == null);
+    try std.testing.expect(availableCommandsUpdate(thought) == null);
 
     const mode_ask = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"sess-1\",\"update\":{\"sessionUpdate\":\"current_mode_update\",\"currentModeId\":\"ask\"}}}");
     try std.testing.expectEqual(Method.session_update, mode_ask.method);
@@ -1024,6 +1108,7 @@ test "ACP parser classifies result, error, update, and stopReason" {
     try std.testing.expect(currentModeUpdate(config_model) == null);
     try std.testing.expect(toolUpdate(config_model) == null);
     try std.testing.expect(usageUpdate(config_model) == null);
+    try std.testing.expect(availableCommandsUpdate(config_model) == null);
 
     const config_empty = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"config_option_update\",\"configOptions\":[{\"id\":\"model\",\"name\":\"Model\",\"type\":\"select\",\"currentValue\":\"\",\"options\":[]}]}}}");
     try std.testing.expectEqualStrings("", configOptionModel(config_empty).?);
@@ -1040,6 +1125,35 @@ test "ACP parser classifies result, error, update, and stopReason" {
 
     const config_missing_options = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"config_option_update\"}}}");
     try std.testing.expect(configOptionModel(config_missing_options) == null);
+
+    const commands = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"sess-1\",\"update\":{\"sessionUpdate\":\"available_commands_update\",\"availableCommands\":[{\"name\":\"web\",\"description\":\"Search the web for information\",\"input\":{\"hint\":\"query to search for\"}},{\"name\":\"test\",\"description\":\"Run tests for the current project\"},{\"name\":\"compact\"},{\"description\":\"nameless is skipped\"}]}}}");
+    try std.testing.expectEqual(Method.session_update, commands.method);
+    try std.testing.expectEqualStrings(SESSION_UPDATE_AVAILABLE_COMMANDS, commands.session_update);
+    const command_list = availableCommandsUpdate(commands) orelse return error.MissingCommands;
+    try std.testing.expectEqual(@as(usize, 3), command_list.len);
+    try std.testing.expectEqualStrings("web", command_list[0].name);
+    try std.testing.expectEqualStrings("Search the web for information", command_list[0].description);
+    try std.testing.expectEqualStrings("test", command_list[1].name);
+    try std.testing.expectEqualStrings("Run tests for the current project", command_list[1].description);
+    try std.testing.expectEqualStrings("compact", command_list[2].name);
+    try std.testing.expectEqualStrings("", command_list[2].description);
+    try std.testing.expect(!isAgentMessageText(commands));
+    try std.testing.expect(!isAgentThoughtText(commands));
+    try std.testing.expect(currentModeUpdate(commands) == null);
+    try std.testing.expect(configOptionModel(commands) == null);
+    try std.testing.expect(toolUpdate(commands) == null);
+    try std.testing.expect(usageUpdate(commands) == null);
+
+    const commands_empty = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"available_commands_update\",\"availableCommands\":[]}}}");
+    const empty_list = availableCommandsUpdate(commands_empty) orelse return error.MissingEmptyCommands;
+    try std.testing.expectEqual(@as(usize, 0), empty_list.len);
+
+    const commands_missing = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"available_commands_update\"}}}");
+    try std.testing.expectEqualStrings(SESSION_UPDATE_AVAILABLE_COMMANDS, commands_missing.session_update);
+    try std.testing.expect(availableCommandsUpdate(commands_missing) == null);
+
+    const commands_object = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"available_commands_update\",\"availableCommands\":{\"name\":\"web\"}}}}");
+    try std.testing.expect(availableCommandsUpdate(commands_object) == null);
 
     const user = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"user_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"ignore\"}}}}");
     try std.testing.expect(!isAgentMessageText(user));

@@ -8,7 +8,7 @@
 //! One JSON document `sessions.json`. Catalog load copies only session
 //! skeletons (id, title, provider, untitled, has_started, project_path,
 //! fx_session_id, runtime_id, model, access_mode, interaction_mode, folder_id, rewind_refs,
-//! context_used, context_size) — no transcripts. Selecting
+//! context_used, context_size, available_commands) — no transcripts. Selecting
 //! a session hydrates its turns,
 //! `queued_messages`, `rewind_refs`, and last-known context usage. Document extras also keep
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
@@ -780,6 +780,12 @@ const StoredSession = struct {
     folder_id: u32 = 0,
     context_used: u64 = 0,
     context_size: u64 = 0,
+    available_commands: []StoredCommand = &.{},
+};
+
+const StoredCommand = struct {
+    name: []const u8,
+    description: []const u8 = "",
 };
 
 const StoredFolder = struct {
@@ -876,6 +882,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
         model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode, stored.runtime_id, stored.interaction_mode, stored.folder_id);
         applyRewindRefs(model, stored.id, stored.rewind_refs);
         applyContextUsage(model, stored.id, stored.context_used, stored.context_size);
+        applyAvailableCommands(model, stored.id, stored.available_commands);
     }
     if (model.sessionById(document.selected) != null) {
         model.selected = document.selected;
@@ -899,6 +906,7 @@ fn applyDetail(model: *Model, allocator: std.mem.Allocator, bytes: []const u8, s
     }
     applyRewindRefs(model, session_id, stored.rewind_refs);
     applyContextUsage(model, session_id, stored.context_used, stored.context_size);
+    applyAvailableCommands(model, session_id, stored.available_commands);
 }
 
 fn findStored(document: Document, id: u32) ?*StoredSession {
@@ -926,6 +934,7 @@ fn upsertSession(document: *Document, arena: std.mem.Allocator, model: *const Mo
         existing.rewind_refs = incoming.rewind_refs;
         existing.context_used = incoming.context_used;
         existing.context_size = incoming.context_size;
+        existing.available_commands = incoming.available_commands;
         if (live.detail_loaded) {
             existing.turns = incoming.turns;
             existing.queued_messages = incoming.queued_messages;
@@ -983,6 +992,7 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
         .folder_id = session.folder_id,
         .context_used = session.context_used,
         .context_size = session.context_size,
+        .available_commands = try snapshotAvailableCommands(arena, session),
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
         .rewind_refs = try snapshotRewindRefs(arena, session),
@@ -1013,6 +1023,26 @@ fn applyRewindRefs(model: *Model, session_id: u32, refs: []const StoredRewind) v
 fn applyContextUsage(model: *Model, session_id: u32, used: u64, size: u64) void {
     const session = model.sessionById(session_id) orelse return;
     session.setContextUsage(used, size);
+}
+
+fn snapshotAvailableCommands(arena: std.mem.Allocator, session: *const main.Session) ![]StoredCommand {
+    const live = session.availableCommands();
+    const out = try arena.alloc(StoredCommand, live.len);
+    for (live, 0..) |item, i| {
+        out[i] = .{
+            .name = try arena.dupe(u8, item.name()),
+            .description = try arena.dupe(u8, item.description()),
+        };
+    }
+    return out;
+}
+
+fn applyAvailableCommands(model: *Model, session_id: u32, commands: []const StoredCommand) void {
+    const session = model.sessionById(session_id) orelse return;
+    session.clearAvailableCommands();
+    for (commands) |item| {
+        session.appendAvailableCommand(item.name, item.description);
+    }
 }
 
 fn readDocument(arena: std.mem.Allocator, io: std.Io, dir: []const u8) !Document {
@@ -1114,6 +1144,7 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         .folder_id = jsonUint(obj.get("folder_id")) orelse 0,
         .context_used = jsonU64(obj.get("context_used")) orelse 0,
         .context_size = jsonU64(obj.get("context_size")) orelse 0,
+        .available_commands = try parseAvailableCommands(arena, obj.get("available_commands")),
     };
 }
 
@@ -1159,6 +1190,34 @@ fn folderIdCollapsed(ids: []const u32, folder_id: u32) bool {
         if (id == folder_id) return true;
     }
     return false;
+}
+
+fn parseAvailableCommands(arena: std.mem.Allocator, value: ?std.json.Value) ![]StoredCommand {
+    const commands_val = value orelse return &.{};
+    const commands_arr = switch (commands_val) {
+        .array => |a| a,
+        else => return error.Corrupt,
+    };
+    var commands: std.ArrayList(StoredCommand) = .empty;
+    for (commands_arr.items) |item| {
+        const parsed = parseAvailableCommand(item) catch continue;
+        if (parsed.name.len == 0) continue;
+        try commands.append(arena, parsed);
+        if (commands.items.len >= main.max_available_commands) break;
+    }
+    return commands.toOwnedSlice(arena);
+}
+
+fn parseAvailableCommand(value: std.json.Value) !StoredCommand {
+    const obj = switch (value) {
+        .object => |o| o,
+        else => return error.Corrupt,
+    };
+    const name = jsonString(obj.get("name")) orelse return error.Corrupt;
+    return .{
+        .name = name,
+        .description = jsonString(obj.get("description")) orelse "",
+    };
 }
 
 fn parseRewindRefs(arena: std.mem.Allocator, value: ?std.json.Value) ![]StoredRewind {
@@ -1357,7 +1416,16 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
     try appendU64(out, allocator, session.context_used);
     try out.appendSlice(allocator, ",\"context_size\":");
     try appendU64(out, allocator, session.context_size);
-    try out.appendSlice(allocator, ",\"turns\":[");
+    try out.appendSlice(allocator, ",\"available_commands\":[");
+    for (session.available_commands, 0..) |item, i| {
+        if (i != 0) try out.append(allocator, ',');
+        try out.appendSlice(allocator, "{\"name\":");
+        try appendJsonString(out, allocator, item.name);
+        try out.appendSlice(allocator, ",\"description\":");
+        try appendJsonString(out, allocator, item.description);
+        try out.append(allocator, '}');
+    }
+    try out.appendSlice(allocator, "],\"turns\":[");
     for (session.turns, 0..) |turn, i| {
         if (i != 0) try out.append(allocator, ',');
         try out.appendSlice(allocator, "{\"id\":");
@@ -1596,6 +1664,61 @@ test "session context usage persists and hydrates" {
     try testing.expectEqual(@as(u64, 53000), loaded.session_store[0].context_used);
     try testing.expectEqual(@as(u64, 200000), loaded.session_store[0].context_size);
     try testing.expectApproxEqAbs(@as(f32, 0.265), loaded.context_usage(), 0.0001);
+}
+
+test "session available_commands persist, replace, and hydrate; empty clears" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("commands thread", .fx);
+    if (source.sessionById(id)) |session| {
+        session.appendAvailableCommand("web", "Search the web for information");
+        session.appendAvailableCommand("compact", "");
+    }
+    _ = source.appendTurn(id, .user, "remember commands");
+    try saveSession(&source, id, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqual(@as(usize, 2), loaded.session_store[0].availableCommands().len);
+    try testing.expectEqualStrings("web", loaded.session_store[0].availableCommands()[0].name());
+    try testing.expectEqualStrings("Search the web for information", loaded.session_store[0].availableCommands()[0].description());
+    try testing.expectEqualStrings("compact", loaded.session_store[0].availableCommands()[1].name());
+    try testing.expectEqualStrings("", loaded.session_store[0].availableCommands()[1].description());
+
+    hydrateSession(&loaded, loaded.session_store[0].id, allocator, io);
+    try testing.expectEqual(@as(usize, 2), loaded.session_store[0].availableCommands().len);
+    try testing.expectEqualStrings("web", loaded.session_store[0].availableCommands()[0].name());
+
+    if (loaded.sessionById(loaded.session_store[0].id)) |session| {
+        session.clearAvailableCommands();
+        session.appendAvailableCommand("plan", "Create a detailed implementation plan");
+    }
+    try saveSession(&loaded, loaded.session_store[0].id, allocator, io);
+
+    var replaced = Model{};
+    replaced.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&replaced, allocator, io));
+    try testing.expectEqual(@as(usize, 1), replaced.session_store[0].availableCommands().len);
+    try testing.expectEqualStrings("plan", replaced.session_store[0].availableCommands()[0].name());
+
+    if (replaced.sessionById(replaced.session_store[0].id)) |session| session.clearAvailableCommands();
+    try saveSession(&replaced, replaced.session_store[0].id, allocator, io);
+
+    var cleared = Model{};
+    cleared.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&cleared, allocator, io));
+    try testing.expectEqual(@as(usize, 0), cleared.session_store[0].availableCommands().len);
 }
 
 test "session fx_session_id persists and loads" {
