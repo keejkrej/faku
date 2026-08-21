@@ -13,7 +13,8 @@ This app replaces the GPUI window with Vercel Native SDK markup plus a Zig
 Model / Msg / update loop. waku-daemon can stay the brain. Faku is the window,
 and it is fx-first. Desktop chrome matches the stopped Waku-parity cut
 (chromeless 48px header, measured sidebar, composer send circle); sidebar
-Search filters the local `sessions.json` catalog; headless paths are unchanged.
+Search filters the local `sessions.json` catalog; the sidebar collapse
+control works and is restored; headless paths are unchanged.
 
 ## Why fx
 
@@ -169,10 +170,11 @@ Path (Native `app_dirs` data directory, app name `faku`):
 Boot: if that file loads, the sidebar is session skeletons only (id, title,
 provider, untitled/has_started, project_path, fx_session_id, runtime_id, model,
 access_mode) — no demo rows and no transcripts. The document also stores
-`last_project_path`, `last_model`, `last_access_mode`, and
-`last_daemon_address` so a new session can inherit the last workspace
-and last model/access, and a later send can reuse the last sidecar
-address. There is no daemon picker.
+`last_project_path`, `last_model`, `last_access_mode`,
+`last_daemon_address`, `sidebar_collapsed`, and `sidebar_width` so a
+new session can inherit the last workspace and last model/access, a
+later send can reuse the last sidecar address, and the sidebar collapse
+control is restored. There is no daemon picker.
 Selecting a session hydrates its turns and `queued_messages` from the same
 file. Daemon `hydrateSession` runs only when that local transcript is empty.
 Composer drafts are a sibling `drafts.json` (not mixed into the

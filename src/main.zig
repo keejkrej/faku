@@ -30,9 +30,10 @@ pub const window_width: f32 = 1380;
 pub const window_height: f32 = 880;
 pub const window_min_width: f32 = 560;
 pub const window_min_height: f32 = 480;
-const sidebar_default_width: f32 = 252;
-const sidebar_min_width: f32 = 180;
-const sidebar_max_width: f32 = 420;
+pub const sidebar_default_width: f32 = 252;
+pub const sidebar_min_width: f32 = 180;
+pub const sidebar_max_width: f32 = 420;
+pub const sidebar_rail_width: f32 = 48;
 const default_sidebar_split: f32 = sidebar_default_width / window_width;
 
 const max_sessions = 16;
@@ -252,6 +253,7 @@ pub const Msg = union(enum) {
     send,
     stop,
     clear_queue,
+    toggle_sidebar,
     sidebar_resized: f32,
     transcript_scrolled: canvas.ScrollState,
     tick: native_sdk.EffectTimer,
@@ -282,6 +284,8 @@ pub const Model = struct {
     queued_count: u32 = 0,
     next_queued_id: u32 = 1,
     sidebar_split: f32 = default_sidebar_split,
+    sidebar_collapsed: bool = false,
+    sidebar_last_width: f32 = sidebar_default_width,
     transcript_scroll: f32 = 0,
     fx_available: bool = false,
     fx_path_storage: [max_fx_path]u8 = [_]u8{0} ** max_fx_path,
@@ -354,6 +358,12 @@ pub const Model = struct {
         "queued_store",
         "queued_count",
         "next_queued_id",
+        "sidebar_collapsed",
+        "sidebar_last_width",
+        "sidebarWidthPixels",
+        "applySidebarWidth",
+        "syncSidebarSplit",
+        "toggleSidebar",
         "is_streaming",
         "fx_available",
         "fx_path_storage",
@@ -564,6 +574,46 @@ pub const Model = struct {
 
     pub fn send_label(model: *const Model) []const u8 {
         return if (model.is_streaming()) "Stop" else "Send";
+    }
+
+    pub fn sidebar_expanded(model: *const Model) bool {
+        return !model.sidebar_collapsed;
+    }
+
+    pub fn sidebar_pane_min(model: *const Model) f32 {
+        return if (model.sidebar_collapsed) sidebar_rail_width else sidebar_min_width;
+    }
+
+    pub fn sidebar_toggle_label(model: *const Model) []const u8 {
+        return if (model.sidebar_collapsed) "Expand sidebar" else "Collapse sidebar";
+    }
+
+    pub fn sidebarWidthPixels(model: *const Model) u32 {
+        return @intFromFloat(@round(clampSidebarWidth(model.sidebar_last_width)));
+    }
+
+    pub fn applySidebarWidth(model: *Model, width: u32) void {
+        if (width == 0) return;
+        model.sidebar_last_width = clampSidebarWidth(@floatFromInt(width));
+    }
+
+    pub fn syncSidebarSplit(model: *Model) void {
+        if (model.sidebar_collapsed) {
+            model.sidebar_split = collapsedSidebarSplit();
+            return;
+        }
+        const width = if (model.sidebar_last_width > 0) model.sidebar_last_width else sidebar_default_width;
+        model.sidebar_split = clampExpandedSidebarSplit(width / window_width);
+    }
+
+    pub fn toggleSidebar(model: *Model) void {
+        if (model.sidebar_collapsed) {
+            model.sidebar_collapsed = false;
+        } else {
+            rememberExpandedWidth(model);
+            model.sidebar_collapsed = true;
+        }
+        model.syncSidebarSplit();
     }
 
     pub fn fxPath(model: *const Model) []const u8 {
@@ -966,10 +1016,37 @@ fn asciiEqlIgnoreCase(left: []const u8, right: []const u8) bool {
     return true;
 }
 
-fn clampSidebarSplit(value: f32) f32 {
+fn clampSidebarWidth(width: f32) f32 {
+    const raw = if (width > 0) width else sidebar_default_width;
+    return @max(sidebar_min_width, @min(sidebar_max_width, raw));
+}
+
+fn collapsedSidebarSplit() f32 {
+    return sidebar_rail_width / window_width;
+}
+
+fn clampExpandedSidebarSplit(value: f32) f32 {
     const min_split = sidebar_min_width / window_width;
     const max_split = sidebar_max_width / window_width;
     return @max(min_split, @min(max_split, value));
+}
+
+fn rememberExpandedWidth(model: *Model) void {
+    if (model.sidebar_collapsed) return;
+    model.sidebar_last_width = clampSidebarWidth(model.sidebar_split * window_width);
+}
+
+fn applySidebarResize(model: *Model, fraction: f32) void {
+    const width = fraction * window_width;
+    if (model.sidebar_collapsed) {
+        if (width < sidebar_min_width) return;
+        model.sidebar_collapsed = false;
+        model.sidebar_last_width = clampSidebarWidth(width);
+        model.syncSidebarSplit();
+        return;
+    }
+    model.sidebar_split = clampExpandedSidebarSplit(fraction);
+    model.sidebar_last_width = clampSidebarWidth(model.sidebar_split * window_width);
 }
 
 fn directoryExists(io: std.Io, path: []const u8) bool {
@@ -1040,7 +1117,14 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.dropQueuedForSession(model.selected);
             store.persistIfPossible(model, model.selected, fx);
         },
-        .sidebar_resized => |fraction| model.sidebar_split = clampSidebarSplit(fraction),
+        .toggle_sidebar => {
+            model.toggleSidebar();
+            store.persistLayoutIfPossible(model);
+        },
+        .sidebar_resized => |fraction| {
+            applySidebarResize(model, fraction);
+            store.persistLayoutIfPossible(model);
+        },
         .transcript_scrolled => |scroll| model.transcript_scroll = scroll.offset_y,
         .tick => |timer| {
             if (timer.outcome != .fired) return;

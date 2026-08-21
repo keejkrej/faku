@@ -9,7 +9,9 @@
 //! skeletons (id, title, provider, untitled, has_started, project_path,
 //! fx_session_id, runtime_id, model, access_mode, rewind_refs) — no transcripts. Selecting
 //! a session hydrates its turns,
-//! `queued_messages`, and `rewind_refs`. Save is merge-only (never deletes).
+//! `queued_messages`, and `rewind_refs`. Document extras also keep
+//! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail.
+//! Save is merge-only (never deletes).
 //! `removeSession` is the only delete. Refuses to write until a successful
 //! load (`task_state_loaded`), same guard as waku-client. After a successful
 //! started-session save, a one-shot sidecar may send `saveTaskState` when
@@ -221,6 +223,7 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.last_model = lastModelForSave(model, session);
     document.last_access_mode = lastAccessModeForSave(model, session);
     document.last_daemon_address = lastDaemonAddressForSave(model);
+    applySidebarExtras(&document, model);
     try writeDocument(allocator, io, dir, document);
 }
 
@@ -254,6 +257,7 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     document.last_model = model.lastModel();
     document.last_access_mode = model.lastAccessMode();
     document.last_daemon_address = lastDaemonAddressForSave(model);
+    applySidebarExtras(&document, model);
     try writeDocument(allocator, io, dir, document);
     model.dropSession(session_id);
 }
@@ -280,6 +284,35 @@ pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void
     const io = model.store_io orelse return;
     saveSession(model, session_id, std.heap.page_allocator, io) catch return;
     mirrorSaveTaskStateIfPossible(model, session_id, fx);
+}
+
+/// Merge-only write of sidebar extras. Does not create `sessions.json` and
+/// does not spawn a daemon sidecar. Missing / corrupt catalogs are a no-op.
+pub fn persistLayoutIfPossible(model: *const Model) void {
+    const io = model.store_io orelse return;
+    saveLayout(model, std.heap.page_allocator, io) catch {};
+}
+
+fn saveLayout(model: *const Model, allocator: std.mem.Allocator, io: std.Io) !void {
+    if (!model.task_state_loaded) return error.TaskStateNotLoaded;
+    const dir = model.storeDir();
+    if (dir.len == 0) return error.NoStoreDir;
+
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var document = readDocument(arena, io, dir) catch |err| switch (err) {
+        error.FileNotFound => return,
+        else => return error.Corrupt,
+    };
+    applySidebarExtras(&document, model);
+    try writeDocument(allocator, io, dir, document);
+}
+
+fn applySidebarExtras(document: *Document, model: *const Model) void {
+    document.sidebar_collapsed = model.sidebar_collapsed;
+    document.sidebar_width = model.sidebarWidthPixels();
 }
 
 /// Live `WAKU_DAEMON_ADDRESS` wins; otherwise the last persisted sidecar address.
@@ -687,6 +720,8 @@ const Document = struct {
     last_model: []const u8 = "",
     last_access_mode: []const u8 = "",
     last_daemon_address: []const u8 = "",
+    sidebar_collapsed: bool = false,
+    sidebar_width: u32 = 0,
     sessions: []StoredSession = &.{},
 
     fn empty(model: *const Model) Document {
@@ -699,6 +734,8 @@ const Document = struct {
             .last_model = model.lastModel(),
             .last_access_mode = model.lastAccessMode(),
             .last_daemon_address = lastDaemonAddressForSave(model),
+            .sidebar_collapsed = model.sidebar_collapsed,
+            .sidebar_width = model.sidebarWidthPixels(),
             .sessions = &.{},
         };
     }
@@ -737,6 +774,9 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.setLastModel(document.last_model);
     model.setLastAccessMode(document.last_access_mode);
     model.setLastDaemonAddress(document.last_daemon_address);
+    model.sidebar_collapsed = document.sidebar_collapsed;
+    model.applySidebarWidth(document.sidebar_width);
+    model.syncSidebarSplit();
     for (document.sessions) |stored| {
         model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode, stored.runtime_id);
         applyRewindRefs(model, stored.id, stored.rewind_refs);
@@ -902,6 +942,8 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .last_model = jsonString(obj.get("last_model")) orelse "",
         .last_access_mode = jsonString(obj.get("last_access_mode")) orelse "",
         .last_daemon_address = jsonString(obj.get("last_daemon_address")) orelse "",
+        .sidebar_collapsed = jsonBool(obj.get("sidebar_collapsed")) orelse false,
+        .sidebar_width = jsonUint(obj.get("sidebar_width")) orelse 0,
         .sessions = try sessions.toOwnedSlice(arena),
     };
 }
@@ -1083,6 +1125,10 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try appendJsonString(&out, allocator, document.last_access_mode);
     try out.appendSlice(allocator, ",\"last_daemon_address\":");
     try appendJsonString(&out, allocator, document.last_daemon_address);
+    try out.appendSlice(allocator, ",\"sidebar_collapsed\":");
+    try out.appendSlice(allocator, if (document.sidebar_collapsed) "true" else "false");
+    try out.appendSlice(allocator, ",\"sidebar_width\":");
+    try appendUint(&out, allocator, document.sidebar_width);
     try out.appendSlice(allocator, ",\"sessions\":[");
     for (document.sessions, 0..) |session, i| {
         if (i != 0) try out.append(allocator, ',');
@@ -1399,6 +1445,49 @@ test "session model and access_mode persist; new sessions inherit last-used" {
     const inherited = loaded.addSession("next", .fx);
     try testing.expectEqualStrings("openai/gpt-5.4", loaded.sessionById(inherited).?.model());
     try testing.expectEqualStrings("ask", loaded.sessionById(inherited).?.accessMode());
+}
+
+test "sidebar collapsed flag and last width reload from document extras" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("layout later", .fx);
+    _ = source.appendTurn(id, .user, "remember the rail");
+    source.sidebar_last_width = 300;
+    source.sidebar_split = 300 / main.window_width;
+    try saveSession(&source, id, allocator, io);
+
+    source.toggleSidebar();
+    persistLayoutIfPossible(&source);
+    try testing.expect(source.sidebar_collapsed);
+    try testing.expectEqual(@as(u32, 300), source.sidebarWidthPixels());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expect(loaded.sidebar_collapsed);
+    try testing.expectEqual(@as(u32, 300), loaded.sidebarWidthPixels());
+    try testing.expectEqual(main.sidebar_rail_width / main.window_width, loaded.sidebar_split);
+
+    loaded.toggleSidebar();
+    persistLayoutIfPossible(&loaded);
+    try testing.expect(!loaded.sidebar_collapsed);
+
+    var restored = Model{};
+    restored.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&restored, allocator, io));
+    try testing.expect(!restored.sidebar_collapsed);
+    try testing.expectEqual(@as(u32, 300), restored.sidebarWidthPixels());
 }
 
 test "last_daemon_address persists and loads without becoming the live switch" {
