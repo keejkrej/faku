@@ -128,7 +128,7 @@
         <button variant="ghost" size="icon" icon="x" label="Close" on-press="close_window"></button>
       </row>
       <separator />
-      <scroll grow="1" value="{transcript_scroll}" on-scroll="transcript_scrolled">
+      <scroll grow="1" value="{transcript_scroll}" on-scroll="transcript_scrolled" label="Transcript">
         <row grow="1" main="center">
           <column grow="1" max-width="720" gap="8">
             <for each="visible_turns" key="id" as="t">
@@ -171,6 +171,11 @@
           </column>
         </row>
       </scroll>
+      <if test="{show_jump_latest}">
+        <row main="center" padding="4">
+          <button variant="ghost" size="sm" on-press="jump_latest">Jump to latest</button>
+        </row>
+      </if>
       <column padding="8">
         <row>
           <spacer width="12" />
