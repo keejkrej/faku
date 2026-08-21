@@ -436,6 +436,9 @@ pub const Msg = union(enum) {
     cycle_model,
     start_project_edit,
     project_path_edit: canvas.TextInputEvent,
+    start_image_attach,
+    image_path_edit: canvas.TextInputEvent,
+    clear_image_attach,
     rewind,
     history_back,
     history_forward,
@@ -493,6 +496,8 @@ pub const Model = struct {
     settings_daemon_buffer: canvas.TextBuffer(max_daemon_address) = .{},
     project_edit_active: bool = false,
     project_edit_buffer: canvas.TextBuffer(max_project_path) = .{},
+    image_attach_active: bool = false,
+    image_path_buffer: canvas.TextBuffer(max_project_path) = .{},
     editing_folder_id: u32 = 0,
     folder_title_buffer: canvas.TextBuffer(max_title) = .{},
     editing_session_id: u32 = 0,
@@ -612,6 +617,11 @@ pub const Model = struct {
         "settings_project_buffer",
         "settings_daemon_buffer",
         "project_edit_buffer",
+        "image_path_buffer",
+        "startImageAttach",
+        "closeImageAttach",
+        "applyImagePath",
+        "clearImageAttach",
         "openSettings",
         "closeSettings",
         "toggleSettings",
@@ -1033,6 +1043,7 @@ pub const Model = struct {
 
     pub fn openSettings(model: *Model) void {
         model.closeProjectEdit();
+        model.closeImageAttach();
         model.closeFolderTitleEdit();
         model.closeSessionTitleEdit();
         model.settings_open = true;
@@ -1313,6 +1324,40 @@ pub const Model = struct {
 
     pub fn setDraftImagePath(model: *Model, path: []const u8) void {
         writeFixed(&model.draft_image_path_storage, &model.draft_image_path_len, path);
+    }
+
+    pub fn image_edit(model: *const Model) []const u8 {
+        return model.image_path_buffer.text();
+    }
+
+    pub fn has_image_attach(model: *const Model) bool {
+        return model.draftImagePath().len > 0;
+    }
+
+    pub fn image_chip_label(model: *const Model) []const u8 {
+        const path = model.draftImagePath();
+        if (path.len == 0) return "";
+        return std.fs.path.basename(path);
+    }
+
+    pub fn startImageAttach(model: *Model) void {
+        model.image_attach_active = true;
+        model.image_path_buffer.set(model.draftImagePath());
+    }
+
+    pub fn closeImageAttach(model: *Model) void {
+        model.image_attach_active = false;
+    }
+
+    pub fn applyImagePath(model: *Model, edit: canvas.TextInputEvent) void {
+        model.image_path_buffer.apply(edit);
+        model.setDraftImagePath(std.mem.trim(u8, model.image_edit(), " \t\r\n"));
+    }
+
+    pub fn clearImageAttach(model: *Model) void {
+        model.setDraftImagePath("");
+        model.image_path_buffer.clear();
+        model.image_attach_active = false;
     }
 
     pub fn lastSpawnImagePath(model: *const Model) []const u8 {
@@ -1807,6 +1852,7 @@ fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     if (model.sessionById(id) == null) return;
     store.persistDraftIfPossible(model);
     model.closeProjectEdit();
+    model.closeImageAttach();
     model.closeFolderTitleEdit();
     model.closeSessionTitleEdit();
     model.selected = id;
@@ -1859,6 +1905,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .new_session => {
             store.persistDraftIfPossible(model);
             model.closeProjectEdit();
+            model.closeImageAttach();
             model.closeFolderTitleEdit();
             model.closeSessionTitleEdit();
             const id = model.addSession("untitled", .fx);
@@ -1927,7 +1974,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         // Chromeless titlebar has no OS close. This is the documented
         // window-action effect (`examples/deck`): last-window close
         // follows the host exit path. Esc stays `.stop` so settings /
-        // search / project-edit / folder-title-edit / session-title-edit /
+        // search / project-edit / image-attach / folder-title-edit / session-title-edit /
         // a live turn keep it.
         .close_window => fx.closeWindow(main_window_label),
         .remove_session => |id| {
@@ -1957,6 +2004,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             }
             if (model.project_edit_active) {
                 model.closeProjectEdit();
+                return;
+            }
+            if (model.image_attach_active) {
+                model.closeImageAttach();
                 return;
             }
             if (model.editing_folder_id != 0) {
@@ -2015,6 +2066,15 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.applySelectedProjectPath(edit);
             persistComposerProject(model, fx);
         },
+        .start_image_attach => model.startImageAttach(),
+        .image_path_edit => |edit| {
+            model.applyImagePath(edit);
+            store.persistDraftIfPossible(model);
+        },
+        .clear_image_attach => {
+            model.clearImageAttach();
+            store.persistDraftIfPossible(model);
+        },
         .rewind => applyRewindIfPossible(model),
         .clear_queue => {
             model.dropQueuedForSession(model.selected);
@@ -2065,14 +2125,14 @@ fn handleSend(model: *Model, fx: *Effects) void {
         }
         model.draft_buffer.clear();
         if (draft_key) |key| store.discardDraftIfPossible(model, key);
-        model.setDraftImagePath("");
+        model.clearImageAttach();
         return;
     }
     if (text.len == 0) return;
     startPrompt(model, fx, model.selected, text);
     model.draft_buffer.clear();
     if (draft_key) |key| store.discardDraftIfPossible(model, key);
-    model.setDraftImagePath("");
+    model.clearImageAttach();
 }
 
 /// Waku ⌘Enter: inject into a live daemon turn when attach reported
@@ -2089,7 +2149,7 @@ fn handleSteer(model: *Model, fx: *Effects) void {
             null;
         model.draft_buffer.clear();
         if (draft_key) |key| store.discardDraftIfPossible(model, key);
-        model.setDraftImagePath("");
+        model.clearImageAttach();
         return;
     }
     handleSend(model, fx);
