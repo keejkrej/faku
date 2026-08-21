@@ -107,7 +107,7 @@ const demo_ticks_complete: u32 = 12;
 const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
 
 pub const Mode = enum { demo, daemon };
-pub const Role = enum { user, assistant, tool };
+pub const Role = enum { user, assistant, tool, reasoning };
 pub const Phase = enum { idle, streaming };
 pub const ReplyPath = enum { demo, fx, daemon };
 
@@ -296,6 +296,7 @@ pub const Turn = struct {
             .user => "You",
             .assistant => "Assistant",
             .tool => "Tool",
+            .reasoning => "Reasoning",
         };
     }
 };
@@ -346,6 +347,7 @@ pub const TurnRow = struct {
     text: []const u8,
     is_user: bool,
     is_tool: bool,
+    is_reasoning: bool,
 };
 
 /// Follow-up queued while that session is busy. Becomes its own turn after a
@@ -780,6 +782,7 @@ pub const Model = struct {
                 .text = turn.text(),
                 .is_user = turn.role == .user,
                 .is_tool = turn.role == .tool,
+                .is_reasoning = turn.role == .reasoning,
             };
             i += 1;
         }
@@ -2549,6 +2552,10 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
         applyAcpToolUpdate(model, fx, tool);
         return;
     }
+    if (acp.isAgentThoughtText(parsed)) {
+        applyAcpThoughtChunk(model, fx, parsed.text);
+        return;
+    }
     if (acp.isAgentMessageText(parsed)) {
         model.appendToTurn(model.stream_turn_id, parsed.text);
         return;
@@ -2580,6 +2587,31 @@ fn applyAcpToolUpdate(model: *Model, fx: *Effects, tool: acp.ToolUpdate) void {
         refreshToolTurnText(turn);
     }
     store.persistIfPossible(model, session_id, fx);
+}
+
+/// Thought text stays off the assistant markdown turn. First chunk in
+/// this stream appends a reasoning row; later chunks append to that row.
+fn applyAcpThoughtChunk(model: *Model, fx: *Effects, text: []const u8) void {
+    const session_id = model.streaming_session;
+    if (session_id == 0) return;
+    if (findLiveReasoningTurn(model, session_id)) |turn| {
+        model.appendToTurn(turn.id, text);
+    } else {
+        _ = model.appendTurn(session_id, .reasoning, text);
+    }
+    store.persistIfPossible(model, session_id, fx);
+}
+
+/// Only the reasoning row created after this stream's assistant turn.
+/// Earlier prompts keep their own thought text.
+fn findLiveReasoningTurn(model: *Model, session_id: u32) ?*Turn {
+    var found: ?*Turn = null;
+    for (model.turn_store[0..model.turn_count]) |*turn| {
+        if (turn.session_id != session_id or turn.role != .reasoning) continue;
+        if (model.stream_turn_id != 0 and turn.id < model.stream_turn_id) continue;
+        found = turn;
+    }
+    return found;
 }
 
 fn findToolTurn(model: *Model, session_id: u32, tool_call_id: []const u8) ?*Turn {

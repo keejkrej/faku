@@ -49,6 +49,12 @@ pub const MODE_ASK = "ask";
 pub const MODE_CODE = "code";
 
 pub const SESSION_UPDATE_AGENT_MESSAGE = "agent_message_chunk";
+/// Official ACP v1 `session/update` reasoning chunk
+/// (https://agentclientprotocol.com/protocol/v1/schema `agent_thought_chunk`,
+/// same content block as `agent_message_chunk`). Not a `delta` field.
+/// vercel-labs/fx `src/acp/types.zig` has `writeAgentMessageChunk` but no
+/// thought writer today.
+pub const SESSION_UPDATE_AGENT_THOUGHT = "agent_thought_chunk";
 /// Stabilized ACP v1 `session/update` variant
 /// (https://agentclientprotocol.com/protocol/v1/prompt-turn#session-usage-updates).
 /// fx.sh ACP docs and vercel-labs/fx do not emit this today.
@@ -392,6 +398,14 @@ pub fn mintedSessionId(parsed: Parsed) []const u8 {
 pub fn isAgentMessageText(parsed: Parsed) bool {
     return parsed.method == .session_update and
         std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_AGENT_MESSAGE) and
+        parsed.text.len > 0;
+}
+
+/// ACP v1 / official prompt-turn `agent_thought_chunk`. Same
+/// `content: { type: "text", text }` block as `agent_message_chunk`.
+pub fn isAgentThoughtText(parsed: Parsed) bool {
+    return parsed.method == .session_update and
+        std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_AGENT_THOUGHT) and
         parsed.text.len > 0;
 }
 
@@ -753,10 +767,21 @@ test "ACP parser classifies result, error, update, and stopReason" {
     try std.testing.expectEqual(Method.session_update, parsed_update.method);
     try std.testing.expectEqual(FrameKind.notification, parsed_update.kind);
     try std.testing.expect(isAgentMessageText(parsed_update));
+    try std.testing.expect(!isAgentThoughtText(parsed_update));
     try std.testing.expectEqualStrings("hello acp", parsed_update.text);
+
+    const thought = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"sess-1\",\"update\":{\"sessionUpdate\":\"agent_thought_chunk\",\"content\":{\"type\":\"text\",\"text\":\"need to inspect the loop\"}}}}");
+    try std.testing.expectEqual(Method.session_update, thought.method);
+    try std.testing.expectEqualStrings(SESSION_UPDATE_AGENT_THOUGHT, thought.session_update);
+    try std.testing.expect(isAgentThoughtText(thought));
+    try std.testing.expect(!isAgentMessageText(thought));
+    try std.testing.expectEqualStrings("need to inspect the loop", thought.text);
+    try std.testing.expect(toolUpdate(thought) == null);
+    try std.testing.expect(usageUpdate(thought) == null);
 
     const user = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"user_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"ignore\"}}}}");
     try std.testing.expect(!isAgentMessageText(user));
+    try std.testing.expect(!isAgentThoughtText(user));
     try std.testing.expect(usageUpdate(user) == null);
 
     const usage = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"sess-1\",\"update\":{\"sessionUpdate\":\"usage_update\",\"used\":53000,\"size\":200000}}}");

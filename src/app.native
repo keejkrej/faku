@@ -148,10 +148,18 @@
                   </column>
                 </if>
                 <else>
-                  <column gap="2">
-                    <text foreground="text_muted">{t.role_label}</text>
-                    <markdown source="{t.text}" />
-                  </column>
+                  <if test="{t.is_reasoning}">
+                    <column gap="2">
+                      <text foreground="text_muted">{t.role_label}</text>
+                      <text wrap="true" foreground="text_muted">{t.text}</text>
+                    </column>
+                  </if>
+                  <else>
+                    <column gap="2">
+                      <text foreground="text_muted">{t.role_label}</text>
+                      <markdown source="{t.text}" />
+                    </column>
+                  </else>
                 </else>
               </else>
             </for>
