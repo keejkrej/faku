@@ -72,7 +72,9 @@ send `session/resume` + `session/prompt` with that id. First-turn
 `session/update` `agent_message_chunk` text appends to the assistant
 turn. `agent_thought_chunk` text shows as a muted reasoning turn.
 `tool_call` and `tool_call_update` show as tool turns
-(`title` · `kind` · `status`). The `session/prompt` result `stopReason`
+(`title` · `kind` · `status`). The access chip follows ACP
+`current_mode_update` (`ask` → ask / Ask, `code` → fullAccess / Full access).
+The `session/prompt` result `stopReason`
 settles the turn and drains the success-only queue (`cancelled` /
 `refusal` / JSON-RPC error do not drain). This is **not** a long-lived
 ACP loop: each Send starts a new `fx acp` process and closes stdin.
