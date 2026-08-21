@@ -1566,6 +1566,204 @@ test "failed hydrate sidecar leaves turns empty and keeps the catalog" {
     try testing.expectEqualStrings("local catalog", reread.session_store[0].title());
 }
 
+fn isCloseOnlyStdin(stdin: []const u8) bool {
+    return std.mem.indexOf(u8, stdin, "\"type\":\"closeSession\"") != null and
+        std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null and
+        std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null;
+}
+
+fn findCloseOnlySpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (isCloseOnlyStdin(spawn.stdin)) return spawn;
+    }
+    return null;
+}
+
+test "remove plus daemon address records hello and closeSession" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-close-addr", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setDaemonToken("secret");
+    model.setSidecarPath("faku");
+    const kept = model.addSession("keep me", .fx);
+    _ = model.appendTurn(kept, .user, "stays");
+    try store.saveSession(&model, kept, testing.allocator, testing.io);
+    const gone = model.addSession("remove me", .fx);
+    _ = model.appendTurn(gone, .user, "bye");
+    try store.saveSession(&model, gone, testing.allocator, testing.io);
+
+    main.update(&model, .{ .remove_session = gone }, &fx);
+    const spawn = findCloseOnlySpawn(&fx) orelse return error.CloseSpawnMissing;
+    try testing.expect(argvHas(spawn.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(spawn.argv, "127.0.0.1:8787"));
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"token\":\"secret\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"closeSession\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"command\":{\"type\":\"closeSession\"}") != null);
+    var gone_id_buf: [36]u8 = undefined;
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, daemon_proxy.wireUuid(gone, &gone_id_buf)) != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"prompt\"") == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"attachSession\"") == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"removeSession\"") == null);
+    try testing.expect(spawn.key != model.daemon_spawn_key);
+    try testing.expect(model.sessionById(gone) == null);
+    try testing.expectEqual(@as(u32, 1), model.session_count);
+    try testing.expectEqual(kept, model.session_store[0].id);
+}
+
+test "last_daemon_address with a local remove still records closeSession" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-close-last", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("last addr close", .fx);
+    _ = model.appendTurn(id, .user, "started");
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+    try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
+
+    main.update(&model, .{ .remove_session = id }, &fx);
+    const spawn = findCloseOnlySpawn(&fx) orelse return error.CloseSpawnMissing;
+    try testing.expect(argvHas(spawn.argv, "10.0.0.2:9"));
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"closeSession\"") != null);
+    try testing.expect(model.sessionById(id) == null);
+}
+
+test "remove without a daemon address does not spawn closeSession" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-close-local", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const kept = model.addSession("stays local", .fx);
+    _ = model.appendTurn(kept, .user, "keep");
+    try store.saveSession(&model, kept, testing.allocator, testing.io);
+    const gone = model.addSession("drop local", .fx);
+    _ = model.appendTurn(gone, .user, "gone");
+    try store.saveSession(&model, gone, testing.allocator, testing.io);
+
+    main.update(&model, .{ .remove_session = gone }, &fx);
+    try testing.expect(findCloseOnlySpawn(&fx) == null);
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expect(model.sessionById(gone) == null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 1), loaded.session_count);
+    try testing.expectEqual(kept, loaded.session_store[0].id);
+    try testing.expectEqualStrings("stays local", loaded.session_store[0].title());
+}
+
+test "closeSession sidecar failure leaves the local row gone" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-close-fail", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const kept = model.addSession("catalog stays", .fx);
+    _ = model.appendTurn(kept, .user, "already persisted");
+    try store.saveSession(&model, kept, testing.allocator, testing.io);
+    const gone = model.addSession("sidecar fails", .fx);
+    _ = model.appendTurn(gone, .user, "drop me");
+    try store.saveSession(&model, gone, testing.allocator, testing.io);
+
+    main.update(&model, .{ .remove_session = gone }, &fx);
+    const spawn = findCloseOnlySpawn(&fx) orelse return error.CloseSpawnMissing;
+    try fx.feedExit(spawn.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expect(model.sessionById(gone) == null);
+    try testing.expectEqual(@as(u32, 1), model.session_count);
+    try testing.expectEqual(kept, model.session_store[0].id);
+
+    var reread = Model{};
+    reread.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&reread, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 1), reread.session_count);
+    try testing.expectEqual(kept, reread.session_store[0].id);
+    try testing.expectEqualStrings("catalog stays", reread.session_store[0].title());
+    try testing.expect(reread.sessionById(gone) == null);
+}
+
+test "stop and select do not spawn closeSession" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-close-not-stop", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const first = model.addSession("first", .fx);
+    _ = model.appendTurn(first, .user, "already here");
+    try store.saveSession(&model, first, testing.allocator, testing.io);
+    const second = model.addSession("second", .fx);
+    _ = model.appendTurn(second, .user, "also here");
+    try store.saveSession(&model, second, testing.allocator, testing.io);
+    model.selected = first;
+
+    main.update(&model, .{ .select = second }, &fx);
+    try testing.expect(findCloseOnlySpawn(&fx) == null);
+
+    model.phase = .streaming;
+    model.streaming_session = second;
+    if (model.sessionById(second)) |session| session.busy = true;
+    main.update(&model, .stop, &fx);
+    try testing.expect(findCloseOnlySpawn(&fx) == null);
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    try testing.expect(model.sessionById(first) != null);
+    try testing.expect(model.sessionById(second) != null);
+}
+
 test "the view lays out through the canvas engine" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

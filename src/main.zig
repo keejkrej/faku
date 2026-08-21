@@ -225,6 +225,7 @@ pub const QueuedMessage = struct {
 pub const Msg = union(enum) {
     new_session,
     select: u32,
+    remove_session: u32,
     draft_edit: canvas.TextInputEvent,
     send,
     stop,
@@ -233,7 +234,7 @@ pub const Msg = union(enum) {
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "fx_line", "fx_exit", "fx_probe_exit" };
+    pub const view_unbound = .{ "tick", "stop", "remove_session", "fx_line", "fx_exit", "fx_probe_exit" };
 };
 
 pub const Model = struct {
@@ -892,6 +893,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 store.maybeHydrateDaemonSession(model, fx, id);
                 store.loadDraftIfPossible(model);
             }
+        },
+        .remove_session => |id| {
+            store.removeIfPossible(model, id, fx);
+            store.loadDraftIfPossible(model);
         },
         .draft_edit => |edit| {
             model.draft_buffer.apply(edit);
