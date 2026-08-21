@@ -1174,6 +1174,24 @@ fn findLoadOnlySpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     return null;
 }
 
+fn isHydrateOnlyStdin(stdin: []const u8) bool {
+    return std.mem.indexOf(u8, stdin, "\"type\":\"hydrateSession\"") != null and
+        std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null and
+        std.mem.indexOf(u8, stdin, "\"type\":\"saveTaskState\"") == null;
+}
+
+fn findHydrateOnlySpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (isHydrateOnlyStdin(spawn.stdin)) return spawn;
+    }
+    return null;
+}
+
+const fake_hydrate_line =
+    \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000011","outcome":{"status":"ok","payload":{"type":"session","session":{"id":"00000000-0000-0000-0000-000000000007","title":"from daemon","messages":[{"id":"00000000-0000-0000-0000-000000000001","role":"user","content":"trace the listener"},{"id":"00000000-0000-0000-0000-000000000002","role":"assistant","content":"looking at reconnect"}],"turns":[{"id":"00000000-0000-0000-0000-000000000003","turn_count":1,"status":"completed","started_at":0}],"queued_messages":[{"id":"00000000-0000-0000-0000-000000000004","content":"then the composer","created_at":0}]}}}}
+;
+
 const fake_task_state_line =
     \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000010","outcome":{"status":"ok","payload":{"type":"taskState","projects":[{"id":"00000000-0000-0000-0000-000000000007","name":"faku","path":"/tmp/from-daemon","created_at":0}],"sessions":[{"id":"00000000-0000-0000-0000-000000000007","title":"from daemon","project_id":"00000000-0000-0000-0000-000000000007","provider":"fx","runtime_mode":"fullAccess","status":"idle","created_at":0,"updated_at":0,"has_started":true}],"defaultCwd":"/tmp","projectlessRoot":null}}}
 ;
@@ -1383,6 +1401,169 @@ test "corrupt catalog plus a daemon address still refuses overwrite" {
     try testing.expectEqualStrings("port waku to zig", model.selected_title());
     try testing.expect(!model.task_state_loaded);
     try testing.expectError(error.TaskStateNotLoaded, store.saveSession(&model, model.selected, testing.allocator, testing.io));
+}
+
+test "select empty session plus daemon address records hello and hydrateSession" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setDaemonToken("secret");
+    model.setSidecarPath("faku");
+    const filled = model.addSession("has local turns", .fx);
+    _ = model.appendTurn(filled, .user, "already here");
+    const empty = model.addSession("empty transcript", .fx);
+    model.selected = filled;
+
+    main.update(&model, .{ .select = empty }, &fx);
+    const spawn = findHydrateOnlySpawn(&fx) orelse return error.HydrateSpawnMissing;
+    try testing.expect(argvHas(spawn.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(spawn.argv, "127.0.0.1:8787"));
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"token\":\"secret\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hydrateSession\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, daemon_proxy.HYDRATE_REQUEST_ID) != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"prompt\"") == null);
+    try testing.expectEqual(spawn.key, model.daemon_hydrate_key);
+    try testing.expect(spawn.key != model.daemon_spawn_key);
+    try testing.expectEqual(empty, model.daemon_hydrate_session);
+}
+
+test "first view of a catalog session with empty local turns records hydrateSession" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-hydrate-first", .{tmp.sub_path[0..]});
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = testing.io;
+    const id = source.addSession("skeleton only", .fx);
+    if (source.sessionById(id)) |session| session.has_started = true;
+    try store.saveSession(&source, id, testing.allocator, testing.io);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    try testing.expectEqual(store.LoadKind.loaded, store.boot(&model, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 0), model.turnCount(id));
+    store.maybeHydrateDaemonSession(&model, &fx, model.selected);
+    const spawn = findHydrateOnlySpawn(&fx) orelse return error.HydrateSpawnMissing;
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hydrateSession\"") != null);
+}
+
+test "last_daemon_address with an empty selected session still records hydrateSession" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const empty = model.addSession("empty last addr", .fx);
+    try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
+    main.update(&model, .{ .select = empty }, &fx);
+    const spawn = findHydrateOnlySpawn(&fx) orelse return error.HydrateSpawnMissing;
+    try testing.expect(argvHas(spawn.argv, "10.0.0.2:9"));
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hydrateSession\"") != null);
+}
+
+test "fake hydrateSession response installs turns into an empty session" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const empty = model.addSession("empty hydrate", .fx);
+    main.update(&model, .{ .select = empty }, &fx);
+    const spawn = findHydrateOnlySpawn(&fx) orelse return error.HydrateSpawnMissing;
+
+    try fx.feedLine(spawn.key, fake_hydrate_line);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, 2), model.turnCount(empty));
+    try testing.expectEqual(main.Role.user, model.turn_store[0].role);
+    try testing.expectEqualStrings("trace the listener", model.turn_store[0].text());
+    try testing.expectEqual(main.Role.assistant, model.turn_store[1].role);
+    try testing.expectEqualStrings("looking at reconnect", model.turn_store[1].text());
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(empty));
+    try testing.expectEqualStrings("then the composer", model.firstQueuedText(empty));
+    try testing.expect(model.sessionById(empty).?.detail_loaded);
+}
+
+test "select with local turns already present does not spawn hydrateSession" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const filled = model.addSession("local wins", .fx);
+    _ = model.appendTurn(filled, .user, "keep me");
+    _ = model.appendTurn(filled, .assistant, "already hydrated");
+    main.update(&model, .{ .select = filled }, &fx);
+    try testing.expect(findHydrateOnlySpawn(&fx) == null);
+    try testing.expectEqual(@as(u32, 0), model.daemon_hydrate_key);
+    try testing.expectEqual(@as(u32, 2), model.turnCount(filled));
+    try testing.expectEqualStrings("keep me", model.turn_store[0].text());
+}
+
+test "failed hydrate sidecar leaves turns empty and keeps the catalog" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-hydrate-fail", .{tmp.sub_path[0..]});
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = testing.io;
+    const kept = source.addSession("local catalog", .fx);
+    _ = source.appendTurn(kept, .user, "already persisted");
+    try store.saveSession(&source, kept, testing.allocator, testing.io);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&model, testing.allocator, testing.io));
+    const empty = model.addSession("empty fail", .fx);
+    main.update(&model, .{ .select = empty }, &fx);
+    const spawn = findHydrateOnlySpawn(&fx) orelse return error.HydrateSpawnMissing;
+    try fx.feedExit(spawn.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, 0), model.turnCount(empty));
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    try testing.expectEqualStrings("local catalog", model.session_store[0].title());
+    try testing.expectEqual(kept, model.session_store[0].id);
+
+    var reread = Model{};
+    reread.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&reread, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 1), reread.session_count);
+    try testing.expectEqualStrings("local catalog", reread.session_store[0].title());
 }
 
 test "the view lays out through the canvas engine" {

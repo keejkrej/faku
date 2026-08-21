@@ -2,13 +2,14 @@
 //!
 //! Native `fx.spawn` writes stdin once and then closes it. This module
 //! builds that buffer (hello + optional loadTaskState + prompt, hello +
-//! saveTaskState, or hello + loadTaskState) and, when run as
-//! `faku daemon-proxy <addr>`, forwards those JSON frames over
+//! saveTaskState, hello + loadTaskState, or hello + hydrateSession) and,
+//! when run as `faku daemon-proxy <addr>`, forwards those JSON frames over
 //! `ws://{addr}/v1`, prints each incoming text frame as one stdout line,
 //! and exits on `turnFinished` / `rejected` / `error`. A save-only stdin
 //! (no prompt) exits after server hello / response. A load-only stdin
 //! waits for the `taskState` response (not hello) because a nil
-//! `requestId` is a notify and would never return the catalog.
+//! `requestId` is a notify and would never return the catalog. A
+//! hydrate-only stdin waits for the `session` response the same way.
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -44,6 +45,8 @@ pub const SaveStdin = struct {
 
 /// Non-nil: a nil `requestId` is a notify and the daemon sends no `taskState`.
 pub const LOAD_REQUEST_ID = "00000000-0000-0000-0000-000000000010";
+/// Non-nil: a nil `requestId` is a notify and the daemon sends no `session`.
+pub const HYDRATE_REQUEST_ID = "00000000-0000-0000-0000-000000000011";
 
 pub const LoadStdin = struct {
     token: []const u8 = "",
@@ -51,6 +54,13 @@ pub const LoadStdin = struct {
     request_id: []const u8 = LOAD_REQUEST_ID,
     session_id: []const u8 = protocol.NIL_UUID,
     runtime_id: []const u8 = protocol.NIL_UUID,
+};
+
+pub const HydrateStdin = struct {
+    token: []const u8 = "",
+    client_id: []const u8 = CLIENT_ID,
+    request_id: []const u8 = HYDRATE_REQUEST_ID,
+    session_id: []const u8,
 };
 
 pub const ParsedAddress = struct {
@@ -180,12 +190,31 @@ pub fn writeLoadStdin(buf: []u8, args: LoadStdin) WriteError![]const u8 {
     return cur.slice();
 }
 
+/// NDJSON stdin for an empty-transcript hydrate. Hello + hydrateSession,
+/// no prompt. Uses a non-nil requestId so the daemon replies.
+pub fn writeHydrateStdin(buf: []u8, args: HydrateStdin) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    const hello = try protocol.writeClientHello(cur.remaining(), args.token, args.client_id, &.{});
+    cur.pos += hello.len;
+    try cur.write("\n");
+    const hydrate = try protocol.writeHydrateSession(cur.remaining(), args.request_id, args.session_id);
+    cur.pos += hydrate.len;
+    try cur.write("\n");
+    return cur.slice();
+}
+
 fn outboundWaitsForTurn(outbound: []const u8) bool {
     return std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") != null;
 }
 
 fn outboundWaitsForLoadResponse(outbound: []const u8) bool {
     return std.mem.indexOf(u8, outbound, "\"type\":\"loadTaskState\"") != null and
+        std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") == null and
+        std.mem.indexOf(u8, outbound, "\"type\":\"saveTaskState\"") == null;
+}
+
+fn outboundWaitsForHydrateResponse(outbound: []const u8) bool {
+    return std.mem.indexOf(u8, outbound, "\"type\":\"hydrateSession\"") != null and
         std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") == null and
         std.mem.indexOf(u8, outbound, "\"type\":\"saveTaskState\"") == null;
 }
@@ -284,6 +313,7 @@ pub fn run(io: std.Io, address: []const u8, outbound: []const u8, stdout: *std.I
 
     const wait_for_turn = outboundWaitsForTurn(outbound);
     const wait_for_load = outboundWaitsForLoadResponse(outbound);
+    const wait_for_hydrate = outboundWaitsForHydrateResponse(outbound);
     var payload_buf: [nativeLineCap]u8 = undefined;
     while (true) {
         const n = readTextFrame(&reader.interface, &payload_buf) catch |err| switch (err) {
@@ -301,7 +331,7 @@ pub fn run(io: std.Io, address: []const u8, outbound: []const u8, stdout: *std.I
         const parsed = protocol.parseServerFrame(arena_state.allocator(), line);
         if (protocol.isTerminalServerFrame(parsed)) return;
         if (wait_for_turn) continue;
-        if (wait_for_load) {
+        if (wait_for_load or wait_for_hydrate) {
             if (isLoadOnlyTerminal(parsed)) return;
             continue;
         }
@@ -511,6 +541,23 @@ test "writeLoadStdin emits hello and loadTaskState with a non-nil requestId" {
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ LOAD_REQUEST_ID) != null);
     try std.testing.expect(!outboundWaitsForTurn(stdin));
     try std.testing.expect(outboundWaitsForLoadResponse(stdin));
+}
+
+test "writeHydrateStdin emits hello and hydrateSession with a non-nil requestId" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeHydrateStdin(&buf, .{
+        .token = "secret",
+        .session_id = "00000000-0000-0000-0000-000000000007",
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hydrateSession\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"00000000-0000-0000-0000-000000000007\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadTaskState\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ HYDRATE_REQUEST_ID) != null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForHydrateResponse(stdin));
 }
 
 test "localIdFromWire reverses wireUuid" {

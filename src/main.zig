@@ -98,6 +98,9 @@ pub const Session = struct {
     has_started: bool = false,
     /// Process-local. Catalog load leaves this false; hydrate sets it.
     detail_loaded: bool = true,
+    /// One daemon hydrate attempt per session this process. Failed sidecar
+    /// keeps the empty transcript and does not retry on every select.
+    daemon_hydrate_started: bool = false,
     /// Workspace path for `fx ask`. Empty means inherit the host process cwd.
     project_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     project_path_len: usize = 0,
@@ -293,6 +296,10 @@ pub const Model = struct {
     /// so a catalog fill cannot settle a live turn.
     daemon_load_key: u64 = 0,
     pending_daemon_catalog: bool = false,
+    /// Empty-transcript `hydrateSession` sidecar. Distinct from the live
+    /// turn key and the catalog-fill key.
+    daemon_hydrate_key: u64 = 0,
+    daemon_hydrate_session: u32 = 0,
     fx_spawn_key: u64 = 0,
     next_fx_key: u64 = fx_spawn_overlap_key_first,
     fx_spawn_live: bool = false,
@@ -373,6 +380,8 @@ pub const Model = struct {
         "next_daemon_key",
         "daemon_load_key",
         "pending_daemon_catalog",
+        "daemon_hydrate_key",
+        "daemon_hydrate_session",
         "fx_spawn_key",
         "next_fx_key",
         "fx_spawn_live",
@@ -715,6 +724,14 @@ pub const Model = struct {
         return n;
     }
 
+    pub fn turnCount(model: *const Model, session_id: u32) u32 {
+        var n: u32 = 0;
+        for (model.turn_store[0..model.turn_count]) |turn| {
+            if (turn.session_id == session_id) n += 1;
+        }
+        return n;
+    }
+
     pub fn firstQueuedText(model: *const Model, session_id: u32) []const u8 {
         for (model.queued_store[0..model.queued_count]) |*item| {
             if (item.session_id == session_id) return item.text();
@@ -872,6 +889,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 store.persistDraftIfPossible(model);
                 model.selected = id;
                 store.hydrateIfPossible(model, id);
+                store.maybeHydrateDaemonSession(model, fx, id);
                 store.loadDraftIfPossible(model);
             }
         },
@@ -895,6 +913,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
 /// through `.init_fx` so the first paint already has the spawn in flight.
 pub fn initFx(model: *Model, fx: *Effects) void {
     store.maybeLoadDaemonCatalog(model, fx);
+    store.maybeHydrateDaemonSession(model, fx, model.selected);
     startFxProbe(model, fx);
 }
 
@@ -1248,6 +1267,11 @@ fn stopStream(model: *Model, fx: *Effects) void {
 fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
     if (model.daemon_load_key != 0 and line.key == model.daemon_load_key) {
         store.applyDaemonCatalogLine(model, line.line);
+        store.maybeHydrateDaemonSession(model, fx, model.selected);
+        return;
+    }
+    if (model.daemon_hydrate_key != 0 and line.key == model.daemon_hydrate_key) {
+        store.applyDaemonHydrateLine(model, line.line);
         return;
     }
     if (model.phase != .streaming) return;
@@ -1321,6 +1345,11 @@ fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (model.daemon_load_key != 0 and exit.key == model.daemon_load_key) {
         model.daemon_load_key = 0;
         model.pending_daemon_catalog = false;
+        return;
+    }
+    if (model.daemon_hydrate_key != 0 and exit.key == model.daemon_hydrate_key) {
+        model.daemon_hydrate_key = 0;
+        model.daemon_hydrate_session = 0;
         return;
     }
     const daemon = model.daemon_spawn_key != 0 and exit.key == model.daemon_spawn_key;
