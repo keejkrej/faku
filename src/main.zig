@@ -333,6 +333,10 @@ pub const Turn = struct {
     tool_kind_len: usize = 0,
     tool_status_storage: [max_tool_status]u8 = [_]u8{0} ** max_tool_status,
     tool_status_len: usize = 0,
+    /// Last ACP `ToolCallContent[]` rendered as text/diff source.
+    /// Replaced when an update carries `content`; persist is still body text.
+    tool_content_storage: [max_body]u8 = [_]u8{0} ** max_body,
+    tool_content_len: usize = 0,
 
     pub fn text(self: *const Turn) []const u8 {
         return self.body_storage[0..self.body_len];
@@ -352,6 +356,10 @@ pub const Turn = struct {
 
     pub fn toolStatus(self: *const Turn) []const u8 {
         return self.tool_status_storage[0..self.tool_status_len];
+    }
+
+    pub fn toolContent(self: *const Turn) []const u8 {
+        return self.tool_content_storage[0..self.tool_content_len];
     }
 
     pub fn role_label(self: *const Turn) []const u8 {
@@ -2861,7 +2869,7 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
         applyAcpSessionInfoTitle(model, fx, title);
         return;
     }
-    if (acp.toolUpdate(parsed)) |tool| {
+    if (acp.toolUpdate(&parsed)) |tool| {
         applyAcpToolUpdate(model, fx, tool);
         return;
     }
@@ -2923,16 +2931,18 @@ fn applyAcpToolUpdate(model: *Model, fx: *Effects, tool: acp.ToolUpdate) void {
         if (tool.title.len > 0) writeFixed(&turn.tool_title_storage, &turn.tool_title_len, tool.title);
         if (tool.kind.len > 0) writeFixed(&turn.tool_kind_storage, &turn.tool_kind_len, tool.kind);
         if (tool.status.len > 0) writeFixed(&turn.tool_status_storage, &turn.tool_status_len, tool.status);
+        if (tool.has_content) writeFixed(&turn.tool_content_storage, &turn.tool_content_len, tool.content);
         refreshToolTurnText(turn);
     } else {
-        var text_buf: [max_title + max_tool_kind + max_tool_status + 16]u8 = undefined;
-        const text = acp.toolTurnText(&text_buf, tool.title, tool.kind, tool.status);
+        var text_buf: [max_body]u8 = undefined;
+        const text = acp.toolTurnBody(&text_buf, tool.title, tool.kind, tool.status, if (tool.has_content) tool.content else "");
         const turn_id = model.appendTurn(session_id, .tool, text);
         const turn = model.turnById(turn_id) orelse return;
         writeFixed(&turn.tool_call_id_storage, &turn.tool_call_id_len, tool.tool_call_id);
         writeFixed(&turn.tool_title_storage, &turn.tool_title_len, tool.title);
         writeFixed(&turn.tool_kind_storage, &turn.tool_kind_len, tool.kind);
         writeFixed(&turn.tool_status_storage, &turn.tool_status_len, tool.status);
+        if (tool.has_content) writeFixed(&turn.tool_content_storage, &turn.tool_content_len, tool.content);
         refreshToolTurnText(turn);
     }
     store.persistIfPossible(model, session_id, fx);
@@ -2973,8 +2983,8 @@ fn findToolTurn(model: *Model, session_id: u32, tool_call_id: []const u8) ?*Turn
 }
 
 fn refreshToolTurnText(turn: *Turn) void {
-    var text_buf: [max_title + max_tool_kind + max_tool_status + 16]u8 = undefined;
-    const text = acp.toolTurnText(&text_buf, turn.toolTitle(), turn.toolKind(), turn.toolStatus());
+    var text_buf: [max_body]u8 = undefined;
+    const text = acp.toolTurnBody(&text_buf, turn.toolTitle(), turn.toolKind(), turn.toolStatus(), turn.toolContent());
     writeFixed(&turn.body_storage, &turn.body_len, text);
 }
 

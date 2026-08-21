@@ -81,7 +81,9 @@ send `session/resume` + `session/prompt` with that id. First-turn
 `session/update` `agent_message_chunk` text appends to the assistant
 turn. `agent_thought_chunk` text shows as a muted reasoning turn.
 `tool_call` and `tool_call_update` show as tool turns
-(`title` · `kind` · `status`). The access chip follows ACP
+(`title` · `kind` · `status`, plus text/diff `content` replaced on
+update; image, audio, terminal, and unknown blocks are skipped).
+The access chip follows ACP
 `current_mode_update` (`ask` → ask / Ask, `code` → fullAccess / Full access).
 The model chip follows ACP `config_option_update` (`configOptions` id
 `model` `currentValue`; empty stays `FX_MODEL`).
