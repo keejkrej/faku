@@ -58,6 +58,7 @@
                       <else>
                         <text foreground="text_muted">{s.title}</text>
                       </else>
+                      <button variant="ghost" size="icon" icon="trash" label="Delete folder" on-press="delete_folder:{s.folder_id}"></button>
                     </row>
                   </list-item>
                 </if>

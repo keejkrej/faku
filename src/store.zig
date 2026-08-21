@@ -17,8 +17,10 @@
 //! composer chips can edit persisted defaults, and `folders` /
 //! `collapsed_folder_ids` so New folder groups persist. A session
 //! `folder_id` of 0 (or omitted) stays under Today.
-//! Save is merge-only (never deletes).
-//! `removeSession` is the only delete. Refuses to write until a successful
+//! Save is merge-only (never deletes session rows).
+//! `removeSession` is the only session delete. Deleting a folder rewrites
+//! `folders` extras and unassigns `folder_id`; it is not `removeSession`.
+//! Refuses to write until a successful
 //! load (`task_state_loaded`), same guard as waku-client. After a successful
 //! started-session save, a one-shot sidecar may send `saveTaskState` when
 //! `WAKU_DAEMON_ADDRESS` or `last_daemon_address` is set. Sidecar failure
@@ -1829,6 +1831,45 @@ test "folder extras persist untitled folders; missing catalog is not created" {
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&collapsed, allocator, io));
     try testing.expect(collapsed.folder_store[0].collapsed);
     try testing.expectEqual(folder_id, collapsed.session_store[0].folder_id);
+}
+
+test "deleting a folder unassigns its sessions and drops the folder" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("stay after folder delete", .fx);
+    _ = source.appendTurn(id, .user, "keep the session");
+    try saveSession(&source, id, allocator, io);
+
+    const folder_id = source.addFolder("New folder");
+    try testing.expect(source.assignSessionFolder(id, folder_id));
+    persistFoldersIfPossible(&source);
+    try saveSession(&source, id, allocator, io);
+
+    try testing.expect(source.deleteFolder(folder_id));
+    try testing.expectEqual(@as(u32, 0), source.folder_count);
+    try testing.expectEqual(@as(u32, 0), source.session_store[0].folder_id);
+    try testing.expectEqual(@as(u32, 1), source.session_count);
+    persistFoldersIfPossible(&source);
+    try saveSession(&source, id, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqual(@as(u32, 0), loaded.folder_count);
+    try testing.expectEqual(@as(u32, 1), loaded.session_count);
+    try testing.expectEqualStrings("stay after folder delete", loaded.session_store[0].title());
+    try testing.expectEqual(@as(u32, 0), loaded.session_store[0].folder_id);
 }
 
 test "last_daemon_address persists and loads without becoming the live switch" {
