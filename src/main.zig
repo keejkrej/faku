@@ -2181,7 +2181,7 @@ fn stopStream(model: *Model, fx: *Effects) void {
 fn canSteerLiveDaemonTurn(model: *const Model) bool {
     if (model.daemonAddress().len == 0) return false;
     if (model.daemon_spawn_key == 0 or !model.is_streaming()) return false;
-    const session = model.sessionById(model.streaming_session) orelse return false;
+    const session = model.sessionByIdConst(model.streaming_session) orelse return false;
     return session.supports_steer;
 }
 
