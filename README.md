@@ -15,7 +15,8 @@ and it is fx-first. Desktop chrome matches the stopped Waku-parity cut
 (chromeless 48px header, measured sidebar, composer send circle); sidebar
 Search filters the local `sessions.json` catalog; the sidebar collapse
 control works and is restored; the sidebar chevrons walk session
-selection history; New folder creates a local catalog folder; headless
+selection history; New folder creates a local catalog folder; the
+composer project row sets the selected session cwd; headless
 paths are unchanged.
 
 ## Why fx
@@ -101,7 +102,9 @@ image / fallback path still starts
 `PWD` is not used. Protocol `StartOptions.cwd` stays unused.
 
 New sessions inherit `last_project_path` from `sessions.json` when one
-was persisted. There is no project picker and no worktree materialization.
+was persisted. The composer project row under the prompt sets that
+session `project_path` (empty is Local / host cwd). There is no
+worktree materialization.
 
 A stdout ACP `session/new` result with `sessionId` updates the stored
 id and is not appended to the assistant turn. `fx ask --json` lines
@@ -185,7 +188,8 @@ quick session toggle: access cycles `ask` / `auto` / `fullAccess`, Build
 cycles `build` / `plan`, and the model chip toggles last-used vs empty
 (fx default); Medium stays a label because fx `effort` lives in
 `~/.fx/settings.json` and Faku has no `FX_EFFORT` / `--effort` path.
-There is no daemon picker.
+The composer project row edits the selected session cwd and persists
+it as `last_project_path`. There is no daemon picker.
 Selecting a session hydrates its turns and `queued_messages` from the same
 file. Daemon `hydrateSession` runs only when that local transcript is empty.
 Composer drafts are a sibling `drafts.json` (not mixed into the
