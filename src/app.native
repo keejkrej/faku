@@ -100,6 +100,9 @@
       <row height="48" padding="14" gap="10" cross="center" window-drag="true" label="Toolbar">
         <text>{header_title}</text>
         <spacer grow="1" />
+        <if test="{can_rewind}">
+          <button variant="ghost" size="sm" on-press="rewind">Rewind</button>
+        </if>
         <button variant="ghost" size="icon" icon="x" label="Close"></button>
       </row>
       <separator />

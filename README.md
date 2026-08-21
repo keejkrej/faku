@@ -17,8 +17,9 @@ Search filters the local `sessions.json` catalog; the sidebar collapse
 control works and is restored; the sidebar chevrons walk session
 selection history; New folder creates a local catalog folder; the
 composer project row sets the selected session cwd; the usage
-control stays empty unless ACP reports `usage_update`; headless
-paths are unchanged.
+control stays empty unless ACP reports `usage_update`; Rewind
+resets workspace files to the last recorded HEAD and does not
+rewind the chat; headless paths are unchanged.
 
 ## Why fx
 
@@ -231,8 +232,10 @@ session is saved.
 One-shot `fx acp` mints and resumes an `fx_session_id` (same saved fx
 session). `fx ask --json` still mints/resumes that field on the image
 and fallback path. After a successful turn, Faku stores that workspace's
-`HEAD` sha on the session (`rewind_refs` in `sessions.json`); rewind is
-not offered yet.
+`HEAD` sha on the session (`rewind_refs` in `sessions.json`). Rewind
+resets those workspace files to the last recorded HEAD
+(`git reset --hard`); it does not rewrite the transcript or change
+`fx_session_id`.
 
 ## Demo vs daemon
 
