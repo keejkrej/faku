@@ -931,6 +931,7 @@ test "fake sessionRuntime persists a runtime id on the session" {
     try fx.feedLine(key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000012\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"sessionRuntime\",\"runtimeId\":null,\"supportsSteer\":false}}}");
     drainEffects(&model, &fx);
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.runtimeId().len);
+    try testing.expect(!model.sessionById(id).?.supports_steer);
 
     try fx.feedLine(key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000012\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}");
     drainEffects(&model, &fx);
@@ -939,6 +940,7 @@ test "fake sessionRuntime persists a runtime id on the session" {
     try fx.feedLine(key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000012\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"sessionRuntime\",\"runtimeId\":\"00000000-0000-0000-0000-000000000003\",\"supportsSteer\":true}}}");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("00000000-0000-0000-0000-000000000003", model.sessionById(id).?.runtimeId());
+    try testing.expect(model.sessionById(id).?.supports_steer);
     try testing.expect(model.is_streaming());
 
     try fx.feedLine(key, "{\"type\":\"event\",\"event\":{\"kind\":\"turnFinished\",\"payload\":{\"success\":true}}}");
@@ -981,6 +983,20 @@ fn findCancelOnlySpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (isCancelOnlyStdin(spawn.stdin)) return spawn;
+    }
+    return null;
+}
+
+fn isSteerOnlyStdin(stdin: []const u8) bool {
+    return std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"steer\"") != null and
+        std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null and
+        std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null;
+}
+
+fn findSteerOnlySpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (isSteerOnlyStdin(spawn.stdin)) return spawn;
     }
     return null;
 }
@@ -1309,6 +1325,211 @@ test "cancel sidecar failure leaves the turn settled and the transcript intact" 
     try testing.expectEqualStrings("first prompt", loaded.turn_store[0].text());
     try testing.expect(std.mem.indexOf(u8, loaded.turn_store[1].text(), "keep this partial") != null);
     try testing.expectEqual(@as(u32, 1), loaded.queuedCount(id));
+}
+
+test "daemon live turn plus steer records hello and steer on a distinct sidecar" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setDaemonToken("secret");
+    model.setSidecarPath("faku");
+    const id = model.addSession("daemon steer", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "trace the listener" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
+    const prompt_key = model.daemon_spawn_key;
+    try testing.expect(prompt_key != 0);
+
+    try fx.feedLine(prompt_key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000012\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"sessionRuntime\",\"runtimeId\":\"00000000-0000-0000-0000-000000000003\",\"supportsSteer\":true}}}");
+    drainEffects(&model, &fx);
+    try fx.feedLine(prompt_key, "{\"type\":\"event\",\"event\":{\"kind\":\"textDelta\",\"payload\":\"partial from sidecar\"}}");
+    drainEffects(&model, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expect(model.sessionById(id).?.supports_steer);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "keep going on the listener" } }, &fx);
+    main.update(&model, .steer, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(@as(u32, 0), model.queuedCount(id));
+    try testing.expectEqualStrings("", model.draft());
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
+
+    const spawn = findSteerOnlySpawn(&fx) orelse return error.SteerSpawnMissing;
+    try testing.expect(argvHas(spawn.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(spawn.argv, "127.0.0.1:8787"));
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"token\":\"secret\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"command\":{\"type\":\"steer\",\"prompt\":\"keep going on the listener\"}") != null);
+    var id_buf: [36]u8 = undefined;
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, daemon_proxy.wireUuid(id, &id_buf)) != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"runtimeId\":\"00000000-0000-0000-0000-000000000003\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"prompt\"") == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"attachSession\"") == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"cancel\"") == null);
+    try testing.expect(spawn.key != prompt_key);
+    try testing.expect(spawn.key != model.daemon_spawn_key);
+}
+
+test "Send while a daemon turn is live still queues and does not steer" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("daemon queue send", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    const prompt_key = model.daemon_spawn_key;
+    try fx.feedLine(prompt_key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000012\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"sessionRuntime\",\"runtimeId\":\"00000000-0000-0000-0000-000000000003\",\"supportsSteer\":true}}}");
+    drainEffects(&model, &fx);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "follow up later" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+    try testing.expectEqualStrings("follow up later", model.firstQueuedText(id));
+    try testing.expectEqualStrings("", model.draft());
+    try testing.expect(findSteerOnlySpawn(&fx) == null);
+    try testing.expect(model.is_streaming());
+}
+
+test "fx ask busy send still queues and does not steer" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    model.setSidecarPath("faku");
+    try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "keep fx ask" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.is_streaming());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "queued follow-up" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(model.selected));
+    try testing.expect(findSteerOnlySpawn(&fx) == null);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "would be a steer" } }, &fx);
+    main.update(&model, .steer, &fx);
+    try testing.expectEqual(@as(u32, 2), model.queuedCount(model.selected));
+    try testing.expect(findSteerOnlySpawn(&fx) == null);
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"steer\"") == null);
+    }
+}
+
+test "missing daemon address does not steer even with last_daemon_address" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "no steer" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "would be a steer" } }, &fx);
+    main.update(&model, .steer, &fx);
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(model.selected));
+    try testing.expect(findSteerOnlySpawn(&fx) == null);
+}
+
+test "attach supportsSteer false or unknown queues instead of steering" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("no steer flag", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expect(!model.sessionById(id).?.supports_steer);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "unknown queues" } }, &fx);
+    main.update(&model, .steer, &fx);
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+    try testing.expect(findSteerOnlySpawn(&fx) == null);
+
+    try fx.feedLine(model.daemon_spawn_key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000012\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"sessionRuntime\",\"runtimeId\":\"00000000-0000-0000-0000-000000000003\",\"supportsSteer\":false}}}");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.sessionById(id).?.supports_steer);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "false queues" } }, &fx);
+    main.update(&model, .steer, &fx);
+    try testing.expectEqual(@as(u32, 2), model.queuedCount(id));
+    try testing.expect(findSteerOnlySpawn(&fx) == null);
+}
+
+test "steer sidecar failure leaves the draft queued path untouched and the turn live" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-steer-fail", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("steer fail", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    const prompt_key = model.daemon_spawn_key;
+    try fx.feedLine(prompt_key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000012\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"sessionRuntime\",\"runtimeId\":\"00000000-0000-0000-0000-000000000003\",\"supportsSteer\":true}}}");
+    drainEffects(&model, &fx);
+    try fx.feedLine(prompt_key, "{\"type\":\"event\",\"event\":{\"kind\":\"textDelta\",\"payload\":\"keep this partial\"}}");
+    drainEffects(&model, &fx);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "stay queued" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "inject this" } }, &fx);
+    main.update(&model, .steer, &fx);
+    const spawn = findSteerOnlySpawn(&fx) orelse return error.SteerSpawnMissing;
+    try testing.expectEqualStrings("", model.draft());
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+    try fx.feedExit(spawn.key, 1);
+    drainEffects(&model, &fx);
+
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+    try testing.expectEqualStrings("stay queued", model.firstQueuedText(id));
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "keep this partial") != null);
 }
 
 test "missing daemon address still uses fx ask when the CLI is present" {
@@ -2342,6 +2563,23 @@ test "cmd-n and ctrl-n create a session via onKey" {
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
     try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+
+    const plain_enter = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "enter" };
+    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_enter));
+
+    const cmd_enter = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "enter",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.steer, main.onKey(cmd_enter).?);
+
+    const ctrl_enter = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "Enter",
+        .modifiers = .{ .control = true },
+    };
+    try testing.expectEqual(Msg.steer, main.onKey(ctrl_enter).?);
 }
 
 fn expectLaidOutHeight(root: canvas.Widget, id: canvas.ObjectId, height: f32) !void {

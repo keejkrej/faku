@@ -4,7 +4,7 @@
 //! builds that buffer (hello + attachSession + start + prompt when no
 //! runtime id, hello + attachSession + prompt when one is stored, hello +
 //! saveTaskState, hello + loadTaskState, hello + hydrateSession,
-//! hello + closeSession, or hello + cancel) and,
+//! hello + closeSession, hello + cancel, or hello + steer) and,
 //! when run as `faku daemon-proxy <addr>`, forwards those JSON frames over
 //! `ws://{addr}/v1`, prints each incoming text frame as one stdout line,
 //! and exits on `turnFinished` / `rejected` / `error`. A save-only stdin
@@ -12,8 +12,8 @@
 //! waits for the `taskState` response (not hello) because a nil
 //! `requestId` is a notify and would never return the catalog. A
 //! hydrate-only stdin waits for the `session` response the same way. A
-//! close-only or cancel-only stdin exits after server hello / response
-//! like save.
+//! close-only, cancel-only, or steer-only stdin exits after server
+//! hello / response like save.
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -85,6 +85,15 @@ pub const CancelStdin = struct {
     request_id: []const u8 = protocol.NIL_UUID,
     session_id: []const u8,
     runtime_id: []const u8 = protocol.NIL_UUID,
+};
+
+pub const SteerStdin = struct {
+    token: []const u8 = "",
+    client_id: []const u8 = CLIENT_ID,
+    request_id: []const u8 = protocol.NIL_UUID,
+    session_id: []const u8,
+    runtime_id: []const u8 = protocol.NIL_UUID,
+    prompt: []const u8,
 };
 
 pub const ParsedAddress = struct {
@@ -274,6 +283,27 @@ pub fn writeCancelStdin(buf: []u8, args: CancelStdin) WriteError![]const u8 {
         .cancel,
     );
     cur.pos += cancel.len;
+    try cur.write("\n");
+    return cur.slice();
+}
+
+/// NDJSON stdin for a live-turn steer. Hello + `steer` (request-frame
+/// `sessionId` / `runtimeId`, command payload `prompt`). Native cannot
+/// write into the running prompt sidecar, so this is a second one-shot
+/// on its own spawn key. No attachSession, no prompt command.
+pub fn writeSteerStdin(buf: []u8, args: SteerStdin) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    const hello = try protocol.writeClientHello(cur.remaining(), args.token, args.client_id, &.{});
+    cur.pos += hello.len;
+    try cur.write("\n");
+    const steer = try protocol.writeSteer(
+        cur.remaining(),
+        args.request_id,
+        args.session_id,
+        args.runtime_id,
+        args.prompt,
+    );
+    cur.pos += steer.len;
     try cur.write("\n");
     return cur.slice();
 }
@@ -713,6 +743,28 @@ test "writeCancelStdin emits hello and bare cancel without a prompt" {
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"steer\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"closeSession\"") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(!outboundWaitsForLoadResponse(stdin));
+    try std.testing.expect(!outboundWaitsForHydrateResponse(stdin));
+}
+
+test "writeSteerStdin emits hello and steer with prompt payload" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeSteerStdin(&buf, .{
+        .token = "secret",
+        .session_id = "00000000-0000-0000-0000-000000000007",
+        .runtime_id = "00000000-0000-0000-0000-000000000003",
+        .prompt = "keep going on the listener",
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"steer\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"00000000-0000-0000-0000-000000000007\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"00000000-0000-0000-0000-000000000003\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"steer\",\"prompt\":\"keep going on the listener\"}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"cancel\"") == null);
     try std.testing.expect(!outboundWaitsForTurn(stdin));
     try std.testing.expect(!outboundWaitsForLoadResponse(stdin));
     try std.testing.expect(!outboundWaitsForHydrateResponse(stdin));

@@ -130,6 +130,9 @@ pub const Session = struct {
     /// Daemon `sessionRuntime.runtimeId`. Empty until attach returns one.
     runtime_id_storage: [max_runtime_id]u8 = [_]u8{0} ** max_runtime_id,
     runtime_id_len: usize = 0,
+    /// Attach / start `supportsSteer`. Unknown and false both stay false
+    /// (Waku queues in those cases; this port does the same).
+    supports_steer: bool = false,
     /// Gateway model id for `FX_MODEL`. Empty inherits fx's own default.
     model_storage: [max_fx_model]u8 = [_]u8{0} ** max_fx_model,
     model_len: usize = 0,
@@ -320,6 +323,7 @@ pub const Msg = union(enum) {
     search_edit: canvas.TextInputEvent,
     draft_edit: canvas.TextInputEvent,
     send,
+    steer,
     stop,
     clear_queue,
     toggle_sidebar,
@@ -348,7 +352,7 @@ pub const Msg = union(enum) {
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "remove_session", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "remove_session", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit" };
 };
 
 pub const Model = struct {
@@ -1661,6 +1665,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistDraftIfPossible(model);
         },
         .send => handleSend(model, fx),
+        .steer => handleSteer(model, fx),
         .stop => {
             if (model.settings_open) {
                 model.closeSettings();
@@ -1776,6 +1781,26 @@ fn handleSend(model: *Model, fx: *Effects) void {
     model.draft_buffer.clear();
     if (draft_key) |key| store.discardDraftIfPossible(model, key);
     model.setDraftImagePath("");
+}
+
+/// Waku ⌘Enter: inject into a live daemon turn when attach reported
+/// `supportsSteer`. Otherwise the same as Send (queue while busy).
+fn handleSteer(model: *Model, fx: *Effects) void {
+    if (!model.fx_probe_started) startFxProbe(model, fx);
+    const text = std.mem.trim(u8, model.draft(), " \t\r\n");
+    if (text.len == 0) return;
+    if (maybeSteerDaemonTurn(model, fx, text)) {
+        var key_buf: [store.max_draft_key]u8 = undefined;
+        const draft_key = if (model.sessionById(model.selected)) |session|
+            store.draftKey(session, &key_buf)
+        else
+            null;
+        model.draft_buffer.clear();
+        if (draft_key) |key| store.discardDraftIfPossible(model, key);
+        model.setDraftImagePath("");
+        return;
+    }
+    handleSend(model, fx);
 }
 
 fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) void {
@@ -2150,6 +2175,50 @@ fn stopStream(model: *Model, fx: *Effects) void {
     store.persistIfPossible(model, finished_id, fx);
 }
 
+/// Live daemon turn that Waku would steer: address set, prompt sidecar
+/// still running, and attach/start reported `supportsSteer`. Unknown
+/// or false queues instead (same as Waku `session_can_steer`).
+fn canSteerLiveDaemonTurn(model: *const Model) bool {
+    if (model.daemonAddress().len == 0) return false;
+    if (model.daemon_spawn_key == 0 or !model.is_streaming()) return false;
+    const session = model.sessionByIdConst(model.streaming_session) orelse return false;
+    return session.supports_steer;
+}
+
+/// Best-effort one-shot hello + `steer` into a live daemon turn. Own
+/// spawn key — Native cannot write into the running prompt sidecar.
+/// Returns true only after a spawn is recorded so the caller can clear
+/// the draft. Write failure leaves the draft and does not enqueue.
+fn maybeSteerDaemonTurn(model: *Model, fx: *Effects, prompt: []const u8) bool {
+    if (!canSteerLiveDaemonTurn(model)) return false;
+    const session = model.sessionById(model.streaming_session) orelse return false;
+    var id_buf: [36]u8 = undefined;
+    const wire_id = daemon_proxy.wireUuid(session.id, &id_buf);
+    const runtime_id = if (protocol.isUsableRuntimeId(session.runtimeId()))
+        session.runtimeId()
+    else
+        protocol.NIL_UUID;
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeSteerStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .session_id = wire_id,
+        .runtime_id = runtime_id,
+        .prompt = prompt,
+    }) catch return false;
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, model.daemonAddress() },
+        .stdin = stdin,
+        .max_line_bytes = daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
 /// Best-effort one-shot hello + bare `cancel` after Stop / Esc of a
 /// daemon turn. Own spawn key — Native cannot write into the running
 /// prompt sidecar. Missing live address is a no-op (fx ask / fx acp /
@@ -2269,11 +2338,16 @@ fn handleDaemonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
 }
 
 fn persistDaemonRuntimeId(model: *Model, fx: *Effects, parsed: protocol.ParsedServer) void {
-    if (!std.mem.eql(u8, parsed.payload_type, "sessionRuntime")) return;
-    if (!parsed.response_ok or !protocol.isUsableRuntimeId(parsed.runtime_id)) return;
+    if (!parsed.response_ok) return;
     const session = model.sessionById(model.streaming_session) orelse return;
-    session.setRuntimeId(parsed.runtime_id);
-    store.persistIfPossible(model, session.id, fx);
+    const is_runtime = std.mem.eql(u8, parsed.payload_type, "sessionRuntime");
+    const is_started = std.mem.eql(u8, parsed.payload_type, "started");
+    if (!is_runtime and !is_started) return;
+    session.supports_steer = parsed.supports_steer;
+    if (is_runtime and protocol.isUsableRuntimeId(parsed.runtime_id)) {
+        session.setRuntimeId(parsed.runtime_id);
+        store.persistIfPossible(model, session.id, fx);
+    }
 }
 
 fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
@@ -2367,7 +2441,14 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "n")) {
         return .new_session;
     }
+    if (keyboard.modifiers.hasNavigationModifier() and isEnterKey(keyboard.key)) {
+        return .steer;
+    }
     return null;
+}
+
+fn isEnterKey(key: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(key, "enter") or std.ascii.eqlIgnoreCase(key, "return");
 }
 
 pub const AppUi = canvas.Ui(Msg);
