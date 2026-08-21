@@ -3621,6 +3621,85 @@ test "cmd-n and ctrl-n create a session via onKey" {
     try testing.expectEqual(Msg.steer, main.onKey(ctrl_enter).?);
 }
 
+test "cmd-[ / cmd-] and ctrl-[ / ctrl-] walk session history via onKey" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("port waku to zig", model.selected_title());
+    try testing.expect(!model.can_go_back());
+    try testing.expect(!model.can_go_forward());
+
+    main.update(&model, .{ .select = model.session_store[1].id }, &fx);
+    try testing.expectEqualStrings("fix auth listener", model.selected_title());
+    try testing.expect(model.can_go_back());
+    try testing.expect(!model.can_go_forward());
+
+    // Composer typing: plain [ / ] stay draft text, not history.
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "[" } }, &fx);
+    try testing.expectEqualStrings("[", model.draft());
+    const plain_back = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "[" };
+    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_back));
+    try testing.expectEqualStrings("fix auth listener", model.selected_title());
+    try testing.expectEqualStrings("[", model.draft());
+
+    const plain_forward = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "]" };
+    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_forward));
+    try testing.expectEqualStrings("fix auth listener", model.selected_title());
+
+    const cmd_back = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "[",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.history_back, main.onKey(cmd_back).?);
+    main.update(&model, main.onKey(cmd_back).?, &fx);
+    try testing.expectEqualStrings("port waku to zig", model.selected_title());
+    try testing.expect(!model.can_go_back());
+    try testing.expect(model.can_go_forward());
+
+    main.update(&model, main.onKey(cmd_back).?, &fx);
+    try testing.expectEqualStrings("port waku to zig", model.selected_title());
+    try testing.expect(!model.can_go_back());
+
+    const cmd_forward = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "]",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.history_forward, main.onKey(cmd_forward).?);
+    main.update(&model, main.onKey(cmd_forward).?, &fx);
+    try testing.expectEqualStrings("fix auth listener", model.selected_title());
+    try testing.expect(model.can_go_back());
+    try testing.expect(!model.can_go_forward());
+
+    main.update(&model, main.onKey(cmd_forward).?, &fx);
+    try testing.expectEqualStrings("fix auth listener", model.selected_title());
+    try testing.expect(!model.can_go_forward());
+
+    const ctrl_back = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "[",
+        .modifiers = .{ .control = true },
+    };
+    try testing.expectEqual(Msg.history_back, main.onKey(ctrl_back).?);
+    main.update(&model, main.onKey(ctrl_back).?, &fx);
+    try testing.expectEqualStrings("port waku to zig", model.selected_title());
+
+    const ctrl_forward = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "]",
+        .modifiers = .{ .control = true },
+    };
+    try testing.expectEqual(Msg.history_forward, main.onKey(ctrl_forward).?);
+    main.update(&model, main.onKey(ctrl_forward).?, &fx);
+    try testing.expectEqualStrings("fix auth listener", model.selected_title());
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+}
+
 fn expectLaidOutHeight(root: canvas.Widget, id: canvas.ObjectId, height: f32) !void {
     var nodes: [256]canvas.WidgetLayoutNode = undefined;
     const layout = try canvas.layoutWidgetTree(
