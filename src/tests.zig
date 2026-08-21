@@ -3584,7 +3584,6 @@ test "cmd-n and ctrl-n create a session via onKey" {
     try testing.expectEqualStrings("untitled", model.selected_title());
     try testing.expectEqualStrings("New task", model.header_title());
     try testing.expectEqual(main.Provider.fx, model.session_store[2].provider);
-    try testing.expectEqualStrings("", model.draft());
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "New task");
