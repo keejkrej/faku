@@ -88,6 +88,8 @@ The model chip follows ACP `config_option_update` (`configOptions` id
 ACP `available_commands_update` stores command names (and descriptions)
 on the session. Composer Commands inserts `/name ` into the draft; it
 does not run the command.
+ACP `session_info_update` applies a non-empty `title` to the session
+(header / sidebar); official `cwd` is not on this notification.
 The `session/prompt` result `stopReason`
 settles the turn and drains the success-only queue (`cancelled` /
 `refusal` / JSON-RPC error do not drain). This is **not** a long-lived
