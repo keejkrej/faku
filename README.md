@@ -21,7 +21,8 @@ a folder (or the move control) assigns the selected session; folder
 titles are editable; the selected session title is editable; deleting a folder unassigns its sessions;
 sidebar trash removes a session (and closeSession if a daemon is set);
 the composer project row sets the selected session cwd; the usage
-control stays empty unless ACP reports `usage_update`; Rewind
+control stays empty unless ACP reports `usage_update`; assistant
+turns render Native markdown; Rewind
 resets workspace files to the last recorded HEAD and does not
 rewind the chat; headless paths are unchanged.
 
