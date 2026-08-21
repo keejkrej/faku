@@ -2897,6 +2897,77 @@ test "cmd-k and ctrl-k focus sidebar search via onKey" {
     _ = try expectButton(tree.root, "Search");
 }
 
+test "cmd-comma and ctrl-comma open settings via onKey" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expect(!model.settings_open);
+    try testing.expect(!model.search_active);
+
+    const plain_comma = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "," };
+    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_comma));
+
+    const cmd_comma = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = ",",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.toggle_settings, main.onKey(cmd_comma).?);
+    main.update(&model, main.onKey(cmd_comma).?, &fx);
+    try testing.expect(model.settings_open);
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Settings");
+    _ = try expectByText(tree.root, .text, "Default model");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "FX_MODEL") != null);
+    try testing.expect(findByText(tree.root, .button, "Send") == null);
+
+    main.update(&model, main.onKey(cmd_comma).?, &fx);
+    try testing.expect(!model.settings_open);
+
+    const ctrl_comma = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = ",",
+        .modifiers = .{ .control = true },
+    };
+    try testing.expectEqual(Msg.toggle_settings, main.onKey(ctrl_comma).?);
+    main.update(&model, main.onKey(ctrl_comma).?, &fx);
+    try testing.expect(model.settings_open);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Default model");
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expect(!model.settings_open);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "Send");
+    try testing.expect(findByText(tree.root, .text, "Default model") == null);
+
+    const cmd_k = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "k",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.start_search, main.onKey(cmd_k).?);
+    main.update(&model, main.onKey(cmd_k).?, &fx);
+    try testing.expect(model.search_active);
+    try testing.expect(!model.settings_open);
+
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .search_field)) |field| {
+        try testing.expectEqualStrings("Search", field.placeholder);
+    } else return error.WidgetNotFound;
+}
+
 test "send while busy shows a queued card that dismiss clears" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
