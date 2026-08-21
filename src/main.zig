@@ -38,6 +38,7 @@ const default_sidebar_split: f32 = sidebar_default_width / window_width;
 const max_sessions = 16;
 const max_turns = 128;
 const max_title = 64;
+const max_search = 64;
 const max_body = 4096;
 pub const max_draft = 512;
 pub const max_queued = 16;
@@ -245,6 +246,8 @@ pub const Msg = union(enum) {
     new_session,
     select: u32,
     remove_session: u32,
+    start_search,
+    search_edit: canvas.TextInputEvent,
     draft_edit: canvas.TextInputEvent,
     send,
     stop,
@@ -268,6 +271,8 @@ pub const Model = struct {
     turn_count: u32 = 0,
     next_turn_id: u32 = 1,
     draft_buffer: canvas.TextBuffer(max_draft) = .{},
+    search_buffer: canvas.TextBuffer(max_search) = .{},
+    search_active: bool = false,
     mode: Mode = .demo,
     phase: Phase = .idle,
     stream_cursor: u32 = 0,
@@ -340,6 +345,7 @@ pub const Model = struct {
         "turn_count",
         "next_turn_id",
         "draft_buffer",
+        "search_buffer",
         "mode",
         "phase",
         "stream_cursor",
@@ -428,6 +434,7 @@ pub const Model = struct {
         "homeDir",
         "storeDir",
         "setStoreDir",
+        "exitSearch",
         "selected_title",
         "selected_provider",
         "status_line",
@@ -439,6 +446,15 @@ pub const Model = struct {
         return model.draft_buffer.text();
     }
 
+    pub fn search_query(model: *const Model) []const u8 {
+        return model.search_buffer.text();
+    }
+
+    pub fn exitSearch(model: *Model) void {
+        model.search_buffer.clear();
+        model.search_active = false;
+    }
+
     pub fn is_streaming(model: *const Model) bool {
         return model.phase == .streaming;
     }
@@ -448,16 +464,24 @@ pub const Model = struct {
     }
 
     pub fn session_rows(model: *const Model, arena: std.mem.Allocator) []const SessionRow {
-        const out = arena.alloc(SessionRow, model.session_count) catch return &.{};
-        for (model.session_store[0..model.session_count], 0..) |*session, i| {
+        const query = std.mem.trim(u8, model.search_query(), " \t\r\n");
+        var count: usize = 0;
+        for (model.session_store[0..model.session_count]) |*session| {
+            if (sessionMatchesQuery(session, query)) count += 1;
+        }
+        const out = arena.alloc(SessionRow, count) catch return &.{};
+        var i: usize = 0;
+        for (model.session_store[0..model.session_count]) |*session| {
+            if (!sessionMatchesQuery(session, query)) continue;
             out[i] = .{
                 .id = session.id,
                 .title = sessionDisplayTitle(session),
                 .provider = session.provider_label(),
                 .selected = session.id == model.selected,
             };
+            i += 1;
         }
-        return out;
+        return out[0..i];
     }
 
     pub fn visible_turns(model: *const Model, arena: std.mem.Allocator) []const TurnRow {
@@ -917,6 +941,31 @@ fn sessionDisplayTitle(session: *const Session) []const u8 {
     return session.title();
 }
 
+fn sessionMatchesQuery(session: *const Session, query: []const u8) bool {
+    if (query.len == 0) return true;
+    if (asciiContainsIgnoreCase(sessionDisplayTitle(session), query)) return true;
+    if (asciiContainsIgnoreCase(session.title(), query)) return true;
+    return asciiContainsIgnoreCase(session.provider_label(), query);
+}
+
+fn asciiContainsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len == 0) return true;
+    if (needle.len > haystack.len) return false;
+    var i: usize = 0;
+    while (i + needle.len <= haystack.len) : (i += 1) {
+        if (asciiEqlIgnoreCase(haystack[i .. i + needle.len], needle)) return true;
+    }
+    return false;
+}
+
+fn asciiEqlIgnoreCase(left: []const u8, right: []const u8) bool {
+    if (left.len != right.len) return false;
+    for (left, right) |a, b| {
+        if (std.ascii.toLower(a) != std.ascii.toLower(b)) return false;
+    }
+    return true;
+}
+
 fn clampSidebarSplit(value: f32) f32 {
     const min_split = sidebar_min_width / window_width;
     const max_split = sidebar_max_width / window_width;
@@ -966,12 +1015,27 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.removeIfPossible(model, id, fx);
             store.loadDraftIfPossible(model);
         },
+        .start_search => model.search_active = true,
+        .search_edit => |edit| {
+            model.search_buffer.apply(edit);
+            if (model.search_query().len == 0) {
+                model.search_active = false;
+            } else {
+                model.search_active = true;
+            }
+        },
         .draft_edit => |edit| {
             model.draft_buffer.apply(edit);
             store.persistDraftIfPossible(model);
         },
         .send => handleSend(model, fx),
-        .stop => stopStream(model, fx),
+        .stop => {
+            if (model.search_active or model.search_query().len > 0) {
+                model.exitSearch();
+                return;
+            }
+            stopStream(model, fx);
+        },
         .clear_queue => {
             model.dropQueuedForSession(model.selected);
             store.persistIfPossible(model, model.selected, fx);
