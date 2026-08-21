@@ -4399,6 +4399,100 @@ test "cmd-k and ctrl-k focus sidebar search via onKey" {
     _ = try expectButton(tree.root, "Search");
 }
 
+test "cmd-l and ctrl-l focus the composer via onKey" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expect(!model.composer_active);
+    try testing.expect(!model.search_active);
+
+    var tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("Do anything...", composer.placeholder);
+        try testing.expect(!composer.autofocus);
+    } else return error.WidgetNotFound;
+    _ = try expectByText(tree.root, .button, "Copy session");
+    _ = try expectButton(tree.root, "Attach image");
+    try testing.expect(findByText(tree.root, .image, "Attached image") == null);
+
+    const plain_l = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "l" };
+    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_l));
+    try testing.expect(!model.composer_active);
+
+    const cmd_l = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "l",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.focus_composer, main.onKey(cmd_l).?);
+    main.update(&model, main.onKey(cmd_l).?, &fx);
+    try testing.expect(model.composer_active);
+    try testing.expectEqualStrings("", model.draft());
+
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("Do anything...", composer.placeholder);
+        try testing.expect(composer.autofocus);
+    } else return error.WidgetNotFound;
+    _ = try expectByText(tree.root, .button, "Copy session");
+    _ = try expectButton(tree.root, "Attach image");
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "plain l still types" } }, &fx);
+    try testing.expectEqualStrings("plain l still types", model.draft());
+
+    main.update(&model, .start_search, &fx);
+    try testing.expect(model.search_active);
+    try testing.expect(!model.composer_active);
+
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .search_field)) |field| {
+        try testing.expectEqualStrings("Search", field.placeholder);
+        try testing.expect(field.autofocus);
+    } else return error.WidgetNotFound;
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expect(!composer.autofocus);
+        try testing.expectEqualStrings("plain l still types", composer.text);
+    } else return error.WidgetNotFound;
+
+    const ctrl_l = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "L",
+        .modifiers = .{ .control = true },
+    };
+    try testing.expectEqual(Msg.focus_composer, main.onKey(ctrl_l).?);
+    main.update(&model, main.onKey(ctrl_l).?, &fx);
+    try testing.expect(model.composer_active);
+    try testing.expect(model.search_active);
+
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expect(composer.autofocus);
+        try testing.expectEqualStrings("plain l still types", composer.text);
+    } else return error.WidgetNotFound;
+    _ = try expectByText(tree.root, .button, "Copy session");
+    _ = try expectButton(tree.root, "Attach image");
+    try testing.expect(findByText(tree.root, .image, "Attached image") == null);
+
+    const cmd_k = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "k",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.start_search, main.onKey(cmd_k).?);
+    const cmd_c = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "c",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.copy_last_turn, main.onKey(cmd_c).?);
+}
+
 test "cmd-comma and ctrl-comma open settings via onKey" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
