@@ -1146,6 +1146,142 @@ test "fx ask omits --image when the draft file is missing" {
     try testing.expect(std.mem.indexOf(u8, request.stdin, "no image") != null);
 }
 
+test "composer attach pastes image_path, persists, and clears" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-image-attach", .{tmp.sub_path[0..]});
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/shot.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const id = model.addSession("attach session", .fx);
+    _ = model.appendTurn(id, .user, "already started");
+    model.selected = id;
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+
+    var tree = try buildTree(arena, &model);
+    const attach = try expectButton(tree.root, "Attach image");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Image path") == null);
+    try testing.expect(findByText(tree.root, .button, "shot.png") == null);
+
+    main.update(&model, tree.msgForPointer(attach.id, .up).?, &fx);
+    try testing.expect(model.image_attach_active);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Image path") != null);
+
+    main.update(&model, .{ .image_path_edit = .{ .insert_text = image } }, &fx);
+    try testing.expectEqualStrings(image, model.draftImagePath());
+    try testing.expectEqualStrings("shot.png", model.image_chip_label());
+    try testing.expect(model.has_image_attach());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "shot.png");
+    _ = try expectButton(tree.root, "Clear image");
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expect(!model.image_attach_active);
+    try testing.expectEqualStrings(image, model.draftImagePath());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(id, loaded.selected);
+    try testing.expectEqualStrings(image, loaded.draftImagePath());
+    try testing.expectEqualStrings("shot.png", loaded.image_chip_label());
+
+    tree = try buildTree(arena, &loaded);
+    _ = try expectByText(tree.root, .button, "shot.png");
+    const clear = try expectButton(tree.root, "Clear image");
+    main.update(&loaded, tree.msgForPointer(clear.id, .up).?, &fx);
+    try testing.expectEqual(@as(usize, 0), loaded.draftImagePath().len);
+    try testing.expect(!loaded.has_image_attach());
+    try testing.expect(!loaded.image_attach_active);
+
+    tree = try buildTree(arena, &loaded);
+    try testing.expect(findByText(tree.root, .button, "shot.png") == null);
+    try testing.expect(findByText(tree.root, .button, "Clear image") == null);
+    _ = try expectButton(tree.root, "Attach image");
+
+    var cleared = Model{};
+    cleared.setStoreDir(dir);
+    cleared.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&cleared, testing.allocator, testing.io));
+    try testing.expectEqual(@as(usize, 0), cleared.draftImagePath().len);
+}
+
+test "composer attach path uses fx ask --image; ACP spawn has no image blocks" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/chip.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    model.store_io = testing.io;
+    const id = model.addSession("attach send", .fx);
+    model.selected = id;
+
+    main.update(&model, .start_image_attach, &fx);
+    main.update(&model, .{ .image_path_edit = .{ .insert_text = image } }, &fx);
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "look at this" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqualStrings(image, model.lastSpawnImagePath());
+    try testing.expectEqual(@as(usize, 0), model.draftImagePath().len);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const ask = fx.pendingSpawnAt(0).?;
+    try testing.expect(argvHas(ask.argv, "ask"));
+    try testing.expect(!argvHas(ask.argv, "acp"));
+    try testing.expect(argvHas(ask.argv, "--image"));
+    const image_at = argvIndex(ask.argv, "--image") orelse return error.MissingImage;
+    try testing.expectEqualStrings(image, ask.argv[image_at + 1]);
+    try testing.expect(std.mem.indexOf(u8, ask.stdin, "\"type\":\"image\"") == null);
+
+    try fx.feedExit(ask.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+
+    main.update(&model, .start_image_attach, &fx);
+    main.update(&model, .{ .image_path_edit = .{ .insert_text = image } }, &fx);
+    main.update(&model, .clear_image_attach, &fx);
+    try testing.expectEqual(@as(usize, 0), model.draftImagePath().len);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "text only" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const acp_spawn = fx.pendingSpawnAt(0).?;
+    try testing.expect(argvHas(acp_spawn.argv, "acp"));
+    try testing.expect(!argvHas(acp_spawn.argv, "ask"));
+    try testing.expect(!argvHas(acp_spawn.argv, "--image"));
+    try testing.expect(std.mem.indexOf(u8, acp_spawn.stdin, "\"type\":\"text\"") != null);
+    try testing.expect(std.mem.indexOf(u8, acp_spawn.stdin, "\"type\":\"image\"") == null);
+    try testing.expect(std.mem.indexOf(u8, acp_spawn.stdin, "text only") != null);
+}
+
 test "Waku access_mode maps to verified FX_PERMISSION_MODE values" {
     try testing.expectEqualStrings("ask", main.fxPermissionMode("ask"));
     try testing.expectEqualStrings("auto", main.fxPermissionMode("auto"));

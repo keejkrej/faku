@@ -190,6 +190,7 @@
             <input-group label="Message composer" height="88">
               <textarea placeholder="{composer_placeholder}" text="{draft}" submit-on-enter="true" on-input="draft_edit" on-submit="send" />
               <input-group-actions>
+                <button variant="ghost" size="icon" icon="file-text" label="Attach image" on-press="start_image_attach"></button>
                 <button variant="ghost" size="sm" icon="circle-dot" on-press="cycle_model">{model_label}</button>
                 <button variant="ghost" size="sm" icon="menu">Medium</button>
                 <button variant="ghost" size="sm" icon="eye" on-press="cycle_access">{access_label}</button>
@@ -198,6 +199,17 @@
                 <button variant="primary" size="icon" icon="arrow-up" label="{send_label}" on-press="send" width="26" height="26" radius="xl"></button>
               </input-group-actions>
             </input-group>
+            <if test="{image_attach_active}">
+              <row gap="8" cross="center">
+                <text-field grow="1" placeholder="Image path" text="{image_edit}" on-input="image_path_edit" autofocus="true" />
+              </row>
+            </if>
+            <if test="{has_image_attach}">
+              <row gap="4" cross="center">
+                <button variant="ghost" size="sm" icon="file-text" on-press="start_image_attach">{image_chip_label}</button>
+                <button variant="ghost" size="icon" icon="x" label="Clear image" on-press="clear_image_attach"></button>
+              </row>
+            </if>
             <if test="{project_edit_active}">
               <row gap="8" cross="center">
                 <text-field grow="1" placeholder="Workspace path" text="{project_edit}" on-input="project_path_edit" autofocus="true" />
