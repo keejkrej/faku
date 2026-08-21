@@ -3893,8 +3893,9 @@ test "cmd-c and ctrl-c copy the last non-empty turn via writeClipboard" {
     try testing.expectEqualStrings("last non-empty body", first.text);
 
     main.update(&model, main.onKey(ctrl_c).?, &fx);
-    try testing.expectEqual(@as(usize, 2), fx.pendingClipboardCount());
-    try testing.expectEqualStrings("last non-empty body", fx.pendingClipboardAt(1).?.text);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try testing.expectEqual(main.copy_turn_key, fx.pendingClipboardAt(0).?.key);
+    try testing.expectEqualStrings("last non-empty body", fx.pendingClipboardAt(0).?.text);
 
     const cmd_b = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
