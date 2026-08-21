@@ -3088,6 +3088,12 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     if (keyboard.modifiers.hasNavigationModifier() and std.mem.eql(u8, keyboard.key, ",")) {
         return .toggle_settings;
     }
+    if (keyboard.modifiers.hasNavigationModifier() and std.mem.eql(u8, keyboard.key, "[")) {
+        return .history_back;
+    }
+    if (keyboard.modifiers.hasNavigationModifier() and std.mem.eql(u8, keyboard.key, "]")) {
+        return .history_forward;
+    }
     if (keyboard.modifiers.hasNavigationModifier() and isEnterKey(keyboard.key)) {
         return .steer;
     }
