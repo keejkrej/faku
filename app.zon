@@ -14,11 +14,11 @@
             .{
                 .label = "main",
                 .title = "Faku",
-                .width = 1200,
-                .height = 800,
-                .min_width = 800,
-                .min_height = 560,
-                .titlebar = "hidden_inset_tall",
+                .width = 1380,
+                .height = 880,
+                .min_width = 560,
+                .min_height = 480,
+                .titlebar = "chromeless",
                 .views = .{
                     .{
                         .label = "main-canvas",
