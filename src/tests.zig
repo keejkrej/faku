@@ -879,8 +879,10 @@ test "ACP available_commands_update stores names; empty clears; unknown is ignor
     try testing.expectEqualStrings("", model.sessionById(id).?.availableCommands()[2].description());
     try testing.expectEqualStrings("fullAccess", model.sessionById(id).?.accessMode());
     tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "Commands");
     try testing.expect(findByText(tree.root, .button, "web") == null);
     try testing.expect(findByText(tree.root, .button, "compact") == null);
+    try testing.expect(findByText(tree.root, .text, "/web") == null);
     try testing.expect(findByText(tree.root, .text, "Search the web for information") == null);
 
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-cmd-1\",\"update\":{\"sessionUpdate\":\"available_commands_update\",\"availableCommands\":[{\"name\":\"plan\",\"description\":\"Create a detailed implementation plan\"}]}}}");
@@ -906,6 +908,10 @@ test "ACP available_commands_update stores names; empty clears; unknown is ignor
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-cmd-1\",\"update\":{\"sessionUpdate\":\"available_commands_update\",\"availableCommands\":[]}}}");
     drainEffects(&model, &fx);
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.availableCommands().len);
+    try testing.expect(!model.has_commands());
+    try testing.expect(!model.commands_open);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Commands") == null);
     try testing.expectEqualStrings("stay on the reasoning row", lastReasoning(&model));
     try testing.expectEqualStrings("Reading file · read · pending", lastTool(&model));
     try testing.expectEqualStrings("ask", model.sessionById(id).?.accessMode());
@@ -934,6 +940,112 @@ test "ACP available_commands_update stores names; empty clears; unknown is ignor
     _ = try expectByText(tree.root, .button, "Ask");
     _ = try expectByText(tree.root, .button, "Build");
     try testing.expect(findByText(tree.root, .button, "plan") == null);
+    try testing.expect(findByText(tree.root, .button, "Commands") == null);
+}
+
+test "composer Commands lists stored names; empty hides; pick inserts /name and persists; no spawn" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-command-insert", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("command insert", .fx);
+    _ = model.appendTurn(id, .user, "already started");
+    model.selected = id;
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Commands") == null);
+    try testing.expect(findByText(tree.root, .text, "/web") == null);
+
+    if (model.sessionById(id)) |session| {
+        session.appendAvailableCommand("web", "Search the web for information");
+        session.appendAvailableCommand("compact", "");
+    }
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+    try testing.expect(model.has_commands());
+    try testing.expect(!model.commands_list_open());
+
+    tree = try buildTree(arena, &model);
+    const commands = try expectButton(tree.root, "Commands");
+    try testing.expect(findByText(tree.root, .text, "/web") == null);
+    try testing.expect(findByText(tree.root, .text, "Search the web for information") == null);
+    try testing.expect(findByText(tree.root, .text, "/compact") == null);
+
+    main.update(&model, tree.msgForPointer(commands.id, .up).?, &fx);
+    try testing.expect(model.commands_open);
+    try testing.expect(model.commands_list_open());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "/web");
+    _ = try expectByText(tree.root, .text, "Search the web for information");
+    _ = try expectByText(tree.root, .text, "/compact");
+    const web = try expectButton(tree.root, "/web");
+
+    main.update(&model, tree.msgForPointer(web.id, .up).?, &fx);
+    try testing.expectEqualStrings("/web ", model.draft());
+    try testing.expect(!model.commands_open);
+    try testing.expect(!model.commands_list_open());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expect(!model.fx_spawn_live);
+    try testing.expect(!model.is_streaming());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "/web") == null);
+    try testing.expect(findByText(tree.root, .text, "Search the web for information") == null);
+    _ = try expectButton(tree.root, "Commands");
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("/web ", composer.text);
+    }
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    main.update(&model, .toggle_commands, &fx);
+    try testing.expect(model.commands_open);
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expect(!model.commands_open);
+    try testing.expectEqualStrings("/web ", model.draft());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(id, loaded.selected);
+    try testing.expectEqualStrings("/web ", loaded.draft());
+    try testing.expectEqual(@as(usize, 2), loaded.session_store[0].availableCommands().len);
+    try testing.expectEqualStrings("web", loaded.session_store[0].availableCommands()[0].name());
+    try testing.expect(loaded.has_commands());
+    try testing.expect(!loaded.commands_open);
+
+    tree = try buildTree(arena, &loaded);
+    _ = try expectButton(tree.root, "Commands");
+    try testing.expect(findByText(tree.root, .text, "/web") == null);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("/web ", composer.text);
+    }
+
+    if (loaded.sessionById(id)) |session| session.clearAvailableCommands();
+    try testing.expect(!loaded.has_commands());
+    tree = try buildTree(arena, &loaded);
+    try testing.expect(findByText(tree.root, .button, "Commands") == null);
+    try testing.expect(findByText(tree.root, .text, "/compact") == null);
 }
 
 test "fx ask spawn records FX_MODEL and FX_PERMISSION_MODE" {
