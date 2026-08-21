@@ -1255,6 +1255,137 @@ test "failed or cancelled turns do not record a rewind ref" {
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.rewind_ref_count);
 }
 
+test "Rewind resets project_path files to the latest stored sha" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/rewind-apply", .{tmp.sub_path[0..]});
+    const expected = try initTestGitRepo(allocator, testing.io, project);
+    defer allocator.free(expected);
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-rewind-apply", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("rewind apply", .fx);
+    if (model.sessionById(id)) |session| {
+        session.setProjectPath(project);
+        session.setFxSessionId("fx-sess-rewind");
+    }
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "keep this prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    try fx.feedExit(main.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 1), model.sessionById(id).?.rewind_ref_count);
+    try testing.expectEqualStrings(expected, model.sessionById(id).?.rewindRefs()[0].sha());
+    try testing.expectEqualStrings("fx-sess-rewind", model.sessionById(id).?.fxSessionId());
+
+    var tree = try buildTree(arena, &model);
+    const rewind_btn = try expectByText(tree.root, .button, "Rewind");
+    try testing.expect(model.can_rewind());
+
+    try dirtyAndAdvanceRepo(allocator, testing.io, project, "advance\n");
+    var after_buf: [rewind.max_sha]u8 = undefined;
+    const after = rewind.revParseHead(allocator, testing.io, project, &after_buf) orelse return error.GitHead;
+    try testing.expect(!std.mem.eql(u8, expected, after));
+
+    main.update(&model, tree.msgForPointer(rewind_btn.id, .up).?, &fx);
+    var restored_buf: [rewind.max_sha]u8 = undefined;
+    const restored = rewind.revParseHead(allocator, testing.io, project, &restored_buf) orelse return error.GitHead;
+    try testing.expectEqualStrings(expected, restored);
+    const readme = try readRepoReadme(allocator, testing.io, project);
+    defer allocator.free(readme);
+    try testing.expectEqualStrings("rewind\n", readme);
+
+    const live = model.sessionById(id).?;
+    try testing.expectEqualStrings("fx-sess-rewind", live.fxSessionId());
+    try testing.expectEqual(@as(usize, 1), live.rewind_ref_count);
+    try testing.expectEqualStrings(expected, live.rewindRefs()[0].sha());
+    try testing.expectEqual(@as(u32, 2), model.turnCount(id));
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "keep this prompt") == null);
+}
+
+test "Rewind is a no-op when git, path, or stored sha is missing" {
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-rewind-noop", .{tmp.sub_path[0..]});
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/rewind-noop", .{tmp.sub_path[0..]});
+    const expected = try initTestGitRepo(allocator, testing.io, project);
+    defer allocator.free(expected);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const id = model.addSession("rewind noop", .fx);
+    if (model.sessionById(id)) |session| {
+        session.setProjectPath(project);
+        session.setFxSessionId("fx-sess-noop");
+    }
+    model.selected = id;
+    _ = model.appendTurn(id, .user, "stay put");
+    try store.saveSession(&model, id, allocator, testing.io);
+    const before = try readCatalog(allocator, testing.io, dir);
+    defer allocator.free(before);
+
+    main.update(&model, .rewind, &fx);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.rewind_ref_count);
+    try expectHead(allocator, testing.io, project, expected);
+    try expectCatalogUnchanged(allocator, testing.io, dir, before);
+
+    if (model.sessionById(id)) |session| session.appendRewindRef("not-a-sha", rewind.recorded_ref, 1);
+    main.update(&model, .rewind, &fx);
+    try expectHead(allocator, testing.io, project, expected);
+    try testing.expectEqual(@as(usize, 1), model.sessionById(id).?.rewind_ref_count);
+    try expectCatalogUnchanged(allocator, testing.io, dir, before);
+
+    if (model.sessionById(id)) |session| {
+        session.clearRewindRefs();
+        session.appendRewindRef("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", rewind.recorded_ref, 2);
+    }
+    main.update(&model, .rewind, &fx);
+    try expectHead(allocator, testing.io, project, expected);
+    try testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", model.sessionById(id).?.rewindRefs()[0].sha());
+    try expectCatalogUnchanged(allocator, testing.io, dir, before);
+
+    var plain_buf: [256]u8 = undefined;
+    const plain = try std.fmt.bufPrint(&plain_buf, ".zig-cache/tmp/{s}/plain", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, plain);
+    if (model.sessionById(id)) |session| session.setProjectPath(plain);
+    main.update(&model, .rewind, &fx);
+    try expectHead(allocator, testing.io, project, expected);
+    try expectCatalogUnchanged(allocator, testing.io, dir, before);
+
+    if (model.sessionById(id)) |session| session.setProjectPath(".zig-cache/tmp/faku-rewind-missing-path");
+    main.update(&model, .rewind, &fx);
+    try expectHead(allocator, testing.io, project, expected);
+    try expectCatalogUnchanged(allocator, testing.io, dir, before);
+    try testing.expectEqualStrings("fx-sess-noop", model.sessionById(id).?.fxSessionId());
+}
+
 fn initTestGitRepo(allocator: std.mem.Allocator, io: std.Io, path: []const u8) ![]u8 {
     try std.Io.Dir.cwd().createDirPath(io, path);
     try runGit(allocator, io, &.{ "git", "-C", path, "init" });
@@ -1290,6 +1421,51 @@ fn runGit(allocator: std.mem.Allocator, io: std.Io, argv: []const []const u8) !v
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
     if (result.term != .exited or result.term.exited != 0) return error.GitFailed;
+}
+
+fn dirtyAndAdvanceRepo(allocator: std.mem.Allocator, io: std.Io, path: []const u8, contents: []const u8) !void {
+    var readme_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const readme = try std.fmt.bufPrint(&readme_buf, "{s}{s}README", .{ path, std.fs.path.sep_str });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = readme, .data = "dirty\n" });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = readme, .data = contents });
+    try runGit(allocator, io, &.{ "git", "-C", path, "add", "README" });
+    try runGit(allocator, io, &.{
+        "git",
+        "-C",
+        path,
+        "-c",
+        "user.email=rewind@test",
+        "-c",
+        "user.name=Rewind",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-m",
+        "advance",
+    });
+}
+
+fn readRepoReadme(allocator: std.mem.Allocator, io: std.Io, path: []const u8) ![]u8 {
+    var readme_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const readme = try std.fmt.bufPrint(&readme_buf, "{s}{s}README", .{ path, std.fs.path.sep_str });
+    return std.Io.Dir.cwd().readFileAlloc(io, readme, allocator, .limited(64));
+}
+
+fn expectHead(allocator: std.mem.Allocator, io: std.Io, path: []const u8, expected: []const u8) !void {
+    var sha_buf: [rewind.max_sha]u8 = undefined;
+    const sha = rewind.revParseHead(allocator, io, path, &sha_buf) orelse return error.GitHead;
+    try testing.expectEqualStrings(expected, sha);
+}
+
+fn readCatalog(allocator: std.mem.Allocator, io: std.Io, dir: []const u8) ![]u8 {
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    return std.Io.Dir.cwd().readFileAlloc(io, store.catalogPath(dir, &path_buf).?, allocator, .limited(store.max_document_bytes));
+}
+
+fn expectCatalogUnchanged(allocator: std.mem.Allocator, io: std.Io, dir: []const u8, before: []const u8) !void {
+    const after = try readCatalog(allocator, io, dir);
+    defer allocator.free(after);
+    try testing.expectEqualStrings(before, after);
 }
 
 fn isLoadOnlyStdin(stdin: []const u8) bool {

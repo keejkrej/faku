@@ -136,7 +136,7 @@ pub const Session = struct {
     /// Waku `StartOptions.interaction_mode` (build | plan).
     interaction_mode_storage: [max_interaction_mode]u8 = [_]u8{0} ** max_interaction_mode,
     interaction_mode_len: usize = 0,
-    /// Successful-turn HEAD snapshots. Cap last 20; no rewind UI yet.
+    /// Successful-turn HEAD snapshots. Cap last 20. Rewind uses the latest sha.
     rewind_refs: [rewind.max_refs]rewind.Ref = [_]rewind.Ref{.{}} ** rewind.max_refs,
     rewind_ref_count: usize = 0,
     /// 0 = ungrouped (Today). Unknown ids also render under Today.
@@ -207,6 +207,10 @@ pub const Session = struct {
 
     pub fn appendRewindRef(self: *Session, sha: []const u8, ref_name: []const u8, recorded_at: i64) void {
         rewind.append(&self.rewind_refs, &self.rewind_ref_count, sha, ref_name, recorded_at);
+    }
+
+    pub fn latestRewindSha(self: *const Session) ?[]const u8 {
+        return rewind.latestStoredSha(self.rewindRefs());
     }
 
     pub fn setContextUsage(self: *Session, used: u64, size: u64) void {
@@ -328,6 +332,7 @@ pub const Msg = union(enum) {
     cycle_model,
     start_project_edit,
     project_path_edit: canvas.TextInputEvent,
+    rewind,
     history_back,
     history_forward,
     new_folder,
@@ -965,6 +970,12 @@ pub const Model = struct {
     pub fn context_usage(model: *const Model) f32 {
         const session = model.sessionByIdConst(model.selected) orelse return 0;
         return session.contextUsageFraction();
+    }
+
+    /// Header Rewind control. Latest stored 40-char hex sha only; no picker.
+    pub fn can_rewind(model: *const Model) bool {
+        const session = model.sessionByIdConst(model.selected) orelse return false;
+        return session.latestRewindSha() != null;
     }
 
     pub fn project_edit(model: *const Model) []const u8 {
@@ -1704,6 +1715,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.applySelectedProjectPath(edit);
             persistComposerProject(model, fx);
         },
+        .rewind => applyRewindIfPossible(model),
         .clear_queue => {
             model.dropQueuedForSession(model.selected);
             store.persistIfPossible(model, model.selected, fx);
@@ -2088,6 +2100,15 @@ fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
     var sha_buf: [rewind.max_sha]u8 = undefined;
     const captured = rewind.captureHead(std.heap.page_allocator, io, session.projectPath(), &sha_buf) orelse return;
     session.appendRewindRef(captured.sha, rewind.recorded_ref, captured.recorded_at);
+}
+
+/// Files only: `git reset --hard` the latest stored sha. Does not persist,
+/// rewrite the transcript, or change `fx_session_id`. Failed git is a no-op.
+fn applyRewindIfPossible(model: *Model) void {
+    const io = model.store_io orelse return;
+    const session = model.sessionById(model.selected) orelse return;
+    const sha = session.latestRewindSha() orelse return;
+    _ = rewind.resetHard(std.heap.page_allocator, io, session.projectPath(), sha);
 }
 
 fn stopStream(model: *Model, fx: *Effects) void {

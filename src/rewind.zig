@@ -1,13 +1,16 @@
-//! Workspace HEAD snapshots for a later rewind. This cut only records.
+//! Workspace HEAD snapshots and file-only rewind.
 //!
 //! After a successful turn, Faku stores `{ sha, ref, recorded_at }` on the
-//! session when `project_path` is a git work tree. It does not run
-//! `git reset` / `checkout`, create extra refs, or offer rewind UI.
+//! session when `project_path` is a git work tree. Rewind applies the latest
+//! stored 40-char hex sha with one-shot `git reset --hard` in `project_path`.
+//! It does not rewrite the transcript, change `fx_session_id`, create extra
+//! refs, or invent a sha. Missing / non-git / unknown sha is a no-op.
 
 const std = @import("std");
 
 pub const max_refs: usize = 20;
 pub const max_sha: usize = 64;
+pub const stored_sha_len: usize = 40;
 pub const max_ref_name: usize = 16;
 pub const recorded_ref = "HEAD";
 
@@ -66,6 +69,42 @@ pub fn captureHead(allocator: std.mem.Allocator, io: std.Io, project_path: []con
     if (!isGitWorkTree(io, project_path)) return null;
     const sha = revParseHead(allocator, io, project_path, dest) orelse return null;
     return .{ .sha = sha, .recorded_at = nowUnixSeconds(io) };
+}
+
+pub fn isStoredSha(sha: []const u8) bool {
+    if (sha.len != stored_sha_len) return false;
+    for (sha) |c| {
+        const digit = c >= '0' and c <= '9';
+        const lower = c >= 'a' and c <= 'f';
+        const upper = c >= 'A' and c <= 'F';
+        if (!digit and !lower and !upper) return false;
+    }
+    return true;
+}
+
+/// Latest recorded 40-char hex sha. Skips entries that are not stored shas.
+pub fn latestStoredSha(refs: []const Ref) ?[]const u8 {
+    var i = refs.len;
+    while (i > 0) {
+        i -= 1;
+        if (isStoredSha(refs[i].sha())) return refs[i].sha();
+    }
+    return null;
+}
+
+/// One-shot `git -C <path> reset --hard <sha>`. No Native git API.
+/// Missing / non-git / unknown sha is a no-op.
+pub fn resetHard(allocator: std.mem.Allocator, io: std.Io, project_path: []const u8, sha: []const u8) bool {
+    if (!isStoredSha(sha)) return false;
+    if (!isGitWorkTree(io, project_path)) return false;
+    const result = std.process.run(allocator, io, .{
+        .argv = &.{ "git", "-C", project_path, "reset", "--hard", sha },
+        .stdout_limit = .limited(256),
+        .stderr_limit = .limited(512),
+    }) catch return false;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    return result.term == .exited and result.term.exited == 0;
 }
 
 pub fn append(dest: *[max_refs]Ref, count: *usize, sha: []const u8, ref_name: []const u8, recorded_at: i64) void {
@@ -130,6 +169,75 @@ test "captureHead records rev-parse HEAD in a temp git repo" {
     try testing.expect(captured.recorded_at > 0);
 }
 
+test "isStoredSha accepts only 40-char hex" {
+    const testing = std.testing;
+    try testing.expect(isStoredSha("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+    try testing.expect(isStoredSha("0123456789ABCDEFabcdef0123456789ABCDEF01"));
+    try testing.expect(!isStoredSha(""));
+    try testing.expect(!isStoredSha("abc"));
+    try testing.expect(!isStoredSha("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+    try testing.expect(!isStoredSha("gggggggggggggggggggggggggggggggggggggggg"));
+}
+
+test "latestStoredSha prefers the last 40-char hex" {
+    const testing = std.testing;
+    var refs: [max_refs]Ref = [_]Ref{.{}} ** max_refs;
+    var count: usize = 0;
+    append(&refs, &count, "short", recorded_ref, 1);
+    append(&refs, &count, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", recorded_ref, 2);
+    append(&refs, &count, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", recorded_ref, 3);
+    append(&refs, &count, "not-a-sha", recorded_ref, 4);
+    try testing.expectEqualStrings("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", latestStoredSha(refs[0..count]).?);
+}
+
+test "resetHard restores a recorded sha after dirty and advanced HEAD" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/reset", .{tmp.sub_path[0..]});
+    const expected = try initTestRepo(allocator, testing.io, path);
+    defer allocator.free(expected);
+
+    try dirtyAndAdvance(allocator, testing.io, path, "advance\n");
+    var after_buf: [max_sha]u8 = undefined;
+    const after = revParseHead(allocator, testing.io, path, &after_buf) orelse return error.GitHead;
+    try testing.expect(!std.mem.eql(u8, expected, after));
+
+    try testing.expect(resetHard(allocator, testing.io, path, expected));
+    var restored_buf: [max_sha]u8 = undefined;
+    const restored = revParseHead(allocator, testing.io, path, &restored_buf) orelse return error.GitHead;
+    try testing.expectEqualStrings(expected, restored);
+    const readme_bytes = try readReadme(allocator, testing.io, path);
+    defer allocator.free(readme_bytes);
+    try testing.expectEqualStrings("rewind\n", readme_bytes);
+}
+
+test "resetHard is a no-op for missing path, non-git, and unknown sha" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    const unknown = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    try testing.expect(!resetHard(allocator, testing.io, "", unknown));
+    try testing.expect(!resetHard(allocator, testing.io, ".zig-cache/tmp/faku-rewind-missing", unknown));
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var plain_buf: [256]u8 = undefined;
+    const plain = try std.fmt.bufPrint(&plain_buf, ".zig-cache/tmp/{s}/plain", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, plain);
+    try testing.expect(!resetHard(allocator, testing.io, plain, unknown));
+
+    var repo_buf: [256]u8 = undefined;
+    const repo = try std.fmt.bufPrint(&repo_buf, ".zig-cache/tmp/{s}/unknown", .{tmp.sub_path[0..]});
+    const expected = try initTestRepo(allocator, testing.io, repo);
+    defer allocator.free(expected);
+    try testing.expect(!resetHard(allocator, testing.io, repo, unknown));
+    var still_buf: [max_sha]u8 = undefined;
+    const still = revParseHead(allocator, testing.io, repo, &still_buf) orelse return error.GitHead;
+    try testing.expectEqualStrings(expected, still);
+}
+
 test "append keeps the last 20 refs" {
     const testing = std.testing;
     var refs: [max_refs]Ref = [_]Ref{.{}} ** max_refs;
@@ -169,6 +277,34 @@ fn initTestRepo(allocator: std.mem.Allocator, io: std.Io, path: []const u8) ![]u
     var sha_buf: [max_sha]u8 = undefined;
     const sha = revParseHead(allocator, io, path, &sha_buf) orelse return error.GitHead;
     return allocator.dupe(u8, sha);
+}
+
+fn dirtyAndAdvance(allocator: std.mem.Allocator, io: std.Io, path: []const u8, contents: []const u8) !void {
+    var readme_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const readme = try std.fmt.bufPrint(&readme_buf, "{s}{s}README", .{ path, std.fs.path.sep_str });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = readme, .data = "dirty\n" });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = readme, .data = contents });
+    try runGit(allocator, io, &.{ "git", "-C", path, "add", "README" });
+    try runGit(allocator, io, &.{
+        "git",
+        "-C",
+        path,
+        "-c",
+        "user.email=rewind@test",
+        "-c",
+        "user.name=Rewind",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-m",
+        "advance",
+    });
+}
+
+fn readReadme(allocator: std.mem.Allocator, io: std.Io, path: []const u8) ![]u8 {
+    var readme_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const readme = try std.fmt.bufPrint(&readme_buf, "{s}{s}README", .{ path, std.fs.path.sep_str });
+    return std.Io.Dir.cwd().readFileAlloc(io, readme, allocator, .limited(64));
 }
 
 fn runGit(allocator: std.mem.Allocator, io: std.Io, argv: []const []const u8) !void {
