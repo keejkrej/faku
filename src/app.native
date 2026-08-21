@@ -206,7 +206,7 @@
               </card>
             </if>
             <input-group label="Message composer" height="88">
-              <textarea placeholder="{composer_placeholder}" text="{draft}" submit-on-enter="true" on-input="draft_edit" on-submit="send" />
+              <textarea placeholder="{composer_placeholder}" text="{draft}" submit-on-enter="true" on-input="draft_edit" on-submit="send" autofocus="{composer_active}" />
               <input-group-actions>
                 <button variant="ghost" size="icon" icon="file-text" label="Attach image" on-press="start_image_attach"></button>
                 <if test="{has_commands}">

@@ -461,6 +461,7 @@ pub const Msg = union(enum) {
     select: u32,
     remove_session: u32,
     start_search,
+    focus_composer,
     search_edit: canvas.TextInputEvent,
     draft_edit: canvas.TextInputEvent,
     send,
@@ -511,7 +512,7 @@ pub const Msg = union(enum) {
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "clipboard_done", "attach_preview_done" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "focus_composer", "clipboard_done", "attach_preview_done" };
 };
 
 pub const Model = struct {
@@ -531,6 +532,7 @@ pub const Model = struct {
     draft_buffer: canvas.TextBuffer(max_draft) = .{},
     search_buffer: canvas.TextBuffer(max_search) = .{},
     search_active: bool = false,
+    composer_active: bool = false,
     mode: Mode = .demo,
     phase: Phase = .idle,
     stream_cursor: u32 = 0,
@@ -2278,7 +2280,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.loadDraftIfPossible(model);
             refreshAttachPreview(model, fx);
         },
-        .start_search => model.search_active = true,
+        .start_search => {
+            model.search_active = true;
+            model.composer_active = false;
+        },
+        .focus_composer => model.composer_active = true,
         .search_edit => |edit| {
             model.search_buffer.apply(edit);
             if (model.search_query().len == 0) {
@@ -3242,6 +3248,9 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "k")) {
         return .start_search;
+    }
+    if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "l")) {
+        return .focus_composer;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "b")) {
         return .toggle_sidebar;
