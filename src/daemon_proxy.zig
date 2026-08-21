@@ -3,8 +3,8 @@
 //! Native `fx.spawn` writes stdin once and then closes it. This module
 //! builds that buffer (hello + attachSession + start + prompt when no
 //! runtime id, hello + attachSession + prompt when one is stored, hello +
-//! saveTaskState, hello + loadTaskState, hello + hydrateSession, or
-//! hello + closeSession) and,
+//! saveTaskState, hello + loadTaskState, hello + hydrateSession,
+//! hello + closeSession, or hello + cancel) and,
 //! when run as `faku daemon-proxy <addr>`, forwards those JSON frames over
 //! `ws://{addr}/v1`, prints each incoming text frame as one stdout line,
 //! and exits on `turnFinished` / `rejected` / `error`. A save-only stdin
@@ -12,7 +12,8 @@
 //! waits for the `taskState` response (not hello) because a nil
 //! `requestId` is a notify and would never return the catalog. A
 //! hydrate-only stdin waits for the `session` response the same way. A
-//! close-only stdin exits after server hello / response like save.
+//! close-only or cancel-only stdin exits after server hello / response
+//! like save.
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -71,6 +72,14 @@ pub const HydrateStdin = struct {
 };
 
 pub const CloseStdin = struct {
+    token: []const u8 = "",
+    client_id: []const u8 = CLIENT_ID,
+    request_id: []const u8 = protocol.NIL_UUID,
+    session_id: []const u8,
+    runtime_id: []const u8 = protocol.NIL_UUID,
+};
+
+pub const CancelStdin = struct {
     token: []const u8 = "",
     client_id: []const u8 = CLIENT_ID,
     request_id: []const u8 = protocol.NIL_UUID,
@@ -244,6 +253,27 @@ pub fn writeCloseStdin(buf: []u8, args: CloseStdin) WriteError![]const u8 {
         .close_session,
     );
     cur.pos += close.len;
+    try cur.write("\n");
+    return cur.slice();
+}
+
+/// NDJSON stdin for Stop / Esc of a live daemon turn. Hello + bare
+/// `cancel` (request-frame `sessionId` / `runtimeId`, no payload).
+/// Native cannot write into the running prompt sidecar, so this is a
+/// second one-shot on its own spawn key. No attachSession, no prompt.
+pub fn writeCancelStdin(buf: []u8, args: CancelStdin) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    const hello = try protocol.writeClientHello(cur.remaining(), args.token, args.client_id, &.{});
+    cur.pos += hello.len;
+    try cur.write("\n");
+    const cancel = try protocol.writeBareCommand(
+        cur.remaining(),
+        args.request_id,
+        args.session_id,
+        args.runtime_id,
+        .cancel,
+    );
+    cur.pos += cancel.len;
     try cur.write("\n");
     return cur.slice();
 }
@@ -661,6 +691,28 @@ test "writeCloseStdin emits hello and bare closeSession without a prompt" {
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"removeSession\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hydrateSession\"") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(!outboundWaitsForLoadResponse(stdin));
+    try std.testing.expect(!outboundWaitsForHydrateResponse(stdin));
+}
+
+test "writeCancelStdin emits hello and bare cancel without a prompt" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeCancelStdin(&buf, .{
+        .token = "secret",
+        .session_id = "00000000-0000-0000-0000-000000000007",
+        .runtime_id = "00000000-0000-0000-0000-000000000003",
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"cancel\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"00000000-0000-0000-0000-000000000007\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"00000000-0000-0000-0000-000000000003\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"cancel\"}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"steer\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"closeSession\"") == null);
     try std.testing.expect(!outboundWaitsForTurn(stdin));
     try std.testing.expect(!outboundWaitsForLoadResponse(stdin));
     try std.testing.expect(!outboundWaitsForHydrateResponse(stdin));

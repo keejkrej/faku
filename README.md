@@ -262,7 +262,8 @@ runtime loop. The sidecar does the TCP + WebSocket handshake to
 and exits on `turnFinished` / `rejected` / `error`. The desktop update
 loop never holds that socket. `textDelta` appends to the assistant
 turn; `turnFinished` settles and drains the success-only queue. Stop /
-Esc cancels the spawn.
+Esc cancels the spawn and one-shots hello + `cancel` for that
+session/runtime so the daemon tears down the provider turn too.
 
 Missing `WAKU_DAEMON_ADDRESS` keeps one-shot `fx acp` / `fx ask` / the demo timer. The
 address is persisted as `last_daemon_address` in `sessions.json` for a
