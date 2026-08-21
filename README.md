@@ -16,7 +16,7 @@ and it is fx-first. Desktop chrome matches the stopped Waku-parity cut
 header X closes the window because chrome is off; sidebar
 Search filters the local `sessions.json` catalog; the sidebar collapse
 control works and is restored; the sidebar chevrons walk session
-selection history; New folder creates a local catalog folder; clicking
+selection history; clicking a session focuses the composer; New folder creates a local catalog folder; clicking
 a folder (or the move control) assigns the selected session; folder
 titles are editable; the selected session title is editable; deleting a folder unassigns its sessions;
 sidebar trash removes a session (and closeSession if a daemon is set);

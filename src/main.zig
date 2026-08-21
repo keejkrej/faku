@@ -1289,6 +1289,7 @@ pub const Model = struct {
         model.closeSessionTitleEdit();
         model.editing_folder_id = folder_id;
         model.folder_title_buffer.set(folder.title());
+        model.composer_active = false;
     }
 
     pub fn closeFolderTitleEdit(model: *Model) void {
@@ -1315,6 +1316,7 @@ pub const Model = struct {
         model.closeFolderTitleEdit();
         model.editing_session_id = session_id;
         model.session_title_buffer.set(session.title());
+        model.composer_active = false;
     }
 
     pub fn closeSessionTitleEdit(model: *Model) void {
@@ -2153,6 +2155,7 @@ fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     store.loadDraftIfPossible(model);
     refreshAttachPreview(model, fx);
     model.pinTranscriptToLatest();
+    model.composer_active = true;
 }
 
 fn goHistory(step: i32, model: *Model, fx: *Effects) void {
