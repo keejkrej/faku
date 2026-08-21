@@ -7,8 +7,8 @@
         <if test="{sidebar_expanded}">
           <spacer width="6" />
           <row gap="2" cross="center">
-            <button variant="ghost" size="icon" icon="chevron-left" label="Back"></button>
-            <button variant="ghost" size="icon" icon="chevron-right" label="Forward"></button>
+            <button variant="ghost" size="icon" icon="chevron-left" label="Back" on-press="history_back"></button>
+            <button variant="ghost" size="icon" icon="chevron-right" label="Forward" on-press="history_forward"></button>
           </row>
           <spacer grow="1" />
         </if>

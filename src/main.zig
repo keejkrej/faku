@@ -37,6 +37,8 @@ pub const sidebar_rail_width: f32 = 48;
 const default_sidebar_split: f32 = sidebar_default_width / window_width;
 
 const max_sessions = 16;
+/// In-memory session selection history for sidebar Back / Forward.
+pub const selection_history_cap: u32 = 32;
 const max_turns = 128;
 const max_title = 64;
 const max_search = 64;
@@ -278,6 +280,8 @@ pub const Msg = union(enum) {
     cycle_access,
     cycle_interaction,
     cycle_model,
+    history_back,
+    history_forward,
     sidebar_resized: f32,
     transcript_scrolled: canvas.ScrollState,
     tick: native_sdk.EffectTimer,
@@ -292,6 +296,9 @@ pub const Model = struct {
     session_store: [max_sessions]Session = [_]Session{.{}} ** max_sessions,
     session_count: u32 = 0,
     selected: u32 = 0,
+    history_store: [selection_history_cap]u32 = [_]u32{0} ** selection_history_cap,
+    history_count: u32 = 0,
+    history_index: u32 = 0,
     next_id: u32 = 1,
     turn_store: [max_turns]Turn = [_]Turn{.{}} ** max_turns,
     turn_count: u32 = 0,
@@ -374,6 +381,12 @@ pub const Model = struct {
         "sessions",
         "session_count",
         "selected",
+        "history_store",
+        "history_count",
+        "history_index",
+        "can_go_back",
+        "can_go_forward",
+        "pushSelectionHistory",
         "next_id",
         "turn_store",
         "turn_count",
@@ -635,6 +648,49 @@ pub const Model = struct {
 
     pub fn sidebar_toggle_label(model: *const Model) []const u8 {
         return if (model.sidebar_collapsed) "Expand sidebar" else "Collapse sidebar";
+    }
+
+    pub fn can_go_back(model: *const Model) bool {
+        return model.history_count > 0 and model.history_index > 0;
+    }
+
+    pub fn can_go_forward(model: *const Model) bool {
+        return model.history_count > 0 and model.history_index + 1 < model.history_count;
+    }
+
+    /// Record a user selection. Re-selecting the current entry is a no-op.
+    /// Selecting after Back forks: everything ahead of the index is dropped.
+    /// The oldest entry is discarded when the stack hits `selection_history_cap`.
+    pub fn pushSelectionHistory(model: *Model, id: u32) void {
+        if (id == 0) return;
+        if (model.history_count > 0 and model.history_store[model.history_index] == id) return;
+
+        if (model.history_count == 0) {
+            if (model.selected != 0 and model.selected != id) {
+                model.history_store[0] = model.selected;
+                model.history_count = 1;
+                model.history_index = 0;
+            } else {
+                model.history_store[0] = id;
+                model.history_count = 1;
+                model.history_index = 0;
+                return;
+            }
+        }
+
+        model.history_count = model.history_index + 1;
+        if (model.history_count >= selection_history_cap) {
+            var i: usize = 0;
+            while (i + 1 < selection_history_cap) : (i += 1) {
+                model.history_store[i] = model.history_store[i + 1];
+            }
+            model.history_count = selection_history_cap - 1;
+            model.history_index = model.history_count - 1;
+        }
+
+        model.history_store[model.history_count] = id;
+        model.history_count += 1;
+        model.history_index = model.history_count - 1;
     }
 
     pub fn sidebarWidthPixels(model: *const Model) u32 {
@@ -1011,6 +1067,8 @@ pub const Model = struct {
         model.turn_count = 0;
         model.queued_count = 0;
         model.selected = 0;
+        model.history_count = 0;
+        model.history_index = 0;
         model.next_id = 1;
         model.next_turn_id = 1;
         model.next_queued_id = 1;
@@ -1250,6 +1308,30 @@ pub const fx_ask_chdir_script = "cd -- \"$1\" && shift && exec \"$@\"";
 
 pub const Effects = native_sdk.Effects(Msg);
 
+fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
+    if (model.sessionById(id) == null) return;
+    store.persistDraftIfPossible(model);
+    model.selected = id;
+    store.hydrateIfPossible(model, id);
+    store.maybeHydrateDaemonSession(model, fx, id);
+    store.loadDraftIfPossible(model);
+}
+
+fn goHistory(step: i32, model: *Model, fx: *Effects) void {
+    if (step == 0 or model.history_count == 0) return;
+    var i: i32 = @intCast(model.history_index);
+    const last: i32 = @intCast(model.history_count - 1);
+    while (true) {
+        i += step;
+        if (i < 0 or i > last) return;
+        const id = model.history_store[@intCast(i)];
+        if (model.sessionById(id) == null) continue;
+        model.history_index = @intCast(i);
+        applySessionSelection(model, fx, id);
+        return;
+    }
+}
+
 pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     switch (msg) {
         .new_session => {
@@ -1257,6 +1339,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             const id = model.addSession("untitled", .fx);
             if (id == 0) return;
             if (model.sessionById(id)) |session| session.untitled = true;
+            model.pushSelectionHistory(id);
             model.selected = id;
             // Client-built; persist is a no-op until first real content.
             store.persistIfPossible(model, id, fx);
@@ -1264,13 +1347,12 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .select => |id| {
             if (model.sessionById(id) != null) {
-                store.persistDraftIfPossible(model);
-                model.selected = id;
-                store.hydrateIfPossible(model, id);
-                store.maybeHydrateDaemonSession(model, fx, id);
-                store.loadDraftIfPossible(model);
+                model.pushSelectionHistory(id);
+                applySessionSelection(model, fx, id);
             }
         },
+        .history_back => goHistory(-1, model, fx),
+        .history_forward => goHistory(1, model, fx),
         .remove_session => |id| {
             store.removeIfPossible(model, id, fx);
             store.loadDraftIfPossible(model);
@@ -1932,6 +2014,7 @@ pub fn initialModel() Model {
     _ = model.appendTurn(auth, .assistant, "The handler unsubscribes before the replay buffer is flushed.");
 
     model.selected = port;
+    model.pushSelectionHistory(port);
     if (model.sessionById(port)) |session| {
         session.has_started = true;
         session.detail_loaded = true;

@@ -14,7 +14,8 @@ Model / Msg / update loop. waku-daemon can stay the brain. Faku is the window,
 and it is fx-first. Desktop chrome matches the stopped Waku-parity cut
 (chromeless 48px header, measured sidebar, composer send circle); sidebar
 Search filters the local `sessions.json` catalog; the sidebar collapse
-control works and is restored; headless paths are unchanged.
+control works and is restored; the sidebar chevrons walk session
+selection history; headless paths are unchanged.
 
 ## Why fx
 
