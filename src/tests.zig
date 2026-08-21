@@ -598,6 +598,105 @@ test "ACP session/update agent_thought_chunk adds a reasoning row; later chunk a
     try testing.expectEqual(@as(u32, 0), model.queuedCount(id));
 }
 
+test "ACP current_mode_update ask then code updates access chip and persists; unknown is ignored" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-current-mode", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("mode chip", .fx);
+    model.selected = id;
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+    try testing.expectEqualStrings("fullAccess", model.sessionById(id).?.accessMode());
+    try testing.expectEqualStrings("Full access", model.access_label());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .button, "Build");
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "switch modes" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.fx_spawn_acp);
+    const key = model.fx_spawn_key;
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"sessionId\":\"acp-mode-1\"}}");
+    drainEffects(&model, &fx);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-mode-1\",\"update\":{\"sessionUpdate\":\"current_mode_update\",\"currentModeId\":\"architect\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("fullAccess", model.sessionById(id).?.accessMode());
+    try testing.expectEqualStrings("Full access", model.access_label());
+    try testing.expectEqual(@as(usize, 0), lastAssistant(&model).len);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-mode-1\",\"update\":{\"sessionUpdate\":\"current_mode_update\",\"currentModeId\":\"ask\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("ask", model.sessionById(id).?.accessMode());
+    try testing.expectEqualStrings("ask", model.lastAccessMode());
+    try testing.expectEqualStrings("Ask", model.access_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "Ask");
+    try testing.expect(findByText(tree.root, .button, "Full access") == null);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-mode-1\",\"update\":{\"sessionUpdate\":\"agent_thought_chunk\",\"content\":{\"type\":\"text\",\"text\":\"stay on the reasoning row\"}}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("stay on the reasoning row", lastReasoning(&model));
+    try testing.expectEqualStrings("ask", model.sessionById(id).?.accessMode());
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-mode-1\",\"update\":{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"call_mode\",\"title\":\"Reading file\",\"kind\":\"read\",\"status\":\"pending\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("Reading file · read · pending", lastTool(&model));
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-mode-1\",\"update\":{\"sessionUpdate\":\"current_mode_update\",\"currentModeId\":\"code\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("fullAccess", model.sessionById(id).?.accessMode());
+    try testing.expectEqualStrings("fullAccess", model.lastAccessMode());
+    try testing.expectEqualStrings("Full access", model.access_label());
+    try testing.expectEqualStrings("stay on the reasoning row", lastReasoning(&model));
+    try testing.expectEqualStrings("Reading file · read · pending", lastTool(&model));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "Full access");
+    try testing.expect(findByText(tree.root, .button, "Ask") == null);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-mode-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"mode switched\"}}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("mode switched", lastAssistant(&model));
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "current_mode_update") == null);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "fullAccess") == null);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .reasoning));
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .tool));
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .assistant));
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings("fullAccess", loaded.session_store[0].accessMode());
+    try testing.expectEqualStrings("fullAccess", loaded.lastAccessMode());
+    try testing.expectEqualStrings("Full access", loaded.access_label());
+    tree = try buildTree(arena, &loaded);
+    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .button, "Build");
+}
+
 test "fx ask spawn records FX_MODEL and FX_PERMISSION_MODE" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();

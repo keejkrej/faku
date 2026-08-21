@@ -2548,6 +2548,10 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
         }
         return;
     }
+    if (acp.currentModeUpdate(parsed)) |access_mode| {
+        applyAcpCurrentMode(model, fx, access_mode);
+        return;
+    }
     if (acp.toolUpdate(parsed)) |tool| {
         applyAcpToolUpdate(model, fx, tool);
         return;
@@ -2565,6 +2569,14 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
         if (model.fx_spawn_key != 0) fx.cancel(model.fx_spawn_key);
         finishStream(model, fx, drain);
     }
+}
+
+/// Official ACP `current_mode_update`. Reverse map is the inverse of
+/// `session/set_mode`: fx `ask` → `ask`, fx `code` → `fullAccess`.
+fn applyAcpCurrentMode(model: *Model, fx: *Effects, access_mode: []const u8) void {
+    const session = model.sessionById(model.streaming_session) orelse return;
+    session.setAccessMode(access_mode);
+    store.persistIfPossible(model, session.id, fx);
 }
 
 fn applyAcpToolUpdate(model: *Model, fx: *Effects, tool: acp.ToolUpdate) void {

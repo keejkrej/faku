@@ -65,6 +65,14 @@ pub const SESSION_UPDATE_USAGE = "usage_update";
 /// `writeToolCallUpdate`).
 pub const SESSION_UPDATE_TOOL_CALL = "tool_call";
 pub const SESSION_UPDATE_TOOL_CALL_UPDATE = "tool_call_update";
+/// Official ACP v1 `session/update` when the agent changes mode
+/// (https://agentclientprotocol.com/protocol/v1/schema `CurrentModeUpdate`,
+/// https://agentclientprotocol.com/protocol/v1/session-modes).
+/// Wire field is `currentModeId` (schema required). The session-modes
+/// docs example also shows `modeId` (same key as `session/set_mode`);
+/// the parser accepts either. vercel-labs/fx `src/acp/types.zig` and
+/// fx.sh ACP docs do not emit this today.
+pub const SESSION_UPDATE_CURRENT_MODE = "current_mode_update";
 pub const STOP_END_TURN = "end_turn";
 pub const STOP_CANCELLED = "cancelled";
 pub const STOP_REFUSAL = "refusal";
@@ -296,6 +304,17 @@ pub fn sessionMode(access_mode: []const u8) []const u8 {
     return "";
 }
 
+/// Inverse of `sessionMode` for the fx ACP ids we already send.
+/// `ask` → `ask`. `code` → `fullAccess` (the default Waku access;
+/// `auto` / `yolo` also map forward to `code`, but there is no
+/// third ACP id, so the reverse pick is `fullAccess`). Unknown
+/// ids stay unmapped — do not invent `architect` or others.
+pub fn accessModeFromSessionMode(mode_id: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, mode_id, MODE_ASK)) return "ask";
+    if (std.mem.eql(u8, mode_id, MODE_CODE)) return "fullAccess";
+    return null;
+}
+
 /// `session/set_mode` — ACP v1 `{ sessionId, modeId }`. fx applies
 /// `modeId` to the active session (`ask` | `code`).
 pub fn writeSessionSetMode(
@@ -445,6 +464,15 @@ pub fn toolTurnText(buf: []u8, title: []const u8, kind: []const u8, status: []co
     return buf[0..cur];
 }
 
+/// Official ACP v1 `current_mode_update`. `currentModeId` (or docs
+/// `modeId`) must be a known fx id (`ask` | `code`). Unknown ids are
+/// ignored so the access chip does not invent modes.
+pub fn currentModeUpdate(parsed: Parsed) ?[]const u8 {
+    if (parsed.method != .session_update) return null;
+    if (!std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_CURRENT_MODE)) return null;
+    return accessModeFromSessionMode(parsed.mode_id);
+}
+
 /// ACP v1 `usage_update`: `used` and `size` are required token counts.
 /// Missing either, or `size == 0`, is not a usable update.
 pub fn usageUpdate(parsed: Parsed) ?UsageUpdate {
@@ -522,7 +550,7 @@ fn parseUintAt(text: []const u8, start: usize) ?u64 {
 /// Parse one NDJSON JSON-RPC line. Slices alias `line` and die with it.
 /// Field scanner — classifies the methods above and pulls `id`,
 /// `sessionId`, `sessionUpdate`, `text`, `toolCallId`, `title`, `kind`,
-/// `status`, and `stopReason`.
+/// `status`, `stopReason`, and `currentModeId` / `modeId`.
 pub fn parseLine(line: []const u8) Parsed {
     var parsed = Parsed{};
     const trimmed = std.mem.trim(u8, line, " \t\r\n");
@@ -573,7 +601,11 @@ pub fn parseLine(line: []const u8) Parsed {
         parsed.stop_reason = parseJsonStringAt(trimmed, at);
     }
 
-    if (findKey(trimmed, "modeId")) |at| {
+    // Official CurrentModeUpdate field is `currentModeId`. `modeId` is
+    // `session/set_mode` and the session-modes docs example.
+    if (findKey(trimmed, "currentModeId")) |at| {
+        parsed.mode_id = parseJsonStringAt(trimmed, at);
+    } else if (findKey(trimmed, "modeId")) |at| {
         parsed.mode_id = parseJsonStringAt(trimmed, at);
     }
 
@@ -668,6 +700,17 @@ test "Waku access_mode maps to fx ACP ask|code, not fullAccess" {
     try std.testing.expectEqualStrings(MODE_CODE, sessionMode("yolo"));
     try std.testing.expectEqualStrings("", sessionMode(""));
     try std.testing.expectEqualStrings("", sessionMode("nope"));
+}
+
+test "fx ACP ask|code reverse-map to Waku access_mode; unknown ids stay unmapped" {
+    try std.testing.expectEqualStrings("ask", accessModeFromSessionMode(MODE_ASK).?);
+    try std.testing.expectEqualStrings("fullAccess", accessModeFromSessionMode(MODE_CODE).?);
+    try std.testing.expect(accessModeFromSessionMode("architect") == null);
+    try std.testing.expect(accessModeFromSessionMode("auto") == null);
+    try std.testing.expect(accessModeFromSessionMode("yolo") == null);
+    try std.testing.expect(accessModeFromSessionMode("") == null);
+    try std.testing.expectEqualStrings(MODE_ASK, sessionMode(accessModeFromSessionMode(MODE_ASK).?));
+    try std.testing.expectEqualStrings(MODE_CODE, sessionMode(accessModeFromSessionMode(MODE_CODE).?));
 }
 
 test "one-shot stdin is initialize plus new or resume then prompt" {
@@ -778,6 +821,31 @@ test "ACP parser classifies result, error, update, and stopReason" {
     try std.testing.expectEqualStrings("need to inspect the loop", thought.text);
     try std.testing.expect(toolUpdate(thought) == null);
     try std.testing.expect(usageUpdate(thought) == null);
+    try std.testing.expect(currentModeUpdate(thought) == null);
+
+    const mode_ask = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"sess-1\",\"update\":{\"sessionUpdate\":\"current_mode_update\",\"currentModeId\":\"ask\"}}}");
+    try std.testing.expectEqual(Method.session_update, mode_ask.method);
+    try std.testing.expectEqualStrings(SESSION_UPDATE_CURRENT_MODE, mode_ask.session_update);
+    try std.testing.expectEqualStrings(MODE_ASK, mode_ask.mode_id);
+    try std.testing.expectEqualStrings("ask", currentModeUpdate(mode_ask).?);
+    try std.testing.expect(!isAgentMessageText(mode_ask));
+    try std.testing.expect(!isAgentThoughtText(mode_ask));
+    try std.testing.expect(toolUpdate(mode_ask) == null);
+    try std.testing.expect(usageUpdate(mode_ask) == null);
+
+    const mode_code = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"current_mode_update\",\"currentModeId\":\"code\"}}}");
+    try std.testing.expectEqualStrings("fullAccess", currentModeUpdate(mode_code).?);
+
+    const mode_docs_mode_id = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"current_mode_update\",\"modeId\":\"ask\"}}}");
+    try std.testing.expectEqualStrings("ask", currentModeUpdate(mode_docs_mode_id).?);
+
+    const mode_unknown = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"current_mode_update\",\"currentModeId\":\"architect\"}}}");
+    try std.testing.expectEqualStrings(SESSION_UPDATE_CURRENT_MODE, mode_unknown.session_update);
+    try std.testing.expectEqualStrings("architect", mode_unknown.mode_id);
+    try std.testing.expect(currentModeUpdate(mode_unknown) == null);
+
+    const mode_missing_id = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"current_mode_update\"}}}");
+    try std.testing.expect(currentModeUpdate(mode_missing_id) == null);
 
     const user = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"user_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"ignore\"}}}}");
     try std.testing.expect(!isAgentMessageText(user));
