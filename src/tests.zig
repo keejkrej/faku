@@ -340,8 +340,6 @@ test "fx acp session/new persists fx_session_id and later send uses session/resu
 
     try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
     drainEffects(&model, &fx);
-    try fx.feedExit(main.fx_ask_key, 0);
-    drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
 
     var loaded = Model{};
@@ -553,8 +551,10 @@ test "fx ask omits --image when the draft file is missing" {
     try testing.expectEqual(@as(usize, 0), model.lastSpawnImagePath().len);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(argvHas(request.argv, "acp"));
+    try testing.expect(!argvHas(request.argv, "ask"));
     try testing.expect(!argvHas(request.argv, "--image"));
-    try testing.expectEqualStrings("no image", request.argv[request.argv.len - 1]);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "no image") != null);
 }
 
 test "Waku access_mode maps to verified FX_PERMISSION_MODE values" {
