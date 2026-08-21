@@ -2572,7 +2572,8 @@ test "sidebar back and forward walk session selection history" {
     main.update(&model, tree.msgForPointer((try expectButton(tree.root, "Back")).id, .up).?, &fx);
     try testing.expectEqualStrings("port waku to zig", model.selected_title());
     try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
-    try testing.expectEqual(@as(usize, 2), countRole(&model, .assistant));
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .assistant));
+    try testing.expectEqual(@as(usize, 0), countRole(&model, .tool));
     try testing.expect(!model.can_go_back());
     try testing.expect(model.can_go_forward());
 
