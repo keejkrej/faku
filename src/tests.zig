@@ -3548,6 +3548,10 @@ test "the view lays out through the canvas engine" {
 }
 
 test "cmd-n and ctrl-n create a session via onKey" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -3555,8 +3559,19 @@ test "cmd-n and ctrl-n create a session via onKey" {
     var model = main.initialModel();
     try testing.expectEqual(@as(u32, 2), model.session_count);
 
+    // Composer typing: plain n is draft text, not New Task.
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "n" } }, &fx);
+    try testing.expectEqualStrings("n", model.draft());
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+
     const plain_n = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "n" };
     try testing.expectEqual(@as(?Msg, null), main.onKey(plain_n));
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    try testing.expectEqualStrings("n", model.draft());
+
+    var tree = try buildTree(arena, &model);
+    const new_btn = try expectButton(tree.root, "New Task");
+    try testing.expectEqual(Msg.new_session, tree.msgForPointer(new_btn.id, .up).?);
 
     const cmd_n = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
@@ -3570,11 +3585,17 @@ test "cmd-n and ctrl-n create a session via onKey" {
     try testing.expectEqualStrings("New task", model.header_title());
     try testing.expectEqual(main.Provider.fx, model.session_store[2].provider);
 
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "New task");
+    _ = try expectByText(tree.root, .text, "What should we build?");
+    _ = try expectButton(tree.root, "New task");
+
     const ctrl_n = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
-        .key = "n",
+        .key = "N",
         .modifiers = .{ .control = true },
     };
+    try testing.expectEqual(Msg.new_session, main.onKey(ctrl_n).?);
     main.update(&model, main.onKey(ctrl_n).?, &fx);
     try testing.expectEqual(@as(u32, 4), model.session_count);
     try testing.expectEqualStrings("fx", model.selected_provider());
