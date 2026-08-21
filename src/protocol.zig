@@ -48,6 +48,16 @@
 //! metadata (no body). `queued_messages[].content` is the follow-up
 //! queue. AgentSession keys stay snake_case. Local turns win; a daemon
 //! hydrate runs only when that session's local transcript is empty.
+//!
+//! `closeSession` is a bare command. Verified against egoist/waku
+//! `Command::CloseSession` (unit variant, no payload field),
+//! `apps/web/src/lib/runtime-context.tsx`
+//! (`request({ type: 'closeSession' }, sessionId, runtimeId)`), and
+//! `crates/waku-core/src/daemon.rs` (request-frame `sessionId` /
+//! `runtimeId`; outcome `ack`). It is not `removeSession` and does not
+//! take `sessionId` on the command. Local `removeSession` stays the
+//! catalog delete; `closeSession` is a best-effort sidecar after that
+//! persist. No `attachSession` first.
 
 const std = @import("std");
 
@@ -815,6 +825,7 @@ test "first-cut command tags stay camelCase on the wire" {
     try std.testing.expectEqualStrings("loadTaskState", CommandTag.load_task_state.wireName());
     try std.testing.expectEqualStrings("hydrateSession", CommandTag.hydrate_session.wireName());
     try std.testing.expectEqualStrings("saveTaskState", CommandTag.save_task_state.wireName());
+    try std.testing.expectEqualStrings("closeSession", CommandTag.close_session.wireName());
     try std.testing.expectEqualStrings("turnFinished", EventKind.turn_finished.wireName());
     try std.testing.expectEqualStrings("textDelta", EventKind.text_delta.wireName());
 }
@@ -924,6 +935,22 @@ test "taskState response yields session skeletons and project path fallback" {
 
     const failed = parseTaskStateSkeletons(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}");
     try std.testing.expectEqual(@as(usize, 0), failed.session_count);
+}
+
+test "closeSession is a bare command with sessionId on the request frame" {
+    var buf: [512]u8 = undefined;
+    const json = try writeBareCommand(
+        &buf,
+        NIL_UUID,
+        "00000000-0000-0000-0000-000000000007",
+        NIL_UUID,
+        .close_session,
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"00000000-0000-0000-0000-000000000007\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"closeSession\"}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"removeSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"attachSession\"") == null);
 }
 
 test "hydrateSession command carries sessionId on the command not as a bare type" {

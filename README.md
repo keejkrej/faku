@@ -192,7 +192,9 @@ session skeletons — `loadTaskState` is only a first-run fill when the local
 catalog is missing. A corrupt file
 also keeps the demos and is not overwritten until a successful load
 (`task_state_loaded`, same guard as waku-client). Save is merge-only;
-`RemoveSession` is the only delete. New untitled sessions are not written
+`RemoveSession` is the only delete. After a successful local remove,
+`closeSession` is a best-effort one-shot when a daemon address is set.
+New untitled sessions are not written
 until they have real content.
 
 Send while that session is streaming appends to its follow-up queue and

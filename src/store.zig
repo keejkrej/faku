@@ -20,6 +20,9 @@
 //! local file loaded or is corrupt. Selecting a session whose local
 //! turns are empty may send `hydrateSession` when a daemon address is
 //! set. Local turns win; a failed sidecar leaves the empty transcript.
+//! After a successful local `removeSession`, a one-shot sidecar may send
+//! `closeSession` when a daemon address is set. Sidecar failure does
+//! not resurrect the local row.
 //!
 //! Composer drafts live in a sibling `drafts.json` (not the session
 //! catalog) so an unstarted New Task can persist before the session row
@@ -255,6 +258,18 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     model.dropSession(session_id);
 }
 
+/// Local delete, then a best-effort hello + `closeSession` when a daemon
+/// address is set. Sidecar failure must not resurrect the row already
+/// dropped from `sessions.json`.
+pub fn removeIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void {
+    const io = model.store_io orelse return;
+    const address = resolveDaemonMirrorAddress(model);
+    var id_buf: [36]u8 = undefined;
+    const wire_id = daemon_proxy.wireUuid(session_id, &id_buf);
+    removeSession(model, session_id, std.heap.page_allocator, io) catch return;
+    maybeCloseDaemonSession(model, fx, wire_id, address);
+}
+
 pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void {
     if (model.sessionById(session_id)) |session| {
         if (session.projectPath().len > 0) model.setLastProjectPath(session.projectPath());
@@ -376,6 +391,29 @@ fn mirrorSaveTaskStateIfPossible(model: *Model, session_id: u32, fx: *main.Effec
             .has_started = true,
             .runtime_mode = runtime_mode,
         },
+    }) catch return;
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = main.Effects.lineMsg(.fx_line),
+        .on_exit = main.Effects.exitMsg(.fx_exit),
+    });
+}
+
+/// Best-effort one-shot hello + bare `closeSession`. Missing address is
+/// a no-op. Sidecar failure must not write the session back.
+fn maybeCloseDaemonSession(model: *Model, fx: *main.Effects, session_id: []const u8, address: []const u8) void {
+    if (address.len == 0) return;
+
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeCloseStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .session_id = session_id,
     }) catch return;
 
     const key = model.next_daemon_key;
