@@ -522,7 +522,7 @@ pub fn configOptionModel(parsed: Parsed) ?[]const u8 {
 /// Official ACP v1 `available_commands_update`. Empty array is a
 /// clear. Missing / non-array `availableCommands` is ignored.
 /// Nameless items are skipped (`x-deserialize-skip-invalid-items`).
-pub fn availableCommandsUpdate(parsed: Parsed) ?[]const ParsedCommand {
+pub fn availableCommandsUpdate(parsed: *const Parsed) ?[]const ParsedCommand {
     if (parsed.method != .session_update) return null;
     if (!std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_AVAILABLE_COMMANDS)) return null;
     if (!parsed.has_available_commands) return null;
@@ -1071,7 +1071,7 @@ test "ACP parser classifies result, error, update, and stopReason" {
     try std.testing.expect(usageUpdate(thought) == null);
     try std.testing.expect(currentModeUpdate(thought) == null);
     try std.testing.expect(configOptionModel(thought) == null);
-    try std.testing.expect(availableCommandsUpdate(thought) == null);
+    try std.testing.expect(availableCommandsUpdate(&thought) == null);
 
     const mode_ask = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"sess-1\",\"update\":{\"sessionUpdate\":\"current_mode_update\",\"currentModeId\":\"ask\"}}}");
     try std.testing.expectEqual(Method.session_update, mode_ask.method);
@@ -1108,7 +1108,7 @@ test "ACP parser classifies result, error, update, and stopReason" {
     try std.testing.expect(currentModeUpdate(config_model) == null);
     try std.testing.expect(toolUpdate(config_model) == null);
     try std.testing.expect(usageUpdate(config_model) == null);
-    try std.testing.expect(availableCommandsUpdate(config_model) == null);
+    try std.testing.expect(availableCommandsUpdate(&config_model) == null);
 
     const config_empty = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"config_option_update\",\"configOptions\":[{\"id\":\"model\",\"name\":\"Model\",\"type\":\"select\",\"currentValue\":\"\",\"options\":[]}]}}}");
     try std.testing.expectEqualStrings("", configOptionModel(config_empty).?);
@@ -1129,7 +1129,7 @@ test "ACP parser classifies result, error, update, and stopReason" {
     const commands = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"sess-1\",\"update\":{\"sessionUpdate\":\"available_commands_update\",\"availableCommands\":[{\"name\":\"web\",\"description\":\"Search the web for information\",\"input\":{\"hint\":\"query to search for\"}},{\"name\":\"test\",\"description\":\"Run tests for the current project\"},{\"name\":\"compact\"},{\"description\":\"nameless is skipped\"}]}}}");
     try std.testing.expectEqual(Method.session_update, commands.method);
     try std.testing.expectEqualStrings(SESSION_UPDATE_AVAILABLE_COMMANDS, commands.session_update);
-    const command_list = availableCommandsUpdate(commands) orelse return error.MissingCommands;
+    const command_list = availableCommandsUpdate(&commands) orelse return error.MissingCommands;
     try std.testing.expectEqual(@as(usize, 3), command_list.len);
     try std.testing.expectEqualStrings("web", command_list[0].name);
     try std.testing.expectEqualStrings("Search the web for information", command_list[0].description);
@@ -1145,15 +1145,15 @@ test "ACP parser classifies result, error, update, and stopReason" {
     try std.testing.expect(usageUpdate(commands) == null);
 
     const commands_empty = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"available_commands_update\",\"availableCommands\":[]}}}");
-    const empty_list = availableCommandsUpdate(commands_empty) orelse return error.MissingEmptyCommands;
+    const empty_list = availableCommandsUpdate(&commands_empty) orelse return error.MissingEmptyCommands;
     try std.testing.expectEqual(@as(usize, 0), empty_list.len);
 
     const commands_missing = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"available_commands_update\"}}}");
     try std.testing.expectEqualStrings(SESSION_UPDATE_AVAILABLE_COMMANDS, commands_missing.session_update);
-    try std.testing.expect(availableCommandsUpdate(commands_missing) == null);
+    try std.testing.expect(availableCommandsUpdate(&commands_missing) == null);
 
     const commands_object = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"available_commands_update\",\"availableCommands\":{\"name\":\"web\"}}}}");
-    try std.testing.expect(availableCommandsUpdate(commands_object) == null);
+    try std.testing.expect(availableCommandsUpdate(&commands_object) == null);
 
     const user = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"user_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"ignore\"}}}}");
     try std.testing.expect(!isAgentMessageText(user));

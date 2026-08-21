@@ -2603,7 +2603,7 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
         applyAcpConfigModel(model, fx, model_value);
         return;
     }
-    if (acp.availableCommandsUpdate(parsed)) |commands| {
+    if (acp.availableCommandsUpdate(&parsed)) |commands| {
         applyAcpAvailableCommands(model, fx, commands);
         return;
     }
