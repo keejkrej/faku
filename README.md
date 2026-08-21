@@ -169,13 +169,18 @@ Path (Native `app_dirs` data directory, app name `faku`):
 
 Boot: if that file loads, the sidebar is session skeletons only (id, title,
 provider, untitled/has_started, project_path, fx_session_id, runtime_id, model,
-access_mode) — no demo rows and no transcripts. The document also stores
+access_mode, interaction_mode) — no demo rows and no transcripts. The document also stores
 `last_project_path`, `last_model`, `last_access_mode`,
-`last_daemon_address`, `sidebar_collapsed`, and `sidebar_width` so a
-new session can inherit the last workspace and last model/access, a
-later send can reuse the last sidecar address, and the sidebar collapse
-control is restored. The sidebar settings gear opens a panel that edits
-those persisted defaults. There is no daemon picker.
+`last_interaction_mode`, `last_daemon_address`, `sidebar_collapsed`, and
+`sidebar_width` so a new session can inherit the last workspace and last
+model/access/interaction, a later send can reuse the last sidecar address,
+and the sidebar collapse control is restored. The sidebar settings gear
+opens a panel that edits those persisted defaults. Composer chips are the
+quick session toggle: access cycles `ask` / `auto` / `fullAccess`, Build
+cycles `build` / `plan`, and the model chip toggles last-used vs empty
+(fx default); Medium stays a label because fx `effort` lives in
+`~/.fx/settings.json` and Faku has no `FX_EFFORT` / `--effort` path.
+There is no daemon picker.
 Selecting a session hydrates its turns and `queued_messages` from the same
 file. Daemon `hydrateSession` runs only when that local transcript is empty.
 Composer drafts are a sibling `drafts.json` (not mixed into the

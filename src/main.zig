@@ -51,8 +51,11 @@ pub const max_fx_session_id = 128;
 pub const max_runtime_id = 36;
 pub const max_fx_model = 128;
 pub const max_access_mode = 32;
+pub const max_interaction_mode = 16;
 /// Waku `runtime_mode` default. Maps to fx `FX_PERMISSION_MODE=yolo`.
 pub const default_access_mode = "fullAccess";
+/// Waku `StartOptions.interaction_mode` default (`build` | `plan`).
+pub const default_interaction_mode = "build";
 pub const fx_env_bin = "/usr/bin/env";
 const max_line_keep = 4096;
 
@@ -125,6 +128,9 @@ pub const Session = struct {
     /// Waku `runtime_mode` (ask | autoAcceptEdits | auto | fullAccess).
     access_mode_storage: [max_access_mode]u8 = [_]u8{0} ** max_access_mode,
     access_mode_len: usize = 0,
+    /// Waku `StartOptions.interaction_mode` (build | plan).
+    interaction_mode_storage: [max_interaction_mode]u8 = [_]u8{0} ** max_interaction_mode,
+    interaction_mode_len: usize = 0,
     /// Successful-turn HEAD snapshots. Cap last 20; no rewind UI yet.
     rewind_refs: [rewind.max_refs]rewind.Ref = [_]rewind.Ref{.{}} ** rewind.max_refs,
     rewind_ref_count: usize = 0,
@@ -171,6 +177,14 @@ pub const Session = struct {
 
     pub fn setAccessMode(self: *Session, value: []const u8) void {
         writeFixed(&self.access_mode_storage, &self.access_mode_len, value);
+    }
+
+    pub fn interactionMode(self: *const Session) []const u8 {
+        return self.interaction_mode_storage[0..self.interaction_mode_len];
+    }
+
+    pub fn setInteractionMode(self: *Session, value: []const u8) void {
+        writeFixed(&self.interaction_mode_storage, &self.interaction_mode_len, value);
     }
 
     pub fn rewindRefs(self: *const Session) []const rewind.Ref {
@@ -261,6 +275,9 @@ pub const Msg = union(enum) {
     settings_access_ask,
     settings_access_auto,
     settings_access_full,
+    cycle_access,
+    cycle_interaction,
+    cycle_model,
     sidebar_resized: f32,
     transcript_scrolled: canvas.ScrollState,
     tick: native_sdk.EffectTimer,
@@ -319,6 +336,8 @@ pub const Model = struct {
     last_model_len: usize = 0,
     last_access_mode_storage: [max_access_mode]u8 = [_]u8{0} ** max_access_mode,
     last_access_mode_len: usize = 0,
+    last_interaction_mode_storage: [max_interaction_mode]u8 = [_]u8{0} ** max_interaction_mode,
+    last_interaction_mode_len: usize = 0,
     last_spawn_fx_model_storage: [max_fx_model]u8 = [_]u8{0} ** max_fx_model,
     last_spawn_fx_model_len: usize = 0,
     last_spawn_fx_permission_mode_storage: [max_access_mode]u8 = [_]u8{0} ** max_access_mode,
@@ -385,6 +404,11 @@ pub const Model = struct {
         "applySettingsProject",
         "applySettingsDaemon",
         "setSettingsAccess",
+        "cycleSelectedAccess",
+        "cycleSelectedInteraction",
+        "cycleSelectedModel",
+        "resolvedAccessMode",
+        "resolvedInteractionMode",
         "is_streaming",
         "fx_available",
         "fx_path_storage",
@@ -406,6 +430,8 @@ pub const Model = struct {
         "last_model_len",
         "last_access_mode_storage",
         "last_access_mode_len",
+        "last_interaction_mode_storage",
+        "last_interaction_mode_len",
         "last_spawn_fx_model_storage",
         "last_spawn_fx_model_len",
         "last_spawn_fx_permission_mode_storage",
@@ -420,6 +446,8 @@ pub const Model = struct {
         "setLastModel",
         "lastAccessMode",
         "setLastAccessMode",
+        "lastInteractionMode",
+        "setLastInteractionMode",
         "lastSpawnCwd",
         "setLastSpawnCwd",
         "lastSpawnFxModel",
@@ -703,6 +731,62 @@ pub const Model = struct {
         }
     }
 
+    pub fn resolvedAccessMode(model: *const Model) []const u8 {
+        if (model.sessionByIdConst(model.selected)) |session| {
+            if (session.accessMode().len > 0) return session.accessMode();
+        }
+        if (model.lastAccessMode().len > 0) return model.lastAccessMode();
+        return default_access_mode;
+    }
+
+    pub fn resolvedInteractionMode(model: *const Model) []const u8 {
+        if (model.sessionByIdConst(model.selected)) |session| {
+            if (session.interactionMode().len > 0) return session.interactionMode();
+        }
+        if (model.lastInteractionMode().len > 0) return model.lastInteractionMode();
+        return default_interaction_mode;
+    }
+
+    pub fn access_label(model: *const Model) []const u8 {
+        return accessLabel(model.resolvedAccessMode());
+    }
+
+    pub fn interaction_label(model: *const Model) []const u8 {
+        return if (std.mem.eql(u8, model.resolvedInteractionMode(), "plan")) "Plan" else "Build";
+    }
+
+    pub fn model_label(model: *const Model) []const u8 {
+        if (model.sessionByIdConst(model.selected)) |session| {
+            if (session.model().len > 0) return session.model();
+        }
+        return "FX_MODEL";
+    }
+
+    pub fn cycleSelectedAccess(model: *Model) void {
+        const session = model.sessionById(model.selected) orelse return;
+        const next = nextAccessMode(model.resolvedAccessMode());
+        session.setAccessMode(next);
+        model.setLastAccessMode(next);
+    }
+
+    pub fn cycleSelectedInteraction(model: *Model) void {
+        const session = model.sessionById(model.selected) orelse return;
+        const next: []const u8 = if (std.mem.eql(u8, model.resolvedInteractionMode(), "plan")) "build" else "plan";
+        session.setInteractionMode(next);
+        model.setLastInteractionMode(next);
+    }
+
+    pub fn cycleSelectedModel(model: *Model) void {
+        const session = model.sessionById(model.selected) orelse return;
+        const current = session.model();
+        if (current.len > 0) {
+            model.setLastModel(current);
+            session.setModel("");
+        } else if (model.lastModel().len > 0) {
+            session.setModel(model.lastModel());
+        }
+    }
+
     pub fn fxPath(model: *const Model) []const u8 {
         return model.fx_path_storage[0..model.fx_path_len];
     }
@@ -757,6 +841,14 @@ pub const Model = struct {
 
     pub fn setLastAccessMode(model: *Model, value: []const u8) void {
         writeFixed(&model.last_access_mode_storage, &model.last_access_mode_len, value);
+    }
+
+    pub fn lastInteractionMode(model: *const Model) []const u8 {
+        return model.last_interaction_mode_storage[0..model.last_interaction_mode_len];
+    }
+
+    pub fn setLastInteractionMode(model: *Model, value: []const u8) void {
+        writeFixed(&model.last_interaction_mode_storage, &model.last_interaction_mode_len, value);
     }
 
     pub fn lastSpawnFxModel(model: *const Model) []const u8 {
@@ -895,6 +987,8 @@ pub const Model = struct {
         writeFixed(&session.model_storage, &session.model_len, model.lastModel());
         const access = if (model.lastAccessMode().len > 0) model.lastAccessMode() else default_access_mode;
         writeFixed(&session.access_mode_storage, &session.access_mode_len, access);
+        const interaction = if (model.lastInteractionMode().len > 0) model.lastInteractionMode() else default_interaction_mode;
+        writeFixed(&session.interaction_mode_storage, &session.interaction_mode_len, interaction);
         model.session_store[model.session_count] = session;
         model.session_count += 1;
         model.next_id += 1;
@@ -1003,6 +1097,7 @@ pub const Model = struct {
         model_id: []const u8,
         access_mode: []const u8,
         runtime_id: []const u8,
+        interaction_mode: []const u8,
     ) void {
         if (model.session_count >= max_sessions) return;
         var session = Session{
@@ -1018,6 +1113,7 @@ pub const Model = struct {
         writeFixed(&session.model_storage, &session.model_len, model_id);
         writeFixed(&session.access_mode_storage, &session.access_mode_len, access_mode);
         writeFixed(&session.runtime_id_storage, &session.runtime_id_len, runtime_id);
+        writeFixed(&session.interaction_mode_storage, &session.interaction_mode_len, interaction_mode);
         model.session_store[model.session_count] = session;
         model.session_count += 1;
         if (id >= model.next_id) model.next_id = id + 1;
@@ -1229,6 +1325,18 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.setSettingsAccess("fullAccess");
             store.persistSettingsIfPossible(model);
         },
+        .cycle_access => {
+            model.cycleSelectedAccess();
+            persistComposerChips(model, fx);
+        },
+        .cycle_interaction => {
+            model.cycleSelectedInteraction();
+            persistComposerChips(model, fx);
+        },
+        .cycle_model => {
+            model.cycleSelectedModel();
+            persistComposerChips(model, fx);
+        },
         .clear_queue => {
             model.dropQueuedForSession(model.selected);
             store.persistIfPossible(model, model.selected, fx);
@@ -1342,6 +1450,25 @@ pub fn fxPermissionMode(access_mode: []const u8) []const u8 {
     if (std.mem.eql(u8, access_mode, "fullAccess")) return "yolo";
     if (std.mem.eql(u8, access_mode, "yolo")) return "yolo";
     return "";
+}
+
+/// ask → auto → fullAccess. `autoAcceptEdits` counts as auto; `yolo` / empty
+/// count as fullAccess. Unknown strings restart at ask.
+pub fn nextAccessMode(access_mode: []const u8) []const u8 {
+    if (std.mem.eql(u8, access_mode, "ask")) return "auto";
+    if (std.mem.eql(u8, access_mode, "auto") or std.mem.eql(u8, access_mode, "autoAcceptEdits")) return "fullAccess";
+    return "ask";
+}
+
+pub fn accessLabel(access_mode: []const u8) []const u8 {
+    if (std.mem.eql(u8, access_mode, "ask")) return "Ask";
+    if (std.mem.eql(u8, access_mode, "auto") or std.mem.eql(u8, access_mode, "autoAcceptEdits")) return "Auto";
+    return "Full access";
+}
+
+fn persistComposerChips(model: *Model, fx: *Effects) void {
+    store.persistSettingsIfPossible(model);
+    store.persistIfPossible(model, model.selected, fx);
 }
 
 fn startDaemonProxy(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) void {

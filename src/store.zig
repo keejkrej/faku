@@ -7,12 +7,13 @@
 //!
 //! One JSON document `sessions.json`. Catalog load copies only session
 //! skeletons (id, title, provider, untitled, has_started, project_path,
-//! fx_session_id, runtime_id, model, access_mode, rewind_refs) — no transcripts. Selecting
+//! fx_session_id, runtime_id, model, access_mode, interaction_mode, rewind_refs) — no transcripts. Selecting
 //! a session hydrates its turns,
 //! `queued_messages`, and `rewind_refs`. Document extras also keep
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
-//! plus `last_model` / `last_access_mode` / `last_project_path` /
-//! `last_daemon_address` so the settings gear can edit persisted defaults.
+//! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
+//! `last_project_path` / `last_daemon_address` so the settings gear and
+//! composer chips can edit persisted defaults.
 //! Save is merge-only (never deletes).
 //! `removeSession` is the only delete. Refuses to write until a successful
 //! load (`task_state_loaded`), same guard as waku-client. After a successful
@@ -224,6 +225,7 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.last_project_path = lastProjectPathForSave(model, session);
     document.last_model = lastModelForSave(model, session);
     document.last_access_mode = lastAccessModeForSave(model, session);
+    document.last_interaction_mode = lastInteractionModeForSave(model, session);
     document.last_daemon_address = lastDaemonAddressForSave(model);
     applySidebarExtras(&document, model);
     try writeDocument(allocator, io, dir, document);
@@ -258,6 +260,7 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     document.last_project_path = model.lastProjectPath();
     document.last_model = model.lastModel();
     document.last_access_mode = model.lastAccessMode();
+    document.last_interaction_mode = model.lastInteractionMode();
     document.last_daemon_address = lastDaemonAddressForSave(model);
     applySidebarExtras(&document, model);
     try writeDocument(allocator, io, dir, document);
@@ -281,6 +284,7 @@ pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void
         if (session.projectPath().len > 0) model.setLastProjectPath(session.projectPath());
         if (session.model().len > 0) model.setLastModel(session.model());
         if (session.accessMode().len > 0) model.setLastAccessMode(session.accessMode());
+        if (session.interactionMode().len > 0) model.setLastInteractionMode(session.interactionMode());
     }
     if (model.daemonAddress().len > 0) model.setLastDaemonAddress(model.daemonAddress());
     const io = model.store_io orelse return;
@@ -296,9 +300,9 @@ pub fn persistLayoutIfPossible(model: *const Model) void {
 }
 
 /// Merge-only write of settings extras (`last_model`, `last_access_mode`,
-/// `last_project_path`, `last_daemon_address`). Same first-run rule as
-/// sidebar collapse: does not create `sessions.json` and does not spawn
-/// a daemon sidecar. Missing / corrupt catalogs are a no-op.
+/// `last_interaction_mode`, `last_project_path`, `last_daemon_address`).
+/// Same first-run rule as sidebar collapse: does not create `sessions.json`
+/// and does not spawn a daemon sidecar. Missing / corrupt catalogs are a no-op.
 pub fn persistSettingsIfPossible(model: *const Model) void {
     const io = model.store_io orelse return;
     saveExtras(model, std.heap.page_allocator, io, .settings) catch {};
@@ -335,6 +339,7 @@ fn applySettingsExtras(document: *Document, model: *const Model) void {
     document.last_project_path = model.lastProjectPath();
     document.last_model = model.lastModel();
     document.last_access_mode = model.lastAccessMode();
+    document.last_interaction_mode = model.lastInteractionMode();
     document.last_daemon_address = model.lastDaemonAddress();
 }
 
@@ -414,6 +419,7 @@ fn applyDaemonSkeletons(model: *Model, skeletons: []const protocol.TaskStateSkel
             !skel.has_started,
             skel.has_started,
             skel.project_path,
+            "",
             "",
             "",
             "",
@@ -728,6 +734,7 @@ const StoredSession = struct {
     runtime_id: []const u8 = "",
     model: []const u8 = "",
     access_mode: []const u8 = "",
+    interaction_mode: []const u8 = "",
     turns: []StoredTurn,
     queued_messages: []StoredQueued,
     rewind_refs: []StoredRewind = &.{},
@@ -742,6 +749,7 @@ const Document = struct {
     last_project_path: []const u8 = "",
     last_model: []const u8 = "",
     last_access_mode: []const u8 = "",
+    last_interaction_mode: []const u8 = "",
     last_daemon_address: []const u8 = "",
     sidebar_collapsed: bool = false,
     sidebar_width: u32 = 0,
@@ -756,6 +764,7 @@ const Document = struct {
             .last_project_path = model.lastProjectPath(),
             .last_model = model.lastModel(),
             .last_access_mode = model.lastAccessMode(),
+            .last_interaction_mode = model.lastInteractionMode(),
             .last_daemon_address = lastDaemonAddressForSave(model),
             .sidebar_collapsed = model.sidebar_collapsed,
             .sidebar_width = model.sidebarWidthPixels(),
@@ -779,6 +788,11 @@ fn lastAccessModeForSave(model: *const Model, session: *const main.Session) []co
     return session.accessMode();
 }
 
+fn lastInteractionModeForSave(model: *const Model, session: *const main.Session) []const u8 {
+    if (model.lastInteractionMode().len > 0) return model.lastInteractionMode();
+    return session.interactionMode();
+}
+
 fn lastDaemonAddressForSave(model: *const Model) []const u8 {
     if (model.lastDaemonAddress().len > 0) return model.lastDaemonAddress();
     return model.daemonAddress();
@@ -796,12 +810,13 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.setLastProjectPath(document.last_project_path);
     model.setLastModel(document.last_model);
     model.setLastAccessMode(document.last_access_mode);
+    model.setLastInteractionMode(document.last_interaction_mode);
     model.setLastDaemonAddress(document.last_daemon_address);
     model.sidebar_collapsed = document.sidebar_collapsed;
     model.applySidebarWidth(document.sidebar_width);
     model.syncSidebarSplit();
     for (document.sessions) |stored| {
-        model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode, stored.runtime_id);
+        model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode, stored.runtime_id, stored.interaction_mode);
         applyRewindRefs(model, stored.id, stored.rewind_refs);
     }
     if (model.sessionById(document.selected) != null) {
@@ -847,6 +862,7 @@ fn upsertSession(document: *Document, arena: std.mem.Allocator, model: *const Mo
         existing.runtime_id = incoming.runtime_id;
         existing.model = incoming.model;
         existing.access_mode = incoming.access_mode;
+        existing.interaction_mode = incoming.interaction_mode;
         existing.rewind_refs = incoming.rewind_refs;
         if (live.detail_loaded) {
             existing.turns = incoming.turns;
@@ -901,6 +917,7 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
         .runtime_id = try arena.dupe(u8, session.runtimeId()),
         .model = try arena.dupe(u8, session.model()),
         .access_mode = try arena.dupe(u8, session.accessMode()),
+        .interaction_mode = try arena.dupe(u8, session.interactionMode()),
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
         .rewind_refs = try snapshotRewindRefs(arena, session),
@@ -964,6 +981,7 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .last_project_path = jsonString(obj.get("last_project_path")) orelse "",
         .last_model = jsonString(obj.get("last_model")) orelse "",
         .last_access_mode = jsonString(obj.get("last_access_mode")) orelse "",
+        .last_interaction_mode = jsonString(obj.get("last_interaction_mode")) orelse "",
         .last_daemon_address = jsonString(obj.get("last_daemon_address")) orelse "",
         .sidebar_collapsed = jsonBool(obj.get("sidebar_collapsed")) orelse false,
         .sidebar_width = jsonUint(obj.get("sidebar_width")) orelse 0,
@@ -1016,6 +1034,7 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         .runtime_id = jsonString(obj.get("runtime_id")) orelse "",
         .model = jsonString(obj.get("model")) orelse "",
         .access_mode = jsonString(obj.get("access_mode")) orelse "",
+        .interaction_mode = jsonString(obj.get("interaction_mode")) orelse "",
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
         .rewind_refs = try parseRewindRefs(arena, obj.get("rewind_refs")),
@@ -1146,6 +1165,8 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try appendJsonString(&out, allocator, document.last_model);
     try out.appendSlice(allocator, ",\"last_access_mode\":");
     try appendJsonString(&out, allocator, document.last_access_mode);
+    try out.appendSlice(allocator, ",\"last_interaction_mode\":");
+    try appendJsonString(&out, allocator, document.last_interaction_mode);
     try out.appendSlice(allocator, ",\"last_daemon_address\":");
     try appendJsonString(&out, allocator, document.last_daemon_address);
     try out.appendSlice(allocator, ",\"sidebar_collapsed\":");
@@ -1182,6 +1203,8 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
     try appendJsonString(out, allocator, session.model);
     try out.appendSlice(allocator, ",\"access_mode\":");
     try appendJsonString(out, allocator, session.access_mode);
+    try out.appendSlice(allocator, ",\"interaction_mode\":");
+    try appendJsonString(out, allocator, session.interaction_mode);
     try out.appendSlice(allocator, ",\"turns\":[");
     for (session.turns, 0..) |turn, i| {
         if (i != 0) try out.append(allocator, ',');
@@ -1451,9 +1474,11 @@ test "session model and access_mode persist; new sessions inherit last-used" {
     if (source.sessionById(id)) |session| {
         session.setModel("openai/gpt-5.4");
         session.setAccessMode("ask");
+        session.setInteractionMode("plan");
     }
     source.setLastModel("openai/gpt-5.4");
     source.setLastAccessMode("ask");
+    source.setLastInteractionMode("plan");
     _ = source.appendTurn(id, .user, "use this model");
     try saveSession(&source, id, allocator, io);
 
@@ -1462,12 +1487,15 @@ test "session model and access_mode persist; new sessions inherit last-used" {
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
     try testing.expectEqualStrings("openai/gpt-5.4", loaded.session_store[0].model());
     try testing.expectEqualStrings("ask", loaded.session_store[0].accessMode());
+    try testing.expectEqualStrings("plan", loaded.session_store[0].interactionMode());
     try testing.expectEqualStrings("openai/gpt-5.4", loaded.lastModel());
     try testing.expectEqualStrings("ask", loaded.lastAccessMode());
+    try testing.expectEqualStrings("plan", loaded.lastInteractionMode());
 
     const inherited = loaded.addSession("next", .fx);
     try testing.expectEqualStrings("openai/gpt-5.4", loaded.sessionById(inherited).?.model());
     try testing.expectEqualStrings("ask", loaded.sessionById(inherited).?.accessMode());
+    try testing.expectEqualStrings("plan", loaded.sessionById(inherited).?.interactionMode());
 }
 
 test "sidebar collapsed flag and last width reload from document extras" {

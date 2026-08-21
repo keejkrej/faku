@@ -2340,3 +2340,137 @@ test "settings edits persist model access and daemon address and reload" {
     try testing.expectEqualStrings("openai/gpt-5.4", cleared.lastModel());
     try testing.expectEqualStrings("auto", cleared.lastAccessMode());
 }
+
+test "composer access chip cycles ask auto fullAccess; Build cycles plan" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("fullAccess", model.session_store[0].accessMode());
+    try testing.expectEqualStrings("build", model.session_store[0].interactionMode());
+    try testing.expectEqualStrings("Full access", model.access_label());
+    try testing.expectEqualStrings("Build", model.interaction_label());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "Medium");
+    const access = try expectByText(tree.root, .button, "Full access");
+    main.update(&model, tree.msgForPointer(access.id, .up).?, &fx);
+    try testing.expectEqualStrings("ask", model.session_store[0].accessMode());
+    try testing.expectEqualStrings("ask", model.lastAccessMode());
+    try testing.expectEqualStrings("Ask", model.access_label());
+
+    tree = try buildTree(arena, &model);
+    const ask = try expectByText(tree.root, .button, "Ask");
+    main.update(&model, tree.msgForPointer(ask.id, .up).?, &fx);
+    try testing.expectEqualStrings("auto", model.session_store[0].accessMode());
+    try testing.expectEqualStrings("auto", model.lastAccessMode());
+    try testing.expectEqualStrings("Auto", model.access_label());
+
+    tree = try buildTree(arena, &model);
+    const auto = try expectByText(tree.root, .button, "Auto");
+    main.update(&model, tree.msgForPointer(auto.id, .up).?, &fx);
+    try testing.expectEqualStrings("fullAccess", model.session_store[0].accessMode());
+    try testing.expectEqualStrings("fullAccess", model.lastAccessMode());
+    try testing.expectEqualStrings("Full access", model.access_label());
+
+    tree = try buildTree(arena, &model);
+    const build = try expectByText(tree.root, .button, "Build");
+    main.update(&model, tree.msgForPointer(build.id, .up).?, &fx);
+    try testing.expectEqualStrings("plan", model.session_store[0].interactionMode());
+    try testing.expectEqualStrings("plan", model.lastInteractionMode());
+    try testing.expectEqualStrings("Plan", model.interaction_label());
+
+    tree = try buildTree(arena, &model);
+    const plan = try expectByText(tree.root, .button, "Plan");
+    main.update(&model, tree.msgForPointer(plan.id, .up).?, &fx);
+    try testing.expectEqualStrings("build", model.session_store[0].interactionMode());
+    try testing.expectEqualStrings("build", model.lastInteractionMode());
+    try testing.expectEqualStrings("Build", model.interaction_label());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .button, "Build");
+    _ = try expectByText(tree.root, .button, "Medium");
+}
+
+test "composer chips persist access interaction and last-used model and reload" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-chips", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    if (model.sessionById(model.selected)) |session| {
+        session.setModel("openai/gpt-5.4");
+    }
+    model.setLastModel("openai/gpt-5.4");
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+
+    var tree = try buildTree(arena, &model);
+    try testing.expectEqualStrings("openai/gpt-5.4", model.model_label());
+    const model_chip = try expectByText(tree.root, .button, "openai/gpt-5.4");
+    main.update(&model, tree.msgForPointer(model_chip.id, .up).?, &fx);
+    try testing.expectEqual(@as(usize, 0), model.session_store[0].model().len);
+    try testing.expectEqualStrings("openai/gpt-5.4", model.lastModel());
+    try testing.expectEqualStrings("FX_MODEL", model.model_label());
+
+    tree = try buildTree(arena, &model);
+    const empty_model = try expectByText(tree.root, .button, "FX_MODEL");
+    main.update(&model, tree.msgForPointer(empty_model.id, .up).?, &fx);
+    try testing.expectEqualStrings("openai/gpt-5.4", model.session_store[0].model());
+    try testing.expectEqualStrings("openai/gpt-5.4", model.model_label());
+
+    tree = try buildTree(arena, &model);
+    const access = try expectByText(tree.root, .button, "Full access");
+    main.update(&model, tree.msgForPointer(access.id, .up).?, &fx);
+    try testing.expectEqualStrings("ask", model.session_store[0].accessMode());
+
+    tree = try buildTree(arena, &model);
+    const ask = try expectByText(tree.root, .button, "Ask");
+    main.update(&model, tree.msgForPointer(ask.id, .up).?, &fx);
+    try testing.expectEqualStrings("auto", model.session_store[0].accessMode());
+
+    tree = try buildTree(arena, &model);
+    const build = try expectByText(tree.root, .button, "Build");
+    main.update(&model, tree.msgForPointer(build.id, .up).?, &fx);
+    try testing.expectEqualStrings("plan", model.session_store[0].interactionMode());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings("openai/gpt-5.4", loaded.session_store[0].model());
+    try testing.expectEqualStrings("auto", loaded.session_store[0].accessMode());
+    try testing.expectEqualStrings("plan", loaded.session_store[0].interactionMode());
+    try testing.expectEqualStrings("openai/gpt-5.4", loaded.lastModel());
+    try testing.expectEqualStrings("auto", loaded.lastAccessMode());
+    try testing.expectEqualStrings("plan", loaded.lastInteractionMode());
+
+    const inherited = loaded.addSession("untitled next", .fx);
+    try testing.expectEqualStrings("openai/gpt-5.4", loaded.sessionById(inherited).?.model());
+    try testing.expectEqualStrings("auto", loaded.sessionById(inherited).?.accessMode());
+    try testing.expectEqualStrings("plan", loaded.sessionById(inherited).?.interactionMode());
+
+    tree = try buildTree(arena, &loaded);
+    _ = try expectByText(tree.root, .button, "openai/gpt-5.4");
+    _ = try expectByText(tree.root, .button, "Auto");
+    _ = try expectByText(tree.root, .button, "Plan");
+    _ = try expectByText(tree.root, .button, "Medium");
+}
