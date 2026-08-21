@@ -108,6 +108,12 @@ pub const max_sidecar_path = 512;
 pub const daemon_line_bytes: usize = 64 * 1024;
 pub const stream_interval_ms: u64 = 90;
 const stream_chunk_bytes: usize = 8;
+/// Overshoot for a programmatic jump to the transcript end. Native
+/// clamps `scroll` `value` against the content edge
+/// (`content_extent_y - viewport_extent_y`), so a large source offset
+/// lands on the newest turn after layout. Verified: native-sdk.dev
+/// scroll docs + engine clamp.
+pub const transcript_pin_offset: f32 = 1_000_000;
 const demo_ticks_complete: u32 = 12;
 const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
 
@@ -468,6 +474,7 @@ pub const Msg = union(enum) {
     close_window,
     sidebar_resized: f32,
     transcript_scrolled: canvas.ScrollState,
+    jump_latest,
     tick: native_sdk.EffectTimer,
     fx_line: native_sdk.EffectLine,
     fx_exit: native_sdk.EffectExit,
@@ -517,7 +524,15 @@ pub const Model = struct {
     folder_title_buffer: canvas.TextBuffer(max_title) = .{},
     editing_session_id: u32 = 0,
     session_title_buffer: canvas.TextBuffer(max_title) = .{},
+    /// Controlled Native `<scroll value>` offset. Setting it scrolls
+    /// the region; the engine clamps past the content edge.
     transcript_scroll: f32 = 0,
+    transcript_viewport_extent: f32 = 0,
+    transcript_content_extent: f32 = 0,
+    /// True while the last `on-scroll` was at the content end, or
+    /// before any observation (this slice pins until the user scrolls
+    /// away). Native `ScrollState` extents are the at-bottom signal.
+    transcript_pinned: bool = true,
     fx_available: bool = false,
     fx_path_storage: [max_fx_path]u8 = [_]u8{0} ** max_fx_path,
     fx_path_len: usize = 0,
@@ -746,6 +761,12 @@ pub const Model = struct {
         "status_line",
         "empty_hint",
         "has_turns",
+        "transcript_viewport_extent",
+        "transcript_content_extent",
+        "transcript_pinned",
+        "applyTranscriptScroll",
+        "pinTranscriptToLatest",
+        "transcriptAtEnd",
     };
 
     pub fn draft(model: *const Model) []const u8 {
@@ -928,6 +949,28 @@ pub const Model = struct {
 
     pub fn has_turns(model: *const Model) bool {
         return model.turnCount(model.selected) > 0;
+    }
+
+    /// Shown only after the user scrolls away from the latest turn.
+    pub fn show_jump_latest(model: *const Model) bool {
+        return !model.transcript_pinned;
+    }
+
+    pub fn transcriptAtEnd(scroll: canvas.ScrollState) bool {
+        const max_offset = @max(0, scroll.content_extent_y - scroll.viewport_extent_y);
+        return scroll.offset_y + 1.0 >= max_offset;
+    }
+
+    pub fn applyTranscriptScroll(model: *Model, scroll: canvas.ScrollState) void {
+        model.transcript_viewport_extent = scroll.viewport_extent_y;
+        model.transcript_content_extent = scroll.content_extent_y;
+        model.transcript_scroll = scroll.offset_y;
+        model.transcript_pinned = Model.transcriptAtEnd(scroll);
+    }
+
+    pub fn pinTranscriptToLatest(model: *Model) void {
+        model.transcript_pinned = true;
+        model.transcript_scroll = transcript_pin_offset;
     }
 
     pub fn has_queued(model: *const Model) bool {
@@ -1640,6 +1683,9 @@ pub const Model = struct {
         model.turn_count += 1;
         model.next_turn_id += 1;
         if (model.sessionById(session_id)) |session| session.has_started = true;
+        if (model.transcript_pinned and (session_id == model.selected or model.selected == 0)) {
+            model.pinTranscriptToLatest();
+        }
         return turn.id;
     }
 
@@ -1797,11 +1843,15 @@ pub const Model = struct {
 
     fn appendToTurn(model: *Model, turn_id: u32, extra: []const u8) void {
         const turn = model.turnById(turn_id) orelse return;
+        const session_id = turn.session_id;
         const room = turn.body_storage.len - turn.body_len;
         const take = @min(room, extra.len);
         if (take == 0) return;
         @memcpy(turn.body_storage[turn.body_len..][0..take], extra[0..take]);
         turn.body_len += take;
+        if (model.transcript_pinned and session_id == model.selected) {
+            model.pinTranscriptToLatest();
+        }
     }
 };
 
@@ -1934,6 +1984,7 @@ fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     store.hydrateIfPossible(model, id);
     store.maybeHydrateDaemonSession(model, fx, id);
     store.loadDraftIfPossible(model);
+    model.pinTranscriptToLatest();
 }
 
 fn goHistory(step: i32, model: *Model, fx: *Effects) void {
@@ -2174,7 +2225,8 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             applySidebarResize(model, fraction);
             store.persistLayoutIfPossible(model);
         },
-        .transcript_scrolled => |scroll| model.transcript_scroll = scroll.offset_y,
+        .transcript_scrolled => |scroll| model.applyTranscriptScroll(scroll),
+        .jump_latest => model.pinTranscriptToLatest(),
         .tick => |timer| {
             if (timer.outcome != .fired) return;
             tickStream(model, fx);
@@ -3030,6 +3082,7 @@ pub fn initialModel() Model {
 
     model.selected = port;
     model.pushSelectionHistory(port);
+    model.pinTranscriptToLatest();
     if (model.sessionById(port)) |session| {
         session.has_started = true;
         session.detail_loaded = true;

@@ -130,6 +130,18 @@ fn lastTool(model: *const Model) []const u8 {
     return "";
 }
 
+fn findAnyText(widget: canvas.Widget, text: []const u8) bool {
+    if (std.mem.eql(u8, widget.text, text)) return true;
+    if (std.mem.eql(u8, widgetName(widget), text)) return true;
+    for (widget.spans) |span| {
+        if (std.mem.eql(u8, span.text, text)) return true;
+    }
+    for (widget.children) |child| {
+        if (findAnyText(child, text)) return true;
+    }
+    return false;
+}
+
 fn lastReasoning(model: *const Model) []const u8 {
     var i = model.turn_count;
     while (i > 0) {
@@ -239,6 +251,88 @@ test "selecting the claude session shows its transcript" {
     _ = try expectByText(tree.root, .text, "You");
     _ = try expectByText(tree.root, .text, "Tool");
     try testing.expect(findByKind(tree.root, .status_bar) == null);
+}
+
+test "appending a turn renders last and pins the transcript value" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("pin transcript", .fx);
+    model.selected = id;
+    model.pinTranscriptToLatest();
+
+    _ = model.appendTurn(id, .user, "first user turn");
+    _ = model.appendTurn(id, .assistant, "first assistant turn");
+    _ = model.appendTurn(id, .tool, "read src/pin.ts");
+    _ = model.appendTurn(id, .reasoning, "newest thought stays last");
+
+    try testing.expectEqual(@as(u32, 4), model.turnCount(id));
+    try testing.expectEqualStrings("newest thought stays last", model.turn_store[model.turn_count - 1].text());
+    try testing.expectEqual(main.transcript_pin_offset, model.transcript_scroll);
+    try testing.expect(model.transcript_pinned);
+    try testing.expect(!model.show_jump_latest());
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findAnyText(tree.root, "first user turn"));
+    try testing.expect(findAnyText(tree.root, "first assistant turn"));
+    _ = try expectByText(tree.root, .text, "read src/pin.ts");
+    _ = try expectByText(tree.root, .text, "newest thought stays last");
+    _ = try expectByText(tree.root, .scroll, "Transcript");
+    try testing.expect(findByText(tree.root, .button, "Jump to latest") == null);
+    _ = try expectButton(tree.root, "Attach image");
+    try testing.expect(findByText(tree.root, .button, "Commands") == null);
+
+    const away = canvas.ScrollState{
+        .offset_y = 120,
+        .viewport_extent_y = 400,
+        .content_extent_y = 1600,
+    };
+    try testing.expect(!Model.transcriptAtEnd(away));
+    main.update(&model, .{ .transcript_scrolled = away }, &fx);
+    try testing.expectEqual(@as(f32, 120), model.transcript_scroll);
+    try testing.expect(!model.transcript_pinned);
+    try testing.expect(model.show_jump_latest());
+
+    _ = model.appendTurn(id, .assistant, "off-screen newest reply");
+    try testing.expectEqual(@as(f32, 120), model.transcript_scroll);
+    try testing.expect(!model.transcript_pinned);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findAnyText(tree.root, "off-screen newest reply"));
+    const jump = try expectButton(tree.root, "Jump to latest");
+    try testing.expectEqual(Msg.jump_latest, tree.msgForPointer(jump.id, .up).?);
+
+    main.update(&model, tree.msgForPointer(jump.id, .up).?, &fx);
+    try testing.expectEqual(main.transcript_pin_offset, model.transcript_scroll);
+    try testing.expect(model.transcript_pinned);
+    try testing.expect(!model.show_jump_latest());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Jump to latest") == null);
+    try testing.expect(findAnyText(tree.root, "off-screen newest reply"));
+    _ = try expectButton(tree.root, "Attach image");
+
+    const at_end = canvas.ScrollState{
+        .offset_y = 1200,
+        .viewport_extent_y = 400,
+        .content_extent_y = 1600,
+    };
+    try testing.expect(Model.transcriptAtEnd(at_end));
+    main.update(&model, .{ .transcript_scrolled = at_end }, &fx);
+    try testing.expect(model.transcript_pinned);
+    _ = model.appendTurn(id, .user, "follow-up at the bottom");
+    try testing.expectEqual(main.transcript_pin_offset, model.transcript_scroll);
+    try testing.expect(model.transcript_pinned);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findAnyText(tree.root, "follow-up at the bottom"));
+    try testing.expect(findByText(tree.root, .button, "Jump to latest") == null);
 }
 
 test "user and assistant **bold** bind to markdown source" {

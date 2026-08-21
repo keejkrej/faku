@@ -22,7 +22,11 @@ titles are editable; the selected session title is editable; deleting a folder u
 sidebar trash removes a session (and closeSession if a daemon is set);
 the composer project row sets the selected session cwd; the usage
 control stays empty unless ACP reports `usage_update`; user and
-assistant turns render Native markdown; Rewind
+assistant turns render Native markdown; the transcript stays pinned
+to the latest turn via Native `scroll` `value` / `on-scroll`
+(`canvas.ScrollState` extents; overshoot `value` clamps to the end)
+while the user is at the bottom, and Jump to latest sets that same
+`value` after they scroll away; Rewind
 resets workspace files to the last recorded HEAD and does not
 rewind the chat; headless paths are unchanged.
 
