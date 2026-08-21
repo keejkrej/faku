@@ -1726,6 +1726,75 @@ test "composer attach path uses fx ask --image; ACP spawn has no image blocks" {
     try testing.expect(std.mem.indexOf(u8, acp_spawn.stdin, "text only") != null);
 }
 
+test "composer attach preview binds when the file exists; missing and clear do not" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/preview.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("preview attach", .fx);
+    model.selected = id;
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .image, "Attached image") == null);
+
+    main.update(&model, .start_image_attach, &fx);
+    main.update(&model, .{ .image_path_edit = .{ .insert_text = image } }, &fx);
+    try testing.expect(model.has_image_attach());
+    try testing.expect(model.has_image_preview());
+    try testing.expectEqualStrings(image, model.resolveSpawnImage());
+    try testing.expectEqual(@as(usize, 1), fx.pendingImageLoadCount());
+    const load = fx.pendingImageLoadAt(0) orelse return error.MissingImageLoad;
+    try testing.expectEqualStrings(image, load.path);
+    try testing.expect(load.id >= main.attach_preview_id_first);
+    try testing.expect(load.id <= main.attach_preview_id_last);
+
+    tree = try buildTree(arena, &model);
+    const preview = try expectByText(tree.root, .image, "Attached image");
+    try testing.expectEqual(canvas.WidgetKind.image, preview.kind);
+    try testing.expectEqual(@as(canvas.ImageId, 0), preview.image_id);
+    _ = try expectByText(tree.root, .button, "preview.png");
+
+    try fx.feedImageResult(load.id, .loaded, 8, 8, 0, "");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(load.id, model.attach_preview);
+
+    tree = try buildTree(arena, &model);
+    const loaded_preview = try expectByText(tree.root, .image, "Attached image");
+    try testing.expectEqual(load.id, loaded_preview.image_id);
+
+    main.update(&model, .{ .image_path_edit = .clear }, &fx);
+    main.update(&model, .{ .image_path_edit = .{ .insert_text = ".zig-cache/tmp/faku-no-such-preview.png" } }, &fx);
+    try testing.expect(model.has_image_attach());
+    try testing.expect(!model.has_image_preview());
+    try testing.expectEqual(@as(canvas.ImageId, 0), model.attach_preview);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .image, "Attached image") == null);
+    _ = try expectByText(tree.root, .button, "faku-no-such-preview.png");
+    _ = try expectButton(tree.root, "Clear image");
+
+    main.update(&model, .clear_image_attach, &fx);
+    try testing.expect(!model.has_image_attach());
+    try testing.expect(!model.has_image_preview());
+    try testing.expectEqual(@as(canvas.ImageId, 0), model.attach_preview);
+    try testing.expectEqual(@as(usize, 0), model.draftImagePath().len);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .image, "Attached image") == null);
+    try testing.expect(findByText(tree.root, .button, "Clear image") == null);
+    _ = try expectButton(tree.root, "Attach image");
+}
+
 test "Waku access_mode maps to verified FX_PERMISSION_MODE values" {
     try testing.expectEqualStrings("ask", main.fxPermissionMode("ask"));
     try testing.expectEqualStrings("auto", main.fxPermissionMode("auto"));

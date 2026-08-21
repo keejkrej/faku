@@ -226,6 +226,9 @@
             </if>
             <if test="{has_image_attach}">
               <row gap="4" cross="center">
+                <if test="{has_image_preview}">
+                  <image image="{attach_preview}" width="32" height="32" label="Attached image" />
+                </if>
                 <button variant="ghost" size="sm" icon="file-text" on-press="start_image_attach">{image_chip_label}</button>
                 <button variant="ghost" size="icon" icon="x" label="Clear image" on-press="clear_image_attach"></button>
               </row>
