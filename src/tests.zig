@@ -89,6 +89,18 @@ fn findByKind(widget: canvas.Widget, kind: canvas.WidgetKind) ?canvas.Widget {
     return null;
 }
 
+fn findBoldSpanText(widget: canvas.Widget, text: []const u8) ?canvas.Widget {
+    if (widget.kind == .text) {
+        for (widget.spans) |span| {
+            if (span.weight == .bold and std.mem.eql(u8, span.text, text)) return widget;
+        }
+    }
+    for (widget.children) |child| {
+        if (findBoldSpanText(child, text)) |found| return found;
+    }
+    return null;
+}
+
 fn countRole(model: *const Model, role: main.Role) usize {
     var n: usize = 0;
     for (model.turn_store[0..model.turn_count]) |turn| {
@@ -206,6 +218,29 @@ test "selecting the claude session shows its transcript" {
     _ = try expectByText(tree.root, .text, "You");
     _ = try expectByText(tree.root, .text, "Tool");
     try testing.expect(findByKind(tree.root, .status_bar) == null);
+}
+
+test "assistant **bold** binds to markdown source; user bubbles stay plain" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    const id = model.addSession("markdown turn", .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .user, "**keep raw**");
+    _ = model.appendTurn(id, .assistant, "**bold**");
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "**keep raw**");
+    try testing.expect(findByText(tree.root, .text, "**bold**") == null);
+    const rendered = findBoldSpanText(tree.root, "bold") orelse {
+        std.debug.print("no bold markdown span for \"bold\"\n", .{});
+        dumpTexts(tree.root, 0);
+        return error.WidgetNotFound;
+    };
+    try testing.expectEqual(canvas.WidgetKind.text, rendered.kind);
+    try testing.expectEqualStrings("bold", rendered.text);
 }
 
 test "escape stops a live demo stream" {
