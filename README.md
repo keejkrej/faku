@@ -164,7 +164,7 @@ Path (Native `app_dirs` data directory, app name `faku`):
     macOS:  ~/Library/Application Support/faku/sessions.json
 
 Boot: if that file loads, the sidebar is session skeletons only (id, title,
-provider, untitled/has_started, project_path, fx_session_id, model,
+provider, untitled/has_started, project_path, fx_session_id, runtime_id, model,
 access_mode) — no demo rows and no transcripts. The document also stores
 `last_project_path`, `last_model`, `last_access_mode`, and
 `last_daemon_address` so a new session can inherit the last workspace
@@ -222,13 +222,15 @@ Product keys (not all wired): Cmd-N new, Enter send/queue, Cmd-Enter steer,
 Esc cancel.
 
 Daemon (sidecar, not embedded): when `WAKU_DAEMON_ADDRESS` is set, Send
-spawns the same binary as `faku daemon-proxy <addr>` with hello + optional
-`loadTaskState` + prompt JSON in the one-shot spawn stdin. The sidecar
-does the TCP + WebSocket handshake to `ws://{addr}/v1`, prints each
-incoming text frame as one stdout line, and exits on `turnFinished` /
-`rejected` / `error`. The desktop update loop never holds that socket.
-`textDelta` appends to the assistant turn; `turnFinished` settles and
-drains the success-only queue. Stop / Esc cancels the spawn.
+spawns the same binary as `faku daemon-proxy <addr>` with hello +
+`attachSession` + prompt JSON in the one-shot spawn stdin.
+`attachSession` is a one-shot before the daemon prompt, not a live
+runtime loop. The sidecar does the TCP + WebSocket handshake to
+`ws://{addr}/v1`, prints each incoming text frame as one stdout line,
+and exits on `turnFinished` / `rejected` / `error`. The desktop update
+loop never holds that socket. `textDelta` appends to the assistant
+turn; `turnFinished` settles and drains the success-only queue. Stop /
+Esc cancels the spawn.
 
 Missing `WAKU_DAEMON_ADDRESS` keeps one-shot `fx acp` / `fx ask` / the demo timer. The
 address is persisted as `last_daemon_address` in `sessions.json` for a

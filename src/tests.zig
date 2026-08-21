@@ -777,7 +777,7 @@ test "non-zero fx ask exit does not drain the queue" {
     try testing.expectEqualStrings("after failure", model.firstQueuedText(id));
 }
 
-test "daemon address send puts hello loadTaskState and prompt on spawn stdin" {
+test "daemon address send puts hello attachSession and prompt on spawn stdin" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -804,10 +804,78 @@ test "daemon address send puts hello loadTaskState and prompt on spawn stdin" {
     try testing.expect(argvHas(request.argv, "127.0.0.1:8787"));
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"hello\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"token\":\"secret\"") != null);
-    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"loadTaskState\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"attachSession\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, daemon_proxy.ATTACH_REQUEST_ID) != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"prompt\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "trace the listener") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"loadTaskState\"") == null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"start\"") == null);
+    const attach_at = std.mem.indexOf(u8, request.stdin, "\"type\":\"attachSession\"").?;
+    const prompt_at = std.mem.indexOf(u8, request.stdin, "\"type\":\"prompt\"").?;
+    try testing.expect(attach_at < prompt_at);
     try testing.expectEqualStrings("127.0.0.1:8787", model.lastDaemonAddress());
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.runtimeId().len);
+}
+
+test "fake sessionRuntime persists a runtime id on the session" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-runtime", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("runtime persist", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    const key = model.daemon_spawn_key;
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.runtimeId().len);
+
+    try fx.feedLine(key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000012\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"sessionRuntime\",\"runtimeId\":null,\"supportsSteer\":false}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.runtimeId().len);
+
+    try fx.feedLine(key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000012\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.runtimeId().len);
+
+    try fx.feedLine(key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000012\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"sessionRuntime\",\"runtimeId\":\"00000000-0000-0000-0000-000000000003\",\"supportsSteer\":true}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("00000000-0000-0000-0000-000000000003", model.sessionById(id).?.runtimeId());
+    try testing.expect(model.is_streaming());
+
+    try fx.feedLine(key, "{\"type\":\"event\",\"event\":{\"kind\":\"turnFinished\",\"payload\":{\"success\":true}}}");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings("00000000-0000-0000-0000-000000000003", loaded.session_store[0].runtimeId());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "second prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    var found_second = false;
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (isSaveOnlyStdin(spawn.stdin)) continue;
+        if (std.mem.indexOf(u8, spawn.stdin, "second prompt") == null) continue;
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"attachSession\"") != null);
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"prompt\"") != null);
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"runtimeId\":\"00000000-0000-0000-0000-000000000003\"") != null);
+        found_second = true;
+    }
+    try testing.expect(found_second);
 }
 
 fn isSaveOnlyStdin(stdin: []const u8) bool {
@@ -984,7 +1052,9 @@ test "daemon textDelta hydrates the turn and turnFinished settles plus drains" {
         if (spawn.key == key) continue;
         if (isSaveOnlyStdin(spawn.stdin)) continue;
         try testing.expect(std.mem.indexOf(u8, spawn.stdin, "queued follow-up") != null);
-        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "loadTaskState") != null);
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"attachSession\"") != null);
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"prompt\"") != null);
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"loadTaskState\"") == null);
         found_follow_up = true;
     }
     try testing.expect(found_follow_up);
@@ -1009,6 +1079,28 @@ test "missing daemon address still uses fx ask when the CLI is present" {
     try testing.expect(argvHas(request.argv, "acp"));
     try testing.expect(!argvHas(request.argv, "ask"));
     try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"attachSession\"") == null);
+}
+
+test "missing daemon address does not attach even when last_daemon_address is set" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "do not attach" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"attachSession\"") == null);
+    try testing.expectEqual(@as(usize, 0), model.session_store[0].runtimeId().len);
 }
 
 test "successful fx ask exit records HEAD when project_path is a git work tree" {

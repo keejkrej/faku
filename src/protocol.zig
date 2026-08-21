@@ -58,6 +58,20 @@
 //! take `sessionId` on the command. Local `removeSession` stays the
 //! catalog delete; `closeSession` is a best-effort sidecar after that
 //! persist. No `attachSession` first.
+//!
+//! `attachSession` is a bare command. Verified against egoist/waku
+//! `Command::AttachSession` (unit variant, no payload field),
+//! `src/app/runtime.rs` (`request(session_id, Uuid::nil(), AttachSession)`),
+//! `crates/waku-core/src/daemon.rs` (lookup by request-frame `sessionId`;
+//! observes the provider process), and `ResponsePayload::SessionRuntime`
+//! `{ runtime_id: Option<Uuid>, supports_steer }`. An ok outcome carries
+//! `{ type: "sessionRuntime", runtimeId, supportsSteer }`. `runtimeId`
+//! may be JSON null when no runtime is live. A non-nil `requestId` is
+//! required (nil is a notify and the daemon sends no response). Prompt
+//! and start target that runtime id when one exists; this port cannot
+//! wait for attach before the one-shot prompt, so a later send reuses
+//! a persisted id. Start / loadTaskState are not part of that attach
+//! flow.
 
 const std = @import("std");
 
@@ -245,8 +259,18 @@ pub const ParsedServer = struct {
     text_delta: []const u8 = "",
     /// `turnFinished` payload. Missing `success` defaults to true.
     turn_success: bool = true,
-    /// `outcome.payload.type` on a response (`taskState`, `ack`, …).
+    /// `outcome.payload.type` on a response (`taskState`, `sessionRuntime`, `ack`, …).
     payload_type: []const u8 = "",
+    /// `sessionRuntime.supportsSteer` when the payload includes it.
+    supports_steer: bool = false,
+};
+
+/// Runtime id taken from a verified `sessionRuntime` response payload.
+/// Slices alias the JSON arena used to parse the line.
+pub const ParsedSessionRuntime = struct {
+    ok: bool = false,
+    runtime_id: []const u8 = "",
+    supports_steer: bool = false,
 };
 
 pub const max_task_state_sessions: usize = 16;
@@ -506,6 +530,17 @@ pub fn writeSaveTaskState(
     return cur.slice();
 }
 
+/// Bare verified `attachSession`. Request-frame `sessionId` is the
+/// target; `runtimeId` on the request is nil in Waku's attach client.
+/// Non-nil `requestId` so the daemon replies with `sessionRuntime`.
+pub fn writeAttachSession(
+    buf: []u8,
+    request_id: []const u8,
+    session_id: []const u8,
+) WriteError![]const u8 {
+    return writeBareCommand(buf, request_id, session_id, NIL_UUID, .attach_session);
+}
+
 /// Bare first-cut command (attachSession, cancel, loadTaskState, closeSession, …).
 pub fn writeBareCommand(
     buf: []u8,
@@ -588,6 +623,10 @@ fn parseOutcome(obj: std.json.ObjectMap, parsed: *ParsedServer) void {
         if (outcome.get("payload")) |payload_val| {
             if (jsonObject(payload_val)) |payload| {
                 parsed.payload_type = jsonStringValue(payload.get("type")) orelse "";
+                if (std.mem.eql(u8, parsed.payload_type, "sessionRuntime")) {
+                    parsed.runtime_id = jsonStringValue(payload.get("runtimeId")) orelse "";
+                    parsed.supports_steer = jsonBoolValue(payload.get("supportsSteer")) orelse false;
+                }
             }
         }
         return;
@@ -720,6 +759,32 @@ pub fn parseHydratedSession(allocator: std.mem.Allocator, line: []const u8) Pars
     return parsed;
 }
 
+/// Extract `runtimeId` from a `sessionRuntime` response. Empty on any
+/// other frame, a failed outcome, a payload that is not
+/// `sessionRuntime`, or `runtimeId: null`. Does not invent an id.
+pub fn parseSessionRuntime(allocator: std.mem.Allocator, line: []const u8) ParsedSessionRuntime {
+    var parsed = ParsedSessionRuntime{};
+    const trimmed = std.mem.trim(u8, line, " \t\r\n");
+    if (trimmed.len < 2 or trimmed[0] != '{') return parsed;
+
+    const root = std.json.parseFromSliceLeaky(std.json.Value, allocator, trimmed, .{}) catch return parsed;
+    const obj = jsonObject(root) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(obj.get("type")) orelse "", "response")) return parsed;
+    const outcome = jsonObject(obj.get("outcome") orelse return parsed) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(outcome.get("status")) orelse "", "ok")) return parsed;
+    const payload = jsonObject(outcome.get("payload") orelse return parsed) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(payload.get("type")) orelse "", "sessionRuntime")) return parsed;
+    parsed.ok = true;
+    parsed.runtime_id = jsonStringValue(payload.get("runtimeId")) orelse "";
+    parsed.supports_steer = jsonBoolValue(payload.get("supportsSteer")) orelse false;
+    return parsed;
+}
+
+/// A daemon-issued runtime UUID, not empty and not the nil notify id.
+pub fn isUsableRuntimeId(id: []const u8) bool {
+    return id.len > 0 and !std.mem.eql(u8, id, NIL_UUID);
+}
+
 fn parseEvent(obj: std.json.ObjectMap, parsed: *ParsedServer) void {
     parsed.session_id = jsonStringValue(obj.get("sessionId")) orelse "";
     parsed.runtime_id = jsonStringValue(obj.get("runtimeId")) orelse "";
@@ -826,6 +891,7 @@ test "first-cut command tags stay camelCase on the wire" {
     try std.testing.expectEqualStrings("hydrateSession", CommandTag.hydrate_session.wireName());
     try std.testing.expectEqualStrings("saveTaskState", CommandTag.save_task_state.wireName());
     try std.testing.expectEqualStrings("closeSession", CommandTag.close_session.wireName());
+    try std.testing.expectEqualStrings("attachSession", CommandTag.attach_session.wireName());
     try std.testing.expectEqualStrings("turnFinished", EventKind.turn_finished.wireName());
     try std.testing.expectEqualStrings("textDelta", EventKind.text_delta.wireName());
 }
@@ -935,6 +1001,56 @@ test "taskState response yields session skeletons and project path fallback" {
 
     const failed = parseTaskStateSkeletons(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}");
     try std.testing.expectEqual(@as(usize, 0), failed.session_count);
+}
+
+test "attachSession is a bare command with sessionId on the request frame" {
+    var buf: [512]u8 = undefined;
+    const json = try writeAttachSession(
+        &buf,
+        "00000000-0000-0000-0000-000000000012",
+        "00000000-0000-0000-0000-000000000007",
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000012\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"00000000-0000-0000-0000-000000000007\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"attachSession\"}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"start\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"loadTaskState\"") == null);
+}
+
+test "sessionRuntime response yields runtimeId and ignores null" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const line =
+        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000012","outcome":{"status":"ok","payload":{"type":"sessionRuntime","runtimeId":"00000000-0000-0000-0000-000000000003","supportsSteer":true}}}
+    ;
+    const parsed = parseSessionRuntime(arena, line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqualStrings("00000000-0000-0000-0000-000000000003", parsed.runtime_id);
+    try std.testing.expect(parsed.supports_steer);
+    try std.testing.expect(isUsableRuntimeId(parsed.runtime_id));
+
+    const frame = parseServerFrame(arena, line);
+    try std.testing.expectEqual(ServerFrame.response, frame.frame);
+    try std.testing.expect(frame.response_ok);
+    try std.testing.expectEqualStrings("sessionRuntime", frame.payload_type);
+    try std.testing.expectEqualStrings("00000000-0000-0000-0000-000000000003", frame.runtime_id);
+    try std.testing.expect(frame.supports_steer);
+
+    const missing = parseSessionRuntime(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"sessionRuntime\",\"runtimeId\":null,\"supportsSteer\":false}}}");
+    try std.testing.expect(missing.ok);
+    try std.testing.expectEqual(@as(usize, 0), missing.runtime_id.len);
+    try std.testing.expect(!isUsableRuntimeId(missing.runtime_id));
+
+    const other = parseSessionRuntime(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}");
+    try std.testing.expect(!other.ok);
+    try std.testing.expectEqual(@as(usize, 0), other.runtime_id.len);
+    try std.testing.expect(!isUsableRuntimeId(NIL_UUID));
+    try std.testing.expect(!isUsableRuntimeId(""));
 }
 
 test "closeSession is a bare command with sessionId on the request frame" {

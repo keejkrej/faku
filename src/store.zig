@@ -7,7 +7,7 @@
 //!
 //! One JSON document `sessions.json`. Catalog load copies only session
 //! skeletons (id, title, provider, untitled, has_started, project_path,
-//! fx_session_id, model, access_mode, rewind_refs) — no transcripts. Selecting
+//! fx_session_id, runtime_id, model, access_mode, rewind_refs) — no transcripts. Selecting
 //! a session hydrates its turns,
 //! `queued_messages`, and `rewind_refs`. Save is merge-only (never deletes).
 //! `removeSession` is the only delete. Refuses to write until a successful
@@ -361,6 +361,7 @@ fn applyDaemonSkeletons(model: *Model, skeletons: []const protocol.TaskStateSkel
             "",
             "",
             "",
+            "",
         );
     }
     if (model.session_count == 0) return;
@@ -668,6 +669,7 @@ const StoredSession = struct {
     has_started: bool,
     project_path: []const u8 = "",
     fx_session_id: []const u8 = "",
+    runtime_id: []const u8 = "",
     model: []const u8 = "",
     access_mode: []const u8 = "",
     turns: []StoredTurn,
@@ -736,7 +738,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.setLastAccessMode(document.last_access_mode);
     model.setLastDaemonAddress(document.last_daemon_address);
     for (document.sessions) |stored| {
-        model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode);
+        model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode, stored.runtime_id);
         applyRewindRefs(model, stored.id, stored.rewind_refs);
     }
     if (model.sessionById(document.selected) != null) {
@@ -779,6 +781,7 @@ fn upsertSession(document: *Document, arena: std.mem.Allocator, model: *const Mo
         existing.has_started = incoming.has_started;
         existing.project_path = incoming.project_path;
         existing.fx_session_id = incoming.fx_session_id;
+        existing.runtime_id = incoming.runtime_id;
         existing.model = incoming.model;
         existing.access_mode = incoming.access_mode;
         existing.rewind_refs = incoming.rewind_refs;
@@ -832,6 +835,7 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
         .has_started = session.hasStarted(),
         .project_path = try arena.dupe(u8, session.projectPath()),
         .fx_session_id = try arena.dupe(u8, session.fxSessionId()),
+        .runtime_id = try arena.dupe(u8, session.runtimeId()),
         .model = try arena.dupe(u8, session.model()),
         .access_mode = try arena.dupe(u8, session.accessMode()),
         .turns = try turns.toOwnedSlice(arena),
@@ -944,6 +948,7 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         .has_started = has_started,
         .project_path = jsonString(obj.get("project_path")) orelse "",
         .fx_session_id = jsonString(obj.get("fx_session_id")) orelse "",
+        .runtime_id = jsonString(obj.get("runtime_id")) orelse "",
         .model = jsonString(obj.get("model")) orelse "",
         .access_mode = jsonString(obj.get("access_mode")) orelse "",
         .turns = try turns.toOwnedSlice(arena),
@@ -1102,6 +1107,8 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
     try appendJsonString(out, allocator, session.project_path);
     try out.appendSlice(allocator, ",\"fx_session_id\":");
     try appendJsonString(out, allocator, session.fx_session_id);
+    try out.appendSlice(allocator, ",\"runtime_id\":");
+    try appendJsonString(out, allocator, session.runtime_id);
     try out.appendSlice(allocator, ",\"model\":");
     try appendJsonString(out, allocator, session.model);
     try out.appendSlice(allocator, ",\"access_mode\":");
@@ -1332,6 +1339,30 @@ test "session fx_session_id persists and loads" {
     loaded.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
     try testing.expectEqualStrings("fx-sess-roundtrip", loaded.session_store[0].fxSessionId());
+}
+
+test "session runtime_id persists and loads" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("runtime later", .fx);
+    if (source.sessionById(id)) |session| session.setRuntimeId("00000000-0000-0000-0000-000000000003");
+    _ = source.appendTurn(id, .user, "remember this runtime");
+    try saveSession(&source, id, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqualStrings("00000000-0000-0000-0000-000000000003", loaded.session_store[0].runtimeId());
 }
 
 test "session model and access_mode persist; new sessions inherit last-used" {

@@ -6,9 +6,10 @@
 //! session/prompt).
 //! Draft `image_path` still uses `fx ask --image` (ACP rejects image
 //! blocks). When `WAKU_DAEMON_ADDRESS` is set, Send instead spawns a
-//! one-shot `daemon-proxy` sidecar. Missing address / image / ACP
-//! stdin overflow keep `fx ask` or the demo timer. This is not a
-//! long-lived ACP loop — Native stdin is one buffer, then it closes.
+//! one-shot `daemon-proxy` sidecar (hello + attachSession + prompt).
+//! Missing address / image / ACP stdin overflow keep `fx ask` or the
+//! demo timer. This is not a long-lived ACP or daemon runtime loop —
+//! Native stdin is one buffer, then it closes.
 
 const std = @import("std");
 const runner = @import("runner");
@@ -41,6 +42,7 @@ const max_fx_path = 256;
 pub const max_store_dir = 512;
 pub const max_project_path = 512;
 pub const max_fx_session_id = 128;
+pub const max_runtime_id = 36;
 pub const max_fx_model = 128;
 pub const max_access_mode = 32;
 /// Waku `runtime_mode` default. Maps to fx `FX_PERMISSION_MODE=yolo`.
@@ -108,6 +110,9 @@ pub const Session = struct {
     /// fx ACP sessions are the same saved sessions as interactive fx.
     fx_session_id_storage: [max_fx_session_id]u8 = [_]u8{0} ** max_fx_session_id,
     fx_session_id_len: usize = 0,
+    /// Daemon `sessionRuntime.runtimeId`. Empty until attach returns one.
+    runtime_id_storage: [max_runtime_id]u8 = [_]u8{0} ** max_runtime_id,
+    runtime_id_len: usize = 0,
     /// Gateway model id for `FX_MODEL`. Empty inherits fx's own default.
     model_storage: [max_fx_model]u8 = [_]u8{0} ** max_fx_model,
     model_len: usize = 0,
@@ -136,6 +141,14 @@ pub const Session = struct {
 
     pub fn setFxSessionId(self: *Session, id: []const u8) void {
         writeFixed(&self.fx_session_id_storage, &self.fx_session_id_len, id);
+    }
+
+    pub fn runtimeId(self: *const Session) []const u8 {
+        return self.runtime_id_storage[0..self.runtime_id_len];
+    }
+
+    pub fn setRuntimeId(self: *Session, id: []const u8) void {
+        writeFixed(&self.runtime_id_storage, &self.runtime_id_len, id);
     }
 
     pub fn model(self: *const Session) []const u8 {
@@ -475,7 +488,7 @@ pub const Model = struct {
 
     pub fn empty_hint(model: *const Model) []const u8 {
         if (model.daemonAddress().len > 0) {
-            return "Message the daemon sidecar. Send is one-shot hello/load/prompt over ws://{addr}/v1; missing address keeps `fx ask` / demo.";
+            return "Message the daemon sidecar. Send is one-shot hello/attachSession/prompt over ws://{addr}/v1; missing address keeps `fx ask` / demo.";
         }
         if (model.fx_available) {
             return "Message fx. Send runs one-shot `fx acp` (initialize / session/new|resume / set model|mode / session/prompt). Images still use `fx ask --image`.";
@@ -786,6 +799,7 @@ pub const Model = struct {
         fx_session_id: []const u8,
         model_id: []const u8,
         access_mode: []const u8,
+        runtime_id: []const u8,
     ) void {
         if (model.session_count >= max_sessions) return;
         var session = Session{
@@ -800,6 +814,7 @@ pub const Model = struct {
         writeFixed(&session.fx_session_id_storage, &session.fx_session_id_len, fx_session_id);
         writeFixed(&session.model_storage, &session.model_len, model_id);
         writeFixed(&session.access_mode_storage, &session.access_mode_len, access_mode);
+        writeFixed(&session.runtime_id_storage, &session.runtime_id_len, runtime_id);
         model.session_store[model.session_count] = session;
         model.session_count += 1;
         if (id >= model.next_id) model.next_id = id + 1;
@@ -952,7 +967,6 @@ fn handleSend(model: *Model, fx: *Effects) void {
 
 fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) void {
     const session = model.sessionById(session_id) orelse return;
-    const hydrate = session.hasStarted();
     const titled = session.untitled;
     if (session.untitled) {
         writeFixed(&session.title_storage, &session.title_len, text);
@@ -968,7 +982,7 @@ fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) v
     model.streaming_session = session.id;
     if (model.daemonAddress().len > 0) {
         model.reply_path = .daemon;
-        startDaemonProxy(model, fx, session, text, hydrate);
+        startDaemonProxy(model, fx, session, text);
         return;
     }
     if (session.provider == .fx and model.fx_available and model.fxPath().len > 0) {
@@ -1007,15 +1021,16 @@ pub fn fxPermissionMode(access_mode: []const u8) []const u8 {
     return "";
 }
 
-fn startDaemonProxy(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8, hydrate: bool) void {
+fn startDaemonProxy(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) void {
     var id_buf: [36]u8 = undefined;
     const session_id = daemon_proxy.wireUuid(session.id, &id_buf);
+    const runtime_id = if (protocol.isUsableRuntimeId(session.runtimeId())) session.runtimeId() else protocol.NIL_UUID;
     var stdin_buf: [4096]u8 = undefined;
     const stdin = daemon_proxy.writeTurnStdin(&stdin_buf, .{
         .token = model.daemonToken(),
         .session_id = session_id,
+        .runtime_id = runtime_id,
         .prompt = prompt,
-        .load_task_state = hydrate,
     }) catch {
         model.reply_path = .demo;
         startDemoTimer(fx);
@@ -1341,9 +1356,19 @@ fn handleDaemonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
                 finishStream(model, fx, false);
             }
         },
+        .response => persistDaemonRuntimeId(model, fx, parsed),
         .rejected => finishStream(model, fx, false),
         else => {},
     }
+}
+
+fn persistDaemonRuntimeId(model: *Model, fx: *Effects, parsed: protocol.ParsedServer) void {
+    if (!std.mem.eql(u8, parsed.payload_type, "sessionRuntime")) return;
+    if (!parsed.response_ok or !protocol.isUsableRuntimeId(parsed.runtime_id)) return;
+    const session = model.sessionById(model.streaming_session) orelse return;
+    session.setRuntimeId(parsed.runtime_id);
+    store.persistIfPossible(model, session.id, fx);
+}
 }
 
 fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
