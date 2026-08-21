@@ -59,6 +59,20 @@
 //! catalog delete; `closeSession` is a best-effort sidecar after that
 //! persist. No `attachSession` first.
 //!
+//! `cancel` is a bare command. Verified against egoist/waku
+//! `Command::Cancel` (unit variant, no payload field),
+//! `apps/web/src/lib/runtime-context.tsx`
+//! (`request({ type: 'cancel' }, sessionId, runtime.runtimeId)`),
+//! `crates/waku-protocol/src/protocol.rs` (request-frame `sessionId` /
+//! `runtimeId`), and `crates/waku-core/src/daemon.rs` (`Command::Cancel`
+//! → `driver.cancel()` after lookup by those request-frame ids). It is
+//! not `session/cancel` and does not take a prompt. Native cannot write
+//! into the running prompt sidecar; Stop / Esc `fx.cancel`s that spawn
+//! and, when a daemon address is set and the live turn was a daemon
+//! spawn, one-shots hello + `cancel` on a distinct key. Sidecar
+//! failure must not resurrect the turn. No `attachSession` first. No
+//! steer in this cut.
+//!
 //! `attachSession` is a bare command. Verified against egoist/waku
 //! `Command::AttachSession` (unit variant, no payload field),
 //! `src/app/runtime.rs` (`request(session_id, Uuid::nil(), AttachSession)`),
@@ -910,6 +924,7 @@ test "first-cut command tags stay camelCase on the wire" {
     try std.testing.expectEqualStrings("saveTaskState", CommandTag.save_task_state.wireName());
     try std.testing.expectEqualStrings("closeSession", CommandTag.close_session.wireName());
     try std.testing.expectEqualStrings("attachSession", CommandTag.attach_session.wireName());
+    try std.testing.expectEqualStrings("cancel", CommandTag.cancel.wireName());
     try std.testing.expectEqualStrings("turnFinished", EventKind.turn_finished.wireName());
     try std.testing.expectEqualStrings("textDelta", EventKind.text_delta.wireName());
 }
@@ -1069,6 +1084,24 @@ test "sessionRuntime response yields runtimeId and ignores null" {
     try std.testing.expectEqual(@as(usize, 0), other.runtime_id.len);
     try std.testing.expect(!isUsableRuntimeId(NIL_UUID));
     try std.testing.expect(!isUsableRuntimeId(""));
+}
+
+test "cancel is a bare command with sessionId and runtimeId on the request frame" {
+    var buf: [512]u8 = undefined;
+    const json = try writeBareCommand(
+        &buf,
+        NIL_UUID,
+        "00000000-0000-0000-0000-000000000007",
+        "00000000-0000-0000-0000-000000000003",
+        .cancel,
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"00000000-0000-0000-0000-000000000007\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"00000000-0000-0000-0000-000000000003\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"cancel\"}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"steer\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"attachSession\"") == null);
 }
 
 test "closeSession is a bare command with sessionId on the request frame" {

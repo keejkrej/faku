@@ -8,9 +8,11 @@
 //! blocks). When `WAKU_DAEMON_ADDRESS` is set, Send instead spawns a
 //! one-shot `daemon-proxy` sidecar (hello + attachSession + start +
 //! prompt when no runtime id; later sends keep attach + prompt).
-//! Missing address / image / ACP stdin overflow keep `fx ask` or the
-//! demo timer. This is not a long-lived ACP or daemon runtime loop —
-//! Native stdin is one buffer, then it closes.
+//! Stop / Esc of that daemon turn `fx.cancel`s the prompt spawn and
+//! one-shots hello + `cancel` on a distinct key. Missing address /
+//! image / ACP stdin overflow keep `fx ask` or the demo timer. This
+//! is not a long-lived ACP or daemon runtime loop — Native stdin is
+//! one buffer, then it closes.
 
 const std = @import("std");
 const runner = @import("runner");
@@ -2133,6 +2135,7 @@ fn applyRewindIfPossible(model: *Model) void {
 fn stopStream(model: *Model, fx: *Effects) void {
     if (!model.is_streaming()) return;
     const finished_id = model.streaming_session;
+    const was_daemon = model.daemon_spawn_key != 0;
     if (model.sessionById(finished_id)) |session| session.busy = false;
     model.phase = .idle;
     model.stream_cursor = 0;
@@ -2143,7 +2146,41 @@ fn stopStream(model: *Model, fx: *Effects) void {
     if (model.fx_spawn_key != 0) fx.cancel(model.fx_spawn_key);
     if (model.daemon_spawn_key != 0) fx.cancel(model.daemon_spawn_key);
     model.fx_spawn_live = false;
+    if (was_daemon) maybeCancelDaemonTurn(model, fx, finished_id);
     store.persistIfPossible(model, finished_id, fx);
+}
+
+/// Best-effort one-shot hello + bare `cancel` after Stop / Esc of a
+/// daemon turn. Own spawn key — Native cannot write into the running
+/// prompt sidecar. Missing live address is a no-op (fx ask / fx acp /
+/// demo stay cancel-the-spawn only). Sidecar failure must not
+/// resurrect the turn already settled above.
+fn maybeCancelDaemonTurn(model: *Model, fx: *Effects, session_id: u32) void {
+    if (model.daemonAddress().len == 0) return;
+    const session = model.sessionById(session_id) orelse return;
+    var id_buf: [36]u8 = undefined;
+    const wire_id = daemon_proxy.wireUuid(session.id, &id_buf);
+    const runtime_id = if (protocol.isUsableRuntimeId(session.runtimeId()))
+        session.runtimeId()
+    else
+        protocol.NIL_UUID;
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeCancelStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .session_id = wire_id,
+        .runtime_id = runtime_id,
+    }) catch return;
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, model.daemonAddress() },
+        .stdin = stdin,
+        .max_line_bytes = daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
 }
 
 fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {

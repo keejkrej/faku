@@ -971,6 +971,20 @@ fn isSaveOnlyStdin(stdin: []const u8) bool {
         std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null;
 }
 
+fn isCancelOnlyStdin(stdin: []const u8) bool {
+    return std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"cancel\"}") != null and
+        std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null and
+        std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null;
+}
+
+fn findCancelOnlySpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (isCancelOnlyStdin(spawn.stdin)) return spawn;
+    }
+    return null;
+}
+
 fn findSaveOnlySpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
@@ -1146,6 +1160,155 @@ test "daemon textDelta hydrates the turn and turnFinished settles plus drains" {
         found_follow_up = true;
     }
     try testing.expect(found_follow_up);
+}
+
+test "daemon Stop records hello and cancel on a distinct sidecar" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setDaemonToken("secret");
+    model.setSidecarPath("faku");
+    const id = model.addSession("daemon stop", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "trace the listener" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
+    const prompt_key = model.daemon_spawn_key;
+    try testing.expect(prompt_key != 0);
+
+    try fx.feedLine(prompt_key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000012\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"sessionRuntime\",\"runtimeId\":\"00000000-0000-0000-0000-000000000003\",\"supportsSteer\":true}}}");
+    drainEffects(&model, &fx);
+    try fx.feedLine(prompt_key, "{\"type\":\"event\",\"event\":{\"kind\":\"textDelta\",\"payload\":\"partial from sidecar\"}}");
+    drainEffects(&model, &fx);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "partial from sidecar") != null);
+    try testing.expect(model.is_streaming());
+
+    main.update(&model, .stop, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .assistant));
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "partial from sidecar") != null);
+
+    const spawn = findCancelOnlySpawn(&fx) orelse return error.CancelSpawnMissing;
+    try testing.expect(argvHas(spawn.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(spawn.argv, "127.0.0.1:8787"));
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"token\":\"secret\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"cancel\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"command\":{\"type\":\"cancel\"}") != null);
+    var id_buf: [36]u8 = undefined;
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, daemon_proxy.wireUuid(id, &id_buf)) != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"runtimeId\":\"00000000-0000-0000-0000-000000000003\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"prompt\"") == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"attachSession\"") == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"steer\"") == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"start\"") == null);
+    try testing.expect(spawn.key != prompt_key);
+    try testing.expect(spawn.key != model.daemon_spawn_key);
+}
+
+test "fx ask Stop does not spawn a cancel sidecar" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    model.setSidecarPath("faku");
+    try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "keep fx ask" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.is_streaming());
+    main.update(&model, .stop, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expect(findCancelOnlySpawn(&fx) == null);
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        try testing.expect(!argvHas(spawn.argv, daemon_proxy.SUBCOMMAND));
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"cancel\"") == null);
+    }
+}
+
+test "missing daemon address does not spawn cancel even with last_daemon_address" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "no cancel" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    main.update(&model, .stop, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expect(findCancelOnlySpawn(&fx) == null);
+}
+
+test "cancel sidecar failure leaves the turn settled and the transcript intact" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-cancel-fail", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("cancel fail", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    const prompt_key = model.daemon_spawn_key;
+    try fx.feedLine(prompt_key, "{\"type\":\"event\",\"event\":{\"kind\":\"textDelta\",\"payload\":\"keep this partial\"}}");
+    drainEffects(&model, &fx);
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "stay queued" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+
+    main.update(&model, .stop, &fx);
+    try testing.expect(!model.is_streaming());
+    const spawn = findCancelOnlySpawn(&fx) orelse return error.CancelSpawnMissing;
+    try testing.expect(spawn.key != prompt_key);
+    try fx.feedExit(spawn.key, 1);
+    drainEffects(&model, &fx);
+
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+    try testing.expectEqualStrings("stay queued", model.firstQueuedText(id));
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .assistant));
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "keep this partial") != null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    store.hydrateSession(&loaded, id, testing.allocator, testing.io);
+    try testing.expectEqual(@as(usize, 2), loaded.turn_count);
+    try testing.expectEqualStrings("first prompt", loaded.turn_store[0].text());
+    try testing.expect(std.mem.indexOf(u8, loaded.turn_store[1].text(), "keep this partial") != null);
+    try testing.expectEqual(@as(u32, 1), loaded.queuedCount(id));
 }
 
 test "missing daemon address still uses fx ask when the CLI is present" {
