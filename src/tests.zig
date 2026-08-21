@@ -815,7 +815,7 @@ fn isSaveOnlyStdin(stdin: []const u8) bool {
         std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null;
 }
 
-fn findSaveOnlySpawn(fx: *const Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+fn findSaveOnlySpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (isSaveOnlyStdin(spawn.stdin)) return spawn;
