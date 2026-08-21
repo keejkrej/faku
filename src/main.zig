@@ -1,13 +1,13 @@
 //! Faku: Native SDK desktop for a Waku-protocol compatible coding-agent shell.
 //!
 //! First-party provider is Vercel `fx` (https://fx.sh). Send on an `.fx`
-//! session runs `fx ask --json -- <prompt>` when the CLI is installed
-//! (streamed stdout lines; `--resume <id>` after a minted session_id).
-//! When `WAKU_DAEMON_ADDRESS` is set, Send instead spawns a one-shot
-//! `daemon-proxy` sidecar (hello → loadTaskState → prompt over
-//! `ws://{addr}/v1`). Missing address keeps `fx ask` / the demo timer.
-//! ACP JSON-RPC helpers live in acp.zig; live `fx acp` waits on a
-//! stdin-write effect and is not spawned.
+//! session runs one-shot `fx acp` when the CLI is installed (NDJSON
+//! stdin: initialize, session/new or session/resume, session/prompt).
+//! Draft `image_path` still uses `fx ask --image` (ACP rejects image
+//! blocks). When `WAKU_DAEMON_ADDRESS` is set, Send instead spawns a
+//! one-shot `daemon-proxy` sidecar. Missing address / image / ACP
+//! stdin overflow keep `fx ask` or the demo timer. This is not a
+//! long-lived ACP loop — Native stdin is one buffer, then it closes.
 
 const std = @import("std");
 const runner = @import("runner");
@@ -67,6 +67,10 @@ pub const stream_timer_key: u64 = 1;
 pub const fx_ask_key: u64 = 2;
 pub const fx_probe_key: u64 = 3;
 pub const daemon_proxy_key_first: u64 = 4;
+/// Overlapping one-shot `fx acp` / `fx ask` children (queue drain while
+/// the previous process has not exited yet). Avoids probe/daemon keys.
+pub const fx_spawn_overlap_key_first: u64 = 64;
+pub const acp_cwd_fallback = ".";
 pub const max_daemon_address = 128;
 pub const max_daemon_token = 256;
 pub const max_sidecar_path = 512;
@@ -96,7 +100,8 @@ pub const Session = struct {
     /// Workspace path for `fx ask`. Empty means inherit the host process cwd.
     project_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     project_path_len: usize = 0,
-    /// fx CLI session id from `fx ask --json`. Empty until the first mint.
+    /// Saved fx session id (`fx ask --json` `session_id` / ACP `sessionId`).
+    /// fx ACP sessions are the same saved sessions as interactive fx.
     fx_session_id_storage: [max_fx_session_id]u8 = [_]u8{0} ** max_fx_session_id,
     fx_session_id_len: usize = 0,
     /// Gateway model id for `FX_MODEL`. Empty inherits fx's own default.
@@ -283,6 +288,10 @@ pub const Model = struct {
     sidecar_path_len: usize = 0,
     daemon_spawn_key: u64 = 0,
     next_daemon_key: u64 = daemon_proxy_key_first,
+    fx_spawn_key: u64 = 0,
+    next_fx_key: u64 = fx_spawn_overlap_key_first,
+    fx_spawn_live: bool = false,
+    fx_spawn_acp: bool = false,
 
     pub const view_unbound = .{
         "session_store",
@@ -357,6 +366,10 @@ pub const Model = struct {
         "sidecar_path_len",
         "daemon_spawn_key",
         "next_daemon_key",
+        "fx_spawn_key",
+        "next_fx_key",
+        "fx_spawn_live",
+        "fx_spawn_acp",
         "daemonAddress",
         "setDaemonAddress",
         "lastDaemonAddress",
@@ -367,6 +380,7 @@ pub const Model = struct {
         "setSidecarPath",
         "resolveSpawnImage",
         "resolveSpawnCwd",
+        "resolveAcpCwd",
         "fxPath",
         "setFxPath",
         "setHome",
@@ -447,9 +461,9 @@ pub const Model = struct {
             return "Message the daemon sidecar. Send is one-shot hello/load/prompt over ws://{addr}/v1; missing address keeps `fx ask` / demo.";
         }
         if (model.fx_available) {
-            return "Message fx. Send runs live `fx ask` and streams stdout. `fx acp` is stubbed.";
+            return "Message fx. Send runs one-shot `fx acp` (initialize / session/new|resume / session/prompt). Images still use `fx ask --image`.";
         }
-        return "Message fx. Demo replies locally until the fx CLI is found; then Send runs live `fx ask`. `fx acp` is not wired.";
+        return "Message fx. Demo replies locally until the fx CLI is found; then Send runs one-shot `fx acp`. Images still use `fx ask --image`.";
     }
 
     pub fn send_label(model: *const Model) []const u8 {
@@ -597,6 +611,15 @@ pub const Model = struct {
         const io = model.store_io orelse return "";
         if (!directoryExists(io, path)) return "";
         return path;
+    }
+
+    /// `session/new` / `session/resume` cwd: project_path when it exists,
+    /// else ".". ACP requires a cwd string; this cut does not invent an
+    /// absolute-path resolver.
+    pub fn resolveAcpCwd(model: *const Model, session: *const Session) []const u8 {
+        const path = model.resolveSpawnCwd(session);
+        if (path.len > 0) return path;
+        return acp_cwd_fallback;
     }
 
     fn activeSession(model: *Model) ?*Session {
@@ -918,7 +941,14 @@ fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) v
     }
     if (session.provider == .fx and model.fx_available and model.fxPath().len > 0) {
         model.reply_path = .fx;
-        startFxAsk(model, fx, session, text);
+        const image_path = model.resolveSpawnImage();
+        if (image_path.len > 0) {
+            startFxAsk(model, fx, session, text);
+            return;
+        }
+        if (!startFxAcp(model, fx, session, text)) {
+            startFxAsk(model, fx, session, text);
+        }
         return;
     }
     model.reply_path = .demo;
@@ -972,6 +1002,76 @@ fn startDaemonProxy(model: *Model, fx: *Effects, session: *const Session, prompt
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
+}
+
+fn allocateFxSpawnKey(model: *Model) u64 {
+    const key = if (model.fx_spawn_live) blk: {
+        const k = model.next_fx_key;
+        model.next_fx_key = k + 1;
+        break :blk k;
+    } else fx_ask_key;
+    model.fx_spawn_key = key;
+    model.fx_spawn_live = true;
+    return key;
+}
+
+fn startFxAcp(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) bool {
+    const path = model.fxPath();
+    const cwd = model.resolveAcpCwd(session);
+    const resume_id = session.fxSessionId();
+    const model_id = session.model();
+    const permission_mode = fxPermissionMode(session.accessMode());
+    model.setLastSpawnCwd(cwd);
+    model.setLastSpawnFxModel(model_id);
+    model.setLastSpawnFxPermissionMode(permission_mode);
+    model.setLastSpawnImagePath("");
+
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = acp.writeTurnStdin(&stdin_buf, .{
+        .cwd = cwd,
+        .resume_id = resume_id,
+        .prompt = prompt,
+    }) catch return false;
+
+    var model_assign: [max_fx_model + 16]u8 = undefined;
+    var perm_assign: [max_access_mode + 24]u8 = undefined;
+    const model_arg = if (model_id.len > 0)
+        std.fmt.bufPrint(&model_assign, "FX_MODEL={s}", .{model_id}) catch ""
+    else
+        "";
+    const perm_arg = if (permission_mode.len > 0)
+        std.fmt.bufPrint(&perm_assign, "FX_PERMISSION_MODE={s}", .{permission_mode}) catch ""
+    else
+        "";
+
+    var argv_buf: [12][]const u8 = undefined;
+    var n: usize = 0;
+    if (model_arg.len > 0 or perm_arg.len > 0) {
+        argv_buf[n] = fx_env_bin;
+        n += 1;
+        if (model_arg.len > 0) {
+            argv_buf[n] = model_arg;
+            n += 1;
+        }
+        if (perm_arg.len > 0) {
+            argv_buf[n] = perm_arg;
+            n += 1;
+        }
+    }
+    argv_buf[n] = path;
+    n += 1;
+    argv_buf[n] = "acp";
+    n += 1;
+
+    model.fx_spawn_acp = true;
+    fx.spawn(.{
+        .key = allocateFxSpawnKey(model),
+        .argv = argv_buf[0..n],
+        .stdin = stdin,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
 }
 
 fn startFxAsk(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) void {
@@ -1048,8 +1148,9 @@ fn startFxAsk(model: *Model, fx: *Effects, session: *const Session, prompt: []co
     argv_buf[n] = prompt;
     n += 1;
 
+    model.fx_spawn_acp = false;
     fx.spawn(.{
-        .key = fx_ask_key,
+        .key = allocateFxSpawnKey(model),
         .argv = argv_buf[0..n],
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
@@ -1128,7 +1229,9 @@ fn stopStream(model: *Model, fx: *Effects) void {
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
     fx.cancel(fx_ask_key);
+    if (model.fx_spawn_key != 0) fx.cancel(model.fx_spawn_key);
     if (model.daemon_spawn_key != 0) fx.cancel(model.daemon_spawn_key);
+    model.fx_spawn_live = false;
     store.persistIfPossible(model, finished_id);
 }
 
@@ -1138,7 +1241,12 @@ fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
         handleDaemonLine(model, fx, line);
         return;
     }
-    if (line.key != fx_ask_key) return;
+    if (model.fx_spawn_key != 0 and line.key != model.fx_spawn_key) return;
+    if (model.fx_spawn_key == 0 and line.key != fx_ask_key) return;
+    if (model.fx_spawn_acp) {
+        handleAcpLine(model, fx, line);
+        return;
+    }
     const keep = line.line[0..@min(line.line.len, max_line_keep)];
     var id_buf: [max_fx_session_id]u8 = undefined;
     if (takeFxAskSessionId(keep, &id_buf)) |session_id| {
@@ -1152,6 +1260,27 @@ fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
         if (turn.body_len > 0) model.appendToTurn(model.stream_turn_id, "\n");
     }
     model.appendToTurn(model.stream_turn_id, keep);
+}
+
+fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
+    const keep = line.line[0..@min(line.line.len, max_line_keep)];
+    const parsed = acp.parseLine(keep);
+    const minted = acp.mintedSessionId(parsed);
+    if (minted.len > 0) {
+        if (model.sessionById(model.streaming_session)) |session| {
+            session.setFxSessionId(minted);
+            store.persistIfPossible(model, session.id);
+        }
+    }
+    if (acp.isAgentMessageText(parsed)) {
+        model.appendToTurn(model.stream_turn_id, parsed.text);
+        return;
+    }
+    if (acp.isPromptResult(parsed) or (parsed.has_error and parsed.id != null)) {
+        const drain = acp.promptSucceeded(parsed);
+        if (model.fx_spawn_key != 0) fx.cancel(model.fx_spawn_key);
+        finishStream(model, fx, drain);
+    }
 }
 
 fn handleDaemonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
@@ -1176,7 +1305,17 @@ fn handleDaemonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
 
 fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     const daemon = model.daemon_spawn_key != 0 and exit.key == model.daemon_spawn_key;
-    if (exit.key != fx_ask_key and !daemon) return;
+    const fx_child = model.fx_spawn_key != 0 and exit.key == model.fx_spawn_key;
+    if (exit.key != fx_ask_key and !daemon and !fx_child) return;
+    if (fx_child or exit.key == fx_ask_key) {
+        if (model.fx_spawn_key != 0 and exit.key != model.fx_spawn_key) return;
+        model.fx_spawn_live = false;
+        if (model.phase != .streaming) {
+            if (exit.key == model.fx_spawn_key) model.fx_spawn_key = 0;
+            return;
+        }
+        if (exit.key == model.fx_spawn_key) model.fx_spawn_key = 0;
+    }
     if (model.phase != .streaming) return;
     const success = exit.reason == .exited and exit.code == 0;
     finishStream(model, fx, success);

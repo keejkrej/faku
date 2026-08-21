@@ -1,23 +1,18 @@
-//! Agent Client Protocol (ACP) JSON-RPC 2.0 helpers — stub only.
+//! Agent Client Protocol (ACP) JSON-RPC 2.0 helpers for one-shot `fx acp`.
 //!
-//! These builders/parsers produce and read newline-delimited JSON-RPC
-//! frames for the methods `fx acp` actually implements (see
-//! https://fx.sh/docs/using-fx/acp):
+//! Official methods (https://fx.sh/docs/using-fx/acp): initialize,
+//! session/new, session/load, session/resume, session/close, session/list,
+//! session/prompt, session/cancel, session/set_config_option, session/set_mode.
+//! fx reports protocol version 1. Each connection has one active session
+//! and one active prompt.
 //!
-//!   initialize
-//!   session/new
-//!   session/prompt
-//!   session/cancel
+//! This cut writes one NDJSON stdin buffer at spawn (initialize, then
+//! session/new or session/resume, then session/prompt) and closes stdin.
+//! Native `fx.spawn` has no write-to-running-child, so `session/cancel`
+//! cannot be sent after spawn — Stop/Esc uses `fx.cancel`. This is not a
+//! long-lived ACP loop. `session/load` is not used (resume, not replay).
 //!
-//! Live `fx acp` is **not** wired. Native `fx.spawn` / `Cmd.spawn`
-//! accepts stdin only at spawn time (one buffer, then stdin closes).
-//! There is no documented write-to-running-child effect, and ACP
-//! JSON-RPC needs ongoing stdin writes after `initialize`. Do not
-//! treat this module as a working ACP loop. The next cut waits on a
-//! stdin-write effect before spawning `&.{ fx_path, "acp" }`.
-//!
-//! fx reports ACP protocol version 1. Frames are one JSON object per
-//! line; this file never execs a binary.
+//! Frames are one JSON object per line. This file never execs a binary.
 
 const std = @import("std");
 
@@ -25,24 +20,42 @@ const std = @import("std");
 pub const PROTOCOL_VERSION: u32 = 1;
 pub const JSONRPC_VERSION = "2.0";
 
+pub const CLIENT_NAME = "faku";
+pub const CLIENT_VERSION = "0.1.0";
+
+pub const ID_INITIALIZE: u64 = 1;
+pub const ID_SESSION: u64 = 2;
+pub const ID_PROMPT: u64 = 3;
+
 pub const METHOD_INITIALIZE = "initialize";
 pub const METHOD_SESSION_NEW = "session/new";
+pub const METHOD_SESSION_RESUME = "session/resume";
 pub const METHOD_SESSION_PROMPT = "session/prompt";
 pub const METHOD_SESSION_CANCEL = "session/cancel";
+pub const METHOD_SESSION_UPDATE = "session/update";
+
+pub const SESSION_UPDATE_AGENT_MESSAGE = "agent_message_chunk";
+pub const STOP_END_TURN = "end_turn";
+pub const STOP_CANCELLED = "cancelled";
+pub const STOP_REFUSAL = "refusal";
 
 pub const Method = enum {
     initialize,
     session_new,
+    session_resume,
     session_prompt,
     session_cancel,
+    session_update,
     unknown,
 
     pub fn wireName(method: Method) []const u8 {
         return switch (method) {
             .initialize => METHOD_INITIALIZE,
             .session_new => METHOD_SESSION_NEW,
+            .session_resume => METHOD_SESSION_RESUME,
             .session_prompt => METHOD_SESSION_PROMPT,
             .session_cancel => METHOD_SESSION_CANCEL,
+            .session_update => METHOD_SESSION_UPDATE,
             .unknown => "",
         };
     }
@@ -50,8 +63,10 @@ pub const Method = enum {
     pub fn fromWire(name: []const u8) Method {
         if (std.mem.eql(u8, name, METHOD_INITIALIZE)) return .initialize;
         if (std.mem.eql(u8, name, METHOD_SESSION_NEW)) return .session_new;
+        if (std.mem.eql(u8, name, METHOD_SESSION_RESUME)) return .session_resume;
         if (std.mem.eql(u8, name, METHOD_SESSION_PROMPT)) return .session_prompt;
         if (std.mem.eql(u8, name, METHOD_SESSION_CANCEL)) return .session_cancel;
+        if (std.mem.eql(u8, name, METHOD_SESSION_UPDATE)) return .session_update;
         return .unknown;
     }
 };
@@ -65,8 +80,17 @@ pub const Parsed = struct {
     method_name: []const u8 = "",
     id: ?u64 = null,
     session_id: []const u8 = "",
+    session_update: []const u8 = "",
+    text: []const u8 = "",
+    stop_reason: []const u8 = "",
     has_error: bool = false,
     has_result: bool = false,
+};
+
+pub const TurnStdin = struct {
+    cwd: []const u8,
+    resume_id: []const u8 = "",
+    prompt: []const u8,
 };
 
 const WriteError = error{NoSpaceLeft};
@@ -74,6 +98,10 @@ const WriteError = error{NoSpaceLeft};
 const Cursor = struct {
     buf: []u8,
     pos: usize = 0,
+
+    fn remaining(self: *Cursor) []u8 {
+        return self.buf[self.pos..];
+    }
 
     fn write(self: *Cursor, bytes: []const u8) WriteError!void {
         if (self.pos + bytes.len > self.buf.len) return error.NoSpaceLeft;
@@ -146,11 +174,29 @@ pub fn writeInitialize(
 }
 
 /// `session/new` — cwd is the primary workspace; MCP servers are empty
-/// because this stub is not a live client.
+/// (one-shot client; ACP sessions do not inherit `~/.fx/mcp.json`).
 pub fn writeSessionNew(buf: []u8, id: u64, cwd: []const u8) WriteError![]const u8 {
     var cur = Cursor{ .buf = buf };
     try writeRequestHead(&cur, id, METHOD_SESSION_NEW);
     try cur.write("{\"cwd\":");
+    try writeJsonString(&cur, cwd);
+    try cur.write(",\"mcpServers\":[]}}\n");
+    return cur.slice();
+}
+
+/// `session/resume` — reconnect to a saved session without replaying history.
+/// cwd + mcpServers match the official ACP v1 resume params.
+pub fn writeSessionResume(
+    buf: []u8,
+    id: u64,
+    session_id: []const u8,
+    cwd: []const u8,
+) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    try writeRequestHead(&cur, id, METHOD_SESSION_RESUME);
+    try cur.write("{\"sessionId\":");
+    try writeJsonString(&cur, session_id);
+    try cur.write(",\"cwd\":");
     try writeJsonString(&cur, cwd);
     try cur.write(",\"mcpServers\":[]}}\n");
     return cur.slice();
@@ -174,6 +220,7 @@ pub fn writeSessionPrompt(
 }
 
 /// `session/cancel` notification (no `id`; no response expected).
+/// Built for the stub/tests; one-shot spawn cannot write this after start.
 pub fn writeSessionCancel(buf: []u8, session_id: []const u8) WriteError![]const u8 {
     var cur = Cursor{ .buf = buf };
     try cur.write("{\"jsonrpc\":\"");
@@ -184,6 +231,55 @@ pub fn writeSessionCancel(buf: []u8, session_id: []const u8) WriteError![]const 
     try writeJsonString(&cur, session_id);
     try cur.write("}}\n");
     return cur.slice();
+}
+
+/// One Native spawn stdin: initialize, session/new or session/resume, then
+/// session/prompt. First-turn prompt uses an empty sessionId because the
+/// id is minted in the `session/new` result on stdout — there is no
+/// write-after-spawn. Follow-ups pass the stored id to resume and prompt.
+pub fn writeTurnStdin(buf: []u8, args: TurnStdin) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    const init = try writeInitialize(cur.remaining(), ID_INITIALIZE, CLIENT_NAME, CLIENT_VERSION);
+    cur.pos += init.len;
+    if (args.resume_id.len > 0) {
+        const resumed = try writeSessionResume(cur.remaining(), ID_SESSION, args.resume_id, args.cwd);
+        cur.pos += resumed.len;
+    } else {
+        const created = try writeSessionNew(cur.remaining(), ID_SESSION, args.cwd);
+        cur.pos += created.len;
+    }
+    const prompt = try writeSessionPrompt(cur.remaining(), ID_PROMPT, args.resume_id, args.prompt);
+    cur.pos += prompt.len;
+    return cur.slice();
+}
+
+/// `session/new` result `{ sessionId }` — the same saved fx session id
+/// (`fx_session_id`). Resume result is `{}` and has no id.
+pub fn mintedSessionId(parsed: Parsed) []const u8 {
+    if (parsed.kind != .response or parsed.has_error) return "";
+    if (parsed.id != ID_SESSION) return "";
+    return parsed.session_id;
+}
+
+pub fn isAgentMessageText(parsed: Parsed) bool {
+    return parsed.method == .session_update and
+        std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_AGENT_MESSAGE) and
+        parsed.text.len > 0;
+}
+
+/// ACP v1: the `session/prompt` response carries `stopReason` and ends the turn.
+pub fn isPromptResult(parsed: Parsed) bool {
+    if (parsed.id != ID_PROMPT) return false;
+    return parsed.kind == .response or parsed.kind == .error_response;
+}
+
+/// Drain the success-only queue unless the prompt was cancelled, refused,
+/// or returned a JSON-RPC error.
+pub fn promptSucceeded(parsed: Parsed) bool {
+    if (parsed.kind == .error_response or parsed.has_error) return false;
+    if (std.mem.eql(u8, parsed.stop_reason, STOP_CANCELLED)) return false;
+    if (std.mem.eql(u8, parsed.stop_reason, STOP_REFUSAL)) return false;
+    return parsed.has_result;
 }
 
 fn skipWs(text: []const u8, start: usize) usize {
@@ -235,8 +331,8 @@ fn parseUintAt(text: []const u8, start: usize) ?u64 {
 }
 
 /// Parse one NDJSON JSON-RPC line. Slices alias `line` and die with it.
-/// This is a field scanner, not a full JSON parser — good enough to
-/// classify the four methods above and pull `id` / `sessionId`.
+/// Field scanner — classifies the methods above and pulls `id`,
+/// `sessionId`, `sessionUpdate`, `text`, and `stopReason`.
 pub fn parseLine(line: []const u8) Parsed {
     var parsed = Parsed{};
     const trimmed = std.mem.trim(u8, line, " \t\r\n");
@@ -257,6 +353,18 @@ pub fn parseLine(line: []const u8) Parsed {
 
     if (findKey(trimmed, "sessionId")) |at| {
         parsed.session_id = parseJsonStringAt(trimmed, at);
+    }
+
+    if (findKey(trimmed, "sessionUpdate")) |at| {
+        parsed.session_update = parseJsonStringAt(trimmed, at);
+    }
+
+    if (findKey(trimmed, "text")) |at| {
+        parsed.text = parseJsonStringAt(trimmed, at);
+    }
+
+    if (findKey(trimmed, "stopReason")) |at| {
+        parsed.stop_reason = parseJsonStringAt(trimmed, at);
     }
 
     parsed.has_error = findKey(trimmed, "error") != null;
@@ -293,6 +401,12 @@ test "ACP builders are newline-delimited JSON-RPC 2.0" {
     try std.testing.expectEqual(Method.session_new, parsed_new.method);
     try std.testing.expect(std.mem.indexOf(u8, created, "\"mcpServers\":[]") != null);
 
+    const resumed = try writeSessionResume(&buf, 2, "sess-1", "/tmp/project");
+    const parsed_resume = parseLine(resumed);
+    try std.testing.expectEqual(Method.session_resume, parsed_resume.method);
+    try std.testing.expectEqualStrings("sess-1", parsed_resume.session_id);
+    try std.testing.expect(std.mem.indexOf(u8, resumed, "\"cwd\":\"/tmp/project\"") != null);
+
     const prompt = try writeSessionPrompt(&buf, 3, "sess-1", "trace the listener");
     const parsed_prompt = parseLine(prompt);
     try std.testing.expectEqual(Method.session_prompt, parsed_prompt.method);
@@ -306,14 +420,59 @@ test "ACP builders are newline-delimited JSON-RPC 2.0" {
     try std.testing.expectEqual(@as(?u64, null), parsed_cancel.id);
 }
 
-test "ACP parser classifies result and error frames" {
+test "one-shot stdin is initialize plus new or resume then prompt" {
+    var buf: [1024]u8 = undefined;
+    const first = try writeTurnStdin(&buf, .{ .cwd = "/tmp/project", .prompt = "first turn" });
+    try std.testing.expect(std.mem.indexOf(u8, first, "\"method\":\"initialize\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "\"method\":\"session/new\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "\"cwd\":\"/tmp/project\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "\"method\":\"session/prompt\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "session/resume") == null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "session/load") == null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "first turn") != null);
+
+    const later = try writeTurnStdin(&buf, .{
+        .cwd = ".",
+        .resume_id = "fx-sess-1",
+        .prompt = "second turn",
+    });
+    try std.testing.expect(std.mem.indexOf(u8, later, "\"method\":\"initialize\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, later, "\"method\":\"session/resume\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, later, "\"sessionId\":\"fx-sess-1\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, later, "session/new") == null);
+    try std.testing.expect(std.mem.indexOf(u8, later, "second turn") != null);
+}
+
+test "ACP parser classifies result, error, update, and stopReason" {
     const ok = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":1}}";
     const parsed_ok = parseLine(ok);
     try std.testing.expectEqual(FrameKind.response, parsed_ok.kind);
     try std.testing.expect(parsed_ok.has_result);
 
+    const minted = parseLine("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"sessionId\":\"sess-9\"}}");
+    try std.testing.expectEqualStrings("sess-9", mintedSessionId(minted));
+
     const err = "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32600,\"message\":\"invalid\"}}";
     const parsed_err = parseLine(err);
     try std.testing.expectEqual(FrameKind.error_response, parsed_err.kind);
     try std.testing.expect(parsed_err.has_error);
+
+    const update = "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"sess-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello acp\"}}}}";
+    const parsed_update = parseLine(update);
+    try std.testing.expectEqual(Method.session_update, parsed_update.method);
+    try std.testing.expectEqual(FrameKind.notification, parsed_update.kind);
+    try std.testing.expect(isAgentMessageText(parsed_update));
+    try std.testing.expectEqualStrings("hello acp", parsed_update.text);
+
+    const user = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"user_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"ignore\"}}}}");
+    try std.testing.expect(!isAgentMessageText(user));
+
+    const settled = parseLine("{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    try std.testing.expect(isPromptResult(settled));
+    try std.testing.expect(promptSucceeded(settled));
+    try std.testing.expectEqualStrings(STOP_END_TURN, settled.stop_reason);
+
+    const cancelled = parseLine("{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"cancelled\"}}");
+    try std.testing.expect(isPromptResult(cancelled));
+    try std.testing.expect(!promptSucceeded(cancelled));
 }

@@ -215,7 +215,7 @@ test "send without fx still starts the demo timer" {
     try testing.expectEqual(@as(u64, 90), fx.pendingTimerAt(0).?.interval_ms);
 }
 
-test "send with fx_available spawns fx ask and streams a synthetic line" {
+test "send with fx_available spawns one-shot fx acp and streams session/update text" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -229,27 +229,35 @@ test "send with fx_available spawns fx ask and streams a synthetic line" {
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
     try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
     try testing.expectEqual(main.fx_ask_key, request.key);
-    try testing.expect(argvHas(request.argv, "ask"));
+    try testing.expect(argvHas(request.argv, "acp"));
     try testing.expect(argvHas(request.argv, "fx"));
-    try testing.expectEqualStrings("what does this repo do", request.argv[request.argv.len - 1]);
+    try testing.expect(!argvHas(request.argv, "ask"));
+    try testing.expect(!argvHas(request.argv, "--model"));
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"initialize\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/new\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "session/resume") == null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "what does this repo do") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"cwd\":\".\"") != null);
 
     const before_len = lastAssistant(&model).len;
-    try fx.feedLine(main.fx_ask_key, "hello from fx ask");
+    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello from fx acp\"}}}}");
     drainEffects(&model, &fx);
     try testing.expect(lastAssistant(&model).len > before_len);
-    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from fx ask") != null);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from fx acp") != null);
 
-    try fx.feedExit(main.fx_ask_key, 0);
+    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
 }
 
-test "fx ask spawn records session project_path as cwd" {
+test "fx acp session/new cwd is session project_path when it exists" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
     var project_buf: [256]u8 = undefined;
@@ -273,21 +281,21 @@ test "fx ask spawn records session project_path as cwd" {
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
     try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
     try testing.expectEqualStrings(project, model.lastSpawnCwd());
-    try testing.expectEqualStrings(project, model.resolveSpawnCwd(model.sessionByIdConst(id).?));
+    try testing.expectEqualStrings(project, model.resolveAcpCwd(model.sessionByIdConst(id).?));
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
     try testing.expectEqual(main.fx_ask_key, request.key);
-    try testing.expectEqualStrings("/bin/sh", request.argv[0]);
-    try testing.expectEqualStrings("-c", request.argv[1]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, request.argv[2]);
-    try testing.expectEqualStrings(project, request.argv[4]);
-    try testing.expect(argvHas(request.argv, "ask"));
-    try testing.expectEqualStrings("what is the cwd", request.argv[request.argv.len - 1]);
+    try testing.expect(argvHas(request.argv, "acp"));
+    try testing.expect(!argvHas(request.argv, "ask"));
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/new\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, project) != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "what is the cwd") != null);
 }
 
-test "fx ask --json mints session_id and later send resumes" {
+test "fx acp session/new persists fx_session_id and later send uses session/resume" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
     var dir_buf: [256]u8 = undefined;
@@ -312,23 +320,25 @@ test "fx ask --json mints session_id and later send resumes" {
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const first = fx.pendingSpawnAt(0).?;
     try testing.expect(argvHas(first.argv, "fx"));
-    try testing.expect(argvHas(first.argv, "ask"));
-    try testing.expect(argvHas(first.argv, "--json"));
-    try testing.expect(argvHas(first.argv, "--"));
-    try testing.expect(!argvHas(first.argv, "--resume"));
-    try testing.expectEqualStrings("first turn", first.argv[first.argv.len - 1]);
+    try testing.expect(argvHas(first.argv, "acp"));
+    try testing.expect(!argvHas(first.argv, "ask"));
+    try testing.expect(std.mem.indexOf(u8, first.stdin, "\"method\":\"initialize\"") != null);
+    try testing.expect(std.mem.indexOf(u8, first.stdin, "\"method\":\"session/new\"") != null);
+    try testing.expect(std.mem.indexOf(u8, first.stdin, "\"method\":\"session/prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, first.stdin, "session/resume") == null);
 
-    try fx.feedLine(main.fx_ask_key, "{\"session_id\":\"fx-test-1\"}");
+    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"sessionId\":\"fx-test-1\"}}");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("fx-test-1", model.sessionById(id).?.fxSessionId());
     try testing.expectEqual(@as(usize, 0), lastAssistant(&model).len);
 
-    try fx.feedLine(main.fx_ask_key, "plain reply");
+    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"fx-test-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"plain reply\"}}}}");
     drainEffects(&model, &fx);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "plain reply") != null);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "session_id") == null);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "sessionId") == null);
 
-    try fx.feedExit(main.fx_ask_key, 0);
+    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
 
@@ -339,14 +349,61 @@ test "fx ask --json mints session_id and later send resumes" {
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "second turn" } }, &fx);
     main.update(&model, .send, &fx);
-    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
-    const second = fx.pendingSpawnAt(0).?;
-    try testing.expect(argvHas(second.argv, "--json"));
-    try testing.expect(argvHas(second.argv, "--resume"));
-    try testing.expect(argvHas(second.argv, "fx-test-1"));
-    try testing.expectEqualStrings("second turn", second.argv[second.argv.len - 1]);
-    const resume_at = argvIndex(second.argv, "--resume") orelse return error.MissingResume;
-    try testing.expectEqualStrings("fx-test-1", second.argv[resume_at + 1]);
+    var found_resume = false;
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (std.mem.indexOf(u8, spawn.stdin, "session/resume") == null) continue;
+        try testing.expect(argvHas(spawn.argv, "acp"));
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"method\":\"initialize\"") != null);
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"sessionId\":\"fx-test-1\"") != null);
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "session/new") == null);
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "session/load") == null);
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "second turn") != null);
+        found_resume = true;
+    }
+    try testing.expect(found_resume);
+}
+
+test "fx acp session/prompt stopReason settles and drains the success-only queue" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("acp drain", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.fx_spawn_acp);
+    const key = model.fx_spawn_key;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "queued follow-up" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"sessionId\":\"acp-1\"}}");
+    drainEffects(&model, &fx);
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"chunk\"}}}}");
+    drainEffects(&model, &fx);
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, 0), model.queuedCount(id));
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(@as(usize, 2), countRole(&model, .user));
+    try testing.expectEqualStrings("acp-1", model.sessionById(id).?.fxSessionId());
+
+    var found_follow_up = false;
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (std.mem.indexOf(u8, spawn.stdin, "queued follow-up") == null) continue;
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "session/resume") != null);
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"sessionId\":\"acp-1\"") != null);
+        found_follow_up = true;
+    }
+    try testing.expect(found_follow_up);
 }
 
 test "fx ask spawn records FX_MODEL and FX_PERMISSION_MODE" {
@@ -376,9 +433,10 @@ test "fx ask spawn records FX_MODEL and FX_PERMISSION_MODE" {
     try testing.expect(argvHas(request.argv, "FX_MODEL=openai/gpt-5.4"));
     try testing.expect(argvHas(request.argv, "FX_PERMISSION_MODE=yolo"));
     try testing.expect(argvHas(request.argv, "fx"));
-    try testing.expect(argvHas(request.argv, "ask"));
+    try testing.expect(argvHas(request.argv, "acp"));
+    try testing.expect(!argvHas(request.argv, "ask"));
     try testing.expect(!argvHas(request.argv, "--model"));
-    try testing.expectEqualStrings("with env", request.argv[request.argv.len - 1]);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "with env") != null);
 }
 
 test "newSession draft loads on New Task and is discarded after first send" {
@@ -463,6 +521,8 @@ test "fx ask --image when draft image_path exists" {
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(argvHas(request.argv, "ask"));
+    try testing.expect(!argvHas(request.argv, "acp"));
     try testing.expect(argvHas(request.argv, "--image"));
     const image_at = argvIndex(request.argv, "--image") orelse return error.MissingImage;
     try testing.expectEqualStrings(image, request.argv[image_at + 1]);
@@ -491,8 +551,10 @@ test "fx ask omits --image when the draft file is missing" {
     try testing.expectEqual(@as(usize, 0), model.lastSpawnImagePath().len);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(argvHas(request.argv, "acp"));
+    try testing.expect(!argvHas(request.argv, "ask"));
     try testing.expect(!argvHas(request.argv, "--image"));
-    try testing.expectEqualStrings("no image", request.argv[request.argv.len - 1]);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "no image") != null);
 }
 
 test "Waku access_mode maps to verified FX_PERMISSION_MODE values" {
@@ -737,7 +799,8 @@ test "missing daemon address still uses fx ask when the CLI is present" {
     try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
     const request = fx.pendingSpawnAt(0).?;
     try testing.expectEqual(main.fx_ask_key, request.key);
-    try testing.expect(argvHas(request.argv, "ask"));
+    try testing.expect(argvHas(request.argv, "acp"));
+    try testing.expect(!argvHas(request.argv, "ask"));
     try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
 }
 
