@@ -242,8 +242,8 @@ pub fn writeTurnStdin(buf: []u8, args: TurnStdin) WriteError![]const u8 {
     const init = try writeInitialize(cur.remaining(), ID_INITIALIZE, CLIENT_NAME, CLIENT_VERSION);
     cur.pos += init.len;
     if (args.resume_id.len > 0) {
-        const resume = try writeSessionResume(cur.remaining(), ID_SESSION, args.resume_id, args.cwd);
-        cur.pos += resume.len;
+        const resumed = try writeSessionResume(cur.remaining(), ID_SESSION, args.resume_id, args.cwd);
+        cur.pos += resumed.len;
     } else {
         const created = try writeSessionNew(cur.remaining(), ID_SESSION, args.cwd);
         cur.pos += created.len;
