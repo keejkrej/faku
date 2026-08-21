@@ -53,6 +53,12 @@ pub const SESSION_UPDATE_AGENT_MESSAGE = "agent_message_chunk";
 /// (https://agentclientprotocol.com/protocol/v1/prompt-turn#session-usage-updates).
 /// fx.sh ACP docs and vercel-labs/fx do not emit this today.
 pub const SESSION_UPDATE_USAGE = "usage_update";
+/// Official ACP + fx `session/update` tool frames
+/// (https://agentclientprotocol.com/protocol/v1/prompt-turn,
+/// vercel-labs/fx `src/acp/types.zig` `writeToolCall` /
+/// `writeToolCallUpdate`).
+pub const SESSION_UPDATE_TOOL_CALL = "tool_call";
+pub const SESSION_UPDATE_TOOL_CALL_UPDATE = "tool_call_update";
 pub const STOP_END_TURN = "end_turn";
 pub const STOP_CANCELLED = "cancelled";
 pub const STOP_REFUSAL = "refusal";
@@ -106,6 +112,10 @@ pub const Parsed = struct {
     session_id: []const u8 = "",
     session_update: []const u8 = "",
     text: []const u8 = "",
+    tool_call_id: []const u8 = "",
+    title: []const u8 = "",
+    tool_kind: []const u8 = "",
+    status: []const u8 = "",
     stop_reason: []const u8 = "",
     mode_id: []const u8 = "",
     config_id: []const u8 = "",
@@ -121,6 +131,15 @@ pub const Parsed = struct {
 pub const UsageUpdate = struct {
     used: u64,
     size: u64,
+};
+
+/// Confirmed ACP/fx tool-call fields. `toolCallId` is required; the
+/// others are optional on `tool_call_update`.
+pub const ToolUpdate = struct {
+    tool_call_id: []const u8,
+    title: []const u8 = "",
+    kind: []const u8 = "",
+    status: []const u8 = "",
 };
 
 pub const TurnStdin = struct {
@@ -376,6 +395,42 @@ pub fn isAgentMessageText(parsed: Parsed) bool {
         parsed.text.len > 0;
 }
 
+/// ACP v1 / fx `tool_call` and `tool_call_update`. `toolCallId` is required.
+/// Title, kind, and status are whatever the frame carried (updates omit
+/// unchanged fields).
+pub fn toolUpdate(parsed: Parsed) ?ToolUpdate {
+    if (parsed.method != .session_update) return null;
+    const is_call = std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_TOOL_CALL);
+    const is_update = std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_TOOL_CALL_UPDATE);
+    if (!is_call and !is_update) return null;
+    if (parsed.tool_call_id.len == 0) return null;
+    return .{
+        .tool_call_id = parsed.tool_call_id,
+        .title = parsed.title,
+        .kind = parsed.tool_kind,
+        .status = parsed.status,
+    };
+}
+
+/// Join confirmed tool fields for a muted tool-turn body. Empty parts drop.
+pub fn toolTurnText(buf: []u8, title: []const u8, kind: []const u8, status: []const u8) []const u8 {
+    var cur: usize = 0;
+    const parts = [_][]const u8{ title, kind, status };
+    for (parts) |part| {
+        if (part.len == 0) continue;
+        if (cur > 0) {
+            const sep = " · ";
+            if (cur + sep.len > buf.len) break;
+            @memcpy(buf[cur..][0..sep.len], sep);
+            cur += sep.len;
+        }
+        const take = @min(buf.len - cur, part.len);
+        @memcpy(buf[cur..][0..take], part[0..take]);
+        cur += take;
+    }
+    return buf[0..cur];
+}
+
 /// ACP v1 `usage_update`: `used` and `size` are required token counts.
 /// Missing either, or `size == 0`, is not a usable update.
 pub fn usageUpdate(parsed: Parsed) ?UsageUpdate {
@@ -452,7 +507,8 @@ fn parseUintAt(text: []const u8, start: usize) ?u64 {
 
 /// Parse one NDJSON JSON-RPC line. Slices alias `line` and die with it.
 /// Field scanner — classifies the methods above and pulls `id`,
-/// `sessionId`, `sessionUpdate`, `text`, and `stopReason`.
+/// `sessionId`, `sessionUpdate`, `text`, `toolCallId`, `title`, `kind`,
+/// `status`, and `stopReason`.
 pub fn parseLine(line: []const u8) Parsed {
     var parsed = Parsed{};
     const trimmed = std.mem.trim(u8, line, " \t\r\n");
@@ -481,6 +537,22 @@ pub fn parseLine(line: []const u8) Parsed {
 
     if (findKey(trimmed, "text")) |at| {
         parsed.text = parseJsonStringAt(trimmed, at);
+    }
+
+    if (findKey(trimmed, "toolCallId")) |at| {
+        parsed.tool_call_id = parseJsonStringAt(trimmed, at);
+    }
+
+    if (findKey(trimmed, "title")) |at| {
+        parsed.title = parseJsonStringAt(trimmed, at);
+    }
+
+    if (findKey(trimmed, "kind")) |at| {
+        parsed.tool_kind = parseJsonStringAt(trimmed, at);
+    }
+
+    if (findKey(trimmed, "status")) |at| {
+        parsed.status = parseJsonStringAt(trimmed, at);
     }
 
     if (findKey(trimmed, "stopReason")) |at| {
@@ -700,6 +772,33 @@ test "ACP parser classifies result, error, update, and stopReason" {
 
     const usage_zero_size = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"usage_update\",\"used\":12,\"size\":0}}}");
     try std.testing.expect(usageUpdate(usage_zero_size) == null);
+
+    const tool_call = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"sess-1\",\"update\":{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"call_001\",\"title\":\"Reading file\",\"kind\":\"read\",\"status\":\"pending\"}}}");
+    try std.testing.expectEqual(Method.session_update, tool_call.method);
+    try std.testing.expectEqualStrings(SESSION_UPDATE_TOOL_CALL, tool_call.session_update);
+    const tool_fields = toolUpdate(tool_call) orelse return error.MissingTool;
+    try std.testing.expectEqualStrings("call_001", tool_fields.tool_call_id);
+    try std.testing.expectEqualStrings("Reading file", tool_fields.title);
+    try std.testing.expectEqualStrings("read", tool_fields.kind);
+    try std.testing.expectEqualStrings("pending", tool_fields.status);
+    try std.testing.expect(!isAgentMessageText(tool_call));
+    try std.testing.expect(usageUpdate(tool_call) == null);
+    var tool_text_buf: [64]u8 = undefined;
+    try std.testing.expectEqualStrings(
+        "Reading file · read · pending",
+        toolTurnText(&tool_text_buf, tool_fields.title, tool_fields.kind, tool_fields.status),
+    );
+
+    const tool_progress = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_001\",\"status\":\"in_progress\"}}}");
+    const progress_fields = toolUpdate(tool_progress) orelse return error.MissingToolUpdate;
+    try std.testing.expectEqualStrings(SESSION_UPDATE_TOOL_CALL_UPDATE, tool_progress.session_update);
+    try std.testing.expectEqualStrings("call_001", progress_fields.tool_call_id);
+    try std.testing.expectEqualStrings("", progress_fields.title);
+    try std.testing.expectEqualStrings("", progress_fields.kind);
+    try std.testing.expectEqualStrings("in_progress", progress_fields.status);
+
+    const tool_missing_id = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"tool_call\",\"title\":\"Reading file\",\"kind\":\"read\",\"status\":\"pending\"}}}");
+    try std.testing.expect(toolUpdate(tool_missing_id) == null);
 
     const settled = parseLine("{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
     try std.testing.expect(isPromptResult(settled));
