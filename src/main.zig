@@ -119,6 +119,13 @@ pub const transcript_pin_offset: f32 = 1_000_000;
 /// sits in the gap between daemon keys and `fx_spawn_overlap`.
 /// Verified: Native Effects `WriteClipboardOptions` + notes example.
 pub const copy_turn_key: u64 = 32;
+/// Caller-chosen ImageId for the composer attach preview. `fx.loadImage`
+/// uses this as the effect key (shared with spawn / clipboard / file).
+/// 0 is the no-image sentinel. Sits in the gap after `copy_turn_key`
+/// and before `fx_spawn_overlap`. Verified: Native 0.9.3
+/// `LoadImageOptions` + markup `<image image="{binding}">`.
+pub const attach_preview_id_first: u64 = 33;
+pub const attach_preview_id_last: u64 = 63;
 const demo_ticks_complete: u32 = 12;
 const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
 
@@ -491,12 +498,13 @@ pub const Msg = union(enum) {
     copy_turn: u32,
     copy_last_turn,
     clipboard_done: native_sdk.EffectClipboardResult,
+    attach_preview_done: native_sdk.EffectImageResult,
     tick: native_sdk.EffectTimer,
     fx_line: native_sdk.EffectLine,
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "clipboard_done" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "clipboard_done", "attach_preview_done" };
 };
 
 pub const Model = struct {
@@ -535,6 +543,12 @@ pub const Model = struct {
     project_edit_buffer: canvas.TextBuffer(max_project_path) = .{},
     image_attach_active: bool = false,
     image_path_buffer: canvas.TextBuffer(max_project_path) = .{},
+    /// Runtime ImageId bound by the composer `<image>`. 0 until
+    /// `fx.loadImage` reports `.loaded`. Same draft `image_path` as
+    /// the chip — not a second persist field.
+    attach_preview: canvas.ImageId = 0,
+    attach_preview_load_id: u64 = 0,
+    next_attach_preview_id: u64 = attach_preview_id_first,
     commands_open: bool = false,
     editing_folder_id: u32 = 0,
     folder_title_buffer: canvas.TextBuffer(max_title) = .{},
@@ -664,6 +678,8 @@ pub const Model = struct {
         "settings_daemon_buffer",
         "project_edit_buffer",
         "image_path_buffer",
+        "attach_preview_load_id",
+        "next_attach_preview_id",
         "startImageAttach",
         "closeImageAttach",
         "applyImagePath",
@@ -1442,6 +1458,12 @@ pub const Model = struct {
         return model.draftImagePath().len > 0;
     }
 
+    /// Chip stays when the path is set. Preview only when that file exists
+    /// so a missing path does not bind a dead `<image>`.
+    pub fn has_image_preview(model: *const Model) bool {
+        return model.resolveSpawnImage().len > 0;
+    }
+
     pub fn image_chip_label(model: *const Model) []const u8 {
         const path = model.draftImagePath();
         if (path.len == 0) return "";
@@ -2021,6 +2043,61 @@ fn copyLastTurn(model: *Model, fx: *Effects) void {
     copyTurn(model, fx, id);
 }
 
+fn nextAttachPreviewId(model: *Model) u64 {
+    var id = model.next_attach_preview_id;
+    if (id < attach_preview_id_first or id > attach_preview_id_last) {
+        id = attach_preview_id_first;
+    }
+    if (id == model.attach_preview or id == model.attach_preview_load_id) {
+        id += 1;
+        if (id > attach_preview_id_last) id = attach_preview_id_first;
+    }
+    model.next_attach_preview_id = if (id >= attach_preview_id_last)
+        attach_preview_id_first
+    else
+        id + 1;
+    return id;
+}
+
+/// Drop in-flight / displayed preview pixels. Does not touch `image_path`.
+fn dropAttachPreview(model: *Model, fx: *Effects) void {
+    if (model.attach_preview != 0) {
+        _ = fx.unregisterImage(model.attach_preview);
+        model.attach_preview = 0;
+    }
+    if (model.attach_preview_load_id != 0) {
+        fx.cancel(model.attach_preview_load_id);
+        model.attach_preview_load_id = 0;
+    }
+}
+
+/// Load a Native preview for the current draft path when that file exists.
+/// Missing path keeps the basename chip only. Verified: Native 0.9.3
+/// `fx.loadImage` local-path first + `<image image="{attach_preview}">`.
+fn refreshAttachPreview(model: *Model, fx: *Effects) void {
+    dropAttachPreview(model, fx);
+    const path = model.resolveSpawnImage();
+    if (path.len == 0) return;
+    const id = nextAttachPreviewId(model);
+    model.attach_preview_load_id = id;
+    fx.loadImage(.{
+        .id = id,
+        .path = path,
+        .on_result = Effects.imageMsg(.attach_preview_done),
+    });
+}
+
+fn applyAttachPreviewResult(model: *Model, fx: *Effects, result: native_sdk.EffectImageResult) void {
+    if (result.id != model.attach_preview_load_id) {
+        if (result.outcome == .loaded) _ = fx.unregisterImage(result.id);
+        return;
+    }
+    model.attach_preview_load_id = 0;
+    if (result.outcome == .loaded) {
+        model.attach_preview = result.id;
+    }
+}
+
 fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     if (model.sessionById(id) == null) return;
     store.persistDraftIfPossible(model);
@@ -2033,6 +2110,7 @@ fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     store.hydrateIfPossible(model, id);
     store.maybeHydrateDaemonSession(model, fx, id);
     store.loadDraftIfPossible(model);
+    refreshAttachPreview(model, fx);
     model.pinTranscriptToLatest();
 }
 
@@ -2092,6 +2170,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             // Client-built; persist is a no-op until first real content.
             store.persistIfPossible(model, id, fx);
             store.loadDraftIfPossible(model);
+            refreshAttachPreview(model, fx);
         },
         .select => |id| {
             if (model.editing_session_id == id) return;
@@ -2158,6 +2237,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.closeCommands();
             store.removeIfPossible(model, id, fx);
             store.loadDraftIfPossible(model);
+            refreshAttachPreview(model, fx);
         },
         .start_search => model.search_active = true,
         .search_edit => |edit| {
@@ -2251,10 +2331,12 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .image_path_edit => |edit| {
             model.applyImagePath(edit);
             store.persistDraftIfPossible(model);
+            refreshAttachPreview(model, fx);
         },
         .clear_image_attach => {
             model.clearImageAttach();
             store.persistDraftIfPossible(model);
+            refreshAttachPreview(model, fx);
         },
         .toggle_commands => model.toggleCommands(),
         .insert_command => |id| {
@@ -2279,6 +2361,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .copy_turn => |id| copyTurn(model, fx, id),
         .copy_last_turn => copyLastTurn(model, fx),
         .clipboard_done => {},
+        .attach_preview_done => |result| applyAttachPreviewResult(model, fx, result),
         .tick => |timer| {
             if (timer.outcome != .fired) return;
             tickStream(model, fx);
@@ -2294,6 +2377,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
 pub fn initFx(model: *Model, fx: *Effects) void {
     store.maybeLoadDaemonCatalog(model, fx);
     store.maybeHydrateDaemonSession(model, fx, model.selected);
+    refreshAttachPreview(model, fx);
     startFxProbe(model, fx);
 }
 
@@ -2316,6 +2400,7 @@ fn handleSend(model: *Model, fx: *Effects) void {
         model.draft_buffer.clear();
         if (draft_key) |key| store.discardDraftIfPossible(model, key);
         model.clearImageAttach();
+        refreshAttachPreview(model, fx);
         return;
     }
     if (text.len == 0) return;
@@ -2323,6 +2408,7 @@ fn handleSend(model: *Model, fx: *Effects) void {
     model.draft_buffer.clear();
     if (draft_key) |key| store.discardDraftIfPossible(model, key);
     model.clearImageAttach();
+    refreshAttachPreview(model, fx);
 }
 
 /// Waku ⌘Enter: inject into a live daemon turn when attach reported
@@ -2340,6 +2426,7 @@ fn handleSteer(model: *Model, fx: *Effects) void {
         model.draft_buffer.clear();
         if (draft_key) |key| store.discardDraftIfPossible(model, key);
         model.clearImageAttach();
+        refreshAttachPreview(model, fx);
         return;
     }
     handleSend(model, fx);

@@ -241,7 +241,9 @@ drafts, `session{id}` after the session has started. Each record is
 `waku-attachment:` blob. Composer Attach pastes that same `image_path`
 and shows a clearable chip; Native has no `fx.pickFile` / file-open
 effect, so this cut does not fake an OS picker. When that file exists,
-Send adds `fx ask --image PATH` before `--`. A missing file omits the flag.
+the chip row binds a Native `<image>` via `fx.loadImage` (ImageId, 0
+until `.loaded`) and Send adds `fx ask --image PATH` before `--`; a
+missing file keeps the chip only and omits the flag.
 Saves are cheap rewrites on each `draft_edit` and when leaving a
 session. The `newSession` key (text and image) is discarded after the
 first successful send so the next New Task does not resurrect that
