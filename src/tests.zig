@@ -817,7 +817,7 @@ test "non-zero fx ask exit does not drain the queue" {
     try testing.expectEqualStrings("after failure", model.firstQueuedText(id));
 }
 
-test "daemon address send puts hello attachSession and prompt on spawn stdin" {
+test "daemon address send puts hello attachSession start and prompt on spawn stdin" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -846,15 +846,62 @@ test "daemon address send puts hello attachSession and prompt on spawn stdin" {
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"token\":\"secret\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"attachSession\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, daemon_proxy.ATTACH_REQUEST_ID) != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"start\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"provider\":\"fx\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"binary\":\"fx\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"cwd\":\".\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"mode\":\"fullAccess\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"interactionMode\":\"build\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"computerUseEnabled\":false") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"prompt\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "trace the listener") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"loadTaskState\"") == null);
-    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"start\"") == null);
     const attach_at = std.mem.indexOf(u8, request.stdin, "\"type\":\"attachSession\"").?;
+    const start_at = std.mem.indexOf(u8, request.stdin, "\"type\":\"start\"").?;
     const prompt_at = std.mem.indexOf(u8, request.stdin, "\"type\":\"prompt\"").?;
-    try testing.expect(attach_at < prompt_at);
+    try testing.expect(attach_at < start_at);
+    try testing.expect(start_at < prompt_at);
     try testing.expectEqualStrings("127.0.0.1:8787", model.lastDaemonAddress());
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.runtimeId().len);
+}
+
+test "first daemon send maps stored start options when runtime id is empty" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("start mapped", .fx);
+    if (model.sessionById(id)) |session| {
+        session.setProjectPath("/tmp/faku-start");
+        session.setAccessMode("ask");
+        session.setInteractionMode("plan");
+        session.setModel("openai/gpt-5.4");
+    }
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "boot the provider" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(argvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"attachSession\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"start\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"cwd\":\"/tmp/faku-start\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"mode\":\"ask\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"interactionMode\":\"plan\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"model\":\"openai/gpt-5.4\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "boot the provider") != null);
+    const attach_at = std.mem.indexOf(u8, request.stdin, "\"type\":\"attachSession\"").?;
+    const start_at = std.mem.indexOf(u8, request.stdin, "\"type\":\"start\"").?;
+    const prompt_at = std.mem.indexOf(u8, request.stdin, "\"type\":\"prompt\"").?;
+    try testing.expect(attach_at < start_at);
+    try testing.expect(start_at < prompt_at);
 }
 
 test "fake sessionRuntime persists a runtime id on the session" {
@@ -912,6 +959,7 @@ test "fake sessionRuntime persists a runtime id on the session" {
         if (std.mem.indexOf(u8, spawn.stdin, "second prompt") == null) continue;
         try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"attachSession\"") != null);
         try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"prompt\"") != null);
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"start\"") == null);
         try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"runtimeId\":\"00000000-0000-0000-0000-000000000003\"") != null);
         found_second = true;
     }
@@ -1120,6 +1168,7 @@ test "missing daemon address still uses fx ask when the CLI is present" {
     try testing.expect(!argvHas(request.argv, "ask"));
     try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"attachSession\"") == null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"start\"") == null);
 }
 
 test "missing daemon address does not attach even when last_daemon_address is set" {
@@ -1140,6 +1189,7 @@ test "missing daemon address does not attach even when last_daemon_address is se
     const request = fx.pendingSpawnAt(0).?;
     try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"attachSession\"") == null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"start\"") == null);
     try testing.expectEqual(@as(usize, 0), model.session_store[0].runtimeId().len);
 }
 

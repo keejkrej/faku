@@ -6,7 +6,8 @@
 //! session/prompt).
 //! Draft `image_path` still uses `fx ask --image` (ACP rejects image
 //! blocks). When `WAKU_DAEMON_ADDRESS` is set, Send instead spawns a
-//! one-shot `daemon-proxy` sidecar (hello + attachSession + prompt).
+//! one-shot `daemon-proxy` sidecar (hello + attachSession + start +
+//! prompt when no runtime id; later sends keep attach + prompt).
 //! Missing address / image / ACP stdin overflow keep `fx ask` or the
 //! demo timer. This is not a long-lived ACP or daemon runtime loop —
 //! Native stdin is one buffer, then it closes.
@@ -742,7 +743,7 @@ pub const Model = struct {
 
     pub fn empty_hint(model: *const Model) []const u8 {
         if (model.daemonAddress().len > 0) {
-            return "Message the daemon sidecar. Send is one-shot hello/attachSession/prompt over ws://{addr}/v1; missing address keeps `fx ask` / demo.";
+            return "Message the daemon sidecar. Send is one-shot hello/attachSession/start/prompt over ws://{addr}/v1 when no runtime id; later sends keep attach + prompt. Missing address keeps `fx ask` / demo.";
         }
         if (model.fx_available) {
             return "Message fx. Send runs one-shot `fx acp` (initialize / session/new|resume / set model|mode / session/prompt). Images still use `fx ask --image`.";
@@ -1855,16 +1856,34 @@ fn persistComposerProject(model: *Model, fx: *Effects) void {
     store.persistIfPossible(model, model.selected, fx);
 }
 
+/// Map stored session fields onto verified `StartOptions`. Empty
+/// `project_path` becomes `"."`. Empty model is omitted on the wire.
+/// `computer_use_enabled` is not stored here and stays false.
+pub fn startOptionsFromSession(session: *const Session) protocol.StartOptions {
+    return .{
+        .provider = session.provider.wireName(),
+        .binary = session.provider.defaultBinary(),
+        .cwd = if (session.projectPath().len > 0) session.projectPath() else ".",
+        .mode = if (session.accessMode().len > 0) session.accessMode() else default_access_mode,
+        .interaction_mode = if (session.interactionMode().len > 0) session.interactionMode() else default_interaction_mode,
+        .model = if (session.model().len > 0) session.model() else null,
+        .computer_use_enabled = false,
+    };
+}
+
 fn startDaemonProxy(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) void {
     var id_buf: [36]u8 = undefined;
     const session_id = daemon_proxy.wireUuid(session.id, &id_buf);
-    const runtime_id = if (protocol.isUsableRuntimeId(session.runtimeId())) session.runtimeId() else protocol.NIL_UUID;
+    const has_runtime = protocol.isUsableRuntimeId(session.runtimeId());
+    const runtime_id = if (has_runtime) session.runtimeId() else protocol.NIL_UUID;
+    const start = if (has_runtime) null else startOptionsFromSession(session);
     var stdin_buf: [4096]u8 = undefined;
     const stdin = daemon_proxy.writeTurnStdin(&stdin_buf, .{
         .token = model.daemonToken(),
         .session_id = session_id,
         .runtime_id = runtime_id,
         .prompt = prompt,
+        .start = start,
     }) catch {
         model.reply_path = .demo;
         startDemoTimer(fx);

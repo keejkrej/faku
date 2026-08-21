@@ -1,7 +1,8 @@
 //! One-shot waku-daemon sidecar.
 //!
 //! Native `fx.spawn` writes stdin once and then closes it. This module
-//! builds that buffer (hello + attachSession + prompt, hello +
+//! builds that buffer (hello + attachSession + start + prompt when no
+//! runtime id, hello + attachSession + prompt when one is stored, hello +
 //! saveTaskState, hello + loadTaskState, hello + hydrateSession, or
 //! hello + closeSession) and,
 //! when run as `faku daemon-proxy <addr>`, forwards those JSON frames over
@@ -35,6 +36,8 @@ pub const TurnStdin = struct {
     session_id: []const u8 = protocol.NIL_UUID,
     runtime_id: []const u8 = protocol.NIL_UUID,
     prompt: []const u8,
+    /// Present only for a first send with no persisted runtime id.
+    start: ?protocol.StartOptions = null,
 };
 
 pub const SaveStdin = struct {
@@ -136,9 +139,11 @@ const Cursor = struct {
 };
 
 /// NDJSON stdin for one sidecar spawn. Fits Native's 4 KiB stdin cap
-/// for a 512-byte composer draft. Hello + bare attachSession + prompt.
-/// Start / loadTaskState are not part of the verified attach-then-prompt
-/// flow. Prompt may carry a persisted runtime id; attach uses nil.
+/// for a 512-byte composer draft. Hello + bare attachSession, then
+/// `start` when `args.start` is set (no persisted runtime id), then
+/// prompt. Verified Waku `sendPrompt` order is attach, start if no
+/// runtime, prompt. Prompt may carry a persisted runtime id; attach
+/// uses nil. loadTaskState is not part of this turn batch.
 pub fn writeTurnStdin(buf: []u8, args: TurnStdin) WriteError![]const u8 {
     var cur = Cursor{ .buf = buf };
     const hello = try protocol.writeClientHello(cur.remaining(), args.token, args.client_id, &.{});
@@ -151,6 +156,17 @@ pub fn writeTurnStdin(buf: []u8, args: TurnStdin) WriteError![]const u8 {
     );
     cur.pos += attach.len;
     try cur.write("\n");
+    if (args.start) |options| {
+        const start = try protocol.writeStart(
+            cur.remaining(),
+            args.request_id,
+            args.session_id,
+            args.runtime_id,
+            options,
+        );
+        cur.pos += start.len;
+        try cur.write("\n");
+    }
     const prompt = try protocol.writePrompt(
         cur.remaining(),
         args.request_id,
@@ -540,6 +556,40 @@ test "writeTurnStdin still attaches before prompt for a new session" {
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") != null);
+}
+
+test "writeTurnStdin emits start with mapped options before prompt when set" {
+    var buf: [1536]u8 = undefined;
+    const stdin = try writeTurnStdin(&buf, .{
+        .session_id = "00000000-0000-0000-0000-000000000001",
+        .prompt = "first",
+        .start = .{
+            .provider = "fx",
+            .binary = "fx",
+            .cwd = "/tmp/faku-start",
+            .mode = "ask",
+            .interaction_mode = "plan",
+            .model = "openai/gpt-5.4",
+            .computer_use_enabled = false,
+        },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"start\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"provider\":\"fx\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"binary\":\"fx\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"cwd\":\"/tmp/faku-start\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"mode\":\"ask\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"interactionMode\":\"plan\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"model\":\"openai/gpt-5.4\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"computerUseEnabled\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadTaskState\"") == null);
+    const attach_at = std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"").?;
+    const start_at = std.mem.indexOf(u8, stdin, "\"type\":\"start\"").?;
+    const prompt_at = std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"").?;
+    try std.testing.expect(attach_at < start_at);
+    try std.testing.expect(start_at < prompt_at);
 }
 
 test "writeSaveStdin emits hello and saveTaskState without a prompt" {
