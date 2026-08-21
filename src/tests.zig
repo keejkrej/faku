@@ -2815,7 +2815,7 @@ test "sidebar search still matches session titles across folders" {
         "port waku to zig",
     });
 
-    var tree = try buildTree(arena, &model);
+    const tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "port waku to zig");
     try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
     _ = try expectByText(tree.root, .text, "Today");
