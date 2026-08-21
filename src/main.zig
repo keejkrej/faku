@@ -2652,6 +2652,9 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "n")) {
         return .new_session;
     }
+    if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "k")) {
+        return .start_search;
+    }
     if (keyboard.modifiers.hasNavigationModifier() and isEnterKey(keyboard.key)) {
         return .steer;
     }

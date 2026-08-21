@@ -2834,6 +2834,69 @@ test "sidebar search also matches provider and Esc exits" {
     try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
 }
 
+test "cmd-k and ctrl-k focus sidebar search via onKey" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expect(!model.search_active);
+    try testing.expectEqualStrings("", model.search_query());
+
+    const plain_k = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "k" };
+    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_k));
+
+    const cmd_k = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "k",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.start_search, main.onKey(cmd_k).?);
+    main.update(&model, main.onKey(cmd_k).?, &fx);
+    try testing.expect(model.search_active);
+    try testing.expectEqualStrings("", model.search_query());
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findPressableContaining(tree.root, "Search") == null);
+    if (findByKind(tree.root, .search_field)) |field| {
+        try testing.expectEqualStrings("Search", field.placeholder);
+        try expectLaidOutHeight(tree.root, field.id, 32);
+    } else return error.WidgetNotFound;
+
+    main.update(&model, .stop, &fx);
+    try testing.expect(!model.search_active);
+
+    const ctrl_k = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "K",
+        .modifiers = .{ .control = true },
+    };
+    try testing.expectEqual(Msg.start_search, main.onKey(ctrl_k).?);
+    main.update(&model, main.onKey(ctrl_k).?, &fx);
+    try testing.expect(model.search_active);
+
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .search_field)) |field| {
+        try testing.expectEqualStrings("Search", field.placeholder);
+    } else return error.WidgetNotFound;
+
+    main.update(&model, .{ .search_edit = .{ .insert_text = "auth" } }, &fx);
+    try expectRowTitles(model.session_rows(arena), &.{"fix auth listener"});
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqualStrings("", model.search_query());
+    try testing.expect(!model.search_active);
+    try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
+
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "Search");
+}
+
 test "send while busy shows a queued card that dismiss clears" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
