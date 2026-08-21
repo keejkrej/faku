@@ -41,9 +41,9 @@ over stdio), fx resume.
 ## Live path: one-shot `fx acp`
 
 When the fx CLI is installed, Send on an fx session spawns a one-shot
-`{fx_path} acp` (same probe as today: `~/.local/bin/fx`, then `fx` on
-PATH). Native `fx.spawn` writes **one stdin buffer and then closes
-stdin**. There is no write-to-running-child. The buffer is NDJSON
+`faku acp-proxy -- {fx_path} acp` (same probe as today: `~/.local/bin/fx`,
+then `fx` on PATH). Native `fx.spawn` writes **one stdin buffer and then
+closes stdin**. The sidecar owns the child stdin. The buffer is NDJSON
 JSON-RPC 2.0 (ACP protocol version 1):
 
     initialize
@@ -56,8 +56,11 @@ JSON-RPC 2.0 (ACP protocol version 1):
 Cwd on `session/new` / `session/resume` is the session `project_path`
 when that directory exists, else `"."`. Official methods only
 (https://fx.sh/docs/using-fx/acp): this cut does not call
-`session/load`, `session/close`, or `session/list`. `session/cancel`
-cannot be written after spawn; Stop / Esc uses `fx.cancel`.
+`session/load`, `session/close`, or `session/list`. The sidecar
+auto-answers official `session/request_permission` from that run's
+access mode (env / `session/set_mode`), not a prompt dialog.
+`session/cancel` cannot be written from the window after spawn; Stop /
+Esc uses `fx.cancel`.
 Model and access now also go out on the ACP stdin batch
 (`session/set_config_option` / `session/set_mode`) in addition to the
 `FX_MODEL` / `FX_PERMISSION_MODE` env prefix.
@@ -81,7 +84,8 @@ on the session; there is no command palette and slash commands are not executed.
 The `session/prompt` result `stopReason`
 settles the turn and drains the success-only queue (`cancelled` /
 `refusal` / JSON-RPC error do not drain). This is **not** a long-lived
-ACP loop: each Send starts a new `fx acp` process and closes stdin.
+ACP loop: each Send starts a new `acp-proxy` → `fx acp` process and
+Native closes stdin.
 
 ACP does not accept image or audio blocks. When draft `image_path` is
 set and the file exists, Send keeps today's `fx ask --image` path
@@ -142,27 +146,29 @@ New sessions still default to fx.
 
 ## ACP (one-shot, not a live loop)
 
-`fx acp` is spawned one-shot per Send (same family as cursor-agent / grok).
-`src/acp.zig` has newline-delimited JSON-RPC 2.0 builders/parsers for
-`initialize`, `session/new`, `session/resume`, `session/set_mode`,
-`session/set_config_option`, `session/prompt`, `session/cancel`, plus
+`fx acp` is spawned one-shot per Send through `faku acp-proxy` (same
+family as cursor-agent / grok). `src/acp.zig` has newline-delimited
+JSON-RPC 2.0 builders/parsers for `initialize`, `session/new`,
+`session/resume`, `session/set_mode`, `session/set_config_option`,
+`session/prompt`, `session/cancel`, `session/request_permission`, plus
 a `session/update` / `stopReason` scanner.
 
 This is **not** a long-lived ACP connection. Native `fx.spawn` accepts
-stdin only at spawn time (one buffer, then stdin closes). Permission
-requests and mid-turn `session/cancel` cannot be written to the child.
-Do not treat this as a working interactive ACP loop. A later cut can
-keep the process open once a stdin-write effect exists.
+stdin only at spawn time (one buffer, then stdin closes). The sidecar
+keeps fx stdin open and auto-answers `session/request_permission` from
+the access mode already sent on that run — not a prompt dialog.
+Mid-turn `session/cancel` still cannot be written from the window.
 
 ## Scope
 
 Ready: desktop shell, demo sessions + timer fallback, one-shot `fx acp`
-when the CLI is present, `fx ask --image` / `fx ask` fallback, local
+when the CLI is present (via `acp-proxy`, which auto-answers
+`session/request_permission`), `fx ask --image` / `fx ask` fallback, local
 session catalog + hydrate, waku-protocol v3 JSON builders + server-frame
 parser, one-shot daemon sidecar, provider id "fx".
 
 Later: a long-lived daemon socket in the update loop (not this cut),
-a long-lived `fx acp` loop once a stdin-write effect exists.
+a long-lived `fx acp` loop once a window-side stdin-write effect exists.
 
 No listSessions / createSession. Catalog is loadTaskState (local JSON
 today). New session is a client-built session saved after first content.

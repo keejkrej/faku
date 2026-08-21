@@ -4,6 +4,7 @@ const main = @import("main.zig");
 const protocol = @import("protocol.zig");
 const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
+const acp_proxy = @import("acp_proxy.zig");
 const rewind = @import("rewind.zig");
 const acp = @import("acp.zig");
 
@@ -332,10 +333,13 @@ test "send with fx_available spawns one-shot fx acp and streams session/update t
 
     const request = fx.pendingSpawnAt(0).?;
     try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(argvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(request.argv, "--"));
     try testing.expect(argvHas(request.argv, "acp"));
     try testing.expect(argvHas(request.argv, "fx"));
     try testing.expect(!argvHas(request.argv, "ask"));
     try testing.expect(!argvHas(request.argv, "--model"));
+    try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"initialize\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/new\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/set_mode\"") != null);
@@ -351,6 +355,11 @@ test "send with fx_available spawns one-shot fx acp and streams session/update t
     drainEffects(&model, &fx);
     try testing.expect(lastAssistant(&model).len > before_len);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from fx acp") != null);
+
+    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/request_permission\",\"id\":5,\"params\":{\"sessionId\":\"s1\",\"toolCall\":{\"toolCallId\":\"call_001\"},\"options\":[{\"optionId\":\"allow_once\",\"name\":\"Allow once\",\"kind\":\"allow_once\"},{\"optionId\":\"reject_once\",\"name\":\"Reject\",\"kind\":\"reject_once\"}]}}");
+    drainEffects(&model, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "allow_once") == null);
 
     try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
     drainEffects(&model, &fx);
@@ -950,7 +959,12 @@ test "fx ask spawn records FX_MODEL and FX_PERMISSION_MODE" {
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
     const request = fx.pendingSpawnAt(0).?;
-    try testing.expectEqualStrings(main.fx_env_bin, request.argv[0]);
+    try testing.expect(argvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(request.argv, "--"));
+    try testing.expect(argvHas(request.argv, main.fx_env_bin));
+    const dash_at = argvIndex(request.argv, "--") orelse return error.MissingDash;
+    const env_at = argvIndex(request.argv, main.fx_env_bin) orelse return error.MissingEnv;
+    try testing.expect(dash_at < env_at);
     try testing.expect(argvHas(request.argv, "FX_MODEL=openai/gpt-5.4"));
     try testing.expect(argvHas(request.argv, "FX_PERMISSION_MODE=yolo"));
     try testing.expect(argvHas(request.argv, "fx"));
@@ -2033,6 +2047,7 @@ test "missing daemon address still uses fx ask when the CLI is present" {
     const request = fx.pendingSpawnAt(0).?;
     try testing.expectEqual(main.fx_ask_key, request.key);
     try testing.expect(argvHas(request.argv, "acp"));
+    try testing.expect(argvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(!argvHas(request.argv, "ask"));
     try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"attachSession\"") == null);
