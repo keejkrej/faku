@@ -119,6 +119,16 @@ fn lastAssistant(model: *const Model) []const u8 {
     return "";
 }
 
+fn lastTool(model: *const Model) []const u8 {
+    var i = model.turn_count;
+    while (i > 0) {
+        i -= 1;
+        const turn = &model.turn_store[i];
+        if (turn.session_id == model.selected and turn.role == .tool) return turn.text();
+    }
+    return "";
+}
+
 test "boot is fx-first and New / send / ticks / stop drive the demo" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -484,6 +494,50 @@ test "fx acp session/prompt stopReason settles and drains the success-only queue
         found_follow_up = true;
     }
     try testing.expect(found_follow_up);
+}
+
+test "ACP session/update tool_call adds a tool turn; tool_call_update changes status" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("acp tool", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "read the file" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.fx_spawn_acp);
+    const key = model.fx_spawn_key;
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"sessionId\":\"acp-tool-1\"}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), countRole(&model, .tool));
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-tool-1\",\"update\":{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"call_001\",\"title\":\"Reading file\",\"kind\":\"read\",\"status\":\"pending\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .tool));
+    try testing.expectEqualStrings("Reading file · read · pending", lastTool(&model));
+    try testing.expectEqual(@as(usize, 0), lastAssistant(&model).len);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-tool-1\",\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_001\",\"status\":\"completed\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .tool));
+    try testing.expectEqualStrings("Reading file · read · completed", lastTool(&model));
+    try testing.expect(std.mem.indexOf(u8, lastTool(&model), "pending") == null);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-tool-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"done\"}}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("done", lastAssistant(&model));
+    try testing.expectEqualStrings("Reading file · read · completed", lastTool(&model));
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .tool));
+    try testing.expectEqual(@as(u32, 0), model.queuedCount(id));
 }
 
 test "fx ask spawn records FX_MODEL and FX_PERMISSION_MODE" {

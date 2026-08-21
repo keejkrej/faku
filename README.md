@@ -70,10 +70,11 @@ send `session/resume` + `session/prompt` with that id. First-turn
 `sessionId` is empty until the result arrives on stdout.
 
 `session/update` `agent_message_chunk` text appends to the assistant
-turn. The `session/prompt` result `stopReason` settles the turn and
-drains the success-only queue (`cancelled` / `refusal` / JSON-RPC
-error do not drain). This is **not** a long-lived ACP loop: each Send
-starts a new `fx acp` process and closes stdin.
+turn. `tool_call` and `tool_call_update` show as tool turns
+(`title` · `kind` · `status`). The `session/prompt` result `stopReason`
+settles the turn and drains the success-only queue (`cancelled` /
+`refusal` / JSON-RPC error do not drain). This is **not** a long-lived
+ACP loop: each Send starts a new `fx acp` process and closes stdin.
 
 ACP does not accept image or audio blocks. When draft `image_path` is
 set and the file exists, Send keeps today's `fx ask --image` path

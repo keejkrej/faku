@@ -59,6 +59,9 @@ const max_fx_path = 256;
 pub const max_store_dir = 512;
 pub const max_project_path = 512;
 pub const max_fx_session_id = 128;
+pub const max_tool_call_id = 128;
+pub const max_tool_kind = 32;
+pub const max_tool_status = 32;
 pub const max_runtime_id = 36;
 pub const max_fx_model = 128;
 pub const max_access_mode = 32;
@@ -257,9 +260,35 @@ pub const Turn = struct {
     role: Role = .user,
     body_storage: [max_body]u8 = [_]u8{0} ** max_body,
     body_len: usize = 0,
+    /// Live ACP `toolCallId` so `tool_call_update` can find this row.
+    /// Not a blob store — persist still writes `role` + body text.
+    tool_call_id_storage: [max_tool_call_id]u8 = [_]u8{0} ** max_tool_call_id,
+    tool_call_id_len: usize = 0,
+    tool_title_storage: [max_title]u8 = [_]u8{0} ** max_title,
+    tool_title_len: usize = 0,
+    tool_kind_storage: [max_tool_kind]u8 = [_]u8{0} ** max_tool_kind,
+    tool_kind_len: usize = 0,
+    tool_status_storage: [max_tool_status]u8 = [_]u8{0} ** max_tool_status,
+    tool_status_len: usize = 0,
 
     pub fn text(self: *const Turn) []const u8 {
         return self.body_storage[0..self.body_len];
+    }
+
+    pub fn toolCallId(self: *const Turn) []const u8 {
+        return self.tool_call_id_storage[0..self.tool_call_id_len];
+    }
+
+    pub fn toolTitle(self: *const Turn) []const u8 {
+        return self.tool_title_storage[0..self.tool_title_len];
+    }
+
+    pub fn toolKind(self: *const Turn) []const u8 {
+        return self.tool_kind_storage[0..self.tool_kind_len];
+    }
+
+    pub fn toolStatus(self: *const Turn) []const u8 {
+        return self.tool_status_storage[0..self.tool_status_len];
     }
 
     pub fn role_label(self: *const Turn) []const u8 {
@@ -2516,6 +2545,10 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
         }
         return;
     }
+    if (acp.toolUpdate(parsed)) |tool| {
+        applyAcpToolUpdate(model, fx, tool);
+        return;
+    }
     if (acp.isAgentMessageText(parsed)) {
         model.appendToTurn(model.stream_turn_id, parsed.text);
         return;
@@ -2525,6 +2558,43 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
         if (model.fx_spawn_key != 0) fx.cancel(model.fx_spawn_key);
         finishStream(model, fx, drain);
     }
+}
+
+fn applyAcpToolUpdate(model: *Model, fx: *Effects, tool: acp.ToolUpdate) void {
+    const session_id = model.streaming_session;
+    if (session_id == 0) return;
+    if (findToolTurn(model, session_id, tool.tool_call_id)) |turn| {
+        if (tool.title.len > 0) writeFixed(&turn.tool_title_storage, &turn.tool_title_len, tool.title);
+        if (tool.kind.len > 0) writeFixed(&turn.tool_kind_storage, &turn.tool_kind_len, tool.kind);
+        if (tool.status.len > 0) writeFixed(&turn.tool_status_storage, &turn.tool_status_len, tool.status);
+        refreshToolTurnText(turn);
+    } else {
+        var text_buf: [max_title + max_tool_kind + max_tool_status + 16]u8 = undefined;
+        const text = acp.toolTurnText(&text_buf, tool.title, tool.kind, tool.status);
+        const turn_id = model.appendTurn(session_id, .tool, text);
+        const turn = model.turnById(turn_id) orelse return;
+        writeFixed(&turn.tool_call_id_storage, &turn.tool_call_id_len, tool.tool_call_id);
+        writeFixed(&turn.tool_title_storage, &turn.tool_title_len, tool.title);
+        writeFixed(&turn.tool_kind_storage, &turn.tool_kind_len, tool.kind);
+        writeFixed(&turn.tool_status_storage, &turn.tool_status_len, tool.status);
+        refreshToolTurnText(turn);
+    }
+    store.persistIfPossible(model, session_id, fx);
+}
+
+fn findToolTurn(model: *Model, session_id: u32, tool_call_id: []const u8) ?*Turn {
+    if (tool_call_id.len == 0) return null;
+    for (model.turn_store[0..model.turn_count]) |*turn| {
+        if (turn.session_id != session_id or turn.role != .tool) continue;
+        if (std.mem.eql(u8, turn.toolCallId(), tool_call_id)) return turn;
+    }
+    return null;
+}
+
+fn refreshToolTurnText(turn: *Turn) void {
+    var text_buf: [max_title + max_tool_kind + max_tool_status + 16]u8 = undefined;
+    const text = acp.toolTurnText(&text_buf, turn.toolTitle(), turn.toolKind(), turn.toolStatus());
+    writeFixed(&turn.body_storage, &turn.body_len, text);
 }
 
 fn handleDaemonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
