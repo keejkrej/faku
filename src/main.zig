@@ -2,7 +2,8 @@
 //!
 //! First-party provider is Vercel `fx` (https://fx.sh). Send on an `.fx`
 //! session runs one-shot `fx acp` when the CLI is installed (NDJSON
-//! stdin: initialize, session/new or session/resume, session/prompt).
+//! stdin: initialize, session/new or session/resume, set model/mode,
+//! session/prompt).
 //! Draft `image_path` still uses `fx ask --image` (ACP rejects image
 //! blocks). When `WAKU_DAEMON_ADDRESS` is set, Send instead spawns a
 //! one-shot `daemon-proxy` sidecar. Missing address / image / ACP
@@ -461,7 +462,7 @@ pub const Model = struct {
             return "Message the daemon sidecar. Send is one-shot hello/load/prompt over ws://{addr}/v1; missing address keeps `fx ask` / demo.";
         }
         if (model.fx_available) {
-            return "Message fx. Send runs one-shot `fx acp` (initialize / session/new|resume / session/prompt). Images still use `fx ask --image`.";
+            return "Message fx. Send runs one-shot `fx acp` (initialize / session/new|resume / set model|mode / session/prompt). Images still use `fx ask --image`.";
         }
         return "Message fx. Demo replies locally until the fx CLI is found; then Send runs one-shot `fx acp`. Images still use `fx ask --image`.";
     }
@@ -1026,11 +1027,13 @@ fn startFxAcp(model: *Model, fx: *Effects, session: *const Session, prompt: []co
     model.setLastSpawnFxPermissionMode(permission_mode);
     model.setLastSpawnImagePath("");
 
-    var stdin_buf: [4096]u8 = undefined;
+    var stdin_buf: [8192]u8 = undefined;
     const stdin = acp.writeTurnStdin(&stdin_buf, .{
         .cwd = cwd,
         .resume_id = resume_id,
         .prompt = prompt,
+        .model = model_id,
+        .access_mode = session.accessMode(),
     }) catch return false;
 
     var model_assign: [max_fx_model + 16]u8 = undefined;

@@ -36,14 +36,18 @@ JSON-RPC 2.0 (ACP protocol version 1):
     initialize
     session/new          # first turn
     session/resume       # later turns, stored fx_session_id
+    session/set_mode     # access_mode → fx ask|code
+    session/set_config_option  # model, omitted when empty
     session/prompt
 
 Cwd on `session/new` / `session/resume` is the session `project_path`
 when that directory exists, else `"."`. Official methods only
 (https://fx.sh/docs/using-fx/acp): this cut does not call
-`session/load`, `session/close`, `session/list`, or
-`session/set_config_option`. `session/cancel` cannot be written after
-spawn; Stop / Esc uses `fx.cancel`.
+`session/load`, `session/close`, or `session/list`. `session/cancel`
+cannot be written after spawn; Stop / Esc uses `fx.cancel`.
+Model and access now also go out on the ACP stdin batch
+(`session/set_config_option` / `session/set_mode`) in addition to the
+`FX_MODEL` / `FX_PERMISSION_MODE` env prefix.
 
 `session/new` returns `{ sessionId }`. fx ACP sessions are the same
 saved sessions as interactive fx, so that id is stored as
@@ -64,9 +68,13 @@ set and the file exists, Send keeps today's `fx ask --image` path
 selects the daemon sidecar. Missing fx still uses the demo timer.
 
 There is no `--model` argv on the ACP spawn. `fx acp --model` exists
-on the server process, but this cut keeps the `FX_MODEL` /
-`FX_PERMISSION_MODE` `/usr/bin/env` prefix (Native `SpawnOptions` has
-no `env`). `--no-save` and `--auto`/`--yolo` flags are not used.
+on the server process; this cut still prefixes `FX_MODEL` /
+`FX_PERMISSION_MODE` via `/usr/bin/env` (Native `SpawnOptions` has
+no `env`) and also writes those values on the ACP stdin batch.
+`--no-save` and `--auto`/`--yolo` flags are not used. fx ACP modes
+are `ask` and `code` (not Waku `fullAccess`). Waku `ask` → `ask`;
+`autoAcceptEdits` / `auto` / `fullAccess` / `yolo` → `code`. Empty
+`model` omits `session/set_config_option`.
 
 Model and access ride env, not flags. Official fx values
 ([configuration](https://fx.sh/docs/configure-fx/configuration)):
@@ -111,8 +119,9 @@ New sessions still default to fx.
 
 `fx acp` is spawned one-shot per Send (same family as cursor-agent / grok).
 `src/acp.zig` has newline-delimited JSON-RPC 2.0 builders/parsers for
-`initialize`, `session/new`, `session/resume`, `session/prompt`,
-`session/cancel`, plus a `session/update` / `stopReason` scanner.
+`initialize`, `session/new`, `session/resume`, `session/set_mode`,
+`session/set_config_option`, `session/prompt`, `session/cancel`, plus
+a `session/update` / `stopReason` scanner.
 
 This is **not** a long-lived ACP connection. Native `fx.spawn` accepts
 stdin only at spawn time (one buffer, then stdin closes). Permission

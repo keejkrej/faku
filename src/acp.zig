@@ -7,7 +7,8 @@
 //! and one active prompt.
 //!
 //! This cut writes one NDJSON stdin buffer at spawn (initialize, then
-//! session/new or session/resume, then session/prompt) and closes stdin.
+//! session/new or session/resume, then session/set_mode and/or
+//! session/set_config_option, then session/prompt) and closes stdin.
 //! Native `fx.spawn` has no write-to-running-child, so `session/cancel`
 //! cannot be sent after spawn — Stop/Esc uses `fx.cancel`. This is not a
 //! long-lived ACP loop. `session/load` is not used (resume, not replay).
@@ -26,6 +27,8 @@ pub const CLIENT_VERSION = "0.1.0";
 pub const ID_INITIALIZE: u64 = 1;
 pub const ID_SESSION: u64 = 2;
 pub const ID_PROMPT: u64 = 3;
+pub const ID_SET_MODE: u64 = 4;
+pub const ID_SET_CONFIG: u64 = 5;
 
 pub const METHOD_INITIALIZE = "initialize";
 pub const METHOD_SESSION_NEW = "session/new";
@@ -33,6 +36,17 @@ pub const METHOD_SESSION_RESUME = "session/resume";
 pub const METHOD_SESSION_PROMPT = "session/prompt";
 pub const METHOD_SESSION_CANCEL = "session/cancel";
 pub const METHOD_SESSION_UPDATE = "session/update";
+pub const METHOD_SESSION_SET_MODE = "session/set_mode";
+pub const METHOD_SESSION_SET_CONFIG = "session/set_config_option";
+
+/// fx ACP config option ids (https://fx.sh/docs/using-fx/acp + fx e2e).
+pub const CONFIG_ID_MODEL = "model";
+pub const CONFIG_ID_MODE = "mode";
+
+/// fx ACP session modes (https://fx.sh/docs/using-fx/acp). Not Waku
+/// `fullAccess` / `yolo` / `auto` — those are FX_PERMISSION_MODE values.
+pub const MODE_ASK = "ask";
+pub const MODE_CODE = "code";
 
 pub const SESSION_UPDATE_AGENT_MESSAGE = "agent_message_chunk";
 pub const STOP_END_TURN = "end_turn";
@@ -46,6 +60,8 @@ pub const Method = enum {
     session_prompt,
     session_cancel,
     session_update,
+    session_set_mode,
+    session_set_config_option,
     unknown,
 
     pub fn wireName(method: Method) []const u8 {
@@ -56,6 +72,8 @@ pub const Method = enum {
             .session_prompt => METHOD_SESSION_PROMPT,
             .session_cancel => METHOD_SESSION_CANCEL,
             .session_update => METHOD_SESSION_UPDATE,
+            .session_set_mode => METHOD_SESSION_SET_MODE,
+            .session_set_config_option => METHOD_SESSION_SET_CONFIG,
             .unknown => "",
         };
     }
@@ -67,6 +85,8 @@ pub const Method = enum {
         if (std.mem.eql(u8, name, METHOD_SESSION_PROMPT)) return .session_prompt;
         if (std.mem.eql(u8, name, METHOD_SESSION_CANCEL)) return .session_cancel;
         if (std.mem.eql(u8, name, METHOD_SESSION_UPDATE)) return .session_update;
+        if (std.mem.eql(u8, name, METHOD_SESSION_SET_MODE)) return .session_set_mode;
+        if (std.mem.eql(u8, name, METHOD_SESSION_SET_CONFIG)) return .session_set_config_option;
         return .unknown;
     }
 };
@@ -83,6 +103,9 @@ pub const Parsed = struct {
     session_update: []const u8 = "",
     text: []const u8 = "",
     stop_reason: []const u8 = "",
+    mode_id: []const u8 = "",
+    config_id: []const u8 = "",
+    config_value: []const u8 = "",
     has_error: bool = false,
     has_result: bool = false,
 };
@@ -91,6 +114,8 @@ pub const TurnStdin = struct {
     cwd: []const u8,
     resume_id: []const u8 = "",
     prompt: []const u8,
+    model: []const u8 = "",
+    access_mode: []const u8 = "",
 };
 
 const WriteError = error{NoSpaceLeft};
@@ -219,6 +244,59 @@ pub fn writeSessionPrompt(
     return cur.slice();
 }
 
+/// Waku `access_mode` → fx ACP mode id (`ask` | `code`).
+/// Verified against https://fx.sh/docs/using-fx/acp (modes table) and
+/// fx e2e (`mode` options are `code` and `ask`). `fullAccess` / `yolo`
+/// / `auto` are not ACP mode strings — they stay on FX_PERMISSION_MODE.
+pub fn sessionMode(access_mode: []const u8) []const u8 {
+    if (std.mem.eql(u8, access_mode, "ask")) return MODE_ASK;
+    if (std.mem.eql(u8, access_mode, MODE_CODE)) return MODE_CODE;
+    if (std.mem.eql(u8, access_mode, "autoAcceptEdits")) return MODE_CODE;
+    if (std.mem.eql(u8, access_mode, "auto")) return MODE_CODE;
+    if (std.mem.eql(u8, access_mode, "fullAccess")) return MODE_CODE;
+    if (std.mem.eql(u8, access_mode, "yolo")) return MODE_CODE;
+    return "";
+}
+
+/// `session/set_mode` — ACP v1 `{ sessionId, modeId }`. fx applies
+/// `modeId` to the active session (`ask` | `code`).
+pub fn writeSessionSetMode(
+    buf: []u8,
+    id: u64,
+    session_id: []const u8,
+    mode_id: []const u8,
+) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    try writeRequestHead(&cur, id, METHOD_SESSION_SET_MODE);
+    try cur.write("{\"sessionId\":");
+    try writeJsonString(&cur, session_id);
+    try cur.write(",\"modeId\":");
+    try writeJsonString(&cur, mode_id);
+    try cur.write("}}\n");
+    return cur.slice();
+}
+
+/// `session/set_config_option` — ACP v1 `{ sessionId, configId, value }`.
+/// fx config ids include `model` and `mode`.
+pub fn writeSessionSetConfigOption(
+    buf: []u8,
+    id: u64,
+    session_id: []const u8,
+    config_id: []const u8,
+    value: []const u8,
+) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    try writeRequestHead(&cur, id, METHOD_SESSION_SET_CONFIG);
+    try cur.write("{\"sessionId\":");
+    try writeJsonString(&cur, session_id);
+    try cur.write(",\"configId\":");
+    try writeJsonString(&cur, config_id);
+    try cur.write(",\"value\":");
+    try writeJsonString(&cur, value);
+    try cur.write("}}\n");
+    return cur.slice();
+}
+
 /// `session/cancel` notification (no `id`; no response expected).
 /// Built for the stub/tests; one-shot spawn cannot write this after start.
 pub fn writeSessionCancel(buf: []u8, session_id: []const u8) WriteError![]const u8 {
@@ -233,10 +311,13 @@ pub fn writeSessionCancel(buf: []u8, session_id: []const u8) WriteError![]const 
     return cur.slice();
 }
 
-/// One Native spawn stdin: initialize, session/new or session/resume, then
-/// session/prompt. First-turn prompt uses an empty sessionId because the
-/// id is minted in the `session/new` result on stdout — there is no
-/// write-after-spawn. Follow-ups pass the stored id to resume and prompt.
+/// One Native spawn stdin: initialize, session/new or session/resume,
+/// then session/set_mode and/or session/set_config_option, then
+/// session/prompt. First-turn prompt / set_* use an empty sessionId
+/// because the id is minted in the `session/new` result on stdout —
+/// there is no write-after-spawn. Follow-ups pass the stored id.
+/// Empty `model` omits the model config. Unmapped `access_mode` omits
+/// `session/set_mode`.
 pub fn writeTurnStdin(buf: []u8, args: TurnStdin) WriteError![]const u8 {
     var cur = Cursor{ .buf = buf };
     const init = try writeInitialize(cur.remaining(), ID_INITIALIZE, CLIENT_NAME, CLIENT_VERSION);
@@ -247,6 +328,21 @@ pub fn writeTurnStdin(buf: []u8, args: TurnStdin) WriteError![]const u8 {
     } else {
         const created = try writeSessionNew(cur.remaining(), ID_SESSION, args.cwd);
         cur.pos += created.len;
+    }
+    const mode_id = sessionMode(args.access_mode);
+    if (mode_id.len > 0) {
+        const mode = try writeSessionSetMode(cur.remaining(), ID_SET_MODE, args.resume_id, mode_id);
+        cur.pos += mode.len;
+    }
+    if (args.model.len > 0) {
+        const config = try writeSessionSetConfigOption(
+            cur.remaining(),
+            ID_SET_CONFIG,
+            args.resume_id,
+            CONFIG_ID_MODEL,
+            args.model,
+        );
+        cur.pos += config.len;
     }
     const prompt = try writeSessionPrompt(cur.remaining(), ID_PROMPT, args.resume_id, args.prompt);
     cur.pos += prompt.len;
@@ -367,6 +463,18 @@ pub fn parseLine(line: []const u8) Parsed {
         parsed.stop_reason = parseJsonStringAt(trimmed, at);
     }
 
+    if (findKey(trimmed, "modeId")) |at| {
+        parsed.mode_id = parseJsonStringAt(trimmed, at);
+    }
+
+    if (findKey(trimmed, "configId")) |at| {
+        parsed.config_id = parseJsonStringAt(trimmed, at);
+    }
+
+    if (findKey(trimmed, "value")) |at| {
+        parsed.config_value = parseJsonStringAt(trimmed, at);
+    }
+
     parsed.has_error = findKey(trimmed, "error") != null;
     parsed.has_result = findKey(trimmed, "result") != null;
 
@@ -418,6 +526,30 @@ test "ACP builders are newline-delimited JSON-RPC 2.0" {
     try std.testing.expectEqual(Method.session_cancel, parsed_cancel.method);
     try std.testing.expectEqual(FrameKind.notification, parsed_cancel.kind);
     try std.testing.expectEqual(@as(?u64, null), parsed_cancel.id);
+
+    const set_mode = try writeSessionSetMode(&buf, 4, "sess-1", MODE_CODE);
+    const parsed_mode = parseLine(set_mode);
+    try std.testing.expectEqual(Method.session_set_mode, parsed_mode.method);
+    try std.testing.expectEqual(FrameKind.request, parsed_mode.kind);
+    try std.testing.expectEqualStrings("sess-1", parsed_mode.session_id);
+    try std.testing.expectEqualStrings(MODE_CODE, parsed_mode.mode_id);
+
+    const set_config = try writeSessionSetConfigOption(&buf, 5, "sess-1", CONFIG_ID_MODEL, "openai/gpt-5.4");
+    const parsed_config = parseLine(set_config);
+    try std.testing.expectEqual(Method.session_set_config_option, parsed_config.method);
+    try std.testing.expectEqualStrings(CONFIG_ID_MODEL, parsed_config.config_id);
+    try std.testing.expectEqualStrings("openai/gpt-5.4", parsed_config.config_value);
+}
+
+test "Waku access_mode maps to fx ACP ask|code, not fullAccess" {
+    try std.testing.expectEqualStrings(MODE_ASK, sessionMode("ask"));
+    try std.testing.expectEqualStrings(MODE_CODE, sessionMode("code"));
+    try std.testing.expectEqualStrings(MODE_CODE, sessionMode("auto"));
+    try std.testing.expectEqualStrings(MODE_CODE, sessionMode("autoAcceptEdits"));
+    try std.testing.expectEqualStrings(MODE_CODE, sessionMode("fullAccess"));
+    try std.testing.expectEqualStrings(MODE_CODE, sessionMode("yolo"));
+    try std.testing.expectEqualStrings("", sessionMode(""));
+    try std.testing.expectEqualStrings("", sessionMode("nope"));
 }
 
 test "one-shot stdin is initialize plus new or resume then prompt" {
@@ -441,6 +573,61 @@ test "one-shot stdin is initialize plus new or resume then prompt" {
     try std.testing.expect(std.mem.indexOf(u8, later, "\"sessionId\":\"fx-sess-1\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, later, "session/new") == null);
     try std.testing.expect(std.mem.indexOf(u8, later, "second turn") != null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "session/set_mode") == null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "session/set_config_option") == null);
+}
+
+test "one-shot stdin inserts set_mode and model config after new|resume before prompt" {
+    var buf: [2048]u8 = undefined;
+    const first = try writeTurnStdin(&buf, .{
+        .cwd = "/tmp/project",
+        .prompt = "first turn",
+        .model = "openai/gpt-5.4",
+        .access_mode = "fullAccess",
+    });
+    try expectMethodsInOrder(first, &.{
+        .initialize,
+        .session_new,
+        .session_set_mode,
+        .session_set_config_option,
+        .session_prompt,
+    });
+    try std.testing.expect(std.mem.indexOf(u8, first, "\"modeId\":\"code\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "\"configId\":\"model\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "\"value\":\"openai/gpt-5.4\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "fullAccess") == null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "yolo") == null);
+
+    const later = try writeTurnStdin(&buf, .{
+        .cwd = ".",
+        .resume_id = "fx-sess-1",
+        .prompt = "second turn",
+        .model = "openai/gpt-5.4",
+        .access_mode = "ask",
+    });
+    try expectMethodsInOrder(later, &.{
+        .initialize,
+        .session_resume,
+        .session_set_mode,
+        .session_set_config_option,
+        .session_prompt,
+    });
+    try std.testing.expect(std.mem.indexOf(u8, later, "\"modeId\":\"ask\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, later, "\"sessionId\":\"fx-sess-1\"") != null);
+
+    const no_model = try writeTurnStdin(&buf, .{
+        .cwd = ".",
+        .prompt = "no model",
+        .access_mode = "ask",
+    });
+    try expectMethodsInOrder(no_model, &.{
+        .initialize,
+        .session_new,
+        .session_set_mode,
+        .session_prompt,
+    });
+    try std.testing.expect(std.mem.indexOf(u8, no_model, "session/set_config_option") == null);
+    try std.testing.expect(std.mem.indexOf(u8, no_model, "\"configId\":\"model\"") == null);
 }
 
 test "ACP parser classifies result, error, update, and stopReason" {
@@ -475,4 +662,19 @@ test "ACP parser classifies result, error, update, and stopReason" {
     const cancelled = parseLine("{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"cancelled\"}}");
     try std.testing.expect(isPromptResult(cancelled));
     try std.testing.expect(!promptSucceeded(cancelled));
+}
+
+fn expectMethodsInOrder(stdin: []const u8, expected: []const Method) !void {
+    var i: usize = 0;
+    var line_start: usize = 0;
+    while (line_start < stdin.len) {
+        const nl = std.mem.indexOfScalarPos(u8, stdin, line_start, '\n') orelse stdin.len;
+        const parsed = parseLine(stdin[line_start..nl]);
+        line_start = if (nl < stdin.len) nl + 1 else stdin.len;
+        if (parsed.method == .unknown) continue;
+        try std.testing.expect(i < expected.len);
+        try std.testing.expectEqual(expected[i], parsed.method);
+        i += 1;
+    }
+    try std.testing.expectEqual(expected.len, i);
 }
