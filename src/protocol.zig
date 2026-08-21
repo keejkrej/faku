@@ -35,6 +35,19 @@
 //! `apps/web/src/lib/daemon-api.ts`: `{ type, projects, liveSessionIds,
 //! sessions }`. Local `sessions.json` stays canonical; this payload is
 //! a best-effort daemon mirror of one started-session skeleton.
+//!
+//! `hydrateSession` is not a bare command. Verified against egoist/waku
+//! `Command::HydrateSession { session_id }` (camelCase `sessionId` on the
+//! command), `apps/web/src/lib/daemon-api.ts` (`request({ type:
+//! 'hydrateSession', sessionId })` + `expectResponse(..., 'session')`),
+//! and `crates/waku-core/src/server.rs` (request-frame `sessionId` may be
+//! nil; the target lives on the command). A non-nil `requestId` is
+//! required. An ok outcome carries `{ type: "session", session }` where
+//! `session` is an AgentSession or null. Transcript text is
+//! `session.messages[]` (`role`, `content`); `session.turns[]` is
+//! metadata (no body). `queued_messages[].content` is the follow-up
+//! queue. AgentSession keys stay snake_case. Local turns win; a daemon
+//! hydrate runs only when that session's local transcript is empty.
 
 const std = @import("std");
 
@@ -227,6 +240,8 @@ pub const ParsedServer = struct {
 };
 
 pub const max_task_state_sessions: usize = 16;
+pub const max_hydrate_messages: usize = 128;
+pub const max_hydrate_queued: usize = 16;
 
 /// Session skeletons taken from a verified `taskState` response payload.
 /// Slices alias the JSON arena used to parse the line.
@@ -237,6 +252,27 @@ pub const ParsedTaskState = struct {
         .provider = "",
     }} ** max_task_state_sessions,
     session_count: usize = 0,
+};
+
+/// One `messages[]` row from a verified `session` hydrate payload.
+pub const HydratedMessage = struct {
+    role: []const u8 = "",
+    content: []const u8 = "",
+};
+
+/// One `queued_messages[]` row. Waku field is `content`, not `text`.
+pub const HydratedQueued = struct {
+    content: []const u8 = "",
+};
+
+/// Transcript taken from a verified `session` response payload.
+/// Slices alias the JSON arena used to parse the line.
+pub const ParsedHydrate = struct {
+    ok: bool = false,
+    messages: [max_hydrate_messages]HydratedMessage = [_]HydratedMessage{.{}} ** max_hydrate_messages,
+    message_count: usize = 0,
+    queued: [max_hydrate_queued]HydratedQueued = [_]HydratedQueued{.{}} ** max_hydrate_queued,
+    queued_count: usize = 0,
 };
 
 const WriteError = error{NoSpaceLeft};
@@ -481,6 +517,27 @@ pub fn writeBareCommand(
     return cur.slice();
 }
 
+/// Request wrapping verified `hydrateSession` `{ type, sessionId }`.
+/// Request-frame `sessionId` is nil (Waku server test); the target is
+/// `command.sessionId`. Non-nil `requestId` so the daemon replies.
+pub fn writeHydrateSession(
+    buf: []u8,
+    request_id: []const u8,
+    session_id: []const u8,
+) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    try cur.write("{\"type\":\"request\",\"requestId\":");
+    try writeJsonString(&cur, request_id);
+    try cur.write(",\"sessionId\":");
+    try writeJsonString(&cur, NIL_UUID);
+    try cur.write(",\"runtimeId\":");
+    try writeJsonString(&cur, NIL_UUID);
+    try cur.write(",\"command\":{\"type\":\"hydrateSession\",\"sessionId\":");
+    try writeJsonString(&cur, session_id);
+    try cur.write("}}");
+    return cur.slice();
+}
+
 fn jsonObject(value: std.json.Value) ?std.json.ObjectMap {
     return switch (value) {
         .object => |o| o,
@@ -599,6 +656,56 @@ pub fn parseTaskStateSkeletons(allocator: std.mem.Allocator, line: []const u8) P
             .has_started = jsonBoolValue(session.get("has_started")) orelse true,
         };
         parsed.session_count += 1;
+    }
+    return parsed;
+}
+
+/// Extract transcript messages from a `session` hydrate response. Empty
+/// on any other frame, a failed outcome, a payload that is not
+/// `session`, or `session: null`. Parses confirmed AgentSession keys
+/// `messages` (`role`, `content`) and `queued_messages` (`content`).
+pub fn parseHydratedSession(allocator: std.mem.Allocator, line: []const u8) ParsedHydrate {
+    var parsed = ParsedHydrate{};
+    const trimmed = std.mem.trim(u8, line, " \t\r\n");
+    if (trimmed.len < 2 or trimmed[0] != '{') return parsed;
+
+    const root = std.json.parseFromSliceLeaky(std.json.Value, allocator, trimmed, .{}) catch return parsed;
+    const obj = jsonObject(root) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(obj.get("type")) orelse "", "response")) return parsed;
+    const outcome = jsonObject(obj.get("outcome") orelse return parsed) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(outcome.get("status")) orelse "", "ok")) return parsed;
+    const payload = jsonObject(outcome.get("payload") orelse return parsed) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(payload.get("type")) orelse "", "session")) return parsed;
+    const session = jsonObject(payload.get("session") orelse return parsed) orelse return parsed;
+    parsed.ok = true;
+
+    if (session.get("messages")) |messages_val| {
+        const messages = switch (messages_val) {
+            .array => |arr| arr.items,
+            else => &.{},
+        };
+        for (messages) |item| {
+            if (parsed.message_count >= max_hydrate_messages) break;
+            const message = jsonObject(item) orelse continue;
+            const role = jsonStringValue(message.get("role")) orelse continue;
+            const content = jsonStringValue(message.get("content")) orelse continue;
+            parsed.messages[parsed.message_count] = .{ .role = role, .content = content };
+            parsed.message_count += 1;
+        }
+    }
+
+    if (session.get("queued_messages")) |queued_val| {
+        const queued = switch (queued_val) {
+            .array => |arr| arr.items,
+            else => &.{},
+        };
+        for (queued) |item| {
+            if (parsed.queued_count >= max_hydrate_queued) break;
+            const row = jsonObject(item) orelse continue;
+            const content = jsonStringValue(row.get("content")) orelse continue;
+            parsed.queued[parsed.queued_count] = .{ .content = content };
+            parsed.queued_count += 1;
+        }
     }
     return parsed;
 }
@@ -817,4 +924,39 @@ test "taskState response yields session skeletons and project path fallback" {
 
     const failed = parseTaskStateSkeletons(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}");
     try std.testing.expectEqual(@as(usize, 0), failed.session_count);
+}
+
+test "hydrateSession command carries sessionId on the command not as a bare type" {
+    var buf: [512]u8 = undefined;
+    const json = try writeHydrateSession(&buf, "00000000-0000-0000-0000-000000000011", "00000000-0000-0000-0000-000000000007");
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"hydrateSession\",\"sessionId\":\"00000000-0000-0000-0000-000000000007\"}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000011\"") != null);
+}
+
+test "session hydrate response yields messages and queued_messages content" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const line =
+        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000011","outcome":{"status":"ok","payload":{"type":"session","session":{"id":"00000000-0000-0000-0000-000000000007","title":"from daemon","messages":[{"id":"00000000-0000-0000-0000-000000000001","role":"user","content":"trace the listener"},{"id":"00000000-0000-0000-0000-000000000002","role":"assistant","content":"looking"}],"turns":[{"id":"00000000-0000-0000-0000-000000000003","turn_count":1,"status":"completed","started_at":0}],"queued_messages":[{"id":"00000000-0000-0000-0000-000000000004","content":"then the composer","created_at":0}]}}}}
+    ;
+    const parsed = parseHydratedSession(arena, line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqual(@as(usize, 2), parsed.message_count);
+    try std.testing.expectEqualStrings("user", parsed.messages[0].role);
+    try std.testing.expectEqualStrings("trace the listener", parsed.messages[0].content);
+    try std.testing.expectEqualStrings("assistant", parsed.messages[1].role);
+    try std.testing.expectEqualStrings("looking", parsed.messages[1].content);
+    try std.testing.expectEqual(@as(usize, 1), parsed.queued_count);
+    try std.testing.expectEqualStrings("then the composer", parsed.queued[0].content);
+
+    const missing = parseHydratedSession(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"session\",\"session\":null}}}");
+    try std.testing.expect(!missing.ok);
+    try std.testing.expectEqual(@as(usize, 0), missing.message_count);
+
+    const other = parseHydratedSession(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"taskState\",\"sessions\":[]}}}");
+    try std.testing.expect(!other.ok);
 }

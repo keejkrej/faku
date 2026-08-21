@@ -17,7 +17,9 @@
 //! does not roll back the local catalog. When the local catalog is missing
 //! and a daemon address is set, a one-shot sidecar may send `loadTaskState`
 //! and fill session skeletons. That daemon load does not run when the
-//! local file loaded or is corrupt.
+//! local file loaded or is corrupt. Selecting a session whose local
+//! turns are empty may send `hydrateSession` when a daemon address is
+//! set. Local turns win; a failed sidecar leaves the empty transcript.
 //!
 //! Composer drafts live in a sibling `drafts.json` (not the session
 //! catalog) so an unstarted New Task can persist before the session row
@@ -391,6 +393,76 @@ fn mirrorSaveTaskStateIfPossible(model: *Model, session_id: u32, fx: *main.Effec
 pub fn hydrateIfPossible(model: *Model, session_id: u32) void {
     const io = model.store_io orelse return;
     hydrateSession(model, session_id, std.heap.page_allocator, io);
+}
+
+/// Empty local transcript + a daemon address → one-shot hello +
+/// `hydrateSession`. Local turns win: a session that already has turns
+/// is left alone. Sidecar failure keeps the empty transcript and does
+/// not clear the catalog.
+pub fn maybeHydrateDaemonSession(model: *Model, fx: *main.Effects, session_id: u32) void {
+    const session = model.sessionById(session_id) orelse return;
+    if (session.daemon_hydrate_started) return;
+    if (model.turnCount(session_id) > 0) return;
+    const address = resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return;
+
+    var id_buf: [36]u8 = undefined;
+    const wire_id = daemon_proxy.wireUuid(session.id, &id_buf);
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeHydrateStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .session_id = wire_id,
+    }) catch return;
+
+    session.daemon_hydrate_started = true;
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.daemon_hydrate_key = key;
+    model.daemon_hydrate_session = session_id;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = main.Effects.lineMsg(.fx_line),
+        .on_exit = main.Effects.exitMsg(.fx_exit),
+    });
+}
+
+/// Apply a sidecar stdout line only while a daemon hydrate is in flight
+/// for a session that still has no local turns. Unparsed / failed /
+/// null-session lines leave the empty transcript in place.
+pub fn applyDaemonHydrateLine(model: *Model, line: []const u8) void {
+    const session_id = model.daemon_hydrate_session;
+    if (session_id == 0) return;
+    if (model.sessionById(session_id) == null) return;
+    if (model.turnCount(session_id) > 0) return;
+
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseHydratedSession(arena_state.allocator(), line);
+    if (!parsed.ok) return;
+    applyDaemonHydrate(model, session_id, parsed);
+}
+
+fn applyDaemonHydrate(model: *Model, session_id: u32, parsed: protocol.ParsedHydrate) void {
+    if (model.sessionById(session_id) == null) return;
+    model.dropTurnsForSession(session_id);
+    model.dropQueuedForSession(session_id);
+    for (parsed.messages[0..parsed.message_count]) |message| {
+        const role = roleFromHydrate(message.role) orelse continue;
+        _ = model.appendTurn(session_id, role, message.content);
+    }
+    for (parsed.queued[0..parsed.queued_count]) |queued| {
+        _ = model.enqueue(session_id, queued.content);
+    }
+    if (model.sessionById(session_id)) |session| session.detail_loaded = true;
+}
+
+fn roleFromHydrate(name: []const u8) ?Role {
+    if (std.mem.eql(u8, name, "user")) return .user;
+    if (std.mem.eql(u8, name, "assistant")) return .assistant;
+    return null;
 }
 
 fn upsertDraft(model: *const Model, io: std.Io, key: []const u8, text: []const u8, image_path: []const u8) !void {

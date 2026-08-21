@@ -171,7 +171,8 @@ access_mode) — no demo rows and no transcripts. The document also stores
 and last model/access, and a later send can reuse the last sidecar
 address. There is no daemon picker.
 Selecting a session hydrates its turns and `queued_messages` from the same
-file. Composer drafts are a sibling `drafts.json` (not mixed into the
+file. Daemon `hydrateSession` runs only when that local transcript is empty.
+Composer drafts are a sibling `drafts.json` (not mixed into the
 session catalog) so a New Task can persist before the session row exists.
 Keys match Waku: `newSession` or `newSession{project_path}` for untitled
 drafts, `session{id}` after the session has started. Each record is
