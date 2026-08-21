@@ -114,6 +114,11 @@ const stream_chunk_bytes: usize = 8;
 /// lands on the newest turn after layout. Verified: native-sdk.dev
 /// scroll docs + engine clamp.
 pub const transcript_pin_offset: f32 = 1_000_000;
+/// Caller-chosen identity for `fx.writeClipboard` on a transcript
+/// turn. Shares the effects key space with spawn / fetch / file;
+/// sits in the gap between daemon keys and `fx_spawn_overlap`.
+/// Verified: Native Effects `WriteClipboardOptions` + notes example.
+pub const copy_turn_key: u64 = 32;
 const demo_ticks_complete: u32 = 12;
 const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
 
@@ -475,12 +480,14 @@ pub const Msg = union(enum) {
     sidebar_resized: f32,
     transcript_scrolled: canvas.ScrollState,
     jump_latest,
+    copy_turn: u32,
+    clipboard_done: native_sdk.EffectClipboardResult,
     tick: native_sdk.EffectTimer,
     fx_line: native_sdk.EffectLine,
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "clipboard_done" };
 };
 
 pub const Model = struct {
@@ -1972,6 +1979,20 @@ pub const fx_ask_chdir_script = "cd -- \"$1\" && shift && exec \"$@\"";
 
 pub const Effects = native_sdk.Effects(Msg);
 
+/// Copy a turn's visible text (markdown source / tool / thought body)
+/// through Native `fx.writeClipboard`. Empty text is a no-op — no
+/// fake clipboard, no `pbcopy` spawn.
+fn copyTurn(model: *Model, fx: *Effects, id: u32) void {
+    const turn = model.turnById(id) orelse return;
+    const text = turn.text();
+    if (text.len == 0) return;
+    fx.writeClipboard(.{
+        .key = copy_turn_key,
+        .text = text,
+        .on_result = Effects.clipboardMsg(.clipboard_done),
+    });
+}
+
 fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     if (model.sessionById(id) == null) return;
     store.persistDraftIfPossible(model);
@@ -2227,6 +2248,8 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .transcript_scrolled => |scroll| model.applyTranscriptScroll(scroll),
         .jump_latest => model.pinTranscriptToLatest(),
+        .copy_turn => |id| copyTurn(model, fx, id),
+        .clipboard_done => {},
         .tick => |timer| {
             if (timer.outcome != .fired) return;
             tickStream(model, fx);

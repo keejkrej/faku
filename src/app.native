@@ -134,7 +134,10 @@
             <for each="visible_turns" key="id" as="t">
               <if test="{t.is_user}">
                 <column gap="2" cross="end">
-                  <text foreground="text_muted">{t.role_label}</text>
+                  <row gap="4" cross="center">
+                    <text foreground="text_muted">{t.role_label}</text>
+                    <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
+                  </row>
                   <bubble variant="primary">
                     <markdown source="{t.text}" />
                   </bubble>
@@ -143,20 +146,29 @@
               <else>
                 <if test="{t.is_tool}">
                   <column gap="2">
-                    <text foreground="text_muted">{t.role_label}</text>
+                    <row gap="4" cross="center">
+                      <text foreground="text_muted">{t.role_label}</text>
+                      <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
+                    </row>
                     <text wrap="true" foreground="text_muted">{t.text}</text>
                   </column>
                 </if>
                 <else>
                   <if test="{t.is_reasoning}">
                     <column gap="2">
-                      <text foreground="text_muted">{t.role_label}</text>
+                      <row gap="4" cross="center">
+                        <text foreground="text_muted">{t.role_label}</text>
+                        <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
+                      </row>
                       <text wrap="true" foreground="text_muted">{t.text}</text>
                     </column>
                   </if>
                   <else>
                     <column gap="2">
-                      <text foreground="text_muted">{t.role_label}</text>
+                      <row gap="4" cross="center">
+                        <text foreground="text_muted">{t.role_label}</text>
+                        <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
+                      </row>
                       <markdown source="{t.text}" />
                     </column>
                   </else>

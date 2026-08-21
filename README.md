@@ -26,7 +26,9 @@ assistant turns render Native markdown; the transcript stays pinned
 to the latest turn via Native `scroll` `value` / `on-scroll`
 (`canvas.ScrollState` extents; overshoot `value` clamps to the end)
 while the user is at the bottom, and Jump to latest sets that same
-`value` after they scroll away; Rewind
+`value` after they scroll away; Copy on a turn writes that turn's
+visible text through Native `fx.writeClipboard` (empty text is a
+no-op); Rewind
 resets workspace files to the last recorded HEAD and does not
 rewind the chat; headless paths are unchanged.
 
