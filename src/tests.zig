@@ -2047,6 +2047,95 @@ test "sidebar search filters the local catalog by title substring" {
     _ = try expectButton(tree.root, "fix auth listener");
 }
 
+test "sidebar collapse hides the session list and expand restores it" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expect(!model.sidebar_collapsed);
+    try testing.expect(model.sidebar_expanded());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Today");
+    _ = try expectButton(tree.root, "Search");
+    _ = try expectButton(tree.root, "New Task");
+    _ = try expectButton(tree.root, "port waku to zig");
+    _ = try expectButton(tree.root, "fix auth listener");
+    const collapse = try expectButton(tree.root, "Collapse sidebar");
+    main.update(&model, tree.msgForPointer(collapse.id, .up).?, &fx);
+
+    try testing.expect(model.sidebar_collapsed);
+    try testing.expect(!model.sidebar_expanded());
+    try testing.expectEqual(main.sidebar_rail_width / main.window_width, model.sidebar_split);
+    try testing.expectEqual(main.sidebar_rail_width, model.sidebar_pane_min());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Today") == null);
+    try testing.expect(findPressableContaining(tree.root, "Search") == null);
+    try testing.expect(findPressableContaining(tree.root, "New Task") == null);
+    try testing.expect(findPressableContaining(tree.root, "port waku to zig") == null);
+    try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
+    _ = try expectByText(tree.root, .text, "port waku to zig");
+    const expand = try expectButton(tree.root, "Expand sidebar");
+    main.update(&model, tree.msgForPointer(expand.id, .up).?, &fx);
+
+    try testing.expect(!model.sidebar_collapsed);
+    try testing.expectEqual(main.sidebar_default_width / main.window_width, model.sidebar_split);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Today");
+    _ = try expectButton(tree.root, "Search");
+    _ = try expectButton(tree.root, "New Task");
+    _ = try expectButton(tree.root, "port waku to zig");
+    _ = try expectButton(tree.root, "fix auth listener");
+    _ = try expectButton(tree.root, "Collapse sidebar");
+}
+
+test "sidebar collapsed flag reloads and hides the session list" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-sidebar-collapse", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var source = main.initialModel();
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = testing.io;
+    try store.saveSession(&source, source.selected, testing.allocator, testing.io);
+    source.sidebar_last_width = 320;
+    source.sidebar_split = 320 / main.window_width;
+    main.update(&source, .toggle_sidebar, &fx);
+    try testing.expect(source.sidebar_collapsed);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expect(loaded.sidebar_collapsed);
+    try testing.expectEqual(@as(u32, 320), loaded.sidebarWidthPixels());
+    try testing.expectEqual(main.sidebar_rail_width / main.window_width, loaded.sidebar_split);
+
+    var tree = try buildTree(arena, &loaded);
+    try testing.expect(findByText(tree.root, .text, "Today") == null);
+    try testing.expect(findPressableContaining(tree.root, "Search") == null);
+    try testing.expect(findPressableContaining(tree.root, "port waku to zig") == null);
+    _ = try expectButton(tree.root, "Expand sidebar");
+    _ = try expectByText(tree.root, .text, "port waku to zig");
+}
+
 test "sidebar search also matches provider and Esc exits" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
