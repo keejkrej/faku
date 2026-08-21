@@ -29,6 +29,9 @@ const canvas = native_sdk.canvas;
 const geometry = native_sdk.geometry;
 
 const canvas_label = "main-canvas";
+/// Declared shell-window label. Chromeless close rides `fx.closeWindow`
+/// against this spelling — same address as `app.zon` / the scene.
+pub const main_window_label = "main";
 pub const window_width: f32 = 1380;
 pub const window_height: f32 = 880;
 pub const window_min_width: f32 = 560;
@@ -72,7 +75,7 @@ const shell_views = [_]native_sdk.ShellView{
     .{ .label = canvas_label, .kind = .gpu_surface, .fill = true, .role = "Faku canvas", .accessibility_label = "Faku", .gpu_backend = .metal, .gpu_pixel_format = .bgra8_unorm, .gpu_present_mode = .timer, .gpu_alpha_mode = .@"opaque", .gpu_color_space = .srgb, .gpu_vsync = true },
 };
 const shell_windows = [_]native_sdk.ShellWindow{.{
-    .label = "main",
+    .label = main_window_label,
     .title = "Faku",
     .width = window_width,
     .height = window_height,
@@ -81,7 +84,7 @@ const shell_windows = [_]native_sdk.ShellWindow{.{
     .titlebar = .chromeless,
     .views = &shell_views,
 }};
-const shell_scene: native_sdk.ShellConfig = .{ .windows = &shell_windows };
+pub const shell_scene: native_sdk.ShellConfig = .{ .windows = &shell_windows };
 
 pub const stream_timer_key: u64 = 1;
 pub const fx_ask_key: u64 = 2;
@@ -347,6 +350,7 @@ pub const Msg = union(enum) {
     assign_selected: u32,
     unassign_selected,
     assign_folder: AssignFolder,
+    close_window,
     sidebar_resized: f32,
     transcript_scrolled: canvas.ScrollState,
     tick: native_sdk.EffectTimer,
@@ -1659,6 +1663,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .assign_folder => |assign| {
             persistAssignedFolder(model, assign.session_id, assign.folder_id, fx);
         },
+        // Chromeless titlebar has no OS close. This is the documented
+        // window-action effect (`examples/deck`): last-window close
+        // follows the host exit path. Esc stays `.stop` so settings /
+        // search / project-edit / a live turn keep it.
+        .close_window => fx.closeWindow(main_window_label),
         .remove_session => |id| {
             store.removeIfPossible(model, id, fx);
             store.loadDraftIfPossible(model);
