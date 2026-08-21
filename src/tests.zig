@@ -3982,6 +3982,136 @@ test "sidebar Remove session with a daemon address records closeSession" {
     try testing.expectEqual(kept, model.selected);
 }
 
+test "click the selected session title edits it; empty name becomes untitled" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-session-rename", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const port_id = model.session_store[0].id;
+    const auth_id = model.session_store[1].id;
+    try store.saveSession(&model, port_id, testing.allocator, testing.io);
+    try store.saveSession(&model, auth_id, testing.allocator, testing.io);
+
+    var tree = try buildTree(arena, &model);
+    const toolbar = try expectByText(tree.root, .row, "Toolbar");
+    const header = try expectByText(toolbar, .text, "port waku to zig");
+    try testing.expectEqual(Msg.edit_session_title, tree.msgForPointer(header.id, .up).?);
+    try testing.expectEqual(@as(u32, 0), model.editing_session_id);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "untitled") == null);
+
+    main.update(&model, tree.msgForPointer(header.id, .up).?, &fx);
+    try testing.expectEqual(port_id, model.editing_session_id);
+    try testing.expectEqual(port_id, model.selected);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "untitled") != null);
+    _ = try expectButton(tree.root, "Close");
+
+    main.update(&model, .{ .session_title_edit = .clear }, &fx);
+    main.update(&model, .{ .session_title_edit = .{ .insert_text = "Review auth" } }, &fx);
+    try testing.expectEqualStrings("Review auth", model.session_store[0].title());
+    try testing.expectEqualStrings("Review auth", model.header_title());
+    try testing.expectEqualStrings("Review auth", model.selected_title());
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "Review auth",
+        "fix auth listener",
+    });
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .list_item, "Review auth");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "untitled") != null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings("Review auth", loaded.session_store[0].title());
+    try testing.expect(!loaded.session_store[0].untitled);
+    try expectSidebarTitles(loaded.sidebar_rows(arena), &.{
+        "Review auth",
+        "fix auth listener",
+    });
+
+    main.update(&model, .{ .session_title_edit = .clear }, &fx);
+    try testing.expectEqualStrings("untitled", model.session_store[0].title());
+    try testing.expectEqualStrings("untitled", model.header_title());
+    try testing.expectEqual(@as(usize, 0), model.session_title_draft().len);
+
+    var empty = Model{};
+    empty.setStoreDir(dir);
+    empty.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&empty, testing.allocator, testing.io));
+    try testing.expectEqualStrings("untitled", empty.session_store[0].title());
+    try testing.expect(!empty.session_store[0].untitled);
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(@as(u32, 0), model.editing_session_id);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "untitled") == null);
+    const empty_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    _ = try expectByText(empty_toolbar, .text, "untitled");
+    _ = try expectButton(tree.root, "New task");
+    _ = try expectButton(tree.root, "Close");
+
+    tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectButton(tree.root, "fix auth listener")).id, .up).?, &fx);
+    try testing.expectEqual(auth_id, model.selected);
+    try testing.expectEqual(@as(u32, 0), model.editing_session_id);
+
+    tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectButton(tree.root, "fix auth listener")).id, .up).?, &fx);
+    try testing.expectEqual(auth_id, model.editing_session_id);
+    try testing.expectEqual(auth_id, model.selected);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "untitled") != null);
+
+    main.update(&model, .new_session, &fx);
+    try testing.expectEqual(@as(u32, 0), model.editing_session_id);
+    try testing.expect(model.sessionById(model.selected).?.untitled);
+    try testing.expectEqualStrings("untitled", model.selected_title());
+    try testing.expectEqualStrings("New task", model.header_title());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first send titles me" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expect(!model.sessionById(model.selected).?.untitled);
+    try testing.expectEqualStrings("first send titles me", model.selected_title());
+    try testing.expectEqualStrings("first send titles me", model.header_title());
+
+    tree = try buildTree(arena, &model);
+    const close = try expectButton(tree.root, "Close");
+    try testing.expectEqual(Msg.close_window, tree.msgForPointer(close.id, .up).?);
+
+    tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectButton(tree.root, "New folder")).id, .up).?, &fx);
+    const folder_id = model.folder_store[0].id;
+    tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectByText(tree.root, .list_item, "New folder")).id, .up).?, &fx);
+    try testing.expectEqual(folder_id, model.sessionById(model.selected).?.folder_id);
+    try testing.expectEqual(@as(u32, 0), model.editing_folder_id);
+    tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectByText(tree.root, .list_item, "New folder")).id, .up).?, &fx);
+    try testing.expectEqual(folder_id, model.editing_folder_id);
+    try testing.expectEqual(@as(u32, 0), model.editing_session_id);
+}
+
 test "header Close requests the real window close; Esc stays with settings" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

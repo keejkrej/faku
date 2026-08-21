@@ -18,7 +18,7 @@ Search filters the local `sessions.json` catalog; the sidebar collapse
 control works and is restored; the sidebar chevrons walk session
 selection history; New folder creates a local catalog folder; clicking
 a folder (or the move control) assigns the selected session; folder
-titles are editable; deleting a folder unassigns its sessions;
+titles are editable; the selected session title is editable; deleting a folder unassigns its sessions;
 sidebar trash removes a session (and closeSession if a daemon is set);
 the composer project row sets the selected session cwd; the usage
 control stays empty unless ACP reports `usage_update`; Rewind
