@@ -3881,7 +3881,7 @@ test "cmd-c and ctrl-c copy the last non-empty turn via writeClipboard" {
     _ = model.appendTurn(id, .user, "first visible");
     _ = model.appendTurn(id, .assistant, "last non-empty body");
     _ = model.appendTurn(id, .tool, "");
-    var tree = try buildTree(arena, &model);
+    const tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "Copy");
     try testing.expect(findByText(tree.root, .button, "Rewind") == null);
 
