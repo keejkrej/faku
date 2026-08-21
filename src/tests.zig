@@ -3570,6 +3570,56 @@ test "clicking a folder header assigns the selected session; Today unassigns" {
     _ = try expectButton(tree.root, "Search");
 }
 
+test "header Close requests the real window close; Esc stays with settings" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqual(native_sdk.WindowTitlebarStyle.chromeless, main.shell_scene.windows[0].titlebar);
+    try testing.expectEqualStrings(main.main_window_label, main.shell_scene.windows[0].label);
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "New folder");
+    _ = try expectByText(tree.root, .text, "Today");
+    const close = try expectButton(tree.root, "Close");
+    try testing.expectEqual(Msg.close_window, tree.msgForPointer(close.id, .up).?);
+
+    var actions = fx.windowActionState();
+    try testing.expectEqual(@as(u32, 0), actions.close_count);
+    try testing.expectEqual(@as(u32, 0), actions.quit_count);
+
+    main.update(&model, tree.msgForPointer(close.id, .up).?, &fx);
+    actions = fx.windowActionState();
+    try testing.expectEqual(@as(u32, 1), actions.close_count);
+    try testing.expectEqual(@as(u32, 0), actions.quit_count);
+    try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
+    try testing.expectEqual(native_sdk.WindowTitlebarStyle.chromeless, main.shell_scene.windows[0].titlebar);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "New folder");
+    const gear = try expectButton(tree.root, "Settings");
+    main.update(&model, tree.msgForPointer(gear.id, .up).?, &fx);
+    try testing.expect(model.settings_open);
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expect(!model.settings_open);
+    actions = fx.windowActionState();
+    try testing.expectEqual(@as(u32, 1), actions.close_count);
+    try testing.expectEqual(@as(u32, 0), actions.quit_count);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "Send");
+    _ = try expectButton(tree.root, "Close");
+    _ = try expectButton(tree.root, "New folder");
+}
+
 test "composer project row sets selected session project_path and reloads" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
