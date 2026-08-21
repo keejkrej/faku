@@ -2198,3 +2198,145 @@ test "send while busy shows a queued card that dismiss clears" {
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "Queued") == null);
 }
+
+fn findByPlaceholder(widget: canvas.Widget, kind: canvas.WidgetKind, placeholder: []const u8) ?canvas.Widget {
+    if (widget.kind == kind and std.mem.eql(u8, widget.placeholder, placeholder)) return widget;
+    for (widget.children) |child| {
+        if (findByPlaceholder(child, kind, placeholder)) |found| return found;
+    }
+    return null;
+}
+
+test "settings gear opens the panel; Esc and gear return to the session" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expect(!model.settings_open);
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Today");
+    _ = try expectButton(tree.root, "Search");
+    _ = try expectByText(tree.root, .button, "Send");
+    try testing.expect(findByText(tree.root, .text, "Default model") == null);
+    const gear = try expectButton(tree.root, "Settings");
+    main.update(&model, tree.msgForPointer(gear.id, .up).?, &fx);
+    try testing.expect(model.settings_open);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Today");
+    _ = try expectButton(tree.root, "Search");
+    _ = try expectByText(tree.root, .text, "Settings");
+    _ = try expectByText(tree.root, .text, "Default model");
+    _ = try expectByText(tree.root, .text, "Access mode");
+    _ = try expectByText(tree.root, .text, "Last project path");
+    _ = try expectByText(tree.root, .text, "Daemon address");
+    _ = try expectButton(tree.root, "Ask");
+    _ = try expectButton(tree.root, "Auto");
+    _ = try expectButton(tree.root, "Full access");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "FX_MODEL") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Workspace path") != null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "host:port") != null);
+    try testing.expect(findByKind(tree.root, .textarea) == null);
+    try testing.expect(findByText(tree.root, .button, "Send") == null);
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expect(!model.settings_open);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "Send");
+    _ = try expectByText(tree.root, .text, "Today");
+    try testing.expect(findByText(tree.root, .text, "Default model") == null);
+
+    const gear_again = try expectButton(tree.root, "Settings");
+    main.update(&model, tree.msgForPointer(gear_again.id, .up).?, &fx);
+    try testing.expect(model.settings_open);
+    tree = try buildTree(arena, &model);
+    const gear_close = try expectButton(tree.root, "Settings");
+    main.update(&model, tree.msgForPointer(gear_close.id, .up).?, &fx);
+    try testing.expect(!model.settings_open);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "Send");
+    _ = try expectByText(tree.root, .text, "Today");
+    try testing.expect(findByText(tree.root, .text, "Default model") == null);
+}
+
+test "settings edits persist model access and daemon address and reload" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-settings", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+
+    var tree = try buildTree(arena, &model);
+    const gear = try expectButton(tree.root, "Settings");
+    main.update(&model, tree.msgForPointer(gear.id, .up).?, &fx);
+    try testing.expect(model.settings_open);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Default model");
+    main.update(&model, .{ .settings_model_edit = .{ .insert_text = "openai/gpt-5.4" } }, &fx);
+    try testing.expectEqualStrings("openai/gpt-5.4", model.lastModel());
+    try testing.expectEqualStrings("openai/gpt-5.4", model.settings_model());
+
+    const auto = try expectButton(tree.root, "Auto");
+    main.update(&model, tree.msgForPointer(auto.id, .up).?, &fx);
+    try testing.expectEqualStrings("auto", model.lastAccessMode());
+    try testing.expect(model.access_auto());
+    try testing.expect(!model.access_ask());
+    try testing.expect(!model.access_full());
+
+    main.update(&model, .{ .settings_project_edit = .{ .insert_text = "/tmp/faku-settings" } }, &fx);
+    try testing.expectEqualStrings("/tmp/faku-settings", model.lastProjectPath());
+
+    main.update(&model, .{ .settings_daemon_edit = .{ .insert_text = "127.0.0.1:8787" } }, &fx);
+    try testing.expectEqualStrings("127.0.0.1:8787", model.lastDaemonAddress());
+    try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings("openai/gpt-5.4", loaded.lastModel());
+    try testing.expectEqualStrings("auto", loaded.lastAccessMode());
+    try testing.expectEqualStrings("/tmp/faku-settings", loaded.lastProjectPath());
+    try testing.expectEqualStrings("127.0.0.1:8787", loaded.lastDaemonAddress());
+    try testing.expectEqual(@as(usize, 0), loaded.daemonAddress().len);
+
+    const inherited = loaded.addSession("untitled next", .fx);
+    try testing.expectEqualStrings("openai/gpt-5.4", loaded.sessionById(inherited).?.model());
+    try testing.expectEqualStrings("auto", loaded.sessionById(inherited).?.accessMode());
+    try testing.expectEqualStrings("/tmp/faku-settings", loaded.sessionById(inherited).?.projectPath());
+
+    loaded.openSettings();
+    main.update(&loaded, .{ .settings_daemon_edit = .clear }, &fx);
+    try testing.expectEqual(@as(usize, 0), loaded.lastDaemonAddress().len);
+
+    var cleared = Model{};
+    cleared.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&cleared, testing.allocator, testing.io));
+    try testing.expectEqual(@as(usize, 0), cleared.lastDaemonAddress().len);
+    try testing.expectEqualStrings("openai/gpt-5.4", cleared.lastModel());
+    try testing.expectEqualStrings("auto", cleared.lastAccessMode());
+}

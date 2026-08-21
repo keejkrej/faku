@@ -254,6 +254,13 @@ pub const Msg = union(enum) {
     stop,
     clear_queue,
     toggle_sidebar,
+    toggle_settings,
+    settings_model_edit: canvas.TextInputEvent,
+    settings_project_edit: canvas.TextInputEvent,
+    settings_daemon_edit: canvas.TextInputEvent,
+    settings_access_ask,
+    settings_access_auto,
+    settings_access_full,
     sidebar_resized: f32,
     transcript_scrolled: canvas.ScrollState,
     tick: native_sdk.EffectTimer,
@@ -286,6 +293,10 @@ pub const Model = struct {
     sidebar_split: f32 = default_sidebar_split,
     sidebar_collapsed: bool = false,
     sidebar_last_width: f32 = sidebar_default_width,
+    settings_open: bool = false,
+    settings_model_buffer: canvas.TextBuffer(max_fx_model) = .{},
+    settings_project_buffer: canvas.TextBuffer(max_project_path) = .{},
+    settings_daemon_buffer: canvas.TextBuffer(max_daemon_address) = .{},
     transcript_scroll: f32 = 0,
     fx_available: bool = false,
     fx_path_storage: [max_fx_path]u8 = [_]u8{0} ** max_fx_path,
@@ -364,6 +375,16 @@ pub const Model = struct {
         "applySidebarWidth",
         "syncSidebarSplit",
         "toggleSidebar",
+        "settings_model_buffer",
+        "settings_project_buffer",
+        "settings_daemon_buffer",
+        "openSettings",
+        "closeSettings",
+        "toggleSettings",
+        "applySettingsModel",
+        "applySettingsProject",
+        "applySettingsDaemon",
+        "setSettingsAccess",
         "is_streaming",
         "fx_available",
         "fx_path_storage",
@@ -614,6 +635,72 @@ pub const Model = struct {
             model.sidebar_collapsed = true;
         }
         model.syncSidebarSplit();
+    }
+
+    pub fn settings_model(model: *const Model) []const u8 {
+        return model.settings_model_buffer.text();
+    }
+
+    pub fn settings_project(model: *const Model) []const u8 {
+        return model.settings_project_buffer.text();
+    }
+
+    pub fn settings_daemon(model: *const Model) []const u8 {
+        return model.settings_daemon_buffer.text();
+    }
+
+    pub fn access_ask(model: *const Model) bool {
+        return std.mem.eql(u8, model.lastAccessMode(), "ask");
+    }
+
+    pub fn access_auto(model: *const Model) bool {
+        const mode = model.lastAccessMode();
+        return std.mem.eql(u8, mode, "auto") or std.mem.eql(u8, mode, "autoAcceptEdits");
+    }
+
+    pub fn access_full(model: *const Model) bool {
+        const mode = model.lastAccessMode();
+        return mode.len == 0 or std.mem.eql(u8, mode, "fullAccess") or std.mem.eql(u8, mode, "yolo");
+    }
+
+    pub fn openSettings(model: *Model) void {
+        model.settings_open = true;
+        model.settings_model_buffer.set(model.lastModel());
+        model.settings_project_buffer.set(model.lastProjectPath());
+        model.settings_daemon_buffer.set(model.lastDaemonAddress());
+    }
+
+    pub fn closeSettings(model: *Model) void {
+        model.settings_open = false;
+    }
+
+    pub fn toggleSettings(model: *Model) void {
+        if (model.settings_open) {
+            model.closeSettings();
+        } else {
+            model.openSettings();
+        }
+    }
+
+    pub fn applySettingsModel(model: *Model, edit: canvas.TextInputEvent) void {
+        model.settings_model_buffer.apply(edit);
+        model.setLastModel(std.mem.trim(u8, model.settings_model(), " \t\r\n"));
+    }
+
+    pub fn applySettingsProject(model: *Model, edit: canvas.TextInputEvent) void {
+        model.settings_project_buffer.apply(edit);
+        model.setLastProjectPath(std.mem.trim(u8, model.settings_project(), " \t\r\n"));
+    }
+
+    pub fn applySettingsDaemon(model: *Model, edit: canvas.TextInputEvent) void {
+        model.settings_daemon_buffer.apply(edit);
+        model.setLastDaemonAddress(std.mem.trim(u8, model.settings_daemon(), " \t\r\n"));
+    }
+
+    pub fn setSettingsAccess(model: *Model, mode: []const u8) void {
+        if (std.mem.eql(u8, mode, "ask") or std.mem.eql(u8, mode, "auto") or std.mem.eql(u8, mode, "fullAccess")) {
+            model.setLastAccessMode(mode);
+        }
     }
 
     pub fn fxPath(model: *const Model) []const u8 {
@@ -1107,11 +1194,40 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .send => handleSend(model, fx),
         .stop => {
+            if (model.settings_open) {
+                model.closeSettings();
+                return;
+            }
             if (model.search_active or model.search_query().len > 0) {
                 model.exitSearch();
                 return;
             }
             stopStream(model, fx);
+        },
+        .toggle_settings => model.toggleSettings(),
+        .settings_model_edit => |edit| {
+            model.applySettingsModel(edit);
+            store.persistSettingsIfPossible(model);
+        },
+        .settings_project_edit => |edit| {
+            model.applySettingsProject(edit);
+            store.persistSettingsIfPossible(model);
+        },
+        .settings_daemon_edit => |edit| {
+            model.applySettingsDaemon(edit);
+            store.persistSettingsIfPossible(model);
+        },
+        .settings_access_ask => {
+            model.setSettingsAccess("ask");
+            store.persistSettingsIfPossible(model);
+        },
+        .settings_access_auto => {
+            model.setSettingsAccess("auto");
+            store.persistSettingsIfPossible(model);
+        },
+        .settings_access_full => {
+            model.setSettingsAccess("fullAccess");
+            store.persistSettingsIfPossible(model);
         },
         .clear_queue => {
             model.dropQueuedForSession(model.selected);
