@@ -1255,6 +1255,7 @@ fn roleFromWire(name: []const u8) ?Role {
     if (std.mem.eql(u8, name, "user")) return .user;
     if (std.mem.eql(u8, name, "assistant")) return .assistant;
     if (std.mem.eql(u8, name, "tool")) return .tool;
+    if (std.mem.eql(u8, name, "reasoning")) return .reasoning;
     return null;
 }
 
@@ -1263,6 +1264,7 @@ fn roleWire(role: Role) []const u8 {
         .user => "user",
         .assistant => "assistant",
         .tool => "tool",
+        .reasoning => "reasoning",
     };
 }
 
