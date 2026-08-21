@@ -7,11 +7,11 @@
 //! `WAKU_DAEMON_ADDRESS` keeps `fx ask` / the demo timer.
 //!
 //! First-party provider (this port's differentiator; Waku does not ship
-//! it): Vercel `fx` (https://fx.sh). Live first path is headless
-//! `fx ask --json -- <prompt>` (see main.zig). ACP JSON-RPC builders live in
-//! acp.zig; live `fx acp` is not spawned — Native stdin is one buffer
-//! at spawn time, and ACP needs ongoing writes. Probe `~/.local/bin/fx`
-//! then PATH. Missing binary keeps the demo timer.
+//! it): Vercel `fx` (https://fx.sh). Live first path is one-shot
+//! `fx acp` (see main.zig / acp.zig). Native stdin is one buffer at spawn
+//! time; this is not a long-lived ACP loop. `fx ask --image` stays the
+//! image path. Probe `~/.local/bin/fx` then PATH. Missing binary keeps
+//! the demo timer.
 //!
 //! Catalog is `loadTaskState`. There is no `listSessions` / `createSession`
 //! RPC. A new session is a client-built AgentSession persisted with
