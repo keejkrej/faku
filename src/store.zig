@@ -11,7 +11,10 @@
 //! a session hydrates its turns,
 //! `queued_messages`, and `rewind_refs`. Save is merge-only (never deletes).
 //! `removeSession` is the only delete. Refuses to write until a successful
-//! load (`task_state_loaded`), same guard as waku-client.
+//! load (`task_state_loaded`), same guard as waku-client. After a successful
+//! started-session save, a one-shot sidecar may send `saveTaskState` when
+//! `WAKU_DAEMON_ADDRESS` or `last_daemon_address` is set. Sidecar failure
+//! does not roll back the local catalog.
 //!
 //! Composer drafts live in a sibling `drafts.json` (not the session
 //! catalog) so an unstarted New Task can persist before the session row
@@ -24,6 +27,7 @@ const std = @import("std");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const protocol = @import("protocol.zig");
+const daemon_proxy = @import("daemon_proxy.zig");
 const rewind = @import("rewind.zig");
 
 const Model = main.Model;
@@ -241,7 +245,7 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     model.dropSession(session_id);
 }
 
-pub fn persistIfPossible(model: *Model, session_id: u32) void {
+pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void {
     if (model.sessionById(session_id)) |session| {
         if (session.projectPath().len > 0) model.setLastProjectPath(session.projectPath());
         if (session.model().len > 0) model.setLastModel(session.model());
@@ -249,7 +253,50 @@ pub fn persistIfPossible(model: *Model, session_id: u32) void {
     }
     if (model.daemonAddress().len > 0) model.setLastDaemonAddress(model.daemonAddress());
     const io = model.store_io orelse return;
-    saveSession(model, session_id, std.heap.page_allocator, io) catch {};
+    saveSession(model, session_id, std.heap.page_allocator, io) catch return;
+    mirrorSaveTaskStateIfPossible(model, session_id, fx);
+}
+
+/// Live `WAKU_DAEMON_ADDRESS` wins; otherwise the last persisted sidecar address.
+pub fn resolveDaemonMirrorAddress(model: *const Model) []const u8 {
+    if (model.daemonAddress().len > 0) return model.daemonAddress();
+    return model.lastDaemonAddress();
+}
+
+/// Best-effort one-shot hello + saveTaskState. Missing address is a no-op.
+/// Sidecar failure must not roll back the local catalog already written.
+fn mirrorSaveTaskStateIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void {
+    const session = model.sessionById(session_id) orelse return;
+    if (!session.hasStarted()) return;
+    const address = resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return;
+
+    var id_buf: [36]u8 = undefined;
+    const wire_id = daemon_proxy.wireUuid(session.id, &id_buf);
+    const runtime_mode = if (session.accessMode().len > 0) session.accessMode() else main.default_access_mode;
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeSaveStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .skeleton = .{
+            .session_id = wire_id,
+            .title = session.title(),
+            .provider = session.provider.wireName(),
+            .project_path = session.projectPath(),
+            .has_started = true,
+            .runtime_mode = runtime_mode,
+        },
+    }) catch return;
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = main.Effects.lineMsg(.fx_line),
+        .on_exit = main.Effects.exitMsg(.fx_exit),
+    });
 }
 
 pub fn hydrateIfPossible(model: *Model, session_id: u32) void {
