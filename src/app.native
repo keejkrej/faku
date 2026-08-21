@@ -56,11 +56,37 @@
           </scroll>
         </column>
         <row height="40" padding="10">
-          <button variant="ghost" size="icon" icon="settings" label="Settings"></button>
+          <button variant="ghost" size="icon" icon="settings" label="Settings" on-press="toggle_settings"></button>
         </row>
       </if>
     </column>
     <column grow="1" min-width="360">
+      <if test="{settings_open}">
+        <row height="48" padding="14" gap="10" cross="center" window-drag="true" label="Toolbar">
+          <text>Settings</text>
+          <spacer grow="1" />
+        </row>
+        <separator />
+        <scroll grow="1">
+          <row grow="1" main="center">
+            <column grow="1" max-width="720" gap="10" padding="14">
+              <text>Default model</text>
+              <text-field text="{settings_model}" placeholder="FX_MODEL" on-input="settings_model_edit" />
+              <text>Access mode</text>
+              <row gap="8">
+                <button variant="ghost" size="sm" selected="{access_ask}" on-press="settings_access_ask">Ask</button>
+                <button variant="ghost" size="sm" selected="{access_auto}" on-press="settings_access_auto">Auto</button>
+                <button variant="ghost" size="sm" selected="{access_full}" on-press="settings_access_full">Full access</button>
+              </row>
+              <text>Last project path</text>
+              <text-field text="{settings_project}" placeholder="Workspace path" on-input="settings_project_edit" />
+              <text>Daemon address</text>
+              <text-field text="{settings_daemon}" placeholder="host:port" on-input="settings_daemon_edit" />
+            </column>
+          </row>
+        </scroll>
+      </if>
+      <else>
       <row height="48" padding="14" gap="10" cross="center" window-drag="true" label="Toolbar">
         <text>{header_title}</text>
         <spacer grow="1" />
@@ -139,6 +165,7 @@
           <spacer width="12" />
         </row>
       </column>
+      </else>
     </column>
   </split>
 </column>

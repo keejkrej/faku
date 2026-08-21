@@ -10,7 +10,9 @@
 //! fx_session_id, runtime_id, model, access_mode, rewind_refs) — no transcripts. Selecting
 //! a session hydrates its turns,
 //! `queued_messages`, and `rewind_refs`. Document extras also keep
-//! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail.
+//! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
+//! plus `last_model` / `last_access_mode` / `last_project_path` /
+//! `last_daemon_address` so the settings gear can edit persisted defaults.
 //! Save is merge-only (never deletes).
 //! `removeSession` is the only delete. Refuses to write until a successful
 //! load (`task_state_loaded`), same guard as waku-client. After a successful
@@ -290,10 +292,21 @@ pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void
 /// does not spawn a daemon sidecar. Missing / corrupt catalogs are a no-op.
 pub fn persistLayoutIfPossible(model: *const Model) void {
     const io = model.store_io orelse return;
-    saveLayout(model, std.heap.page_allocator, io) catch {};
+    saveExtras(model, std.heap.page_allocator, io, .layout) catch {};
 }
 
-fn saveLayout(model: *const Model, allocator: std.mem.Allocator, io: std.Io) !void {
+/// Merge-only write of settings extras (`last_model`, `last_access_mode`,
+/// `last_project_path`, `last_daemon_address`). Same first-run rule as
+/// sidebar collapse: does not create `sessions.json` and does not spawn
+/// a daemon sidecar. Missing / corrupt catalogs are a no-op.
+pub fn persistSettingsIfPossible(model: *const Model) void {
+    const io = model.store_io orelse return;
+    saveExtras(model, std.heap.page_allocator, io, .settings) catch {};
+}
+
+const ExtrasKind = enum { layout, settings };
+
+fn saveExtras(model: *const Model, allocator: std.mem.Allocator, io: std.Io, kind: ExtrasKind) !void {
     if (!model.task_state_loaded) return error.TaskStateNotLoaded;
     const dir = model.storeDir();
     if (dir.len == 0) return error.NoStoreDir;
@@ -306,13 +319,23 @@ fn saveLayout(model: *const Model, allocator: std.mem.Allocator, io: std.Io) !vo
         error.FileNotFound => return,
         else => return error.Corrupt,
     };
-    applySidebarExtras(&document, model);
+    switch (kind) {
+        .layout => applySidebarExtras(&document, model),
+        .settings => applySettingsExtras(&document, model),
+    }
     try writeDocument(allocator, io, dir, document);
 }
 
 fn applySidebarExtras(document: *Document, model: *const Model) void {
     document.sidebar_collapsed = model.sidebar_collapsed;
     document.sidebar_width = model.sidebarWidthPixels();
+}
+
+fn applySettingsExtras(document: *Document, model: *const Model) void {
+    document.last_project_path = model.lastProjectPath();
+    document.last_model = model.lastModel();
+    document.last_access_mode = model.lastAccessMode();
+    document.last_daemon_address = model.lastDaemonAddress();
 }
 
 /// Live `WAKU_DAEMON_ADDRESS` wins; otherwise the last persisted sidecar address.
@@ -1488,6 +1511,61 @@ test "sidebar collapsed flag and last width reload from document extras" {
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&restored, allocator, io));
     try testing.expect(!restored.sidebar_collapsed);
     try testing.expectEqual(@as(u32, 300), restored.sidebarWidthPixels());
+}
+
+test "settings extras persist last_model access path and daemon; missing catalog is not created" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var missing = Model{};
+    missing.task_state_loaded = true;
+    missing.setStoreDir(dir);
+    missing.store_io = io;
+    missing.setLastModel("openai/gpt-5.4");
+    persistSettingsIfPossible(&missing);
+    var missing_path: [std.fs.max_path_bytes]u8 = undefined;
+    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &missing_path).?, allocator, .limited(64)));
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("settings later", .fx);
+    _ = source.appendTurn(id, .user, "remember defaults");
+    try saveSession(&source, id, allocator, io);
+
+    source.setLastModel("openai/gpt-5.4");
+    source.setLastAccessMode("auto");
+    source.setLastProjectPath("/tmp/faku-settings");
+    source.setLastDaemonAddress("127.0.0.1:8787");
+    persistSettingsIfPossible(&source);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqualStrings("openai/gpt-5.4", loaded.lastModel());
+    try testing.expectEqualStrings("auto", loaded.lastAccessMode());
+    try testing.expectEqualStrings("/tmp/faku-settings", loaded.lastProjectPath());
+    try testing.expectEqualStrings("127.0.0.1:8787", loaded.lastDaemonAddress());
+    try testing.expectEqual(@as(usize, 0), loaded.daemonAddress().len);
+
+    const inherited = loaded.addSession("next", .fx);
+    try testing.expectEqualStrings("openai/gpt-5.4", loaded.sessionById(inherited).?.model());
+    try testing.expectEqualStrings("auto", loaded.sessionById(inherited).?.accessMode());
+    try testing.expectEqualStrings("/tmp/faku-settings", loaded.sessionById(inherited).?.projectPath());
+
+    loaded.setLastDaemonAddress("");
+    persistSettingsIfPossible(&loaded);
+    var cleared = Model{};
+    cleared.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&cleared, allocator, io));
+    try testing.expectEqual(@as(usize, 0), cleared.lastDaemonAddress().len);
+    try testing.expectEqualStrings("openai/gpt-5.4", cleared.lastModel());
 }
 
 test "last_daemon_address persists and loads without becoming the live switch" {

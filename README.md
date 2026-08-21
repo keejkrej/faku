@@ -174,7 +174,8 @@ access_mode) — no demo rows and no transcripts. The document also stores
 `last_daemon_address`, `sidebar_collapsed`, and `sidebar_width` so a
 new session can inherit the last workspace and last model/access, a
 later send can reuse the last sidecar address, and the sidebar collapse
-control is restored. There is no daemon picker.
+control is restored. The sidebar settings gear opens a panel that edits
+those persisted defaults. There is no daemon picker.
 Selecting a session hydrates its turns and `queued_messages` from the same
 file. Daemon `hydrateSession` runs only when that local transcript is empty.
 Composer drafts are a sibling `drafts.json` (not mixed into the
