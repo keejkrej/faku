@@ -736,7 +736,7 @@ test "ACP tool_call content shows text and diff; update replaces; unknown kinds 
     try testing.expect(std.mem.indexOf(u8, lastTool(&model), "term_1") == null);
     try testing.expect(std.mem.indexOf(u8, lastTool(&model), "ignore me") == null);
 
-    var tree = try buildTree(arena, &model);
+    const tree = try buildTree(arena, &model);
     try testing.expect(findAnyText(tree.root, lastTool(&model)));
 
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_content\",\"status\":\"completed\",\"content\":[{\"type\":\"content\",\"content\":{\"type\":\"text\",\"text\":\"File written successfully\"}}]}}}");
