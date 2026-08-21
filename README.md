@@ -19,6 +19,7 @@ control works and is restored; the sidebar chevrons walk session
 selection history; New folder creates a local catalog folder; clicking
 a folder (or the move control) assigns the selected session; folder
 titles are editable; deleting a folder unassigns its sessions;
+sidebar trash removes a session (and closeSession if a daemon is set);
 the composer project row sets the selected session cwd; the usage
 control stays empty unless ACP reports `usage_update`; Rewind
 resets workspace files to the last recorded HEAD and does not
@@ -225,8 +226,9 @@ session skeletons — `loadTaskState` is only a first-run fill when the local
 catalog is missing. A corrupt file
 also keeps the demos and is not overwritten until a successful load
 (`task_state_loaded`, same guard as waku-client). Save is merge-only;
-`RemoveSession` is the only delete. After a successful local remove,
-`closeSession` is a best-effort one-shot when a daemon address is set.
+`RemoveSession` is the only delete. Sidebar trash (Remove session)
+is that delete; after a successful local remove, `closeSession` is a
+best-effort one-shot when a daemon address is set.
 New untitled sessions are not written
 until they have real content.
 

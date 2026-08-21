@@ -64,10 +64,13 @@
                 </if>
                 <else>
                   <list-item height="52" selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
-                    <column gap="2" padding="8">
-                      <text>{s.title}</text>
-                      <text foreground="text_muted">{s.provider}</text>
-                    </column>
+                    <row gap="2" cross="center" padding="8">
+                      <column gap="2" grow="1">
+                        <text>{s.title}</text>
+                        <text foreground="text_muted">{s.provider}</text>
+                      </column>
+                      <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>
+                    </row>
                   </list-item>
                 </else>
               </for>
