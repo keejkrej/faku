@@ -423,6 +423,7 @@ fn applyDaemonSkeletons(model: *Model, skeletons: []const protocol.TaskStateSkel
             "",
             "",
             "",
+            "",
         );
     }
     if (model.session_count == 0) return;

@@ -1097,7 +1097,7 @@ pub const Model = struct {
         model_id: []const u8,
         access_mode: []const u8,
         runtime_id: []const u8,
-        interaction_mode: []const u8 = "",
+        interaction_mode: []const u8,
     ) void {
         if (model.session_count >= max_sessions) return;
         var session = Session{
