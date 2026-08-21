@@ -458,16 +458,20 @@ pub fn writeMethodNotFound(buf: []u8, id_json: []const u8) WriteError![]const u8
 /// id do not block.
 pub fn replyForAgentRequest(line: []const u8, access_mode: []const u8, buf: []u8) ?[]const u8 {
     const parsed = parseLine(line);
-    if (parsed.kind != .request) return null;
+    if (parsed.has_result or parsed.has_error) return null;
     const id_json = rawIdJson(line);
     if (id_json.len == 0) return null;
-    if (isRequestPermission(parsed)) {
+    if (parsed.method == .session_request_permission) {
         var options: [max_permission_options]PermissionOption = [_]PermissionOption{.{}} ** max_permission_options;
         const count = scanPermissionOptions(line, options[0..]) orelse 0;
         const option_id = pickPermissionOptionId(access_mode, options[0..count]);
         return writePermissionResponse(buf, id_json, option_id) catch null;
     }
-    return writeMethodNotFound(buf, id_json) catch null;
+    // Unknown agent→client methods still have an id; reject so fx does not hang.
+    if (parsed.method == .unknown and parsed.method_name.len > 0) {
+        return writeMethodNotFound(buf, id_json) catch null;
+    }
+    return null;
 }
 
 /// `session/cancel` notification (no `id`; no response expected).
@@ -948,7 +952,7 @@ fn scanAvailableCommands(text: []const u8, dest: []ParsedCommand) ?usize {
 /// `toolCall.rawInput.options` is not this array.
 fn scanPermissionOptions(text: []const u8, dest: []PermissionOption) ?usize {
     const params_at = findKey(text, "params") orelse return null;
-    var at = skipWs(text, params_at);
+    const at = skipWs(text, params_at);
     if (at >= text.len or text[at] != '{') return null;
     const params_end = skipJsonValue(text, at);
     const options_at = objectArrayField(text, at, params_end, "options") orelse return null;

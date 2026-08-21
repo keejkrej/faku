@@ -70,14 +70,14 @@ pub fn run(io: std.Io, child_argv: []const []const u8, batch: []const u8, access
     const child_out = child.stdout orelse return error.MissingStdoutPipe;
 
     var write_buf: [1024]u8 = undefined;
-    var writer = child_in.writer(io, &write_buf);
+    var writer = child_in.writerStreaming(io, &write_buf);
     writer.interface.writeAll(batch) catch {};
     writer.interface.flush() catch {};
 
     var stdout_buf: [1024]u8 = undefined;
     var host = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
     var line_read_buf: [512]u8 = undefined;
-    var reader = child_out.reader(io, &line_read_buf);
+    var reader = child_out.readerStreaming(io, &line_read_buf);
     var line_buf: [nativeLineCap]u8 = undefined;
     var reply_buf: [512]u8 = undefined;
 
