@@ -2552,6 +2552,10 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
         applyAcpCurrentMode(model, fx, access_mode);
         return;
     }
+    if (acp.configOptionModel(parsed)) |model_value| {
+        applyAcpConfigModel(model, fx, model_value);
+        return;
+    }
     if (acp.toolUpdate(parsed)) |tool| {
         applyAcpToolUpdate(model, fx, tool);
         return;
@@ -2576,6 +2580,14 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
 fn applyAcpCurrentMode(model: *Model, fx: *Effects, access_mode: []const u8) void {
     const session = model.sessionById(model.streaming_session) orelse return;
     session.setAccessMode(access_mode);
+    store.persistIfPossible(model, session.id, fx);
+}
+
+/// Official ACP `config_option_update` for `id: "model"`. Empty
+/// `currentValue` clears the session model so the chip stays `FX_MODEL`.
+fn applyAcpConfigModel(model: *Model, fx: *Effects, value: []const u8) void {
+    const session = model.sessionById(model.streaming_session) orelse return;
+    session.setModel(value);
     store.persistIfPossible(model, session.id, fx);
 }
 
