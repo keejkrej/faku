@@ -37,7 +37,7 @@
           <spacer height="10" />
           <row height="28" cross="center">
             <spacer width="8" />
-            <list-item height="28" on-press="assign_selected:0" label="Today">
+            <list-item height="28" on-press="unassign_selected" label="Today">
               <text foreground="text_muted">Today</text>
             </list-item>
             <spacer grow="1" />

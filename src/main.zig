@@ -345,6 +345,7 @@ pub const Msg = union(enum) {
     new_folder,
     toggle_folder: u32,
     assign_selected: u32,
+    unassign_selected,
     assign_folder: AssignFolder,
     sidebar_resized: f32,
     transcript_scrolled: canvas.ScrollState,
@@ -1651,6 +1652,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .assign_selected => |folder_id| {
             persistAssignedFolder(model, model.selected, folder_id, fx);
+        },
+        .unassign_selected => {
+            persistAssignedFolder(model, model.selected, 0, fx);
         },
         .assign_folder => |assign| {
             persistAssignedFolder(model, assign.session_id, assign.folder_id, fx);
