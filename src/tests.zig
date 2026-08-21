@@ -384,6 +384,79 @@ test "copy of a fixture turn writes fx.writeClipboard; empty is a no-op" {
     try testing.expectEqualStrings("fixture user markdown source", first.text);
 }
 
+test "copy session of a fixture multi-turn writes joined text once; empty is a no-op" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const other = model.addSession("other session", .fx);
+    const id = model.addSession("copy session", .fx);
+    model.selected = id;
+    _ = model.appendTurn(other, .assistant, "not this session");
+
+    var tree = try buildTree(arena, &model);
+    const toolbar = try expectByText(tree.root, .row, "Toolbar");
+    const copy_session = try expectByText(toolbar, .button, "Copy session");
+    try testing.expectEqual(Msg.copy_session, tree.msgForPointer(copy_session.id, .up).?);
+    try testing.expect(findByText(tree.root, .button, "Rewind") == null);
+    _ = try expectButton(tree.root, "Attach image");
+
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    main.update(&model, .copy_session, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+
+    _ = model.appendTurn(id, .user, "");
+    _ = model.appendTurn(id, .assistant, "");
+    main.update(&model, .copy_session, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+
+    _ = model.appendTurn(id, .user, "fixture user markdown source");
+    _ = model.appendTurn(id, .assistant, "");
+    _ = model.appendTurn(id, .assistant, "fixture assistant reply");
+    _ = model.appendTurn(id, .tool, "read src/copy.ts");
+    _ = model.appendTurn(id, .reasoning, "fixture thought");
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findAnyText(tree.root, "fixture user markdown source"));
+    try testing.expect(findAnyText(tree.root, "fixture assistant reply"));
+    _ = try expectByText(tree.root, .text, "read src/copy.ts");
+    _ = try expectByText(tree.root, .text, "fixture thought");
+    const header_copy = try expectByText(
+        try expectByText(tree.root, .row, "Toolbar"),
+        .button,
+        "Copy session",
+    );
+    try testing.expectEqual(Msg.copy_session, tree.msgForPointer(header_copy.id, .up).?);
+    _ = try expectButton(tree.root, "Copy");
+    _ = try expectButton(tree.root, "Attach image");
+    try testing.expect(findByText(tree.root, .button, "Rewind") == null);
+    try testing.expect(findByText(tree.root, .image, "Attached image") == null);
+
+    main.update(&model, tree.msgForPointer(header_copy.id, .up).?, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    const first = fx.pendingClipboardAt(0).?;
+    try testing.expectEqual(main.copy_turn_key, first.key);
+    try testing.expectEqual(native_sdk.EffectClipboardOp.write, first.op);
+    try testing.expectEqualStrings(
+        "fixture user markdown source\n\nfixture assistant reply\n\nread src/copy.ts\n\nfixture thought",
+        first.text,
+    );
+
+    main.update(&model, .copy_session, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try testing.expectEqualStrings(
+        "fixture user markdown source\n\nfixture assistant reply\n\nread src/copy.ts\n\nfixture thought",
+        fx.pendingClipboardAt(0).?.text,
+    );
+}
+
 test "user and assistant **bold** bind to markdown source" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
