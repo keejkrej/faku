@@ -3469,6 +3469,107 @@ test "sidebar search still matches session titles across folders" {
     });
 }
 
+test "clicking a folder header assigns the selected session; Today unassigns" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-folder-click-assign", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+    try store.saveSession(&model, model.session_store[1].id, testing.allocator, testing.io);
+
+    var tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectButton(tree.root, "New folder")).id, .up).?, &fx);
+    const folder_id = model.folder_store[0].id;
+    const auth_id = model.session_store[1].id;
+    try testing.expectEqual(@as(u32, 0), model.session_store[1].folder_id);
+
+    tree = try buildTree(arena, &model);
+    const auth = try expectButton(tree.root, "fix auth listener");
+    main.update(&model, tree.msgForPointer(auth.id, .up).?, &fx);
+    try testing.expectEqual(auth_id, model.selected);
+
+    const header = try expectByText(tree.root, .list_item, "New folder");
+    main.update(&model, tree.msgForPointer(header.id, .up).?, &fx);
+    try testing.expectEqual(folder_id, model.session_store[1].folder_id);
+    try testing.expectEqual(@as(u32, 0), model.session_store[0].folder_id);
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "port waku to zig",
+        "New folder",
+        "fix auth listener",
+    });
+    try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Today");
+    _ = try expectButton(tree.root, "port waku to zig");
+    _ = try expectButton(tree.root, "fix auth listener");
+    _ = try expectButton(tree.root, "Collapse folder");
+    try testing.expect(findPressableContaining(tree.root, "fix auth listener") != null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(folder_id, loaded.session_store[1].folder_id);
+    try expectSidebarTitles(loaded.sidebar_rows(arena), &.{
+        "port waku to zig",
+        "New folder",
+        "fix auth listener",
+    });
+
+    tree = try buildTree(arena, &model);
+    const today = try expectByText(tree.root, .list_item, "Today");
+    main.update(&model, tree.msgForPointer(today.id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 0), model.session_store[1].folder_id);
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "port waku to zig",
+        "fix auth listener",
+        "New folder",
+    });
+
+    var unassigned = Model{};
+    unassigned.setStoreDir(dir);
+    unassigned.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&unassigned, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 0), unassigned.session_store[1].folder_id);
+    try expectSidebarTitles(unassigned.sidebar_rows(arena), &.{
+        "port waku to zig",
+        "fix auth listener",
+        "New folder",
+    });
+
+    tree = try buildTree(arena, &model);
+    main.update(&model, tree.msgForPointer((try expectByText(tree.root, .list_item, "New folder")).id, .up).?, &fx);
+    try testing.expectEqual(folder_id, model.session_store[1].folder_id);
+
+    tree = try buildTree(arena, &model);
+    const collapse = try expectButton(tree.root, "Collapse folder");
+    main.update(&model, tree.msgForPointer(collapse.id, .up).?, &fx);
+    try testing.expect(model.folder_store[0].collapsed);
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "port waku to zig",
+        "New folder",
+    });
+    tree = try buildTree(arena, &model);
+    try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
+    _ = try expectByText(tree.root, .list_item, "New folder");
+    _ = try expectButton(tree.root, "Collapse folder");
+    _ = try expectButton(tree.root, "Search");
+}
+
 test "composer project row sets selected session project_path and reloads" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

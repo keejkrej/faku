@@ -344,6 +344,8 @@ pub const Msg = union(enum) {
     history_forward,
     new_folder,
     toggle_folder: u32,
+    assign_selected: u32,
+    unassign_selected,
     assign_folder: AssignFolder,
     sidebar_resized: f32,
     transcript_scrolled: canvas.ScrollState,
@@ -1608,6 +1610,14 @@ fn goHistory(step: i32, model: *Model, fx: *Effects) void {
     }
 }
 
+fn persistAssignedFolder(model: *Model, session_id: u32, folder_id: u32, fx: *Effects) void {
+    if (!model.assignSessionFolder(session_id, folder_id)) return;
+    store.persistFoldersIfPossible(model);
+    if (model.sessionByIdConst(session_id)) |session| {
+        if (session.hasStarted()) store.persistIfPossible(model, session_id, fx);
+    }
+}
+
 pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     switch (msg) {
         .new_session => {
@@ -1640,12 +1650,14 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.toggleFolderCollapsed(folder_id);
             store.persistFoldersIfPossible(model);
         },
+        .assign_selected => |folder_id| {
+            persistAssignedFolder(model, model.selected, folder_id, fx);
+        },
+        .unassign_selected => {
+            persistAssignedFolder(model, model.selected, 0, fx);
+        },
         .assign_folder => |assign| {
-            if (!model.assignSessionFolder(assign.session_id, assign.folder_id)) return;
-            store.persistFoldersIfPossible(model);
-            if (model.sessionByIdConst(assign.session_id)) |session| {
-                if (session.hasStarted()) store.persistIfPossible(model, assign.session_id, fx);
-            }
+            persistAssignedFolder(model, assign.session_id, assign.folder_id, fx);
         },
         .remove_session => |id| {
             store.removeIfPossible(model, id, fx);

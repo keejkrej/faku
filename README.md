@@ -15,7 +15,8 @@ and it is fx-first. Desktop chrome matches the stopped Waku-parity cut
 (chromeless 48px header, measured sidebar, composer send circle); sidebar
 Search filters the local `sessions.json` catalog; the sidebar collapse
 control works and is restored; the sidebar chevrons walk session
-selection history; New folder creates a local catalog folder; the
+selection history; New folder creates a local catalog folder; clicking
+a folder (or the move control) assigns the selected session; the
 composer project row sets the selected session cwd; the usage
 control stays empty unless ACP reports `usage_update`; Rewind
 resets workspace files to the last recorded HEAD and does not
@@ -184,8 +185,8 @@ access_mode, interaction_mode, folder_id, context_used, context_size) — no dem
 model/access/interaction, a later send can reuse the last sidecar address,
 the sidebar collapse control is restored, and New folder groups persist.
 Ungrouped sessions stay under Today; a session `folder_id` lists it under
-that folder. There is no drag-to-folder gesture yet (tests assign
-`folder_id` directly). The sidebar settings gear
+that folder. Clicking a folder header (or its move control) assigns the
+selected session; clicking Today unassigns it (`folder_id` 0). The sidebar settings gear
 opens a panel that edits those persisted defaults. Composer chips are the
 quick session toggle: access cycles `ask` / `auto` / `fullAccess`, Build
 cycles `build` / `plan`, and the model chip toggles last-used vs empty
