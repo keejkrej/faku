@@ -48,11 +48,16 @@
             <column>
               <for each="sidebar_rows" key="id" as="s">
                 <if test="{s.is_header}">
-                  <list-item height="32" on-press="assign_selected:{s.folder_id}" label="{s.title}">
+                  <list-item height="32" selected="{s.selected}" on-press="assign_selected:{s.folder_id}" label="{s.title}">
                     <row height="28" cross="center" padding="4">
                       <button variant="ghost" size="icon" icon="chevron-down" label="Collapse folder" on-press="toggle_folder:{s.folder_id}"></button>
                       <icon name="folder" />
-                      <text foreground="text_muted">{s.title}</text>
+                      <if test="{s.editing}">
+                        <text-field grow="1" height="24" placeholder="New folder" text="{folder_title_draft}" on-input="folder_title_edit" autofocus="true" />
+                      </if>
+                      <else>
+                        <text foreground="text_muted">{s.title}</text>
+                      </else>
                     </row>
                   </list-item>
                 </if>
