@@ -287,7 +287,7 @@ canned reply (about 12 ticks / 90ms). Send while streaming with a draft
 queues on that session (persisted). Successful finish drains the next
 item; empty Send, Stop, or Esc cancels without draining.
 
-Keys: Cmd/Ctrl-N is sidebar New Task, Cmd/Ctrl-K focuses sidebar search, Cmd/Ctrl-L focuses the composer, Cmd/Ctrl-, opens settings, Cmd/Ctrl-[ and Cmd/Ctrl-] walk sidebar session history, Cmd/Ctrl-B toggles the sidebar rail, Cmd/Ctrl-C copies the last non-empty turn via `fx.writeClipboard`, Enter send/queue, Esc cancel. Cmd/Ctrl-Enter
+Keys: Cmd/Ctrl-N is sidebar New Task and focuses the composer, Cmd/Ctrl-K focuses sidebar search, Cmd/Ctrl-L focuses the composer, Cmd/Ctrl-, opens settings, Cmd/Ctrl-[ and Cmd/Ctrl-] walk sidebar session history, Cmd/Ctrl-B toggles the sidebar rail, Cmd/Ctrl-C copies the last non-empty turn via `fx.writeClipboard`, Enter send/queue, Esc cancel. Cmd/Ctrl-Enter
 steers a live daemon turn via a one-shot sidecar (hello + `steer`).
 Waku does not steer when attach `supportsSteer` is false or unknown —
 those follow-ups queue, same as Send while busy. fx ask / fx acp / demo
