@@ -1547,6 +1547,7 @@ test "settings extras persist last_model access path and daemon; missing catalog
 
     var loaded = Model{};
     loaded.setStoreDir(dir);
+    loaded.store_io = io;
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
     try testing.expectEqualStrings("openai/gpt-5.4", loaded.lastModel());
     try testing.expectEqualStrings("auto", loaded.lastAccessMode());
