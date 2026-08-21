@@ -191,6 +191,9 @@
               <textarea placeholder="{composer_placeholder}" text="{draft}" submit-on-enter="true" on-input="draft_edit" on-submit="send" />
               <input-group-actions>
                 <button variant="ghost" size="icon" icon="file-text" label="Attach image" on-press="start_image_attach"></button>
+                <if test="{has_commands}">
+                  <button variant="ghost" size="sm" selected="{commands_open}" on-press="toggle_commands">Commands</button>
+                </if>
                 <button variant="ghost" size="sm" icon="circle-dot" on-press="cycle_model">{model_label}</button>
                 <button variant="ghost" size="sm" icon="menu">Medium</button>
                 <button variant="ghost" size="sm" icon="eye" on-press="cycle_access">{access_label}</button>
@@ -209,6 +212,22 @@
                 <button variant="ghost" size="sm" icon="file-text" on-press="start_image_attach">{image_chip_label}</button>
                 <button variant="ghost" size="icon" icon="x" label="Clear image" on-press="clear_image_attach"></button>
               </row>
+            </if>
+            <if test="{commands_list_open}">
+              <card size="sm" padding="10">
+                <column gap="2">
+                  <for each="command_rows" key="id" as="c">
+                    <list-item height="44" on-press="insert_command:{c.id}" label="{c.slash_name}">
+                      <column gap="2" padding="4">
+                        <text>{c.slash_name}</text>
+                        <if test="{c.has_description}">
+                          <text foreground="text_muted">{c.description}</text>
+                        </if>
+                      </column>
+                    </list-item>
+                  </for>
+                </column>
+              </card>
             </if>
             <if test="{project_edit_active}">
               <row gap="8" cross="center">

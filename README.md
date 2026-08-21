@@ -80,7 +80,8 @@ turn. `agent_thought_chunk` text shows as a muted reasoning turn.
 The model chip follows ACP `config_option_update` (`configOptions` id
 `model` `currentValue`; empty stays `FX_MODEL`).
 ACP `available_commands_update` stores command names (and descriptions)
-on the session; there is no command palette and slash commands are not executed.
+on the session. Composer Commands inserts `/name ` into the draft; it
+does not run the command.
 The `session/prompt` result `stopReason`
 settles the turn and drains the success-only queue (`cancelled` /
 `refusal` / JSON-RPC error do not drain). This is **not** a long-lived

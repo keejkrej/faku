@@ -118,7 +118,9 @@ pub const ReplyPath = enum { demo, fx, daemon };
 
 pub const Provider = protocol.ProviderId;
 
-/// Stored ACP slash command (name + optional description). Not a palette row.
+/// Stored ACP slash command (name + optional description). Composer
+/// Commands inserts `/name ` into the draft. Not a palette RPC and
+/// not `session/prompt` execution.
 pub const AvailableCommand = struct {
     name_storage: [max_command_name]u8 = [_]u8{0} ** max_command_name,
     name_len: usize = 0,
@@ -177,7 +179,8 @@ pub const Session = struct {
     /// Last ACP `usage_update` token counts. `context_size == 0` means unknown.
     context_used: u64 = 0,
     context_size: u64 = 0,
-    /// Last ACP `available_commands_update`. Replace, not append. No palette.
+    /// Last ACP `available_commands_update`. Replace, not append.
+    /// Composer Commands inserts from this list; it does not run them.
     available_commands: [max_available_commands]AvailableCommand = [_]AvailableCommand{.{}} ** max_available_commands,
     available_command_count: usize = 0,
 
@@ -399,6 +402,15 @@ pub const TurnRow = struct {
     is_reasoning: bool,
 };
 
+/// Stored ACP command for the composer Commands list. `id` is 1-based
+/// so Native `insert_command:{c.id}` never binds 0.
+pub const CommandRow = struct {
+    id: u32,
+    slash_name: []const u8,
+    description: []const u8,
+    has_description: bool,
+};
+
 /// Follow-up queued while that session is busy. Becomes its own turn after a
 /// successful finish — not after Stop/Esc or a non-zero `fx ask` exit.
 pub const QueuedMessage = struct {
@@ -439,6 +451,8 @@ pub const Msg = union(enum) {
     start_image_attach,
     image_path_edit: canvas.TextInputEvent,
     clear_image_attach,
+    toggle_commands,
+    insert_command: u32,
     rewind,
     history_back,
     history_forward,
@@ -498,6 +512,7 @@ pub const Model = struct {
     project_edit_buffer: canvas.TextBuffer(max_project_path) = .{},
     image_attach_active: bool = false,
     image_path_buffer: canvas.TextBuffer(max_project_path) = .{},
+    commands_open: bool = false,
     editing_folder_id: u32 = 0,
     folder_title_buffer: canvas.TextBuffer(max_title) = .{},
     editing_session_id: u32 = 0,
@@ -622,6 +637,9 @@ pub const Model = struct {
         "closeImageAttach",
         "applyImagePath",
         "clearImageAttach",
+        "toggleCommands",
+        "closeCommands",
+        "insertAvailableCommand",
         "openSettings",
         "closeSettings",
         "toggleSettings",
@@ -826,6 +844,25 @@ pub const Model = struct {
         return out[0..i];
     }
 
+    pub fn command_rows(model: *const Model, arena: std.mem.Allocator) []const CommandRow {
+        const session = model.sessionByIdConst(model.selected) orelse return &.{};
+        const commands = session.availableCommands();
+        if (commands.len == 0) return &.{};
+        const out = arena.alloc(CommandRow, commands.len) catch return &.{};
+        var i: usize = 0;
+        for (commands) |*cmd| {
+            const slash = std.fmt.allocPrint(arena, "/{s}", .{cmd.name()}) catch continue;
+            out[i] = .{
+                .id = @intCast(i + 1),
+                .slash_name = slash,
+                .description = cmd.description(),
+                .has_description = cmd.description().len > 0,
+            };
+            i += 1;
+        }
+        return out[0..i];
+    }
+
     pub fn visible_turns(model: *const Model, arena: std.mem.Allocator) []const TurnRow {
         var count: usize = 0;
         for (model.turn_store[0..model.turn_count]) |turn| {
@@ -895,6 +932,17 @@ pub const Model = struct {
 
     pub fn has_queued(model: *const Model) bool {
         return model.queuedCount(model.selected) > 0;
+    }
+
+    pub fn has_commands(model: *const Model) bool {
+        const session = model.sessionByIdConst(model.selected) orelse return false;
+        return session.available_command_count > 0;
+    }
+
+    /// Commands button stays visible when the list is stored; the list
+    /// itself only renders while toggled open.
+    pub fn commands_list_open(model: *const Model) bool {
+        return model.commands_open and model.has_commands();
     }
 
     pub fn queued_text(model: *const Model) []const u8 {
@@ -1044,6 +1092,7 @@ pub const Model = struct {
     pub fn openSettings(model: *Model) void {
         model.closeProjectEdit();
         model.closeImageAttach();
+        model.closeCommands();
         model.closeFolderTitleEdit();
         model.closeSessionTitleEdit();
         model.settings_open = true;
@@ -1358,6 +1407,31 @@ pub const Model = struct {
         model.setDraftImagePath("");
         model.image_path_buffer.clear();
         model.image_attach_active = false;
+    }
+
+    pub fn toggleCommands(model: *Model) void {
+        if (!model.has_commands()) {
+            model.commands_open = false;
+            return;
+        }
+        model.commands_open = !model.commands_open;
+    }
+
+    pub fn closeCommands(model: *Model) void {
+        model.commands_open = false;
+    }
+
+    /// Official ACP slash insert is `/name` plus a trailing space so the
+    /// user can type input. This cut does not store `input`; space is
+    /// always appended. Writes the composer draft only — no spawn.
+    pub fn insertAvailableCommand(model: *Model, id: u32) void {
+        const session = model.sessionById(model.selected) orelse return;
+        if (id == 0 or id > session.available_command_count) return;
+        const cmd = session.available_commands[id - 1];
+        var buf: [max_command_name + 2]u8 = undefined;
+        const text = std.fmt.bufPrint(&buf, "/{s} ", .{cmd.name()}) catch return;
+        model.draft_buffer.set(text);
+        model.commands_open = false;
     }
 
     pub fn lastSpawnImagePath(model: *const Model) []const u8 {
@@ -1853,6 +1927,7 @@ fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     store.persistDraftIfPossible(model);
     model.closeProjectEdit();
     model.closeImageAttach();
+    model.closeCommands();
     model.closeFolderTitleEdit();
     model.closeSessionTitleEdit();
     model.selected = id;
@@ -1906,6 +1981,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistDraftIfPossible(model);
             model.closeProjectEdit();
             model.closeImageAttach();
+            model.closeCommands();
             model.closeFolderTitleEdit();
             model.closeSessionTitleEdit();
             const id = model.addSession("untitled", .fx);
@@ -1974,11 +2050,12 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         // Chromeless titlebar has no OS close. This is the documented
         // window-action effect (`examples/deck`): last-window close
         // follows the host exit path. Esc stays `.stop` so settings /
-        // search / project-edit / image-attach / folder-title-edit / session-title-edit /
+        // search / project-edit / image-attach / commands / folder-title-edit / session-title-edit /
         // a live turn keep it.
         .close_window => fx.closeWindow(main_window_label),
         .remove_session => |id| {
             if (model.editing_session_id == id) model.closeSessionTitleEdit();
+            model.closeCommands();
             store.removeIfPossible(model, id, fx);
             store.loadDraftIfPossible(model);
         },
@@ -2008,6 +2085,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             }
             if (model.image_attach_active) {
                 model.closeImageAttach();
+                return;
+            }
+            if (model.commands_open) {
+                model.closeCommands();
                 return;
             }
             if (model.editing_folder_id != 0) {
@@ -2073,6 +2154,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .clear_image_attach => {
             model.clearImageAttach();
+            store.persistDraftIfPossible(model);
+        },
+        .toggle_commands => model.toggleCommands(),
+        .insert_command => |id| {
+            model.insertAvailableCommand(id);
             store.persistDraftIfPossible(model);
         },
         .rewind => applyRewindIfPossible(model),
@@ -2711,10 +2797,14 @@ fn applyAcpConfigModel(model: *Model, fx: *Effects, value: []const u8) void {
 }
 
 /// Official ACP `available_commands_update`. Replaces the session list
-/// (empty clears). Names and descriptions only; no palette, no clicks.
+/// (empty clears). Names and descriptions only; Composer Commands can
+/// insert `/name ` into the draft. No execution.
 fn applyAcpAvailableCommands(model: *Model, fx: *Effects, commands: []const acp.ParsedCommand) void {
     const session = model.sessionById(model.streaming_session) orelse return;
     session.replaceAvailableCommands(commands);
+    if (session.id == model.selected and session.available_command_count == 0) {
+        model.closeCommands();
+    }
     store.persistIfPossible(model, session.id, fx);
 }
 
