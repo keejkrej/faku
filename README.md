@@ -246,8 +246,11 @@ canned reply (about 12 ticks / 90ms). Send while streaming with a draft
 queues on that session (persisted). Successful finish drains the next
 item; empty Send, Stop, or Esc cancels without draining.
 
-Keys: Cmd/Ctrl-N new session, Enter send/queue, Esc cancel. Cmd-Enter is
-not a live steer yet.
+Keys: Cmd/Ctrl-N new session, Enter send/queue, Esc cancel. Cmd/Ctrl-Enter
+steers a live daemon turn via a one-shot sidecar (hello + `steer`).
+Waku does not steer when attach `supportsSteer` is false or unknown —
+those follow-ups queue, same as Send while busy. fx ask / fx acp / demo
+stay queue-only.
 
 Daemon (sidecar, not embedded): when `WAKU_DAEMON_ADDRESS` is set, Send
 spawns the same binary as `faku daemon-proxy <addr>` with hello +
@@ -264,6 +267,8 @@ loop never holds that socket. `textDelta` appends to the assistant
 turn; `turnFinished` settles and drains the success-only queue. Stop /
 Esc cancels the spawn and one-shots hello + `cancel` for that
 session/runtime so the daemon tears down the provider turn too.
+Cmd/Ctrl-Enter steers a live daemon turn via a second one-shot sidecar
+(hello + `steer`); regular Send while busy still queues.
 
 Missing `WAKU_DAEMON_ADDRESS` keeps one-shot `fx acp` / `fx ask` / the demo timer. The
 address is persisted as `last_daemon_address` in `sessions.json` for a

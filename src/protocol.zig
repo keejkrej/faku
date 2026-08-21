@@ -70,8 +70,22 @@
 //! into the running prompt sidecar; Stop / Esc `fx.cancel`s that spawn
 //! and, when a daemon address is set and the live turn was a daemon
 //! spawn, one-shots hello + `cancel` on a distinct key. Sidecar
-//! failure must not resurrect the turn. No `attachSession` first. No
-//! steer in this cut.
+//! failure must not resurrect the turn. No `attachSession` first.
+//!
+//! `steer` is `Command::Steer { prompt }` (same payload field name as
+//! `Prompt`). Verified against egoist/waku
+//! `crates/waku-protocol/src/protocol.rs` (`Steer { prompt: String }`,
+//! `rename_all_fields = "camelCase"`), `src/app/runtime.rs`
+//! (`session_can_steer` requires a live runtime with
+//! `supports_steer()`; otherwise the follow-up is queued), and
+//! `apps/web/src/lib/runtime-context.tsx`
+//! (`request({ type: 'steer', prompt }, sessionId, runtime.runtimeId)`).
+//! Request-frame `sessionId` / `runtimeId` name the live turn. Events
+//! are `steerAccepted` / `steerRejected`. Native cannot write into the
+//! running prompt sidecar; a live daemon turn one-shots hello + `steer`
+//! on a distinct key. Waku does not steer when attach `supportsSteer`
+//! is false or unknown — those follow-ups queue. No `attachSession`
+//! first.
 //!
 //! `attachSession` is a bare command. Verified against egoist/waku
 //! `Command::AttachSession` (unit variant, no payload field),
@@ -450,6 +464,29 @@ pub fn writePrompt(
     return cur.slice();
 }
 
+/// Request frame wrapping verified `command: { type: "steer", prompt }`.
+/// Same request-frame `sessionId` / `runtimeId` as prompt / cancel.
+/// Nil UUID requestId = notify (no response). Timeout 120s.
+pub fn writeSteer(
+    buf: []u8,
+    request_id: []const u8,
+    session_id: []const u8,
+    runtime_id: []const u8,
+    prompt: []const u8,
+) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    try cur.write("{\"type\":\"request\",\"requestId\":");
+    try writeJsonString(&cur, request_id);
+    try cur.write(",\"sessionId\":");
+    try writeJsonString(&cur, session_id);
+    try cur.write(",\"runtimeId\":");
+    try writeJsonString(&cur, runtime_id);
+    try cur.write(",\"command\":{\"type\":\"steer\",\"prompt\":");
+    try writeJsonString(&cur, prompt);
+    try cur.write("}}");
+    return cur.slice();
+}
+
 /// Start command. Defaults to first-party `fx` / binary `fx`.
 pub fn writeStart(
     buf: []u8,
@@ -657,6 +694,8 @@ fn parseOutcome(obj: std.json.ObjectMap, parsed: *ParsedServer) void {
                 parsed.payload_type = jsonStringValue(payload.get("type")) orelse "";
                 if (std.mem.eql(u8, parsed.payload_type, "sessionRuntime")) {
                     parsed.runtime_id = jsonStringValue(payload.get("runtimeId")) orelse "";
+                    parsed.supports_steer = jsonBoolValue(payload.get("supportsSteer")) orelse false;
+                } else if (std.mem.eql(u8, parsed.payload_type, "started")) {
                     parsed.supports_steer = jsonBoolValue(payload.get("supportsSteer")) orelse false;
                 }
             }
@@ -905,6 +944,23 @@ test "prompt request wraps a camelCase command" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"prompt\",\"prompt\":\"trace the listener\"}") != null);
 }
 
+test "steer request wraps a camelCase command with prompt payload" {
+    var buf: [256]u8 = undefined;
+    const json = try writeSteer(
+        &buf,
+        NIL_UUID,
+        "00000000-0000-0000-0000-000000000001",
+        "00000000-0000-0000-0000-000000000003",
+        "keep going on the listener",
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"00000000-0000-0000-0000-000000000001\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"00000000-0000-0000-0000-000000000003\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"steer\",\"prompt\":\"keep going on the listener\"}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"cancel\"") == null);
+}
+
 test "start defaults to first-party fx over acp" {
     var buf: [512]u8 = undefined;
     const json = try writeStart(&buf, NIL_UUID, NIL_UUID, NIL_UUID, defaultStartOptions());
@@ -925,6 +981,9 @@ test "first-cut command tags stay camelCase on the wire" {
     try std.testing.expectEqualStrings("closeSession", CommandTag.close_session.wireName());
     try std.testing.expectEqualStrings("attachSession", CommandTag.attach_session.wireName());
     try std.testing.expectEqualStrings("cancel", CommandTag.cancel.wireName());
+    try std.testing.expectEqualStrings("steer", CommandTag.steer.wireName());
+    try std.testing.expectEqualStrings("steerAccepted", EventKind.steer_accepted.wireName());
+    try std.testing.expectEqualStrings("steerRejected", EventKind.steer_rejected.wireName());
     try std.testing.expectEqualStrings("turnFinished", EventKind.turn_finished.wireName());
     try std.testing.expectEqualStrings("textDelta", EventKind.text_delta.wireName());
 }
@@ -1073,6 +1132,12 @@ test "sessionRuntime response yields runtimeId and ignores null" {
     try std.testing.expectEqualStrings("sessionRuntime", frame.payload_type);
     try std.testing.expectEqualStrings("00000000-0000-0000-0000-000000000003", frame.runtime_id);
     try std.testing.expect(frame.supports_steer);
+
+    const started = parseServerFrame(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000013\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"started\",\"supportsSteer\":true}}}");
+    try std.testing.expectEqual(ServerFrame.response, started.frame);
+    try std.testing.expect(started.response_ok);
+    try std.testing.expectEqualStrings("started", started.payload_type);
+    try std.testing.expect(started.supports_steer);
 
     const missing = parseSessionRuntime(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"sessionRuntime\",\"runtimeId\":null,\"supportsSteer\":false}}}");
     try std.testing.expect(missing.ok);
