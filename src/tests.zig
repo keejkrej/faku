@@ -1086,6 +1086,134 @@ test "ACP available_commands_update stores names; empty clears; unknown is ignor
     try testing.expect(findByText(tree.root, .button, "Commands") == null);
 }
 
+test "ACP session_info_update sets title and persists; empty cwd unknown ignored" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-session-info", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("info title", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath("/tmp/faku-session-info");
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+    try testing.expectEqualStrings("info title", model.sessionById(id).?.title());
+    try testing.expectEqualStrings("info title", model.header_title());
+    try testing.expectEqualStrings("/tmp/faku-session-info", model.sessionById(id).?.projectPath());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "info title");
+    _ = try expectByText(tree.root, .button, "FX_MODEL");
+    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .button, "Build");
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "name the session" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.fx_spawn_acp);
+    const key = model.fx_spawn_key;
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"sessionId\":\"acp-info-1\"}}");
+    drainEffects(&model, &fx);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-info-1\",\"update\":{\"sessionUpdate\":\"session_info_update\",\"title\":\"\",\"cwd\":\"/tmp/should-not-apply\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("info title", model.sessionById(id).?.title());
+    try testing.expectEqualStrings("/tmp/faku-session-info", model.sessionById(id).?.projectPath());
+    try testing.expectEqual(@as(usize, 0), lastAssistant(&model).len);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-info-1\",\"update\":{\"sessionUpdate\":\"session_info_update\",\"updatedAt\":\"2025-10-29T14:22:15Z\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("info title", model.sessionById(id).?.title());
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-info-1\",\"update\":{\"sessionUpdate\":\"session_info_update\",\"_meta\":{\"fx\":{\"modelResponseRecovery\":null}}}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("info title", model.sessionById(id).?.title());
+    try testing.expectEqualStrings("/tmp/faku-session-info", model.sessionById(id).?.projectPath());
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-info-1\",\"update\":{\"sessionUpdate\":\"session_info_update\",\"title\":\"Implement user authentication\",\"cwd\":\"/tmp/should-not-apply\",\"updatedAt\":\"2025-10-29T14:22:15Z\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("Implement user authentication", model.sessionById(id).?.title());
+    try testing.expectEqualStrings("Implement user authentication", model.header_title());
+    try testing.expectEqualStrings("Implement user authentication", model.selected_title());
+    try testing.expect(!model.sessionById(id).?.untitled);
+    try testing.expectEqualStrings("/tmp/faku-session-info", model.sessionById(id).?.projectPath());
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{"Implement user authentication"});
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Implement user authentication");
+    try testing.expect(findByText(tree.root, .text, "info title") == null);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-info-1\",\"update\":{\"sessionUpdate\":\"current_mode_update\",\"currentModeId\":\"ask\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("ask", model.sessionById(id).?.accessMode());
+    try testing.expectEqualStrings("Implement user authentication", model.sessionById(id).?.title());
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-info-1\",\"update\":{\"sessionUpdate\":\"config_option_update\",\"configOptions\":[{\"id\":\"model\",\"name\":\"Model\",\"type\":\"select\",\"currentValue\":\"openai/gpt-5.4\",\"options\":[]}]}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("openai/gpt-5.4", model.sessionById(id).?.model());
+    try testing.expectEqualStrings("Implement user authentication", model.sessionById(id).?.title());
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-info-1\",\"update\":{\"sessionUpdate\":\"available_commands_update\",\"availableCommands\":[{\"name\":\"compact\"}]}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(usize, 1), model.sessionById(id).?.availableCommands().len);
+    try testing.expectEqualStrings("compact", model.sessionById(id).?.availableCommands()[0].name());
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-info-1\",\"update\":{\"sessionUpdate\":\"agent_thought_chunk\",\"content\":{\"type\":\"text\",\"text\":\"stay on the reasoning row\"}}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("stay on the reasoning row", lastReasoning(&model));
+    try testing.expectEqualStrings("Implement user authentication", model.sessionById(id).?.title());
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-info-1\",\"update\":{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"call_info\",\"title\":\"Reading file\",\"kind\":\"read\",\"status\":\"pending\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("Reading file · read · pending", lastTool(&model));
+    try testing.expectEqualStrings("Implement user authentication", model.sessionById(id).?.title());
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-info-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"title updated\"}}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("title updated", lastAssistant(&model));
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "session_info_update") == null);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "Implement user authentication") == null);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .reasoning));
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .tool));
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .assistant));
+    try testing.expectEqualStrings("Implement user authentication", model.sessionById(id).?.title());
+    try testing.expectEqualStrings("/tmp/faku-session-info", model.sessionById(id).?.projectPath());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings("Implement user authentication", loaded.session_store[0].title());
+    try testing.expect(!loaded.session_store[0].untitled);
+    try testing.expectEqualStrings("/tmp/faku-session-info", loaded.session_store[0].projectPath());
+    try testing.expectEqualStrings("ask", loaded.session_store[0].accessMode());
+    try testing.expectEqualStrings("openai/gpt-5.4", loaded.session_store[0].model());
+    try testing.expectEqual(@as(usize, 1), loaded.session_store[0].availableCommands().len);
+    try expectSidebarTitles(loaded.sidebar_rows(arena), &.{"Implement user authentication"});
+    tree = try buildTree(arena, &loaded);
+    _ = try expectByText(tree.root, .text, "Implement user authentication");
+    _ = try expectByText(tree.root, .button, "openai/gpt-5.4");
+    _ = try expectByText(tree.root, .button, "Ask");
+    _ = try expectByText(tree.root, .button, "Build");
+}
+
 test "composer Commands lists stored names; empty hides; pick inserts /name and persists; no spawn" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

@@ -2836,6 +2836,10 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
         applyAcpAvailableCommands(model, fx, commands);
         return;
     }
+    if (acp.sessionInfoTitle(parsed)) |title| {
+        applyAcpSessionInfoTitle(model, fx, title);
+        return;
+    }
     if (acp.toolUpdate(parsed)) |tool| {
         applyAcpToolUpdate(model, fx, tool);
         return;
@@ -2880,6 +2884,14 @@ fn applyAcpAvailableCommands(model: *Model, fx: *Effects, commands: []const acp.
     if (session.id == model.selected and session.available_command_count == 0) {
         model.closeCommands();
     }
+    store.persistIfPossible(model, session.id, fx);
+}
+
+/// Official ACP `session_info_update` `title`. Same merge-only catalog
+/// write as mode / model / commands. Empty titles never reach here.
+fn applyAcpSessionInfoTitle(model: *Model, fx: *Effects, title: []const u8) void {
+    const session = model.sessionById(model.streaming_session) orelse return;
+    session.setTitle(title);
     store.persistIfPossible(model, session.id, fx);
 }
 
