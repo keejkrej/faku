@@ -70,8 +70,26 @@
 //! required (nil is a notify and the daemon sends no response). Prompt
 //! and start target that runtime id when one exists; this port cannot
 //! wait for attach before the one-shot prompt, so a later send reuses
-//! a persisted id. Start / loadTaskState are not part of that attach
-//! flow.
+//! a persisted id.
+//!
+//! `start` is `Command::Start { options }` (`WireDriverStartOptions`).
+//! Verified against egoist/waku `apps/web/src/lib/runtime-context.tsx`
+//! `sendPrompt`: attach first when no local runtime entry; if attach
+//! still leaves no runtime, `client.request({ type: 'start', options })`
+//! then `{ type: 'prompt' }`. Native `src/app/runtime.rs` attach is
+//! observe-only (`Command::AttachSession`); a missing runtime starts
+//! the provider through `driver::start_remote` / daemon `Command::Start`.
+//! `crates/waku-core/src/daemon.rs` stores the request-frame
+//! `runtimeId` with the new driver and replies `{ type: "started",
+//! supportsSteer }`. Mapped options this port already stores:
+//! `provider`, `binary` (provider default), `cwd` (`project_path` or
+//! `"."`), `mode` (`access_mode`), `interactionMode`, `model` when
+//! non-empty, `computerUseEnabled` false. Other Waku start fields
+//! (`reasoningEffort`, `serviceTier`, `contextWindow`, `agentPreset`,
+//! `providerCursor`) are not stored here and are not invented. The
+//! one-shot first send (empty persisted runtime id) is hello +
+//! attachSession + start + prompt. A later send with a stored runtime
+//! id stays hello + attachSession + prompt.
 
 const std = @import("std");
 

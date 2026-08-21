@@ -101,7 +101,8 @@ puts that path in `session/new` / `session/resume` `cwd`; otherwise
 image / fallback path still starts
 `/bin/sh -c 'cd -- "$1" && shift && exec "$@"'` with the workspace as
 `$1`. Empty or missing paths leave the host process cwd for `fx ask`.
-`PWD` is not used. Protocol `StartOptions.cwd` stays unused.
+`PWD` is not used. Daemon `start` uses stored `project_path` as
+`StartOptions.cwd`, or `"."` when that field is empty.
 
 New sessions inherit `last_project_path` from `sessions.json` when one
 was persisted. The composer project row under the prompt sets that
@@ -251,6 +252,10 @@ not a live steer yet.
 Daemon (sidecar, not embedded): when `WAKU_DAEMON_ADDRESS` is set, Send
 spawns the same binary as `faku daemon-proxy <addr>` with hello +
 `attachSession` + prompt JSON in the one-shot spawn stdin.
+When the session has no persisted runtime id, that first stdin also
+includes `start` (mapped from stored `access_mode`, `interaction_mode`,
+`model`, and `project_path`) before prompt; later sends keep attach +
+prompt.
 `attachSession` is a one-shot before the daemon prompt, not a live
 runtime loop. The sidecar does the TCP + WebSocket handshake to
 `ws://{addr}/v1`, prints each incoming text frame as one stdout line,
