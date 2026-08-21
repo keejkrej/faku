@@ -5,6 +5,7 @@ const protocol = @import("protocol.zig");
 const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const rewind = @import("rewind.zig");
+const acp = @import("acp.zig");
 
 const canvas = native_sdk.canvas;
 const testing = std.testing;
@@ -241,6 +242,9 @@ test "send with fx_available spawns one-shot fx acp and streams session/update t
     try testing.expect(!argvHas(request.argv, "--model"));
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"initialize\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/new\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/set_mode\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"modeId\":\"code\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "session/set_config_option") == null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "session/resume") == null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "what does this repo do") != null);
@@ -437,6 +441,53 @@ test "fx ask spawn records FX_MODEL and FX_PERMISSION_MODE" {
     try testing.expect(!argvHas(request.argv, "ask"));
     try testing.expect(!argvHas(request.argv, "--model"));
     try testing.expect(std.mem.indexOf(u8, request.stdin, "with env") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"initialize\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/new\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/set_mode\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"modeId\":\"code\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/set_config_option\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"configId\":\"model\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"value\":\"openai/gpt-5.4\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
+    try testing.expect(methodBefore(request.stdin, "session/new", "session/set_mode"));
+    try testing.expect(methodBefore(request.stdin, "session/set_mode", "session/set_config_option"));
+    try testing.expect(methodBefore(request.stdin, "session/set_config_option", "session/prompt"));
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "fullAccess") == null);
+}
+
+test "fx acp stdin omits model config when model is empty" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("empty model", .fx);
+    if (model.sessionById(id)) |session| {
+        session.setModel("");
+        session.setAccessMode("ask");
+    }
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "no model set" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(usize, 0), model.lastSpawnFxModel().len);
+    try testing.expectEqualStrings("ask", model.lastSpawnFxPermissionMode());
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(argvHas(request.argv, "acp"));
+    try testing.expect(argvHas(request.argv, "FX_PERMISSION_MODE=ask"));
+    try testing.expect(!argvHas(request.argv, "FX_MODEL="));
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"initialize\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/new\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/set_mode\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"modeId\":\"ask\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "session/set_config_option") == null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"configId\":\"model\"") == null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
+    try testing.expect(methodBefore(request.stdin, "session/new", "session/set_mode"));
+    try testing.expect(methodBefore(request.stdin, "session/set_mode", "session/prompt"));
 }
 
 test "newSession draft loads on New Task and is discarded after first send" {
@@ -567,6 +618,17 @@ test "Waku access_mode maps to verified FX_PERMISSION_MODE values" {
     try testing.expectEqualStrings("", main.fxPermissionMode(""));
 }
 
+test "Waku access_mode maps to fx ACP ask|code, not fullAccess" {
+    try testing.expectEqualStrings("ask", acp.sessionMode("ask"));
+    try testing.expectEqualStrings("code", acp.sessionMode("code"));
+    try testing.expectEqualStrings("code", acp.sessionMode("auto"));
+    try testing.expectEqualStrings("code", acp.sessionMode("autoAcceptEdits"));
+    try testing.expectEqualStrings("code", acp.sessionMode("fullAccess"));
+    try testing.expectEqualStrings("code", acp.sessionMode("yolo"));
+    try testing.expectEqualStrings("", acp.sessionMode(""));
+    try testing.expectEqualStrings("", acp.sessionMode("nope"));
+}
+
 fn drainEffects(model: *Model, fx: *Effects) void {
     while (fx.takeMsg()) |msg| main.update(model, msg, fx);
 }
@@ -580,6 +642,12 @@ fn argvIndex(argv: []const []const u8, needle: []const u8) ?usize {
         if (std.mem.eql(u8, arg, needle)) return i;
     }
     return null;
+}
+
+fn methodBefore(stdin: []const u8, earlier: []const u8, later: []const u8) bool {
+    const a = std.mem.indexOf(u8, stdin, earlier) orelse return false;
+    const b = std.mem.indexOf(u8, stdin, later) orelse return false;
+    return a < b;
 }
 
 test "send + stream finish persists the selected session for a later load" {
