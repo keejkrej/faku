@@ -18,12 +18,19 @@
             <text>New Task</text>
           </row>
         </list-item>
-        <list-item height="32" label="Search">
-          <row gap="10" cross="center" padding="4">
-            <icon name="search" />
-            <text>Search</text>
+        <if test="{search_active}">
+          <row height="32" cross="center">
+            <search-field grow="1" height="32" placeholder="Search" text="{search_query}" on-input="search_edit" autofocus="true" />
           </row>
-        </list-item>
+        </if>
+        <else>
+          <list-item height="32" on-press="start_search" label="Search">
+            <row gap="10" cross="center" padding="4">
+              <icon name="search" />
+              <text>Search</text>
+            </row>
+          </list-item>
+        </else>
         <spacer height="10" />
         <row height="28" cross="center">
           <spacer width="8" />

@@ -12,8 +12,8 @@ https://x.com/localhost_5173/status/2090464458695192842
 This app replaces the GPUI window with Vercel Native SDK markup plus a Zig
 Model / Msg / update loop. waku-daemon can stay the brain. Faku is the window,
 and it is fx-first. Desktop chrome matches the stopped Waku-parity cut
-(chromeless 48px header, measured sidebar, composer send circle); headless
-paths are unchanged.
+(chromeless 48px header, measured sidebar, composer send circle); sidebar
+Search filters the local `sessions.json` catalog; headless paths are unchanged.
 
 ## Why fx
 
