@@ -3700,6 +3700,143 @@ test "cmd-[ / cmd-] and ctrl-[ / ctrl-] walk session history via onKey" {
     try testing.expectEqual(Msg.stop, main.onKey(escape).?);
 }
 
+test "cmd-b and ctrl-b toggle sidebar collapse via onKey" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expect(!model.sidebar_collapsed);
+    try testing.expect(model.sidebar_expanded());
+
+    // Composer typing: plain b is draft text, not collapse.
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "b" } }, &fx);
+    try testing.expectEqualStrings("b", model.draft());
+    const plain_b = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "b" };
+    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_b));
+    try testing.expect(!model.sidebar_collapsed);
+    try testing.expectEqualStrings("b", model.draft());
+
+    var tree = try buildTree(arena, &model);
+    const collapse = try expectButton(tree.root, "Collapse sidebar");
+    try testing.expectEqual(Msg.toggle_sidebar, tree.msgForPointer(collapse.id, .up).?);
+
+    const cmd_b = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "b",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.toggle_sidebar, main.onKey(cmd_b).?);
+    main.update(&model, main.onKey(cmd_b).?, &fx);
+    try testing.expect(model.sidebar_collapsed);
+    try testing.expect(!model.sidebar_expanded());
+    try testing.expectEqual(main.sidebar_rail_width / main.window_width, model.sidebar_split);
+    try testing.expectEqual(main.sidebar_rail_width, model.sidebar_pane_min());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Today") == null);
+    try testing.expect(findPressableContaining(tree.root, "Search") == null);
+    try testing.expect(findPressableContaining(tree.root, "New Task") == null);
+    _ = try expectButton(tree.root, "Expand sidebar");
+
+    main.update(&model, main.onKey(cmd_b).?, &fx);
+    try testing.expect(!model.sidebar_collapsed);
+    try testing.expectEqual(main.sidebar_default_width / main.window_width, model.sidebar_split);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Today");
+    _ = try expectButton(tree.root, "Search");
+    _ = try expectButton(tree.root, "New Task");
+    _ = try expectButton(tree.root, "Collapse sidebar");
+
+    const ctrl_b = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "B",
+        .modifiers = .{ .control = true },
+    };
+    try testing.expectEqual(Msg.toggle_sidebar, main.onKey(ctrl_b).?);
+    main.update(&model, main.onKey(ctrl_b).?, &fx);
+    try testing.expect(model.sidebar_collapsed);
+
+    const cmd_n = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "n",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.new_session, main.onKey(cmd_n).?);
+    const cmd_back = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "[",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.history_back, main.onKey(cmd_back).?);
+}
+
+test "cmd-b persist extras stay merge-only" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-sidebar-cmd-b", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    const cmd_b = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "b",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.toggle_sidebar, main.onKey(cmd_b).?);
+
+    var missing = main.initialModel();
+    missing.task_state_loaded = true;
+    missing.setStoreDir(dir);
+    missing.store_io = testing.io;
+    main.update(&missing, main.onKey(cmd_b).?, &fx);
+    try testing.expect(missing.sidebar_collapsed);
+    var missing_path: [std.fs.max_path_bytes]u8 = undefined;
+    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().readFileAlloc(testing.io, store.catalogPath(dir, &missing_path).?, testing.allocator, .limited(64)));
+
+    var source = main.initialModel();
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = testing.io;
+    try store.saveSession(&source, source.session_store[0].id, testing.allocator, testing.io);
+    try store.saveSession(&source, source.session_store[1].id, testing.allocator, testing.io);
+    source.sidebar_last_width = 320;
+    source.sidebar_split = 320 / main.window_width;
+    main.update(&source, main.onKey(cmd_b).?, &fx);
+    try testing.expect(source.sidebar_collapsed);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expect(loaded.sidebar_collapsed);
+    try testing.expectEqual(@as(u32, 2), loaded.session_count);
+    try testing.expectEqual(source.session_store[0].id, loaded.session_store[0].id);
+    try testing.expectEqual(source.session_store[1].id, loaded.session_store[1].id);
+    try testing.expectEqual(@as(u32, 320), loaded.sidebarWidthPixels());
+    try testing.expectEqual(main.sidebar_rail_width / main.window_width, loaded.sidebar_split);
+
+    main.update(&loaded, main.onKey(cmd_b).?, &fx);
+    try testing.expect(!loaded.sidebar_collapsed);
+
+    var restored = Model{};
+    restored.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&restored, testing.allocator, testing.io));
+    try testing.expect(!restored.sidebar_collapsed);
+    try testing.expectEqual(@as(u32, 2), restored.session_count);
+    try testing.expectEqual(source.session_store[0].id, restored.session_store[0].id);
+    try testing.expectEqual(source.session_store[1].id, restored.session_store[1].id);
+    try testing.expectEqual(@as(u32, 320), restored.sidebarWidthPixels());
+}
+
 fn expectLaidOutHeight(root: canvas.Widget, id: canvas.ObjectId, height: f32) !void {
     var nodes: [256]canvas.WidgetLayoutNode = undefined;
     const layout = try canvas.layoutWidgetTree(
