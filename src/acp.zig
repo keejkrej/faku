@@ -73,6 +73,15 @@ pub const SESSION_UPDATE_TOOL_CALL_UPDATE = "tool_call_update";
 /// the parser accepts either. vercel-labs/fx `src/acp/types.zig` and
 /// fx.sh ACP docs do not emit this today.
 pub const SESSION_UPDATE_CURRENT_MODE = "current_mode_update";
+/// Official ACP v1 `session/update` when session config options change
+/// (https://agentclientprotocol.com/protocol/v1/schema `ConfigOptionUpdate`,
+/// https://agentclientprotocol.com/protocol/v1/session-config-options).
+/// Wire field is `configOptions` (array of `SessionConfigOption`). The
+/// model chip reads the option whose `id` is `model` (same id we send
+/// on `session/set_config_option`) and applies `currentValue`. The
+/// `options` catalog is not stored. vercel-labs/fx `src/acp/types.zig`
+/// and fx.sh ACP docs do not emit this today.
+pub const SESSION_UPDATE_CONFIG_OPTION = "config_option_update";
 pub const STOP_END_TURN = "end_turn";
 pub const STOP_CANCELLED = "cancelled";
 pub const STOP_REFUSAL = "refusal";
@@ -134,6 +143,9 @@ pub const Parsed = struct {
     mode_id: []const u8 = "",
     config_id: []const u8 = "",
     config_value: []const u8 = "",
+    /// True when `config_option_update` carried a string `currentValue`
+    /// on the `id: "model"` option (empty string is still a value).
+    has_config_model: bool = false,
     /// ACP `usage_update` token counts. Null unless that key is a number.
     used: ?u64 = null,
     size: ?u64 = null,
@@ -473,6 +485,17 @@ pub fn currentModeUpdate(parsed: Parsed) ?[]const u8 {
     return accessModeFromSessionMode(parsed.mode_id);
 }
 
+/// Official ACP v1 `config_option_update`. Returns `currentValue` from
+/// the `id: "model"` option. Missing option, non-string value, or a
+/// different `sessionUpdate` is ignored. Empty `currentValue` is a
+/// real update (chip stays the fx default label).
+pub fn configOptionModel(parsed: Parsed) ?[]const u8 {
+    if (parsed.method != .session_update) return null;
+    if (!std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_CONFIG_OPTION)) return null;
+    if (!parsed.has_config_model) return null;
+    return parsed.config_value;
+}
+
 /// ACP v1 `usage_update`: `used` and `size` are required token counts.
 /// Missing either, or `size == 0`, is not a usable update.
 pub fn usageUpdate(parsed: Parsed) ?UsageUpdate {
@@ -547,10 +570,144 @@ fn parseUintAt(text: []const u8, start: usize) ?u64 {
     return value;
 }
 
+fn skipJsonString(text: []const u8, start: usize) usize {
+    if (start >= text.len or text[start] != '"') return start;
+    var i = start + 1;
+    while (i < text.len) : (i += 1) {
+        if (text[i] == '\\') {
+            i += 1;
+            continue;
+        }
+        if (text[i] == '"') return i + 1;
+    }
+    return text.len;
+}
+
+fn skipJsonValue(text: []const u8, start: usize) usize {
+    const i = skipWs(text, start);
+    if (i >= text.len) return i;
+    return switch (text[i]) {
+        '"' => skipJsonString(text, i),
+        '{', '[' => skipJsonContainer(text, i),
+        else => skipJsonAtom(text, i),
+    };
+}
+
+fn skipJsonAtom(text: []const u8, start: usize) usize {
+    var i = start;
+    while (i < text.len) : (i += 1) {
+        switch (text[i]) {
+            ',', '}', ']', ' ', '\t', '\r', '\n' => return i,
+            else => {},
+        }
+    }
+    return i;
+}
+
+fn skipJsonContainer(text: []const u8, start: usize) usize {
+    if (start >= text.len) return start;
+    const open = text[start];
+    const close: u8 = if (open == '{') '}' else if (open == '[') ']' else return start;
+    var depth: usize = 0;
+    var i = start;
+    var in_string = false;
+    var escape = false;
+    while (i < text.len) : (i += 1) {
+        const c = text[i];
+        if (in_string) {
+            if (escape) {
+                escape = false;
+            } else if (c == '\\') {
+                escape = true;
+            } else if (c == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+        switch (c) {
+            '"' => in_string = true,
+            '{', '[' => {
+                if (c == open) depth += 1;
+            },
+            '}', ']' => {
+                if (c == close) {
+                    depth -= 1;
+                    if (depth == 0) return i + 1;
+                }
+            },
+            else => {},
+        }
+    }
+    return text.len;
+}
+
+/// Immediate string field of one JSON object. Nested objects/arrays are
+/// skipped so `options[].value` cannot shadow `currentValue`.
+fn objectStringField(text: []const u8, start: usize, end: usize, key: []const u8) ?[]const u8 {
+    if (start >= end or text[start] != '{') return null;
+    var i = start + 1;
+    while (i < end) {
+        i = skipWs(text, i);
+        if (i >= end or text[i] == '}') break;
+        if (text[i] != '"') {
+            i = skipJsonValue(text, i);
+            continue;
+        }
+        const key_start = i + 1;
+        const after_key = skipJsonString(text, i);
+        if (after_key <= key_start) break;
+        const key_slice = text[key_start .. after_key - 1];
+        i = skipWs(text, after_key);
+        if (i >= end or text[i] != ':') break;
+        i = skipWs(text, i + 1);
+        if (std.mem.eql(u8, key_slice, key)) {
+            if (i < end and text[i] == '"') return parseJsonStringAt(text, i);
+            return null;
+        }
+        i = skipJsonValue(text, i);
+        i = skipWs(text, i);
+        if (i < end and text[i] == ',') i += 1;
+    }
+    return null;
+}
+
+/// `configOptions` entry whose `id` is `model` and whose `currentValue`
+/// is a string. Other options, boolean values, and missing fields drop.
+fn scanConfigOptionModel(text: []const u8) ?[]const u8 {
+    const at = findKey(text, "configOptions") orelse return null;
+    var i = skipWs(text, at);
+    if (i >= text.len or text[i] != '[') return null;
+    i += 1;
+    while (i < text.len) {
+        i = skipWs(text, i);
+        if (i >= text.len or text[i] == ']') break;
+        if (text[i] == ',') {
+            i += 1;
+            continue;
+        }
+        if (text[i] != '{') {
+            i = skipJsonValue(text, i);
+            continue;
+        }
+        const obj_end = skipJsonValue(text, i);
+        const close = if (obj_end > i) obj_end - 1 else obj_end;
+        const id = objectStringField(text, i, close, "id") orelse {
+            i = obj_end;
+            continue;
+        };
+        if (std.mem.eql(u8, id, CONFIG_ID_MODEL)) {
+            return objectStringField(text, i, close, "currentValue");
+        }
+        i = obj_end;
+    }
+    return null;
+}
+
 /// Parse one NDJSON JSON-RPC line. Slices alias `line` and die with it.
 /// Field scanner — classifies the methods above and pulls `id`,
 /// `sessionId`, `sessionUpdate`, `text`, `toolCallId`, `title`, `kind`,
-/// `status`, `stopReason`, and `currentModeId` / `modeId`.
+/// `status`, `stopReason`, `currentModeId` / `modeId`, and
+/// `config_option_update` `configOptions` `id: "model"` `currentValue`.
 pub fn parseLine(line: []const u8) Parsed {
     var parsed = Parsed{};
     const trimmed = std.mem.trim(u8, line, " \t\r\n");
@@ -615,6 +772,14 @@ pub fn parseLine(line: []const u8) Parsed {
 
     if (findKey(trimmed, "value")) |at| {
         parsed.config_value = parseJsonStringAt(trimmed, at);
+    }
+
+    if (std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_CONFIG_OPTION)) {
+        if (scanConfigOptionModel(trimmed)) |value| {
+            parsed.config_id = CONFIG_ID_MODEL;
+            parsed.config_value = value;
+            parsed.has_config_model = true;
+        }
     }
 
     if (findKey(trimmed, "used")) |at| {
@@ -822,6 +987,7 @@ test "ACP parser classifies result, error, update, and stopReason" {
     try std.testing.expect(toolUpdate(thought) == null);
     try std.testing.expect(usageUpdate(thought) == null);
     try std.testing.expect(currentModeUpdate(thought) == null);
+    try std.testing.expect(configOptionModel(thought) == null);
 
     const mode_ask = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"sess-1\",\"update\":{\"sessionUpdate\":\"current_mode_update\",\"currentModeId\":\"ask\"}}}");
     try std.testing.expectEqual(Method.session_update, mode_ask.method);
@@ -843,9 +1009,37 @@ test "ACP parser classifies result, error, update, and stopReason" {
     try std.testing.expectEqualStrings(SESSION_UPDATE_CURRENT_MODE, mode_unknown.session_update);
     try std.testing.expectEqualStrings("architect", mode_unknown.mode_id);
     try std.testing.expect(currentModeUpdate(mode_unknown) == null);
+    try std.testing.expect(configOptionModel(mode_unknown) == null);
 
     const mode_missing_id = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"current_mode_update\"}}}");
     try std.testing.expect(currentModeUpdate(mode_missing_id) == null);
+
+    const config_model = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"sess-1\",\"update\":{\"sessionUpdate\":\"config_option_update\",\"configOptions\":[{\"id\":\"mode\",\"name\":\"Session Mode\",\"type\":\"select\",\"currentValue\":\"code\",\"options\":[{\"value\":\"ask\",\"name\":\"Ask\"}]},{\"id\":\"model\",\"name\":\"Model\",\"type\":\"select\",\"currentValue\":\"openai/gpt-5.4\",\"options\":[{\"value\":\"openai/gpt-5.4\",\"name\":\"GPT\"}]}]}}}");
+    try std.testing.expectEqual(Method.session_update, config_model.method);
+    try std.testing.expectEqualStrings(SESSION_UPDATE_CONFIG_OPTION, config_model.session_update);
+    try std.testing.expectEqualStrings(CONFIG_ID_MODEL, config_model.config_id);
+    try std.testing.expectEqualStrings("openai/gpt-5.4", configOptionModel(config_model).?);
+    try std.testing.expect(!isAgentMessageText(config_model));
+    try std.testing.expect(!isAgentThoughtText(config_model));
+    try std.testing.expect(currentModeUpdate(config_model) == null);
+    try std.testing.expect(toolUpdate(config_model) == null);
+    try std.testing.expect(usageUpdate(config_model) == null);
+
+    const config_empty = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"config_option_update\",\"configOptions\":[{\"id\":\"model\",\"name\":\"Model\",\"type\":\"select\",\"currentValue\":\"\",\"options\":[]}]}}}");
+    try std.testing.expectEqualStrings("", configOptionModel(config_empty).?);
+
+    const config_mode_only = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"config_option_update\",\"configOptions\":[{\"id\":\"mode\",\"name\":\"Session Mode\",\"type\":\"select\",\"currentValue\":\"ask\",\"options\":[]}]}}}");
+    try std.testing.expectEqualStrings(SESSION_UPDATE_CONFIG_OPTION, config_mode_only.session_update);
+    try std.testing.expect(configOptionModel(config_mode_only) == null);
+
+    const config_missing_value = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"config_option_update\",\"configOptions\":[{\"id\":\"model\",\"name\":\"Model\",\"type\":\"select\",\"options\":[]}]}}}");
+    try std.testing.expect(configOptionModel(config_missing_value) == null);
+
+    const config_boolean = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"config_option_update\",\"configOptions\":[{\"id\":\"model\",\"name\":\"Model\",\"type\":\"boolean\",\"currentValue\":true}]}}}");
+    try std.testing.expect(configOptionModel(config_boolean) == null);
+
+    const config_missing_options = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"config_option_update\"}}}");
+    try std.testing.expect(configOptionModel(config_missing_options) == null);
 
     const user = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"user_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"ignore\"}}}}");
     try std.testing.expect(!isAgentMessageText(user));

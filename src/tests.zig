@@ -697,6 +697,120 @@ test "ACP current_mode_update ask then code updates access chip and persists; un
     _ = try expectByText(tree.root, .button, "Build");
 }
 
+test "ACP config_option_update sets model chip and persists; unknown is ignored" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-config-model", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("model chip", .fx);
+    model.selected = id;
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.model().len);
+    try testing.expectEqualStrings("FX_MODEL", model.model_label());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "FX_MODEL");
+    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .button, "Build");
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "switch models" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.fx_spawn_acp);
+    const key = model.fx_spawn_key;
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"sessionId\":\"acp-model-1\"}}");
+    drainEffects(&model, &fx);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-model-1\",\"update\":{\"sessionUpdate\":\"config_option_update\",\"configOptions\":[{\"id\":\"mode\",\"name\":\"Session Mode\",\"type\":\"select\",\"currentValue\":\"ask\",\"options\":[]}]}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.model().len);
+    try testing.expectEqualStrings("FX_MODEL", model.model_label());
+    try testing.expectEqualStrings("fullAccess", model.sessionById(id).?.accessMode());
+    try testing.expectEqual(@as(usize, 0), lastAssistant(&model).len);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-model-1\",\"update\":{\"sessionUpdate\":\"session_info_update\",\"title\":\"not a model\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("FX_MODEL", model.model_label());
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-model-1\",\"update\":{\"sessionUpdate\":\"config_option_update\",\"configOptions\":[{\"id\":\"mode\",\"name\":\"Session Mode\",\"type\":\"select\",\"currentValue\":\"code\",\"options\":[]},{\"id\":\"model\",\"name\":\"Model\",\"type\":\"select\",\"currentValue\":\"openai/gpt-5.4\",\"options\":[{\"value\":\"openai/gpt-5.4\",\"name\":\"GPT\"},{\"value\":\"anthropic/claude-sonnet-4\",\"name\":\"Claude\"}]}]}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("openai/gpt-5.4", model.sessionById(id).?.model());
+    try testing.expectEqualStrings("openai/gpt-5.4", model.lastModel());
+    try testing.expectEqualStrings("openai/gpt-5.4", model.model_label());
+    try testing.expectEqualStrings("fullAccess", model.sessionById(id).?.accessMode());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "openai/gpt-5.4");
+    try testing.expect(findByText(tree.root, .button, "FX_MODEL") == null);
+    try testing.expect(findByText(tree.root, .button, "anthropic/claude-sonnet-4") == null);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-model-1\",\"update\":{\"sessionUpdate\":\"current_mode_update\",\"currentModeId\":\"ask\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("ask", model.sessionById(id).?.accessMode());
+    try testing.expectEqualStrings("openai/gpt-5.4", model.sessionById(id).?.model());
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-model-1\",\"update\":{\"sessionUpdate\":\"agent_thought_chunk\",\"content\":{\"type\":\"text\",\"text\":\"stay on the reasoning row\"}}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("stay on the reasoning row", lastReasoning(&model));
+    try testing.expectEqualStrings("openai/gpt-5.4", model.sessionById(id).?.model());
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-model-1\",\"update\":{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"call_model\",\"title\":\"Reading file\",\"kind\":\"read\",\"status\":\"pending\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("Reading file · read · pending", lastTool(&model));
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-model-1\",\"update\":{\"sessionUpdate\":\"config_option_update\",\"configOptions\":[{\"id\":\"model\",\"name\":\"Model\",\"type\":\"select\",\"currentValue\":\"\",\"options\":[]}]}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.model().len);
+    try testing.expectEqualStrings("openai/gpt-5.4", model.lastModel());
+    try testing.expectEqualStrings("FX_MODEL", model.model_label());
+    try testing.expectEqualStrings("stay on the reasoning row", lastReasoning(&model));
+    try testing.expectEqualStrings("Reading file · read · pending", lastTool(&model));
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "FX_MODEL");
+    try testing.expect(findByText(tree.root, .button, "openai/gpt-5.4") == null);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-model-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"model switched\"}}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("model switched", lastAssistant(&model));
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "config_option_update") == null);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "openai/gpt-5.4") == null);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .reasoning));
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .tool));
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .assistant));
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(@as(usize, 0), loaded.session_store[0].model().len);
+    try testing.expectEqualStrings("openai/gpt-5.4", loaded.lastModel());
+    try testing.expectEqualStrings("FX_MODEL", loaded.model_label());
+    try testing.expectEqualStrings("ask", loaded.session_store[0].accessMode());
+    tree = try buildTree(arena, &loaded);
+    _ = try expectByText(tree.root, .button, "FX_MODEL");
+    _ = try expectByText(tree.root, .button, "Ask");
+    _ = try expectByText(tree.root, .button, "Build");
+}
+
 test "fx ask spawn records FX_MODEL and FX_PERMISSION_MODE" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
