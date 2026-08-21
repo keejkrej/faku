@@ -17,6 +17,12 @@
 //! RPC. A new session is a client-built AgentSession persisted with
 //! `saveTaskState`. After `turnFinished`, dequeue local `queuedMessages`
 //! and send the next `prompt`.
+//!
+//! `saveTaskState` is not a bare command. Verified against egoist/waku
+//! `crates/waku-protocol/src/protocol.rs` and `persistSession` in
+//! `apps/web/src/lib/daemon-api.ts`: `{ type, projects, liveSessionIds,
+//! sessions }`. Local `sessions.json` stays canonical; this payload is
+//! a best-effort daemon mirror of one started-session skeleton.
 
 const std = @import("std");
 
@@ -350,6 +356,83 @@ pub fn writeStart(
     return cur.slice();
 }
 
+/// One started-session skeleton for `saveTaskState`.
+///
+/// Verified Waku command fields are `projects`, `liveSessionIds`, and
+/// `sessions`. AgentSession/Project keep snake_case keys (`project_id`,
+/// `runtime_mode`, `created_at`). `has_started` and `project_path` are
+/// Faku extras on the session object so the daemon can remember the
+/// same skeleton the local catalog stores; Waku serde ignores unknown
+/// fields. `has_started` is also implied: this builder is only emitted
+/// after a started-session persist.
+pub const TaskStateSkeleton = struct {
+    session_id: []const u8,
+    title: []const u8,
+    provider: []const u8,
+    project_path: []const u8 = "",
+    has_started: bool = true,
+    runtime_mode: []const u8 = "fullAccess",
+};
+
+fn projectName(path: []const u8) []const u8 {
+    if (path.len == 0) return "No project";
+    var i = path.len;
+    while (i > 0) {
+        i -= 1;
+        if (path[i] == '/' or path[i] == '\\') {
+            if (i + 1 < path.len) return path[i + 1 ..];
+            return "Project";
+        }
+    }
+    return path;
+}
+
+/// Request wrapping verified `saveTaskState` `{ projects, liveSessionIds, sessions }`.
+/// Enough for the daemon to remember one session skeleton (id, title,
+/// provider, project_path, has_started). Not a replacement for the local store.
+pub fn writeSaveTaskState(
+    buf: []u8,
+    request_id: []const u8,
+    runtime_id: []const u8,
+    skeleton: TaskStateSkeleton,
+) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    try cur.write("{\"type\":\"request\",\"requestId\":");
+    try writeJsonString(&cur, request_id);
+    try cur.write(",\"sessionId\":");
+    try writeJsonString(&cur, skeleton.session_id);
+    try cur.write(",\"runtimeId\":");
+    try writeJsonString(&cur, runtime_id);
+    try cur.write(",\"command\":{\"type\":\"saveTaskState\",\"projects\":[");
+    if (skeleton.project_path.len > 0) {
+        try cur.write("{\"id\":");
+        try writeJsonString(&cur, skeleton.session_id);
+        try cur.write(",\"name\":");
+        try writeJsonString(&cur, projectName(skeleton.project_path));
+        try cur.write(",\"path\":");
+        try writeJsonString(&cur, skeleton.project_path);
+        try cur.write(",\"created_at\":0}");
+    }
+    try cur.write("],\"liveSessionIds\":[");
+    try writeJsonString(&cur, skeleton.session_id);
+    try cur.write("],\"sessions\":[{\"id\":");
+    try writeJsonString(&cur, skeleton.session_id);
+    try cur.write(",\"title\":");
+    try writeJsonString(&cur, skeleton.title);
+    try cur.write(",\"project_id\":");
+    try writeJsonString(&cur, if (skeleton.project_path.len > 0) skeleton.session_id else NIL_UUID);
+    try cur.write(",\"provider\":");
+    try writeJsonString(&cur, skeleton.provider);
+    try cur.write(",\"runtime_mode\":");
+    try writeJsonString(&cur, skeleton.runtime_mode);
+    try cur.write(",\"status\":\"idle\",\"created_at\":0,\"updated_at\":0,\"project_path\":");
+    try writeJsonString(&cur, skeleton.project_path);
+    try cur.write(",\"has_started\":");
+    try writeBool(&cur, skeleton.has_started);
+    try cur.write("}]}}");
+    return cur.slice();
+}
+
 /// Bare first-cut command (attachSession, cancel, loadTaskState, closeSession, …).
 pub fn writeBareCommand(
     buf: []u8,
@@ -524,8 +607,39 @@ test "start defaults to first-party fx over acp" {
 test "first-cut command tags stay camelCase on the wire" {
     try std.testing.expectEqualStrings("loadTaskState", CommandTag.load_task_state.wireName());
     try std.testing.expectEqualStrings("hydrateSession", CommandTag.hydrate_session.wireName());
+    try std.testing.expectEqualStrings("saveTaskState", CommandTag.save_task_state.wireName());
     try std.testing.expectEqualStrings("turnFinished", EventKind.turn_finished.wireName());
     try std.testing.expectEqualStrings("textDelta", EventKind.text_delta.wireName());
+}
+
+test "saveTaskState carries verified projects liveSessionIds and a session skeleton" {
+    var buf: [1024]u8 = undefined;
+    const json = try writeSaveTaskState(&buf, NIL_UUID, NIL_UUID, .{
+        .session_id = "00000000-0000-0000-0000-000000000001",
+        .title = "port waku to zig",
+        .provider = "fx",
+        .project_path = "/tmp/faku",
+        .has_started = true,
+    });
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"saveTaskState\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"liveSessionIds\":[\"00000000-0000-0000-0000-000000000001\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"projects\":[{\"id\":\"00000000-0000-0000-0000-000000000001\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"path\":\"/tmp/faku\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"name\":\"faku\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"title\":\"port waku to zig\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"provider\":\"fx\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"project_path\":\"/tmp/faku\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"has_started\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+
+    const empty = try writeSaveTaskState(&buf, NIL_UUID, NIL_UUID, .{
+        .session_id = NIL_UUID,
+        .title = "untitled",
+        .provider = "claude",
+    });
+    try std.testing.expect(std.mem.indexOf(u8, empty, "\"projects\":[]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, empty, "\"project_id\":\"00000000-0000-0000-0000-000000000000\"") != null);
 }
 
 test "server-frame parser round-trips hello rejected response and events" {

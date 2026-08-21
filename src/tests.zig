@@ -810,6 +810,144 @@ test "daemon address send puts hello loadTaskState and prompt on spawn stdin" {
     try testing.expectEqualStrings("127.0.0.1:8787", model.lastDaemonAddress());
 }
 
+fn isSaveOnlyStdin(stdin: []const u8) bool {
+    return std.mem.indexOf(u8, stdin, "\"type\":\"saveTaskState\"") != null and
+        std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null;
+}
+
+fn findSaveOnlySpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (isSaveOnlyStdin(spawn.stdin)) return spawn;
+    }
+    return null;
+}
+
+test "persist with a daemon address records hello and saveTaskState on spawn stdin" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-save-mirror", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setDaemonToken("secret");
+    model.setSidecarPath("faku");
+    const id = model.addSession("mirror me", .fx);
+    if (model.sessionById(id)) |session| session.setProjectPath("/tmp/faku");
+    _ = model.appendTurn(id, .user, "started");
+
+    store.persistIfPossible(&model, id, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const spawn = fx.pendingSpawnAt(0).?;
+    try testing.expect(argvHas(spawn.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(spawn.argv, "127.0.0.1:8787"));
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"token\":\"secret\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"saveTaskState\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"liveSessionIds\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "mirror me") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "/tmp/faku") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"has_started\":true") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"prompt\"") == null);
+    try testing.expect(spawn.key != model.daemon_spawn_key);
+}
+
+test "persist with last_daemon_address and no live env still mirrors" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-save-last", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("last addr", .fx);
+    _ = model.appendTurn(id, .user, "started");
+    try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
+
+    store.persistIfPossible(&model, id, &fx);
+    const spawn = findSaveOnlySpawn(&fx) orelse return error.SaveSpawnMissing;
+    try testing.expect(argvHas(spawn.argv, "10.0.0.2:9"));
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"saveTaskState\"") != null);
+}
+
+test "persist without a daemon address does not spawn a sidecar" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-save-local", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const id = model.addSession("local only", .fx);
+    _ = model.appendTurn(id, .user, "started");
+
+    store.persistIfPossible(&model, id, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 1), loaded.session_count);
+    try testing.expectEqualStrings("local only", loaded.session_store[0].title());
+}
+
+test "saveTaskState sidecar failure leaves the local catalog intact" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-save-fail", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("keep me", .fx);
+    _ = model.appendTurn(id, .user, "started");
+
+    store.persistIfPossible(&model, id, &fx);
+    const spawn = findSaveOnlySpawn(&fx) orelse return error.SaveSpawnMissing;
+    try fx.feedExit(spawn.key, 1);
+    drainEffects(&model, &fx);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 1), loaded.session_count);
+    try testing.expectEqual(id, loaded.session_store[0].id);
+    try testing.expectEqualStrings("keep me", loaded.session_store[0].title());
+    store.hydrateSession(&loaded, id, testing.allocator, testing.io);
+    try testing.expectEqualStrings("started", loaded.turn_store[0].text());
+}
+
 test "daemon textDelta hydrates the turn and turnFinished settles plus drains" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
@@ -844,6 +982,7 @@ test "daemon textDelta hydrates the turn and turnFinished settles plus drains" {
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (spawn.key == key) continue;
+        if (isSaveOnlyStdin(spawn.stdin)) continue;
         try testing.expect(std.mem.indexOf(u8, spawn.stdin, "queued follow-up") != null);
         try testing.expect(std.mem.indexOf(u8, spawn.stdin, "loadTaskState") != null);
         found_follow_up = true;

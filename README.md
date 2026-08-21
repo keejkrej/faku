@@ -226,8 +226,9 @@ drains the success-only queue. Stop / Esc cancels the spawn.
 Missing `WAKU_DAEMON_ADDRESS` keeps one-shot `fx acp` / `fx ask` / the demo timer. The
 address is persisted as `last_daemon_address` in `sessions.json` for a
 later send in the same catalog; there is no picker UI. Token comes from
-`WAKU_DAEMON_TOKEN` when set. Local `sessions.json` remains the catalog;
-wire `loadTaskState` talks to the daemon only.
+`WAKU_DAEMON_TOKEN` when set. Local `sessions.json` remains the catalog
+of record; `saveTaskState` is a best-effort one-shot mirror when a daemon
+address is set. Wire `loadTaskState` talks to the daemon only.
 
 This is a sidecar. The Waku daemon is not embedded.
 

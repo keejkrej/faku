@@ -1,14 +1,16 @@
 //! One-shot waku-daemon sidecar.
 //!
 //! Native `fx.spawn` writes stdin once and then closes it. This module
-//! builds that buffer (hello + optional loadTaskState + prompt) and, when
-//! run as `faku daemon-proxy <addr>`, forwards those JSON frames over
-//! `ws://{addr}/v1`, prints each incoming text frame as one stdout line,
-//! and exits on `turnFinished` / `rejected` / `error`.
+//! builds that buffer (hello + optional loadTaskState + prompt, or hello
+//! + saveTaskState) and, when run as `faku daemon-proxy <addr>`, forwards
+//! those JSON frames over `ws://{addr}/v1`, prints each incoming text
+//! frame as one stdout line, and exits on `turnFinished` / `rejected` /
+//! `error`. A save-only stdin (no prompt) exits after server hello /
+//! response so the sidecar does not wait for a turn.
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
-//! local `sessions.json`; `loadTaskState` on the wire is only for the
-//! daemon, not a replacement for the store.
+//! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
+//! talk to the daemon only and do not replace the store.
 
 const std = @import("std");
 const protocol = @import("protocol.zig");
@@ -28,6 +30,14 @@ pub const TurnStdin = struct {
     runtime_id: []const u8 = protocol.NIL_UUID,
     prompt: []const u8,
     load_task_state: bool = false,
+};
+
+pub const SaveStdin = struct {
+    token: []const u8 = "",
+    client_id: []const u8 = CLIENT_ID,
+    request_id: []const u8 = protocol.NIL_UUID,
+    runtime_id: []const u8 = protocol.NIL_UUID,
+    skeleton: protocol.TaskStateSkeleton,
 };
 
 pub const ParsedAddress = struct {
@@ -111,6 +121,36 @@ pub fn writeTurnStdin(buf: []u8, args: TurnStdin) WriteError![]const u8 {
     return cur.slice();
 }
 
+/// NDJSON stdin for a persist-time catalog mirror. Hello + saveTaskState,
+/// no prompt. Native stdin is still one buffer.
+pub fn writeSaveStdin(buf: []u8, args: SaveStdin) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    const hello = try protocol.writeClientHello(cur.remaining(), args.token, args.client_id, &.{});
+    cur.pos += hello.len;
+    try cur.write("\n");
+    const save = try protocol.writeSaveTaskState(
+        cur.remaining(),
+        args.request_id,
+        args.runtime_id,
+        args.skeleton,
+    );
+    cur.pos += save.len;
+    try cur.write("\n");
+    return cur.slice();
+}
+
+fn outboundWaitsForTurn(outbound: []const u8) bool {
+    return std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") != null;
+}
+
+fn isSaveOnlyTerminal(parsed: protocol.ParsedServer) bool {
+    return switch (parsed.frame) {
+        .hello, .rejected, .response, .task_state_changed, .shutting_down => true,
+        .event => parsed.event_kind == .@"error",
+        else => false,
+    };
+}
+
 pub fn isSidecarArgv(args: []const []const u8) bool {
     return args.len >= 2 and std.mem.eql(u8, args[1], SUBCOMMAND);
 }
@@ -187,6 +227,7 @@ pub fn run(io: std.Io, address: []const u8, outbound: []const u8, stdout: *std.I
         };
     }
 
+    const wait_for_turn = outboundWaitsForTurn(outbound);
     var payload_buf: [nativeLineCap]u8 = undefined;
     while (true) {
         const n = readTextFrame(&reader.interface, &payload_buf) catch |err| switch (err) {
@@ -203,6 +244,7 @@ pub fn run(io: std.Io, address: []const u8, outbound: []const u8, stdout: *std.I
         defer arena_state.deinit();
         const parsed = protocol.parseServerFrame(arena_state.allocator(), line);
         if (protocol.isTerminalServerFrame(parsed)) return;
+        if (!wait_for_turn and isSaveOnlyTerminal(parsed)) return;
     }
 }
 
@@ -371,6 +413,28 @@ test "writeTurnStdin skips loadTaskState for a new session" {
     try std.testing.expect(std.mem.indexOf(u8, stdin, "loadTaskState") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") != null);
+}
+
+test "writeSaveStdin emits hello and saveTaskState without a prompt" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeSaveStdin(&buf, .{
+        .token = "secret",
+        .skeleton = .{
+            .session_id = "00000000-0000-0000-0000-000000000001",
+            .title = "mirror me",
+            .provider = "fx",
+            .project_path = "/tmp/faku",
+            .has_started = true,
+        },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"saveTaskState\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"liveSessionIds\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "mirror me") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "loadTaskState") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
 }
 
 test "parseAddress strips ws scheme and keeps /v1" {

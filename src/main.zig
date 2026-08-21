@@ -858,7 +858,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             if (model.sessionById(id)) |session| session.untitled = true;
             model.selected = id;
             // Client-built; persist is a no-op until first real content.
-            store.persistIfPossible(model, id);
+            store.persistIfPossible(model, id, fx);
             store.loadDraftIfPossible(model);
         },
         .select => |id| {
@@ -905,7 +905,7 @@ fn handleSend(model: *Model, fx: *Effects) void {
             return;
         }
         if (model.enqueue(model.selected, text) != 0) {
-            store.persistIfPossible(model, model.selected);
+            store.persistIfPossible(model, model.selected, fx);
         }
         model.draft_buffer.clear();
         if (draft_key) |key| store.discardDraftIfPossible(model, key);
@@ -929,7 +929,7 @@ fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) v
     }
     _ = model.appendTurn(session.id, .user, text);
     const assistant_id = model.appendTurn(session.id, .assistant, "");
-    if (titled) store.persistIfPossible(model, session.id);
+    if (titled) store.persistIfPossible(model, session.id, fx);
     session.busy = true;
     model.phase = .streaming;
     model.stream_cursor = 0;
@@ -1206,12 +1206,12 @@ fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
         recordRewindRefIfPossible(model, finished_id);
         var copy: [max_queued_text]u8 = undefined;
         if (model.takeNextQueued(finished_id, &copy)) |n| {
-            store.persistIfPossible(model, finished_id);
+            store.persistIfPossible(model, finished_id, fx);
             startPrompt(model, fx, finished_id, copy[0..n]);
             return;
         }
     }
-    store.persistIfPossible(model, finished_id);
+    store.persistIfPossible(model, finished_id, fx);
 }
 
 fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
@@ -1235,7 +1235,7 @@ fn stopStream(model: *Model, fx: *Effects) void {
     if (model.fx_spawn_key != 0) fx.cancel(model.fx_spawn_key);
     if (model.daemon_spawn_key != 0) fx.cancel(model.daemon_spawn_key);
     model.fx_spawn_live = false;
-    store.persistIfPossible(model, finished_id);
+    store.persistIfPossible(model, finished_id, fx);
 }
 
 fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
@@ -1255,7 +1255,7 @@ fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
     if (takeFxAskSessionId(keep, &id_buf)) |session_id| {
         if (model.sessionById(model.streaming_session)) |session| {
             session.setFxSessionId(session_id);
-            store.persistIfPossible(model, session.id);
+            store.persistIfPossible(model, session.id, fx);
         }
         return;
     }
@@ -1272,7 +1272,7 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
     if (minted.len > 0) {
         if (model.sessionById(model.streaming_session)) |session| {
             session.setFxSessionId(minted);
-            store.persistIfPossible(model, session.id);
+            store.persistIfPossible(model, session.id, fx);
         }
     }
     if (acp.isAgentMessageText(parsed)) {
