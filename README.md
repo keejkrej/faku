@@ -286,7 +286,8 @@ pop it), not a provider session fork. `fx_session_id` stays.
 Fork copies turns through the last turn into a new local session id
 and leaves `fx_session_id` / `runtime_id` empty so the next Send
 calls `session/new`; the source row is unchanged. That is a local
-catalog clone, not a provider session fork.
+catalog clone, not a provider session fork. Fork on a turn cuts
+there (`0..=index`) the same way.
 
 ## Demo vs daemon
 

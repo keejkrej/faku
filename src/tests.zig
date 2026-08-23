@@ -36,9 +36,21 @@ fn widgetName(widget: canvas.Widget) []const u8 {
 }
 
 fn findByText(widget: canvas.Widget, kind: canvas.WidgetKind, text: []const u8) ?canvas.Widget {
-    if (widget.kind == kind and std.mem.eql(u8, widgetName(widget), text)) return widget;
+    return findNthByText(widget, kind, text, 0);
+}
+
+fn findNthByText(widget: canvas.Widget, kind: canvas.WidgetKind, text: []const u8, n: usize) ?canvas.Widget {
+    var found: usize = 0;
+    return findNthByTextInner(widget, kind, text, n, &found);
+}
+
+fn findNthByTextInner(widget: canvas.Widget, kind: canvas.WidgetKind, text: []const u8, n: usize, found: *usize) ?canvas.Widget {
+    if (widget.kind == kind and std.mem.eql(u8, widgetName(widget), text)) {
+        if (found.* == n) return widget;
+        found.* += 1;
+    }
     for (widget.children) |child| {
-        if (findByText(child, kind, text)) |found| return found;
+        if (findNthByTextInner(child, kind, text, n, found)) |hit| return hit;
     }
     return null;
 }
@@ -602,6 +614,94 @@ test "fork copies turns and project_path; new id; empty fx_session_id; source un
     store.hydrateSession(&loaded, id, testing.allocator, testing.io);
     try testing.expectEqual(@as(u32, 3), loaded.turnCount(id));
     try testing.expectEqualStrings("first prompt", sessionTurnText(&loaded, id, 0));
+}
+
+test "fork at turn 1 copies two turns; source unchanged; empty fx_session_id; header still copies all" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-fork-turn", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+
+    const id = model.addSession("cut thread", .fx);
+    if (model.sessionById(id)) |session| {
+        session.setProjectPath("/tmp/faku-fork-turn-project");
+        session.setFxSessionId("fx-sess-cut");
+        session.setRuntimeId("00000000-0000-0000-0000-000000000004");
+        session.setModel("openai/gpt-5.4");
+    }
+    model.selected = id;
+    const turn0 = model.appendTurn(id, .user, "first prompt");
+    const turn1 = model.appendTurn(id, .assistant, "first reply");
+    const turn2 = model.appendTurn(id, .user, "second prompt");
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+
+    var tree = try buildTree(arena, &model);
+    const transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const fork0 = findNthByText(transcript, .button, "Fork", 0) orelse return error.WidgetNotFound;
+    const fork1 = findNthByText(transcript, .button, "Fork", 1) orelse return error.WidgetNotFound;
+    const fork2 = findNthByText(transcript, .button, "Fork", 2) orelse return error.WidgetNotFound;
+    try testing.expectEqual(Msg{ .fork_turn = turn0 }, tree.msgForPointer(fork0.id, .up).?);
+    try testing.expectEqual(Msg{ .fork_turn = turn1 }, tree.msgForPointer(fork1.id, .up).?);
+    try testing.expectEqual(Msg{ .fork_turn = turn2 }, tree.msgForPointer(fork2.id, .up).?);
+
+    main.update(&model, .{ .fork_turn = 0 }, &fx);
+    try testing.expectEqual(id, model.selected);
+    try testing.expectEqual(@as(u32, 1), model.session_count);
+    try testing.expectEqual(@as(u32, 3), model.turnCount(id));
+
+    main.update(&model, tree.msgForPointer(fork1.id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    const cut_id = model.selected;
+    try testing.expect(cut_id != id);
+    try testing.expect(model.composer_active);
+
+    const cut = model.sessionById(cut_id).?;
+    try testing.expectEqualStrings("cut thread", cut.title());
+    try testing.expectEqualStrings("/tmp/faku-fork-turn-project", cut.projectPath());
+    try testing.expectEqualStrings("openai/gpt-5.4", cut.model());
+    try testing.expectEqual(@as(usize, 0), cut.fxSessionId().len);
+    try testing.expectEqual(@as(usize, 0), cut.runtimeId().len);
+    try testing.expectEqual(@as(u32, 2), model.turnCount(cut_id));
+    try testing.expectEqualStrings("first prompt", sessionTurnText(&model, cut_id, 0));
+    try testing.expectEqualStrings("first reply", sessionTurnText(&model, cut_id, 1));
+
+    const source = model.sessionById(id).?;
+    try testing.expectEqualStrings("fx-sess-cut", source.fxSessionId());
+    try testing.expectEqualStrings("00000000-0000-0000-0000-000000000004", source.runtimeId());
+    try testing.expectEqual(@as(u32, 3), model.turnCount(id));
+    try testing.expectEqualStrings("first prompt", sessionTurnText(&model, id, 0));
+    try testing.expectEqualStrings("first reply", sessionTurnText(&model, id, 1));
+    try testing.expectEqualStrings("second prompt", sessionTurnText(&model, id, 2));
+
+    model.selected = id;
+    model.composer_active = false;
+    tree = try buildTree(arena, &model);
+    const toolbar = try expectByText(tree.root, .row, "Toolbar");
+    const header_fork = try expectByText(toolbar, .button, "Fork");
+    try testing.expectEqual(Msg.fork, tree.msgForPointer(header_fork.id, .up).?);
+    main.update(&model, tree.msgForPointer(header_fork.id, .up).?, &fx);
+    const full_id = model.selected;
+    try testing.expect(full_id != id);
+    try testing.expect(full_id != cut_id);
+    try testing.expect(model.composer_active);
+    try testing.expectEqual(@as(u32, 3), model.turnCount(full_id));
+    try testing.expectEqualStrings("first prompt", sessionTurnText(&model, full_id, 0));
+    try testing.expectEqualStrings("first reply", sessionTurnText(&model, full_id, 1));
+    try testing.expectEqualStrings("second prompt", sessionTurnText(&model, full_id, 2));
+    try testing.expectEqual(@as(usize, 0), model.sessionById(full_id).?.fxSessionId().len);
+    try testing.expectEqual(@as(u32, 3), model.turnCount(id));
 }
 
 test "user and assistant **bold** bind to markdown source" {

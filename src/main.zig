@@ -500,6 +500,7 @@ pub const Msg = union(enum) {
     insert_command: u32,
     rewind,
     fork,
+    fork_turn: u32,
     history_back,
     history_forward,
     new_folder,
@@ -2466,6 +2467,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .rewind => applyRewindIfPossible(model, fx),
         .fork => forkSelectedSession(model, fx),
+        .fork_turn => |id| forkSelectedThroughTurn(model, fx, id),
         .clear_queue => {
             model.dropQueuedForSession(model.selected);
             store.persistIfPossible(model, model.selected, fx);
@@ -2911,15 +2913,43 @@ fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
     session.appendRewindRef(captured.sha, rewind.recorded_ref, captured.recorded_at);
 }
 
-/// Local catalog clone through the last turn. New id, empty `fx_session_id`
-/// / `runtime_id` so the next Send uses `session/new`. Not a provider
-/// session fork and not a daemon RPC. Empty / full / no room is a no-op.
+/// Header Fork: local catalog clone through the last turn.
 fn forkSelectedSession(model: *Model, fx: *Effects) void {
+    store.hydrateIfPossible(model, model.selected);
+    const available = model.turnCount(model.selected);
+    if (available == 0) return;
+    forkSelectedThrough(model, fx, available - 1);
+}
+
+/// Per-turn Fork: clone turns `0..=index` of the selected session.
+/// Unknown / other-session ids are a no-op.
+fn forkSelectedThroughTurn(model: *Model, fx: *Effects, turn_id: u32) void {
+    store.hydrateIfPossible(model, model.selected);
+    const index = selectedTurnIndex(model, turn_id) orelse return;
+    forkSelectedThrough(model, fx, index);
+}
+
+fn selectedTurnIndex(model: *const Model, turn_id: u32) ?u32 {
+    var index: u32 = 0;
+    for (model.turn_store[0..model.turn_count]) |turn| {
+        if (turn.session_id != model.selected) continue;
+        if (turn.id == turn_id) return index;
+        index += 1;
+    }
+    return null;
+}
+
+/// Local catalog clone through `through_index` (inclusive). New id, empty
+/// `fx_session_id` / `runtime_id` so the next Send uses `session/new`.
+/// Not a provider session fork and not a daemon RPC. Empty / full / no
+/// room / past-the-end cut is a no-op.
+fn forkSelectedThrough(model: *Model, fx: *Effects, through_index: u32) void {
     const source_id = model.selected;
     store.hydrateIfPossible(model, source_id);
     const source = model.sessionById(source_id) orelse return;
-    const needed = model.turnCount(source_id);
-    if (needed == 0) return;
+    const available = model.turnCount(source_id);
+    if (available == 0 or through_index >= available) return;
+    const needed = through_index + 1;
     if (model.session_count >= max_sessions) return;
     if (model.turn_count + needed > max_turns) return;
 
@@ -2936,7 +2966,7 @@ fn forkSelectedSession(model: *Model, fx: *Effects) void {
             session.setFxSessionId("");
             session.setRuntimeId("");
             // Session-level refs: header fork keeps the whole prefix.
-            // Do not invent shas.
+            // Mid-session cuts keep the same stored shas. Do not invent shas.
             for (from.rewindRefs()) |item| {
                 session.appendRewindRef(item.sha(), item.refName(), item.recorded_at);
             }
@@ -2944,11 +2974,14 @@ fn forkSelectedSession(model: *Model, fx: *Effects) void {
     }
 
     const original_turn_count = model.turn_count;
+    var copied: u32 = 0;
     var i: usize = 0;
     while (i < original_turn_count) : (i += 1) {
         const turn = model.turn_store[i];
         if (turn.session_id != source_id) continue;
+        if (copied > through_index) break;
         _ = model.appendTurn(fork_id, turn.role, turn.text());
+        copied += 1;
     }
 
     model.pushSelectionHistory(fork_id);
