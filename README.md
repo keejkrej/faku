@@ -29,9 +29,12 @@ while the user is at the bottom, and Jump to latest sets that same
 `value` after they scroll away; Copy on a turn writes that turn's
 visible text through Native `fx.writeClipboard` (empty text is a
 no-op); Copy session joins that session's visible user / assistant /
-tool / thought text the same way (empty session is a no-op); Rewind
-undoes the last turn's files and those chat turns, using the Send-time
-HEAD, not a provider session fork; headless paths are unchanged.
+tool / thought text the same way (empty session is a no-op); Fork
+clones the selected local transcript into a new `sessions.json` row
+(empty `fx_session_id` / `runtime_id`) and is not a provider session
+fork; Rewind undoes the last turn's files and those chat turns, using
+the Send-time HEAD, not a provider session fork; headless paths are
+unchanged.
 
 ## Why fx
 
@@ -278,6 +281,10 @@ and fallback path. Send stores that workspace's HEAD sha on the session
 tree. Rewind undoes the last turn's files and those chat turns, using
 the Send-time HEAD (`git reset --hard` that latest stored sha, then
 pop it), not a provider session fork. `fx_session_id` stays.
+Fork copies turns through the last turn into a new local session id
+and leaves `fx_session_id` / `runtime_id` empty so the next Send
+calls `session/new`; the source row is unchanged. That is a local
+catalog clone, not a provider session fork.
 
 ## Demo vs daemon
 

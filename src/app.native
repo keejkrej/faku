@@ -123,6 +123,9 @@
         </else>
         <spacer grow="1" />
         <button variant="ghost" size="sm" on-press="copy_session">Copy session</button>
+        <if test="{can_fork}">
+          <button variant="ghost" size="sm" on-press="fork">Fork</button>
+        </if>
         <if test="{can_rewind}">
           <button variant="ghost" size="sm" on-press="rewind">Rewind</button>
         </if>

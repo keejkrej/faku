@@ -221,7 +221,8 @@ pub fn defaultStartOptions() StartOptions {
 }
 
 /// First-cut commands. Full daemon surface is larger; this port only
-/// names the ones a desktop needs to boot a transcript.
+/// names the ones a desktop needs to boot a transcript. There is no
+/// `fork` command on this wire — session fork is a local catalog clone.
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
