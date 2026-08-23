@@ -268,11 +268,13 @@ New untitled sessions are not written
 until they have real content.
 
 Send while that session is streaming appends to its follow-up queue and
-persists. A successful finish (demo timer complete, ACP `stopReason`
-other than cancelled/refusal, or `fx ask` exit 0) drains the next queued
-prompt. Stop, Esc, a cancelled/refused ACP prompt, and a non-zero
-`fx ask` exit do not drain; partial assistant text stays, then the
-session is saved.
+persists. Chrome lists each queued follow-up for the selected session
+so one item can be dropped without clearing the rest; Dismiss all still
+clears that session's queue. A successful finish (demo timer complete,
+ACP `stopReason` other than cancelled/refusal, or `fx ask` exit 0)
+drains the next queued prompt. Stop, Esc, a cancelled/refused ACP
+prompt, and a non-zero `fx ask` exit do not drain; partial assistant
+text stays, then the session is saved.
 
 One-shot `fx acp` mints and resumes an `fx_session_id` (same saved fx
 session). `fx ask --json` still mints/resumes that field on the image

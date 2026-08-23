@@ -162,6 +162,29 @@ fn findAnyText(widget: canvas.Widget, text: []const u8) bool {
     return false;
 }
 
+fn countByText(widget: canvas.Widget, kind: canvas.WidgetKind, text: []const u8) usize {
+    var n: usize = if (widget.kind == kind and std.mem.eql(u8, widgetName(widget), text)) 1 else 0;
+    for (widget.children) |child| n += countByText(child, kind, text);
+    return n;
+}
+
+fn collectByText(widget: canvas.Widget, kind: canvas.WidgetKind, text: []const u8, dest: []canvas.Widget) usize {
+    var n: usize = 0;
+    collectByTextInto(widget, kind, text, dest, &n);
+    return n;
+}
+
+fn collectByTextInto(widget: canvas.Widget, kind: canvas.WidgetKind, text: []const u8, dest: []canvas.Widget, n: *usize) void {
+    if (n.* >= dest.len) return;
+    if (widget.kind == kind and std.mem.eql(u8, widgetName(widget), text)) {
+        dest[n.*] = widget;
+        n.* += 1;
+    }
+    for (widget.children) |child| {
+        collectByTextInto(child, kind, text, dest, n);
+    }
+}
+
 fn lastReasoning(model: *const Model) []const u8 {
     var i = model.turn_count;
     while (i > 0) {
@@ -2098,6 +2121,39 @@ test "successful finish drains the next queued follow-up" {
     try testing.expect(model.is_streaming());
     try testing.expectEqual(@as(u32, 0), model.queuedCount(id));
     try testing.expectEqual(@as(usize, 2), countRole(&model, .user));
+    try testing.expectEqual(id, model.streaming_session);
+}
+
+test "successful finish drains only the front queued follow-up" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("queue drain front", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "front follow-up" } }, &fx);
+    main.update(&model, .send, &fx);
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "back follow-up" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(u32, 2), model.queuedCount(id));
+    try testing.expectEqualStrings("front follow-up", model.firstQueuedText(id));
+    try testing.expectEqualStrings("back follow-up", model.queued_store[1].text());
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
+
+    var n: u32 = 0;
+    while (n < 16 and model.queuedCount(id) == 2) : (n += 1) {
+        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+    }
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+    try testing.expectEqualStrings("back follow-up", model.firstQueuedText(id));
+    try testing.expectEqual(@as(usize, 2), countRole(&model, .user));
+    try testing.expectEqualStrings("front follow-up", lastUser(&model));
     try testing.expectEqual(id, model.streaming_session);
 }
 
@@ -4989,7 +5045,7 @@ test "send while busy shows a queued card that dismiss clears" {
     _ = try expectButton(tree.root, "port waku to zig");
     _ = try expectButton(tree.root, "fix auth listener");
 
-    const dismiss = try expectByText(tree.root, .button, "Dismiss");
+    const dismiss = try expectByText(tree.root, .button, "Dismiss all");
     main.update(&model, tree.msgForPointer(dismiss.id, .up).?, &fx);
     try testing.expect(!model.has_queued());
     try testing.expectEqual(@as(u32, 0), model.queuedCount(session_id));
@@ -4997,6 +5053,92 @@ test "send while busy shows a queued card that dismiss clears" {
 
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "Queued") == null);
+}
+
+test "queued card lists each follow-up; drop one persists the rest; dismiss all clears" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-queue-rows", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const session_id = model.selected;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "then the composer" } }, &fx);
+    main.update(&model, .send, &fx);
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "and the status bar" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(u32, 2), model.queuedCount(session_id));
+    const rows = model.queued_rows(arena);
+    try testing.expectEqual(@as(usize, 2), rows.len);
+    try testing.expectEqualStrings("then the composer", rows[0].text);
+    try testing.expectEqualStrings("and the status bar", rows[1].text);
+    const first_id = rows[0].id;
+    const second_id = rows[1].id;
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Queued");
+    _ = try expectByText(tree.root, .text, "then the composer");
+    _ = try expectByText(tree.root, .text, "and the status bar");
+    try testing.expectEqual(@as(usize, 1), countByText(tree.root, .text, "then the composer"));
+    try testing.expectEqual(@as(usize, 1), countByText(tree.root, .text, "and the status bar"));
+    try testing.expect(!findAnyText(tree.root, "then the composer\nand the status bar"));
+    try testing.expect(!findAnyText(tree.root, "then the composer and the status bar"));
+    var removes: [4]canvas.Widget = undefined;
+    try testing.expectEqual(@as(usize, 2), collectByText(tree.root, .button, "Remove queued", &removes));
+    try testing.expectEqual(Msg{ .remove_queued = first_id }, tree.msgForPointer(removes[0].id, .up).?);
+    try testing.expectEqual(Msg{ .remove_queued = second_id }, tree.msgForPointer(removes[1].id, .up).?);
+
+    main.update(&model, tree.msgForPointer(removes[0].id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(session_id));
+    try testing.expectEqualStrings("and the status bar", model.firstQueuedText(session_id));
+    try testing.expectEqual(second_id, model.queued_store[0].id);
+    try testing.expect(model.is_streaming());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "then the composer") == null);
+    _ = try expectByText(tree.root, .text, "and the status bar");
+    try testing.expectEqual(@as(usize, 1), collectByText(tree.root, .button, "Remove queued", &removes));
+    try testing.expectEqual(Msg{ .remove_queued = second_id }, tree.msgForPointer(removes[0].id, .up).?);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    store.hydrateSession(&loaded, session_id, testing.allocator, testing.io);
+    try testing.expectEqual(@as(u32, 1), loaded.queuedCount(session_id));
+    try testing.expectEqualStrings("and the status bar", loaded.firstQueuedText(session_id));
+    try testing.expectEqual(second_id, loaded.queued_store[0].id);
+
+    const dismiss = try expectByText(tree.root, .button, "Dismiss all");
+    main.update(&model, tree.msgForPointer(dismiss.id, .up).?, &fx);
+    try testing.expect(!model.has_queued());
+    try testing.expectEqual(@as(u32, 0), model.queuedCount(session_id));
+    try testing.expect(model.is_streaming());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Queued") == null);
+    try testing.expect(findByText(tree.root, .text, "and the status bar") == null);
+    try testing.expectEqual(@as(usize, 0), collectByText(tree.root, .button, "Remove queued", &removes));
+
+    var cleared = Model{};
+    cleared.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&cleared, testing.allocator, testing.io));
+    store.hydrateSession(&cleared, session_id, testing.allocator, testing.io);
+    try testing.expectEqual(@as(u32, 0), cleared.queuedCount(session_id));
 }
 
 fn findByPlaceholder(widget: canvas.Widget, kind: canvas.WidgetKind, placeholder: []const u8) ?canvas.Widget {

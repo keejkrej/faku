@@ -202,9 +202,14 @@
                   <row gap="8" cross="center">
                     <text>Queued</text>
                     <spacer grow="1" />
-                    <button size="sm" on-press="clear_queue">Dismiss</button>
+                    <button size="sm" on-press="clear_queue">Dismiss all</button>
                   </row>
-                  <text wrap="true" foreground="text_muted">{queued_text}</text>
+                  <for each="queued_rows" key="id" as="q">
+                    <row gap="8" cross="center">
+                      <text wrap="true" foreground="text_muted">{q.text}</text>
+                      <button variant="ghost" size="icon" icon="x" label="Remove queued" on-press="remove_queued:{q.id}"></button>
+                    </row>
+                  </for>
                 </column>
               </card>
             </if>
