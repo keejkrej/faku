@@ -110,6 +110,16 @@ fn countRole(model: *const Model, role: main.Role) usize {
     return n;
 }
 
+fn lastUser(model: *const Model) []const u8 {
+    var i = model.turn_count;
+    while (i > 0) {
+        i -= 1;
+        const turn = &model.turn_store[i];
+        if (turn.session_id == model.selected and turn.role == .user) return turn.text();
+    }
+    return "";
+}
+
 fn lastAssistant(model: *const Model) []const u8 {
     var i = model.turn_count;
     while (i > 0) {
@@ -2798,7 +2808,31 @@ test "missing daemon address does not attach even when last_daemon_address is se
     try testing.expectEqual(@as(usize, 0), model.session_store[0].runtimeId().len);
 }
 
-test "successful fx ask exit records HEAD when project_path is a git work tree" {
+test "dropLastPromptTurns keeps earlier prompts and other sessions" {
+    var model = Model{};
+    const other = model.addSession("other", .fx);
+    const id = model.addSession("me", .fx);
+    model.selected = id;
+    _ = model.appendTurn(other, .user, "other user");
+    _ = model.appendTurn(id, .user, "keep");
+    _ = model.appendTurn(id, .assistant, "keep reply");
+    _ = model.appendTurn(id, .user, "drop");
+    _ = model.appendTurn(id, .assistant, "drop reply");
+    _ = model.appendTurn(id, .tool, "drop tool");
+    _ = model.appendTurn(id, .reasoning, "drop thought");
+    _ = model.appendTurn(other, .assistant, "other asst");
+    model.dropLastPromptTurns(id);
+    try testing.expectEqual(@as(u32, 2), model.turnCount(id));
+    try testing.expectEqual(@as(u32, 2), model.turnCount(other));
+    try testing.expectEqualStrings("keep", lastUser(&model));
+    model.dropLastPromptTurns(id);
+    try testing.expectEqual(@as(u32, 0), model.turnCount(id));
+    try testing.expectEqual(@as(u32, 2), model.turnCount(other));
+    model.dropLastPromptTurns(id);
+    try testing.expectEqual(@as(u32, 0), model.turnCount(id));
+}
+
+test "Send records the pre-commit HEAD; a later commit stays off the rewind target" {
     const allocator = testing.allocator;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -2827,6 +2861,17 @@ test "successful fx ask exit records HEAD when project_path is a git work tree" 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "record this head" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
+    const at_send = model.sessionById(id).?;
+    try testing.expectEqual(@as(usize, 1), at_send.rewind_ref_count);
+    try testing.expectEqualStrings(expected, at_send.rewindRefs()[0].sha());
+    try testing.expectEqualStrings(rewind.recorded_ref, at_send.rewindRefs()[0].refName());
+    try testing.expect(at_send.rewindRefs()[0].recorded_at > 0);
+
+    try dirtyAndAdvanceRepo(allocator, testing.io, project, "agent commit\n");
+    var after_buf: [rewind.max_sha]u8 = undefined;
+    const after = rewind.revParseHead(allocator, testing.io, project, &after_buf) orelse return error.GitHead;
+    try testing.expect(!std.mem.eql(u8, expected, after));
+
     try fx.feedExit(main.fx_ask_key, 0);
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
@@ -2835,7 +2880,6 @@ test "successful fx ask exit records HEAD when project_path is a git work tree" 
     try testing.expectEqual(@as(usize, 1), live.rewind_ref_count);
     try testing.expectEqualStrings(expected, live.rewindRefs()[0].sha());
     try testing.expectEqualStrings(rewind.recorded_ref, live.rewindRefs()[0].refName());
-    try testing.expect(live.rewindRefs()[0].recorded_at > 0);
 
     var loaded = Model{};
     loaded.setStoreDir(dir);
@@ -2845,7 +2889,7 @@ test "successful fx ask exit records HEAD when project_path is a git work tree" 
     try testing.expectEqualStrings(expected, loaded.session_store[0].rewindRefs()[0].sha());
 }
 
-test "non-git project_path records no rewind ref after a successful exit" {
+test "non-git project_path records no rewind ref" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
     var project_buf: [256]u8 = undefined;
@@ -2867,13 +2911,14 @@ test "non-git project_path records no rewind ref after a successful exit" {
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "no snapshot" } }, &fx);
     main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.rewind_ref_count);
     try fx.feedExit(main.fx_ask_key, 0);
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.rewind_ref_count);
 }
 
-test "failed or cancelled turns do not record a rewind ref" {
+test "failed or cancelled turns keep the send-time rewind ref" {
     const allocator = testing.allocator;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -2897,20 +2942,23 @@ test "failed or cancelled turns do not record a rewind ref" {
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "this will fail" } }, &fx);
     main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(usize, 1), model.sessionById(id).?.rewind_ref_count);
+    try testing.expectEqualStrings(expected, model.sessionById(id).?.rewindRefs()[0].sha());
     try fx.feedExit(main.fx_ask_key, 1);
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
-    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.rewind_ref_count);
+    try testing.expectEqual(@as(usize, 1), model.sessionById(id).?.rewind_ref_count);
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "this will stop" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expect(model.is_streaming());
+    try testing.expectEqual(@as(usize, 2), model.sessionById(id).?.rewind_ref_count);
     main.update(&model, .stop, &fx);
     try testing.expect(!model.is_streaming());
-    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.rewind_ref_count);
+    try testing.expectEqual(@as(usize, 2), model.sessionById(id).?.rewind_ref_count);
 }
 
-test "Rewind resets project_path files to the latest stored sha" {
+test "Rewind restores Send-time files, pops that ref, and truncates the last prompt" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -2919,8 +2967,8 @@ test "Rewind resets project_path files to the latest stored sha" {
     defer tmp.cleanup();
     var project_buf: [256]u8 = undefined;
     const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/rewind-apply", .{tmp.sub_path[0..]});
-    const expected = try initTestGitRepo(allocator, testing.io, project);
-    defer allocator.free(expected);
+    const first_sha = try initTestGitRepo(allocator, testing.io, project);
+    defer allocator.free(first_sha);
     var dir_buf: [256]u8 = undefined;
     const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-rewind-apply", .{tmp.sub_path[0..]});
 
@@ -2942,38 +2990,75 @@ test "Rewind resets project_path files to the latest stored sha" {
     }
     model.selected = id;
 
-    main.update(&model, .{ .draft_edit = .{ .insert_text = "keep this prompt" } }, &fx);
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
     main.update(&model, .send, &fx);
     try fx.feedExit(main.fx_ask_key, 0);
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
-    try testing.expectEqual(@as(usize, 1), model.sessionById(id).?.rewind_ref_count);
-    try testing.expectEqualStrings(expected, model.sessionById(id).?.rewindRefs()[0].sha());
+    try testing.expectEqualStrings(first_sha, model.sessionById(id).?.rewindRefs()[0].sha());
+
+    try dirtyAndAdvanceRepo(allocator, testing.io, project, "after first\n");
+    var second_buf: [rewind.max_sha]u8 = undefined;
+    const second_sha = rewind.revParseHead(allocator, testing.io, project, &second_buf) orelse return error.GitHead;
+    try testing.expect(!std.mem.eql(u8, first_sha, second_sha));
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "second prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(usize, 2), model.sessionById(id).?.rewind_ref_count);
+    try testing.expectEqualStrings(second_sha, model.sessionById(id).?.rewindRefs()[1].sha());
+    try fx.feedExit(main.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(u32, 4), model.turnCount(id));
+    _ = model.appendTurn(id, .tool, "write README");
+    _ = model.appendTurn(id, .reasoning, "thinking");
+    try testing.expectEqual(@as(u32, 6), model.turnCount(id));
     try testing.expectEqualStrings("fx-sess-rewind", model.sessionById(id).?.fxSessionId());
+
+    try dirtyAndAdvanceRepo(allocator, testing.io, project, "after second\n");
+    var third_buf: [rewind.max_sha]u8 = undefined;
+    const third_sha = rewind.revParseHead(allocator, testing.io, project, &third_buf) orelse return error.GitHead;
+    try testing.expect(!std.mem.eql(u8, second_sha, third_sha));
 
     var tree = try buildTree(arena, &model);
     const rewind_btn = try expectByText(tree.root, .button, "Rewind");
     try testing.expect(model.can_rewind());
 
-    try dirtyAndAdvanceRepo(allocator, testing.io, project, "advance\n");
-    var after_buf: [rewind.max_sha]u8 = undefined;
-    const after = rewind.revParseHead(allocator, testing.io, project, &after_buf) orelse return error.GitHead;
-    try testing.expect(!std.mem.eql(u8, expected, after));
-
     main.update(&model, tree.msgForPointer(rewind_btn.id, .up).?, &fx);
-    var restored_buf: [rewind.max_sha]u8 = undefined;
-    const restored = rewind.revParseHead(allocator, testing.io, project, &restored_buf) orelse return error.GitHead;
-    try testing.expectEqualStrings(expected, restored);
-    const readme = try readRepoReadme(allocator, testing.io, project);
-    defer allocator.free(readme);
-    try testing.expectEqualStrings("rewind\n", readme);
+    try expectHead(allocator, testing.io, project, second_sha);
+    const after_first_rewind = try readRepoReadme(allocator, testing.io, project);
+    defer allocator.free(after_first_rewind);
+    try testing.expectEqualStrings("after first\n", after_first_rewind);
 
-    const live = model.sessionById(id).?;
-    try testing.expectEqualStrings("fx-sess-rewind", live.fxSessionId());
-    try testing.expectEqual(@as(usize, 1), live.rewind_ref_count);
-    try testing.expectEqualStrings(expected, live.rewindRefs()[0].sha());
+    const after_one = model.sessionById(id).?;
+    try testing.expectEqualStrings("fx-sess-rewind", after_one.fxSessionId());
+    try testing.expectEqual(@as(usize, 1), after_one.rewind_ref_count);
+    try testing.expectEqualStrings(first_sha, after_one.rewindRefs()[0].sha());
     try testing.expectEqual(@as(u32, 2), model.turnCount(id));
-    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "keep this prompt") == null);
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
+    try testing.expectEqualStrings("first prompt", lastUser(&model));
+    try testing.expectEqualStrings("", lastTool(&model));
+
+    main.update(&model, .rewind, &fx);
+    try expectHead(allocator, testing.io, project, first_sha);
+    const after_second_rewind = try readRepoReadme(allocator, testing.io, project);
+    defer allocator.free(after_second_rewind);
+    try testing.expectEqualStrings("rewind\n", after_second_rewind);
+
+    const after_two = model.sessionById(id).?;
+    try testing.expectEqualStrings("fx-sess-rewind", after_two.fxSessionId());
+    try testing.expectEqual(@as(usize, 0), after_two.rewind_ref_count);
+    try testing.expectEqual(@as(u32, 0), model.turnCount(id));
+    try testing.expect(!model.can_rewind());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, allocator, testing.io));
+    try testing.expectEqual(@as(usize, 0), loaded.session_store[0].rewind_ref_count);
+    store.hydrateSession(&loaded, id, allocator, testing.io);
+    try testing.expectEqual(@as(u32, 0), loaded.turnCount(id));
+    try testing.expectEqualStrings("fx-sess-rewind", loaded.session_store[0].fxSessionId());
 }
 
 test "Rewind is a no-op when git, path, or stored sha is missing" {

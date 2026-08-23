@@ -1,10 +1,17 @@
-//! Workspace HEAD snapshots and file-only rewind.
+//! Workspace HEAD snapshots and conversation-aware rewind.
 //!
-//! After a successful turn, Faku stores `{ sha, ref, recorded_at }` on the
-//! session when `project_path` is a git work tree. Rewind applies the latest
-//! stored 40-char hex sha with one-shot `git reset --hard` in `project_path`.
-//! It does not rewrite the transcript, change `fx_session_id`, create extra
-//! refs, or invent a sha. Missing / non-git / unknown sha is a no-op.
+//! At Send / spawn (turn start), Faku stores `{ sha, ref: "HEAD", recorded_at }`
+//! on the session when `project_path` is a git work tree. That Send-time sha is
+//! the Rewind target — not a post-turn HEAD, and not a provider session fork.
+//! After-success capture is omitted: a later snapshot would become
+//! `latestStoredSha` and restore the post-turn tree instead of undoing it.
+//! The next Send records the then-current HEAD as its own checkpoint.
+//!
+//! Rewind `git reset --hard`s the latest stored 40-char hex sha, then pops
+//! that entry so a second Rewind walks the previous checkpoint. The caller
+//! drops the last prompt's transcript turns after a successful reset.
+//! Missing / non-git / unknown sha is a no-op. No extra git refs, no invented
+//! shas. Native has no git API — one-shot `git -C` only.
 
 const std = @import("std");
 
@@ -83,6 +90,7 @@ pub fn isStoredSha(sha: []const u8) bool {
 }
 
 /// Latest recorded 40-char hex sha. Skips entries that are not stored shas.
+/// Rewind uses this value — the Send-time HEAD of the last prompted turn.
 pub fn latestStoredSha(refs: []const Ref) ?[]const u8 {
     var i = refs.len;
     while (i > 0) {
@@ -90,6 +98,19 @@ pub fn latestStoredSha(refs: []const Ref) ?[]const u8 {
         if (isStoredSha(refs[i].sha())) return refs[i].sha();
     }
     return null;
+}
+
+/// Consume the latest stored 40-char sha (and any trailing non-sha entries
+/// after it) so the next Rewind walks the previous checkpoint.
+pub fn popLatestStored(dest: *[max_refs]Ref, count: *usize) void {
+    var i = count.*;
+    while (i > 0) {
+        i -= 1;
+        if (isStoredSha(dest[i].sha())) {
+            count.* = i;
+            return;
+        }
+    }
 }
 
 /// One-shot `git -C <path> reset --hard <sha>`. No Native git API.
@@ -188,6 +209,23 @@ test "latestStoredSha prefers the last 40-char hex" {
     append(&refs, &count, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", recorded_ref, 3);
     append(&refs, &count, "not-a-sha", recorded_ref, 4);
     try testing.expectEqualStrings("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", latestStoredSha(refs[0..count]).?);
+}
+
+test "popLatestStored consumes the latest stored sha" {
+    const testing = std.testing;
+    var refs: [max_refs]Ref = [_]Ref{.{}} ** max_refs;
+    var count: usize = 0;
+    append(&refs, &count, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", recorded_ref, 1);
+    append(&refs, &count, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", recorded_ref, 2);
+    append(&refs, &count, "not-a-sha", recorded_ref, 3);
+    popLatestStored(&refs, &count);
+    try testing.expectEqual(@as(usize, 1), count);
+    try testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", latestStoredSha(refs[0..count]).?);
+    popLatestStored(&refs, &count);
+    try testing.expectEqual(@as(usize, 0), count);
+    try testing.expect(latestStoredSha(refs[0..count]) == null);
+    popLatestStored(&refs, &count);
+    try testing.expectEqual(@as(usize, 0), count);
 }
 
 test "resetHard restores a recorded sha after dirty and advanced HEAD" {

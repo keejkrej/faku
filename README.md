@@ -30,8 +30,8 @@ while the user is at the bottom, and Jump to latest sets that same
 visible text through Native `fx.writeClipboard` (empty text is a
 no-op); Copy session joins that session's visible user / assistant /
 tool / thought text the same way (empty session is a no-op); Rewind
-resets workspace files to the last recorded HEAD and does not
-rewind the chat; headless paths are unchanged.
+undoes the last turn's files and those chat turns, using the Send-time
+HEAD, not a provider session fork; headless paths are unchanged.
 
 ## Why fx
 
@@ -273,11 +273,11 @@ session is saved.
 
 One-shot `fx acp` mints and resumes an `fx_session_id` (same saved fx
 session). `fx ask --json` still mints/resumes that field on the image
-and fallback path. After a successful turn, Faku stores that workspace's
-`HEAD` sha on the session (`rewind_refs` in `sessions.json`). Rewind
-resets those workspace files to the last recorded HEAD
-(`git reset --hard`); it does not rewrite the transcript or change
-`fx_session_id`.
+and fallback path. Send stores that workspace's HEAD sha on the session
+(`rewind_refs` in `sessions.json`) when `project_path` is a git work
+tree. Rewind undoes the last turn's files and those chat turns, using
+the Send-time HEAD (`git reset --hard` that latest stored sha, then
+pop it), not a provider session fork. `fx_session_id` stays.
 
 ## Demo vs daemon
 
