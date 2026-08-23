@@ -138,9 +138,10 @@
             <for each="visible_turns" key="id" as="t">
               <if test="{t.is_user}">
                 <column gap="2" cross="end">
-                  <row gap="4" cross="center">
+                    <row gap="4" cross="center">
                     <text foreground="text_muted">{t.role_label}</text>
                     <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
+                    <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
                   </row>
                   <bubble variant="primary">
                     <markdown source="{t.text}" />
@@ -153,6 +154,7 @@
                     <row gap="4" cross="center">
                       <text foreground="text_muted">{t.role_label}</text>
                       <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
+                      <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
                     </row>
                     <text wrap="true" foreground="text_muted">{t.text}</text>
                   </column>
@@ -163,6 +165,7 @@
                       <row gap="4" cross="center">
                         <text foreground="text_muted">{t.role_label}</text>
                         <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
+                        <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
                       </row>
                       <text wrap="true" foreground="text_muted">{t.text}</text>
                     </column>
@@ -172,6 +175,7 @@
                       <row gap="4" cross="center">
                         <text foreground="text_muted">{t.role_label}</text>
                         <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
+                        <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
                       </row>
                       <markdown source="{t.text}" />
                     </column>
