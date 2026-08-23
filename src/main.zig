@@ -195,7 +195,7 @@ pub const Session = struct {
     /// Waku `StartOptions.interaction_mode` (build | plan).
     interaction_mode_storage: [max_interaction_mode]u8 = [_]u8{0} ** max_interaction_mode,
     interaction_mode_len: usize = 0,
-    /// Successful-turn HEAD snapshots. Cap last 20. Rewind uses the latest sha.
+    /// Send-time HEAD snapshots. Cap last 20. Rewind uses the latest sha.
     rewind_refs: [rewind.max_refs]rewind.Ref = [_]rewind.Ref{.{}} ** rewind.max_refs,
     rewind_ref_count: usize = 0,
     /// 0 = ungrouped (Today). Unknown ids also render under Today.
@@ -281,6 +281,10 @@ pub const Session = struct {
 
     pub fn latestRewindSha(self: *const Session) ?[]const u8 {
         return rewind.latestStoredSha(self.rewindRefs());
+    }
+
+    pub fn popLatestRewindRef(self: *Session) void {
+        rewind.popLatestStored(&self.rewind_refs, &self.rewind_ref_count);
     }
 
     pub fn setContextUsage(self: *Session, used: u64, size: u64) void {
@@ -1270,7 +1274,7 @@ pub const Model = struct {
         return session.contextUsageFraction();
     }
 
-    /// Header Rewind control. Latest stored 40-char hex sha only; no picker.
+    /// Header Rewind control. Latest Send-time 40-char hex sha only; no picker.
     pub fn can_rewind(model: *const Model) bool {
         const session = model.sessionByIdConst(model.selected) orelse return false;
         return session.latestRewindSha() != null;
@@ -1874,6 +1878,23 @@ pub const Model = struct {
         model.turn_count = kept;
     }
 
+    /// Drop the trailing user turn plus following assistant / tool / thought
+    /// turns for this session. Empty remaining transcript is fine.
+    pub fn dropLastPromptTurns(model: *Model, session_id: u32) void {
+        var last_user: ?usize = null;
+        for (model.turn_store[0..model.turn_count], 0..) |turn, i| {
+            if (turn.session_id == session_id and turn.role == .user) last_user = i;
+        }
+        const start = last_user orelse return;
+        var kept: u32 = 0;
+        for (model.turn_store[0..model.turn_count], 0..) |turn, i| {
+            if (turn.session_id == session_id and i >= start) continue;
+            model.turn_store[kept] = turn;
+            kept += 1;
+        }
+        model.turn_count = kept;
+    }
+
     pub fn dropSession(model: *Model, session_id: u32) void {
         model.dropTurnsForSession(session_id);
         model.dropQueuedForSession(session_id);
@@ -2392,7 +2413,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.insertAvailableCommand(id);
             store.persistDraftIfPossible(model);
         },
-        .rewind => applyRewindIfPossible(model),
+        .rewind => applyRewindIfPossible(model, fx),
         .clear_queue => {
             model.dropQueuedForSession(model.selected);
             store.persistIfPossible(model, model.selected, fx);
@@ -2484,6 +2505,7 @@ fn handleSteer(model: *Model, fx: *Effects) void {
 
 fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) void {
     const session = model.sessionById(session_id) orelse return;
+    recordRewindRefIfPossible(model, session.id);
     const titled = session.untitled;
     if (session.untitled) {
         writeFixed(&session.title_storage, &session.title_len, text);
@@ -2814,7 +2836,6 @@ fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
     if (drain) {
-        recordRewindRefIfPossible(model, finished_id);
         var copy: [max_queued_text]u8 = undefined;
         if (model.takeNextQueued(finished_id, &copy)) |n| {
             store.persistIfPossible(model, finished_id, fx);
@@ -2833,13 +2854,17 @@ fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
     session.appendRewindRef(captured.sha, rewind.recorded_ref, captured.recorded_at);
 }
 
-/// Files only: `git reset --hard` the latest stored sha. Does not persist,
-/// rewrite the transcript, or change `fx_session_id`. Failed git is a no-op.
-fn applyRewindIfPossible(model: *Model) void {
+/// Reset workspace files to the latest Send-time HEAD, consume that ref,
+/// and drop the last prompt's turns. Does not change `fx_session_id`.
+/// Failed git is a no-op (ref and transcript stay).
+fn applyRewindIfPossible(model: *Model, fx: *Effects) void {
     const io = model.store_io orelse return;
     const session = model.sessionById(model.selected) orelse return;
     const sha = session.latestRewindSha() orelse return;
-    _ = rewind.resetHard(std.heap.page_allocator, io, session.projectPath(), sha);
+    if (!rewind.resetHard(std.heap.page_allocator, io, session.projectPath(), sha)) return;
+    session.popLatestRewindRef();
+    model.dropLastPromptTurns(session.id);
+    store.persistIfPossible(model, session.id, fx);
 }
 
 fn stopStream(model: *Model, fx: *Effects) void {
