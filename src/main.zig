@@ -491,6 +491,7 @@ pub const Msg = union(enum) {
     toggle_commands,
     insert_command: u32,
     rewind,
+    fork,
     history_back,
     history_forward,
     new_folder,
@@ -1278,6 +1279,13 @@ pub const Model = struct {
     pub fn can_rewind(model: *const Model) bool {
         const session = model.sessionByIdConst(model.selected) orelse return false;
         return session.latestRewindSha() != null;
+    }
+
+    /// Header Fork control. Local catalog clone through the last turn.
+    /// Disabled (hidden) when the selected session has no turns.
+    pub fn can_fork(model: *const Model) bool {
+        if (model.sessionByIdConst(model.selected) == null) return false;
+        return model.turnCount(model.selected) > 0;
     }
 
     pub fn project_edit(model: *const Model) []const u8 {
@@ -2414,6 +2422,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistDraftIfPossible(model);
         },
         .rewind => applyRewindIfPossible(model, fx),
+        .fork => forkSelectedSession(model, fx),
         .clear_queue => {
             model.dropQueuedForSession(model.selected);
             store.persistIfPossible(model, model.selected, fx);
@@ -2852,6 +2861,51 @@ fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
     var sha_buf: [rewind.max_sha]u8 = undefined;
     const captured = rewind.captureHead(std.heap.page_allocator, io, session.projectPath(), &sha_buf) orelse return;
     session.appendRewindRef(captured.sha, rewind.recorded_ref, captured.recorded_at);
+}
+
+/// Local catalog clone through the last turn. New id, empty `fx_session_id`
+/// / `runtime_id` so the next Send uses `session/new`. Not a provider
+/// session fork and not a daemon RPC. Empty / full / no room is a no-op.
+fn forkSelectedSession(model: *Model, fx: *Effects) void {
+    const source_id = model.selected;
+    store.hydrateIfPossible(model, source_id);
+    const source = model.sessionById(source_id) orelse return;
+    const needed = model.turnCount(source_id);
+    if (needed == 0) return;
+    if (model.session_count >= max_sessions) return;
+    if (model.turn_count + needed > max_turns) return;
+
+    const fork_id = model.addSession(source.title(), source.provider);
+    if (fork_id == 0) return;
+    if (model.sessionById(source_id)) |from| {
+        if (model.sessionById(fork_id)) |session| {
+            session.setProjectPath(from.projectPath());
+            session.setModel(from.model());
+            session.setAccessMode(from.accessMode());
+            session.setInteractionMode(from.interactionMode());
+            session.folder_id = from.folder_id;
+            session.untitled = from.untitled;
+            session.setFxSessionId("");
+            session.setRuntimeId("");
+            // Session-level refs: header fork keeps the whole prefix.
+            // Do not invent shas.
+            for (from.rewindRefs()) |item| {
+                session.appendRewindRef(item.sha(), item.refName(), item.recorded_at);
+            }
+        }
+    }
+
+    const original_turn_count = model.turn_count;
+    var i: usize = 0;
+    while (i < original_turn_count) : (i += 1) {
+        const turn = model.turn_store[i];
+        if (turn.session_id != source_id) continue;
+        _ = model.appendTurn(fork_id, turn.role, turn.text());
+    }
+
+    model.pushSelectionHistory(fork_id);
+    applySessionSelection(model, fx, fork_id);
+    store.persistIfPossible(model, fork_id, fx);
 }
 
 /// Reset workspace files to the latest Send-time HEAD, consume that ref,

@@ -140,6 +140,16 @@ fn lastTool(model: *const Model) []const u8 {
     return "";
 }
 
+fn sessionTurnText(model: *const Model, session_id: u32, index: usize) []const u8 {
+    var n: usize = 0;
+    for (model.turn_store[0..model.turn_count]) |*turn| {
+        if (turn.session_id != session_id) continue;
+        if (n == index) return turn.text();
+        n += 1;
+    }
+    return "";
+}
+
 fn findAnyText(widget: canvas.Widget, text: []const u8) bool {
     if (std.mem.eql(u8, widget.text, text)) return true;
     if (std.mem.eql(u8, widgetName(widget), text)) return true;
@@ -465,6 +475,110 @@ test "copy session of a fixture multi-turn writes joined text once; empty is a n
         "fixture user markdown source\n\nfixture assistant reply\n\nread src/copy.ts\n\nfixture thought",
         fx.pendingClipboardAt(0).?.text,
     );
+}
+
+test "fork copies turns and project_path; new id; empty fx_session_id; source unchanged; empty is a no-op" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-fork", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+
+    const empty = model.addSession("empty fork", .fx);
+    model.selected = empty;
+    try testing.expect(!model.can_fork());
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Fork") == null);
+    main.update(&model, .fork, &fx);
+    try testing.expectEqual(@as(u32, 1), model.session_count);
+    try testing.expectEqual(empty, model.selected);
+    try testing.expectEqual(@as(u32, 0), model.turnCount(empty));
+    try testing.expect(!model.composer_active);
+
+    const id = model.addSession("source thread", .fx);
+    if (model.sessionById(id)) |session| {
+        session.setProjectPath("/tmp/faku-fork-project");
+        session.setFxSessionId("fx-sess-source");
+        session.setRuntimeId("00000000-0000-0000-0000-000000000003");
+        session.setModel("openai/gpt-5.4");
+        session.setAccessMode("ask");
+        session.setInteractionMode("plan");
+        session.folder_id = 7;
+        session.appendRewindRef("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", rewind.recorded_ref, 1_700_000_000);
+    }
+    model.selected = id;
+    _ = model.appendTurn(id, .user, "first prompt");
+    _ = model.appendTurn(id, .assistant, "first reply");
+    _ = model.appendTurn(id, .tool, "read src/fork.ts");
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+
+    try testing.expect(model.can_fork());
+    tree = try buildTree(arena, &model);
+    const toolbar = try expectByText(tree.root, .row, "Toolbar");
+    const fork_btn = try expectByText(toolbar, .button, "Fork");
+    try testing.expectEqual(Msg.fork, tree.msgForPointer(fork_btn.id, .up).?);
+
+    main.update(&model, tree.msgForPointer(fork_btn.id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 3), model.session_count);
+    const fork_id = model.selected;
+    try testing.expect(fork_id != id);
+    try testing.expect(fork_id != empty);
+    try testing.expect(model.composer_active);
+
+    const forked = model.sessionById(fork_id).?;
+    try testing.expectEqualStrings("source thread", forked.title());
+    try testing.expectEqualStrings("/tmp/faku-fork-project", forked.projectPath());
+    try testing.expectEqualStrings("openai/gpt-5.4", forked.model());
+    try testing.expectEqualStrings("ask", forked.accessMode());
+    try testing.expectEqualStrings("plan", forked.interactionMode());
+    try testing.expectEqual(@as(u32, 7), forked.folder_id);
+    try testing.expectEqual(@as(usize, 0), forked.fxSessionId().len);
+    try testing.expectEqual(@as(usize, 0), forked.runtimeId().len);
+    try testing.expectEqual(@as(u32, 3), model.turnCount(fork_id));
+    try testing.expectEqualStrings("first prompt", sessionTurnText(&model, fork_id, 0));
+    try testing.expectEqualStrings("first reply", sessionTurnText(&model, fork_id, 1));
+    try testing.expectEqualStrings("read src/fork.ts", sessionTurnText(&model, fork_id, 2));
+    try testing.expectEqual(@as(usize, 1), forked.rewind_ref_count);
+    try testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", forked.rewindRefs()[0].sha());
+
+    const source = model.sessionById(id).?;
+    try testing.expectEqualStrings("fx-sess-source", source.fxSessionId());
+    try testing.expectEqualStrings("00000000-0000-0000-0000-000000000003", source.runtimeId());
+    try testing.expectEqualStrings("/tmp/faku-fork-project", source.projectPath());
+    try testing.expectEqual(@as(u32, 3), model.turnCount(id));
+    try testing.expectEqualStrings("first prompt", sessionTurnText(&model, id, 0));
+    try testing.expectEqualStrings("first reply", sessionTurnText(&model, id, 1));
+    try testing.expectEqualStrings("read src/fork.ts", sessionTurnText(&model, id, 2));
+    try testing.expectEqual(@as(usize, 1), source.rewind_ref_count);
+    try testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", source.rewindRefs()[0].sha());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 2), loaded.session_count);
+    const loaded_source = loaded.sessionById(id).?;
+    const loaded_fork = loaded.sessionById(fork_id).?;
+    try testing.expectEqualStrings("fx-sess-source", loaded_source.fxSessionId());
+    try testing.expectEqual(@as(usize, 0), loaded_fork.fxSessionId().len);
+    try testing.expectEqual(@as(usize, 0), loaded_fork.runtimeId().len);
+    try testing.expectEqualStrings("/tmp/faku-fork-project", loaded_fork.projectPath());
+    store.hydrateSession(&loaded, fork_id, testing.allocator, testing.io);
+    try testing.expectEqual(@as(u32, 3), loaded.turnCount(fork_id));
+    try testing.expectEqualStrings("first prompt", sessionTurnText(&loaded, fork_id, 0));
+    store.hydrateSession(&loaded, id, testing.allocator, testing.io);
+    try testing.expectEqual(@as(u32, 3), loaded.turnCount(id));
+    try testing.expectEqualStrings("first prompt", sessionTurnText(&loaded, id, 0));
 }
 
 test "user and assistant **bold** bind to markdown source" {
