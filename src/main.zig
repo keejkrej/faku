@@ -460,6 +460,13 @@ pub const QueuedMessage = struct {
     }
 };
 
+/// Selected-session follow-ups for chrome. Native iterates this the way
+/// `visible_turns` / `sidebar_rows` work — not `queued_store` itself.
+pub const QueuedRow = struct {
+    id: u32,
+    text: []const u8,
+};
+
 pub const Msg = union(enum) {
     new_session,
     select: u32,
@@ -472,6 +479,7 @@ pub const Msg = union(enum) {
     steer,
     stop,
     clear_queue,
+    remove_queued: u32,
     toggle_sidebar,
     toggle_settings,
     settings_model_edit: canvas.TextInputEvent,
@@ -681,6 +689,8 @@ pub const Model = struct {
         "queued_store",
         "queued_count",
         "next_queued_id",
+        "queued_text",
+        "dropQueued",
         "sidebar_collapsed",
         "sidebar_last_width",
         "sidebarWidthPixels",
@@ -1036,6 +1046,25 @@ pub const Model = struct {
 
     pub fn queued_text(model: *const Model) []const u8 {
         return model.firstQueuedText(model.selected);
+    }
+
+    pub fn queued_rows(model: *const Model, arena: std.mem.Allocator) []const QueuedRow {
+        var count: usize = 0;
+        for (model.queued_store[0..model.queued_count]) |item| {
+            if (item.session_id == model.selected) count += 1;
+        }
+        if (count == 0) return &.{};
+        const out = arena.alloc(QueuedRow, count) catch return &.{};
+        var i: usize = 0;
+        for (model.queued_store[0..model.queued_count]) |*item| {
+            if (item.session_id != model.selected) continue;
+            out[i] = .{
+                .id = item.id,
+                .text = item.text(),
+            };
+            i += 1;
+        }
+        return out[0..i];
     }
 
     pub fn composer_placeholder(_: *const Model) []const u8 {
@@ -1831,6 +1860,20 @@ pub const Model = struct {
         model.queued_count = kept;
     }
 
+    pub fn dropQueued(model: *Model, id: u32) bool {
+        var i: usize = 0;
+        while (i < model.queued_count) : (i += 1) {
+            if (model.queued_store[i].id != id) continue;
+            var j = i;
+            while (j + 1 < model.queued_count) : (j += 1) {
+                model.queued_store[j] = model.queued_store[j + 1];
+            }
+            model.queued_count -= 1;
+            return true;
+        }
+        return false;
+    }
+
     pub fn restoreSession(
         model: *Model,
         id: u32,
@@ -2426,6 +2469,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .clear_queue => {
             model.dropQueuedForSession(model.selected);
             store.persistIfPossible(model, model.selected, fx);
+        },
+        .remove_queued => |id| {
+            if (model.dropQueued(id)) {
+                store.persistIfPossible(model, model.selected, fx);
+            }
         },
         .toggle_sidebar => {
             model.toggleSidebar();
