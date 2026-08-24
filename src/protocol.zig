@@ -112,9 +112,10 @@
 //! supportsSteer }`. Mapped options this port already stores:
 //! `provider`, `binary` (provider default), `cwd` (`project_path` or
 //! `"."`), `mode` (`access_mode`), `interactionMode`, `model` when
-//! non-empty, `computerUseEnabled` false. Other Waku start fields
-//! (`reasoningEffort`, `serviceTier`, `contextWindow`, `agentPreset`,
-//! `providerCursor`) are not stored here and are not invented. The
+//! non-empty, `reasoningEffort` when non-empty, `computerUseEnabled`
+//! false. Other Waku start fields (`serviceTier`, `contextWindow`,
+//! `agentPreset`, `providerCursor`) are not stored here and are not
+//! invented. The
 //! one-shot first send (empty persisted runtime id) is hello +
 //! attachSession + start + prompt. A later send with a stored runtime
 //! id stays hello + attachSession + prompt.
@@ -206,6 +207,7 @@ pub const ProviderId = enum {
 /// Start options on `command: { type: "start", options }`.
 /// `mode`: ask | autoAcceptEdits | auto | fullAccess
 /// `interaction_mode`: build | plan
+/// `reasoning_effort`: fx documented effort, omitted when empty
 pub const StartOptions = struct {
     provider: []const u8 = FX_PROVIDER_ID,
     binary: []const u8 = FX_BINARY,
@@ -213,6 +215,7 @@ pub const StartOptions = struct {
     mode: []const u8 = "ask",
     interaction_mode: []const u8 = "build",
     model: ?[]const u8 = null,
+    reasoning_effort: ?[]const u8 = null,
     computer_use_enabled: bool = false,
 };
 
@@ -516,6 +519,12 @@ pub fn writeStart(
     if (options.model) |model| {
         try cur.write(",\"model\":");
         try writeJsonString(&cur, model);
+    }
+    if (options.reasoning_effort) |effort| {
+        if (effort.len > 0) {
+            try cur.write(",\"reasoningEffort\":");
+            try writeJsonString(&cur, effort);
+        }
     }
     try cur.write(",\"computerUseEnabled\":");
     try writeBool(&cur, options.computer_use_enabled);
@@ -967,12 +976,29 @@ test "start defaults to first-party fx over acp" {
     const json = try writeStart(&buf, NIL_UUID, NIL_UUID, NIL_UUID, defaultStartOptions());
     try std.testing.expect(std.mem.indexOf(u8, json, "\"provider\":\"fx\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"binary\":\"fx\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "reasoningEffort") == null);
     try std.testing.expectEqualStrings("fx", ProviderId.default.wireName());
     try std.testing.expectEqual(ProviderId.fx, ProviderId.fromWire("fx").?);
     try std.testing.expectEqual(ProviderId.claude, ProviderId.fromWire("claude").?);
     try std.testing.expectEqualStrings("fx", FX_ACP_ARGV[0]);
     try std.testing.expectEqualStrings("acp", FX_ACP_ARGV[1]);
     try std.testing.expectEqualStrings("acp", FX_TRANSPORT);
+}
+
+test "writeStart includes reasoningEffort when set and omits when empty" {
+    var buf: [512]u8 = undefined;
+    const with_effort = try writeStart(&buf, NIL_UUID, NIL_UUID, NIL_UUID, .{
+        .reasoning_effort = "high",
+    });
+    try std.testing.expect(std.mem.indexOf(u8, with_effort, "\"reasoningEffort\":\"high\"") != null);
+
+    const empty_effort = try writeStart(&buf, NIL_UUID, NIL_UUID, NIL_UUID, .{
+        .reasoning_effort = "",
+    });
+    try std.testing.expect(std.mem.indexOf(u8, empty_effort, "reasoningEffort") == null);
+
+    const omitted = try writeStart(&buf, NIL_UUID, NIL_UUID, NIL_UUID, defaultStartOptions());
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "reasoningEffort") == null);
 }
 
 test "first-cut command tags stay camelCase on the wire" {

@@ -211,10 +211,10 @@ Path (Native `app_dirs` data directory, app name `faku`):
 
 Boot: if that file loads, the sidebar is session skeletons only (id, title,
 provider, untitled/has_started, project_path, fx_session_id, runtime_id, model,
-access_mode, interaction_mode, folder_id, context_used, context_size,
+access_mode, interaction_mode, reasoning_effort, folder_id, context_used, context_size,
 available_commands) — no demo rows and no transcripts. The document also stores
 `last_project_path`, `last_model`, `last_access_mode`,
-`last_interaction_mode`, `last_daemon_address`, `sidebar_collapsed`,
+`last_interaction_mode`, `last_reasoning_effort`, `last_daemon_address`, `sidebar_collapsed`,
 `sidebar_width`, `folders`, and `collapsed_folder_ids` so a new session can inherit the last workspace and last
 model/access/interaction, a later send can reuse the last sidecar address,
 the sidebar collapse control is restored, and New folder groups persist.
@@ -229,8 +229,10 @@ The sidebar settings gear
 opens a panel that edits those persisted defaults. Composer chips are the
 quick session toggle: access cycles `ask` / `auto` / `fullAccess`, Build
 cycles `build` / `plan`, and the model chip toggles last-used vs empty
-(fx default); Medium stays a label because fx `effort` lives in
-`~/.fx/settings.json` and Faku has no `FX_EFFORT` / `--effort` path.
+(fx default); the composer effort chip cycles fx's documented effort
+values, persists on the session / `last_reasoning_effort`, and rides
+daemon `StartOptions.reasoningEffort`. One-shot `fx acp` does not get
+an invented env/flag.
 The composer project row edits the selected session cwd and persists
 it as `last_project_path`. The under-composer usage control is Native
 `progress` (0–1): it fills from an ACP `session/update` `usage_update`
@@ -309,7 +311,7 @@ spawns the same binary as `faku daemon-proxy <addr>` with hello +
 `attachSession` + prompt JSON in the one-shot spawn stdin.
 When the session has no persisted runtime id, that first stdin also
 includes `start` (mapped from stored `access_mode`, `interaction_mode`,
-`model`, and `project_path`) before prompt; later sends keep attach +
+`model`, `reasoning_effort`, and `project_path`) before prompt; later sends keep attach +
 prompt.
 `attachSession` is a one-shot before the daemon prompt, not a live
 runtime loop. The sidecar does the TCP + WebSocket handshake to
