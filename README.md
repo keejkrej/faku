@@ -250,7 +250,10 @@ drafts, `session{id}` after the session has started. Each record is
 `{ text, image_path }` — one optional local path, not a Waku
 `waku-attachment:` blob. Composer Attach pastes that same `image_path`
 and shows a clearable chip; Native has no `fx.pickFile` / file-open
-effect, so this cut does not fake an OS picker. When that file exists,
+effect, so this cut does not fake an OS picker. Dropping an image file
+onto the window sets that same composer attach path (`fx ask --image`);
+it is a Native file drop, not an OS picker and not an ACP image block.
+When that file exists,
 the chip row binds a Native `<image>` via `fx.loadImage` (ImageId, 0
 until `.loaded`) and Send adds `fx ask --image PATH` before `--`; a
 missing file keeps the chip only and omits the flag.

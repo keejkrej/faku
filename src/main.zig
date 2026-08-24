@@ -516,6 +516,9 @@ pub const Msg = union(enum) {
     project_path_edit: canvas.TextInputEvent,
     start_image_attach,
     image_path_edit: canvas.TextInputEvent,
+    /// Native window file drop. Path is a local image Faku already
+    /// understands for `fx ask --image` (see `imagePathFromDrop`).
+    file_drop: []const u8,
     clear_image_attach,
     toggle_commands,
     insert_command: u32,
@@ -553,7 +556,7 @@ pub const Msg = union(enum) {
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "focus_composer", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "focus_composer", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop" };
 };
 
 pub const Model = struct {
@@ -2703,6 +2706,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistDraftIfPossible(model);
             refreshAttachPreview(model, fx);
         },
+        .file_drop => |path| applyFileDrop(model, fx, path),
         .clear_image_attach => {
             model.clearImageAttach();
             store.persistDraftIfPossible(model);
@@ -3679,6 +3683,49 @@ fn fxProbePath(model: *const Model, index: u32, buf: *[max_fx_path]u8) ?[]const 
     }
 }
 
+/// First dropped path that is a local image Faku already understands
+/// for `fx ask --image` / attach preview. Existing extensions only:
+/// png, jpg, jpeg, webp, gif. Directories (trailing separator) and
+/// empty lists are ignored.
+pub fn imagePathFromDrop(paths: []const []const u8) ?[]const u8 {
+    for (paths) |raw| {
+        const path = std.mem.trim(u8, raw, " \t\r\n");
+        if (!isAttachImagePath(path)) continue;
+        return path;
+    }
+    return null;
+}
+
+fn isAttachImagePath(path: []const u8) bool {
+    if (path.len == 0) return false;
+    const last = path[path.len - 1];
+    if (last == '/' or last == '\\') return false;
+    const ext = std.fs.path.extension(path);
+    return std.ascii.eqlIgnoreCase(ext, ".png") or
+        std.ascii.eqlIgnoreCase(ext, ".jpg") or
+        std.ascii.eqlIgnoreCase(ext, ".jpeg") or
+        std.ascii.eqlIgnoreCase(ext, ".webp") or
+        std.ascii.eqlIgnoreCase(ext, ".gif");
+}
+
+/// Native `UiApp.Options.on_drop` → Msg. Window-level; no OS picker.
+pub fn onDrop(drop: native_sdk.platform.FileDropEvent) ?Msg {
+    const path = imagePathFromDrop(drop.paths) orelse return null;
+    return .{ .file_drop = path };
+}
+
+fn applyFileDrop(model: *Model, fx: *Effects, path: []const u8) void {
+    const trimmed = std.mem.trim(u8, path, " \t\r\n");
+    if (!isAttachImagePath(trimmed)) return;
+    if (model.store_io) |io| {
+        if (directoryExists(io, trimmed)) return;
+    }
+    model.image_path_buffer.clear();
+    model.applyImagePath(.{ .insert_text = trimmed });
+    store.persistDraftIfPossible(model);
+    refreshAttachPreview(model, fx);
+}
+
 pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     if (std.ascii.eqlIgnoreCase(keyboard.key, "escape")) return .stop;
     // Control-Tab is the session switcher on every platform. Cmd-Tab
@@ -3766,6 +3813,7 @@ pub fn main(init: std.process.Init) !void {
         .update_fx = update,
         .init_fx = initFx,
         .on_key = onKey,
+        .on_drop = onDrop,
         .markup = .{ .source = app_markup, .watch_path = "src/app.native", .io = init.io },
     });
     defer app_state.destroy();
