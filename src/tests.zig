@@ -4452,6 +4452,150 @@ test "cmd-[ / cmd-] and ctrl-[ / ctrl-] walk session history via onKey" {
     try testing.expectEqual(Msg.stop, main.onKey(escape).?);
 }
 
+test "plain tab and super-tab stay unbound; ctrl-tab opens the session switcher" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const port = model.session_store[0].id;
+    const auth = model.session_store[1].id;
+    try testing.expectEqual(port, model.selected);
+    try testing.expect(!model.switcher_open);
+
+    const plain_tab = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "tab" };
+    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_tab));
+
+    const super_tab = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "tab",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(@as(?Msg, null), main.onKey(super_tab));
+
+    const ctrl_super_tab = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "tab",
+        .modifiers = .{ .control = true, .super = true },
+    };
+    try testing.expectEqual(@as(?Msg, null), main.onKey(ctrl_super_tab));
+
+    const ctrl_tab = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "tab",
+        .modifiers = .{ .control = true },
+    };
+    try testing.expectEqual(Msg.switcher_forward, main.onKey(ctrl_tab).?);
+    main.update(&model, main.onKey(ctrl_tab).?, &fx);
+    try testing.expect(model.switcher_open);
+    try testing.expectEqual(@as(u32, 2), model.switcher_count);
+    try testing.expectEqual(port, model.switcher_ids[0]);
+    try testing.expectEqual(auth, model.switcher_ids[1]);
+    try testing.expectEqual(@as(u32, 1), model.switcher_highlight);
+    try testing.expectEqual(port, model.selected);
+
+    var tree = try buildTree(arena, &model);
+    const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    try testing.expectEqualStrings("Switch session", widgetName(dialog));
+    const auth_row = try expectButton(dialog, "fix auth listener");
+    try testing.expectEqual(Msg{ .switcher_pick = auth }, tree.msgForPointer(auth_row.id, .up).?);
+    _ = try expectByText(dialog, .button, "Switch");
+
+    main.update(&model, main.onKey(ctrl_tab).?, &fx);
+    try testing.expect(model.switcher_open);
+    try testing.expectEqual(@as(u32, 0), model.switcher_highlight);
+    try testing.expectEqual(port, model.selected);
+
+    const third = model.addSession("third started", .fx);
+    _ = model.appendTurn(third, .user, "hello");
+    main.update(&model, .switcher_cancel, &fx);
+    try testing.expect(!model.switcher_open);
+    try testing.expectEqual(port, model.selected);
+
+    const ctrl_shift_tab = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "Tab",
+        .modifiers = .{ .control = true, .shift = true },
+    };
+    try testing.expectEqual(Msg.switcher_backward, main.onKey(ctrl_shift_tab).?);
+    main.update(&model, main.onKey(ctrl_shift_tab).?, &fx);
+    try testing.expect(model.switcher_open);
+    try testing.expectEqual(@as(u32, 3), model.switcher_count);
+    try testing.expectEqual(third, model.switcher_ids[2]);
+    try testing.expectEqual(@as(u32, 2), model.switcher_highlight);
+    try testing.expectEqual(port, model.selected);
+
+    main.update(&model, main.onKey(ctrl_shift_tab).?, &fx);
+    try testing.expectEqual(@as(u32, 1), model.switcher_highlight);
+    try testing.expectEqual(port, model.selected);
+
+    main.update(&model, .{ .switcher_pick = auth }, &fx);
+    try testing.expect(!model.switcher_open);
+    try testing.expectEqual(auth, model.selected);
+
+    main.update(&model, main.onKey(ctrl_tab).?, &fx);
+    try testing.expect(model.switcher_open);
+    try testing.expectEqual(auth, model.selected);
+    const before = model.selected;
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expect(!model.switcher_open);
+    try testing.expectEqual(before, model.selected);
+
+    main.update(&model, main.onKey(ctrl_tab).?, &fx);
+    try testing.expect(model.switcher_open);
+    const highlighted = model.switcher_ids[model.switcher_highlight];
+    main.update(&model, .switcher_confirm, &fx);
+    try testing.expect(!model.switcher_open);
+    try testing.expectEqual(highlighted, model.selected);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dialog) == null);
+}
+
+test "ctrl-tab includes the current untitled session and caps the snapshot at ten" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const port = model.session_store[0].id;
+    main.update(&model, .new_session, &fx);
+    const draft = model.selected;
+    try testing.expect(model.sessionById(draft).?.untitled);
+    try testing.expect(!model.sessionById(draft).?.hasStarted());
+
+    main.update(&model, .switcher_forward, &fx);
+    try testing.expect(model.switcher_open);
+    try testing.expectEqual(@as(u32, 3), model.switcher_count);
+    try testing.expectEqual(draft, model.switcher_ids[0]);
+    try testing.expectEqual(port, model.switcher_ids[1]);
+    try testing.expectEqual(@as(u32, 1), model.switcher_highlight);
+    try testing.expectEqual(draft, model.selected);
+
+    main.update(&model, .switcher_cancel, &fx);
+    model.clearSessions();
+    var n: u32 = 0;
+    while (n < 12) : (n += 1) {
+        var title_buf: [32]u8 = undefined;
+        const title = std.fmt.bufPrint(&title_buf, "started {d}", .{n}) catch unreachable;
+        const id = model.addSession(title, .fx);
+        _ = model.appendTurn(id, .user, "hi");
+        if (n == 0) model.selected = id;
+    }
+    try testing.expectEqual(@as(u32, 12), model.session_count);
+    main.update(&model, .switcher_forward, &fx);
+    try testing.expect(model.switcher_open);
+    try testing.expectEqual(main.switcher_cap, model.switcher_count);
+    try testing.expectEqual(model.selected, model.switcher_ids[0]);
+    try testing.expectEqual(@as(u32, 1), model.switcher_highlight);
+}
+
 test "cmd-b and ctrl-b toggle sidebar collapse via onKey" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

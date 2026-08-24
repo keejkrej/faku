@@ -50,6 +50,8 @@ const max_folders = 16;
 pub const folder_row_id_base: u32 = 1_000_000;
 /// In-memory session selection history for sidebar Back / Forward.
 pub const selection_history_cap: u32 = 32;
+/// Runtime-only Ctrl-Tab switcher snapshot. Same cap as Waku's overlay.
+pub const switcher_cap: u32 = 10;
 const max_turns = 128;
 const max_title = 64;
 const max_search = 64;
@@ -519,6 +521,11 @@ pub const Msg = union(enum) {
     copy_turn: u32,
     copy_last_turn,
     copy_session,
+    switcher_forward,
+    switcher_backward,
+    switcher_confirm,
+    switcher_cancel,
+    switcher_pick: u32,
     clipboard_done: native_sdk.EffectClipboardResult,
     attach_preview_done: native_sdk.EffectImageResult,
     tick: native_sdk.EffectTimer,
@@ -526,7 +533,7 @@ pub const Msg = union(enum) {
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "focus_composer", "clipboard_done", "attach_preview_done" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "focus_composer", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward" };
 };
 
 pub const Model = struct {
@@ -559,6 +566,11 @@ pub const Model = struct {
     sidebar_collapsed: bool = false,
     sidebar_last_width: f32 = sidebar_default_width,
     settings_open: bool = false,
+    /// Runtime-only Ctrl-Tab overlay. Not persisted to sessions.json.
+    switcher_open: bool = false,
+    switcher_ids: [switcher_cap]u32 = [_]u32{0} ** switcher_cap,
+    switcher_count: u32 = 0,
+    switcher_highlight: u32 = 0,
     settings_model_buffer: canvas.TextBuffer(max_fx_model) = .{},
     settings_project_buffer: canvas.TextBuffer(max_project_path) = .{},
     settings_daemon_buffer: canvas.TextBuffer(max_daemon_address) = .{},
@@ -712,6 +724,9 @@ pub const Model = struct {
         "toggleCommands",
         "closeCommands",
         "insertAvailableCommand",
+        "switcher_ids",
+        "switcher_count",
+        "switcher_highlight",
         "openSettings",
         "closeSettings",
         "toggleSettings",
@@ -920,6 +935,25 @@ pub const Model = struct {
             }
         }
         return out[0..i];
+    }
+
+    pub fn switcher_rows(model: *const Model, arena: std.mem.Allocator) []const SessionRow {
+        if (!model.switcher_open or model.switcher_count == 0) return &.{};
+        const out = arena.alloc(SessionRow, model.switcher_count) catch return &.{};
+        var n: usize = 0;
+        var i: usize = 0;
+        while (i < model.switcher_count) : (i += 1) {
+            const id = model.switcher_ids[i];
+            const session = model.sessionByIdConst(id) orelse continue;
+            out[n] = .{
+                .id = session.id,
+                .title = sessionDisplayTitle(session),
+                .provider = session.provider_label(),
+                .selected = i == model.switcher_highlight,
+            };
+            n += 1;
+        }
+        return out[0..n];
     }
 
     pub fn command_rows(model: *const Model, arena: std.mem.Allocator) []const CommandRow {
@@ -2214,6 +2248,115 @@ fn applyAttachPreviewResult(model: *Model, fx: *Effects, result: native_sdk.Effe
     }
 }
 
+fn switcherContains(ids: []const u32, count: u32, id: u32) bool {
+    var i: u32 = 0;
+    while (i < count) : (i += 1) {
+        if (ids[i] == id) return true;
+    }
+    return false;
+}
+
+fn pushSwitcherId(ids: *[switcher_cap]u32, count: *u32, id: u32) void {
+    if (id == 0 or count.* >= switcher_cap) return;
+    if (switcherContains(ids, count.*, id)) return;
+    ids[count.*] = id;
+    count.* += 1;
+}
+
+fn switcherSessionAllowed(model: *const Model, id: u32, allow_current: bool) bool {
+    const session = model.sessionByIdConst(id) orelse return false;
+    if (allow_current and id == model.selected) return true;
+    return session.hasStarted();
+}
+
+fn snapshotSwitcher(model: *Model) void {
+    var ids = [_]u32{0} ** switcher_cap;
+    var count: u32 = 0;
+
+    if (switcherSessionAllowed(model, model.selected, true)) {
+        pushSwitcherId(&ids, &count, model.selected);
+    }
+
+    if (model.history_count > 0) {
+        var i: i32 = @intCast(model.history_count - 1);
+        while (i >= 0) : (i -= 1) {
+            const id = model.history_store[@intCast(i)];
+            if (switcherSessionAllowed(model, id, false)) {
+                pushSwitcherId(&ids, &count, id);
+            }
+        }
+    }
+
+    for (model.session_store[0..model.session_count]) |session| {
+        if (session.hasStarted()) {
+            pushSwitcherId(&ids, &count, session.id);
+        }
+    }
+
+    model.switcher_ids = ids;
+    model.switcher_count = count;
+}
+
+fn initialSwitcherHighlight(count: u32, first_is_current: bool, reverse: bool) u32 {
+    if (count == 0) return 0;
+    if (first_is_current) {
+        if (count == 1) return 0;
+        return if (reverse) count - 1 else 1;
+    }
+    return if (reverse) count - 1 else 0;
+}
+
+fn closeSwitcher(model: *Model) void {
+    model.switcher_open = false;
+    model.switcher_count = 0;
+    model.switcher_highlight = 0;
+    model.switcher_ids = [_]u32{0} ** switcher_cap;
+}
+
+fn cycleSwitcher(model: *Model, reverse: bool) void {
+    if (model.switcher_open) {
+        if (model.switcher_count == 0) {
+            closeSwitcher(model);
+            return;
+        }
+        if (reverse) {
+            model.switcher_highlight = if (model.switcher_highlight == 0)
+                model.switcher_count - 1
+            else
+                model.switcher_highlight - 1;
+        } else {
+            model.switcher_highlight = (model.switcher_highlight + 1) % model.switcher_count;
+        }
+        return;
+    }
+
+    snapshotSwitcher(model);
+    if (model.switcher_count == 0) return;
+    const first_is_current = model.switcher_ids[0] == model.selected;
+    model.switcher_highlight = initialSwitcherHighlight(model.switcher_count, first_is_current, reverse);
+    model.switcher_open = true;
+}
+
+fn commitSwitcher(model: *Model, fx: *Effects, id: u32) void {
+    if (!model.switcher_open) return;
+    closeSwitcher(model);
+    if (model.sessionById(id) == null) return;
+    model.pushSelectionHistory(id);
+    applySessionSelection(model, fx, id);
+}
+
+fn confirmSwitcher(model: *Model, fx: *Effects) void {
+    if (!model.switcher_open or model.switcher_count == 0) return;
+    if (model.switcher_highlight >= model.switcher_count) return;
+    commitSwitcher(model, fx, model.switcher_ids[model.switcher_highlight]);
+}
+
+fn pickSwitcher(model: *Model, fx: *Effects, id: u32) void {
+    if (!model.switcher_open) return;
+    if (!switcherContains(&model.switcher_ids, model.switcher_count, id)) return;
+    commitSwitcher(model, fx, id);
+}
+
 fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     if (model.sessionById(id) == null) return;
     store.persistDraftIfPossible(model);
@@ -2346,9 +2489,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         // Chromeless titlebar has no OS close. This is the documented
         // window-action effect (`examples/deck`): last-window close
-        // follows the host exit path. Esc stays `.stop` so settings /
-        // search / project-edit / image-attach / commands / folder-title-edit / session-title-edit /
-        // a live turn keep it.
+        // follows the host exit path. Esc stays `.stop` so the session
+        // switcher / settings / search / project-edit / image-attach /
+        // commands / folder-title-edit / session-title-edit / a live
+        // turn keep it.
         .close_window => fx.closeWindow(main_window_label),
         .remove_session => |id| {
             if (model.editing_session_id == id) model.closeSessionTitleEdit();
@@ -2376,7 +2520,16 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .send => handleSend(model, fx),
         .steer => handleSteer(model, fx),
+        .switcher_forward => cycleSwitcher(model, false),
+        .switcher_backward => cycleSwitcher(model, true),
+        .switcher_confirm => confirmSwitcher(model, fx),
+        .switcher_cancel => closeSwitcher(model),
+        .switcher_pick => |id| pickSwitcher(model, fx, id),
         .stop => {
+            if (model.switcher_open) {
+                closeSwitcher(model);
+                return;
+            }
             if (model.settings_open) {
                 model.closeSettings();
                 return;
@@ -3407,6 +3560,14 @@ fn fxProbePath(model: *const Model, index: u32, buf: *[max_fx_path]u8) ?[]const 
 
 pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     if (std.ascii.eqlIgnoreCase(keyboard.key, "escape")) return .stop;
+    // Control-Tab is the session switcher on every platform. Cmd-Tab
+    // stays with the OS app switcher — do not use hasNavigationModifier.
+    if (std.ascii.eqlIgnoreCase(keyboard.key, "tab")) {
+        if (keyboard.modifiers.control and !keyboard.modifiers.super) {
+            return if (keyboard.modifiers.shift) .switcher_backward else .switcher_forward;
+        }
+        return null;
+    }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "n")) {
         return .new_session;
     }
