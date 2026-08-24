@@ -424,6 +424,9 @@ pub const SidebarRow = struct {
     is_header: bool,
     editing: bool,
     folder_id: u32,
+    /// True for session rows nested under a folder (`folder_id != 0`).
+    /// False for folder headers and Today / unassigned sessions.
+    grouped: bool = false,
 };
 
 pub const AssignFolder = struct {
@@ -928,6 +931,7 @@ pub const Model = struct {
                 .is_header = true,
                 .editing = model.editing_folder_id == folder.id,
                 .folder_id = folder.id,
+                .grouped = false,
             };
             i += 1;
             if (folder.collapsed and query.len == 0) continue;
@@ -2065,6 +2069,7 @@ fn sessionSidebarRow(model: *const Model, session: *const Session) SidebarRow {
         .is_header = false,
         .editing = model.editing_session_id == session.id,
         .folder_id = session.folder_id,
+        .grouped = session.folder_id != 0,
     };
 }
 

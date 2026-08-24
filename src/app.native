@@ -66,20 +66,44 @@
                   </list-item>
                 </if>
                 <else>
-                  <list-item height="52" selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
-                    <row gap="2" cross="center" padding="8">
-                      <column gap="2" grow="1">
-                        <if test="{s.editing}">
-                          <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
-                        </if>
-                        <else>
-                          <text>{s.title}</text>
-                        </else>
-                        <text foreground="text_muted">{s.provider}</text>
-                      </column>
-                      <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>
+                  <!-- Grouped folder children: 15px inset (Waku SIDEBAR_GROUP_GUIDE_X) + 1px
+                       Native separator rail + 52px session card height. Today rows stay flush. -->
+                  <if test="{s.grouped}">
+                    <row height="52" cross="stretch">
+                      <spacer width="15" />
+                      <separator width="1" height="52"></separator>
+                      <list-item height="52" grow="1" selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
+                        <row gap="2" cross="center" padding="8">
+                          <column gap="2" grow="1">
+                            <if test="{s.editing}">
+                              <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
+                            </if>
+                            <else>
+                              <text>{s.title}</text>
+                            </else>
+                            <text foreground="text_muted">{s.provider}</text>
+                          </column>
+                          <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>
+                        </row>
+                      </list-item>
                     </row>
-                  </list-item>
+                  </if>
+                  <else>
+                    <list-item height="52" selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
+                      <row gap="2" cross="center" padding="8">
+                        <column gap="2" grow="1">
+                          <if test="{s.editing}">
+                            <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
+                          </if>
+                          <else>
+                            <text>{s.title}</text>
+                          </else>
+                          <text foreground="text_muted">{s.provider}</text>
+                        </column>
+                        <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>
+                      </row>
+                    </list-item>
+                  </else>
                 </else>
               </for>
             </column>
