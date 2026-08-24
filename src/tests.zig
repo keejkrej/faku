@@ -4864,6 +4864,19 @@ fn expectSidebarTitles(rows: []const main.SidebarRow, expected: []const []const 
     }
 }
 
+fn expectOneLineEllipsis(widget: canvas.Widget, grow: ?f32) !void {
+    try testing.expect(widget.kind == .text);
+    if (@hasField(canvas.Widget, "text_no_wrap")) {
+        try testing.expect(widget.text_no_wrap);
+    }
+    if (@hasField(canvas.Widget, "text_overflow")) {
+        try testing.expectEqual(canvas.TextOverflow.ellipsis, widget.text_overflow);
+    }
+    if (grow) |value| {
+        try testing.expectEqual(value, widget.layout.grow);
+    }
+}
+
 fn countByKind(widget: canvas.Widget, kind: canvas.WidgetKind) usize {
     var n: usize = if (widget.kind == kind) 1 else 0;
     for (widget.children) |child| n += countByKind(child, kind);
@@ -6983,6 +6996,91 @@ test "click the selected session title edits it; empty name becomes untitled" {
     main.update(&model, tree.msgForPointer((try expectByText(tree.root, .list_item, "New folder")).id, .up).?, &fx);
     try testing.expectEqual(folder_id, model.editing_folder_id);
     try testing.expectEqual(@as(u32, 0), model.editing_session_id);
+}
+
+test "long session and folder titles stay one line with Native ellipsis" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    const long_session = "Implement a very long session title that fills the chrome row";
+    const long_folder = "Very long folder name that should stay on one line in chrome";
+    try testing.expect(long_session.len >= 60);
+    try testing.expect(long_session.len <= 64);
+    try testing.expect(long_folder.len >= 60);
+    try testing.expect(long_folder.len <= 64);
+
+    var model = main.initialModel();
+    const port_id = model.session_store[0].id;
+    const auth_id = model.session_store[1].id;
+    model.sessionById(port_id).?.setTitle(long_session);
+    try testing.expectEqualStrings(long_session, model.header_title());
+    try testing.expectEqualStrings(long_session, model.selected_title());
+
+    main.update(&model, .new_folder, &fx);
+    const folder_id = model.folder_store[0].id;
+    model.folder_store[0].setTitle(long_folder);
+    main.update(&model, .{ .assign_folder = .{ .session_id = auth_id, .folder_id = folder_id } }, &fx);
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        long_session,
+        long_folder,
+        "fix auth listener",
+    });
+
+    var tree = try buildTree(arena, &model);
+    const toolbar = try expectByText(tree.root, .row, "Toolbar");
+    const header = try expectByText(toolbar, .text, long_session);
+    try expectOneLineEllipsis(header, 1.0);
+    try testing.expectEqual(Msg.edit_session_title, tree.msgForPointer(header.id, .up).?);
+    _ = try expectByText(toolbar, .button, "Copy session");
+    _ = try expectByText(toolbar, .button, "Fork");
+    _ = try expectButton(tree.root, "Close");
+    try expectLaidOutHeight(tree.root, toolbar.id, 48);
+
+    const session_row = try expectByText(tree.root, .list_item, long_session);
+    try testing.expectEqualStrings(long_session, widgetName(session_row));
+    const session_title = try expectByText(session_row, .text, long_session);
+    try expectOneLineEllipsis(session_title, null);
+    const provider = try expectByText(session_row, .text, "fx");
+    try expectOneLineEllipsis(provider, null);
+    try expectLaidOutHeight(tree.root, session_row.id, 52);
+
+    const folder_row = try expectByText(tree.root, .list_item, long_folder);
+    try testing.expectEqualStrings(long_folder, widgetName(folder_row));
+    const folder_title = try expectByText(folder_row, .text, long_folder);
+    try expectOneLineEllipsis(folder_title, 1.0);
+    _ = try expectButton(folder_row, "Delete folder");
+    try expectLaidOutHeight(tree.root, folder_row.id, 32);
+
+    const grouped_row = try expectByText(tree.root, .list_item, "fix auth listener");
+    const grouped_title = try expectByText(grouped_row, .text, "fix auth listener");
+    try expectOneLineEllipsis(grouped_title, null);
+    try expectLaidOutHeight(tree.root, grouped_row.id, 52);
+
+    main.update(&model, .{ .select = auth_id }, &fx);
+    try testing.expectEqual(auth_id, model.selected);
+    try testing.expectEqualStrings("fix auth listener", model.header_title());
+    tree = try buildTree(arena, &model);
+    const selected_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    _ = try expectByText(selected_toolbar, .text, "fix auth listener");
+    _ = try expectByText(selected_toolbar, .button, "Copy session");
+    _ = try expectByText(tree.root, .list_item, long_session);
+    _ = try expectByText(tree.root, .list_item, long_folder);
+
+    main.update(&model, .switcher_forward, &fx);
+    try testing.expect(model.switcher_open);
+    tree = try buildTree(arena, &model);
+    const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    const switcher_row = try expectByText(dialog, .list_item, long_session);
+    try testing.expectEqualStrings(long_session, widgetName(switcher_row));
+    const switcher_title = try expectByText(switcher_row, .text, long_session);
+    try expectOneLineEllipsis(switcher_title, null);
+    _ = try expectByText(dialog, .list_item, "fix auth listener");
+    _ = try expectByText(dialog, .button, "Switch");
 }
 
 test "header Close requests the real window close; Esc stays with settings" {

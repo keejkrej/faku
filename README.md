@@ -12,7 +12,10 @@ https://x.com/localhost_5173/status/2090464458695192842
 This app replaces the GPUI window with Vercel Native SDK markup plus a Zig
 Model / Msg / update loop. waku-daemon can stay the brain. Faku is the window,
 and it is fx-first. Desktop chrome matches the stopped Waku-parity cut
-(chromeless 48px header, measured sidebar, composer send circle); the
+(chromeless 48px header, measured sidebar, composer send circle).
+Header, sidebar, and Ctrl-Tab switcher titles stay on one line with
+Native ellipsis; the full name remains the accessible list-item
+label. That is in-window chrome, not the OS window title. The
 header X closes the window because chrome is off; sidebar
 Search filters the local `sessions.json` catalog; the sidebar collapse
 control works and is restored; the sidebar chevrons walk session

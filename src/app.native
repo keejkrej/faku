@@ -59,7 +59,7 @@
                         <text-field grow="1" height="24" placeholder="New folder" text="{folder_title_draft}" on-input="folder_title_edit" autofocus="true" />
                       </if>
                       <else>
-                        <text foreground="text_muted">{s.title}</text>
+                        <text grow="1" wrap="false" overflow="ellipsis" foreground="text_muted">{s.title}</text>
                       </else>
                       <button variant="ghost" size="icon" icon="trash" label="Delete folder" on-press="delete_folder:{s.folder_id}"></button>
                     </row>
@@ -79,9 +79,9 @@
                               <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
                             </if>
                             <else>
-                              <text>{s.title}</text>
+                              <text wrap="false" overflow="ellipsis">{s.title}</text>
                             </else>
-                            <text foreground="text_muted">{s.provider}</text>
+                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{s.provider}</text>
                           </column>
                           <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>
                         </row>
@@ -96,9 +96,9 @@
                             <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
                           </if>
                           <else>
-                            <text>{s.title}</text>
+                            <text wrap="false" overflow="ellipsis">{s.title}</text>
                           </else>
-                          <text foreground="text_muted">{s.provider}</text>
+                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{s.provider}</text>
                         </column>
                         <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>
                       </row>
@@ -146,7 +146,7 @@
           <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
         </if>
         <else>
-          <text on-press="edit_session_title">{header_title}</text>
+          <text grow="1" wrap="false" overflow="ellipsis" on-press="edit_session_title">{header_title}</text>
         </else>
         <spacer grow="1" />
         <button variant="ghost" size="sm" on-press="copy_session">Copy session</button>
@@ -323,8 +323,8 @@
               <list-item height="52" selected="{s.selected}" on-press="switcher_pick:{s.id}" on-submit="switcher_pick:{s.id}" label="{s.title}">
                 <row gap="2" cross="center" padding="8">
                   <column gap="2" grow="1">
-                    <text>{s.title}</text>
-                    <text foreground="text_muted">{s.provider}</text>
+                    <text wrap="false" overflow="ellipsis">{s.title}</text>
+                    <text wrap="false" overflow="ellipsis" foreground="text_muted">{s.provider}</text>
                   </column>
                 </row>
               </list-item>
