@@ -507,6 +507,7 @@ pub const Msg = union(enum) {
     history_forward,
     new_folder,
     toggle_folder: u32,
+    collapse_all_folders,
     delete_folder: u32,
     assign_selected: u32,
     unassign_selected,
@@ -667,6 +668,8 @@ pub const Model = struct {
         "folderByIdConst",
         "assignSessionFolder",
         "toggleFolderCollapsed",
+        "collapseAllFolders",
+        "all_folders_collapsed",
         "deleteFolder",
         "nextUntitledFolderTitle",
         "startFolderTitleEdit",
@@ -1756,6 +1759,30 @@ pub const Model = struct {
         folder.collapsed = !folder.collapsed;
     }
 
+    /// Mark every catalog folder collapsed. Does not touch `sidebar_collapsed`
+    /// (the rail). Returns whether any folder actually changed.
+    pub fn collapseAllFolders(model: *Model) bool {
+        var changed = false;
+        for (model.folder_store[0..model.folder_count]) |*folder| {
+            if (folder.collapsed) continue;
+            folder.collapsed = true;
+            changed = true;
+        }
+        return changed;
+    }
+
+    pub fn all_folders_collapsed(model: *const Model) bool {
+        if (model.folder_count == 0) return true;
+        for (model.folder_store[0..model.folder_count]) |folder| {
+            if (!folder.collapsed) return false;
+        }
+        return true;
+    }
+
+    pub fn can_collapse_folders(model: *const Model) bool {
+        return model.folder_count > 0 and !model.all_folders_collapsed();
+    }
+
     /// Drop folder F and unassign its sessions (`folder_id` 0 → Today).
     /// Sessions stay. This is Waku-style group delete, not `removeSession`.
     pub fn deleteFolder(model: *Model, folder_id: u32) bool {
@@ -2455,6 +2482,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .toggle_folder => |folder_id| {
             model.toggleFolderCollapsed(folder_id);
             store.persistFoldersIfPossible(model);
+        },
+        .collapse_all_folders => {
+            if (model.folder_count == 0) return;
+            if (model.collapseAllFolders()) store.persistFoldersIfPossible(model);
         },
         .delete_folder => |folder_id| persistDeletedFolder(model, folder_id, fx),
         .assign_selected => |folder_id| {
