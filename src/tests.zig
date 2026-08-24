@@ -2197,7 +2197,7 @@ test "window drop of a png sets draft image_path; txt and empty do not" {
     try testing.expect(model.has_image_attach());
     try testing.expect(model.has_image_preview());
 
-    var tree = try buildTree(arena, &model);
+    const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .button, "dropped.png");
     _ = try expectButton(tree.root, "Clear image");
 
