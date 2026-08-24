@@ -70,6 +70,7 @@ pub const max_runtime_id = 36;
 pub const max_fx_model = 128;
 pub const max_access_mode = 32;
 pub const max_interaction_mode = 16;
+pub const max_reasoning_effort = 16;
 pub const max_available_commands = acp.max_available_commands;
 pub const max_command_name = 64;
 pub const max_command_description = 256;
@@ -77,6 +78,9 @@ pub const max_command_description = 256;
 pub const default_access_mode = "fullAccess";
 /// Waku `StartOptions.interaction_mode` default (`build` | `plan`).
 pub const default_interaction_mode = "build";
+/// fx documented `effort` default (`auto` | `none` | `minimal` | `low` |
+/// `medium` | `high` | `xhigh` | `max`).
+pub const default_reasoning_effort = "auto";
 pub const fx_env_bin = "/usr/bin/env";
 const max_line_keep = 4096;
 
@@ -197,6 +201,9 @@ pub const Session = struct {
     /// Waku `StartOptions.interaction_mode` (build | plan).
     interaction_mode_storage: [max_interaction_mode]u8 = [_]u8{0} ** max_interaction_mode,
     interaction_mode_len: usize = 0,
+    /// fx documented effort / Waku `StartOptions.reasoningEffort`.
+    reasoning_effort_storage: [max_reasoning_effort]u8 = [_]u8{0} ** max_reasoning_effort,
+    reasoning_effort_len: usize = 0,
     /// Send-time HEAD snapshots. Cap last 20. Rewind uses the latest sha.
     rewind_refs: [rewind.max_refs]rewind.Ref = [_]rewind.Ref{.{}} ** rewind.max_refs,
     rewind_ref_count: usize = 0,
@@ -267,6 +274,14 @@ pub const Session = struct {
 
     pub fn setInteractionMode(self: *Session, value: []const u8) void {
         writeFixed(&self.interaction_mode_storage, &self.interaction_mode_len, value);
+    }
+
+    pub fn reasoningEffort(self: *const Session) []const u8 {
+        return self.reasoning_effort_storage[0..self.reasoning_effort_len];
+    }
+
+    pub fn setReasoningEffort(self: *Session, value: []const u8) void {
+        writeFixed(&self.reasoning_effort_storage, &self.reasoning_effort_len, value);
     }
 
     pub fn rewindRefs(self: *const Session) []const rewind.Ref {
@@ -495,6 +510,7 @@ pub const Msg = union(enum) {
     settings_access_full,
     cycle_access,
     cycle_interaction,
+    cycle_effort,
     cycle_model,
     start_project_edit,
     project_path_edit: canvas.TextInputEvent,
@@ -625,6 +641,8 @@ pub const Model = struct {
     last_access_mode_len: usize = 0,
     last_interaction_mode_storage: [max_interaction_mode]u8 = [_]u8{0} ** max_interaction_mode,
     last_interaction_mode_len: usize = 0,
+    last_reasoning_effort_storage: [max_reasoning_effort]u8 = [_]u8{0} ** max_reasoning_effort,
+    last_reasoning_effort_len: usize = 0,
     last_spawn_fx_model_storage: [max_fx_model]u8 = [_]u8{0} ** max_fx_model,
     last_spawn_fx_model_len: usize = 0,
     last_spawn_fx_permission_mode_storage: [max_access_mode]u8 = [_]u8{0} ** max_access_mode,
@@ -742,6 +760,7 @@ pub const Model = struct {
         "setSettingsAccess",
         "cycleSelectedAccess",
         "cycleSelectedInteraction",
+        "cycleSelectedEffort",
         "cycleSelectedModel",
         "startProjectEdit",
         "closeProjectEdit",
@@ -749,6 +768,7 @@ pub const Model = struct {
         "selectedProjectPath",
         "resolvedAccessMode",
         "resolvedInteractionMode",
+        "resolvedReasoningEffort",
         "is_streaming",
         "fx_available",
         "fx_path_storage",
@@ -772,6 +792,8 @@ pub const Model = struct {
         "last_access_mode_len",
         "last_interaction_mode_storage",
         "last_interaction_mode_len",
+        "last_reasoning_effort_storage",
+        "last_reasoning_effort_len",
         "last_spawn_fx_model_storage",
         "last_spawn_fx_model_len",
         "last_spawn_fx_permission_mode_storage",
@@ -788,6 +810,8 @@ pub const Model = struct {
         "setLastAccessMode",
         "lastInteractionMode",
         "setLastInteractionMode",
+        "lastReasoningEffort",
+        "setLastReasoningEffort",
         "lastSpawnCwd",
         "setLastSpawnCwd",
         "lastSpawnFxModel",
@@ -1310,12 +1334,24 @@ pub const Model = struct {
         return default_interaction_mode;
     }
 
+    pub fn resolvedReasoningEffort(model: *const Model) []const u8 {
+        if (model.sessionByIdConst(model.selected)) |session| {
+            if (session.reasoningEffort().len > 0) return session.reasoningEffort();
+        }
+        if (model.lastReasoningEffort().len > 0) return model.lastReasoningEffort();
+        return default_reasoning_effort;
+    }
+
     pub fn access_label(model: *const Model) []const u8 {
         return accessLabel(model.resolvedAccessMode());
     }
 
     pub fn interaction_label(model: *const Model) []const u8 {
         return if (std.mem.eql(u8, model.resolvedInteractionMode(), "plan")) "Plan" else "Build";
+    }
+
+    pub fn effort_label(model: *const Model) []const u8 {
+        return effortLabel(model.resolvedReasoningEffort());
     }
 
     pub fn model_label(model: *const Model) []const u8 {
@@ -1445,6 +1481,13 @@ pub const Model = struct {
         model.setLastInteractionMode(next);
     }
 
+    pub fn cycleSelectedEffort(model: *Model) void {
+        const session = model.sessionById(model.selected) orelse return;
+        const next = nextReasoningEffort(model.resolvedReasoningEffort());
+        session.setReasoningEffort(next);
+        model.setLastReasoningEffort(next);
+    }
+
     pub fn cycleSelectedModel(model: *Model) void {
         const session = model.sessionById(model.selected) orelse return;
         const current = session.model();
@@ -1518,6 +1561,14 @@ pub const Model = struct {
 
     pub fn setLastInteractionMode(model: *Model, value: []const u8) void {
         writeFixed(&model.last_interaction_mode_storage, &model.last_interaction_mode_len, value);
+    }
+
+    pub fn lastReasoningEffort(model: *const Model) []const u8 {
+        return model.last_reasoning_effort_storage[0..model.last_reasoning_effort_len];
+    }
+
+    pub fn setLastReasoningEffort(model: *Model, value: []const u8) void {
+        writeFixed(&model.last_reasoning_effort_storage, &model.last_reasoning_effort_len, value);
     }
 
     pub fn lastSpawnFxModel(model: *const Model) []const u8 {
@@ -1825,6 +1876,8 @@ pub const Model = struct {
         writeFixed(&session.access_mode_storage, &session.access_mode_len, access);
         const interaction = if (model.lastInteractionMode().len > 0) model.lastInteractionMode() else default_interaction_mode;
         writeFixed(&session.interaction_mode_storage, &session.interaction_mode_len, interaction);
+        const effort = if (model.lastReasoningEffort().len > 0) model.lastReasoningEffort() else default_reasoning_effort;
+        writeFixed(&session.reasoning_effort_storage, &session.reasoning_effort_len, effort);
         model.session_store[model.session_count] = session;
         model.session_count += 1;
         model.next_id += 1;
@@ -1953,6 +2006,7 @@ pub const Model = struct {
         access_mode: []const u8,
         runtime_id: []const u8,
         interaction_mode: []const u8,
+        reasoning_effort: []const u8,
         folder_id: u32,
     ) void {
         if (model.session_count >= max_sessions) return;
@@ -1970,6 +2024,7 @@ pub const Model = struct {
         writeFixed(&session.access_mode_storage, &session.access_mode_len, access_mode);
         writeFixed(&session.runtime_id_storage, &session.runtime_id_len, runtime_id);
         writeFixed(&session.interaction_mode_storage, &session.interaction_mode_len, interaction_mode);
+        writeFixed(&session.reasoning_effort_storage, &session.reasoning_effort_len, reasoning_effort);
         session.folder_id = folder_id;
         model.session_store[model.session_count] = session;
         model.session_count += 1;
@@ -2629,6 +2684,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.cycleSelectedInteraction();
             persistComposerChips(model, fx);
         },
+        .cycle_effort => {
+            model.cycleSelectedEffort();
+            persistComposerChips(model, fx);
+        },
         .cycle_model => {
             model.cycleSelectedModel();
             persistComposerChips(model, fx);
@@ -2822,6 +2881,30 @@ pub fn accessLabel(access_mode: []const u8) []const u8 {
     return "Full access";
 }
 
+/// auto → none → minimal → low → medium → high → xhigh → max → auto.
+/// Empty and unknown strings restart at none (same as starting from auto).
+pub fn nextReasoningEffort(effort: []const u8) []const u8 {
+    if (std.mem.eql(u8, effort, "auto") or effort.len == 0) return "none";
+    if (std.mem.eql(u8, effort, "none")) return "minimal";
+    if (std.mem.eql(u8, effort, "minimal")) return "low";
+    if (std.mem.eql(u8, effort, "low")) return "medium";
+    if (std.mem.eql(u8, effort, "medium")) return "high";
+    if (std.mem.eql(u8, effort, "high")) return "xhigh";
+    if (std.mem.eql(u8, effort, "xhigh")) return "max";
+    return "auto";
+}
+
+pub fn effortLabel(effort: []const u8) []const u8 {
+    if (std.mem.eql(u8, effort, "none")) return "None";
+    if (std.mem.eql(u8, effort, "minimal")) return "Minimal";
+    if (std.mem.eql(u8, effort, "low")) return "Low";
+    if (std.mem.eql(u8, effort, "medium")) return "Medium";
+    if (std.mem.eql(u8, effort, "high")) return "High";
+    if (std.mem.eql(u8, effort, "xhigh")) return "Extra high";
+    if (std.mem.eql(u8, effort, "max")) return "Max";
+    return "Auto";
+}
+
 fn persistComposerChips(model: *Model, fx: *Effects) void {
     store.persistSettingsIfPossible(model);
     store.persistIfPossible(model, model.selected, fx);
@@ -2843,6 +2926,7 @@ pub fn startOptionsFromSession(session: *const Session) protocol.StartOptions {
         .mode = if (session.accessMode().len > 0) session.accessMode() else default_access_mode,
         .interaction_mode = if (session.interactionMode().len > 0) session.interactionMode() else default_interaction_mode,
         .model = if (session.model().len > 0) session.model() else null,
+        .reasoning_effort = if (session.reasoningEffort().len > 0) session.reasoningEffort() else null,
         .computer_use_enabled = false,
     };
 }
@@ -3150,6 +3234,7 @@ fn forkSelectedThrough(model: *Model, fx: *Effects, through_index: u32) void {
             session.setModel(from.model());
             session.setAccessMode(from.accessMode());
             session.setInteractionMode(from.interactionMode());
+            session.setReasoningEffort(from.reasoningEffort());
             session.folder_id = from.folder_id;
             session.untitled = from.untitled;
             session.setFxSessionId("");

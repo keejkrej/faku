@@ -252,7 +252,7 @@
                   <button variant="ghost" size="sm" selected="{commands_open}" on-press="toggle_commands">Commands</button>
                 </if>
                 <button variant="ghost" size="sm" icon="circle-dot" on-press="cycle_model">{model_label}</button>
-                <button variant="ghost" size="sm" icon="menu">Medium</button>
+                <button variant="ghost" size="sm" icon="menu" on-press="cycle_effort">{effort_label}</button>
                 <button variant="ghost" size="sm" icon="eye" on-press="cycle_access">{access_label}</button>
                 <button variant="ghost" size="sm" icon="wrench" on-press="cycle_interaction">{interaction_label}</button>
                 <spacer grow="1" />

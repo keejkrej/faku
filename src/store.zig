@@ -7,12 +7,13 @@
 //!
 //! One JSON document `sessions.json`. Catalog load copies only session
 //! skeletons (id, title, provider, untitled, has_started, project_path,
-//! fx_session_id, runtime_id, model, access_mode, interaction_mode, folder_id, rewind_refs,
+//! fx_session_id, runtime_id, model, access_mode, interaction_mode, reasoning_effort, folder_id, rewind_refs,
 //! context_used, context_size, available_commands) — no transcripts. Selecting
 //! a session hydrates its turns,
 //! `queued_messages`, `rewind_refs`, and last-known context usage. Document extras also keep
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
+//! `last_reasoning_effort` /
 //! `last_project_path` / `last_daemon_address` so the settings gear and
 //! composer chips can edit persisted defaults, and `folders` /
 //! `collapsed_folder_ids` so New folder groups persist. A session
@@ -231,6 +232,7 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.last_model = lastModelForSave(model, session);
     document.last_access_mode = lastAccessModeForSave(model, session);
     document.last_interaction_mode = lastInteractionModeForSave(model, session);
+    document.last_reasoning_effort = lastReasoningEffortForSave(model, session);
     document.last_daemon_address = lastDaemonAddressForSave(model);
     applySidebarExtras(&document, model);
     try applyFolderExtras(&document, arena, model);
@@ -267,6 +269,7 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     document.last_model = model.lastModel();
     document.last_access_mode = model.lastAccessMode();
     document.last_interaction_mode = model.lastInteractionMode();
+    document.last_reasoning_effort = model.lastReasoningEffort();
     document.last_daemon_address = lastDaemonAddressForSave(model);
     applySidebarExtras(&document, model);
     try applyFolderExtras(&document, arena, model);
@@ -292,6 +295,7 @@ pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void
         if (session.model().len > 0) model.setLastModel(session.model());
         if (session.accessMode().len > 0) model.setLastAccessMode(session.accessMode());
         if (session.interactionMode().len > 0) model.setLastInteractionMode(session.interactionMode());
+        if (session.reasoningEffort().len > 0) model.setLastReasoningEffort(session.reasoningEffort());
     }
     if (model.daemonAddress().len > 0) model.setLastDaemonAddress(model.daemonAddress());
     const io = model.store_io orelse return;
@@ -307,7 +311,7 @@ pub fn persistLayoutIfPossible(model: *const Model) void {
 }
 
 /// Merge-only write of settings extras (`last_model`, `last_access_mode`,
-/// `last_interaction_mode`, `last_project_path`, `last_daemon_address`).
+/// `last_interaction_mode`, `last_reasoning_effort`, `last_project_path`, `last_daemon_address`).
 /// Same first-run rule as sidebar collapse: does not create `sessions.json`
 /// and does not spawn a daemon sidecar. Missing / corrupt catalogs are a no-op.
 pub fn persistSettingsIfPossible(model: *const Model) void {
@@ -356,6 +360,7 @@ fn applySettingsExtras(document: *Document, model: *const Model) void {
     document.last_model = model.lastModel();
     document.last_access_mode = model.lastAccessMode();
     document.last_interaction_mode = model.lastInteractionMode();
+    document.last_reasoning_effort = model.lastReasoningEffort();
     document.last_daemon_address = model.lastDaemonAddress();
 }
 
@@ -457,6 +462,7 @@ fn applyDaemonSkeletons(model: *Model, skeletons: []const protocol.TaskStateSkel
             !skel.has_started,
             skel.has_started,
             skel.project_path,
+            "",
             "",
             "",
             "",
@@ -774,6 +780,7 @@ const StoredSession = struct {
     model: []const u8 = "",
     access_mode: []const u8 = "",
     interaction_mode: []const u8 = "",
+    reasoning_effort: []const u8 = "",
     turns: []StoredTurn,
     queued_messages: []StoredQueued,
     rewind_refs: []StoredRewind = &.{},
@@ -804,6 +811,7 @@ const Document = struct {
     last_model: []const u8 = "",
     last_access_mode: []const u8 = "",
     last_interaction_mode: []const u8 = "",
+    last_reasoning_effort: []const u8 = "",
     last_daemon_address: []const u8 = "",
     sidebar_collapsed: bool = false,
     sidebar_width: u32 = 0,
@@ -822,6 +830,7 @@ const Document = struct {
             .last_model = model.lastModel(),
             .last_access_mode = model.lastAccessMode(),
             .last_interaction_mode = model.lastInteractionMode(),
+            .last_reasoning_effort = model.lastReasoningEffort(),
             .last_daemon_address = lastDaemonAddressForSave(model),
             .sidebar_collapsed = model.sidebar_collapsed,
             .sidebar_width = model.sidebarWidthPixels(),
@@ -850,6 +859,11 @@ fn lastInteractionModeForSave(model: *const Model, session: *const main.Session)
     return session.interactionMode();
 }
 
+fn lastReasoningEffortForSave(model: *const Model, session: *const main.Session) []const u8 {
+    if (model.lastReasoningEffort().len > 0) return model.lastReasoningEffort();
+    return session.reasoningEffort();
+}
+
 fn lastDaemonAddressForSave(model: *const Model) []const u8 {
     if (model.lastDaemonAddress().len > 0) return model.lastDaemonAddress();
     return model.daemonAddress();
@@ -870,6 +884,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.setLastModel(document.last_model);
     model.setLastAccessMode(document.last_access_mode);
     model.setLastInteractionMode(document.last_interaction_mode);
+    model.setLastReasoningEffort(document.last_reasoning_effort);
     model.setLastDaemonAddress(document.last_daemon_address);
     model.sidebar_collapsed = document.sidebar_collapsed;
     model.applySidebarWidth(document.sidebar_width);
@@ -879,7 +894,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
         model.restoreFolder(folder.id, folder.title, collapsed);
     }
     for (document.sessions) |stored| {
-        model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode, stored.runtime_id, stored.interaction_mode, stored.folder_id);
+        model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode, stored.runtime_id, stored.interaction_mode, stored.reasoning_effort, stored.folder_id);
         applyRewindRefs(model, stored.id, stored.rewind_refs);
         applyContextUsage(model, stored.id, stored.context_used, stored.context_size);
         applyAvailableCommands(model, stored.id, stored.available_commands);
@@ -930,6 +945,7 @@ fn upsertSession(document: *Document, arena: std.mem.Allocator, model: *const Mo
         existing.model = incoming.model;
         existing.access_mode = incoming.access_mode;
         existing.interaction_mode = incoming.interaction_mode;
+        existing.reasoning_effort = incoming.reasoning_effort;
         existing.folder_id = incoming.folder_id;
         existing.rewind_refs = incoming.rewind_refs;
         existing.context_used = incoming.context_used;
@@ -989,6 +1005,7 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
         .model = try arena.dupe(u8, session.model()),
         .access_mode = try arena.dupe(u8, session.accessMode()),
         .interaction_mode = try arena.dupe(u8, session.interactionMode()),
+        .reasoning_effort = try arena.dupe(u8, session.reasoningEffort()),
         .folder_id = session.folder_id,
         .context_used = session.context_used,
         .context_size = session.context_size,
@@ -1082,6 +1099,7 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .last_model = jsonString(obj.get("last_model")) orelse "",
         .last_access_mode = jsonString(obj.get("last_access_mode")) orelse "",
         .last_interaction_mode = jsonString(obj.get("last_interaction_mode")) orelse "",
+        .last_reasoning_effort = jsonString(obj.get("last_reasoning_effort")) orelse "",
         .last_daemon_address = jsonString(obj.get("last_daemon_address")) orelse "",
         .sidebar_collapsed = jsonBool(obj.get("sidebar_collapsed")) orelse false,
         .sidebar_width = jsonUint(obj.get("sidebar_width")) orelse 0,
@@ -1138,6 +1156,7 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         .model = jsonString(obj.get("model")) orelse "",
         .access_mode = jsonString(obj.get("access_mode")) orelse "",
         .interaction_mode = jsonString(obj.get("interaction_mode")) orelse "",
+        .reasoning_effort = jsonString(obj.get("reasoning_effort")) orelse "",
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
         .rewind_refs = try parseRewindRefs(arena, obj.get("rewind_refs")),
@@ -1356,6 +1375,8 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try appendJsonString(&out, allocator, document.last_access_mode);
     try out.appendSlice(allocator, ",\"last_interaction_mode\":");
     try appendJsonString(&out, allocator, document.last_interaction_mode);
+    try out.appendSlice(allocator, ",\"last_reasoning_effort\":");
+    try appendJsonString(&out, allocator, document.last_reasoning_effort);
     try out.appendSlice(allocator, ",\"last_daemon_address\":");
     try appendJsonString(&out, allocator, document.last_daemon_address);
     try out.appendSlice(allocator, ",\"sidebar_collapsed\":");
@@ -1410,6 +1431,8 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
     try appendJsonString(out, allocator, session.access_mode);
     try out.appendSlice(allocator, ",\"interaction_mode\":");
     try appendJsonString(out, allocator, session.interaction_mode);
+    try out.appendSlice(allocator, ",\"reasoning_effort\":");
+    try appendJsonString(out, allocator, session.reasoning_effort);
     try out.appendSlice(allocator, ",\"folder_id\":");
     try appendUint(out, allocator, session.folder_id);
     try out.appendSlice(allocator, ",\"context_used\":");
@@ -1787,10 +1810,12 @@ test "session model and access_mode persist; new sessions inherit last-used" {
         session.setModel("openai/gpt-5.4");
         session.setAccessMode("ask");
         session.setInteractionMode("plan");
+        session.setReasoningEffort("high");
     }
     source.setLastModel("openai/gpt-5.4");
     source.setLastAccessMode("ask");
     source.setLastInteractionMode("plan");
+    source.setLastReasoningEffort("high");
     _ = source.appendTurn(id, .user, "use this model");
     try saveSession(&source, id, allocator, io);
 
@@ -1800,14 +1825,17 @@ test "session model and access_mode persist; new sessions inherit last-used" {
     try testing.expectEqualStrings("openai/gpt-5.4", loaded.session_store[0].model());
     try testing.expectEqualStrings("ask", loaded.session_store[0].accessMode());
     try testing.expectEqualStrings("plan", loaded.session_store[0].interactionMode());
+    try testing.expectEqualStrings("high", loaded.session_store[0].reasoningEffort());
     try testing.expectEqualStrings("openai/gpt-5.4", loaded.lastModel());
     try testing.expectEqualStrings("ask", loaded.lastAccessMode());
     try testing.expectEqualStrings("plan", loaded.lastInteractionMode());
+    try testing.expectEqualStrings("high", loaded.lastReasoningEffort());
 
     const inherited = loaded.addSession("next", .fx);
     try testing.expectEqualStrings("openai/gpt-5.4", loaded.sessionById(inherited).?.model());
     try testing.expectEqualStrings("ask", loaded.sessionById(inherited).?.accessMode());
     try testing.expectEqualStrings("plan", loaded.sessionById(inherited).?.interactionMode());
+    try testing.expectEqualStrings("high", loaded.sessionById(inherited).?.reasoningEffort());
 }
 
 test "sidebar collapsed flag and last width reload from document extras" {

@@ -94,6 +94,18 @@ fn expectButton(widget: canvas.Widget, text: []const u8) !canvas.Widget {
     };
 }
 
+fn expectButtonMsg(tree: AppUi.Tree, text: []const u8, expected: Msg) !canvas.Widget {
+    var n: usize = 0;
+    while (findNthByText(tree.root, .button, text, n)) |widget| : (n += 1) {
+        if (tree.msgForPointer(widget.id, .up)) |msg| {
+            if (std.meta.eql(msg, expected)) return widget;
+        }
+    }
+    std.debug.print("no button \"{s}\" dispatching that msg\n", .{text});
+    dumpTexts(tree.root, 0);
+    return error.WidgetNotFound;
+}
+
 fn findByKind(widget: canvas.Widget, kind: canvas.WidgetKind) ?canvas.Widget {
     if (widget.kind == kind) return widget;
     for (widget.children) |child| {
@@ -808,6 +820,8 @@ test "send with fx_available spawns one-shot fx acp and streams session/update t
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/set_mode\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"modeId\":\"code\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "session/set_config_option") == null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"configId\":\"effort\"") == null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"configId\":\"reasoning_effort\"") == null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "session/resume") == null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "what does this repo do") != null);
@@ -1748,6 +1762,8 @@ test "fx ask spawn records FX_MODEL and FX_PERMISSION_MODE" {
     try testing.expect(methodBefore(request.stdin, "session/set_mode", "session/set_config_option"));
     try testing.expect(methodBefore(request.stdin, "session/set_config_option", "session/prompt"));
     try testing.expect(std.mem.indexOf(u8, request.stdin, "fullAccess") == null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"configId\":\"effort\"") == null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"configId\":\"reasoning_effort\"") == null);
 }
 
 test "fx acp stdin omits model config when model is empty" {
@@ -1780,6 +1796,8 @@ test "fx acp stdin omits model config when model is empty" {
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"modeId\":\"ask\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "session/set_config_option") == null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"configId\":\"model\"") == null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"configId\":\"effort\"") == null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"configId\":\"reasoning_effort\"") == null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
     try testing.expect(methodBefore(request.stdin, "session/new", "session/set_mode"));
     try testing.expect(methodBefore(request.stdin, "session/set_mode", "session/prompt"));
@@ -2352,6 +2370,7 @@ test "daemon address send puts hello attachSession start and prompt on spawn std
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"cwd\":\".\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"mode\":\"fullAccess\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"interactionMode\":\"build\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"reasoningEffort\":\"auto\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"computerUseEnabled\":false") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"prompt\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "trace the listener") != null);
@@ -2380,6 +2399,7 @@ test "first daemon send maps stored start options when runtime id is empty" {
         session.setAccessMode("ask");
         session.setInteractionMode("plan");
         session.setModel("openai/gpt-5.4");
+        session.setReasoningEffort("high");
     }
     model.selected = id;
 
@@ -2395,6 +2415,7 @@ test "first daemon send maps stored start options when runtime id is empty" {
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"mode\":\"ask\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"interactionMode\":\"plan\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"model\":\"openai/gpt-5.4\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"reasoningEffort\":\"high\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"prompt\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "boot the provider") != null);
     const attach_at = std.mem.indexOf(u8, request.stdin, "\"type\":\"attachSession\"").?;
@@ -5562,9 +5583,12 @@ test "composer access chip cycles ask auto fullAccess; Build cycles plan" {
     try testing.expectEqualStrings("build", model.session_store[0].interactionMode());
     try testing.expectEqualStrings("Full access", model.access_label());
     try testing.expectEqualStrings("Build", model.interaction_label());
+    try testing.expectEqualStrings("Auto", model.effort_label());
+    try testing.expectEqualStrings("auto", model.session_store[0].reasoningEffort());
 
     var tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .button, "Medium");
+    const effort = try expectButtonMsg(tree, "Auto", .cycle_effort);
+    try testing.expectEqual(Msg.cycle_effort, tree.msgForPointer(effort.id, .up).?);
     const access = try expectByText(tree.root, .button, "Full access");
     main.update(&model, tree.msgForPointer(access.id, .up).?, &fx);
     try testing.expectEqualStrings("ask", model.session_store[0].accessMode());
@@ -5579,7 +5603,7 @@ test "composer access chip cycles ask auto fullAccess; Build cycles plan" {
     try testing.expectEqualStrings("Auto", model.access_label());
 
     tree = try buildTree(arena, &model);
-    const auto = try expectByText(tree.root, .button, "Auto");
+    const auto = try expectButtonMsg(tree, "Auto", .cycle_access);
     main.update(&model, tree.msgForPointer(auto.id, .up).?, &fx);
     try testing.expectEqualStrings("fullAccess", model.session_store[0].accessMode());
     try testing.expectEqualStrings("fullAccess", model.lastAccessMode());
@@ -5602,7 +5626,43 @@ test "composer access chip cycles ask auto fullAccess; Build cycles plan" {
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .button, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
-    _ = try expectByText(tree.root, .button, "Medium");
+    _ = try expectButtonMsg(tree, "Auto", .cycle_effort);
+}
+
+test "composer effort chip cycles fx documented values and wraps" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("auto", model.session_store[0].reasoningEffort());
+    try testing.expectEqualStrings("Auto", model.effort_label());
+
+    const steps = [_]struct { value: []const u8, label: []const u8 }{
+        .{ .value = "none", .label = "None" },
+        .{ .value = "minimal", .label = "Minimal" },
+        .{ .value = "low", .label = "Low" },
+        .{ .value = "medium", .label = "Medium" },
+        .{ .value = "high", .label = "High" },
+        .{ .value = "xhigh", .label = "Extra high" },
+        .{ .value = "max", .label = "Max" },
+        .{ .value = "auto", .label = "Auto" },
+    };
+
+    var tree = try buildTree(arena, &model);
+    for (steps) |step| {
+        const chip = try expectButtonMsg(tree, model.effort_label(), .cycle_effort);
+        main.update(&model, tree.msgForPointer(chip.id, .up).?, &fx);
+        try testing.expectEqualStrings(step.value, model.session_store[0].reasoningEffort());
+        try testing.expectEqualStrings(step.value, model.lastReasoningEffort());
+        try testing.expectEqualStrings(step.label, model.effort_label());
+        tree = try buildTree(arena, &model);
+        _ = try expectButtonMsg(tree, step.label, .cycle_effort);
+    }
 }
 
 test "composer chips persist access interaction and last-used model and reload" {
@@ -5677,9 +5737,58 @@ test "composer chips persist access interaction and last-used model and reload" 
 
     tree = try buildTree(arena, &loaded);
     _ = try expectByText(tree.root, .button, "openai/gpt-5.4");
-    _ = try expectByText(tree.root, .button, "Auto");
+    _ = try expectButtonMsg(tree, "Auto", .cycle_access);
     _ = try expectByText(tree.root, .button, "Plan");
-    _ = try expectByText(tree.root, .button, "Medium");
+    _ = try expectButtonMsg(tree, "Auto", .cycle_effort);
+}
+
+test "composer effort chip persists reasoning_effort and last_reasoning_effort" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-effort", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+
+    try testing.expectEqualStrings("Auto", model.effort_label());
+    var tree = try buildTree(arena, &model);
+    const auto = try expectButtonMsg(tree, "Auto", .cycle_effort);
+    main.update(&model, tree.msgForPointer(auto.id, .up).?, &fx);
+    try testing.expectEqualStrings("none", model.session_store[0].reasoningEffort());
+
+    tree = try buildTree(arena, &model);
+    const none = try expectButtonMsg(tree, "None", .cycle_effort);
+    main.update(&model, tree.msgForPointer(none.id, .up).?, &fx);
+    try testing.expectEqualStrings("minimal", model.session_store[0].reasoningEffort());
+    try testing.expectEqualStrings("minimal", model.lastReasoningEffort());
+    try testing.expectEqualStrings("Minimal", model.effort_label());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings("minimal", loaded.session_store[0].reasoningEffort());
+    try testing.expectEqualStrings("minimal", loaded.lastReasoningEffort());
+    try testing.expectEqualStrings("Minimal", loaded.effort_label());
+
+    const inherited = loaded.addSession("untitled next", .fx);
+    try testing.expectEqualStrings("minimal", loaded.sessionById(inherited).?.reasoningEffort());
+
+    tree = try buildTree(arena, &loaded);
+    _ = try expectButtonMsg(tree, "Minimal", .cycle_effort);
 }
 
 test "sidebar back and forward walk session selection history" {
@@ -5701,7 +5810,7 @@ test "sidebar back and forward walk session selection history" {
     _ = try expectButton(tree.root, "Settings");
     _ = try expectByText(tree.root, .button, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
-    _ = try expectByText(tree.root, .button, "Medium");
+    _ = try expectButtonMsg(tree, "Auto", .cycle_effort);
     const back_start = try expectButton(tree.root, "Back");
     const forward_start = try expectButton(tree.root, "Forward");
     main.update(&model, tree.msgForPointer(back_start.id, .up).?, &fx);
@@ -5794,7 +5903,7 @@ test "sidebar back and forward walk session selection history" {
     _ = try expectButton(tree.root, "Collapse sidebar");
     _ = try expectButton(tree.root, "Settings");
     _ = try expectByText(tree.root, .button, "Full access");
-    _ = try expectByText(tree.root, .button, "Medium");
+    _ = try expectButtonMsg(tree, "Auto", .cycle_effort);
 }
 
 test "sidebar back hydrates an empty session the same way select does" {
@@ -6980,7 +7089,7 @@ test "composer project row sets selected session project_path and reloads" {
     try testing.expect(findByText(tree.root, .button, "Local") == null);
     try testing.expect(findByText(tree.root, .button, "choose a project") == null);
     _ = try expectByText(tree.root, .button, "Full access");
-    _ = try expectByText(tree.root, .button, "Medium");
+    _ = try expectButtonMsg(tree, "Auto", .cycle_effort);
 
     var loaded = Model{};
     loaded.setStoreDir(dir);

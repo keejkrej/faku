@@ -1498,6 +1498,8 @@ test "one-shot stdin is initialize plus new or resume then prompt" {
     try std.testing.expect(std.mem.indexOf(u8, later, "second turn") != null);
     try std.testing.expect(std.mem.indexOf(u8, first, "session/set_mode") == null);
     try std.testing.expect(std.mem.indexOf(u8, first, "session/set_config_option") == null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "\"configId\":\"effort\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "\"configId\":\"reasoning_effort\"") == null);
 }
 
 test "one-shot stdin inserts set_mode and model config after new|resume before prompt" {
@@ -1520,6 +1522,8 @@ test "one-shot stdin inserts set_mode and model config after new|resume before p
     try std.testing.expect(std.mem.indexOf(u8, first, "\"value\":\"openai/gpt-5.4\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, first, "fullAccess") == null);
     try std.testing.expect(std.mem.indexOf(u8, first, "yolo") == null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "\"configId\":\"effort\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, first, "\"configId\":\"reasoning_effort\"") == null);
 
     const later = try writeTurnStdin(&buf, .{
         .cwd = ".",
@@ -1551,6 +1555,8 @@ test "one-shot stdin inserts set_mode and model config after new|resume before p
     });
     try std.testing.expect(std.mem.indexOf(u8, no_model, "session/set_config_option") == null);
     try std.testing.expect(std.mem.indexOf(u8, no_model, "\"configId\":\"model\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, no_model, "\"configId\":\"effort\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, no_model, "\"configId\":\"reasoning_effort\"") == null);
 }
 
 test "ACP parser classifies result, error, update, and stopReason" {
