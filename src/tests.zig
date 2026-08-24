@@ -6046,6 +6046,105 @@ test "sidebar search still matches session titles across folders" {
     });
 }
 
+test "collapse all folders hides grouped sessions and persists collapsed_folder_ids" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-collapse-all", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqual(@as(u32, 0), model.folder_count);
+    try testing.expect(model.all_folders_collapsed());
+    try testing.expect(!model.can_collapse_folders());
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findPressableContaining(tree.root, "Collapse all folders") == null);
+    main.update(&model, .collapse_all_folders, &fx);
+    try testing.expectEqual(@as(u32, 0), model.folder_count);
+    try testing.expect(!model.sidebar_collapsed);
+
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+    try store.saveSession(&model, model.session_store[1].id, testing.allocator, testing.io);
+
+    main.update(&model, .new_folder, &fx);
+    main.update(&model, .new_folder, &fx);
+    const folder_a = model.folder_store[0].id;
+    const folder_b = model.folder_store[1].id;
+    const port_id = model.session_store[0].id;
+    const auth_id = model.session_store[1].id;
+    main.update(&model, .{ .assign_folder = .{ .session_id = port_id, .folder_id = folder_a } }, &fx);
+    main.update(&model, .{ .assign_folder = .{ .session_id = auth_id, .folder_id = folder_b } }, &fx);
+    try testing.expect(!model.folder_store[0].collapsed);
+    try testing.expect(!model.folder_store[1].collapsed);
+    try testing.expect(model.can_collapse_folders());
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "New folder",
+        "port waku to zig",
+        "New folder 2",
+        "fix auth listener",
+    });
+
+    tree = try buildTree(arena, &model);
+    const collapse_all = try expectButton(tree.root, "Collapse all folders");
+    try testing.expectEqual(Msg.collapse_all_folders, tree.msgForPointer(collapse_all.id, .up).?);
+    main.update(&model, tree.msgForPointer(collapse_all.id, .up).?, &fx);
+    try testing.expect(model.folder_store[0].collapsed);
+    try testing.expect(model.folder_store[1].collapsed);
+    try testing.expect(model.all_folders_collapsed());
+    try testing.expect(!model.can_collapse_folders());
+    try testing.expect(!model.sidebar_collapsed);
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "New folder",
+        "New folder 2",
+    });
+    tree = try buildTree(arena, &model);
+    try testing.expect(findPressableContaining(tree.root, "port waku to zig") == null);
+    try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
+    _ = try expectByText(tree.root, .list_item, "New folder");
+    _ = try expectByText(tree.root, .list_item, "New folder 2");
+    try testing.expect(findPressableContaining(tree.root, "Collapse all folders") == null);
+
+    main.update(&model, .{ .search_edit = .{ .insert_text = "WAKU" } }, &fx);
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "New folder",
+        "port waku to zig",
+    });
+
+    main.update(&model, .collapse_all_folders, &fx);
+    try testing.expect(model.folder_store[0].collapsed);
+    try testing.expect(model.folder_store[1].collapsed);
+    try testing.expect(!model.collapseAllFolders());
+
+    const catalog = try readCatalog(testing.allocator, testing.io, dir);
+    defer testing.allocator.free(catalog);
+    var ids_buf: [64]u8 = undefined;
+    const ids_json = try std.fmt.bufPrint(&ids_buf, "\"collapsed_folder_ids\":[{d},{d}]", .{ folder_a, folder_b });
+    try testing.expect(std.mem.indexOf(u8, catalog, ids_json) != null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expect(loaded.folder_store[0].collapsed);
+    try testing.expect(loaded.folder_store[1].collapsed);
+    try testing.expectEqual(folder_a, loaded.folder_store[0].id);
+    try testing.expectEqual(folder_b, loaded.folder_store[1].id);
+    try expectSidebarTitles(loaded.sidebar_rows(arena), &.{
+        "New folder",
+        "New folder 2",
+    });
+}
+
 test "clicking a folder header assigns the selected session; Today unassigns" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

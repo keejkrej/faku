@@ -41,6 +41,9 @@
               <text foreground="text_muted">Today</text>
             </list-item>
             <spacer grow="1" />
+            <if test="{can_collapse_folders}">
+              <button variant="ghost" size="icon" icon="chevron-down" label="Collapse all folders" on-press="collapse_all_folders"></button>
+            </if>
             <button variant="ghost" size="icon" icon="folder" label="New folder" on-press="new_folder"></button>
           </row>
           <spacer height="10" />
