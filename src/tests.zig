@@ -4849,31 +4849,19 @@ fn countByKind(widget: canvas.Widget, kind: canvas.WidgetKind) usize {
     return n;
 }
 
-const GroupRailHit = enum { none, item, rail };
-
 fn sessionRowHasGroupRail(widget: canvas.Widget, title: []const u8) bool {
-    return sessionRowHasGroupRailInner(widget, title) == .rail;
-}
-
-fn sessionRowHasGroupRailInner(widget: canvas.Widget, title: []const u8) GroupRailHit {
-    if (widget.kind == .list_item and std.mem.eql(u8, widgetName(widget), title)) return .item;
-    var saw_item = false;
-    var child_rail = false;
-    var saw_sep = false;
-    var saw_guide_spacer = false;
+    var child_is_target = false;
     for (widget.children) |child| {
-        switch (sessionRowHasGroupRailInner(child, title)) {
-            .rail => child_rail = true,
-            .item => saw_item = true,
-            .none => {},
-        }
-        if (child.kind == .separator) saw_sep = true;
-        if (child.kind == .spacer) saw_guide_spacer = true;
+        if (child.kind == .list_item and std.mem.eql(u8, widgetName(child), title)) child_is_target = true;
+        if (sessionRowHasGroupRail(child, title)) return true;
     }
-    if (child_rail) return .rail;
-    if (saw_item and (saw_sep or saw_guide_spacer)) return .rail;
-    if (saw_item) return .item;
-    return .none;
+    if (!child_is_target) return false;
+    for (widget.children) |child| {
+        if (child.kind == .separator) return true;
+        // Native spacer is a stack leaf (ui_schema maps spacer → stack).
+        if (child.kind == .stack) return true;
+    }
+    return false;
 }
 
 test "sidebar search filters the local catalog by title substring" {
