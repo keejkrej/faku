@@ -219,7 +219,8 @@ available_commands) — no demo rows and no transcripts. The document also store
 model/access/interaction, a later send can reuse the last sidecar address,
 the sidebar collapse control is restored, and New folder groups persist.
 Ungrouped sessions stay under Today; a session `folder_id` lists it under
-that folder. Clicking a folder header (or its move control) assigns the
+that folder. Folder sessions get a 1px Native separator rail and 15px inset
+(Waku group guides); Today rows stay flush. Clicking a folder header (or its move control) assigns the
 selected session; clicking Today unassigns it (`folder_id` 0). A second
 click on a folder already holding the selected session edits its title.
 Deleting a folder unassigns its sessions (`folder_id` 0); it does not

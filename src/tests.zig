@@ -4843,6 +4843,39 @@ fn expectSidebarTitles(rows: []const main.SidebarRow, expected: []const []const 
     }
 }
 
+fn countByKind(widget: canvas.Widget, kind: canvas.WidgetKind) usize {
+    var n: usize = if (widget.kind == kind) 1 else 0;
+    for (widget.children) |child| n += countByKind(child, kind);
+    return n;
+}
+
+const GroupRailHit = enum { none, item, rail };
+
+fn sessionRowHasGroupRail(widget: canvas.Widget, title: []const u8) bool {
+    return sessionRowHasGroupRailInner(widget, title) == .rail;
+}
+
+fn sessionRowHasGroupRailInner(widget: canvas.Widget, title: []const u8) GroupRailHit {
+    if (widget.kind == .list_item and std.mem.eql(u8, widgetName(widget), title)) return .item;
+    var saw_item = false;
+    var child_rail = false;
+    var saw_sep = false;
+    var saw_guide_spacer = false;
+    for (widget.children) |child| {
+        switch (sessionRowHasGroupRailInner(child, title)) {
+            .rail => child_rail = true,
+            .item => saw_item = true,
+            .none => {},
+        }
+        if (child.kind == .separator) saw_sep = true;
+        if (child.kind == .spacer) saw_guide_spacer = true;
+    }
+    if (child_rail) return .rail;
+    if (saw_item and (saw_sep or saw_guide_spacer)) return .rail;
+    if (saw_item) return .item;
+    return .none;
+}
+
 test "sidebar search filters the local catalog by title substring" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -6143,6 +6176,106 @@ test "collapse all folders hides grouped sessions and persists collapsed_folder_
         "New folder",
         "New folder 2",
     });
+}
+
+test "grouped folder sessions get a Native guide rail; Today rows stay flush" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .new_folder, &fx);
+    const folder_id = model.folder_store[0].id;
+    const port_id = model.session_store[0].id;
+    const auth_id = model.session_store[1].id;
+    const extra_id = model.addSession("rewrite the parser", .fx);
+    model.sessionById(extra_id).?.has_started = true;
+    try testing.expect(model.sessionById(auth_id).?.hasStarted());
+    try testing.expect(model.sessionById(extra_id).?.hasStarted());
+    try testing.expect(model.sessionById(port_id).?.hasStarted());
+
+    main.update(&model, .{ .assign_folder = .{ .session_id = auth_id, .folder_id = folder_id } }, &fx);
+    main.update(&model, .{ .assign_folder = .{ .session_id = extra_id, .folder_id = folder_id } }, &fx);
+
+    const rows = model.sidebar_rows(arena);
+    try expectSidebarTitles(rows, &.{
+        "port waku to zig",
+        "New folder",
+        "fix auth listener",
+        "rewrite the parser",
+    });
+    try testing.expect(!rows[0].is_header);
+    try testing.expect(!rows[0].grouped);
+    try testing.expectEqual(@as(u32, 0), rows[0].folder_id);
+    try testing.expect(rows[1].is_header);
+    try testing.expect(!rows[1].grouped);
+    try testing.expectEqual(folder_id, rows[1].folder_id);
+    try testing.expect(!rows[2].is_header);
+    try testing.expect(rows[2].grouped);
+    try testing.expectEqual(folder_id, rows[2].folder_id);
+    try testing.expect(!rows[3].is_header);
+    try testing.expect(rows[3].grouped);
+    try testing.expectEqual(folder_id, rows[3].folder_id);
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .list_item, "port waku to zig");
+    _ = try expectByText(tree.root, .list_item, "fix auth listener");
+    _ = try expectByText(tree.root, .list_item, "rewrite the parser");
+    _ = try expectByText(tree.root, .list_item, "New folder");
+    _ = try expectButton(tree.root, "port waku to zig");
+    _ = try expectButton(tree.root, "fix auth listener");
+    _ = try expectButton(tree.root, "rewrite the parser");
+    try testing.expect(!sessionRowHasGroupRail(tree.root, "port waku to zig"));
+    try testing.expect(sessionRowHasGroupRail(tree.root, "fix auth listener"));
+    try testing.expect(sessionRowHasGroupRail(tree.root, "rewrite the parser"));
+    try testing.expect(!sessionRowHasGroupRail(tree.root, "New folder"));
+    try testing.expectEqual(@as(usize, 3), countByKind(tree.root, .separator));
+
+    main.update(&model, .{ .search_edit = .{ .insert_text = "parser" } }, &fx);
+    const searched = model.sidebar_rows(arena);
+    try expectSidebarTitles(searched, &.{
+        "New folder",
+        "rewrite the parser",
+    });
+    try testing.expect(searched[1].grouped);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .list_item, "rewrite the parser");
+    try testing.expect(sessionRowHasGroupRail(tree.root, "rewrite the parser"));
+    try testing.expect(findPressableContaining(tree.root, "port waku to zig") == null);
+
+    main.update(&model, .stop, &fx);
+    main.update(&model, .{ .toggle_folder = folder_id }, &fx);
+    try testing.expect(model.folder_store[0].collapsed);
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "port waku to zig",
+        "New folder",
+    });
+    tree = try buildTree(arena, &model);
+    try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
+    try testing.expect(findPressableContaining(tree.root, "rewrite the parser") == null);
+    _ = try expectByText(tree.root, .list_item, "New folder");
+    _ = try expectByText(tree.root, .list_item, "port waku to zig");
+    try testing.expect(!sessionRowHasGroupRail(tree.root, "port waku to zig"));
+    try testing.expectEqual(@as(usize, 1), countByKind(tree.root, .separator));
+
+    main.update(&model, .{ .toggle_folder = folder_id }, &fx);
+    try testing.expect(!model.folder_store[0].collapsed);
+    main.update(&model, .collapse_all_folders, &fx);
+    try testing.expect(model.folder_store[0].collapsed);
+    try testing.expect(model.all_folders_collapsed());
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "port waku to zig",
+        "New folder",
+    });
+    tree = try buildTree(arena, &model);
+    try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
+    try testing.expect(findPressableContaining(tree.root, "rewrite the parser") == null);
+    try testing.expect(findPressableContaining(tree.root, "Collapse all folders") == null);
+    try testing.expect(!sessionRowHasGroupRail(tree.root, "port waku to zig"));
 }
 
 test "clicking a folder header assigns the selected session; Today unassigns" {
