@@ -6127,7 +6127,8 @@ test "collapse all folders hides grouped sessions and persists collapsed_folder_
 
     const catalog = try readCatalog(testing.allocator, testing.io, dir);
     defer testing.allocator.free(catalog);
-    const ids_json = try std.fmt.bufPrint(arena, "\"collapsed_folder_ids\":[{d},{d}]", .{ folder_a, folder_b });
+    var ids_buf: [64]u8 = undefined;
+    const ids_json = try std.fmt.bufPrint(&ids_buf, "\"collapsed_folder_ids\":[{d},{d}]", .{ folder_a, folder_b });
     try testing.expect(std.mem.indexOf(u8, catalog, ids_json) != null);
 
     var loaded = Model{};
