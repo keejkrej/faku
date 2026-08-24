@@ -2133,6 +2133,81 @@ test "composer attach preview binds when the file exists; missing and clear do n
     _ = try expectButton(tree.root, "Attach image");
 }
 
+test "imagePathFromDrop takes the first local image and ignores the rest" {
+    const png = main.imagePathFromDrop(&.{ "notes.txt", "/tmp/shot.png", "/tmp/other.jpg" });
+    try testing.expectEqualStrings("/tmp/shot.png", png.?);
+    try testing.expect(main.imagePathFromDrop(&.{}) == null);
+    try testing.expect(main.imagePathFromDrop(&.{"notes.txt"}) == null);
+    try testing.expect(main.imagePathFromDrop(&.{"/tmp/photos/"}) == null);
+    try testing.expectEqualStrings("/tmp/photo.JPEG", main.imagePathFromDrop(&.{"/tmp/photo.JPEG"}).?);
+}
+
+test "window drop of a png sets draft image_path; txt and empty do not" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-image-drop", .{tmp.sub_path[0..]});
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/dropped.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+    var text_buf: [256]u8 = undefined;
+    const text_path = try std.fmt.bufPrint(&text_buf, ".zig-cache/tmp/{s}/notes.txt", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = text_path, .data = "txt" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const id = model.addSession("drop session", .fx);
+    _ = model.appendTurn(id, .user, "already started");
+    model.selected = id;
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+
+    const empty_drop = native_sdk.platform.FileDropEvent{ .paths = &.{} };
+    try testing.expect(main.onDrop(empty_drop) == null);
+    main.update(&model, .{ .file_drop = "" }, &fx);
+    try testing.expectEqual(@as(usize, 0), model.draftImagePath().len);
+
+    const txt_paths = [_][]const u8{text_path};
+    const txt_drop = native_sdk.platform.FileDropEvent{ .paths = &txt_paths };
+    try testing.expect(main.onDrop(txt_drop) == null);
+    main.update(&model, .{ .file_drop = text_path }, &fx);
+    try testing.expectEqual(@as(usize, 0), model.draftImagePath().len);
+    try testing.expect(!model.has_image_attach());
+
+    const drop_paths = [_][]const u8{ text_path, image };
+    const png_drop = native_sdk.platform.FileDropEvent{
+        .window_id = 1,
+        .view_label = "main-canvas",
+        .paths = &drop_paths,
+    };
+    const png_msg = main.onDrop(png_drop) orelse return error.MissingFileDrop;
+    try testing.expectEqualStrings(image, png_msg.file_drop);
+    main.update(&model, png_msg, &fx);
+    try testing.expectEqualStrings(image, model.draftImagePath());
+    try testing.expectEqualStrings("dropped.png", model.image_chip_label());
+    try testing.expect(model.has_image_attach());
+    try testing.expect(model.has_image_preview());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "dropped.png");
+    _ = try expectButton(tree.root, "Clear image");
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings(image, loaded.draftImagePath());
+}
+
 test "Waku access_mode maps to verified FX_PERMISSION_MODE values" {
     try testing.expectEqualStrings("ask", main.fxPermissionMode("ask"));
     try testing.expectEqualStrings("auto", main.fxPermissionMode("auto"));
