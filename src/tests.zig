@@ -128,6 +128,18 @@ fn expectButtonMsg(tree: AppUi.Tree, text: []const u8, expected: Msg) !canvas.Wi
     return error.WidgetNotFound;
 }
 
+fn expectSelectMsg(tree: AppUi.Tree, text: []const u8, expected: Msg) !canvas.Widget {
+    var n: usize = 0;
+    while (findNthByText(tree.root, .select, text, n)) |widget| : (n += 1) {
+        if (tree.msgForPointer(widget.id, .up)) |msg| {
+            if (std.meta.eql(msg, expected)) return widget;
+        }
+    }
+    std.debug.print("no select \"{s}\" dispatching that msg\n", .{text});
+    dumpTexts(tree.root, 0);
+    return error.WidgetNotFound;
+}
+
 fn expectNoContextMenu(widget: canvas.Widget) !void {
     if (!@hasField(canvas.Widget, "context_menu")) return;
     try testing.expectEqual(@as(usize, 0), widget.context_menu.len);
@@ -299,7 +311,7 @@ test "boot is fx-first and New / send / ticks / stop drive the demo" {
     _ = try expectButton(tree.root, "Remove session");
     _ = try expectByText(tree.root, .button, "Send");
     _ = try expectByText(tree.root, .text, "fx");
-    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .select, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
     _ = try expectByText(tree.root, .button, "Local");
     try testing.expect(findByKind(tree.root, .status_bar) == null);
@@ -1228,7 +1240,7 @@ test "ACP current_mode_update ask then code updates access chip and persists; un
     try testing.expectEqualStrings("Full access", model.access_label());
 
     var tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .select, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "switch modes" } }, &fx);
@@ -1251,7 +1263,7 @@ test "ACP current_mode_update ask then code updates access chip and persists; un
     try testing.expectEqualStrings("ask", model.lastAccessMode());
     try testing.expectEqualStrings("Ask", model.access_label());
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .button, "Ask");
+    _ = try expectByText(tree.root, .select, "Ask");
     try testing.expect(findByText(tree.root, .button, "Full access") == null);
 
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-mode-1\",\"update\":{\"sessionUpdate\":\"agent_thought_chunk\",\"content\":{\"type\":\"text\",\"text\":\"stay on the reasoning row\"}}}}");
@@ -1271,7 +1283,7 @@ test "ACP current_mode_update ask then code updates access chip and persists; un
     try testing.expectEqualStrings("stay on the reasoning row", lastReasoning(&model));
     try testing.expectEqualStrings("Reading file · read · pending", lastTool(&model));
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .select, "Full access");
     try testing.expect(findByText(tree.root, .button, "Ask") == null);
 
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-mode-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"mode switched\"}}}}");
@@ -1295,7 +1307,7 @@ test "ACP current_mode_update ask then code updates access chip and persists; un
     try testing.expectEqualStrings("fullAccess", loaded.lastAccessMode());
     try testing.expectEqualStrings("Full access", loaded.access_label());
     tree = try buildTree(arena, &loaded);
-    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .select, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
 }
 
@@ -1328,7 +1340,7 @@ test "ACP config_option_update sets model chip and persists; unknown is ignored"
 
     var tree = try buildTree(arena, &model);
     _ = try expectModelChip(tree.root, "FX_MODEL");
-    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .select, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "switch models" } }, &fx);
@@ -1456,7 +1468,7 @@ test "ACP config_option_update sets model chip and persists; unknown is ignored"
     try testing.expectEqual(@as(usize, 0), loaded.session_store[0].modelOptions().len);
     tree = try buildTree(arena, &loaded);
     _ = try expectModelChip(tree.root, "openai/gpt-5.4");
-    _ = try expectByText(tree.root, .button, "Ask");
+    _ = try expectByText(tree.root, .select, "Ask");
     _ = try expectByText(tree.root, .button, "Build");
 }
 
@@ -1488,7 +1500,7 @@ test "ACP available_commands_update stores names; empty clears; unknown is ignor
 
     var tree = try buildTree(arena, &model);
     _ = try expectModelChip(tree.root, "FX_MODEL");
-    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .select, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "list commands" } }, &fx);
@@ -1577,7 +1589,7 @@ test "ACP available_commands_update stores names; empty clears; unknown is ignor
     try testing.expectEqualStrings("ask", loaded.session_store[0].accessMode());
     tree = try buildTree(arena, &loaded);
     _ = try expectModelChip(tree.root, "FX_MODEL");
-    _ = try expectByText(tree.root, .button, "Ask");
+    _ = try expectByText(tree.root, .select, "Ask");
     _ = try expectByText(tree.root, .button, "Build");
     try testing.expect(findByText(tree.root, .button, "plan") == null);
     try testing.expect(findByText(tree.root, .button, "Commands") == null);
@@ -1615,7 +1627,7 @@ test "ACP session_info_update sets title and persists; empty cwd unknown ignored
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "info title");
     _ = try expectModelChip(tree.root, "FX_MODEL");
-    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .select, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "name the session" } }, &fx);
@@ -1707,7 +1719,7 @@ test "ACP session_info_update sets title and persists; empty cwd unknown ignored
     tree = try buildTree(arena, &loaded);
     _ = try expectByText(tree.root, .text, "Implement user authentication");
     _ = try expectModelChip(tree.root, "openai/gpt-5.4");
-    _ = try expectByText(tree.root, .button, "Ask");
+    _ = try expectByText(tree.root, .select, "Ask");
     _ = try expectByText(tree.root, .button, "Build");
 }
 
@@ -6307,7 +6319,7 @@ test "settings edits persist model access and daemon address and reload" {
     try testing.expectEqualStrings("auto", cleared.lastAccessMode());
 }
 
-test "composer access chip cycles ask auto fullAccess; Build cycles plan" {
+test "composer access and effort chips are Native selects; interaction still cycles" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -6323,51 +6335,102 @@ test "composer access chip cycles ask auto fullAccess; Build cycles plan" {
     try testing.expectEqualStrings("Build", model.interaction_label());
     try testing.expectEqualStrings("Auto", model.effort_label());
     try testing.expectEqualStrings("auto", model.session_store[0].reasoningEffort());
+    try testing.expect(!model.access_picker_open);
+    try testing.expect(!model.effort_picker_open);
+    try testing.expect(!model.model_picker_open);
 
     var tree = try buildTree(arena, &model);
-    const effort = try expectButtonMsg(tree, "Auto", .cycle_effort);
-    try testing.expectEqual(Msg.cycle_effort, tree.msgForPointer(effort.id, .up).?);
-    const access = try expectByText(tree.root, .button, "Full access");
-    main.update(&model, tree.msgForPointer(access.id, .up).?, &fx);
-    try testing.expectEqualStrings("ask", model.session_store[0].accessMode());
-    try testing.expectEqualStrings("ask", model.lastAccessMode());
-    try testing.expectEqualStrings("Ask", model.access_label());
-
-    tree = try buildTree(arena, &model);
-    const ask = try expectByText(tree.root, .button, "Ask");
-    main.update(&model, tree.msgForPointer(ask.id, .up).?, &fx);
-    try testing.expectEqualStrings("auto", model.session_store[0].accessMode());
-    try testing.expectEqualStrings("auto", model.lastAccessMode());
-    try testing.expectEqualStrings("Auto", model.access_label());
-
-    tree = try buildTree(arena, &model);
-    const auto = try expectButtonMsg(tree, "Auto", .cycle_access);
-    main.update(&model, tree.msgForPointer(auto.id, .up).?, &fx);
-    try testing.expectEqualStrings("fullAccess", model.session_store[0].accessMode());
-    try testing.expectEqualStrings("fullAccess", model.lastAccessMode());
-    try testing.expectEqualStrings("Full access", model.access_label());
-
-    tree = try buildTree(arena, &model);
-    const build = try expectByText(tree.root, .button, "Build");
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Ask") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Extra high") == null);
+    const access = try expectSelectMsg(tree, "Full access", .toggle_access_picker);
+    try testing.expectEqual(Msg.toggle_access_picker, tree.msgForPointer(access.id, .up).?);
+    const effort = try expectSelectMsg(tree, "Auto", .toggle_effort_picker);
+    try testing.expectEqual(Msg.toggle_effort_picker, tree.msgForPointer(effort.id, .up).?);
+    try testing.expect(findByText(tree.root, .button, "Full access") == null);
+    try testing.expectError(error.WidgetNotFound, expectButtonMsg(tree, "Auto", .cycle_access));
+    try testing.expectError(error.WidgetNotFound, expectButtonMsg(tree, "Auto", .cycle_effort));
+    const build = try expectButtonMsg(tree, "Build", .cycle_interaction);
     main.update(&model, tree.msgForPointer(build.id, .up).?, &fx);
     try testing.expectEqualStrings("plan", model.session_store[0].interactionMode());
     try testing.expectEqualStrings("plan", model.lastInteractionMode());
     try testing.expectEqualStrings("Plan", model.interaction_label());
 
     tree = try buildTree(arena, &model);
-    const plan = try expectByText(tree.root, .button, "Plan");
+    const plan = try expectButtonMsg(tree, "Plan", .cycle_interaction);
     main.update(&model, tree.msgForPointer(plan.id, .up).?, &fx);
     try testing.expectEqualStrings("build", model.session_store[0].interactionMode());
     try testing.expectEqualStrings("build", model.lastInteractionMode());
     try testing.expectEqualStrings("Build", model.interaction_label());
 
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .select, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
-    _ = try expectButtonMsg(tree, "Auto", .cycle_effort);
+    _ = try expectSelectMsg(tree, "Auto", .toggle_effort_picker);
 }
 
-test "composer effort chip cycles fx documented values and wraps" {
+test "composer access picker lists Ask Auto Full access; pick_access ask persists" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-access-picker", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+
+    var tree = try buildTree(arena, &model);
+    const access = try expectSelectMsg(tree, "Full access", .toggle_access_picker);
+    main.update(&model, tree.msgForPointer(access.id, .up).?, &fx);
+    try testing.expect(model.access_picker_open);
+    try testing.expect(!model.model_picker_open);
+    try testing.expect(!model.effort_picker_open);
+    try testing.expect(model.access_selected_full());
+    try testing.expect(!model.access_selected_ask());
+    try testing.expect(!model.access_selected_auto());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
+    _ = try expectByText(tree.root, .menu_item, "Ask");
+    _ = try expectByText(tree.root, .menu_item, "Auto");
+    const full = try expectByText(tree.root, .menu_item, "Full access");
+    try testing.expect(full.selected);
+    const ask = try expectByText(tree.root, .menu_item, "Ask");
+    try testing.expect(!ask.selected);
+    switch (tree.msgForPointer(ask.id, .up).?) {
+        .pick_access => |picked| try testing.expectEqualStrings("ask", picked),
+        else => return error.WrongMsg,
+    }
+    main.update(&model, tree.msgForPointer(ask.id, .up).?, &fx);
+    try testing.expect(!model.access_picker_open);
+    try testing.expectEqualStrings("ask", model.session_store[0].accessMode());
+    try testing.expectEqualStrings("ask", model.lastAccessMode());
+    try testing.expectEqualStrings("Ask", model.access_label());
+    try testing.expect(model.access_selected_ask());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings("ask", loaded.session_store[0].accessMode());
+    try testing.expectEqualStrings("ask", loaded.lastAccessMode());
+    try testing.expectEqualStrings("Ask", loaded.access_label());
+
+    const inherited = loaded.addSession("untitled next", .fx);
+    try testing.expectEqualStrings("ask", loaded.sessionById(inherited).?.accessMode());
+}
+
+test "composer effort picker lists fx documented values; pick_effort high commits Extra high" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -6379,8 +6442,19 @@ test "composer effort chip cycles fx documented values and wraps" {
     var model = main.initialModel();
     try testing.expectEqualStrings("auto", model.session_store[0].reasoningEffort());
     try testing.expectEqualStrings("Auto", model.effort_label());
+    try testing.expect(model.effort_selected_auto());
 
-    const steps = [_]struct { value: []const u8, label: []const u8 }{
+    var tree = try buildTree(arena, &model);
+    const chip = try expectSelectMsg(tree, "Auto", .toggle_effort_picker);
+    main.update(&model, tree.msgForPointer(chip.id, .up).?, &fx);
+    try testing.expect(model.effort_picker_open);
+    try testing.expect(!model.access_picker_open);
+    try testing.expect(!model.model_picker_open);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
+    const rows = [_]struct { value: []const u8, label: []const u8 }{
+        .{ .value = "auto", .label = "Auto" },
         .{ .value = "none", .label = "None" },
         .{ .value = "minimal", .label = "Minimal" },
         .{ .value = "low", .label = "Low" },
@@ -6388,19 +6462,35 @@ test "composer effort chip cycles fx documented values and wraps" {
         .{ .value = "high", .label = "High" },
         .{ .value = "xhigh", .label = "Extra high" },
         .{ .value = "max", .label = "Max" },
-        .{ .value = "auto", .label = "Auto" },
     };
-
-    var tree = try buildTree(arena, &model);
-    for (steps) |step| {
-        const chip = try expectButtonMsg(tree, model.effort_label(), .cycle_effort);
-        main.update(&model, tree.msgForPointer(chip.id, .up).?, &fx);
-        try testing.expectEqualStrings(step.value, model.session_store[0].reasoningEffort());
-        try testing.expectEqualStrings(step.value, model.lastReasoningEffort());
-        try testing.expectEqualStrings(step.label, model.effort_label());
-        tree = try buildTree(arena, &model);
-        _ = try expectButtonMsg(tree, step.label, .cycle_effort);
+    for (rows) |row| {
+        const item = try expectByText(tree.root, .menu_item, row.label);
+        switch (tree.msgForPointer(item.id, .up).?) {
+            .pick_effort => |picked| try testing.expectEqualStrings(row.value, picked),
+            else => return error.WrongMsg,
+        }
+        if (std.mem.eql(u8, row.value, "auto")) {
+            try testing.expect(item.selected);
+        } else {
+            try testing.expect(!item.selected);
+        }
     }
+
+    const high = try expectByText(tree.root, .menu_item, "High");
+    switch (tree.msgForPointer(high.id, .up).?) {
+        .pick_effort => |picked| try testing.expectEqualStrings("high", picked),
+        else => return error.WrongMsg,
+    }
+    main.update(&model, tree.msgForPointer(high.id, .up).?, &fx);
+    try testing.expect(!model.effort_picker_open);
+    try testing.expectEqualStrings("high", model.session_store[0].reasoningEffort());
+    try testing.expectEqualStrings("high", model.lastReasoningEffort());
+    try testing.expectEqualStrings("High", model.effort_label());
+    try testing.expect(model.effort_selected_high());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectSelectMsg(tree, "High", .toggle_effort_picker);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
 }
 
 test "composer chips persist access interaction and last-used model and reload" {
@@ -6463,13 +6553,17 @@ test "composer chips persist access interaction and last-used model and reload" 
     try testing.expectEqualStrings("openai/gpt-5.4", model.model_label());
 
     tree = try buildTree(arena, &model);
-    const access = try expectByText(tree.root, .button, "Full access");
+    const access = try expectSelectMsg(tree, "Full access", .toggle_access_picker);
     main.update(&model, tree.msgForPointer(access.id, .up).?, &fx);
-    try testing.expectEqualStrings("ask", model.session_store[0].accessMode());
-
+    try testing.expect(model.access_picker_open);
     tree = try buildTree(arena, &model);
-    const ask = try expectByText(tree.root, .button, "Ask");
-    main.update(&model, tree.msgForPointer(ask.id, .up).?, &fx);
+    const auto_row = try expectByText(tree.root, .menu_item, "Auto");
+    switch (tree.msgForPointer(auto_row.id, .up).?) {
+        .pick_access => |picked| try testing.expectEqualStrings("auto", picked),
+        else => return error.WrongMsg,
+    }
+    main.update(&model, tree.msgForPointer(auto_row.id, .up).?, &fx);
+    try testing.expect(!model.access_picker_open);
     try testing.expectEqualStrings("auto", model.session_store[0].accessMode());
 
     tree = try buildTree(arena, &model);
@@ -6496,9 +6590,9 @@ test "composer chips persist access interaction and last-used model and reload" 
 
     tree = try buildTree(arena, &loaded);
     _ = try expectModelChip(tree.root, "openai/gpt-5.4");
-    _ = try expectButtonMsg(tree, "Auto", .cycle_access);
+    _ = try expectSelectMsg(tree, "Auto", .toggle_access_picker);
     _ = try expectByText(tree.root, .button, "Plan");
-    _ = try expectButtonMsg(tree, "Auto", .cycle_effort);
+    _ = try expectSelectMsg(tree, "Auto", .toggle_effort_picker);
 }
 
 test "demo model picker shows FX_MODEL fallback; Cmd-/ toggles; plain slash does not" {
@@ -6589,6 +6683,112 @@ test "Esc with model_picker_open does not cancel a busy demo stream" {
     try testing.expectEqual(main.Phase.streaming, model.phase);
 }
 
+test "Esc and on-dismiss close access or effort picker without canceling a busy demo stream" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "keep streaming" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.Phase.streaming, model.phase);
+
+    var tree = try buildTree(arena, &model);
+    const access = try expectSelectMsg(tree, "Full access", .toggle_access_picker);
+    main.update(&model, tree.msgForPointer(access.id, .up).?, &fx);
+    try testing.expect(model.access_picker_open);
+    try testing.expect(model.is_streaming());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
+    main.update(&model, .close_access_picker, &fx);
+    try testing.expect(!model.access_picker_open);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.Phase.streaming, model.phase);
+
+    main.update(&model, .toggle_effort_picker, &fx);
+    try testing.expect(model.effort_picker_open);
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expect(!model.effort_picker_open);
+    try testing.expect(!model.access_picker_open);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.Phase.streaming, model.phase);
+}
+
+test "opening access picker closes model and effort pickers" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .toggle_model_picker, &fx);
+    main.update(&model, .toggle_effort_picker, &fx);
+    try testing.expect(!model.model_picker_open);
+    try testing.expect(model.effort_picker_open);
+    try testing.expect(!model.access_picker_open);
+
+    main.update(&model, .toggle_access_picker, &fx);
+    try testing.expect(model.access_picker_open);
+    try testing.expect(!model.model_picker_open);
+    try testing.expect(!model.effort_picker_open);
+
+    main.update(&model, .toggle_effort_picker, &fx);
+    try testing.expect(model.effort_picker_open);
+    try testing.expect(!model.access_picker_open);
+    try testing.expect(!model.model_picker_open);
+
+    main.update(&model, .toggle_model_picker, &fx);
+    try testing.expect(model.model_picker_open);
+    try testing.expect(!model.access_picker_open);
+    try testing.expect(!model.effort_picker_open);
+}
+
+test "settings access buttons still write lastAccessMode; composer selected uses resolved" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("fullAccess", model.session_store[0].accessMode());
+    try testing.expect(model.access_selected_full());
+    try testing.expect(model.access_full());
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expect(!model.access_picker_open);
+    var tree = try buildTree(arena, &model);
+    const ask = try expectButtonMsg(tree, "Ask", .settings_access_ask);
+    main.update(&model, tree.msgForPointer(ask.id, .up).?, &fx);
+    try testing.expectEqualStrings("ask", model.lastAccessMode());
+    try testing.expect(model.access_ask());
+    try testing.expect(!model.access_full());
+    try testing.expectEqualStrings("fullAccess", model.session_store[0].accessMode());
+    try testing.expect(model.access_selected_full());
+    try testing.expect(!model.access_selected_ask());
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(!model.settings_open);
+    tree = try buildTree(arena, &model);
+    const access = try expectSelectMsg(tree, "Full access", .toggle_access_picker);
+    main.update(&model, tree.msgForPointer(access.id, .up).?, &fx);
+    tree = try buildTree(arena, &model);
+    const full = try expectByText(tree.root, .menu_item, "Full access");
+    try testing.expect(full.selected);
+    const ask_row = try expectByText(tree.root, .menu_item, "Ask");
+    try testing.expect(!ask_row.selected);
+}
+
 test "composer effort chip persists reasoning_effort and last_reasoning_effort" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -6611,13 +6811,17 @@ test "composer effort chip persists reasoning_effort and last_reasoning_effort" 
 
     try testing.expectEqualStrings("Auto", model.effort_label());
     var tree = try buildTree(arena, &model);
-    const auto = try expectButtonMsg(tree, "Auto", .cycle_effort);
+    const auto = try expectSelectMsg(tree, "Auto", .toggle_effort_picker);
     main.update(&model, tree.msgForPointer(auto.id, .up).?, &fx);
-    try testing.expectEqualStrings("none", model.session_store[0].reasoningEffort());
-
+    try testing.expect(model.effort_picker_open);
     tree = try buildTree(arena, &model);
-    const none = try expectButtonMsg(tree, "None", .cycle_effort);
-    main.update(&model, tree.msgForPointer(none.id, .up).?, &fx);
+    const minimal = try expectByText(tree.root, .menu_item, "Minimal");
+    switch (tree.msgForPointer(minimal.id, .up).?) {
+        .pick_effort => |picked| try testing.expectEqualStrings("minimal", picked),
+        else => return error.WrongMsg,
+    }
+    main.update(&model, tree.msgForPointer(minimal.id, .up).?, &fx);
+    try testing.expect(!model.effort_picker_open);
     try testing.expectEqualStrings("minimal", model.session_store[0].reasoningEffort());
     try testing.expectEqualStrings("minimal", model.lastReasoningEffort());
     try testing.expectEqualStrings("Minimal", model.effort_label());
@@ -6635,7 +6839,7 @@ test "composer effort chip persists reasoning_effort and last_reasoning_effort" 
     try testing.expectEqualStrings("minimal", loaded.sessionById(inherited).?.reasoningEffort());
 
     tree = try buildTree(arena, &loaded);
-    _ = try expectButtonMsg(tree, "Minimal", .cycle_effort);
+    _ = try expectSelectMsg(tree, "Minimal", .toggle_effort_picker);
 }
 
 test "sidebar back and forward walk session selection history" {
@@ -6655,9 +6859,9 @@ test "sidebar back and forward walk session selection history" {
     var tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "Search");
     _ = try expectButton(tree.root, "Settings");
-    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .select, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
-    _ = try expectButtonMsg(tree, "Auto", .cycle_effort);
+    _ = try expectSelectMsg(tree, "Auto", .toggle_effort_picker);
     const back_start = try expectButton(tree.root, "Back");
     const forward_start = try expectButton(tree.root, "Forward");
     main.update(&model, tree.msgForPointer(back_start.id, .up).?, &fx);
@@ -6749,8 +6953,8 @@ test "sidebar back and forward walk session selection history" {
     _ = try expectButton(tree.root, "Search");
     _ = try expectButton(tree.root, "Collapse sidebar");
     _ = try expectButton(tree.root, "Settings");
-    _ = try expectByText(tree.root, .button, "Full access");
-    _ = try expectButtonMsg(tree, "Auto", .cycle_effort);
+    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectSelectMsg(tree, "Auto", .toggle_effort_picker);
 }
 
 test "sidebar back hydrates an empty session the same way select does" {
@@ -6874,7 +7078,7 @@ test "sidebar New folder creates a persisted catalog folder" {
     _ = try expectButton(tree.root, "Search");
     _ = try expectButton(tree.root, "Collapse sidebar");
     _ = try expectButton(tree.root, "Settings");
-    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .select, "Full access");
     main.update(&model, tree.msgForPointer((try expectButton(tree.root, "New folder")).id, .up).?, &fx);
     try testing.expectEqual(@as(u32, 1), model.folder_count);
     try testing.expectEqualStrings("New folder", model.folder_store[0].title());
@@ -8324,7 +8528,7 @@ test "composer project row sets selected session project_path and reloads" {
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .button, "choose a project");
     _ = try expectByText(tree.root, .button, "Local");
-    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .select, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
     _ = try expectButton(tree.root, "Search");
     _ = try expectButton(tree.root, "New folder");
@@ -8354,8 +8558,8 @@ test "composer project row sets selected session project_path and reloads" {
     _ = try expectByText(tree.root, .button, "/tmp/faku-project");
     try testing.expect(findByText(tree.root, .button, "Local") == null);
     try testing.expect(findByText(tree.root, .button, "choose a project") == null);
-    _ = try expectByText(tree.root, .button, "Full access");
-    _ = try expectButtonMsg(tree, "Auto", .cycle_effort);
+    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectSelectMsg(tree, "Auto", .toggle_effort_picker);
 
     var loaded = Model{};
     loaded.setStoreDir(dir);
@@ -8437,7 +8641,7 @@ test "ACP usage_update fills the composer progress; missing usage stays empty" {
     var tree = try buildTree(arena, &model);
     _ = try expectContextProgress(tree.root, 0);
     _ = try expectByText(tree.root, .button, "choose a project");
-    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .select, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
     _ = try expectButton(tree.root, "New folder");
 
@@ -8472,7 +8676,7 @@ test "ACP usage_update fills the composer progress; missing usage stays empty" {
     tree = try buildTree(arena, &model);
     _ = try expectContextProgress(tree.root, 0.265);
     _ = try expectByText(tree.root, .button, "choose a project");
-    _ = try expectByText(tree.root, .button, "Full access");
+    _ = try expectByText(tree.root, .select, "Full access");
 
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
     drainEffects(&model, &fx);

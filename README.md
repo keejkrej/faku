@@ -239,14 +239,17 @@ Deleting a folder unassigns its sessions (`folder_id` 0); it does not
 remove them.
 The sidebar settings gear
 opens a panel that edits those persisted defaults. Composer chips are the
-quick session toggle: access cycles `ask` / `auto` / `fullAccess`, Build
+quick session toggle: the access chip is a Native select listing
+`ask` / `auto` / `fullAccess` (Ask, Auto, Full access), Build
 cycles `build` / `plan`, and the model chip is a Native select whose
 dropdown lists stored ACP model options, or else `FX_MODEL` (empty) and
 last-used; Cmd/Ctrl-/ toggles that picker. Settings `FX_MODEL` stays a
-free-text last-used field. The composer effort chip cycles fx's documented effort
-values, persists on the session / `last_reasoning_effort`, and rides
-daemon `StartOptions.reasoningEffort`. One-shot `fx acp` does not get
-an invented env/flag.
+free-text last-used field. Settings Ask / Auto / Full access stay
+segmented buttons. The composer effort chip is a Native select listing
+fx's documented effort values (auto / none / minimal / low / medium /
+high / xhigh / max), persists on the session / `last_reasoning_effort`,
+and rides daemon `StartOptions.reasoningEffort`. One-shot `fx acp` does
+not get an invented env/flag.
 The composer project row edits the selected session cwd and persists
 it as `last_project_path`. The under-composer usage control is Native
 `progress` (0–1): it fills from an ACP `session/update` `usage_update`
@@ -317,7 +320,7 @@ canned reply (about 12 ticks / 90ms). Send while streaming with a draft
 queues on that session (persisted). Successful finish drains the next
 item; empty Send, Stop, or Esc cancels without draining.
 
-Keys: Cmd/Ctrl-N is sidebar New Task and focuses the composer, Cmd/Ctrl-K and sidebar Search open the local command palette (actions + session jump; no daemon; title match is the palette Tasks section, not an inline sidebar filter), Cmd/Ctrl-/ toggles the composer model picker (stored ACP options, or `FX_MODEL` + last-used; plain `/` still types in the composer), Cmd/Ctrl-F filters the selected transcript to matching turns (no glyph highlight), Cmd/Ctrl-L focuses the composer, Cmd/Ctrl-M minimizes the chromeless window via `fx.minimizeWindow`, Cmd/Ctrl-, opens settings, Cmd/Ctrl-[ and Cmd/Ctrl-] walk sidebar session history, Cmd/Ctrl-B toggles the sidebar rail, Cmd/Ctrl-C copies the last non-empty turn via `fx.writeClipboard`, Enter send/queue, Esc cancel (closes the model picker first when it is open). Ctrl-Tab opens a local session switcher (cycle with Ctrl-Tab / Ctrl-Shift-Tab, click to switch, Esc cancels); it is not a provider session fork. Cmd/Ctrl-Enter
+Keys: Cmd/Ctrl-N is sidebar New Task and focuses the composer, Cmd/Ctrl-K and sidebar Search open the local command palette (actions + session jump; no daemon; title match is the palette Tasks section, not an inline sidebar filter), Cmd/Ctrl-/ toggles the composer model picker (stored ACP options, or `FX_MODEL` + last-used; plain `/` still types in the composer), Cmd/Ctrl-F filters the selected transcript to matching turns (no glyph highlight), Cmd/Ctrl-L focuses the composer, Cmd/Ctrl-M minimizes the chromeless window via `fx.minimizeWindow`, Cmd/Ctrl-, opens settings, Cmd/Ctrl-[ and Cmd/Ctrl-] walk sidebar session history, Cmd/Ctrl-B toggles the sidebar rail, Cmd/Ctrl-C copies the last non-empty turn via `fx.writeClipboard`, Enter send/queue, Esc cancel (closes the model, access, or effort picker first when one is open). Ctrl-Tab opens a local session switcher (cycle with Ctrl-Tab / Ctrl-Shift-Tab, click to switch, Esc cancels); it is not a provider session fork. Cmd/Ctrl-Enter
 steers a live daemon turn via a one-shot sidecar (hello + `steer`).
 Waku does not steer when attach `supportsSteer` is false or unknown —
 those follow-ups queue, same as Send while busy. fx ask / fx acp / demo

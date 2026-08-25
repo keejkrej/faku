@@ -630,6 +630,12 @@ pub const Msg = union(enum) {
     toggle_model_picker,
     close_model_picker,
     pick_model: []const u8,
+    toggle_access_picker,
+    close_access_picker,
+    pick_access: []const u8,
+    toggle_effort_picker,
+    close_effort_picker,
+    pick_effort: []const u8,
     start_project_edit,
     project_path_edit: canvas.TextInputEvent,
     start_image_attach,
@@ -676,7 +682,7 @@ pub const Msg = union(enum) {
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "focus_composer", "open_find", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "focus_composer", "open_find", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort" };
 };
 
 pub const Model = struct {
@@ -699,6 +705,10 @@ pub const Model = struct {
     palette_open: bool = false,
     /// Runtime-only composer model picker. Not persisted to sessions.json.
     model_picker_open: bool = false,
+    /// Runtime-only composer access picker. Not persisted to sessions.json.
+    access_picker_open: bool = false,
+    /// Runtime-only composer effort picker. Not persisted to sessions.json.
+    effort_picker_open: bool = false,
     palette_highlight: u32 = 0,
     find_buffer: canvas.TextBuffer(max_search) = .{},
     find_active: bool = false,
@@ -895,6 +905,13 @@ pub const Model = struct {
         "pickSelectedModel",
         "toggleModelPicker",
         "closeModelPicker",
+        "pickSelectedAccess",
+        "toggleAccessPicker",
+        "closeAccessPicker",
+        "pickSelectedEffort",
+        "toggleEffortPicker",
+        "closeEffortPicker",
+        "closeComposerPickers",
         "startProjectEdit",
         "closeProjectEdit",
         "applySelectedProjectPath",
@@ -1024,12 +1041,34 @@ pub const Model = struct {
         model.palette_highlight = 0;
     }
 
-    pub fn closeModelPicker(model: *Model) void {
+    pub fn closeComposerPickers(model: *Model) void {
         model.model_picker_open = false;
+        model.access_picker_open = false;
+        model.effort_picker_open = false;
+    }
+
+    pub fn closeModelPicker(model: *Model) void {
+        model.closeComposerPickers();
     }
 
     pub fn toggleModelPicker(model: *Model) void {
         model.model_picker_open = !model.model_picker_open;
+    }
+
+    pub fn closeAccessPicker(model: *Model) void {
+        model.access_picker_open = false;
+    }
+
+    pub fn toggleAccessPicker(model: *Model) void {
+        model.access_picker_open = !model.access_picker_open;
+    }
+
+    pub fn closeEffortPicker(model: *Model) void {
+        model.effort_picker_open = false;
+    }
+
+    pub fn toggleEffortPicker(model: *Model) void {
+        model.effort_picker_open = !model.effort_picker_open;
     }
 
     pub fn find_query(model: *const Model) []const u8 {
@@ -1594,12 +1633,58 @@ pub const Model = struct {
         return accessLabel(model.resolvedAccessMode());
     }
 
+    /// Composer menu checkmark. Uses resolvedAccessMode(), not lastAccessMode().
+    pub fn access_selected_ask(model: *const Model) bool {
+        return std.mem.eql(u8, accessLabel(model.resolvedAccessMode()), "Ask");
+    }
+
+    pub fn access_selected_auto(model: *const Model) bool {
+        return std.mem.eql(u8, accessLabel(model.resolvedAccessMode()), "Auto");
+    }
+
+    pub fn access_selected_full(model: *const Model) bool {
+        return std.mem.eql(u8, accessLabel(model.resolvedAccessMode()), "Full access");
+    }
+
     pub fn interaction_label(model: *const Model) []const u8 {
         return if (std.mem.eql(u8, model.resolvedInteractionMode(), "plan")) "Plan" else "Build";
     }
 
     pub fn effort_label(model: *const Model) []const u8 {
         return effortLabel(model.resolvedReasoningEffort());
+    }
+
+    /// Composer menu checkmark. Uses resolvedReasoningEffort(), not lastReasoningEffort().
+    pub fn effort_selected_auto(model: *const Model) bool {
+        return std.mem.eql(u8, effortLabel(model.resolvedReasoningEffort()), "Auto");
+    }
+
+    pub fn effort_selected_none(model: *const Model) bool {
+        return std.mem.eql(u8, effortLabel(model.resolvedReasoningEffort()), "None");
+    }
+
+    pub fn effort_selected_minimal(model: *const Model) bool {
+        return std.mem.eql(u8, effortLabel(model.resolvedReasoningEffort()), "Minimal");
+    }
+
+    pub fn effort_selected_low(model: *const Model) bool {
+        return std.mem.eql(u8, effortLabel(model.resolvedReasoningEffort()), "Low");
+    }
+
+    pub fn effort_selected_medium(model: *const Model) bool {
+        return std.mem.eql(u8, effortLabel(model.resolvedReasoningEffort()), "Medium");
+    }
+
+    pub fn effort_selected_high(model: *const Model) bool {
+        return std.mem.eql(u8, effortLabel(model.resolvedReasoningEffort()), "High");
+    }
+
+    pub fn effort_selected_xhigh(model: *const Model) bool {
+        return std.mem.eql(u8, effortLabel(model.resolvedReasoningEffort()), "Extra high");
+    }
+
+    pub fn effort_selected_max(model: *const Model) bool {
+        return std.mem.eql(u8, effortLabel(model.resolvedReasoningEffort()), "Max");
     }
 
     pub fn model_label(model: *const Model) []const u8 {
@@ -1745,6 +1830,24 @@ pub const Model = struct {
         session.setModel(chosen);
         if (chosen.len > 0) model.setLastModel(chosen);
         model.closeModelPicker();
+    }
+
+    pub fn pickSelectedAccess(model: *Model, id: []const u8) void {
+        const session = model.sessionById(model.selected) orelse return;
+        if (std.mem.eql(u8, id, "ask") or std.mem.eql(u8, id, "auto") or std.mem.eql(u8, id, "fullAccess")) {
+            session.setAccessMode(id);
+            model.setLastAccessMode(id);
+        }
+        model.closeAccessPicker();
+    }
+
+    pub fn pickSelectedEffort(model: *Model, id: []const u8) void {
+        const session = model.sessionById(model.selected) orelse return;
+        if (isDocumentedReasoningEffort(id)) {
+            session.setReasoningEffort(id);
+            model.setLastReasoningEffort(id);
+        }
+        model.closeEffortPicker();
     }
 
     pub fn fxPath(model: *const Model) []const u8 {
@@ -2899,7 +3002,9 @@ fn confirmPalette(model: *Model, fx: *Effects) void {
 
 fn cycleSwitcher(model: *Model, reverse: bool) void {
     if (model.palette_open) model.closePalette();
-    if (model.model_picker_open) model.closeModelPicker();
+    if (model.model_picker_open or model.access_picker_open or model.effort_picker_open) {
+        model.closeModelPicker();
+    }
     if (model.switcher_open) {
         if (model.switcher_count == 0) {
             closeSwitcher(model);
@@ -3132,6 +3237,14 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 closeSwitcher(model);
                 return;
             }
+            if (model.access_picker_open) {
+                model.closeAccessPicker();
+                return;
+            }
+            if (model.effort_picker_open) {
+                model.closeEffortPicker();
+                return;
+            }
             if (model.model_picker_open) {
                 model.closeModelPicker();
                 return;
@@ -3211,12 +3324,42 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             if (!model.model_picker_open) {
                 closeSwitcher(model);
                 if (model.palette_open) model.closePalette();
+                model.access_picker_open = false;
+                model.effort_picker_open = false;
             }
             model.toggleModelPicker();
         },
         .close_model_picker => model.closeModelPicker(),
         .pick_model => |id| {
             model.pickSelectedModel(id);
+            persistComposerChips(model, fx);
+        },
+        .toggle_access_picker => {
+            if (!model.access_picker_open) {
+                closeSwitcher(model);
+                if (model.palette_open) model.closePalette();
+                model.model_picker_open = false;
+                model.effort_picker_open = false;
+            }
+            model.toggleAccessPicker();
+        },
+        .close_access_picker => model.closeAccessPicker(),
+        .pick_access => |id| {
+            model.pickSelectedAccess(id);
+            persistComposerChips(model, fx);
+        },
+        .toggle_effort_picker => {
+            if (!model.effort_picker_open) {
+                closeSwitcher(model);
+                if (model.palette_open) model.closePalette();
+                model.model_picker_open = false;
+                model.access_picker_open = false;
+            }
+            model.toggleEffortPicker();
+        },
+        .close_effort_picker => model.closeEffortPicker(),
+        .pick_effort => |id| {
+            model.pickSelectedEffort(id);
             persistComposerChips(model, fx);
         },
         .start_project_edit => model.startProjectEdit(),
@@ -3431,6 +3574,17 @@ pub fn effortLabel(effort: []const u8) []const u8 {
     if (std.mem.eql(u8, effort, "xhigh")) return "Extra high";
     if (std.mem.eql(u8, effort, "max")) return "Max";
     return "Auto";
+}
+
+fn isDocumentedReasoningEffort(effort: []const u8) bool {
+    return std.mem.eql(u8, effort, "auto") or
+        std.mem.eql(u8, effort, "none") or
+        std.mem.eql(u8, effort, "minimal") or
+        std.mem.eql(u8, effort, "low") or
+        std.mem.eql(u8, effort, "medium") or
+        std.mem.eql(u8, effort, "high") or
+        std.mem.eql(u8, effort, "xhigh") or
+        std.mem.eql(u8, effort, "max");
 }
 
 fn persistComposerChips(model: *Model, fx: *Effects) void {

@@ -276,8 +276,31 @@
                     </dropdown-menu>
                   </if>
                 </stack>
-                <button variant="ghost" size="sm" icon="menu" on-press="cycle_effort">{effort_label}</button>
-                <button variant="ghost" size="sm" icon="eye" on-press="cycle_access">{access_label}</button>
+                <stack>
+                  <select placeholder="Effort" on-press="toggle_effort_picker">{effort_label}</select>
+                  <if test="{effort_picker_open}">
+                    <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_effort_picker">
+                      <menu-item selected="{effort_selected_auto}" on-press="pick_effort:auto">Auto</menu-item>
+                      <menu-item selected="{effort_selected_none}" on-press="pick_effort:none">None</menu-item>
+                      <menu-item selected="{effort_selected_minimal}" on-press="pick_effort:minimal">Minimal</menu-item>
+                      <menu-item selected="{effort_selected_low}" on-press="pick_effort:low">Low</menu-item>
+                      <menu-item selected="{effort_selected_medium}" on-press="pick_effort:medium">Medium</menu-item>
+                      <menu-item selected="{effort_selected_high}" on-press="pick_effort:high">High</menu-item>
+                      <menu-item selected="{effort_selected_xhigh}" on-press="pick_effort:xhigh">Extra high</menu-item>
+                      <menu-item selected="{effort_selected_max}" on-press="pick_effort:max">Max</menu-item>
+                    </dropdown-menu>
+                  </if>
+                </stack>
+                <stack>
+                  <select placeholder="Access" on-press="toggle_access_picker">{access_label}</select>
+                  <if test="{access_picker_open}">
+                    <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_access_picker">
+                      <menu-item selected="{access_selected_ask}" on-press="pick_access:ask">Ask</menu-item>
+                      <menu-item selected="{access_selected_auto}" on-press="pick_access:auto">Auto</menu-item>
+                      <menu-item selected="{access_selected_full}" on-press="pick_access:fullAccess">Full access</menu-item>
+                    </dropdown-menu>
+                  </if>
+                </stack>
                 <button variant="ghost" size="sm" icon="wrench" on-press="cycle_interaction">{interaction_label}</button>
                 <spacer grow="1" />
                 <button variant="primary" size="icon" icon="arrow-up" label="{send_label}" on-press="send" width="26" height="26" radius="xl"></button>
