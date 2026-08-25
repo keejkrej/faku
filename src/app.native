@@ -251,10 +251,12 @@
                     <button size="sm" on-press="clear_queue">Dismiss all</button>
                   </row>
                   <for each="queued_rows" key="id" as="q">
-                    <row gap="8" cross="center">
-                      <text wrap="true" foreground="text_muted">{q.text}</text>
-                      <button variant="ghost" size="icon" icon="x" label="Remove queued" on-press="remove_queued:{q.id}"></button>
-                    </row>
+                    <list-item height="30" on-press="edit_queued:{q.id}" label="{q.text}">
+                      <row gap="8" cross="center">
+                        <text wrap="true" overflow="ellipsis" foreground="text_muted">{q.text}</text>
+                        <button variant="ghost" size="icon" icon="x" label="Remove queued" on-press="remove_queued:{q.id}"></button>
+                      </row>
+                    </list-item>
                   </for>
                 </column>
               </card>
