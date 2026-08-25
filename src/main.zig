@@ -53,6 +53,17 @@ pub const folder_row_id_base: u32 = 1_000_000;
 pub const selection_history_cap: u32 = 32;
 /// Runtime-only Ctrl-Tab switcher snapshot. Same cap as Waku's overlay.
 pub const switcher_cap: u32 = 10;
+/// Palette action keys sit above folder-header keys so `for` keys stay unique.
+pub const palette_action_id_base: u32 = 2_000_000;
+/// Palette section-header keys sit above action keys.
+pub const palette_header_id_base: u32 = 3_000_000;
+/// Runtime-only command palette. Same caps as Waku's overlay card.
+pub const palette_max_task_results: u32 = 12;
+pub const palette_result_row_height: f32 = 44;
+pub const palette_search_row_height: f32 = 60;
+pub const palette_section_header_height: f32 = 30;
+pub const palette_card_width: f32 = 680;
+pub const palette_card_height: f32 = 480;
 const max_turns = 128;
 const max_title = 64;
 const max_search = 64;
@@ -485,6 +496,29 @@ pub const CommandRow = struct {
     has_description: bool,
 };
 
+/// Local command-palette row. `id` is never 0: actions use
+/// `palette_action_id_base + kind`, sessions use the session id,
+/// section headers use `palette_header_id_base + n`.
+pub const PaletteRow = struct {
+    id: u32,
+    label: []const u8,
+    detail: []const u8,
+    selected: bool,
+    is_header: bool,
+    is_action: bool,
+    is_session: bool,
+};
+
+pub const PaletteAction = enum(u32) {
+    new_task = 1,
+    focus_composer = 2,
+    toggle_sidebar = 3,
+    collapse_folders = 4,
+    find_in_transcript = 5,
+    settings = 6,
+    minimize = 7,
+};
+
 /// Follow-up queued while that session is busy. Becomes its own turn after a
 /// successful finish — not after Stop/Esc or a non-zero `fx ask` exit.
 pub const QueuedMessage = struct {
@@ -511,6 +545,9 @@ pub const Msg = union(enum) {
     remove_session: u32,
     rename_session: u32,
     start_search,
+    palette_confirm,
+    palette_cancel,
+    palette_pick: u32,
     focus_composer,
     /// Cmd/Ctrl-F: open transcript find (keep query if already open).
     open_find,
@@ -600,7 +637,9 @@ pub const Model = struct {
     next_turn_id: u32 = 1,
     draft_buffer: canvas.TextBuffer(max_draft) = .{},
     search_buffer: canvas.TextBuffer(max_search) = .{},
-    search_active: bool = false,
+    /// Runtime-only command palette. Not persisted to sessions.json.
+    palette_open: bool = false,
+    palette_highlight: u32 = 0,
     find_buffer: canvas.TextBuffer(max_search) = .{},
     find_active: bool = false,
     composer_active: bool = false,
@@ -748,6 +787,7 @@ pub const Model = struct {
         "next_turn_id",
         "draft_buffer",
         "search_buffer",
+        "palette_highlight",
         "find_buffer",
         "mode",
         "phase",
@@ -889,6 +929,7 @@ pub const Model = struct {
         "storeDir",
         "setStoreDir",
         "exitSearch",
+        "closePalette",
         "exitFind",
         "selected_title",
         "selected_provider",
@@ -912,8 +953,13 @@ pub const Model = struct {
     }
 
     pub fn exitSearch(model: *Model) void {
+        model.closePalette();
+    }
+
+    pub fn closePalette(model: *Model) void {
         model.search_buffer.clear();
-        model.search_active = false;
+        model.palette_open = false;
+        model.palette_highlight = 0;
     }
 
     pub fn find_query(model: *const Model) []const u8 {
@@ -934,15 +980,9 @@ pub const Model = struct {
     }
 
     pub fn session_rows(model: *const Model, arena: std.mem.Allocator) []const SessionRow {
-        const query = std.mem.trim(u8, model.search_query(), " \t\r\n");
-        var count: usize = 0;
-        for (model.session_store[0..model.session_count]) |*session| {
-            if (sessionMatchesQuery(session, query)) count += 1;
-        }
-        const out = arena.alloc(SessionRow, count) catch return &.{};
+        const out = arena.alloc(SessionRow, model.session_count) catch return &.{};
         var i: usize = 0;
         for (model.session_store[0..model.session_count]) |*session| {
-            if (!sessionMatchesQuery(session, query)) continue;
             out[i] = .{
                 .id = session.id,
                 .title = sessionDisplayTitle(session),
@@ -959,35 +999,26 @@ pub const Model = struct {
     }
 
     pub fn sidebar_rows(model: *const Model, arena: std.mem.Allocator) []const SidebarRow {
-        const query = std.mem.trim(u8, model.search_query(), " \t\r\n");
         var count: usize = 0;
         for (model.session_store[0..model.session_count]) |*session| {
-            if (effectiveFolderId(model, session) == 0 and sessionMatchesQuery(session, query)) count += 1;
+            if (effectiveFolderId(model, session) == 0) count += 1;
         }
         for (model.folder_store[0..model.folder_count]) |*folder| {
             var matches: usize = 0;
             for (model.session_store[0..model.session_count]) |*session| {
-                if (effectiveFolderId(model, session) == folder.id and sessionMatchesQuery(session, query)) matches += 1;
+                if (effectiveFolderId(model, session) == folder.id) matches += 1;
             }
-            const show_header = query.len == 0 or matches > 0;
-            if (!show_header) continue;
             count += 1;
-            if (!folder.collapsed or query.len > 0) count += matches;
+            if (!folder.collapsed) count += matches;
         }
         const out = arena.alloc(SidebarRow, count) catch return &.{};
         var i: usize = 0;
         for (model.session_store[0..model.session_count]) |*session| {
-            if (effectiveFolderId(model, session) != 0 or !sessionMatchesQuery(session, query)) continue;
+            if (effectiveFolderId(model, session) != 0) continue;
             out[i] = sessionSidebarRow(model, session);
             i += 1;
         }
         for (model.folder_store[0..model.folder_count]) |*folder| {
-            var matches: usize = 0;
-            for (model.session_store[0..model.session_count]) |*session| {
-                if (effectiveFolderId(model, session) == folder.id and sessionMatchesQuery(session, query)) matches += 1;
-            }
-            const show_header = query.len == 0 or matches > 0;
-            if (!show_header) continue;
             out[i] = .{
                 .id = folder_row_id_base + folder.id,
                 .title = folder.title(),
@@ -999,9 +1030,9 @@ pub const Model = struct {
                 .grouped = false,
             };
             i += 1;
-            if (folder.collapsed and query.len == 0) continue;
+            if (folder.collapsed) continue;
             for (model.session_store[0..model.session_count]) |*session| {
-                if (effectiveFolderId(model, session) != folder.id or !sessionMatchesQuery(session, query)) continue;
+                if (effectiveFolderId(model, session) != folder.id) continue;
                 out[i] = sessionSidebarRow(model, session);
                 i += 1;
             }
@@ -1026,6 +1057,52 @@ pub const Model = struct {
             n += 1;
         }
         return out[0..n];
+    }
+
+    pub fn palette_rows(model: *const Model, arena: std.mem.Allocator) []const PaletteRow {
+        if (!model.palette_open) return &.{};
+        const query = std.mem.trim(u8, model.search_query(), " \t\r\n");
+        var specs_buf: [palette_action_specs.len]PaletteActionSpec = undefined;
+        const specs = matchingPaletteActions(model, query, &specs_buf);
+        var session_ids: [max_sessions]u32 = undefined;
+        const sessions_n = if (query.len == 0)
+            0
+        else
+            matchingPaletteSessions(model, query, &session_ids);
+
+        var count: usize = 0;
+        if (query.len == 0) {
+            count += 1 + suggestedPaletteCount(specs) + 1 + commandPaletteCount(specs);
+        } else {
+            if (specs.len > 0) count += specs.len;
+            if (sessions_n > 0) count += 1 + sessions_n;
+        }
+        if (count == 0) return &.{};
+        const out = arena.alloc(PaletteRow, count) catch return &.{};
+        var i: usize = 0;
+        var selectable: u32 = 0;
+        if (query.len == 0) {
+            out[i] = paletteHeaderRow(1, "Suggested");
+            i += 1;
+            appendPaletteActionRows(out, &i, &selectable, model.palette_highlight, specs, true);
+            out[i] = paletteHeaderRow(2, "Commands");
+            i += 1;
+            appendPaletteActionRows(out, &i, &selectable, model.palette_highlight, specs, false);
+        } else {
+            appendPaletteActionRows(out, &i, &selectable, model.palette_highlight, specs, null);
+            if (sessions_n > 0) {
+                out[i] = paletteHeaderRow(3, "Tasks");
+                i += 1;
+                var s: usize = 0;
+                while (s < sessions_n) : (s += 1) {
+                    const session = model.sessionByIdConst(session_ids[s]) orelse continue;
+                    out[i] = paletteSessionRow(session, selectable == model.palette_highlight);
+                    i += 1;
+                    selectable += 1;
+                }
+            }
+        }
+        return out[0..i];
     }
 
     pub fn command_rows(model: *const Model, arena: std.mem.Allocator) []const CommandRow {
@@ -2172,7 +2249,177 @@ fn sessionMatchesQuery(session: *const Session, query: []const u8) bool {
     if (query.len == 0) return true;
     if (asciiContainsIgnoreCase(sessionDisplayTitle(session), query)) return true;
     if (asciiContainsIgnoreCase(session.title(), query)) return true;
-    return asciiContainsIgnoreCase(session.provider_label(), query);
+    if (asciiContainsIgnoreCase(session.provider_label(), query)) return true;
+    return asciiContainsIgnoreCase(session.projectPath(), query);
+}
+
+const PaletteActionSpec = struct {
+    action: PaletteAction,
+    label: []const u8,
+    keywords: []const []const u8,
+    suggested: bool,
+};
+
+const palette_action_specs = [_]PaletteActionSpec{
+    .{ .action = .new_task, .label = "New Task", .keywords = &.{ "new", "task", "session" }, .suggested = true },
+    .{ .action = .focus_composer, .label = "Focus composer", .keywords = &.{ "composer", "prompt", "input" }, .suggested = true },
+    .{ .action = .toggle_sidebar, .label = "Toggle sidebar", .keywords = &.{ "sidebar", "panel" }, .suggested = false },
+    .{ .action = .collapse_folders, .label = "Collapse all folders", .keywords = &.{ "collapse", "folder", "folders" }, .suggested = false },
+    .{ .action = .find_in_transcript, .label = "Find in transcript", .keywords = &.{ "find", "search", "transcript" }, .suggested = false },
+    .{ .action = .settings, .label = "Settings", .keywords = &.{ "settings", "preferences" }, .suggested = false },
+    .{ .action = .minimize, .label = "Minimize", .keywords = &.{ "minimize", "window" }, .suggested = false },
+};
+
+pub fn paletteActionId(action: PaletteAction) u32 {
+    return palette_action_id_base + @intFromEnum(action);
+}
+
+fn paletteActionFromId(id: u32) ?PaletteAction {
+    if (id < palette_action_id_base or id >= palette_header_id_base) return null;
+    const raw = id - palette_action_id_base;
+    inline for (std.meta.tags(PaletteAction)) |action| {
+        if (raw == @intFromEnum(action)) return action;
+    }
+    return null;
+}
+
+fn paletteHeaderRow(n: u32, label: []const u8) PaletteRow {
+    return .{
+        .id = palette_header_id_base + n,
+        .label = label,
+        .detail = "",
+        .selected = false,
+        .is_header = true,
+        .is_action = false,
+        .is_session = false,
+    };
+}
+
+fn paletteActionRow(spec: PaletteActionSpec, selected: bool) PaletteRow {
+    return .{
+        .id = paletteActionId(spec.action),
+        .label = spec.label,
+        .detail = "",
+        .selected = selected,
+        .is_header = false,
+        .is_action = true,
+        .is_session = false,
+    };
+}
+
+fn paletteSessionRow(session: *const Session, selected: bool) PaletteRow {
+    return .{
+        .id = session.id,
+        .label = sessionDisplayTitle(session),
+        .detail = session.provider_label(),
+        .selected = selected,
+        .is_header = false,
+        .is_action = false,
+        .is_session = true,
+    };
+}
+
+fn paletteActionAvailable(model: *const Model, spec: PaletteActionSpec) bool {
+    return spec.action != .collapse_folders or model.can_collapse_folders();
+}
+
+fn paletteActionMatches(spec: PaletteActionSpec, query: []const u8) bool {
+    if (query.len == 0) return true;
+    if (asciiContainsIgnoreCase(spec.label, query)) return true;
+    for (spec.keywords) |keyword| {
+        if (asciiContainsIgnoreCase(keyword, query)) return true;
+    }
+    return false;
+}
+
+fn matchingPaletteActions(model: *const Model, query: []const u8, dest: []PaletteActionSpec) []const PaletteActionSpec {
+    var n: usize = 0;
+    for (palette_action_specs) |spec| {
+        if (!paletteActionAvailable(model, spec)) continue;
+        if (!paletteActionMatches(spec, query)) continue;
+        if (n >= dest.len) break;
+        dest[n] = spec;
+        n += 1;
+    }
+    return dest[0..n];
+}
+
+fn matchingPaletteSessions(model: *const Model, query: []const u8, dest: []u32) usize {
+    var n: usize = 0;
+    for (model.session_store[0..model.session_count]) |*session| {
+        if (!session.hasStarted()) continue;
+        if (!sessionMatchesQuery(session, query)) continue;
+        if (n >= dest.len or n >= palette_max_task_results) break;
+        dest[n] = session.id;
+        n += 1;
+    }
+    return n;
+}
+
+fn suggestedPaletteCount(specs: []const PaletteActionSpec) usize {
+    var n: usize = 0;
+    for (specs) |spec| {
+        if (spec.suggested) n += 1;
+    }
+    return n;
+}
+
+fn commandPaletteCount(specs: []const PaletteActionSpec) usize {
+    var n: usize = 0;
+    for (specs) |spec| {
+        if (!spec.suggested) n += 1;
+    }
+    return n;
+}
+
+fn appendPaletteActionRows(
+    out: []PaletteRow,
+    i: *usize,
+    selectable: *u32,
+    highlight: u32,
+    specs: []const PaletteActionSpec,
+    suggested: ?bool,
+) void {
+    for (specs) |spec| {
+        if (suggested) |want| {
+            if (spec.suggested != want) continue;
+        }
+        out[i.*] = paletteActionRow(spec, selectable.* == highlight);
+        i.* += 1;
+        selectable.* += 1;
+    }
+}
+
+fn paletteSelectableCount(model: *const Model) u32 {
+    const query = std.mem.trim(u8, model.search_query(), " \t\r\n");
+    var specs_buf: [palette_action_specs.len]PaletteActionSpec = undefined;
+    const specs = matchingPaletteActions(model, query, &specs_buf);
+    var session_ids: [max_sessions]u32 = undefined;
+    const sessions_n = if (query.len == 0)
+        0
+    else
+        matchingPaletteSessions(model, query, &session_ids);
+    return @intCast(specs.len + sessions_n);
+}
+
+fn paletteSelectableIdAt(model: *const Model, index: u32) ?u32 {
+    const query = std.mem.trim(u8, model.search_query(), " \t\r\n");
+    var specs_buf: [palette_action_specs.len]PaletteActionSpec = undefined;
+    const specs = matchingPaletteActions(model, query, &specs_buf);
+    var cursor: u32 = 0;
+    for (specs) |spec| {
+        if (cursor == index) return paletteActionId(spec.action);
+        cursor += 1;
+    }
+    if (query.len == 0) return null;
+    var session_ids: [max_sessions]u32 = undefined;
+    const sessions_n = matchingPaletteSessions(model, query, &session_ids);
+    var s: usize = 0;
+    while (s < sessions_n) : (s += 1) {
+        if (cursor == index) return session_ids[s];
+        cursor += 1;
+    }
+    return null;
 }
 
 fn sessionSidebarRow(model: *const Model, session: *const Session) SidebarRow {
@@ -2486,7 +2733,60 @@ fn closeSwitcher(model: *Model) void {
     model.switcher_ids = [_]u32{0} ** switcher_cap;
 }
 
+fn openPalette(model: *Model) void {
+    closeSwitcher(model);
+    model.palette_open = true;
+    model.search_buffer.clear();
+    model.palette_highlight = 0;
+    model.composer_active = false;
+}
+
+fn clampPaletteHighlight(model: *Model) void {
+    const count = paletteSelectableCount(model);
+    if (count == 0) {
+        model.palette_highlight = 0;
+        return;
+    }
+    if (model.palette_highlight >= count) model.palette_highlight = count - 1;
+}
+
+fn runPaletteAction(model: *Model, fx: *Effects, action: PaletteAction) void {
+    switch (action) {
+        .new_task => update(model, .new_session, fx),
+        .focus_composer => update(model, .focus_composer, fx),
+        .toggle_sidebar => update(model, .toggle_sidebar, fx),
+        .collapse_folders => update(model, .collapse_all_folders, fx),
+        .find_in_transcript => update(model, .open_find, fx),
+        .settings => update(model, .toggle_settings, fx),
+        .minimize => update(model, .minimize_window, fx),
+    }
+}
+
+fn runPalettePick(model: *Model, fx: *Effects, id: u32) void {
+    if (!model.palette_open or id == 0) return;
+    if (id >= palette_header_id_base) return;
+    if (id >= palette_action_id_base) {
+        const action = paletteActionFromId(id) orelse return;
+        if (action == .collapse_folders and !model.can_collapse_folders()) return;
+        model.closePalette();
+        runPaletteAction(model, fx, action);
+        return;
+    }
+    if (model.sessionByIdConst(id) == null) return;
+    model.closePalette();
+    model.pushSelectionHistory(id);
+    applySessionSelection(model, fx, id);
+}
+
+fn confirmPalette(model: *Model, fx: *Effects) void {
+    if (!model.palette_open) return;
+    clampPaletteHighlight(model);
+    const id = paletteSelectableIdAt(model, model.palette_highlight) orelse return;
+    runPalettePick(model, fx, id);
+}
+
 fn cycleSwitcher(model: *Model, reverse: bool) void {
+    if (model.palette_open) model.closePalette();
     if (model.switcher_open) {
         if (model.switcher_count == 0) {
             closeSwitcher(model);
@@ -2673,7 +2973,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         // Chromeless titlebar has no OS close. This is the documented
         // window-action effect (`examples/deck`): last-window close
         // follows the host exit path. Esc stays `.stop` so the session
-        // switcher / settings / search / transcript-find / project-edit /
+        // switcher / command palette / settings / transcript-find / project-edit /
         // image-attach / commands / folder-title-edit / session-title-edit /
         // a live turn keep it.
         .close_window => fx.closeWindow(main_window_label),
@@ -2685,10 +2985,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.loadDraftIfPossible(model);
             refreshAttachPreview(model, fx);
         },
-        .start_search => {
-            model.search_active = true;
-            model.composer_active = false;
-        },
+        .start_search => openPalette(model),
+        .palette_confirm => confirmPalette(model, fx),
+        .palette_cancel => model.closePalette(),
+        .palette_pick => |id| runPalettePick(model, fx, id),
         .open_find => {
             model.find_active = true;
             model.composer_active = false;
@@ -2697,11 +2997,8 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .focus_composer => model.composer_active = true,
         .search_edit => |edit| {
             model.search_buffer.apply(edit);
-            if (model.search_query().len == 0) {
-                model.search_active = false;
-            } else {
-                model.search_active = true;
-            }
+            model.palette_highlight = 0;
+            if (model.palette_open) clampPaletteHighlight(model);
         },
         .find_edit => |edit| model.find_buffer.apply(edit),
         .draft_edit => |edit| {
@@ -2718,6 +3015,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .stop => {
             if (model.switcher_open) {
                 closeSwitcher(model);
+                return;
+            }
+            if (model.palette_open) {
+                model.closePalette();
                 return;
             }
             if (model.settings_open) {
@@ -2742,10 +3043,6 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             }
             if (model.editing_session_id != 0) {
                 model.closeSessionTitleEdit();
-                return;
-            }
-            if (model.search_active or model.search_query().len > 0) {
-                model.exitSearch();
                 return;
             }
             if (model.find_active or model.find_query().len > 0) {
