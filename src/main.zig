@@ -553,6 +553,7 @@ pub const Msg = union(enum) {
     new_folder,
     toggle_folder: u32,
     collapse_all_folders,
+    rename_folder: u32,
     delete_folder: u32,
     assign_selected: u32,
     unassign_selected,
@@ -2631,6 +2632,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .collapse_all_folders => {
             if (model.folder_count == 0) return;
             if (model.collapseAllFolders()) store.persistFoldersIfPossible(model);
+        },
+        .rename_folder => |id| {
+            model.startFolderTitleEdit(id);
         },
         .delete_folder => |folder_id| persistDeletedFolder(model, folder_id, fx),
         .assign_selected => |folder_id| {
