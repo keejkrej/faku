@@ -6404,9 +6404,9 @@ test "composer access picker lists Ask Auto Full access; pick_access ask persist
     _ = try expectByText(tree.root, .menu_item, "Ask");
     _ = try expectByText(tree.root, .menu_item, "Auto");
     const full = try expectByText(tree.root, .menu_item, "Full access");
-    try testing.expect(full.selected);
+    try testing.expect(full.state.selected);
     const ask = try expectByText(tree.root, .menu_item, "Ask");
-    try testing.expect(!ask.selected);
+    try testing.expect(!ask.state.selected);
     switch (tree.msgForPointer(ask.id, .up).?) {
         .pick_access => |picked| try testing.expectEqualStrings("ask", picked),
         else => return error.WrongMsg,
@@ -6470,9 +6470,9 @@ test "composer effort picker lists fx documented values; pick_effort high commit
             else => return error.WrongMsg,
         }
         if (std.mem.eql(u8, row.value, "auto")) {
-            try testing.expect(item.selected);
+            try testing.expect(item.state.selected);
         } else {
-            try testing.expect(!item.selected);
+            try testing.expect(!item.state.selected);
         }
     }
 
@@ -6784,9 +6784,9 @@ test "settings access buttons still write lastAccessMode; composer selected uses
     main.update(&model, tree.msgForPointer(access.id, .up).?, &fx);
     tree = try buildTree(arena, &model);
     const full = try expectByText(tree.root, .menu_item, "Full access");
-    try testing.expect(full.selected);
+    try testing.expect(full.state.selected);
     const ask_row = try expectByText(tree.root, .menu_item, "Ask");
-    try testing.expect(!ask_row.selected);
+    try testing.expect(!ask_row.state.selected);
 }
 
 test "composer effort chip persists reasoning_effort and last_reasoning_effort" {
