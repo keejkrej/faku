@@ -26,6 +26,7 @@ a folder (or the move control) assigns the selected session; folder
 titles are editable; Collapse all folders collapses every sidebar folder (restored via `collapsed_folder_ids`); the selected session title is editable; deleting a folder unassigns its sessions;
 sidebar trash removes a session (and closeSession if a daemon is set);
 sidebar session rows have a Native context menu (Rename / Remove);
+a working sidebar session shows a Native spinner beside the title;
 sidebar folder rows have a Native context menu (Rename / Delete);
 the composer project row sets the selected session cwd; the usage
 control stays empty unless ACP reports `usage_update`; user and

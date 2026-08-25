@@ -73,12 +73,17 @@
                       <list-item height="52" grow="1" selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
                         <row gap="2" cross="center" padding="8">
                           <column gap="2" grow="1">
-                            <if test="{s.editing}">
-                              <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
-                            </if>
-                            <else>
-                              <text wrap="false" overflow="ellipsis">{s.title}</text>
-                            </else>
+                            <row gap="6" cross="center">
+                              <if test="{s.editing}">
+                                <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
+                              </if>
+                              <else>
+                                <text grow="1" wrap="false" overflow="ellipsis">{s.title}</text>
+                              </else>
+                              <if test="{s.busy}">
+                                <spinner width="12" height="12"></spinner>
+                              </if>
+                            </row>
                             <text wrap="false" overflow="ellipsis" foreground="text_muted">{s.provider}</text>
                           </column>
                           <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>
@@ -95,12 +100,17 @@
                     <list-item height="52" selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
                       <row gap="2" cross="center" padding="8">
                         <column gap="2" grow="1">
-                          <if test="{s.editing}">
-                            <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
-                          </if>
-                          <else>
-                            <text wrap="false" overflow="ellipsis">{s.title}</text>
-                          </else>
+                          <row gap="6" cross="center">
+                            <if test="{s.editing}">
+                              <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
+                            </if>
+                            <else>
+                              <text grow="1" wrap="false" overflow="ellipsis">{s.title}</text>
+                            </else>
+                            <if test="{s.busy}">
+                              <spinner width="12" height="12"></spinner>
+                            </if>
+                          </row>
                           <text wrap="false" overflow="ellipsis" foreground="text_muted">{s.provider}</text>
                         </column>
                         <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>

@@ -516,6 +516,8 @@ pub const SidebarRow = struct {
     /// True for session rows nested under a folder (`folder_id != 0`).
     /// False for folder headers and Today / unassigned sessions.
     grouped: bool = false,
+    /// Process-local. Headers stay false; store schema does not persist this.
+    busy: bool = false,
 };
 
 pub const AssignFolder = struct {
@@ -2728,6 +2730,7 @@ fn sessionSidebarRow(model: *const Model, session: *const Session) SidebarRow {
         .editing = model.editing_session_id == session.id,
         .folder_id = session.folder_id,
         .grouped = session.folder_id != 0,
+        .busy = session.busy,
     };
 }
 
