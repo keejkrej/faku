@@ -96,8 +96,8 @@ The access chip follows ACP
 The model chip follows ACP `config_option_update` (`configOptions` id
 `model` `currentValue`; empty stays `FX_MODEL`).
 ACP `available_commands_update` stores command names (and descriptions)
-on the session. Composer Commands inserts `/name ` into the draft; it
-does not run the command.
+on the session. Composer Commands inserts `/name ` into the draft; typing
+`/` in the composer opens that same stored list. It does not run the command.
 ACP `session_info_update` applies a non-empty `title` to the session
 (header / sidebar); official `cwd` is not on this notification.
 The `session/prompt` result `stopReason`

@@ -1732,6 +1732,168 @@ test "composer Commands lists stored names; empty hides; pick inserts /name and 
     try testing.expect(findByText(tree.root, .text, "/compact") == null);
 }
 
+test "composer slash prefix auto-opens stored commands; filters by name; empty hides; pick inserts /name" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-slash-autocomplete", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("slash autocomplete", .fx);
+    _ = model.appendTurn(id, .user, "already started");
+    model.selected = id;
+    if (model.sessionById(id)) |session| {
+        session.appendAvailableCommand("commit", "Create a commit");
+        session.appendAvailableCommand("compact", "Compact the conversation");
+    }
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+    try testing.expect(model.has_commands());
+    try testing.expectEqual(@as(usize, 0), model.draft().len);
+    try testing.expect(!model.commands_open);
+    try testing.expect(!model.commands_list_open());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "Commands");
+    try testing.expect(findByText(tree.root, .text, "/commit") == null);
+    try testing.expect(findByText(tree.root, .text, "/compact") == null);
+
+    main.update(&model, .toggle_commands, &fx);
+    try testing.expect(model.commands_open);
+    try testing.expect(model.commands_list_open());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "/commit");
+    _ = try expectByText(tree.root, .text, "/compact");
+    main.update(&model, .toggle_commands, &fx);
+    try testing.expect(!model.commands_open);
+    try testing.expect(!model.commands_list_open());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "/" } }, &fx);
+    try testing.expectEqualStrings("/", model.draft());
+    try testing.expect(!model.commands_open);
+    try testing.expect(model.commands_list_open());
+    try testing.expectEqual(@as(usize, 2), model.command_rows(arena).len);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "/commit");
+    _ = try expectByText(tree.root, .text, "/compact");
+    _ = try expectButton(tree.root, "Commands");
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "co" } }, &fx);
+    try testing.expectEqualStrings("/co", model.draft());
+    try testing.expect(model.commands_list_open());
+    {
+        const rows = model.command_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expectEqualStrings("/commit", rows[0].slash_name);
+        try testing.expectEqual(@as(u32, 1), rows[0].id);
+        try testing.expectEqualStrings("/compact", rows[1].slash_name);
+        try testing.expectEqual(@as(u32, 2), rows[1].id);
+    }
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "/commit");
+    _ = try expectByText(tree.root, .text, "/compact");
+
+    model.draft_buffer.clear();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "/CO" } }, &fx);
+    try testing.expectEqualStrings("/CO", model.draft());
+    try testing.expect(model.commands_list_open());
+    try testing.expectEqual(@as(usize, 2), model.command_rows(arena).len);
+
+    model.draft_buffer.clear();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "/comp" } }, &fx);
+    try testing.expectEqualStrings("/comp", model.draft());
+    try testing.expect(model.commands_list_open());
+    {
+        const rows = model.command_rows(arena);
+        try testing.expectEqual(@as(usize, 1), rows.len);
+        try testing.expectEqualStrings("/compact", rows[0].slash_name);
+        try testing.expectEqual(@as(u32, 2), rows[0].id);
+    }
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "/commit") == null);
+    _ = try expectByText(tree.root, .text, "/compact");
+    const compact = try expectButton(tree.root, "/compact");
+    try testing.expectEqual(Msg{ .insert_command = 2 }, tree.msgForPointer(compact.id, .up).?);
+
+    main.update(&model, tree.msgForPointer(compact.id, .up).?, &fx);
+    try testing.expectEqualStrings("/compact ", model.draft());
+    try testing.expect(!model.commands_open);
+    try testing.expect(!model.commands_list_open());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expect(!model.fx_spawn_live);
+    try testing.expect(!model.is_streaming());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "/compact") == null);
+    try testing.expect(findByText(tree.root, .text, "Compact the conversation") == null);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("/compact ", composer.text);
+    }
+
+    model.draft_buffer.clear();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "/z" } }, &fx);
+    try testing.expectEqualStrings("/z", model.draft());
+    try testing.expect(!model.commands_list_open());
+    try testing.expectEqual(@as(usize, 0), model.command_rows(arena).len);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "/commit") == null);
+    try testing.expect(findByText(tree.root, .text, "/compact") == null);
+
+    model.draft_buffer.clear();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "/commit " } }, &fx);
+    try testing.expectEqualStrings("/commit ", model.draft());
+    try testing.expect(!model.commands_list_open());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "/compact") == null);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("/commit ", composer.text);
+    }
+}
+
+test "composer slash prefix stays closed when no commands are stored" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    const id = model.addSession("no commands", .fx);
+    model.selected = id;
+    try testing.expect(!model.has_commands());
+    try testing.expect(!model.commands_list_open());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "/" } }, &fx);
+    try testing.expectEqualStrings("/", model.draft());
+    try testing.expect(!model.has_commands());
+    try testing.expect(!model.commands_open);
+    try testing.expect(!model.commands_list_open());
+    try testing.expectEqual(@as(usize, 0), model.command_rows(arena).len);
+    const tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Commands") == null);
+    try testing.expect(findByText(tree.root, .text, "/commit") == null);
+
+    main.update(&model, .toggle_commands, &fx);
+    try testing.expect(!model.commands_open);
+    try testing.expect(!model.commands_list_open());
+}
+
 test "fx ask spawn records FX_MODEL and FX_PERMISSION_MODE" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
