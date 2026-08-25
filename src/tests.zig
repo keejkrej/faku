@@ -8720,6 +8720,94 @@ test "cmd-m and ctrl-m minimize the window via onKey" {
     try testing.expectEqual(Msg.focus_composer, main.onKey(cmd_l).?);
 }
 
+test "cmd-w and ctrl-w close the window via onKey" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "w" } }, &fx);
+    try testing.expectEqualStrings("w", model.draft());
+
+    const plain_w = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "w" };
+    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_w));
+    try testing.expectEqualStrings("w", model.draft());
+
+    var actions = fx.windowActionState();
+    try testing.expectEqual(@as(u32, 0), actions.close_count);
+    try testing.expectEqual(@as(u32, 0), actions.quit_count);
+
+    const cmd_w = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "w",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.close_window, main.onKey(cmd_w).?);
+    main.update(&model, main.onKey(cmd_w).?, &fx);
+    actions = fx.windowActionState();
+    try testing.expectEqual(@as(u32, 1), actions.close_count);
+    try testing.expectEqual(@as(u32, 0), actions.quit_count);
+    try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
+    try testing.expectEqualStrings("w", model.draft());
+
+    const ctrl_w = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "W",
+        .modifiers = .{ .control = true },
+    };
+    try testing.expectEqual(Msg.close_window, main.onKey(ctrl_w).?);
+    main.update(&model, main.onKey(ctrl_w).?, &fx);
+    actions = fx.windowActionState();
+    try testing.expectEqual(@as(u32, 2), actions.close_count);
+    try testing.expectEqual(@as(u32, 0), actions.quit_count);
+    try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
+    try testing.expectEqualStrings("w", model.draft());
+}
+
+test "cmd-q and ctrl-q quit the app via onKey" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "q" } }, &fx);
+    try testing.expectEqualStrings("q", model.draft());
+
+    const plain_q = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "q" };
+    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_q));
+    try testing.expectEqualStrings("q", model.draft());
+
+    var actions = fx.windowActionState();
+    try testing.expectEqual(@as(u32, 0), actions.close_count);
+    try testing.expectEqual(@as(u32, 0), actions.quit_count);
+
+    const cmd_q = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "q",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.quit_app, main.onKey(cmd_q).?);
+    main.update(&model, main.onKey(cmd_q).?, &fx);
+    actions = fx.windowActionState();
+    try testing.expectEqual(@as(u32, 1), actions.quit_count);
+    try testing.expectEqual(@as(u32, 0), actions.close_count);
+    try testing.expectEqualStrings("q", model.draft());
+
+    const ctrl_q = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "Q",
+        .modifiers = .{ .control = true },
+    };
+    try testing.expectEqual(Msg.quit_app, main.onKey(ctrl_q).?);
+    main.update(&model, main.onKey(ctrl_q).?, &fx);
+    actions = fx.windowActionState();
+    try testing.expectEqual(@as(u32, 2), actions.quit_count);
+    try testing.expectEqual(@as(u32, 0), actions.close_count);
+    try testing.expectEqualStrings("q", model.draft());
+}
+
 test "header Close requests the real window close; Esc stays with settings" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

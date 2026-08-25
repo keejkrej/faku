@@ -699,6 +699,7 @@ pub const Msg = union(enum) {
     session_title_edit: canvas.TextInputEvent,
     close_window,
     minimize_window,
+    quit_app,
     sidebar_resized: f32,
     transcript_scrolled: canvas.ScrollState,
     jump_latest,
@@ -717,7 +718,7 @@ pub const Msg = union(enum) {
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "focus_composer", "open_find", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "focus_composer", "open_find", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app" };
 };
 
 pub const Model = struct {
@@ -3349,6 +3350,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         // a live turn keep it.
         .close_window => fx.closeWindow(main_window_label),
         .minimize_window => fx.minimizeWindow(main_window_label),
+        .quit_app => fx.quitApp(),
         .remove_session => |id| {
             if (model.editing_session_id == id) model.closeSessionTitleEdit();
             model.closeCommands();
@@ -4637,6 +4639,12 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "m")) {
         return .minimize_window;
+    }
+    if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "w")) {
+        return .close_window;
+    }
+    if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "q")) {
+        return .quit_app;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "b")) {
         return .toggle_sidebar;
