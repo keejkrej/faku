@@ -5421,6 +5421,207 @@ test "cmd-k and ctrl-k focus sidebar search via onKey" {
     _ = try expectButton(tree.root, "Search");
 }
 
+fn expectTurnTexts(rows: []const main.TurnRow, expected: []const []const u8) !void {
+    try testing.expectEqual(expected.len, rows.len);
+    for (rows, expected) |row, text| {
+        try testing.expectEqualStrings(text, row.text);
+    }
+}
+
+test "cmd-f and ctrl-f open transcript find via onKey" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expect(!model.find_active);
+    try testing.expectEqualStrings("", model.find_query());
+    try testing.expect(!model.search_active);
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .search_field, "Find in transcript") == null);
+    try testing.expect(findPressableContaining(tree.root, "Close find") == null);
+
+    const plain_f = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "f" };
+    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_f));
+    try testing.expect(!model.find_active);
+
+    const cmd_f = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "f",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.open_find, main.onKey(cmd_f).?);
+    main.update(&model, main.onKey(cmd_f).?, &fx);
+    try testing.expect(model.find_active);
+    try testing.expect(!model.composer_active);
+    try testing.expectEqualStrings("", model.find_query());
+
+    tree = try buildTree(arena, &model);
+    const find_field = try expectByText(tree.root, .search_field, "Find in transcript");
+    try testing.expectEqualStrings("Find", find_field.placeholder);
+    try testing.expect(find_field.autofocus);
+    _ = try expectButton(tree.root, "Close find");
+    _ = try expectButton(tree.root, "Search");
+
+    main.update(&model, .{ .find_edit = .{ .insert_text = "keep" } }, &fx);
+    try testing.expectEqualStrings("keep", model.find_query());
+    main.update(&model, main.onKey(cmd_f).?, &fx);
+    try testing.expect(model.find_active);
+    try testing.expectEqualStrings("keep", model.find_query());
+    try testing.expect(!model.composer_active);
+
+    main.update(&model, .stop, &fx);
+    try testing.expect(!model.find_active);
+    try testing.expectEqualStrings("", model.find_query());
+
+    const ctrl_f = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "F",
+        .modifiers = .{ .control = true },
+    };
+    try testing.expectEqual(Msg.open_find, main.onKey(ctrl_f).?);
+    main.update(&model, main.onKey(ctrl_f).?, &fx);
+    try testing.expect(model.find_active);
+
+    tree = try buildTree(arena, &model);
+    if (findByText(tree.root, .search_field, "Find in transcript")) |field| {
+        try testing.expectEqualStrings("Find", field.placeholder);
+        try testing.expect(field.autofocus);
+    } else return error.WidgetNotFound;
+
+    const cmd_k = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "k",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.start_search, main.onKey(cmd_k).?);
+    main.update(&model, main.onKey(cmd_k).?, &fx);
+    try testing.expect(model.search_active);
+    try testing.expect(model.find_active);
+
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .search_field)) |field| {
+        try testing.expectEqualStrings("Search", field.placeholder);
+    } else return error.WidgetNotFound;
+    _ = try expectByText(tree.root, .search_field, "Find in transcript");
+}
+
+test "transcript find filters the selected session's visible turns" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const other = model.addSession("other session", .fx);
+    const id = model.addSession("find fixture", .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .user, "alpha hello");
+    _ = model.appendTurn(id, .assistant, "beta world");
+    _ = model.appendTurn(other, .user, "hello elsewhere");
+    _ = model.appendTurn(other, .assistant, "zzz only here");
+
+    try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "beta world" });
+    try testing.expect(!model.find_active);
+
+    main.update(&model, .open_find, &fx);
+    try testing.expect(model.find_active);
+    try testing.expect(!model.composer_active);
+    try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "beta world" });
+
+    var tree = try buildTree(arena, &model);
+    const find_field = try expectByText(tree.root, .search_field, "Find in transcript");
+    try testing.expectEqualStrings("Find", find_field.placeholder);
+    try testing.expect(findAnyText(tree.root, "alpha hello"));
+    try testing.expect(findAnyText(tree.root, "beta world"));
+
+    main.update(&model, .{ .find_edit = .{ .insert_text = "hello" } }, &fx);
+    try testing.expectEqualStrings("hello", model.find_query());
+    try expectTurnTexts(model.visible_turns(arena), &.{"alpha hello"});
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findAnyText(tree.root, "alpha hello"));
+    try testing.expect(!findAnyText(tree.root, "beta world"));
+    _ = try expectByText(tree.root, .search_field, "Find in transcript");
+
+    main.update(&model, .{ .find_edit = .clear }, &fx);
+    try testing.expectEqualStrings("", model.find_query());
+    try testing.expect(model.find_active);
+    try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "beta world" });
+
+    main.update(&model, .{ .find_edit = .{ .insert_text = "zzz" } }, &fx);
+    try expectTurnTexts(model.visible_turns(arena), &.{});
+    try testing.expect(model.find_active);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .search_field, "Find in transcript");
+    _ = try expectByText(tree.root, .text, "What should we build?");
+    try testing.expect(!findAnyText(tree.root, "alpha hello"));
+    try testing.expect(!findAnyText(tree.root, "beta world"));
+
+    main.update(&model, .{ .select = other }, &fx);
+    try testing.expect(model.find_active);
+    try testing.expectEqualStrings("zzz", model.find_query());
+    try expectTurnTexts(model.visible_turns(arena), &.{"zzz only here"});
+
+    main.update(&model, .{ .select = id }, &fx);
+    try expectTurnTexts(model.visible_turns(arena), &.{});
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expect(!model.find_active);
+    try testing.expectEqualStrings("", model.find_query());
+    try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "beta world" });
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .search_field, "Find in transcript") == null);
+    try testing.expect(findAnyText(tree.root, "alpha hello"));
+    try testing.expect(findAnyText(tree.root, "beta world"));
+}
+
+test "close find button clears the query and restores all turns" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("find close", .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .user, "alpha hello");
+    _ = model.appendTurn(id, .assistant, "beta world");
+
+    main.update(&model, .open_find, &fx);
+    main.update(&model, .{ .find_edit = .{ .insert_text = "hello" } }, &fx);
+    try expectTurnTexts(model.visible_turns(arena), &.{"alpha hello"});
+
+    var tree = try buildTree(arena, &model);
+    const close = try expectButton(tree.root, "Close find");
+    try testing.expectEqual(Msg.close_find, tree.msgForPointer(close.id, .up).?);
+    main.update(&model, tree.msgForPointer(close.id, .up).?, &fx);
+    try testing.expect(!model.find_active);
+    try testing.expectEqualStrings("", model.find_query());
+    try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "beta world" });
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findPressableContaining(tree.root, "Close find") == null);
+    try testing.expect(findByText(tree.root, .search_field, "Find in transcript") == null);
+    try testing.expect(findAnyText(tree.root, "alpha hello"));
+    try testing.expect(findAnyText(tree.root, "beta world"));
+}
+
 test "cmd-l and ctrl-l focus the composer via onKey" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

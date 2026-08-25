@@ -512,7 +512,11 @@ pub const Msg = union(enum) {
     rename_session: u32,
     start_search,
     focus_composer,
+    /// Cmd/Ctrl-F: open transcript find (keep query if already open).
+    open_find,
+    close_find,
     search_edit: canvas.TextInputEvent,
+    find_edit: canvas.TextInputEvent,
     draft_edit: canvas.TextInputEvent,
     send,
     steer,
@@ -576,7 +580,7 @@ pub const Msg = union(enum) {
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "focus_composer", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "focus_composer", "open_find", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop" };
 };
 
 pub const Model = struct {
@@ -596,6 +600,8 @@ pub const Model = struct {
     draft_buffer: canvas.TextBuffer(max_draft) = .{},
     search_buffer: canvas.TextBuffer(max_search) = .{},
     search_active: bool = false,
+    find_buffer: canvas.TextBuffer(max_search) = .{},
+    find_active: bool = false,
     composer_active: bool = false,
     mode: Mode = .demo,
     phase: Phase = .idle,
@@ -741,6 +747,7 @@ pub const Model = struct {
         "next_turn_id",
         "draft_buffer",
         "search_buffer",
+        "find_buffer",
         "mode",
         "phase",
         "stream_cursor",
@@ -881,6 +888,7 @@ pub const Model = struct {
         "storeDir",
         "setStoreDir",
         "exitSearch",
+        "exitFind",
         "selected_title",
         "selected_provider",
         "status_line",
@@ -905,6 +913,15 @@ pub const Model = struct {
     pub fn exitSearch(model: *Model) void {
         model.search_buffer.clear();
         model.search_active = false;
+    }
+
+    pub fn find_query(model: *const Model) []const u8 {
+        return model.find_buffer.text();
+    }
+
+    pub fn exitFind(model: *Model) void {
+        model.find_buffer.clear();
+        model.find_active = false;
     }
 
     pub fn is_streaming(model: *const Model) bool {
@@ -1034,14 +1051,21 @@ pub const Model = struct {
     }
 
     pub fn visible_turns(model: *const Model, arena: std.mem.Allocator) []const TurnRow {
+        const query = if (model.find_active)
+            std.mem.trim(u8, model.find_query(), " \t\r\n")
+        else
+            "";
         var count: usize = 0;
         for (model.turn_store[0..model.turn_count]) |turn| {
-            if (turn.session_id == model.selected) count += 1;
+            if (turn.session_id != model.selected) continue;
+            if (query.len > 0 and !asciiContainsIgnoreCase(turn.text(), query)) continue;
+            count += 1;
         }
         const out = arena.alloc(TurnRow, count) catch return &.{};
         var i: usize = 0;
         for (model.turn_store[0..model.turn_count]) |*turn| {
             if (turn.session_id != model.selected) continue;
+            if (query.len > 0 and !asciiContainsIgnoreCase(turn.text(), query)) continue;
             out[i] = .{
                 .id = turn.id,
                 .role_label = turn.role_label(),
@@ -2645,9 +2669,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         // Chromeless titlebar has no OS close. This is the documented
         // window-action effect (`examples/deck`): last-window close
         // follows the host exit path. Esc stays `.stop` so the session
-        // switcher / settings / search / project-edit / image-attach /
-        // commands / folder-title-edit / session-title-edit / a live
-        // turn keep it.
+        // switcher / settings / search / transcript-find / project-edit /
+        // image-attach / commands / folder-title-edit / session-title-edit /
+        // a live turn keep it.
         .close_window => fx.closeWindow(main_window_label),
         .minimize_window => fx.minimizeWindow(main_window_label),
         .remove_session => |id| {
@@ -2661,6 +2685,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.search_active = true;
             model.composer_active = false;
         },
+        .open_find => {
+            model.find_active = true;
+            model.composer_active = false;
+        },
+        .close_find => model.exitFind(),
         .focus_composer => model.composer_active = true,
         .search_edit => |edit| {
             model.search_buffer.apply(edit);
@@ -2670,6 +2699,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 model.search_active = true;
             }
         },
+        .find_edit => |edit| model.find_buffer.apply(edit),
         .draft_edit => |edit| {
             model.draft_buffer.apply(edit);
             store.persistDraftIfPossible(model);
@@ -2712,6 +2742,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             }
             if (model.search_active or model.search_query().len > 0) {
                 model.exitSearch();
+                return;
+            }
+            if (model.find_active or model.find_query().len > 0) {
+                model.exitFind();
                 return;
             }
             stopStream(model, fx);
@@ -3803,6 +3837,9 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "k")) {
         return .start_search;
+    }
+    if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "f")) {
+        return .open_find;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "l")) {
         return .focus_composer;
