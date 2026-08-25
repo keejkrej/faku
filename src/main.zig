@@ -2274,6 +2274,15 @@ pub fn paletteActionId(action: PaletteAction) u32 {
     return palette_action_id_base + @intFromEnum(action);
 }
 
+fn paletteActionFromId(id: u32) ?PaletteAction {
+    if (id < palette_action_id_base or id >= palette_header_id_base) return null;
+    const raw = id - palette_action_id_base;
+    inline for (std.meta.tags(PaletteAction)) |action| {
+        if (raw == @intFromEnum(action)) return action;
+    }
+    return null;
+}
+
 fn paletteHeaderRow(n: u32, label: []const u8) PaletteRow {
     return .{
         .id = palette_header_id_base + n,
@@ -2757,8 +2766,7 @@ fn runPalettePick(model: *Model, fx: *Effects, id: u32) void {
     if (!model.palette_open or id == 0) return;
     if (id >= palette_header_id_base) return;
     if (id >= palette_action_id_base) {
-        const raw = id - palette_action_id_base;
-        const action = std.meta.intToEnum(PaletteAction, raw) catch return;
+        const action = paletteActionFromId(id) orelse return;
         if (action == .collapse_folders and !model.can_collapse_folders()) return;
         model.closePalette();
         runPaletteAction(model, fx, action);
