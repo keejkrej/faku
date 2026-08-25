@@ -31,8 +31,9 @@ const canvas = native_sdk.canvas;
 const geometry = native_sdk.geometry;
 
 const canvas_label = "main-canvas";
-/// Declared shell-window label. Chromeless close rides `fx.closeWindow`
-/// against this spelling — same address as `app.zon` / the scene.
+/// Declared shell-window label. Chromeless close/minimize ride
+/// `fx.closeWindow` / `fx.minimizeWindow` against this spelling —
+/// same address as `app.zon` / the scene. Unknown label is a no-op.
 pub const main_window_label = "main";
 pub const window_width: f32 = 1380;
 pub const window_height: f32 = 880;
@@ -99,6 +100,21 @@ const shell_windows = [_]native_sdk.ShellWindow{.{
     .views = &shell_views,
 }};
 pub const shell_scene: native_sdk.ShellConfig = .{ .windows = &shell_windows };
+
+/// Chromeless Minimize bar. The built-in icon set has no minus
+/// (`examples/deck`); Native check rejects an invented `icon="minus"`.
+const minimize_icon = canvas.svg_icon.parseComptime(@embedFile("icons/minimize.svg"));
+
+/// One table feeds boot registration and the model contract so
+/// `icon="app:minimize"` is verified against what `main` registers.
+pub const app_icons = [_]canvas.icons.Entry{
+    .{ .name = "minimize", .icon = &minimize_icon },
+};
+
+/// Install the app icon table once, before views build.
+pub fn registerIcons() void {
+    canvas.icons.registerAppIcons(&app_icons);
+}
 
 pub const stream_timer_key: u64 = 1;
 pub const fx_ask_key: u64 = 2;
@@ -538,6 +554,7 @@ pub const Msg = union(enum) {
     edit_session_title,
     session_title_edit: canvas.TextInputEvent,
     close_window,
+    minimize_window,
     sidebar_resized: f32,
     transcript_scrolled: canvas.ScrollState,
     jump_latest,
@@ -2588,6 +2605,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         // commands / folder-title-edit / session-title-edit / a live
         // turn keep it.
         .close_window => fx.closeWindow(main_window_label),
+        .minimize_window => fx.minimizeWindow(main_window_label),
         .remove_session => |id| {
             if (model.editing_session_id == id) model.closeSessionTitleEdit();
             model.closeCommands();
@@ -3745,6 +3763,9 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "l")) {
         return .focus_composer;
     }
+    if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "m")) {
+        return .minimize_window;
+    }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "b")) {
         return .toggle_sidebar;
     }
@@ -3806,6 +3827,7 @@ pub fn main(init: std.process.Init) !void {
     if (try acp_proxy.maybeRun(init)) return;
     _ = protocol.FX_ACP_ARGV;
     _ = acp.PROTOCOL_VERSION;
+    registerIcons();
     const app_state = try FakuApp.create(std.heap.page_allocator, .{
         .name = "faku",
         .scene = shell_scene,
