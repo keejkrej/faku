@@ -509,6 +509,7 @@ pub const Msg = union(enum) {
     new_session,
     select: u32,
     remove_session: u32,
+    rename_session: u32,
     start_search,
     focus_composer,
     search_edit: canvas.TextInputEvent,
@@ -2629,6 +2630,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .edit_session_title => {
             if (model.selected != 0) model.startSessionTitleEdit(model.selected);
+        },
+        .rename_session => |id| {
+            model.startSessionTitleEdit(id);
         },
         .session_title_edit => |edit| {
             const session_id = model.editing_session_id;

@@ -24,6 +24,7 @@ selection history; clicking a session focuses the composer; New folder creates a
 a folder (or the move control) assigns the selected session; folder
 titles are editable; Collapse all folders collapses every sidebar folder (restored via `collapsed_folder_ids`); the selected session title is editable; deleting a folder unassigns its sessions;
 sidebar trash removes a session (and closeSession if a daemon is set);
+sidebar session rows have a Native context menu (Rename / Remove);
 the composer project row sets the selected session cwd; the usage
 control stays empty unless ACP reports `usage_update`; user and
 assistant turns render Native markdown; the transcript stays pinned
