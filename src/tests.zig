@@ -19,6 +19,7 @@ const Effects = main.Effects;
 const AppMarkup = canvas.MarkupView(Model, Msg);
 
 fn buildTree(arena: std.mem.Allocator, model: *const Model) !AppUi.Tree {
+    main.registerIcons();
     var view = try AppMarkup.init(arena, main.app_markup);
     var ui = AppUi.init(arena);
     const node = view.build(&ui, model) catch |err| {
@@ -92,6 +93,23 @@ fn expectButton(widget: canvas.Widget, text: []const u8) !canvas.Widget {
         dumpTexts(widget, 0);
         return error.WidgetNotFound;
     };
+}
+
+fn pressableAppearsBefore(widget: canvas.Widget, first: []const u8, second: []const u8) bool {
+    var saw_first = false;
+    return pressableAppearsBeforeInner(widget, first, second, &saw_first);
+}
+
+fn pressableAppearsBeforeInner(widget: canvas.Widget, first: []const u8, second: []const u8, saw_first: *bool) bool {
+    if (isPressable(widget.kind) and std.mem.eql(u8, widgetName(widget), first)) {
+        saw_first.* = true;
+    } else if (isPressable(widget.kind) and std.mem.eql(u8, widgetName(widget), second)) {
+        return saw_first.*;
+    }
+    for (widget.children) |child| {
+        if (pressableAppearsBeforeInner(child, first, second, saw_first)) return true;
+    }
+    return false;
 }
 
 fn expectButtonMsg(tree: AppUi.Tree, text: []const u8, expected: Msg) !canvas.Widget {
@@ -7156,6 +7174,111 @@ test "long session and folder titles stay one line with Native ellipsis" {
     try expectOneLineEllipsis(switcher_title, null);
     _ = try expectByText(dialog, .list_item, "fix auth listener");
     _ = try expectByText(dialog, .button, "Switch");
+}
+
+test "header Minimize sits before Close and requests fx.minimizeWindow" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expect(main.shell_scene.windows[0].titlebar == .chromeless);
+    try testing.expectEqualStrings(main.main_window_label, main.shell_scene.windows[0].label);
+
+    var tree = try buildTree(arena, &model);
+    const toolbar = try expectByText(tree.root, .row, "Toolbar");
+    const minimize = try expectButton(toolbar, "Minimize");
+    const close = try expectButton(toolbar, "Close");
+    try testing.expectEqualStrings("Minimize", widgetName(minimize));
+    try testing.expectEqual(Msg.minimize_window, tree.msgForPointer(minimize.id, .up).?);
+    try testing.expectEqual(Msg.close_window, tree.msgForPointer(close.id, .up).?);
+    try testing.expect(pressableAppearsBefore(toolbar, "Minimize", "Close"));
+
+    var actions = fx.windowActionState();
+    try testing.expectEqual(@as(u32, 0), actions.minimize_count);
+    try testing.expectEqual(@as(u32, 0), actions.close_count);
+    try testing.expectEqual(@as(u32, 0), actions.quit_count);
+
+    main.update(&model, tree.msgForPointer(minimize.id, .up).?, &fx);
+    actions = fx.windowActionState();
+    try testing.expectEqual(@as(u32, 1), actions.minimize_count);
+    try testing.expectEqual(@as(u32, 0), actions.close_count);
+    try testing.expectEqual(@as(u32, 0), actions.quit_count);
+    try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
+
+    main.update(&model, .minimize_window, &fx);
+    actions = fx.windowActionState();
+    try testing.expectEqual(@as(u32, 2), actions.minimize_count);
+    try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
+    try testing.expect(main.shell_scene.windows[0].titlebar == .chromeless);
+
+    const gear = try expectButton(tree.root, "Settings");
+    main.update(&model, tree.msgForPointer(gear.id, .up).?, &fx);
+    try testing.expect(model.settings_open);
+    tree = try buildTree(arena, &model);
+    const settings_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    try testing.expect(findPressableContaining(settings_toolbar, "Close") == null);
+    try testing.expect(findPressableContaining(settings_toolbar, "Minimize") == null);
+}
+
+test "cmd-m and ctrl-m minimize the window via onKey" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "m" } }, &fx);
+    try testing.expectEqualStrings("m", model.draft());
+
+    const plain_m = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "m" };
+    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_m));
+    try testing.expectEqualStrings("m", model.draft());
+
+    var actions = fx.windowActionState();
+    try testing.expectEqual(@as(u32, 0), actions.minimize_count);
+
+    const cmd_m = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "m",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.minimize_window, main.onKey(cmd_m).?);
+    main.update(&model, main.onKey(cmd_m).?, &fx);
+    actions = fx.windowActionState();
+    try testing.expectEqual(@as(u32, 1), actions.minimize_count);
+    try testing.expectEqual(@as(u32, 0), actions.close_count);
+    try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
+    try testing.expectEqualStrings("m", model.draft());
+
+    const ctrl_m = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "M",
+        .modifiers = .{ .control = true },
+    };
+    try testing.expectEqual(Msg.minimize_window, main.onKey(ctrl_m).?);
+    main.update(&model, main.onKey(ctrl_m).?, &fx);
+    actions = fx.windowActionState();
+    try testing.expectEqual(@as(u32, 2), actions.minimize_count);
+    try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
+
+    const cmd_n = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "n",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.new_session, main.onKey(cmd_n).?);
+
+    const cmd_l = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "l",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.focus_composer, main.onKey(cmd_l).?);
 }
 
 test "header Close requests the real window close; Esc stays with settings" {

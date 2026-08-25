@@ -156,6 +156,7 @@
         <if test="{can_rewind}">
           <button variant="ghost" size="sm" on-press="rewind">Rewind</button>
         </if>
+        <button variant="ghost" size="icon" icon="app:minimize" label="Minimize" on-press="minimize_window"></button>
         <button variant="ghost" size="icon" icon="x" label="Close" on-press="close_window"></button>
       </row>
       <separator />
