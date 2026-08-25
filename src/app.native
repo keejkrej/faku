@@ -85,6 +85,11 @@
                           </column>
                           <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>
                         </row>
+                        <context-menu>
+                          <menu-item on-press="rename_session:{s.id}">Rename</menu-item>
+                          <separator />
+                          <menu-item on-press="remove_session:{s.id}">Remove</menu-item>
+                        </context-menu>
                       </list-item>
                     </row>
                   </if>
@@ -102,6 +107,11 @@
                         </column>
                         <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>
                       </row>
+                      <context-menu>
+                        <menu-item on-press="rename_session:{s.id}">Rename</menu-item>
+                        <separator />
+                        <menu-item on-press="remove_session:{s.id}">Remove</menu-item>
+                      </context-menu>
                     </list-item>
                   </else>
                 </else>
