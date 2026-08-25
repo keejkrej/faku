@@ -143,6 +143,20 @@ fn expectSessionContextMenu(tree: AppUi.Tree, row: canvas.Widget, session_id: u3
     }
 }
 
+fn expectFolderContextMenu(tree: AppUi.Tree, row: canvas.Widget, folder_id: u32) !void {
+    if (!@hasField(canvas.Widget, "context_menu")) return error.ContextMenuUnsupported;
+    try testing.expectEqual(@as(usize, 3), row.context_menu.len);
+    try testing.expectEqualStrings("Rename", row.context_menu[0].label);
+    try testing.expect(!row.context_menu[0].separator);
+    try testing.expect(row.context_menu[1].separator);
+    try testing.expectEqualStrings("Delete", row.context_menu[2].label);
+    try testing.expect(!row.context_menu[2].separator);
+    if (@hasDecl(@TypeOf(tree), "msgForContextMenu")) {
+        try testing.expectEqual(Msg{ .rename_folder = folder_id }, tree.msgForContextMenu(row.id, 0).?);
+        try testing.expectEqual(Msg{ .delete_folder = folder_id }, tree.msgForContextMenu(row.id, 2).?);
+    }
+}
+
 fn findByKind(widget: canvas.Widget, kind: canvas.WidgetKind) ?canvas.Widget {
     if (widget.kind == kind) return widget;
     for (widget.children) |child| {
@@ -7412,7 +7426,7 @@ test "sidebar session rows declare a Rename/Remove context menu" {
     const grouped = try expectByText(tree.root, .list_item, "auth rename");
     try expectSessionContextMenu(tree, grouped, auth_id);
     try testing.expect(sessionRowHasGroupRail(tree.root, "auth rename"));
-    try expectNoContextMenu(try expectByText(tree.root, .list_item, "New folder"));
+    try expectFolderContextMenu(tree, try expectByText(tree.root, .list_item, "New folder"), folder_id);
     try expectSessionContextMenu(tree, try expectByText(tree.root, .list_item, "port waku to zig"), port_id);
 
     main.update(&model, .{ .remove_session = auth_id }, &fx);
@@ -7425,6 +7439,120 @@ test "sidebar session rows declare a Rename/Remove context menu" {
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .list_item, "auth rename") == null);
     try expectSessionContextMenu(tree, try expectByText(tree.root, .list_item, "port waku to zig"), port_id);
+
+    main.update(&model, .switcher_forward, &fx);
+    try testing.expect(model.switcher_open);
+    tree = try buildTree(arena, &model);
+    const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    const switcher_row = try expectByText(dialog, .list_item, "port waku to zig");
+    try expectNoContextMenu(switcher_row);
+    try testing.expectEqual(Msg{ .switcher_pick = port_id }, tree.msgForPointer(switcher_row.id, .up).?);
+    try expectSessionContextMenu(tree, try expectByText(tree.root, .list_item, "port waku to zig"), port_id);
+}
+
+test "sidebar folder rows declare a Rename/Delete context menu" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-folder-context-menu", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const port_id = model.session_store[0].id;
+    const auth_id = model.session_store[1].id;
+    try store.saveSession(&model, port_id, testing.allocator, testing.io);
+    try store.saveSession(&model, auth_id, testing.allocator, testing.io);
+    try testing.expectEqual(port_id, model.selected);
+    try testing.expectEqual(@as(u32, 0), model.editing_folder_id);
+
+    main.update(&model, .new_folder, &fx);
+    const folder_id = model.folder_store[0].id;
+    try testing.expectEqualStrings("New folder", model.folder_store[0].title());
+
+    var tree = try buildTree(arena, &model);
+    const header = try expectByText(tree.root, .list_item, "New folder");
+    try testing.expectEqual(Msg{ .assign_selected = folder_id }, tree.msgForPointer(header.id, .up).?);
+    try expectFolderContextMenu(tree, header, folder_id);
+    _ = try expectButton(header, "Collapse folder");
+    _ = try expectButton(header, "Delete folder");
+    try expectSessionContextMenu(tree, try expectByText(tree.root, .list_item, "port waku to zig"), port_id);
+    try expectSessionContextMenu(tree, try expectByText(tree.root, .list_item, "fix auth listener"), auth_id);
+    try expectNoContextMenu(try expectByText(tree.root, .list_item, "Today"));
+    try expectNoContextMenu(try expectByText(tree.root, .list_item, "New Task"));
+
+    // rename_folder starts title edit on that id; no assignment required.
+    main.update(&model, .{ .rename_folder = folder_id }, &fx);
+    try testing.expectEqual(folder_id, model.editing_folder_id);
+    try testing.expectEqual(port_id, model.selected);
+    try testing.expectEqual(@as(u32, 0), model.session_store[0].folder_id);
+    try testing.expectEqualStrings("New folder", model.folder_title_draft());
+    try testing.expect(!model.composer_active);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "New folder") != null);
+    const editing_header = try expectByText(tree.root, .list_item, "New folder");
+    try expectFolderContextMenu(tree, editing_header, folder_id);
+    try testing.expectEqual(Msg{ .assign_selected = folder_id }, tree.msgForPointer(editing_header.id, .up).?);
+    _ = try expectButton(editing_header, "Collapse folder");
+    _ = try expectButton(editing_header, "Delete folder");
+
+    main.update(&model, .{ .folder_title_edit = .clear }, &fx);
+    main.update(&model, .{ .folder_title_edit = .{ .insert_text = "Work" } }, &fx);
+    try testing.expectEqualStrings("Work", model.folder_store[0].title());
+    try testing.expectEqual(folder_id, model.editing_folder_id);
+    try testing.expectEqual(port_id, model.selected);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings("Work", loaded.folder_store[0].title());
+
+    main.update(&model, .stop, &fx);
+    try testing.expectEqual(@as(u32, 0), model.editing_folder_id);
+
+    main.update(&model, .{ .assign_folder = .{ .session_id = auth_id, .folder_id = folder_id } }, &fx);
+    try testing.expectEqual(folder_id, model.session_store[1].folder_id);
+
+    tree = try buildTree(arena, &model);
+    const grouped_header = try expectByText(tree.root, .list_item, "Work");
+    try expectFolderContextMenu(tree, grouped_header, folder_id);
+    try expectSessionContextMenu(tree, try expectByText(tree.root, .list_item, "fix auth listener"), auth_id);
+    try expectSessionContextMenu(tree, try expectByText(tree.root, .list_item, "port waku to zig"), port_id);
+    try testing.expect(sessionRowHasGroupRail(tree.root, "fix auth listener"));
+
+    main.update(&model, .{ .delete_folder = folder_id }, &fx);
+    try testing.expectEqual(@as(u32, 0), model.folder_count);
+    try testing.expectEqual(@as(u32, 0), model.session_store[1].folder_id);
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    try testing.expectEqual(auth_id, model.session_store[1].id);
+    try testing.expectEqual(port_id, model.selected);
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "port waku to zig",
+        "fix auth listener",
+    });
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .list_item, "Work") == null);
+    try expectSessionContextMenu(tree, try expectByText(tree.root, .list_item, "port waku to zig"), port_id);
+    try expectSessionContextMenu(tree, try expectByText(tree.root, .list_item, "fix auth listener"), auth_id);
+
+    var after_delete = Model{};
+    after_delete.setStoreDir(dir);
+    after_delete.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&after_delete, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 0), after_delete.folder_count);
+    try testing.expectEqual(@as(u32, 0), after_delete.session_store[1].folder_id);
 
     main.update(&model, .switcher_forward, &fx);
     try testing.expect(model.switcher_open);

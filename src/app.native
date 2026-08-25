@@ -63,6 +63,11 @@
                       </else>
                       <button variant="ghost" size="icon" icon="trash" label="Delete folder" on-press="delete_folder:{s.folder_id}"></button>
                     </row>
+                    <context-menu>
+                      <menu-item on-press="rename_folder:{s.folder_id}">Rename</menu-item>
+                      <separator />
+                      <menu-item on-press="delete_folder:{s.folder_id}">Delete</menu-item>
+                    </context-menu>
                   </list-item>
                 </if>
                 <else>
