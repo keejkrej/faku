@@ -170,6 +170,12 @@
         <button variant="ghost" size="icon" icon="x" label="Close" on-press="close_window"></button>
       </row>
       <separator />
+      <if test="{find_active}">
+        <row height="32" padding="8" gap="6" cross="center">
+          <search-field grow="1" height="32" placeholder="Find" text="{find_query}" on-input="find_edit" autofocus="true" label="Find in transcript" />
+          <button variant="ghost" size="icon" icon="x" label="Close find" on-press="close_find"></button>
+        </row>
+      </if>
       <scroll grow="1" value="{transcript_scroll}" on-scroll="transcript_scrolled" label="Transcript">
         <row grow="1" main="center">
           <column grow="1" max-width="720" gap="8">
