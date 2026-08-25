@@ -1909,6 +1909,8 @@ test "settings extras persist last_model access path and daemon; missing catalog
 
     source.setLastModel("openai/gpt-5.4");
     source.setLastAccessMode("auto");
+    source.setLastInteractionMode("plan");
+    source.setLastReasoningEffort("high");
     source.setLastProjectPath("/tmp/faku-settings");
     source.setLastDaemonAddress("127.0.0.1:8787");
     persistSettingsIfPossible(&source);
@@ -1919,6 +1921,8 @@ test "settings extras persist last_model access path and daemon; missing catalog
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
     try testing.expectEqualStrings("openai/gpt-5.4", loaded.lastModel());
     try testing.expectEqualStrings("auto", loaded.lastAccessMode());
+    try testing.expectEqualStrings("plan", loaded.lastInteractionMode());
+    try testing.expectEqualStrings("high", loaded.lastReasoningEffort());
     try testing.expectEqualStrings("/tmp/faku-settings", loaded.lastProjectPath());
     try testing.expectEqualStrings("127.0.0.1:8787", loaded.lastDaemonAddress());
     try testing.expectEqual(@as(usize, 0), loaded.daemonAddress().len);
@@ -1926,6 +1930,8 @@ test "settings extras persist last_model access path and daemon; missing catalog
     const inherited = loaded.addSession("next", .fx);
     try testing.expectEqualStrings("openai/gpt-5.4", loaded.sessionById(inherited).?.model());
     try testing.expectEqualStrings("auto", loaded.sessionById(inherited).?.accessMode());
+    try testing.expectEqualStrings("plan", loaded.sessionById(inherited).?.interactionMode());
+    try testing.expectEqualStrings("high", loaded.sessionById(inherited).?.reasoningEffort());
     try testing.expectEqualStrings("/tmp/faku-settings", loaded.sessionById(inherited).?.projectPath());
 
     loaded.setLastDaemonAddress("");
@@ -1935,6 +1941,8 @@ test "settings extras persist last_model access path and daemon; missing catalog
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&cleared, allocator, io));
     try testing.expectEqual(@as(usize, 0), cleared.lastDaemonAddress().len);
     try testing.expectEqualStrings("openai/gpt-5.4", cleared.lastModel());
+    try testing.expectEqualStrings("plan", cleared.lastInteractionMode());
+    try testing.expectEqualStrings("high", cleared.lastReasoningEffort());
 }
 
 test "folder extras persist untitled folders; missing catalog is not created" {

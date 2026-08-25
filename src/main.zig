@@ -654,6 +654,11 @@ pub const Msg = union(enum) {
     settings_access_ask,
     settings_access_auto,
     settings_access_full,
+    settings_interaction_build,
+    settings_interaction_plan,
+    toggle_settings_effort_picker,
+    close_settings_effort_picker,
+    pick_settings_effort: []const u8,
     cycle_access,
     cycle_interaction,
     cycle_effort,
@@ -739,6 +744,8 @@ pub const Model = struct {
     access_picker_open: bool = false,
     /// Runtime-only composer effort picker. Not persisted to sessions.json.
     effort_picker_open: bool = false,
+    /// Runtime-only settings effort picker. Not persisted to sessions.json.
+    settings_effort_picker_open: bool = false,
     palette_highlight: u32 = 0,
     find_buffer: canvas.TextBuffer(max_search) = .{},
     find_active: bool = false,
@@ -930,6 +937,7 @@ pub const Model = struct {
         "applySettingsProject",
         "applySettingsDaemon",
         "setSettingsAccess",
+        "setSettingsInteraction",
         "cycleSelectedAccess",
         "cycleSelectedInteraction",
         "cycleSelectedEffort",
@@ -942,6 +950,9 @@ pub const Model = struct {
         "pickSelectedEffort",
         "toggleEffortPicker",
         "closeEffortPicker",
+        "pickSettingsEffort",
+        "toggleSettingsEffortPicker",
+        "closeSettingsEffortPicker",
         "closeComposerPickers",
         "access_selected_ask",
         "access_selected_auto",
@@ -1111,6 +1122,17 @@ pub const Model = struct {
 
     pub fn toggleEffortPicker(model: *Model) void {
         model.effort_picker_open = !model.effort_picker_open;
+    }
+
+    pub fn closeSettingsEffortPicker(model: *Model) void {
+        model.settings_effort_picker_open = false;
+    }
+
+    pub fn toggleSettingsEffortPicker(model: *Model) void {
+        if (!model.settings_effort_picker_open) {
+            model.closeComposerPickers();
+        }
+        model.settings_effort_picker_open = !model.settings_effort_picker_open;
     }
 
     pub fn find_query(model: *const Model) []const u8 {
@@ -1335,6 +1357,21 @@ pub const Model = struct {
 
     pub fn effort_picker_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
         const current = effortLabel(model.resolvedReasoningEffort());
+        const out = arena.alloc(ChipPickerRow, effort_chip_options.len) catch return &.{};
+        for (effort_chip_options, 0..) |opt, index| {
+            out[index] = .{
+                .row_id = @intCast(index + 1),
+                .id = opt.id,
+                .label = opt.label,
+                .selected = std.mem.eql(u8, current, opt.label),
+            };
+        }
+        return out;
+    }
+
+    /// Settings menu checkmark. Uses lastReasoningEffort(), not resolvedReasoningEffort().
+    pub fn settings_effort_picker_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
+        const current = effortLabel(model.lastReasoningEffort());
         const out = arena.alloc(ChipPickerRow, effort_chip_options.len) catch return &.{};
         for (effort_chip_options, 0..) |opt, index| {
             out[index] = .{
@@ -1629,11 +1666,26 @@ pub const Model = struct {
         return mode.len == 0 or std.mem.eql(u8, mode, "fullAccess") or std.mem.eql(u8, mode, "yolo");
     }
 
+    pub fn interaction_build(model: *const Model) bool {
+        const mode = model.lastInteractionMode();
+        return mode.len == 0 or std.mem.eql(u8, mode, "build");
+    }
+
+    pub fn interaction_plan(model: *const Model) bool {
+        return std.mem.eql(u8, model.lastInteractionMode(), "plan");
+    }
+
+    /// Settings select label. Uses lastReasoningEffort(), not resolvedReasoningEffort().
+    pub fn settings_effort_label(model: *const Model) []const u8 {
+        return effortLabel(model.lastReasoningEffort());
+    }
+
     pub fn openSettings(model: *Model) void {
         model.closeProjectEdit();
         model.closeImageAttach();
         model.closeCommands();
         model.closeModelPicker();
+        model.closeSettingsEffortPicker();
         model.closeFolderTitleEdit();
         model.closeSessionTitleEdit();
         model.settings_open = true;
@@ -1643,6 +1695,7 @@ pub const Model = struct {
     }
 
     pub fn closeSettings(model: *Model) void {
+        model.closeSettingsEffortPicker();
         model.settings_open = false;
     }
 
@@ -1672,6 +1725,12 @@ pub const Model = struct {
     pub fn setSettingsAccess(model: *Model, mode: []const u8) void {
         if (std.mem.eql(u8, mode, "ask") or std.mem.eql(u8, mode, "auto") or std.mem.eql(u8, mode, "fullAccess")) {
             model.setLastAccessMode(mode);
+        }
+    }
+
+    pub fn setSettingsInteraction(model: *Model, mode: []const u8) void {
+        if (std.mem.eql(u8, mode, "build") or std.mem.eql(u8, mode, "plan")) {
+            model.setLastInteractionMode(mode);
         }
     }
 
@@ -1918,6 +1977,13 @@ pub const Model = struct {
             model.setLastReasoningEffort(id);
         }
         model.closeEffortPicker();
+    }
+
+    pub fn pickSettingsEffort(model: *Model, id: []const u8) void {
+        if (isDocumentedReasoningEffort(id)) {
+            model.setLastReasoningEffort(id);
+        }
+        model.closeSettingsEffortPicker();
     }
 
     pub fn fxPath(model: *const Model) []const u8 {
@@ -3330,6 +3396,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 model.closeEffortPicker();
                 return;
             }
+            if (model.settings_effort_picker_open) {
+                model.closeSettingsEffortPicker();
+                return;
+            }
             if (model.model_picker_open) {
                 model.closeModelPicker();
                 return;
@@ -3393,6 +3463,27 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.setSettingsAccess("fullAccess");
             store.persistSettingsIfPossible(model);
         },
+        .settings_interaction_build => {
+            model.setSettingsInteraction("build");
+            store.persistSettingsIfPossible(model);
+        },
+        .settings_interaction_plan => {
+            model.setSettingsInteraction("plan");
+            store.persistSettingsIfPossible(model);
+        },
+        .toggle_settings_effort_picker => {
+            if (!model.settings_effort_picker_open) {
+                closeSwitcher(model);
+                if (model.palette_open) model.closePalette();
+                model.closeComposerPickers();
+            }
+            model.toggleSettingsEffortPicker();
+        },
+        .close_settings_effort_picker => model.closeSettingsEffortPicker(),
+        .pick_settings_effort => |id| {
+            model.pickSettingsEffort(id);
+            store.persistSettingsIfPossible(model);
+        },
         .cycle_access => {
             model.cycleSelectedAccess();
             persistComposerChips(model, fx);
@@ -3411,6 +3502,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 if (model.palette_open) model.closePalette();
                 model.access_picker_open = false;
                 model.effort_picker_open = false;
+                model.settings_effort_picker_open = false;
             }
             model.toggleModelPicker();
         },
@@ -3425,6 +3517,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 if (model.palette_open) model.closePalette();
                 model.model_picker_open = false;
                 model.effort_picker_open = false;
+                model.settings_effort_picker_open = false;
             }
             model.toggleAccessPicker();
         },
@@ -3439,6 +3532,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 if (model.palette_open) model.closePalette();
                 model.model_picker_open = false;
                 model.access_picker_open = false;
+                model.settings_effort_picker_open = false;
             }
             model.toggleEffortPicker();
         },
