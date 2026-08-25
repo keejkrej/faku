@@ -3952,8 +3952,8 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
         applyAcpCurrentMode(model, fx, access_mode);
         return;
     }
-    if (acp.configModelUpdate(&parsed)) |update| {
-        applyAcpConfigModel(model, fx, update);
+    if (acp.configModelUpdate(&parsed)) |config_update| {
+        applyAcpConfigModel(model, fx, config_update);
         return;
     }
     if (acp.availableCommandsUpdate(&parsed)) |commands| {
@@ -3995,13 +3995,13 @@ fn applyAcpCurrentMode(model: *Model, fx: *Effects, access_mode: []const u8) voi
 /// result for `id: "model"`. Empty `currentValue` clears the session
 /// model so the chip stays `FX_MODEL`. A present `options` array
 /// replaces the stored catalog (empty clears).
-fn applyAcpConfigModel(model: *Model, fx: *Effects, update: acp.ConfigModelUpdate) void {
+fn applyAcpConfigModel(model: *Model, fx: *Effects, config_update: acp.ConfigModelUpdate) void {
     const session = model.sessionById(model.streaming_session) orelse return;
-    if (update.value) |value| {
+    if (config_update.value) |value| {
         session.setModel(value);
     }
-    if (update.has_options) {
-        session.replaceModelOptions(update.options);
+    if (config_update.has_options) {
+        session.replaceModelOptions(config_update.options);
     }
     store.persistIfPossible(model, session.id, fx);
 }
