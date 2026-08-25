@@ -1885,7 +1885,7 @@ test "composer slash prefix stays closed when no commands are stored" {
     try testing.expect(!model.commands_open);
     try testing.expect(!model.commands_list_open());
     try testing.expectEqual(@as(usize, 0), model.command_rows(arena).len);
-    var tree = try buildTree(arena, &model);
+    const tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .button, "Commands") == null);
     try testing.expect(findByText(tree.root, .text, "/commit") == null);
 
