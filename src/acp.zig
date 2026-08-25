@@ -99,8 +99,11 @@ pub const SESSION_UPDATE_CURRENT_MODE = "current_mode_update";
 /// Wire field is `configOptions` (array of `SessionConfigOption`). The
 /// model chip reads the option whose `id` is `model` (same id we send
 /// on `session/set_config_option`) and applies `currentValue`. The
-/// `options` catalog is not stored. vercel-labs/fx `src/acp/types.zig`
-/// and fx.sh ACP docs do not emit this today.
+/// `options` catalog is stored for the composer picker when present;
+/// an empty `options` array is a real clear. The same catalog is also
+/// read from a `session/set_config_option` result (`id` 5).
+/// vercel-labs/fx `src/acp/types.zig` and fx.sh ACP docs do not emit
+/// this today.
 pub const SESSION_UPDATE_CONFIG_OPTION = "config_option_update";
 /// Official ACP v1 `session/update` when slash commands change
 /// (https://agentclientprotocol.com/protocol/v1/schema `AvailableCommandsUpdate`,
@@ -125,6 +128,8 @@ pub const SESSION_UPDATE_AVAILABLE_COMMANDS = "available_commands_update";
 pub const SESSION_UPDATE_SESSION_INFO = "session_info_update";
 /// Cap matches the session store. Extra wire items are dropped.
 pub const max_available_commands: usize = 32;
+/// Cap matches the session store. Extra wire `options` items are dropped.
+pub const max_model_options: usize = 32;
 /// Renderable ACP `ToolCallContent` text (joined). Matches the turn body cap.
 pub const max_tool_content: usize = 4096;
 pub const STOP_END_TURN = "end_turn";
@@ -194,6 +199,11 @@ pub const Parsed = struct {
     /// True when `config_option_update` carried a string `currentValue`
     /// on the `id: "model"` option (empty string is still a value).
     has_config_model: bool = false,
+    /// True when the `id: "model"` option carried an `options` array
+    /// (empty is a real replace/clear). Missing or non-array is ignore.
+    has_config_model_options: bool = false,
+    config_model_options: [max_model_options]ParsedModelOption = [_]ParsedModelOption{.{}} ** max_model_options,
+    config_model_option_count: usize = 0,
     /// True when `available_commands_update` carried an `availableCommands`
     /// array (empty is a real replace/clear). Missing or non-array is ignore.
     has_available_commands: bool = false,
@@ -215,6 +225,21 @@ pub const Parsed = struct {
 pub const ParsedCommand = struct {
     name: []const u8 = "",
     description: []const u8 = "",
+};
+
+/// One ACP model `options[]` entry. Slices alias the parsed line.
+/// `value` is the wire id; `name` is the display label (may be empty).
+pub const ParsedModelOption = struct {
+    value: []const u8 = "",
+    name: []const u8 = "",
+};
+
+/// Applied `id: "model"` config: optional `currentValue` and optional
+/// `options` catalog. `has_options` with an empty slice is a clear.
+pub const ConfigModelUpdate = struct {
+    value: ?[]const u8 = null,
+    has_options: bool = false,
+    options: []const ParsedModelOption = &.{},
 };
 
 /// Confirmed ACP `usage_update` fields (`used` + `size`). Both required.
@@ -649,6 +674,22 @@ pub fn configOptionModel(parsed: Parsed) ?[]const u8 {
     if (!std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_CONFIG_OPTION)) return null;
     if (!parsed.has_config_model) return null;
     return parsed.config_value;
+}
+
+/// `id: "model"` from `config_option_update` or a `session/set_config_option`
+/// result (`id` 5). Either `currentValue` or a present `options` array
+/// is enough. Empty `options` is a real catalog clear.
+pub fn configModelUpdate(parsed: *const Parsed) ?ConfigModelUpdate {
+    const from_notify = parsed.method == .session_update and
+        std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_CONFIG_OPTION);
+    const from_result = parsed.kind == .response and parsed.id == ID_SET_CONFIG;
+    if (!from_notify and !from_result) return null;
+    if (!parsed.has_config_model and !parsed.has_config_model_options) return null;
+    return .{
+        .value = if (parsed.has_config_model) parsed.config_value else null,
+        .has_options = parsed.has_config_model_options,
+        .options = parsed.config_model_options[0..parsed.config_model_option_count],
+    };
 }
 
 /// Official ACP v1 `available_commands_update`. Empty array is a
@@ -1090,9 +1131,51 @@ fn rawIdJson(text: []const u8) []const u8 {
     return text[start..end];
 }
 
-/// `configOptions` entry whose `id` is `model` and whose `currentValue`
-/// is a string. Other options, boolean values, and missing fields drop.
-fn scanConfigOptionModel(text: []const u8) ?[]const u8 {
+const ScannedConfigModel = struct {
+    value: ?[]const u8 = null,
+    has_options: bool = false,
+    option_count: usize = 0,
+};
+
+/// `options[]` on the `id: "model"` config option. Items without a
+/// string `value` are skipped. Empty `value` is kept. `name` is optional.
+fn scanModelOptionValues(text: []const u8, arr_at: usize, dest: []ParsedModelOption) usize {
+    var i = arr_at + 1;
+    var count: usize = 0;
+    while (i < text.len) {
+        i = skipWs(text, i);
+        if (i >= text.len or text[i] == ']') break;
+        if (text[i] == ',') {
+            i += 1;
+            continue;
+        }
+        if (text[i] != '{') {
+            i = skipJsonValue(text, i);
+            continue;
+        }
+        const obj_end = skipJsonValue(text, i);
+        const close = if (obj_end > i) obj_end - 1 else obj_end;
+        const value = objectStringField(text, i, close, "value") orelse {
+            i = obj_end;
+            continue;
+        };
+        if (count < dest.len) {
+            dest[count] = .{
+                .value = value,
+                .name = objectStringField(text, i, close, "name") orelse "",
+            };
+            count += 1;
+        }
+        i = obj_end;
+    }
+    return count;
+}
+
+/// `configOptions` entry whose `id` is `model`. `currentValue` is
+/// optional (string only). A present `options` array — including empty —
+/// is a real catalog. Other options, boolean values, and missing fields
+/// drop.
+fn scanConfigOptionModel(text: []const u8, dest: []ParsedModelOption) ?ScannedConfigModel {
     const at = findKey(text, "configOptions") orelse return null;
     var i = skipWs(text, at);
     if (i >= text.len or text[i] != '[') return null;
@@ -1115,7 +1198,14 @@ fn scanConfigOptionModel(text: []const u8) ?[]const u8 {
             continue;
         };
         if (std.mem.eql(u8, id, CONFIG_ID_MODEL)) {
-            return objectStringField(text, i, close, "currentValue");
+            var scanned = ScannedConfigModel{
+                .value = objectStringField(text, i, close, "currentValue"),
+            };
+            if (objectArrayField(text, i, close, "options")) |arr_at| {
+                scanned.has_options = true;
+                scanned.option_count = scanModelOptionValues(text, arr_at, dest);
+            }
+            return scanned;
         }
         i = obj_end;
     }
@@ -1288,7 +1378,8 @@ fn applyToolCallWireFields(text: []const u8, parsed: *Parsed) void {
 /// Field scanner — classifies the methods above and pulls `id`,
 /// `sessionId`, `sessionUpdate`, `text`, `toolCallId`, `title`, `kind`,
 /// `status`, `stopReason`, `currentModeId` / `modeId`,
-/// `config_option_update` `configOptions` `id: "model"` `currentValue`,
+/// `config_option_update` / id-5 result `configOptions` `id: "model"`
+/// `currentValue` and `options[]`,
 /// `available_commands_update` `availableCommands` name/description,
 /// `session_info_update` `title`, and tool-call `content` blocks
 /// (text / diff as markdown/plain; image, audio, terminal skipped).
@@ -1358,11 +1449,19 @@ pub fn parseLine(line: []const u8) Parsed {
         parsed.config_value = parseJsonStringAt(trimmed, at);
     }
 
-    if (std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_CONFIG_OPTION)) {
-        if (scanConfigOptionModel(trimmed)) |value| {
+    const scan_config_options = std.mem.eql(u8, parsed.session_update, SESSION_UPDATE_CONFIG_OPTION) or
+        (parsed.id == ID_SET_CONFIG and findKey(trimmed, "result") != null and findKey(trimmed, "error") == null);
+    if (scan_config_options) {
+        if (scanConfigOptionModel(trimmed, parsed.config_model_options[0..])) |scanned| {
             parsed.config_id = CONFIG_ID_MODEL;
-            parsed.config_value = value;
-            parsed.has_config_model = true;
+            if (scanned.value) |value| {
+                parsed.config_value = value;
+                parsed.has_config_model = true;
+            }
+            if (scanned.has_options) {
+                parsed.has_config_model_options = true;
+                parsed.config_model_option_count = scanned.option_count;
+            }
         }
     }
 
@@ -1625,6 +1724,14 @@ test "ACP parser classifies result, error, update, and stopReason" {
     try std.testing.expectEqualStrings(SESSION_UPDATE_CONFIG_OPTION, config_model.session_update);
     try std.testing.expectEqualStrings(CONFIG_ID_MODEL, config_model.config_id);
     try std.testing.expectEqualStrings("openai/gpt-5.4", configOptionModel(config_model).?);
+    try std.testing.expect(config_model.has_config_model_options);
+    try std.testing.expectEqual(@as(usize, 1), config_model.config_model_option_count);
+    try std.testing.expectEqualStrings("openai/gpt-5.4", config_model.config_model_options[0].value);
+    try std.testing.expectEqualStrings("GPT", config_model.config_model_options[0].name);
+    const config_update = configModelUpdate(&config_model) orelse return error.MissingConfigUpdate;
+    try std.testing.expectEqualStrings("openai/gpt-5.4", config_update.value.?);
+    try std.testing.expect(config_update.has_options);
+    try std.testing.expectEqual(@as(usize, 1), config_update.options.len);
     try std.testing.expect(!isAgentMessageText(config_model));
     try std.testing.expect(!isAgentThoughtText(config_model));
     try std.testing.expect(currentModeUpdate(config_model) == null);
@@ -1635,10 +1742,18 @@ test "ACP parser classifies result, error, update, and stopReason" {
 
     const config_empty = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"config_option_update\",\"configOptions\":[{\"id\":\"model\",\"name\":\"Model\",\"type\":\"select\",\"currentValue\":\"\",\"options\":[]}]}}}");
     try std.testing.expectEqualStrings("", configOptionModel(config_empty).?);
+    try std.testing.expect(config_empty.has_config_model_options);
+    try std.testing.expectEqual(@as(usize, 0), config_empty.config_model_option_count);
+    const empty_update = configModelUpdate(&config_empty) orelse return error.MissingEmptyUpdate;
+    try std.testing.expectEqualStrings("", empty_update.value.?);
+    try std.testing.expect(empty_update.has_options);
+    try std.testing.expectEqual(@as(usize, 0), empty_update.options.len);
 
     const config_mode_only = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"config_option_update\",\"configOptions\":[{\"id\":\"mode\",\"name\":\"Session Mode\",\"type\":\"select\",\"currentValue\":\"ask\",\"options\":[]}]}}}");
     try std.testing.expectEqualStrings(SESSION_UPDATE_CONFIG_OPTION, config_mode_only.session_update);
     try std.testing.expect(configOptionModel(config_mode_only) == null);
+    try std.testing.expect(!config_mode_only.has_config_model_options);
+    try std.testing.expect(configModelUpdate(&config_mode_only) == null);
 
     const config_missing_value = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"config_option_update\",\"configOptions\":[{\"id\":\"model\",\"name\":\"Model\",\"type\":\"select\",\"options\":[]}]}}}");
     try std.testing.expect(configOptionModel(config_missing_value) == null);
@@ -1648,6 +1763,22 @@ test "ACP parser classifies result, error, update, and stopReason" {
 
     const config_missing_options = parseLine("{\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"config_option_update\"}}}");
     try std.testing.expect(configOptionModel(config_missing_options) == null);
+    try std.testing.expect(!config_missing_options.has_config_model_options);
+    try std.testing.expect(configModelUpdate(&config_missing_options) == null);
+
+    const set_config_result = parseLine("{\"jsonrpc\":\"2.0\",\"id\":5,\"result\":{\"configOptions\":[{\"id\":\"mode\",\"name\":\"Session Mode\",\"type\":\"select\",\"currentValue\":\"ask\",\"options\":[]},{\"id\":\"model\",\"name\":\"Model\",\"type\":\"select\",\"currentValue\":\"anthropic/claude-sonnet-4\",\"options\":[{\"value\":\"openai/gpt-5.4\",\"name\":\"GPT\"},{\"value\":\"anthropic/claude-sonnet-4\",\"name\":\"Claude\"}]}]}}");
+    try std.testing.expectEqual(FrameKind.response, set_config_result.kind);
+    try std.testing.expectEqual(@as(?u64, ID_SET_CONFIG), set_config_result.id);
+    try std.testing.expect(!isPromptResult(set_config_result));
+    try std.testing.expect(configOptionModel(set_config_result) == null);
+    const set_config_update = configModelUpdate(&set_config_result) orelse return error.MissingSetConfigUpdate;
+    try std.testing.expectEqualStrings("anthropic/claude-sonnet-4", set_config_update.value.?);
+    try std.testing.expect(set_config_update.has_options);
+    try std.testing.expectEqual(@as(usize, 2), set_config_update.options.len);
+    try std.testing.expectEqualStrings("openai/gpt-5.4", set_config_update.options[0].value);
+    try std.testing.expectEqualStrings("GPT", set_config_update.options[0].name);
+    try std.testing.expectEqualStrings("anthropic/claude-sonnet-4", set_config_update.options[1].value);
+    try std.testing.expectEqualStrings("Claude", set_config_update.options[1].name);
 
     const commands = parseLine("{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"sess-1\",\"update\":{\"sessionUpdate\":\"available_commands_update\",\"availableCommands\":[{\"name\":\"web\",\"description\":\"Search the web for information\",\"input\":{\"hint\":\"query to search for\"}},{\"name\":\"test\",\"description\":\"Run tests for the current project\"},{\"name\":\"compact\"},{\"description\":\"nameless is skipped\"}]}}}");
     try std.testing.expectEqual(Method.session_update, commands.method);

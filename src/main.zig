@@ -84,6 +84,7 @@ pub const max_access_mode = 32;
 pub const max_interaction_mode = 16;
 pub const max_reasoning_effort = 16;
 pub const max_available_commands = acp.max_available_commands;
+pub const max_model_options = acp.max_model_options;
 pub const max_command_name = 64;
 pub const max_command_description = 256;
 /// Waku `runtime_mode` default. Maps to fx `FX_PERMISSION_MODE=yolo`.
@@ -193,6 +194,23 @@ pub const AvailableCommand = struct {
     }
 };
 
+/// Stored ACP model `options[]` entry. `id` is the wire value; `label`
+/// is `name`, falling back to `value` when name is empty.
+pub const ModelOption = struct {
+    id_storage: [max_fx_model]u8 = [_]u8{0} ** max_fx_model,
+    id_len: usize = 0,
+    label_storage: [max_fx_model]u8 = [_]u8{0} ** max_fx_model,
+    label_len: usize = 0,
+
+    pub fn id(self: *const ModelOption) []const u8 {
+        return self.id_storage[0..self.id_len];
+    }
+
+    pub fn label(self: *const ModelOption) []const u8 {
+        return self.label_storage[0..self.label_len];
+    }
+};
+
 pub const Session = struct {
     id: u32 = 0,
     title_storage: [max_title]u8 = [_]u8{0} ** max_title,
@@ -243,6 +261,10 @@ pub const Session = struct {
     /// Composer Commands inserts from this list; it does not run them.
     available_commands: [max_available_commands]AvailableCommand = [_]AvailableCommand{.{}} ** max_available_commands,
     available_command_count: usize = 0,
+    /// Last ACP model `options[]` catalog. Replace, not append.
+    /// Runtime-only; empty array is a real clear.
+    model_options: [max_model_options]ModelOption = [_]ModelOption{.{}} ** max_model_options,
+    model_option_count: usize = 0,
 
     pub fn title(self: *const Session) []const u8 {
         return self.title_storage[0..self.title_len];
@@ -358,6 +380,31 @@ pub const Session = struct {
         self.clearAvailableCommands();
         for (commands) |cmd| {
             self.appendAvailableCommand(cmd.name, cmd.description);
+        }
+    }
+
+    pub fn modelOptions(self: *const Session) []const ModelOption {
+        return self.model_options[0..self.model_option_count];
+    }
+
+    pub fn clearModelOptions(self: *Session) void {
+        self.model_option_count = 0;
+    }
+
+    pub fn appendModelOption(self: *Session, option_id: []const u8, option_label: []const u8) void {
+        if (self.model_option_count >= max_model_options) return;
+        var stored = ModelOption{};
+        writeFixed(&stored.id_storage, &stored.id_len, option_id);
+        const resolved = if (option_label.len > 0) option_label else option_id;
+        writeFixed(&stored.label_storage, &stored.label_len, resolved);
+        self.model_options[self.model_option_count] = stored;
+        self.model_option_count += 1;
+    }
+
+    pub fn replaceModelOptions(self: *Session, options: []const acp.ParsedModelOption) void {
+        self.clearModelOptions();
+        for (options) |opt| {
+            self.appendModelOption(opt.value, opt.name);
         }
     }
 
@@ -496,6 +543,15 @@ pub const CommandRow = struct {
     has_description: bool,
 };
 
+/// Composer model picker row. `row_id` is a 1-based Native `for` key.
+/// `id` is the ACP wire value (empty clears `session.model`).
+pub const ModelPickerRow = struct {
+    row_id: u32,
+    id: []const u8,
+    label: []const u8,
+    selected: bool,
+};
+
 /// Local command-palette row. `id` is never 0: actions use
 /// `palette_action_id_base + kind`, sessions use the session id,
 /// section headers use `palette_header_id_base + n`.
@@ -571,7 +627,9 @@ pub const Msg = union(enum) {
     cycle_access,
     cycle_interaction,
     cycle_effort,
-    cycle_model,
+    toggle_model_picker,
+    close_model_picker,
+    pick_model: []const u8,
     start_project_edit,
     project_path_edit: canvas.TextInputEvent,
     start_image_attach,
@@ -639,6 +697,8 @@ pub const Model = struct {
     search_buffer: canvas.TextBuffer(max_search) = .{},
     /// Runtime-only command palette. Not persisted to sessions.json.
     palette_open: bool = false,
+    /// Runtime-only composer model picker. Not persisted to sessions.json.
+    model_picker_open: bool = false,
     palette_highlight: u32 = 0,
     find_buffer: canvas.TextBuffer(max_search) = .{},
     find_active: bool = false,
@@ -832,7 +892,9 @@ pub const Model = struct {
         "cycleSelectedAccess",
         "cycleSelectedInteraction",
         "cycleSelectedEffort",
-        "cycleSelectedModel",
+        "pickSelectedModel",
+        "toggleModelPicker",
+        "closeModelPicker",
         "startProjectEdit",
         "closeProjectEdit",
         "applySelectedProjectPath",
@@ -960,6 +1022,14 @@ pub const Model = struct {
         model.search_buffer.clear();
         model.palette_open = false;
         model.palette_highlight = 0;
+    }
+
+    pub fn closeModelPicker(model: *Model) void {
+        model.model_picker_open = false;
+    }
+
+    pub fn toggleModelPicker(model: *Model) void {
+        model.model_picker_open = !model.model_picker_open;
     }
 
     pub fn find_query(model: *const Model) []const u8 {
@@ -1126,6 +1196,46 @@ pub const Model = struct {
             i += 1;
         }
         return out[0..i];
+    }
+
+    pub fn model_picker_rows(model: *const Model, arena: std.mem.Allocator) []const ModelPickerRow {
+        const session = model.sessionByIdConst(model.selected);
+        const current = if (session) |s| s.model() else "";
+        const catalog = if (session) |s| s.modelOptions() else &.{};
+        if (catalog.len > 0) {
+            const out = arena.alloc(ModelPickerRow, catalog.len) catch return &.{};
+            for (catalog, 0..) |*opt, index| {
+                const option_id = opt.id();
+                const option_label = opt.label();
+                out[index] = .{
+                    .row_id = @intCast(index + 1),
+                    .id = option_id,
+                    .label = if (option_label.len > 0) option_label else if (option_id.len > 0) option_id else "FX_MODEL",
+                    .selected = std.mem.eql(u8, current, option_id),
+                };
+            }
+            return out;
+        }
+
+        const last = model.lastModel();
+        const include_last = last.len > 0;
+        const count: usize = if (include_last) 2 else 1;
+        const out = arena.alloc(ModelPickerRow, count) catch return &.{};
+        out[0] = .{
+            .row_id = 1,
+            .id = "",
+            .label = "FX_MODEL",
+            .selected = current.len == 0,
+        };
+        if (include_last) {
+            out[1] = .{
+                .row_id = 2,
+                .id = last,
+                .label = last,
+                .selected = std.mem.eql(u8, current, last),
+            };
+        }
+        return out;
     }
 
     pub fn visible_turns(model: *const Model, arena: std.mem.Allocator) []const TurnRow {
@@ -1414,6 +1524,7 @@ pub const Model = struct {
         model.closeProjectEdit();
         model.closeImageAttach();
         model.closeCommands();
+        model.closeModelPicker();
         model.closeFolderTitleEdit();
         model.closeSessionTitleEdit();
         model.settings_open = true;
@@ -1625,15 +1736,11 @@ pub const Model = struct {
         model.setLastReasoningEffort(next);
     }
 
-    pub fn cycleSelectedModel(model: *Model) void {
+    pub fn pickSelectedModel(model: *Model, id: []const u8) void {
         const session = model.sessionById(model.selected) orelse return;
-        const current = session.model();
-        if (current.len > 0) {
-            model.setLastModel(current);
-            session.setModel("");
-        } else if (model.lastModel().len > 0) {
-            session.setModel(model.lastModel());
-        }
+        session.setModel(id);
+        if (id.len > 0) model.setLastModel(id);
+        model.closeModelPicker();
     }
 
     pub fn fxPath(model: *const Model) []const u8 {
@@ -2735,6 +2842,7 @@ fn closeSwitcher(model: *Model) void {
 
 fn openPalette(model: *Model) void {
     closeSwitcher(model);
+    model.closeModelPicker();
     model.palette_open = true;
     model.search_buffer.clear();
     model.palette_highlight = 0;
@@ -2787,6 +2895,7 @@ fn confirmPalette(model: *Model, fx: *Effects) void {
 
 fn cycleSwitcher(model: *Model, reverse: bool) void {
     if (model.palette_open) model.closePalette();
+    if (model.model_picker_open) model.closeModelPicker();
     if (model.switcher_open) {
         if (model.switcher_count == 0) {
             closeSwitcher(model);
@@ -2836,6 +2945,7 @@ fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     model.closeProjectEdit();
     model.closeImageAttach();
     model.closeCommands();
+    model.closeModelPicker();
     model.closeFolderTitleEdit();
     model.closeSessionTitleEdit();
     model.selected = id;
@@ -2893,6 +3003,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.closeProjectEdit();
             model.closeImageAttach();
             model.closeCommands();
+            model.closeModelPicker();
             model.closeFolderTitleEdit();
             model.closeSessionTitleEdit();
             const id = model.addSession("untitled", .fx);
@@ -3017,6 +3128,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 closeSwitcher(model);
                 return;
             }
+            if (model.model_picker_open) {
+                model.closeModelPicker();
+                return;
+            }
             if (model.palette_open) {
                 model.closePalette();
                 return;
@@ -3088,8 +3203,16 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.cycleSelectedEffort();
             persistComposerChips(model, fx);
         },
-        .cycle_model => {
-            model.cycleSelectedModel();
+        .toggle_model_picker => {
+            if (!model.model_picker_open) {
+                closeSwitcher(model);
+                if (model.palette_open) model.closePalette();
+            }
+            model.toggleModelPicker();
+        },
+        .close_model_picker => model.closeModelPicker(),
+        .pick_model => |id| {
+            model.pickSelectedModel(id);
             persistComposerChips(model, fx);
         },
         .start_project_edit => model.startProjectEdit(),
@@ -3829,8 +3952,8 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
         applyAcpCurrentMode(model, fx, access_mode);
         return;
     }
-    if (acp.configOptionModel(parsed)) |model_value| {
-        applyAcpConfigModel(model, fx, model_value);
+    if (acp.configModelUpdate(&parsed)) |update| {
+        applyAcpConfigModel(model, fx, update);
         return;
     }
     if (acp.availableCommandsUpdate(&parsed)) |commands| {
@@ -3868,11 +3991,18 @@ fn applyAcpCurrentMode(model: *Model, fx: *Effects, access_mode: []const u8) voi
     store.persistIfPossible(model, session.id, fx);
 }
 
-/// Official ACP `config_option_update` for `id: "model"`. Empty
-/// `currentValue` clears the session model so the chip stays `FX_MODEL`.
-fn applyAcpConfigModel(model: *Model, fx: *Effects, value: []const u8) void {
+/// Official ACP `config_option_update` / `session/set_config_option`
+/// result for `id: "model"`. Empty `currentValue` clears the session
+/// model so the chip stays `FX_MODEL`. A present `options` array
+/// replaces the stored catalog (empty clears).
+fn applyAcpConfigModel(model: *Model, fx: *Effects, update: acp.ConfigModelUpdate) void {
     const session = model.sessionById(model.streaming_session) orelse return;
-    session.setModel(value);
+    if (update.value) |value| {
+        session.setModel(value);
+    }
+    if (update.has_options) {
+        session.replaceModelOptions(update.options);
+    }
     store.persistIfPossible(model, session.id, fx);
 }
 
@@ -4139,6 +4269,9 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "k")) {
         return .start_search;
     }
+    if (keyboard.modifiers.hasNavigationModifier() and isSlashKey(keyboard.key)) {
+        return .toggle_model_picker;
+    }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "f")) {
         return .open_find;
     }
@@ -4171,6 +4304,10 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
 
 fn isEnterKey(key: []const u8) bool {
     return std.ascii.eqlIgnoreCase(key, "enter") or std.ascii.eqlIgnoreCase(key, "return");
+}
+
+fn isSlashKey(key: []const u8) bool {
+    return std.mem.eql(u8, key, "/") or std.ascii.eqlIgnoreCase(key, "slash");
 }
 
 pub const AppUi = canvas.Ui(Msg);

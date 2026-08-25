@@ -64,6 +64,10 @@ fn expectByText(widget: canvas.Widget, kind: canvas.WidgetKind, text: []const u8
     };
 }
 
+fn expectModelChip(widget: canvas.Widget, text: []const u8) !canvas.Widget {
+    return expectByText(widget, .select, text);
+}
+
 fn dumpTexts(widget: canvas.Widget, depth: usize) void {
     const name = widgetName(widget);
     if (name.len > 0) {
@@ -1323,7 +1327,7 @@ test "ACP config_option_update sets model chip and persists; unknown is ignored"
     try testing.expectEqualStrings("FX_MODEL", model.model_label());
 
     var tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .button, "FX_MODEL");
+    _ = try expectModelChip(tree.root, "FX_MODEL");
     _ = try expectByText(tree.root, .button, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
 
@@ -1352,20 +1356,45 @@ test "ACP config_option_update sets model chip and persists; unknown is ignored"
     try testing.expectEqualStrings("openai/gpt-5.4", model.lastModel());
     try testing.expectEqualStrings("openai/gpt-5.4", model.model_label());
     try testing.expectEqualStrings("fullAccess", model.sessionById(id).?.accessMode());
+    try testing.expectEqual(@as(usize, 2), model.sessionById(id).?.modelOptions().len);
+    try testing.expectEqualStrings("openai/gpt-5.4", model.sessionById(id).?.modelOptions()[0].id());
+    try testing.expectEqualStrings("GPT", model.sessionById(id).?.modelOptions()[0].label());
+    try testing.expectEqualStrings("anthropic/claude-sonnet-4", model.sessionById(id).?.modelOptions()[1].id());
+    try testing.expectEqualStrings("Claude", model.sessionById(id).?.modelOptions()[1].label());
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .button, "openai/gpt-5.4");
-    try testing.expect(findByText(tree.root, .button, "FX_MODEL") == null);
+    _ = try expectModelChip(tree.root, "openai/gpt-5.4");
+    try testing.expect(findByText(tree.root, .select, "FX_MODEL") == null);
     try testing.expect(findByText(tree.root, .button, "anthropic/claude-sonnet-4") == null);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+    try testing.expect(findByText(tree.root, .menu_item, "GPT") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Claude") == null);
+
+    main.update(&model, .toggle_model_picker, &fx);
+    try testing.expect(model.model_picker_open);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
+    _ = try expectByText(tree.root, .menu_item, "GPT");
+    const claude = try expectByText(tree.root, .menu_item, "Claude");
+    switch (tree.msgForPointer(claude.id, .up).?) {
+        .pick_model => |picked| try testing.expectEqualStrings("anthropic/claude-sonnet-4", picked),
+        else => return error.WrongMsg,
+    }
+    main.update(&model, tree.msgForPointer(claude.id, .up).?, &fx);
+    try testing.expect(!model.model_picker_open);
+    try testing.expectEqualStrings("anthropic/claude-sonnet-4", model.sessionById(id).?.model());
+    try testing.expectEqualStrings("anthropic/claude-sonnet-4", model.lastModel());
+    try testing.expectEqualStrings("anthropic/claude-sonnet-4", model.model_label());
+    try testing.expect(model.is_streaming());
 
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-model-1\",\"update\":{\"sessionUpdate\":\"current_mode_update\",\"currentModeId\":\"ask\"}}}");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("ask", model.sessionById(id).?.accessMode());
-    try testing.expectEqualStrings("openai/gpt-5.4", model.sessionById(id).?.model());
+    try testing.expectEqualStrings("anthropic/claude-sonnet-4", model.sessionById(id).?.model());
 
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-model-1\",\"update\":{\"sessionUpdate\":\"agent_thought_chunk\",\"content\":{\"type\":\"text\",\"text\":\"stay on the reasoning row\"}}}}");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("stay on the reasoning row", lastReasoning(&model));
-    try testing.expectEqualStrings("openai/gpt-5.4", model.sessionById(id).?.model());
+    try testing.expectEqualStrings("anthropic/claude-sonnet-4", model.sessionById(id).?.model());
 
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-model-1\",\"update\":{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"call_model\",\"title\":\"Reading file\",\"kind\":\"read\",\"status\":\"pending\"}}}");
     drainEffects(&model, &fx);
@@ -1374,19 +1403,40 @@ test "ACP config_option_update sets model chip and persists; unknown is ignored"
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-model-1\",\"update\":{\"sessionUpdate\":\"config_option_update\",\"configOptions\":[{\"id\":\"model\",\"name\":\"Model\",\"type\":\"select\",\"currentValue\":\"\",\"options\":[]}]}}}");
     drainEffects(&model, &fx);
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.model().len);
-    try testing.expectEqualStrings("openai/gpt-5.4", model.lastModel());
+    try testing.expectEqualStrings("anthropic/claude-sonnet-4", model.lastModel());
     try testing.expectEqualStrings("FX_MODEL", model.model_label());
     try testing.expectEqualStrings("stay on the reasoning row", lastReasoning(&model));
     try testing.expectEqualStrings("Reading file · read · pending", lastTool(&model));
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.modelOptions().len);
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .button, "FX_MODEL");
-    try testing.expect(findByText(tree.root, .button, "openai/gpt-5.4") == null);
+    _ = try expectModelChip(tree.root, "FX_MODEL");
+    try testing.expect(findByText(tree.root, .select, "openai/gpt-5.4") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "GPT") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Claude") == null);
+
+    main.update(&model, .toggle_model_picker, &fx);
+    try testing.expect(model.model_picker_open);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "FX_MODEL");
+    _ = try expectByText(tree.root, .menu_item, "anthropic/claude-sonnet-4");
+    try testing.expect(findByText(tree.root, .menu_item, "GPT") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Claude") == null);
+    main.update(&model, .close_model_picker, &fx);
 
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-model-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"model switched\"}}}}");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("model switched", lastAssistant(&model));
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "config_option_update") == null);
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "openai/gpt-5.4") == null);
+
+    try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":5,\"result\":{\"configOptions\":[{\"id\":\"mode\",\"name\":\"Session Mode\",\"type\":\"select\",\"currentValue\":\"ask\",\"options\":[]},{\"id\":\"model\",\"name\":\"Model\",\"type\":\"select\",\"currentValue\":\"openai/gpt-5.4\",\"options\":[{\"value\":\"openai/gpt-5.4\",\"name\":\"GPT\"},{\"value\":\"anthropic/claude-sonnet-4\",\"name\":\"Claude\"}]}]}}");
+    drainEffects(&model, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqualStrings("openai/gpt-5.4", model.sessionById(id).?.model());
+    try testing.expectEqual(@as(usize, 2), model.sessionById(id).?.modelOptions().len);
+    try testing.expectEqualStrings("GPT", model.sessionById(id).?.modelOptions()[0].label());
+    try testing.expectEqualStrings("Claude", model.sessionById(id).?.modelOptions()[1].label());
+    try testing.expectEqualStrings("model switched", lastAssistant(&model));
 
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
     drainEffects(&model, &fx);
@@ -1399,12 +1449,13 @@ test "ACP config_option_update sets model chip and persists; unknown is ignored"
     loaded.setStoreDir(dir);
     loaded.store_io = testing.io;
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
-    try testing.expectEqual(@as(usize, 0), loaded.session_store[0].model().len);
+    try testing.expectEqualStrings("openai/gpt-5.4", loaded.session_store[0].model());
     try testing.expectEqualStrings("openai/gpt-5.4", loaded.lastModel());
-    try testing.expectEqualStrings("FX_MODEL", loaded.model_label());
+    try testing.expectEqualStrings("openai/gpt-5.4", loaded.model_label());
     try testing.expectEqualStrings("ask", loaded.session_store[0].accessMode());
+    try testing.expectEqual(@as(usize, 0), loaded.session_store[0].modelOptions().len);
     tree = try buildTree(arena, &loaded);
-    _ = try expectByText(tree.root, .button, "FX_MODEL");
+    _ = try expectModelChip(tree.root, "openai/gpt-5.4");
     _ = try expectByText(tree.root, .button, "Ask");
     _ = try expectByText(tree.root, .button, "Build");
 }
@@ -1436,7 +1487,7 @@ test "ACP available_commands_update stores names; empty clears; unknown is ignor
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.availableCommands().len);
 
     var tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .button, "FX_MODEL");
+    _ = try expectModelChip(tree.root, "FX_MODEL");
     _ = try expectByText(tree.root, .button, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
 
@@ -1525,7 +1576,7 @@ test "ACP available_commands_update stores names; empty clears; unknown is ignor
     try testing.expectEqual(@as(usize, 0), loaded.session_store[0].availableCommands().len);
     try testing.expectEqualStrings("ask", loaded.session_store[0].accessMode());
     tree = try buildTree(arena, &loaded);
-    _ = try expectByText(tree.root, .button, "FX_MODEL");
+    _ = try expectModelChip(tree.root, "FX_MODEL");
     _ = try expectByText(tree.root, .button, "Ask");
     _ = try expectByText(tree.root, .button, "Build");
     try testing.expect(findByText(tree.root, .button, "plan") == null);
@@ -1563,7 +1614,7 @@ test "ACP session_info_update sets title and persists; empty cwd unknown ignored
 
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "info title");
-    _ = try expectByText(tree.root, .button, "FX_MODEL");
+    _ = try expectModelChip(tree.root, "FX_MODEL");
     _ = try expectByText(tree.root, .button, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
 
@@ -1655,7 +1706,7 @@ test "ACP session_info_update sets title and persists; empty cwd unknown ignored
     try expectSidebarTitles(loaded.sidebar_rows(arena), &.{"Implement user authentication"});
     tree = try buildTree(arena, &loaded);
     _ = try expectByText(tree.root, .text, "Implement user authentication");
-    _ = try expectByText(tree.root, .button, "openai/gpt-5.4");
+    _ = try expectModelChip(tree.root, "openai/gpt-5.4");
     _ = try expectByText(tree.root, .button, "Ask");
     _ = try expectByText(tree.root, .button, "Build");
 }
@@ -6378,15 +6429,36 @@ test "composer chips persist access interaction and last-used model and reload" 
 
     var tree = try buildTree(arena, &model);
     try testing.expectEqualStrings("openai/gpt-5.4", model.model_label());
-    const model_chip = try expectByText(tree.root, .button, "openai/gpt-5.4");
+    const model_chip = try expectModelChip(tree.root, "openai/gpt-5.4");
+    try testing.expectEqual(Msg.toggle_model_picker, tree.msgForPointer(model_chip.id, .up).?);
     main.update(&model, tree.msgForPointer(model_chip.id, .up).?, &fx);
+    try testing.expect(model.model_picker_open);
+    try testing.expectEqualStrings("openai/gpt-5.4", model.session_store[0].model());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
+    const empty_row = try expectByText(tree.root, .menu_item, "FX_MODEL");
+    switch (tree.msgForPointer(empty_row.id, .up).?) {
+        .pick_model => |picked| try testing.expectEqualStrings("", picked),
+        else => return error.WrongMsg,
+    }
+    main.update(&model, tree.msgForPointer(empty_row.id, .up).?, &fx);
+    try testing.expect(!model.model_picker_open);
     try testing.expectEqual(@as(usize, 0), model.session_store[0].model().len);
     try testing.expectEqualStrings("openai/gpt-5.4", model.lastModel());
     try testing.expectEqualStrings("FX_MODEL", model.model_label());
 
     tree = try buildTree(arena, &model);
-    const empty_model = try expectByText(tree.root, .button, "FX_MODEL");
-    main.update(&model, tree.msgForPointer(empty_model.id, .up).?, &fx);
+    const empty_chip = try expectModelChip(tree.root, "FX_MODEL");
+    main.update(&model, tree.msgForPointer(empty_chip.id, .up).?, &fx);
+    try testing.expect(model.model_picker_open);
+    tree = try buildTree(arena, &model);
+    const last_used = try expectByText(tree.root, .menu_item, "openai/gpt-5.4");
+    switch (tree.msgForPointer(last_used.id, .up).?) {
+        .pick_model => |picked| try testing.expectEqualStrings("openai/gpt-5.4", picked),
+        else => return error.WrongMsg,
+    }
+    main.update(&model, tree.msgForPointer(last_used.id, .up).?, &fx);
     try testing.expectEqualStrings("openai/gpt-5.4", model.session_store[0].model());
     try testing.expectEqualStrings("openai/gpt-5.4", model.model_label());
 
@@ -6423,10 +6495,98 @@ test "composer chips persist access interaction and last-used model and reload" 
     try testing.expectEqualStrings("plan", loaded.sessionById(inherited).?.interactionMode());
 
     tree = try buildTree(arena, &loaded);
-    _ = try expectByText(tree.root, .button, "openai/gpt-5.4");
+    _ = try expectModelChip(tree.root, "openai/gpt-5.4");
     _ = try expectButtonMsg(tree, "Auto", .cycle_access);
     _ = try expectByText(tree.root, .button, "Plan");
     _ = try expectButtonMsg(tree, "Auto", .cycle_effort);
+}
+
+test "demo model picker shows FX_MODEL fallback; Cmd-/ toggles; plain slash does not" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("FX_MODEL", model.model_label());
+    try testing.expectEqual(@as(usize, 0), model.lastModel().len);
+    try testing.expect(!model.model_picker_open);
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectModelChip(tree.root, "FX_MODEL");
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+    try testing.expect(findByText(tree.root, .menu_item, "openai/gpt-5.4") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "GPT") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Claude") == null);
+    try testing.expect(findByText(tree.root, .button, "anthropic/claude-sonnet-4") == null);
+
+    const plain_slash = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "/" };
+    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_slash));
+    try testing.expect(!model.model_picker_open);
+
+    const cmd_slash = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "/",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.toggle_model_picker, main.onKey(cmd_slash).?);
+    main.update(&model, main.onKey(cmd_slash).?, &fx);
+    try testing.expect(model.model_picker_open);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
+    _ = try expectByText(tree.root, .menu_item, "FX_MODEL");
+    try testing.expect(findByText(tree.root, .menu_item, "openai/gpt-5.4") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "GPT") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Claude") == null);
+    try testing.expectEqual(@as(usize, 1), model.model_picker_rows(arena).len);
+
+    const ctrl_slash = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "slash",
+        .modifiers = .{ .control = true },
+    };
+    try testing.expectEqual(Msg.toggle_model_picker, main.onKey(ctrl_slash).?);
+    main.update(&model, main.onKey(ctrl_slash).?, &fx);
+    try testing.expect(!model.model_picker_open);
+
+    main.update(&model, .{ .settings_model_edit = .{ .insert_text = "openai/gpt-5.4" } }, &fx);
+    try testing.expectEqualStrings("openai/gpt-5.4", model.lastModel());
+    try testing.expectEqualStrings("FX_MODEL", model.model_label());
+    main.update(&model, .toggle_model_picker, &fx);
+    try testing.expectEqual(@as(usize, 2), model.model_picker_rows(arena).len);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "FX_MODEL");
+    const last_used = try expectByText(tree.root, .menu_item, "openai/gpt-5.4");
+    main.update(&model, tree.msgForPointer(last_used.id, .up).?, &fx);
+    try testing.expectEqualStrings("openai/gpt-5.4", model.session_store[0].model());
+    try testing.expectEqualStrings("openai/gpt-5.4", model.model_label());
+}
+
+test "Esc with model_picker_open does not cancel a busy demo stream" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "keep streaming" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.Phase.streaming, model.phase);
+
+    main.update(&model, .toggle_model_picker, &fx);
+    try testing.expect(model.model_picker_open);
+    try testing.expect(model.is_streaming());
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expect(!model.model_picker_open);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.Phase.streaming, model.phase);
 }
 
 test "composer effort chip persists reasoning_effort and last_reasoning_effort" {
