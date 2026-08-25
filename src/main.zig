@@ -117,10 +117,16 @@ pub const shell_scene: native_sdk.ShellConfig = .{ .windows = &shell_windows };
 /// (`examples/deck`); Native check rejects an invented `icon="minus"`.
 const minimize_icon = canvas.svg_icon.parseComptime(@embedFile("icons/minimize.svg"));
 
+/// Composer Stop square. Native has no built-in stop/square
+/// (https://native-sdk.dev/components/icon).
+const stop_icon = canvas.svg_icon.parseComptime(@embedFile("icons/stop.svg"));
+
 /// One table feeds boot registration and the model contract so
-/// `icon="app:minimize"` is verified against what `main` registers.
+/// `icon="app:minimize"` / `icon="app:stop"` are verified against
+/// what `main` registers.
 pub const app_icons = [_]canvas.icons.Entry{
     .{ .name = "minimize", .icon = &minimize_icon },
+    .{ .name = "stop", .icon = &stop_icon },
 };
 
 /// Install the app icon table once, before views build.
@@ -642,6 +648,9 @@ pub const Msg = union(enum) {
     send,
     steer,
     stop,
+    /// Composer circle while a turn is streaming. Cancels without the
+    /// Esc overlay cascade (find open still stops the turn).
+    stop_turn,
     clear_queue,
     remove_queued: u32,
     /// Click a queued follow-up: restore its text to the composer and drop it.
@@ -973,7 +982,7 @@ pub const Model = struct {
         "resolvedAccessMode",
         "resolvedInteractionMode",
         "resolvedReasoningEffort",
-        "is_streaming",
+        "send_label",
         "fx_available",
         "fx_path_storage",
         "fx_path_len",
@@ -1535,8 +1544,8 @@ pub const Model = struct {
         return out[0..i];
     }
 
-    pub fn composer_placeholder(_: *const Model) []const u8 {
-        return "Do anything...";
+    pub fn composer_placeholder(model: *const Model) []const u8 {
+        return if (model.is_streaming()) "Queue a follow-up..." else "Do anything...";
     }
 
     pub fn send_label(model: *const Model) []const u8 {
@@ -3388,6 +3397,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistDraftIfPossible(model);
         },
         .send => handleSend(model, fx),
+        .stop_turn => stopStream(model, fx),
         .steer => handleSteer(model, fx),
         .switcher_forward => cycleSwitcher(model, false),
         .switcher_backward => cycleSwitcher(model, true),
