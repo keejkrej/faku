@@ -356,7 +356,7 @@ test "boot is fx-first and New / send / ticks / stop drive the demo" {
     try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "fx") != null);
 
     tree = try buildTree(arena, &model);
-    const stop = try expectByText(tree.root, .button, "Stop");
+    const stop = try expectButtonMsg(tree, "Stop", .stop_turn);
     main.update(&model, tree.msgForPointer(stop.id, .up).?, &fx);
     try testing.expect(!model.is_streaming());
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
@@ -825,6 +825,79 @@ test "escape stops a live demo stream" {
     main.update(&model, .stop, &fx);
     try testing.expect(!model.is_streaming());
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+}
+
+test "composer Stop cancels without enqueueing a typed follow-up" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const id = model.selected;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "typed follow-up" } }, &fx);
+    try testing.expectEqualStrings("typed follow-up", model.draft());
+
+    var tree = try buildTree(arena, &model);
+    const stop = try expectButtonMsg(tree, "Stop", .stop_turn);
+    main.update(&model, tree.msgForPointer(stop.id, .up).?, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(u32, 0), model.queuedCount(id));
+    try testing.expectEqualStrings("typed follow-up", model.draft());
+}
+
+test "send while streaming still queues a follow-up" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const id = model.selected;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "queued follow-up" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+    try testing.expect(model.is_streaming());
+    try testing.expectEqualStrings("", model.draft());
+}
+
+test "composer placeholder is Queue a follow-up while streaming" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("Do anything...", model.composer_placeholder());
+    var tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("Do anything...", composer.placeholder);
+    } else return error.WidgetNotFound;
+    _ = try expectByText(tree.root, .button, "Send");
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "start a turn" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqualStrings("Queue a follow-up...", model.composer_placeholder());
+
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("Queue a follow-up...", composer.placeholder);
+    } else return error.WidgetNotFound;
+    _ = try expectButtonMsg(tree, "Stop", .stop_turn);
 }
 
 test "protocol stubs speak camelCase v3 and default to fx" {
