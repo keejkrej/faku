@@ -1244,9 +1244,12 @@ pub const Model = struct {
         else
             matchingPaletteSessions(model, query, &session_ids);
 
+        const miss = query.len > 0 and specs.len == 0 and sessions_n == 0;
         var count: usize = 0;
         if (query.len == 0) {
             count += 1 + suggestedPaletteCount(specs) + 1 + commandPaletteCount(specs);
+        } else if (miss) {
+            count = 2;
         } else {
             if (specs.len > 0) count += specs.len;
             if (sessions_n > 0) count += 1 + sessions_n;
@@ -1262,6 +1265,11 @@ pub const Model = struct {
             out[i] = paletteHeaderRow(2, "Commands");
             i += 1;
             appendPaletteActionRows(out, &i, &selectable, model.palette_highlight, specs, false);
+        } else if (miss) {
+            out[i] = paletteHeaderRow(4, "No matching tasks or commands");
+            i += 1;
+            out[i] = paletteHeaderRow(5, "Try a task title, project, provider, model, or command");
+            i += 1;
         } else {
             appendPaletteActionRows(out, &i, &selectable, model.palette_highlight, specs, null);
             if (sessions_n > 0) {
@@ -2615,7 +2623,8 @@ fn sessionMatchesQuery(session: *const Session, query: []const u8) bool {
     if (asciiContainsIgnoreCase(sessionDisplayTitle(session), query)) return true;
     if (asciiContainsIgnoreCase(session.title(), query)) return true;
     if (asciiContainsIgnoreCase(session.provider_label(), query)) return true;
-    return asciiContainsIgnoreCase(session.projectPath(), query);
+    if (asciiContainsIgnoreCase(session.projectPath(), query)) return true;
+    return asciiContainsIgnoreCase(session.model(), query);
 }
 
 const PaletteActionSpec = struct {

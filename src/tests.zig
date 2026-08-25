@@ -5580,6 +5580,64 @@ test "empty palette lists New Task; query new t still includes it" {
     try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
 }
 
+test "palette Tasks match session model; miss query shows no-results copy" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const port_id = model.session_store[0].id;
+    const selected_before = model.selected;
+    if (model.sessionById(port_id)) |session| {
+        session.setModel("openai/gpt-5.4");
+    }
+    try testing.expectEqualStrings("", model.session_store[1].model());
+
+    main.update(&model, .start_search, &fx);
+    main.update(&model, .{ .search_edit = .{ .insert_text = "gpt-5" } }, &fx);
+    const model_hits = model.palette_rows(arena);
+    try testing.expect(paletteHasLabel(model_hits, "Tasks"));
+    try testing.expect(paletteHasLabel(model_hits, "port waku to zig"));
+    try testing.expect(!paletteHasLabel(model_hits, "fix auth listener"));
+    try testing.expect(!paletteHasLabel(model_hits, "New Task"));
+    try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
+
+    main.update(&model, .{ .search_edit = .clear }, &fx);
+    main.update(&model, .{ .search_edit = .{ .insert_text = "zzzznonexistent" } }, &fx);
+    const miss = model.palette_rows(arena);
+    try testing.expectEqual(@as(usize, 2), miss.len);
+    try testing.expectEqualStrings("No matching tasks or commands", miss[0].label);
+    try testing.expect(miss[0].is_header);
+    try testing.expect(!miss[0].selected);
+    try testing.expect(!miss[0].is_action);
+    try testing.expect(!miss[0].is_session);
+    try testing.expectEqual(main.palette_header_id_base + 4, miss[0].id);
+    try testing.expectEqualStrings("Try a task title, project, provider, model, or command", miss[1].label);
+    try testing.expect(miss[1].is_header);
+    try testing.expect(!miss[1].selected);
+    try testing.expect(!paletteHasLabel(miss, "New Task"));
+    try testing.expect(!paletteHasLabel(miss, "port waku to zig"));
+    try testing.expect(!paletteHasLabel(miss, "fix auth listener"));
+
+    const tree = try buildTree(arena, &model);
+    const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    try testing.expectEqualStrings("Command palette", widgetName(dialog));
+    _ = try expectByText(dialog, .text, "No matching tasks or commands");
+    _ = try expectByText(dialog, .text, "Try a task title, project, provider, model, or command");
+    try testing.expect(findPressableContaining(dialog, "New Task") == null);
+    try testing.expect(findPressableContaining(dialog, "port waku to zig") == null);
+    try testing.expect(findPressableContaining(dialog, "fix auth listener") == null);
+
+    main.update(&model, .palette_confirm, &fx);
+    try testing.expect(model.palette_open);
+    try testing.expectEqual(selected_before, model.selected);
+    try testing.expectEqualStrings("zzzznonexistent", model.search_query());
+}
+
 test "palette query matching a demo session lists that session; confirm selects and focuses" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
