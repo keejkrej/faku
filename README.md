@@ -246,7 +246,10 @@ cycles `build` / `plan`, and the model chip is a Native select whose
 dropdown lists stored ACP model options, or else `FX_MODEL` (empty) and
 last-used; Cmd/Ctrl-/ toggles that picker. Settings `FX_MODEL` stays a
 free-text last-used field. Settings Ask / Auto / Full access stay
-segmented buttons. The composer effort chip is a Native select listing
+segmented buttons. Settings also edits last interaction (Build/Plan)
+and last effort (fx's documented closed set); those remain `last_*`
+defaults for new sessions, while composer chips stay the
+selected-session toggle. The composer effort chip is a Native select listing
 fx's documented effort values (auto / none / minimal / low / medium /
 high / xhigh / max), persists on the session / `last_reasoning_effort`,
 and rides daemon `StartOptions.reasoningEffort`. One-shot `fx acp` does

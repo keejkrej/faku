@@ -6294,11 +6294,15 @@ test "settings gear opens the panel; Esc and gear return to the session" {
     _ = try expectByText(tree.root, .text, "Settings");
     _ = try expectByText(tree.root, .text, "Default model");
     _ = try expectByText(tree.root, .text, "Access mode");
+    _ = try expectByText(tree.root, .text, "Interaction");
+    _ = try expectByText(tree.root, .text, "Effort");
     _ = try expectByText(tree.root, .text, "Last project path");
     _ = try expectByText(tree.root, .text, "Daemon address");
     _ = try expectButton(tree.root, "Ask");
     _ = try expectButton(tree.root, "Auto");
     _ = try expectButton(tree.root, "Full access");
+    _ = try expectButton(tree.root, "Build");
+    _ = try expectSelectMsg(tree, "Auto", .toggle_settings_effort_picker);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "FX_MODEL") != null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Workspace path") != null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "host:port") != null);
@@ -6869,6 +6873,185 @@ test "settings access buttons still write lastAccessMode; composer selected uses
     try testing.expect(full.state.selected);
     const ask_row = try expectByText(tree.root, .menu_item, "Ask");
     try testing.expect(!ask_row.state.selected);
+}
+
+test "settings Interaction Plan writes lastInteractionMode; selected session stays build" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-settings-interaction", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+    try testing.expectEqualStrings("build", model.session_store[0].interactionMode());
+    try testing.expectEqualStrings("Build", model.interaction_label());
+    try testing.expect(model.interaction_build());
+    try testing.expect(!model.interaction_plan());
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    var tree = try buildTree(arena, &model);
+    const plan = try expectButtonMsg(tree, "Plan", .settings_interaction_plan);
+    main.update(&model, tree.msgForPointer(plan.id, .up).?, &fx);
+    try testing.expectEqualStrings("plan", model.lastInteractionMode());
+    try testing.expect(model.interaction_plan());
+    try testing.expect(!model.interaction_build());
+    try testing.expectEqualStrings("build", model.session_store[0].interactionMode());
+    try testing.expectEqualStrings("Build", model.interaction_label());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings("plan", loaded.lastInteractionMode());
+    try testing.expectEqualStrings("build", loaded.session_store[0].interactionMode());
+
+    const inherited = loaded.addSession("untitled next", .fx);
+    try testing.expectEqualStrings("plan", loaded.sessionById(inherited).?.interactionMode());
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(!model.settings_open);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Build", .cycle_interaction);
+    try testing.expectEqualStrings("Build", model.interaction_label());
+}
+
+test "settings Effort select lists fx documented values; pick High writes lastReasoningEffort" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-settings-effort", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+    try testing.expectEqualStrings("auto", model.session_store[0].reasoningEffort());
+    try testing.expectEqualStrings("Auto", model.effort_label());
+    try testing.expectEqualStrings("Auto", model.settings_effort_label());
+    try testing.expect(model.effort_selected_auto());
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expect(!model.settings_effort_picker_open);
+    model.effort_picker_open = true;
+    var tree = try buildTree(arena, &model);
+    const chip = try expectSelectMsg(tree, "Auto", .toggle_settings_effort_picker);
+    main.update(&model, tree.msgForPointer(chip.id, .up).?, &fx);
+    try testing.expect(model.settings_effort_picker_open);
+    try testing.expect(!model.effort_picker_open);
+    try testing.expect(!model.access_picker_open);
+    try testing.expect(!model.model_picker_open);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
+    const rows = [_]struct { value: []const u8, label: []const u8 }{
+        .{ .value = "auto", .label = "Auto" },
+        .{ .value = "none", .label = "None" },
+        .{ .value = "minimal", .label = "Minimal" },
+        .{ .value = "low", .label = "Low" },
+        .{ .value = "medium", .label = "Medium" },
+        .{ .value = "high", .label = "High" },
+        .{ .value = "xhigh", .label = "Extra high" },
+        .{ .value = "max", .label = "Max" },
+    };
+    for (rows) |row| {
+        const item = try expectByText(tree.root, .menu_item, row.label);
+        switch (tree.msgForPointer(item.id, .up).?) {
+            .pick_settings_effort => |picked| try testing.expectEqualStrings(row.value, picked),
+            else => return error.WrongMsg,
+        }
+        if (std.mem.eql(u8, row.value, "auto")) {
+            try testing.expect(item.state.selected);
+        } else {
+            try testing.expect(!item.state.selected);
+        }
+    }
+
+    const high = try expectByText(tree.root, .menu_item, "High");
+    switch (tree.msgForPointer(high.id, .up).?) {
+        .pick_settings_effort => |picked| try testing.expectEqualStrings("high", picked),
+        else => return error.WrongMsg,
+    }
+    main.update(&model, tree.msgForPointer(high.id, .up).?, &fx);
+    try testing.expect(!model.settings_effort_picker_open);
+    try testing.expectEqualStrings("high", model.lastReasoningEffort());
+    try testing.expectEqualStrings("High", model.settings_effort_label());
+    try testing.expectEqualStrings("auto", model.session_store[0].reasoningEffort());
+    try testing.expectEqualStrings("Auto", model.effort_label());
+    try testing.expect(model.effort_selected_auto());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings("high", loaded.lastReasoningEffort());
+    try testing.expectEqualStrings("auto", loaded.session_store[0].reasoningEffort());
+    try testing.expectEqualStrings("Auto", loaded.effort_label());
+    try testing.expectEqualStrings("High", loaded.settings_effort_label());
+
+    const inherited = loaded.addSession("untitled next", .fx);
+    try testing.expectEqualStrings("high", loaded.sessionById(inherited).?.reasoningEffort());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectSelectMsg(tree, "High", .toggle_settings_effort_picker);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+}
+
+test "Esc with settings effort menu open closes the menu and leaves settings open" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expect(!model.settings_effort_picker_open);
+
+    var tree = try buildTree(arena, &model);
+    const chip = try expectSelectMsg(tree, "Auto", .toggle_settings_effort_picker);
+    main.update(&model, tree.msgForPointer(chip.id, .up).?, &fx);
+    try testing.expect(model.settings_effort_picker_open);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expect(!model.settings_effort_picker_open);
+    try testing.expect(model.settings_open);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+    _ = try expectByText(tree.root, .text, "Settings");
+    _ = try expectByText(tree.root, .text, "Effort");
+    _ = try expectSelectMsg(tree, "Auto", .toggle_settings_effort_picker);
+    try testing.expect(findByText(tree.root, .button, "Send") == null);
 }
 
 test "composer effort chip persists reasoning_effort and last_reasoning_effort" {
