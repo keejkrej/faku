@@ -280,14 +280,9 @@
                   <select placeholder="Effort" on-press="toggle_effort_picker">{effort_label}</select>
                   <if test="{effort_picker_open}">
                     <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_effort_picker">
-                      <menu-item selected="{effort_selected_auto}" on-press="pick_effort:auto">Auto</menu-item>
-                      <menu-item selected="{effort_selected_none}" on-press="pick_effort:none">None</menu-item>
-                      <menu-item selected="{effort_selected_minimal}" on-press="pick_effort:minimal">Minimal</menu-item>
-                      <menu-item selected="{effort_selected_low}" on-press="pick_effort:low">Low</menu-item>
-                      <menu-item selected="{effort_selected_medium}" on-press="pick_effort:medium">Medium</menu-item>
-                      <menu-item selected="{effort_selected_high}" on-press="pick_effort:high">High</menu-item>
-                      <menu-item selected="{effort_selected_xhigh}" on-press="pick_effort:xhigh">Extra high</menu-item>
-                      <menu-item selected="{effort_selected_max}" on-press="pick_effort:max">Max</menu-item>
+                      <for each="effort_picker_rows" key="row_id" as="e">
+                        <menu-item selected="{e.selected}" on-press="pick_effort:{e.id}">{e.label}</menu-item>
+                      </for>
                     </dropdown-menu>
                   </if>
                 </stack>
@@ -295,9 +290,9 @@
                   <select placeholder="Access" on-press="toggle_access_picker">{access_label}</select>
                   <if test="{access_picker_open}">
                     <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_access_picker">
-                      <menu-item selected="{access_selected_ask}" on-press="pick_access:ask">Ask</menu-item>
-                      <menu-item selected="{access_selected_auto}" on-press="pick_access:auto">Auto</menu-item>
-                      <menu-item selected="{access_selected_full}" on-press="pick_access:fullAccess">Full access</menu-item>
+                      <for each="access_picker_rows" key="row_id" as="a">
+                        <menu-item selected="{a.selected}" on-press="pick_access:{a.id}">{a.label}</menu-item>
+                      </for>
                     </dropdown-menu>
                   </if>
                 </stack>

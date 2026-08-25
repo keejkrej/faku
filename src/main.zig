@@ -552,6 +552,32 @@ pub const ModelPickerRow = struct {
     selected: bool,
 };
 
+/// Composer access/effort picker row. `row_id` is a 1-based Native `for` key.
+/// `id` is the stored chip value (ask/auto/fullAccess, or fx effort).
+pub const ChipPickerRow = struct {
+    row_id: u32,
+    id: []const u8,
+    label: []const u8,
+    selected: bool,
+};
+
+const access_chip_options = [_]struct { id: []const u8, label: []const u8 }{
+    .{ .id = "ask", .label = "Ask" },
+    .{ .id = "auto", .label = "Auto" },
+    .{ .id = "fullAccess", .label = "Full access" },
+};
+
+const effort_chip_options = [_]struct { id: []const u8, label: []const u8 }{
+    .{ .id = "auto", .label = "Auto" },
+    .{ .id = "none", .label = "None" },
+    .{ .id = "minimal", .label = "Minimal" },
+    .{ .id = "low", .label = "Low" },
+    .{ .id = "medium", .label = "Medium" },
+    .{ .id = "high", .label = "High" },
+    .{ .id = "xhigh", .label = "Extra high" },
+    .{ .id = "max", .label = "Max" },
+};
+
 /// Local command-palette row. `id` is never 0: actions use
 /// `palette_action_id_base + kind`, sessions use the session id,
 /// section headers use `palette_header_id_base + n`.
@@ -912,6 +938,17 @@ pub const Model = struct {
         "toggleEffortPicker",
         "closeEffortPicker",
         "closeComposerPickers",
+        "access_selected_ask",
+        "access_selected_auto",
+        "access_selected_full",
+        "effort_selected_auto",
+        "effort_selected_none",
+        "effort_selected_minimal",
+        "effort_selected_low",
+        "effort_selected_medium",
+        "effort_selected_high",
+        "effort_selected_xhigh",
+        "effort_selected_max",
         "startProjectEdit",
         "closeProjectEdit",
         "applySelectedProjectPath",
@@ -1272,6 +1309,34 @@ pub const Model = struct {
                 .id = last,
                 .label = last,
                 .selected = std.mem.eql(u8, current, last),
+            };
+        }
+        return out;
+    }
+
+    pub fn access_picker_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
+        const current = accessLabel(model.resolvedAccessMode());
+        const out = arena.alloc(ChipPickerRow, access_chip_options.len) catch return &.{};
+        for (access_chip_options, 0..) |opt, index| {
+            out[index] = .{
+                .row_id = @intCast(index + 1),
+                .id = opt.id,
+                .label = opt.label,
+                .selected = std.mem.eql(u8, current, opt.label),
+            };
+        }
+        return out;
+    }
+
+    pub fn effort_picker_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
+        const current = effortLabel(model.resolvedReasoningEffort());
+        const out = arena.alloc(ChipPickerRow, effort_chip_options.len) catch return &.{};
+        for (effort_chip_options, 0..) |opt, index| {
+            out[index] = .{
+                .row_id = @intCast(index + 1),
+                .id = opt.id,
+                .label = opt.label,
+                .selected = std.mem.eql(u8, current, opt.label),
             };
         }
         return out;
