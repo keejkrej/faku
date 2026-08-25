@@ -642,6 +642,8 @@ pub const Msg = union(enum) {
     stop,
     clear_queue,
     remove_queued: u32,
+    /// Click a queued follow-up: restore its text to the composer and drop it.
+    edit_queued: u32,
     toggle_sidebar,
     toggle_settings,
     settings_model_edit: canvas.TextInputEvent,
@@ -895,6 +897,7 @@ pub const Model = struct {
         "next_queued_id",
         "queued_text",
         "dropQueued",
+        "takeQueued",
         "sidebar_collapsed",
         "sidebar_last_width",
         "sidebarWidthPixels",
@@ -2409,6 +2412,20 @@ pub const Model = struct {
         return false;
     }
 
+    /// Copy that queued item's text into dest, compact it out like
+    /// `dropQueued`, and return the copied length. Unknown id → null.
+    pub fn takeQueued(model: *Model, id: u32, dest: []u8) ?usize {
+        var i: usize = 0;
+        while (i < model.queued_count) : (i += 1) {
+            if (model.queued_store[i].id != id) continue;
+            const n = @min(dest.len, model.queued_store[i].text_len);
+            @memcpy(dest[0..n], model.queued_store[i].text_storage[0..n]);
+            if (!model.dropQueued(id)) return null;
+            return n;
+        }
+        return null;
+    }
+
     pub fn restoreSession(
         model: *Model,
         id: u32,
@@ -3460,6 +3477,26 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             if (model.dropQueued(id)) {
                 store.persistIfPossible(model, model.selected, fx);
             }
+        },
+        .edit_queued => |id| {
+            var found = false;
+            for (model.queued_store[0..model.queued_count]) |item| {
+                if (item.id != id) continue;
+                found = true;
+                if (std.mem.trim(u8, item.text(), " \t\r\n").len == 0) return;
+                break;
+            }
+            if (!found) return;
+            var copy: [max_queued_text]u8 = undefined;
+            const n = model.takeQueued(id, &copy) orelse return;
+            const text = std.mem.trim(u8, copy[0..n], " \t\r\n");
+            if (text.len == 0) return;
+            model.draft_buffer.set(text);
+            model.clearImageAttach();
+            model.composer_active = true;
+            store.persistIfPossible(model, model.selected, fx);
+            store.persistDraftIfPossible(model);
+            refreshAttachPreview(model, fx);
         },
         .toggle_sidebar => {
             model.toggleSidebar();

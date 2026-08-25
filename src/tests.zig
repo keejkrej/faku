@@ -6080,8 +6080,14 @@ test "send while busy shows a queued card that dismiss clears" {
     _ = try expectByText(tree.root, .text, "follow up later");
     _ = try expectButton(tree.root, "port waku to zig");
     _ = try expectButton(tree.root, "fix auth listener");
+    const queued_row = try expectByText(tree.root, .list_item, "follow up later");
+    try testing.expectEqual(Msg{ .edit_queued = model.queued_store[0].id }, tree.msgForPointer(queued_row.id, .up).?);
+    var queued_removes: [2]canvas.Widget = undefined;
+    try testing.expectEqual(@as(usize, 1), collectByText(tree.root, .button, "Remove queued", &queued_removes));
+    try testing.expectEqual(Msg{ .remove_queued = model.queued_store[0].id }, tree.msgForPointer(queued_removes[0].id, .up).?);
 
     const dismiss = try expectByText(tree.root, .button, "Dismiss all");
+    try testing.expectEqual(Msg.clear_queue, tree.msgForPointer(dismiss.id, .up).?);
     main.update(&model, tree.msgForPointer(dismiss.id, .up).?, &fx);
     try testing.expect(!model.has_queued());
     try testing.expectEqual(@as(u32, 0), model.queuedCount(session_id));
@@ -6134,15 +6140,23 @@ test "queued card lists each follow-up; drop one persists the rest; dismiss all 
     try testing.expectEqual(@as(usize, 1), countByText(tree.root, .text, "and the status bar"));
     try testing.expect(!findAnyText(tree.root, "then the composer\nand the status bar"));
     try testing.expect(!findAnyText(tree.root, "then the composer and the status bar"));
+    const first_row = try expectByText(tree.root, .list_item, "then the composer");
+    const second_row = try expectByText(tree.root, .list_item, "and the status bar");
+    try testing.expectEqual(Msg{ .edit_queued = first_id }, tree.msgForPointer(first_row.id, .up).?);
+    try testing.expectEqual(Msg{ .edit_queued = second_id }, tree.msgForPointer(second_row.id, .up).?);
     var removes: [4]canvas.Widget = undefined;
     try testing.expectEqual(@as(usize, 2), collectByText(tree.root, .button, "Remove queued", &removes));
     try testing.expectEqual(Msg{ .remove_queued = first_id }, tree.msgForPointer(removes[0].id, .up).?);
     try testing.expectEqual(Msg{ .remove_queued = second_id }, tree.msgForPointer(removes[1].id, .up).?);
+    const dismiss_bind = try expectByText(tree.root, .button, "Dismiss all");
+    try testing.expectEqual(Msg.clear_queue, tree.msgForPointer(dismiss_bind.id, .up).?);
 
     main.update(&model, tree.msgForPointer(removes[0].id, .up).?, &fx);
     try testing.expectEqual(@as(u32, 1), model.queuedCount(session_id));
     try testing.expectEqualStrings("and the status bar", model.firstQueuedText(session_id));
     try testing.expectEqual(second_id, model.queued_store[0].id);
+    try testing.expectEqual(@as(usize, 0), model.draft().len);
+    try testing.expect(!model.composer_active);
     try testing.expect(model.is_streaming());
 
     tree = try buildTree(arena, &model);
@@ -6175,6 +6189,74 @@ test "queued card lists each follow-up; drop one persists the rest; dismiss all 
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&cleared, testing.allocator, testing.io));
     store.hydrateSession(&cleared, session_id, testing.allocator, testing.io);
     try testing.expectEqual(@as(u32, 0), cleared.queuedCount(session_id));
+}
+
+test "click queued follow-up restores composer and persists the remaining item" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-queue-edit", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const session_id = model.selected;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first prompt" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "then the composer" } }, &fx);
+    main.update(&model, .send, &fx);
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "and the status bar" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(@as(u32, 2), model.queuedCount(session_id));
+    const rows = model.queued_rows(arena);
+    try testing.expectEqual(@as(usize, 2), rows.len);
+    const first_id = rows[0].id;
+    const second_id = rows[1].id;
+
+    var tree = try buildTree(arena, &model);
+    const first_row = try expectByText(tree.root, .list_item, "then the composer");
+    const second_row = try expectByText(tree.root, .list_item, "and the status bar");
+    try testing.expectEqual(Msg{ .edit_queued = first_id }, tree.msgForPointer(first_row.id, .up).?);
+    try testing.expectEqual(Msg{ .edit_queued = second_id }, tree.msgForPointer(second_row.id, .up).?);
+    var removes: [4]canvas.Widget = undefined;
+    try testing.expectEqual(@as(usize, 2), collectByText(tree.root, .button, "Remove queued", &removes));
+    try testing.expectEqual(Msg{ .remove_queued = first_id }, tree.msgForPointer(removes[0].id, .up).?);
+    try testing.expectEqual(Msg{ .remove_queued = second_id }, tree.msgForPointer(removes[1].id, .up).?);
+    try testing.expectEqual(Msg.clear_queue, tree.msgForPointer((try expectByText(tree.root, .button, "Dismiss all")).id, .up).?);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "will be discarded" } }, &fx);
+    model.setDraftImagePath("/tmp/queued-edit-discard.png");
+    try testing.expectEqualStrings("will be discarded", model.draft());
+    try testing.expectEqualStrings("/tmp/queued-edit-discard.png", model.draftImagePath());
+
+    main.update(&model, tree.msgForPointer(first_row.id, .up).?, &fx);
+    try testing.expectEqualStrings("then the composer", model.draft());
+    try testing.expectEqual(@as(usize, 0), model.draftImagePath().len);
+    try testing.expectEqual(@as(u32, 1), model.queuedCount(session_id));
+    try testing.expectEqualStrings("and the status bar", model.firstQueuedText(session_id));
+    try testing.expectEqual(second_id, model.queued_store[0].id);
+    try testing.expect(model.has_queued());
+    try testing.expect(model.composer_active);
+    try testing.expect(model.is_streaming());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    store.hydrateSession(&loaded, session_id, testing.allocator, testing.io);
+    try testing.expectEqual(@as(u32, 1), loaded.queuedCount(session_id));
+    try testing.expectEqualStrings("and the status bar", loaded.firstQueuedText(session_id));
+    try testing.expectEqual(second_id, loaded.queued_store[0].id);
 }
 
 fn findByPlaceholder(widget: canvas.Widget, kind: canvas.WidgetKind, placeholder: []const u8) ?canvas.Widget {
