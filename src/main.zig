@@ -474,8 +474,10 @@ pub const TurnRow = struct {
     is_reasoning: bool,
 };
 
-/// Stored ACP command for the composer Commands list. `id` is 1-based
-/// so Native `insert_command:{c.id}` never binds 0.
+/// Stored ACP command for the composer Commands list. `id` is a 1-based
+/// index into the session's stored commands (stable across slash
+/// filters) so Native `insert_command:{c.id}` never binds 0 and a
+/// filtered click still inserts that row, not a neighbor.
 pub const CommandRow = struct {
     id: u32,
     slash_name: []const u8,
@@ -1011,12 +1013,16 @@ pub const Model = struct {
         const session = model.sessionByIdConst(model.selected) orelse return &.{};
         const commands = session.availableCommands();
         if (commands.len == 0) return &.{};
+        const prefix = slashCommandPrefix(model.draft());
         const out = arena.alloc(CommandRow, commands.len) catch return &.{};
         var i: usize = 0;
-        for (commands) |*cmd| {
+        for (commands, 0..) |*cmd, index| {
+            if (prefix) |filter| {
+                if (!commandNameStartsWith(cmd.name(), filter)) continue;
+            }
             const slash = std.fmt.allocPrint(arena, "/{s}", .{cmd.name()}) catch continue;
             out[i] = .{
-                .id = @intCast(i + 1),
+                .id = @intCast(index + 1),
                 .slash_name = slash,
                 .description = cmd.description(),
                 .has_description = cmd.description().len > 0,
@@ -1124,10 +1130,18 @@ pub const Model = struct {
         return session.available_command_count > 0;
     }
 
-    /// Commands button stays visible when the list is stored; the list
-    /// itself only renders while toggled open.
+    /// Commands button stays visible when the list is stored. The card
+    /// renders when the button toggled it open or the composer draft is
+    /// an active slash prefix. A slash filter with no name matches hides
+    /// the card so a mistype does not leave an empty box.
     pub fn commands_list_open(model: *const Model) bool {
-        return model.commands_open and model.has_commands();
+        if (!model.has_commands()) return false;
+        const prefix = slashCommandPrefix(model.draft());
+        if (!model.commands_open and prefix == null) return false;
+        if (prefix) |filter| {
+            if (filter.len > 0 and !hasCommandNamePrefix(model, filter)) return false;
+        }
+        return true;
     }
 
     pub fn queued_text(model: *const Model) []const u8 {
@@ -2162,6 +2176,32 @@ fn effectiveFolderId(model: *const Model, session: *const Session) u32 {
 fn folderTitleTaken(model: *const Model, title: []const u8) bool {
     for (model.folder_store[0..model.folder_count]) |*folder| {
         if (std.mem.eql(u8, folder.title(), title)) return true;
+    }
+    return false;
+}
+
+/// Active slash prefix: draft starts with `/` and the first token has
+/// no whitespace yet. Returns the name after `/` (`""` for `/` alone).
+/// `/commit ` or later text is a completed command — not a prefix.
+fn slashCommandPrefix(draft: []const u8) ?[]const u8 {
+    if (draft.len == 0 or draft[0] != '/') return null;
+    const rest = draft[1..];
+    for (rest) |c| {
+        if (std.ascii.isWhitespace(c)) return null;
+    }
+    return rest;
+}
+
+fn commandNameStartsWith(name: []const u8, prefix: []const u8) bool {
+    if (prefix.len == 0) return true;
+    if (prefix.len > name.len) return false;
+    return asciiEqlIgnoreCase(name[0..prefix.len], prefix);
+}
+
+fn hasCommandNamePrefix(model: *const Model, prefix: []const u8) bool {
+    const session = model.sessionByIdConst(model.selected) orelse return false;
+    for (session.availableCommands()) |*cmd| {
+        if (commandNameStartsWith(cmd.name(), prefix)) return true;
     }
     return false;
 }
