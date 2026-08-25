@@ -1738,8 +1738,12 @@ pub const Model = struct {
 
     pub fn pickSelectedModel(model: *Model, id: []const u8) void {
         const session = model.sessionById(model.selected) orelse return;
-        session.setModel(id);
-        if (id.len > 0) model.setLastModel(id);
+        var copy: [max_fx_model]u8 = undefined;
+        const take = @min(id.len, copy.len);
+        @memcpy(copy[0..take], id[0..take]);
+        const chosen = copy[0..take];
+        session.setModel(chosen);
+        if (chosen.len > 0) model.setLastModel(chosen);
         model.closeModelPicker();
     }
 
