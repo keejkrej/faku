@@ -8780,3 +8780,176 @@ test "ACP usage_update fills the composer progress; missing usage stays empty" {
     _ = try expectByText(tree.root, .button, "choose a project");
     _ = try expectByText(tree.root, .button, "Build");
 }
+
+test "idle sidebar has no spinner; Send shows one on the busy session only" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const selected_id = model.selected;
+    const other_id = model.session_store[1].id;
+    try testing.expectEqualStrings("port waku to zig", model.selected_title());
+    try testing.expect(!model.sessionById(selected_id).?.busy);
+    try testing.expect(!model.sessionById(other_id).?.busy);
+    for (model.sidebar_rows(arena)) |row| {
+        try testing.expect(!row.busy);
+    }
+
+    var tree = try buildTree(arena, &model);
+    try testing.expectEqual(@as(usize, 0), countByKind(tree.root, .spinner));
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "spin the sidebar" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expect(model.sessionById(selected_id).?.busy);
+    try testing.expect(!model.sessionById(other_id).?.busy);
+    const rows = model.sidebar_rows(arena);
+    try testing.expect(rows[0].busy);
+    try testing.expect(!rows[0].is_header);
+    try testing.expect(!rows[1].busy);
+
+    tree = try buildTree(arena, &model);
+    const busy_row = try expectByText(tree.root, .list_item, "port waku to zig");
+    try testing.expect(findByKind(busy_row, .spinner) != null);
+    const idle_row = try expectByText(tree.root, .list_item, "fix auth listener");
+    try testing.expect(findByKind(idle_row, .spinner) == null);
+    try testing.expectEqual(@as(usize, 1), countByKind(tree.root, .spinner));
+    _ = try expectByText(busy_row, .text, "port waku to zig");
+    _ = try expectByText(busy_row, .text, "fx");
+}
+
+test "Stop and Esc clear the sidebar spinner and session.busy" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const session_id = model.selected;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "stop the spinner" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.sessionById(session_id).?.busy);
+
+    main.update(&model, .stop, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expect(!model.sessionById(session_id).?.busy);
+    var tree = try buildTree(arena, &model);
+    try testing.expectEqual(@as(usize, 0), countByKind(tree.root, .spinner));
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "escape the spinner" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.sessionById(session_id).?.busy);
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expect(!model.sessionById(session_id).?.busy);
+    tree = try buildTree(arena, &model);
+    try testing.expectEqual(@as(usize, 0), countByKind(tree.root, .spinner));
+}
+
+test "successful demo finish clears the sidebar spinner" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const session_id = model.selected;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "finish the spinner" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.sessionById(session_id).?.busy);
+
+    var n: u32 = 0;
+    while (n < 16 and model.is_streaming()) : (n += 1) {
+        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+    }
+    try testing.expect(!model.is_streaming());
+    try testing.expect(!model.sessionById(session_id).?.busy);
+    const tree = try buildTree(arena, &model);
+    try testing.expectEqual(@as(usize, 0), countByKind(tree.root, .spinner));
+    try testing.expect(findByKind(try expectByText(tree.root, .list_item, "port waku to zig"), .spinner) == null);
+}
+
+test "grouped folder session spinner stays inside the railed list-item" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .new_folder, &fx);
+    const folder_id = model.folder_store[0].id;
+    const auth_id = model.session_store[1].id;
+    main.update(&model, .{ .assign_folder = .{ .session_id = auth_id, .folder_id = folder_id } }, &fx);
+    main.update(&model, .{ .select = auth_id }, &fx);
+    try testing.expectEqual(folder_id, model.sessionById(auth_id).?.folder_id);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "grouped spinner" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.sessionById(auth_id).?.busy);
+
+    const rows = model.sidebar_rows(arena);
+    try expectSidebarTitles(rows, &.{
+        "port waku to zig",
+        "New folder",
+        "fix auth listener",
+    });
+    try testing.expect(!rows[0].grouped);
+    try testing.expect(!rows[0].busy);
+    try testing.expect(rows[1].is_header);
+    try testing.expect(!rows[1].busy);
+    try testing.expect(rows[2].grouped);
+    try testing.expect(rows[2].busy);
+
+    const tree = try buildTree(arena, &model);
+    const grouped = try expectByText(tree.root, .list_item, "fix auth listener");
+    try testing.expect(findByKind(grouped, .spinner) != null);
+    try testing.expect(sessionRowHasGroupRail(tree.root, "fix auth listener"));
+    try testing.expect(!sessionRowHasGroupRail(tree.root, "port waku to zig"));
+    try testing.expect(findByKind(try expectByText(tree.root, .list_item, "port waku to zig"), .spinner) == null);
+    try testing.expectEqual(@as(usize, 1), countByKind(tree.root, .spinner));
+}
+
+test "catalog load after a busy Send does not restore session.busy" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-busy-spinner", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const session_id = model.selected;
+    try store.saveStartedSessions(&model, testing.allocator, testing.io);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "do not persist busy" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.sessionById(session_id).?.busy);
+    store.persistIfPossible(&model, session_id, &fx);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    store.hydrateSession(&loaded, session_id, testing.allocator, testing.io);
+    try testing.expect(!loaded.sessionById(session_id).?.busy);
+}
