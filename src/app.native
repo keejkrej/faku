@@ -21,19 +21,12 @@
               <text>New Task</text>
             </row>
           </list-item>
-          <if test="{search_active}">
-            <row height="32" cross="center">
-              <search-field grow="1" height="32" placeholder="Search" text="{search_query}" on-input="search_edit" autofocus="true" />
+          <list-item height="32" on-press="start_search" label="Search">
+            <row gap="10" cross="center" padding="4">
+              <icon name="search" />
+              <text>Search</text>
             </row>
-          </if>
-          <else>
-            <list-item height="32" on-press="start_search" label="Search">
-              <row gap="10" cross="center" padding="4">
-                <icon name="search" />
-                <text>Search</text>
-              </row>
-            </list-item>
-          </else>
+          </list-item>
           <spacer height="10" />
           <row height="28" cross="center">
             <spacer width="8" />
@@ -335,6 +328,41 @@
       </else>
     </column>
   </split>
+  <if test="{palette_open}">
+    <dialog text="Command palette" width="680" height="480" padding="16" on-dismiss="palette_cancel">
+      <column gap="8">
+        <spacer height="34"></spacer>
+        <search-field grow="1" height="60" placeholder="Search" text="{search_query}" on-input="search_edit" autofocus="true" />
+        <scroll grow="1">
+          <column>
+            <for each="palette_rows" key="id" as="r">
+              <if test="{r.is_header}">
+                <row height="30" cross="center">
+                  <text foreground="text_muted">{r.label}</text>
+                </row>
+              </if>
+              <else>
+                <list-item height="44" selected="{r.selected}" on-press="palette_pick:{r.id}" on-submit="palette_pick:{r.id}" label="{r.label}">
+                  <row gap="2" cross="center" padding="8">
+                    <column gap="2" grow="1">
+                      <text wrap="false" overflow="ellipsis">{r.label}</text>
+                      <if test="{r.is_session}">
+                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{r.detail}</text>
+                      </if>
+                    </column>
+                  </row>
+                </list-item>
+              </else>
+            </for>
+          </column>
+        </scroll>
+        <row gap="8" main="end">
+          <button variant="ghost" on-press="palette_cancel">Cancel</button>
+          <button variant="primary" on-press="palette_confirm">Confirm</button>
+        </row>
+      </column>
+    </dialog>
+  </if>
   <if test="{switcher_open}">
     <dialog text="Switch session" width="420" height="420" padding="16" on-dismiss="switcher_cancel">
       <column gap="8">

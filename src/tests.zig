@@ -4500,7 +4500,7 @@ test "new task and cmd-n focus the composer via the same autofocus edge" {
     var model = main.initialModel();
     try testing.expectEqual(@as(u32, 2), model.session_count);
     try testing.expect(!model.composer_active);
-    try testing.expect(!model.search_active);
+    try testing.expect(!model.palette_open);
 
     var tree = try buildTree(arena, &model);
     const new_btn = try expectButton(tree.root, "New Task");
@@ -4524,7 +4524,7 @@ test "new task and cmd-n focus the composer via the same autofocus edge" {
     _ = try expectByText(tree.root, .button, "Copy session");
 
     main.update(&model, .start_search, &fx);
-    try testing.expect(model.search_active);
+    try testing.expect(model.palette_open);
     try testing.expect(!model.composer_active);
 
     tree = try buildTree(arena, &model);
@@ -4546,7 +4546,7 @@ test "new task and cmd-n focus the composer via the same autofocus edge" {
     try testing.expectEqual(@as(u32, 4), model.session_count);
     try testing.expect(model.sessionById(model.selected).?.untitled);
     try testing.expect(model.composer_active);
-    try testing.expect(model.search_active);
+    try testing.expect(model.palette_open);
 
     tree = try buildTree(arena, &model);
     if (findByKind(tree.root, .textarea)) |composer| {
@@ -4576,7 +4576,7 @@ test "selecting a session focuses the composer; rename and search do not" {
     const auth_id = model.session_store[1].id;
     try testing.expectEqual(port_id, model.selected);
     try testing.expect(!model.composer_active);
-    try testing.expect(!model.search_active);
+    try testing.expect(!model.palette_open);
     try testing.expectEqual(@as(u32, 0), model.editing_session_id);
     try testing.expectEqual(@as(u32, 0), model.editing_folder_id);
 
@@ -4623,10 +4623,10 @@ test "selecting a session focuses the composer; rename and search do not" {
     try testing.expectEqual(auth_id, model.selected);
 
     main.update(&model, .start_search, &fx);
-    try testing.expect(model.search_active);
+    try testing.expect(model.palette_open);
     try testing.expect(!model.composer_active);
     main.update(&model, .{ .search_edit = .{ .insert_text = "auth" } }, &fx);
-    try testing.expect(model.search_active);
+    try testing.expect(model.palette_open);
     try testing.expect(!model.composer_active);
     try testing.expectEqual(auth_id, model.selected);
 
@@ -4640,7 +4640,7 @@ test "selecting a session focuses the composer; rename and search do not" {
     } else return error.WidgetNotFound;
 
     main.update(&model, .stop, &fx);
-    try testing.expect(!model.search_active);
+    try testing.expect(!model.palette_open);
     try testing.expectEqual(auth_id, model.selected);
 
     main.update(&model, .new_folder, &fx);
@@ -5152,6 +5152,13 @@ fn expectSidebarTitles(rows: []const main.SidebarRow, expected: []const []const 
     }
 }
 
+fn paletteHasLabel(rows: []const main.PaletteRow, label: []const u8) bool {
+    for (rows) |row| {
+        if (std.mem.eql(u8, row.label, label)) return true;
+    }
+    return false;
+}
+
 fn expectOneLineEllipsis(widget: canvas.Widget, grow: ?f32) !void {
     try testing.expect(widget.kind == .text);
     if (@hasField(canvas.Widget, "text_no_wrap")) {
@@ -5186,7 +5193,7 @@ fn sessionRowHasGroupRail(widget: canvas.Widget, title: []const u8) bool {
     return false;
 }
 
-test "sidebar search filters the local catalog by title substring" {
+test "sidebar Search opens the command palette; title match stays in Tasks" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -5198,7 +5205,7 @@ test "sidebar search filters the local catalog by title substring" {
     var model = main.initialModel();
     try testing.expectEqual(@as(u32, 2), model.session_count);
     try testing.expectEqualStrings("", model.search_query());
-    try testing.expect(!model.search_active);
+    try testing.expect(!model.palette_open);
 
     var rows = model.session_rows(arena);
     try expectRowTitles(rows, &.{ "port waku to zig", "fix auth listener" });
@@ -5209,50 +5216,75 @@ test "sidebar search filters the local catalog by title substring" {
     try expectLaidOutHeight(tree.root, search_btn.id, 32);
 
     main.update(&model, tree.msgForPointer(search_btn.id, .up).?, &fx);
-    try testing.expect(model.search_active);
+    try testing.expect(model.palette_open);
     try testing.expectEqualStrings("", model.search_query());
     rows = model.session_rows(arena);
     try expectRowTitles(rows, &.{ "port waku to zig", "fix auth listener" });
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Today");
-    try testing.expect(findPressableContaining(tree.root, "Search") == null);
-    if (findByKind(tree.root, .search_field)) |field| {
+    _ = try expectButton(tree.root, "Search");
+    _ = try expectButton(tree.root, "port waku to zig");
+    _ = try expectButton(tree.root, "fix auth listener");
+    const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    try testing.expectEqualStrings("Command palette", widgetName(dialog));
+    if (findByKind(dialog, .search_field)) |field| {
         try testing.expectEqualStrings("Search", field.placeholder);
-        try expectLaidOutHeight(tree.root, field.id, 32);
+        try expectLaidOutHeight(tree.root, field.id, 60);
+        try testing.expect(field.autofocus);
     } else return error.WidgetNotFound;
+    _ = try expectButton(dialog, "New Task");
 
     main.update(&model, .{ .search_edit = .{ .insert_text = "WAKU" } }, &fx);
     try testing.expectEqualStrings("WAKU", model.search_query());
+    try testing.expect(model.palette_open);
     rows = model.session_rows(arena);
-    try expectRowTitles(rows, &.{"port waku to zig"});
+    try expectRowTitles(rows, &.{ "port waku to zig", "fix auth listener" });
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "port waku to zig"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "fix auth listener"));
 
     tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "port waku to zig");
-    try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
+    _ = try expectButton(tree.root, "fix auth listener");
     _ = try expectByText(tree.root, .text, "Today");
+    const palette = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    _ = try expectButton(palette, "port waku to zig");
+    try testing.expect(findPressableContaining(palette, "fix auth listener") == null);
 
     main.update(&model, .{ .search_edit = .clear }, &fx);
     try testing.expectEqualStrings("", model.search_query());
-    try testing.expect(!model.search_active);
+    try testing.expect(model.palette_open);
     rows = model.session_rows(arena);
     try expectRowTitles(rows, &.{ "port waku to zig", "fix auth listener" });
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
 
     main.update(&model, .{ .search_edit = .{ .insert_text = "auth" } }, &fx);
-    rows = model.session_rows(arena);
-    try expectRowTitles(rows, &.{"fix auth listener"});
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "fix auth listener"));
+    try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
 
     tree = try buildTree(arena, &model);
-    const auth = try expectButton(tree.root, "fix auth listener");
-    main.update(&model, tree.msgForPointer(auth.id, .up).?, &fx);
+    const palette_auth = try expectButton(
+        findByKind(tree.root, .dialog) orelse return error.WidgetNotFound,
+        "fix auth listener",
+    );
+    try testing.expectEqual(
+        Msg{ .palette_pick = model.session_store[1].id },
+        tree.msgForPointer(palette_auth.id, .up).?,
+    );
+    main.update(&model, tree.msgForPointer(palette_auth.id, .up).?, &fx);
     try testing.expectEqualStrings("fix auth listener", model.selected_title());
     try testing.expectEqualStrings("claude", model.selected_provider());
+    try testing.expect(model.composer_active);
+    try testing.expect(!model.palette_open);
     try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
     try testing.expectEqual(@as(usize, 2), countRole(&model, .assistant));
 
+    main.update(&model, .start_search, &fx);
+    main.update(&model, .{ .search_edit = .{ .insert_text = "auth" } }, &fx);
     main.update(&model, .stop, &fx);
     try testing.expectEqualStrings("", model.search_query());
-    try testing.expect(!model.search_active);
+    try testing.expect(!model.palette_open);
     rows = model.session_rows(arena);
     try expectRowTitles(rows, &.{ "port waku to zig", "fix auth listener" });
 
@@ -5260,6 +5292,7 @@ test "sidebar search filters the local catalog by title substring" {
     _ = try expectButton(tree.root, "Search");
     _ = try expectButton(tree.root, "port waku to zig");
     _ = try expectButton(tree.root, "fix auth listener");
+    try testing.expect(findByKind(tree.root, .dialog) == null);
 }
 
 test "sidebar collapse hides the session list and expand restores it" {
@@ -5351,7 +5384,7 @@ test "sidebar collapsed flag reloads and hides the session list" {
     _ = try expectByText(tree.root, .text, "port waku to zig");
 }
 
-test "sidebar search also matches provider and Esc exits" {
+test "palette query also matches provider and Esc closes the palette" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -5361,18 +5394,21 @@ test "sidebar search also matches provider and Esc exits" {
     fx.executor = .fake;
 
     var model = main.initialModel();
+    main.update(&model, .start_search, &fx);
     main.update(&model, .{ .search_edit = .{ .insert_text = "claude" } }, &fx);
-    try expectRowTitles(model.session_rows(arena), &.{"fix auth listener"});
+    try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "fix auth listener"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "port waku to zig"));
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
     try testing.expectEqual(Msg.stop, main.onKey(escape).?);
     main.update(&model, main.onKey(escape).?, &fx);
     try testing.expectEqualStrings("", model.search_query());
-    try testing.expect(!model.search_active);
+    try testing.expect(!model.palette_open);
     try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
 }
 
-test "cmd-k and ctrl-k focus sidebar search via onKey" {
+test "cmd-k and ctrl-k open the command palette via onKey" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -5382,7 +5418,7 @@ test "cmd-k and ctrl-k focus sidebar search via onKey" {
     fx.executor = .fake;
 
     var model = main.initialModel();
-    try testing.expect(!model.search_active);
+    try testing.expect(!model.palette_open);
     try testing.expectEqualStrings("", model.search_query());
 
     const plain_k = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "k" };
@@ -5395,18 +5431,22 @@ test "cmd-k and ctrl-k focus sidebar search via onKey" {
     };
     try testing.expectEqual(Msg.start_search, main.onKey(cmd_k).?);
     main.update(&model, main.onKey(cmd_k).?, &fx);
-    try testing.expect(model.search_active);
+    try testing.expect(model.palette_open);
     try testing.expectEqualStrings("", model.search_query());
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
 
     var tree = try buildTree(arena, &model);
-    try testing.expect(findPressableContaining(tree.root, "Search") == null);
-    if (findByKind(tree.root, .search_field)) |field| {
+    _ = try expectButton(tree.root, "Search");
+    const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    try testing.expectEqualStrings("Command palette", widgetName(dialog));
+    if (findByKind(dialog, .search_field)) |field| {
         try testing.expectEqualStrings("Search", field.placeholder);
-        try expectLaidOutHeight(tree.root, field.id, 32);
+        try expectLaidOutHeight(tree.root, field.id, 60);
+        try testing.expect(field.autofocus);
     } else return error.WidgetNotFound;
 
     main.update(&model, .stop, &fx);
-    try testing.expect(!model.search_active);
+    try testing.expect(!model.palette_open);
 
     const ctrl_k = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
@@ -5415,24 +5455,166 @@ test "cmd-k and ctrl-k focus sidebar search via onKey" {
     };
     try testing.expectEqual(Msg.start_search, main.onKey(ctrl_k).?);
     main.update(&model, main.onKey(ctrl_k).?, &fx);
-    try testing.expect(model.search_active);
+    try testing.expect(model.palette_open);
 
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .search_field)) |field| {
+    if (findByKind(findByKind(tree.root, .dialog) orelse return error.WidgetNotFound, .search_field)) |field| {
         try testing.expectEqualStrings("Search", field.placeholder);
     } else return error.WidgetNotFound;
 
     main.update(&model, .{ .search_edit = .{ .insert_text = "auth" } }, &fx);
-    try expectRowTitles(model.session_rows(arena), &.{"fix auth listener"});
+    try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "fix auth listener"));
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
     try testing.expectEqual(Msg.stop, main.onKey(escape).?);
     main.update(&model, main.onKey(escape).?, &fx);
     try testing.expectEqualStrings("", model.search_query());
-    try testing.expect(!model.search_active);
+    try testing.expect(!model.palette_open);
     try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
 
     tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "Search");
+    try testing.expect(findByKind(tree.root, .dialog) == null);
+}
+
+test "empty palette lists New Task; query new t still includes it" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .start_search, &fx);
+    try testing.expect(model.palette_open);
+    const empty = model.palette_rows(arena);
+    try testing.expect(paletteHasLabel(empty, "New Task"));
+    try testing.expect(paletteHasLabel(empty, "Focus composer"));
+    try testing.expect(paletteHasLabel(empty, "Toggle sidebar"));
+    try testing.expect(paletteHasLabel(empty, "Find in transcript"));
+    try testing.expect(paletteHasLabel(empty, "Settings"));
+    try testing.expect(paletteHasLabel(empty, "Minimize"));
+    try testing.expect(!paletteHasLabel(empty, "Collapse all folders"));
+    try testing.expect(!paletteHasLabel(empty, "Open Project"));
+    try testing.expect(!paletteHasLabel(empty, "port waku to zig"));
+    try testing.expect(empty[1].selected);
+    try testing.expect(empty[1].is_action);
+    try testing.expect(!empty[1].is_session);
+    try testing.expectEqual(main.paletteActionId(.new_task), empty[1].id);
+
+    var tree = try buildTree(arena, &model);
+    const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    const new_task = try expectButton(dialog, "New Task");
+    try testing.expectEqual(
+        Msg{ .palette_pick = main.paletteActionId(.new_task) },
+        tree.msgForPointer(new_task.id, .up).?,
+    );
+
+    main.update(&model, .{ .search_edit = .{ .insert_text = "new t" } }, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
+    try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
+}
+
+test "palette query matching a demo session lists that session; confirm selects and focuses" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const port_id = model.session_store[0].id;
+    try testing.expectEqual(port_id, model.selected);
+    try testing.expect(!model.composer_active);
+
+    main.update(&model, .start_search, &fx);
+    main.update(&model, .{ .search_edit = .{ .insert_text = "port waku" } }, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "port waku to zig"));
+    try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
+
+    var tree = try buildTree(arena, &model);
+    const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    const session_row = try expectButton(dialog, "port waku to zig");
+    try testing.expectEqual(Msg{ .palette_pick = port_id }, tree.msgForPointer(session_row.id, .up).?);
+    main.update(&model, tree.msgForPointer(session_row.id, .up).?, &fx);
+    try testing.expectEqual(port_id, model.selected);
+    try testing.expect(model.composer_active);
+    try testing.expect(!model.palette_open);
+    try testing.expectEqual(@as(u32, 0), model.editing_session_id);
+}
+
+test "confirming New Task from the palette creates and focuses" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    main.update(&model, .start_search, &fx);
+    try testing.expect(model.palette_open);
+    try testing.expectEqual(@as(u32, 0), model.palette_highlight);
+
+    var tree = try buildTree(arena, &model);
+    const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    _ = try expectByText(dialog, .button, "Confirm");
+    main.update(&model, .palette_confirm, &fx);
+    try testing.expect(!model.palette_open);
+    try testing.expectEqual(@as(u32, 3), model.session_count);
+    try testing.expect(model.sessionById(model.selected).?.untitled);
+    try testing.expect(model.composer_active);
+
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expect(composer.autofocus);
+    } else return error.WidgetNotFound;
+}
+
+test "Esc with palette_open does not cancel a busy demo stream" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "keep streaming" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.Phase.streaming, model.phase);
+
+    main.update(&model, .start_search, &fx);
+    try testing.expect(model.palette_open);
+    try testing.expect(model.is_streaming());
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expect(!model.palette_open);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.Phase.streaming, model.phase);
+}
+
+test "opening the Ctrl-Tab switcher closes the command palette first" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .start_search, &fx);
+    main.update(&model, .{ .search_edit = .{ .insert_text = "auth" } }, &fx);
+    try testing.expect(model.palette_open);
+    try testing.expectEqualStrings("auth", model.search_query());
+
+    main.update(&model, .switcher_forward, &fx);
+    try testing.expect(model.switcher_open);
+    try testing.expect(!model.palette_open);
+    try testing.expectEqualStrings("", model.search_query());
 }
 
 fn expectTurnTexts(rows: []const main.TurnRow, expected: []const []const u8) !void {
@@ -5454,7 +5636,7 @@ test "cmd-f and ctrl-f open transcript find via onKey" {
     var model = main.initialModel();
     try testing.expect(!model.find_active);
     try testing.expectEqualStrings("", model.find_query());
-    try testing.expect(!model.search_active);
+    try testing.expect(!model.palette_open);
 
     var tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .search_field, "Find in transcript") == null);
@@ -5515,14 +5697,17 @@ test "cmd-f and ctrl-f open transcript find via onKey" {
     };
     try testing.expectEqual(Msg.start_search, main.onKey(cmd_k).?);
     main.update(&model, main.onKey(cmd_k).?, &fx);
-    try testing.expect(model.search_active);
+    try testing.expect(model.palette_open);
     try testing.expect(model.find_active);
 
     tree = try buildTree(arena, &model);
-    if (findByKind(tree.root, .search_field)) |field| {
+    const palette = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    try testing.expectEqualStrings("Command palette", widgetName(palette));
+    if (findByKind(palette, .search_field)) |field| {
         try testing.expectEqualStrings("Search", field.placeholder);
     } else return error.WidgetNotFound;
     _ = try expectByText(tree.root, .search_field, "Find in transcript");
+    _ = try expectButton(tree.root, "Search");
 }
 
 test "transcript find filters the selected session's visible turns" {
@@ -5647,7 +5832,7 @@ test "cmd-l and ctrl-l focus the composer via onKey" {
 
     var model = main.initialModel();
     try testing.expect(!model.composer_active);
-    try testing.expect(!model.search_active);
+    try testing.expect(!model.palette_open);
 
     var tree = try buildTree(arena, &model);
     if (findByKind(tree.root, .textarea)) |composer| {
@@ -5684,7 +5869,7 @@ test "cmd-l and ctrl-l focus the composer via onKey" {
     try testing.expectEqualStrings("plain l still types", model.draft());
 
     main.update(&model, .start_search, &fx);
-    try testing.expect(model.search_active);
+    try testing.expect(model.palette_open);
     try testing.expect(!model.composer_active);
 
     tree = try buildTree(arena, &model);
@@ -5705,7 +5890,7 @@ test "cmd-l and ctrl-l focus the composer via onKey" {
     try testing.expectEqual(Msg.focus_composer, main.onKey(ctrl_l).?);
     main.update(&model, main.onKey(ctrl_l).?, &fx);
     try testing.expect(model.composer_active);
-    try testing.expect(model.search_active);
+    try testing.expect(model.palette_open);
 
     tree = try buildTree(arena, &model);
     if (findByKind(tree.root, .textarea)) |composer| {
@@ -5741,7 +5926,7 @@ test "cmd-comma and ctrl-comma open settings via onKey" {
 
     var model = main.initialModel();
     try testing.expect(!model.settings_open);
-    try testing.expect(!model.search_active);
+    try testing.expect(!model.palette_open);
 
     const plain_comma = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "," };
     try testing.expectEqual(@as(?Msg, null), main.onKey(plain_comma));
@@ -5792,7 +5977,7 @@ test "cmd-comma and ctrl-comma open settings via onKey" {
     };
     try testing.expectEqual(Msg.start_search, main.onKey(cmd_k).?);
     main.update(&model, main.onKey(cmd_k).?, &fx);
-    try testing.expect(model.search_active);
+    try testing.expect(model.palette_open);
     try testing.expect(!model.settings_open);
 
     tree = try buildTree(arena, &model);
@@ -6627,7 +6812,7 @@ test "session with folder_id appears under that folder not Today" {
     });
 }
 
-test "sidebar search still matches session titles across folders" {
+test "palette Tasks still matches session titles across folders" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -6651,26 +6836,35 @@ test "sidebar search still matches session titles across folders" {
         "port waku to zig",
     });
 
+    main.update(&model, .start_search, &fx);
     main.update(&model, .{ .search_edit = .{ .insert_text = "WAKU" } }, &fx);
-    try expectRowTitles(model.session_rows(arena), &.{"port waku to zig"});
+    try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
     try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "fix auth listener",
         "New folder",
         "port waku to zig",
     });
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "port waku to zig"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "fix auth listener"));
 
     const tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "port waku to zig");
-    try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
+    _ = try expectButton(tree.root, "fix auth listener");
     _ = try expectByText(tree.root, .text, "Today");
     _ = try expectByText(tree.root, .list_item, "New folder");
+    const palette = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    _ = try expectButton(palette, "port waku to zig");
+    try testing.expect(findPressableContaining(palette, "fix auth listener") == null);
 
     main.update(&model, .{ .toggle_folder = folder_id }, &fx);
     try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "fix auth listener",
         "New folder",
-        "port waku to zig",
     });
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "port waku to zig"));
 
     main.update(&model, .stop, &fx);
+    try testing.expect(!model.palette_open);
     try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
     try expectSidebarTitles(model.sidebar_rows(arena), &.{
         "fix auth listener",
@@ -6746,11 +6940,16 @@ test "collapse all folders hides grouped sessions and persists collapsed_folder_
     _ = try expectByText(tree.root, .list_item, "New folder 2");
     try testing.expect(findPressableContaining(tree.root, "Collapse all folders") == null);
 
+    main.update(&model, .start_search, &fx);
     main.update(&model, .{ .search_edit = .{ .insert_text = "WAKU" } }, &fx);
     try expectSidebarTitles(model.sidebar_rows(arena), &.{
         "New folder",
-        "port waku to zig",
+        "New folder 2",
     });
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "port waku to zig"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "fix auth listener"));
+    main.update(&model, .stop, &fx);
+    try testing.expect(!model.palette_open);
 
     main.update(&model, .collapse_all_folders, &fx);
     try testing.expect(model.folder_store[0].collapsed);
@@ -6834,17 +7033,25 @@ test "grouped folder sessions get a Native guide rail; Today rows stay flush" {
     try testing.expect(!sessionRowHasGroupRail(tree.root, "New folder"));
     try testing.expectEqual(@as(usize, 3), countByKind(tree.root, .separator));
 
+    main.update(&model, .start_search, &fx);
     main.update(&model, .{ .search_edit = .{ .insert_text = "parser" } }, &fx);
     const searched = model.sidebar_rows(arena);
     try expectSidebarTitles(searched, &.{
+        "port waku to zig",
         "New folder",
+        "fix auth listener",
         "rewrite the parser",
     });
-    try testing.expect(searched[1].grouped);
+    try testing.expect(searched[3].grouped);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "rewrite the parser"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "port waku to zig"));
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .list_item, "rewrite the parser");
+    _ = try expectButton(tree.root, "port waku to zig");
     try testing.expect(sessionRowHasGroupRail(tree.root, "rewrite the parser"));
-    try testing.expect(findPressableContaining(tree.root, "port waku to zig") == null);
+    const palette = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    _ = try expectButton(palette, "rewrite the parser");
+    try testing.expect(findPressableContaining(palette, "port waku to zig") == null);
 
     main.update(&model, .stop, &fx);
     main.update(&model, .{ .toggle_folder = folder_id }, &fx);

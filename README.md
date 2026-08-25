@@ -18,7 +18,8 @@ Native ellipsis; the full name remains the accessible list-item
 label. That is in-window chrome, not the OS window title. The
 header X closes the window because chrome is off; the header
 Minimize control and Cmd/Ctrl-M call Native `fx.minimizeWindow`; sidebar
-Search filters the local `sessions.json` catalog; the sidebar collapse
+Search and Cmd/Ctrl-K open a local command palette (actions + session
+jump, no daemon); the sidebar collapse
 control works and is restored; the sidebar chevrons walk session
 selection history; clicking a session focuses the composer; New folder creates a local catalog folder; clicking
 a folder (or the move control) assigns the selected session; folder
@@ -309,7 +310,7 @@ canned reply (about 12 ticks / 90ms). Send while streaming with a draft
 queues on that session (persisted). Successful finish drains the next
 item; empty Send, Stop, or Esc cancels without draining.
 
-Keys: Cmd/Ctrl-N is sidebar New Task and focuses the composer, Cmd/Ctrl-K focuses sidebar search, Cmd/Ctrl-F filters the selected transcript to matching turns (no glyph highlight), Cmd/Ctrl-L focuses the composer, Cmd/Ctrl-M minimizes the chromeless window via `fx.minimizeWindow`, Cmd/Ctrl-, opens settings, Cmd/Ctrl-[ and Cmd/Ctrl-] walk sidebar session history, Cmd/Ctrl-B toggles the sidebar rail, Cmd/Ctrl-C copies the last non-empty turn via `fx.writeClipboard`, Enter send/queue, Esc cancel. Ctrl-Tab opens a local session switcher (cycle with Ctrl-Tab / Ctrl-Shift-Tab, click to switch, Esc cancels); it is not a provider session fork. Cmd/Ctrl-Enter
+Keys: Cmd/Ctrl-N is sidebar New Task and focuses the composer, Cmd/Ctrl-K and sidebar Search open the local command palette (actions + session jump; no daemon; title match is the palette Tasks section, not an inline sidebar filter), Cmd/Ctrl-F filters the selected transcript to matching turns (no glyph highlight), Cmd/Ctrl-L focuses the composer, Cmd/Ctrl-M minimizes the chromeless window via `fx.minimizeWindow`, Cmd/Ctrl-, opens settings, Cmd/Ctrl-[ and Cmd/Ctrl-] walk sidebar session history, Cmd/Ctrl-B toggles the sidebar rail, Cmd/Ctrl-C copies the last non-empty turn via `fx.writeClipboard`, Enter send/queue, Esc cancel. Ctrl-Tab opens a local session switcher (cycle with Ctrl-Tab / Ctrl-Shift-Tab, click to switch, Esc cancels); it is not a provider session fork. Cmd/Ctrl-Enter
 steers a live daemon turn via a one-shot sidecar (hello + `steer`).
 Waku does not steer when attach `supportsSteer` is false or unknown —
 those follow-ups queue, same as Send while busy. fx ask / fx acp / demo
