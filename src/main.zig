@@ -94,6 +94,8 @@ pub const max_reasoning_effort = 16;
 pub const max_thread_goal_objective = max_draft;
 /// Codex `ThreadGoalStatus` wire name (`budgetLimited` is 13).
 pub const max_thread_goal_status = 16;
+/// Compact `12k/100k · 3m` meter on the composer goal row.
+pub const max_thread_goal_usage_label = 48;
 pub const max_available_commands = acp.max_available_commands;
 pub const max_model_options = acp.max_model_options;
 pub const max_command_name = 64;
@@ -310,6 +312,12 @@ pub const Session = struct {
     thread_goal_objective_len: usize = 0,
     thread_goal_status_storage: [max_thread_goal_status]u8 = [_]u8{0} ** max_thread_goal_status,
     thread_goal_status_len: usize = 0,
+    /// Documented `ThreadGoal` usage. Missing means last-known unknown.
+    thread_goal_token_budget: ?u64 = null,
+    thread_goal_tokens_used: ?u64 = null,
+    thread_goal_time_used_seconds: ?u64 = null,
+    thread_goal_usage_label_storage: [max_thread_goal_usage_label]u8 = [_]u8{0} ** max_thread_goal_usage_label,
+    thread_goal_usage_label_len: usize = 0,
 
     pub fn title(self: *const Session) []const u8 {
         return self.title_storage[0..self.title_len];
@@ -467,9 +475,62 @@ pub const Session = struct {
         self.setThreadGoalStatus(status);
     }
 
+    pub fn threadGoalTokenBudget(self: *const Session) ?u64 {
+        return self.thread_goal_token_budget;
+    }
+
+    pub fn threadGoalTokensUsed(self: *const Session) ?u64 {
+        return self.thread_goal_tokens_used;
+    }
+
+    pub fn threadGoalTimeUsedSeconds(self: *const Session) ?u64 {
+        return self.thread_goal_time_used_seconds;
+    }
+
+    pub fn threadGoalUsageLabel(self: *const Session) []const u8 {
+        return self.thread_goal_usage_label_storage[0..self.thread_goal_usage_label_len];
+    }
+
+    pub fn setThreadGoalUsage(self: *Session, token_budget: ?u64, tokens_used: ?u64, time_used_seconds: ?u64) void {
+        self.thread_goal_token_budget = token_budget;
+        self.thread_goal_tokens_used = tokens_used;
+        self.thread_goal_time_used_seconds = time_used_seconds;
+        self.refreshThreadGoalUsageLabel();
+    }
+
+    pub fn clearThreadGoalUsage(self: *Session) void {
+        self.setThreadGoalUsage(null, null, null);
+    }
+
+    pub fn applyThreadGoalUsage(
+        self: *Session,
+        token_budget: ?u64,
+        token_budget_null: bool,
+        has_token_budget: bool,
+        tokens_used: ?u64,
+        time_used_seconds: ?u64,
+    ) void {
+        if (has_token_budget) {
+            self.thread_goal_token_budget = if (token_budget_null) null else token_budget;
+        }
+        if (tokens_used) |used| self.thread_goal_tokens_used = used;
+        if (time_used_seconds) |secs| self.thread_goal_time_used_seconds = secs;
+        self.refreshThreadGoalUsageLabel();
+    }
+
+    fn refreshThreadGoalUsageLabel(self: *Session) void {
+        var buf: [max_thread_goal_usage_label]u8 = undefined;
+        if (formatThreadGoalUsage(&buf, self.thread_goal_token_budget, self.thread_goal_tokens_used, self.thread_goal_time_used_seconds)) |label| {
+            writeFixed(&self.thread_goal_usage_label_storage, &self.thread_goal_usage_label_len, label);
+        } else {
+            self.thread_goal_usage_label_len = 0;
+        }
+    }
+
     pub fn clearThreadGoal(self: *Session) void {
         self.thread_goal_objective_len = 0;
         self.thread_goal_status_len = 0;
+        self.clearThreadGoalUsage();
     }
 
     pub fn replaceModelOptions(self: *Session, options: []const acp.ParsedModelOption) void {
@@ -670,6 +731,73 @@ pub fn sessionRelativeTime(updated_at: i64, now_ms: i64, buf: []u8) ?[]const u8 
     if (days == 1) return "Yesterday";
     if (days < 7) return std.fmt.bufPrint(buf, "{d}d", .{days}) catch null;
     return formatUtcYmd(updated_at, buf);
+}
+
+/// Compact Codex goal meter: `12k/100k · 3m`, or `tokensUsed` when there
+/// is no budget. Missing fields stay omitted. Not a live ticker.
+pub fn formatThreadGoalUsage(
+    buf: []u8,
+    token_budget: ?u64,
+    tokens_used: ?u64,
+    time_used_seconds: ?u64,
+) ?[]const u8 {
+    var token_buf: [24]u8 = undefined;
+    const token_part: ?[]const u8 = if (tokens_used) |used| blk: {
+        if (token_budget) |budget| {
+            var used_buf: [16]u8 = undefined;
+            var budget_buf: [16]u8 = undefined;
+            const used_s = formatCompactTokens(&used_buf, used) orelse break :blk null;
+            const budget_s = formatCompactTokens(&budget_buf, budget) orelse break :blk null;
+            break :blk std.fmt.bufPrint(&token_buf, "{s}/{s}", .{ used_s, budget_s }) catch null;
+        }
+        break :blk formatCompactTokens(&token_buf, used);
+    } else if (token_budget) |budget|
+        formatCompactTokens(&token_buf, budget)
+    else
+        null;
+
+    var time_buf: [16]u8 = undefined;
+    const time_part: ?[]const u8 = if (time_used_seconds) |secs|
+        formatGoalTime(&time_buf, secs)
+    else
+        null;
+
+    if (token_part) |tokens| {
+        if (time_part) |time| {
+            return std.fmt.bufPrint(buf, "{s} · {s}", .{ tokens, time }) catch null;
+        }
+        return std.fmt.bufPrint(buf, "{s}", .{tokens}) catch null;
+    }
+    if (time_part) |time| {
+        return std.fmt.bufPrint(buf, "{s}", .{time}) catch null;
+    }
+    return null;
+}
+
+fn formatCompactTokens(buf: []u8, value: u64) ?[]const u8 {
+    if (value >= 1_000_000) {
+        const m = value / 1_000_000;
+        const rem = value % 1_000_000;
+        if (rem == 0) return std.fmt.bufPrint(buf, "{d}M", .{m}) catch null;
+        return std.fmt.bufPrint(buf, "{d}.{d}M", .{ m, rem / 100_000 }) catch null;
+    }
+    if (value >= 1_000) {
+        const k = value / 1_000;
+        const rem = value % 1_000;
+        if (rem == 0) return std.fmt.bufPrint(buf, "{d}k", .{k}) catch null;
+        return std.fmt.bufPrint(buf, "{d}.{d}k", .{ k, rem / 100 }) catch null;
+    }
+    return std.fmt.bufPrint(buf, "{d}", .{value}) catch null;
+}
+
+fn formatGoalTime(buf: []u8, seconds: u64) ?[]const u8 {
+    if (seconds < 60) return std.fmt.bufPrint(buf, "{d}s", .{seconds}) catch null;
+    const minutes = seconds / 60;
+    if (minutes < 60) return std.fmt.bufPrint(buf, "{d}m", .{minutes}) catch null;
+    const hours = minutes / 60;
+    const rem_m = minutes % 60;
+    if (rem_m == 0) return std.fmt.bufPrint(buf, "{d}h", .{hours}) catch null;
+    return std.fmt.bufPrint(buf, "{d}h {d}m", .{ hours, rem_m }) catch null;
 }
 
 const CivilDate = struct { year: i64, month: u8, day: u8 };
@@ -2185,6 +2313,19 @@ pub const Model = struct {
         const session = model.sessionByIdConst(model.selected) orelse return "Status";
         if (session.threadGoalStatus().len == 0) return "Status";
         return session.threadGoalStatus();
+    }
+
+    /// True when last-known `tokensUsed` / `tokenBudget` / `timeUsedSeconds`
+    /// can fill the muted composer meter.
+    pub fn has_goal_usage(model: *const Model) bool {
+        const session = model.sessionByIdConst(model.selected) orelse return false;
+        return session.threadGoalUsageLabel().len > 0;
+    }
+
+    /// Compact `12k/100k · 3m` (or `tokensUsed` without a budget).
+    pub fn goal_usage_label(model: *const Model) []const u8 {
+        const session = model.sessionByIdConst(model.selected) orelse return "";
+        return session.threadGoalUsageLabel();
     }
 
     pub fn project_edit(model: *const Model) []const u8 {
@@ -5057,8 +5198,9 @@ fn refreshToolTurnText(turn: *Turn) void {
 }
 
 /// Apply a `goalUpdated` driver event from any daemon sidecar line.
-/// One-shot may miss the event; last-known local fields stay. Does not
-/// invent token-budget fields. JSON null payload clears.
+/// One-shot may miss the event; last-known local fields stay. Parses
+/// documented `tokenBudget` / `tokensUsed` / `timeUsedSeconds` only.
+/// JSON null payload clears objective, status, and usage.
 fn applyDaemonGoalLine(model: *Model, fx: *Effects, line: []const u8) void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_state.deinit();
@@ -5071,6 +5213,13 @@ fn applyDaemonGoalLine(model: *Model, fx: *Effects, line: []const u8) void {
     } else {
         if (parsed.goal_has_objective) session.setThreadGoalObjective(parsed.goal_objective);
         if (parsed.goal_has_status) session.setThreadGoalStatus(parsed.goal_status);
+        session.applyThreadGoalUsage(
+            if (parsed.goal_has_token_budget and !parsed.goal_token_budget_null) parsed.goal_token_budget else null,
+            parsed.goal_token_budget_null,
+            parsed.goal_has_token_budget,
+            if (parsed.goal_has_tokens_used) parsed.goal_tokens_used else null,
+            if (parsed.goal_has_time_used_seconds) parsed.goal_time_used_seconds else null,
+        );
     }
     store.persistIfPossible(model, session.id, fx);
 }

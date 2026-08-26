@@ -97,11 +97,14 @@
 //! `ThreadGoalStatus` is Codex camelCase: `active` | `paused` | `blocked`
 //! | `usageLimited` | `budgetLimited` | `complete`. Outcome is an async
 //! `goalUpdated` driver event (payload is `ThreadGoal` or JSON null when
-//! cleared), or `error`. This port does not invent token-budget fields.
-//! A one-shot sidecar may only see stdout during the short spawn — still
-//! emit the command; parse `goalUpdated` if it arrives, otherwise keep
-//! last-known local objective/status. Goal is a Waku-daemon Command for
-//! live Codex provider runtimes. fx ask / fx acp / demo do not get Goal.
+//! cleared), or `error`. Documented `ThreadGoal` fields only: `objective`,
+//! `status`, optional nullable `tokenBudget`, `tokensUsed`,
+//! `timeUsedSeconds` (camelCase on the wire). This port does not invent
+//! other goal fields. A one-shot sidecar may only see stdout during the
+//! short spawn — still emit the command; parse `goalUpdated` if it
+//! arrives, otherwise keep last-known local objective/status/usage.
+//! Goal is a Waku-daemon Command for live Codex provider runtimes.
+//! fx ask / fx acp / demo do not get Goal.
 //!
 //! `attachSession` is a bare command. Verified against egoist/waku
 //! `Command::AttachSession` (unit variant, no payload field),
@@ -339,12 +342,26 @@ pub const ParsedServer = struct {
     goal_objective: []const u8 = "",
     /// `goalUpdated` payload `status` when present (Codex camelCase).
     goal_status: []const u8 = "",
+    /// `goalUpdated` payload `tokenBudget` when present and numeric.
+    goal_token_budget: u64 = 0,
+    /// `goalUpdated` payload `tokensUsed` when present and numeric.
+    goal_tokens_used: u64 = 0,
+    /// `goalUpdated` payload `timeUsedSeconds` when present and numeric.
+    goal_time_used_seconds: u64 = 0,
     /// True when `goalUpdated` payload is JSON null (provider cleared).
     goal_cleared: bool = false,
     /// True when the `goalUpdated` object included `objective`.
     goal_has_objective: bool = false,
     /// True when the `goalUpdated` object included `status`.
     goal_has_status: bool = false,
+    /// True when the `goalUpdated` object included `tokenBudget`.
+    goal_has_token_budget: bool = false,
+    /// True when `tokenBudget` was JSON null (no budget).
+    goal_token_budget_null: bool = false,
+    /// True when the `goalUpdated` object included numeric `tokensUsed`.
+    goal_has_tokens_used: bool = false,
+    /// True when the `goalUpdated` object included numeric `timeUsedSeconds`.
+    goal_has_time_used_seconds: bool = false,
 };
 
 /// Codex / Waku `ThreadGoalStatus`. Wire names are camelCase.
@@ -808,6 +825,14 @@ fn jsonUintValue(value: ?std.json.Value) ?u32 {
     };
 }
 
+fn jsonU64Value(value: ?std.json.Value) ?u64 {
+    const item = value orelse return null;
+    return switch (item) {
+        .integer => |n| if (n >= 0) @intCast(n) else null,
+        else => null,
+    };
+}
+
 fn jsonBoolValue(value: ?std.json.Value) ?bool {
     const item = value orelse return null;
     return switch (item) {
@@ -1017,6 +1042,23 @@ fn parseEvent(obj: std.json.ObjectMap, parsed: *ParsedServer) void {
             if (o.get("status")) |status_val| {
                 parsed.goal_has_status = true;
                 parsed.goal_status = jsonStringValue(status_val) orelse "";
+            }
+            if (o.get("tokenBudget")) |budget_val| {
+                parsed.goal_has_token_budget = true;
+                switch (budget_val) {
+                    .null => parsed.goal_token_budget_null = true,
+                    else => {
+                        if (jsonU64Value(budget_val)) |n| parsed.goal_token_budget = n;
+                    },
+                }
+            }
+            if (jsonU64Value(o.get("tokensUsed"))) |n| {
+                parsed.goal_has_tokens_used = true;
+                parsed.goal_tokens_used = n;
+            }
+            if (jsonU64Value(o.get("timeUsedSeconds"))) |n| {
+                parsed.goal_has_time_used_seconds = true;
+                parsed.goal_time_used_seconds = n;
             }
         },
         else => {},
@@ -1284,13 +1326,45 @@ test "goalUpdated event yields objective and status or a clear" {
     try std.testing.expect(!updated.goal_cleared);
     try std.testing.expectEqualStrings("Ship the feature", updated.goal_objective);
     try std.testing.expectEqualStrings("usageLimited", updated.goal_status);
+    try std.testing.expect(!updated.goal_has_token_budget);
+    try std.testing.expect(!updated.goal_token_budget_null);
+    try std.testing.expect(!updated.goal_has_tokens_used);
+    try std.testing.expect(!updated.goal_has_time_used_seconds);
     try std.testing.expect(!isTerminalServerFrame(updated));
+
+    const with_budget = parseServerFrame(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":{\"objective\":\"Ship the feature\",\"status\":\"active\",\"tokenBudget\":100000,\"tokensUsed\":12000,\"timeUsedSeconds\":180}}}");
+    try std.testing.expect(with_budget.goal_has_token_budget);
+    try std.testing.expect(!with_budget.goal_token_budget_null);
+    try std.testing.expectEqual(@as(u64, 100000), with_budget.goal_token_budget);
+    try std.testing.expect(with_budget.goal_has_tokens_used);
+    try std.testing.expectEqual(@as(u64, 12000), with_budget.goal_tokens_used);
+    try std.testing.expect(with_budget.goal_has_time_used_seconds);
+    try std.testing.expectEqual(@as(u64, 180), with_budget.goal_time_used_seconds);
+
+    const used_only = parseServerFrame(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":{\"tokensUsed\":12000}}}");
+    try std.testing.expect(!used_only.goal_has_token_budget);
+    try std.testing.expect(!used_only.goal_token_budget_null);
+    try std.testing.expect(used_only.goal_has_tokens_used);
+    try std.testing.expectEqual(@as(u64, 12000), used_only.goal_tokens_used);
+    try std.testing.expect(!used_only.goal_has_time_used_seconds);
+
+    const budget_null = parseServerFrame(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":{\"tokenBudget\":null,\"tokensUsed\":500,\"timeUsedSeconds\":45}}}");
+    try std.testing.expect(budget_null.goal_has_token_budget);
+    try std.testing.expect(budget_null.goal_token_budget_null);
+    try std.testing.expectEqual(@as(u64, 0), budget_null.goal_token_budget);
+    try std.testing.expect(budget_null.goal_has_tokens_used);
+    try std.testing.expectEqual(@as(u64, 500), budget_null.goal_tokens_used);
+    try std.testing.expect(budget_null.goal_has_time_used_seconds);
+    try std.testing.expectEqual(@as(u64, 45), budget_null.goal_time_used_seconds);
 
     const cleared = parseServerFrame(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":null}}");
     try std.testing.expectEqual(EventKind.goal_updated, cleared.event_kind.?);
     try std.testing.expect(cleared.goal_cleared);
     try std.testing.expectEqual(@as(usize, 0), cleared.goal_objective.len);
     try std.testing.expect(!cleared.goal_has_objective);
+    try std.testing.expect(!cleared.goal_has_token_budget);
+    try std.testing.expect(!cleared.goal_has_tokens_used);
+    try std.testing.expect(!cleared.goal_has_time_used_seconds);
 }
 
 test "taskState response yields session skeletons and project path fallback" {
