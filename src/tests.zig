@@ -9,6 +9,7 @@ const rewind = @import("rewind.zig");
 const pick_image = @import("pick_image.zig");
 const maximize_window = @import("maximize_window.zig");
 const keys = @import("keys.zig");
+const palette = @import("palette.zig");
 const acp = @import("acp.zig");
 
 const canvas = native_sdk.canvas;
@@ -5975,21 +5976,21 @@ fn expectSidebarTitles(rows: []const main.SidebarRow, expected: []const []const 
     }
 }
 
-fn paletteHasLabel(rows: []const main.PaletteRow, label: []const u8) bool {
+fn paletteHasLabel(rows: []const palette.PaletteRow, label: []const u8) bool {
     for (rows) |row| {
         if (std.mem.eql(u8, row.label, label)) return true;
     }
     return false;
 }
 
-fn paletteRowId(rows: []const main.PaletteRow, label: []const u8) u32 {
+fn paletteRowId(rows: []const palette.PaletteRow, label: []const u8) u32 {
     for (rows) |row| {
         if (std.mem.eql(u8, row.label, label)) return row.id;
     }
     return 0;
 }
 
-fn paletteRowIsAction(rows: []const main.PaletteRow, label: []const u8) bool {
+fn paletteRowIsAction(rows: []const palette.PaletteRow, label: []const u8) bool {
     for (rows) |row| {
         if (std.mem.eql(u8, row.label, label)) return row.is_action and !row.is_header and !row.is_session;
     }
@@ -6336,21 +6337,21 @@ test "empty palette lists New Task; query new t still includes it" {
     try testing.expect(paletteHasLabel(empty, "Maximize"));
     try testing.expect(paletteHasLabel(empty, "Copy session id"));
     try testing.expect(paletteHasLabel(empty, "Copy provider session id"));
-    try testing.expectEqual(main.paletteActionId(.copy_session_id), paletteRowId(empty, "Copy session id"));
-    try testing.expectEqual(main.paletteActionId(.copy_fx_session_id), paletteRowId(empty, "Copy provider session id"));
+    try testing.expectEqual(palette.paletteActionId(.copy_session_id), paletteRowId(empty, "Copy session id"));
+    try testing.expectEqual(palette.paletteActionId(.copy_fx_session_id), paletteRowId(empty, "Copy provider session id"));
     try testing.expect(!paletteHasLabel(empty, "Collapse all folders"));
     try testing.expect(!paletteHasLabel(empty, "Open Project"));
     try testing.expect(!paletteHasLabel(empty, "port waku to zig"));
     try testing.expect(empty[1].selected);
     try testing.expect(empty[1].is_action);
     try testing.expect(!empty[1].is_session);
-    try testing.expectEqual(main.paletteActionId(.new_task), empty[1].id);
+    try testing.expectEqual(palette.paletteActionId(.new_task), empty[1].id);
 
     var tree = try buildTree(arena, &model);
     const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
     const new_task = try expectButton(dialog, "New Task");
     try testing.expectEqual(
-        Msg{ .palette_pick = main.paletteActionId(.new_task) },
+        Msg{ .palette_pick = palette.paletteActionId(.new_task) },
         tree.msgForPointer(new_task.id, .up).?,
     );
 
@@ -6385,12 +6386,12 @@ test "palette copies local session id and fx session id; empty fx id skips clipb
     const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
     const copy_local = try expectButton(dialog, "Copy session id");
     try testing.expectEqual(
-        Msg{ .palette_pick = main.paletteActionId(.copy_session_id) },
+        Msg{ .palette_pick = palette.paletteActionId(.copy_session_id) },
         tree.msgForPointer(copy_local.id, .up).?,
     );
     const copy_fx = try expectButton(dialog, "Copy provider session id");
     try testing.expectEqual(
-        Msg{ .palette_pick = main.paletteActionId(.copy_fx_session_id) },
+        Msg{ .palette_pick = palette.paletteActionId(.copy_fx_session_id) },
         tree.msgForPointer(copy_fx.id, .up).?,
     );
 
@@ -6484,7 +6485,7 @@ test "palette Tasks match session model; miss query shows no-results copy" {
     try testing.expect(!miss[0].selected);
     try testing.expect(!miss[0].is_action);
     try testing.expect(!miss[0].is_session);
-    try testing.expectEqual(main.palette_header_id_base + 4, miss[0].id);
+    try testing.expectEqual(palette.palette_header_id_base + 4, miss[0].id);
     try testing.expectEqualStrings("Try a task title, project, provider, model, or command", miss[1].label);
     try testing.expect(miss[1].is_header);
     try testing.expect(!miss[1].selected);
