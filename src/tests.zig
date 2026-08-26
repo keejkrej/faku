@@ -5981,6 +5981,20 @@ fn paletteHasLabel(rows: []const main.PaletteRow, label: []const u8) bool {
     return false;
 }
 
+fn paletteRowId(rows: []const main.PaletteRow, label: []const u8) u32 {
+    for (rows) |row| {
+        if (std.mem.eql(u8, row.label, label)) return row.id;
+    }
+    return 0;
+}
+
+fn paletteRowIsAction(rows: []const main.PaletteRow, label: []const u8) bool {
+    for (rows) |row| {
+        if (std.mem.eql(u8, row.label, label)) return row.is_action and !row.is_header and !row.is_session;
+    }
+    return false;
+}
+
 fn expectOneLineEllipsis(widget: canvas.Widget, grow: ?f32) !void {
     try testing.expect(widget.kind == .text);
     if (@hasField(canvas.Widget, "text_no_wrap")) {
@@ -6319,6 +6333,10 @@ test "empty palette lists New Task; query new t still includes it" {
     try testing.expect(paletteHasLabel(empty, "Settings"));
     try testing.expect(paletteHasLabel(empty, "Minimize"));
     try testing.expect(paletteHasLabel(empty, "Maximize"));
+    try testing.expect(paletteHasLabel(empty, "Copy session id"));
+    try testing.expect(paletteHasLabel(empty, "Copy provider session id"));
+    try testing.expectEqual(main.paletteActionId(.copy_session_id), paletteRowId(empty, "Copy session id"));
+    try testing.expectEqual(main.paletteActionId(.copy_fx_session_id), paletteRowId(empty, "Copy provider session id"));
     try testing.expect(!paletteHasLabel(empty, "Collapse all folders"));
     try testing.expect(!paletteHasLabel(empty, "Open Project"));
     try testing.expect(!paletteHasLabel(empty, "port waku to zig"));
@@ -6338,6 +6356,96 @@ test "empty palette lists New Task; query new t still includes it" {
     main.update(&model, .{ .search_edit = .{ .insert_text = "new t" } }, &fx);
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
     try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
+}
+
+test "palette copies local session id and fx session id; empty fx id skips clipboard" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const selected = model.selected;
+    try testing.expect(selected != 0);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(selected).?.fxSessionId().len);
+
+    main.update(&model, .start_search, &fx);
+    const empty = model.palette_rows(arena);
+    try testing.expect(paletteHasLabel(empty, "Copy session id"));
+    try testing.expect(paletteHasLabel(empty, "Copy provider session id"));
+    try testing.expect(paletteHasLabel(empty, "Commands"));
+    try testing.expect(paletteRowIsAction(empty, "Copy session id"));
+    try testing.expect(paletteRowIsAction(empty, "Copy provider session id"));
+
+    var tree = try buildTree(arena, &model);
+    const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    const copy_local = try expectButton(dialog, "Copy session id");
+    try testing.expectEqual(
+        Msg{ .palette_pick = main.paletteActionId(.copy_session_id) },
+        tree.msgForPointer(copy_local.id, .up).?,
+    );
+    const copy_fx = try expectButton(dialog, "Copy provider session id");
+    try testing.expectEqual(
+        Msg{ .palette_pick = main.paletteActionId(.copy_fx_session_id) },
+        tree.msgForPointer(copy_fx.id, .up).?,
+    );
+
+    main.update(&model, .{ .search_edit = .{ .insert_text = "acp" } }, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "Copy provider session id"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "Copy session id"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "New Task"));
+
+    main.update(&model, .{ .search_edit = .clear }, &fx);
+    main.update(&model, .{ .search_edit = .{ .insert_text = "provider" } }, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "Copy provider session id"));
+
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    main.update(&model, tree.msgForPointer(copy_fx.id, .up).?, &fx);
+    try testing.expect(!model.palette_open);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expectEqualStrings(main.no_provider_session_id_status, model.window_status());
+
+    if (model.sessionById(selected)) |session| {
+        session.setFxSessionId("fx-sess-palette");
+    }
+    try testing.expectEqualStrings("fx-sess-palette", model.sessionById(selected).?.fxSessionId());
+
+    main.update(&model, .start_search, &fx);
+    tree = try buildTree(arena, &model);
+    const pick_fx = try expectButton(
+        findByKind(tree.root, .dialog) orelse return error.WidgetNotFound,
+        "Copy provider session id",
+    );
+    main.update(&model, tree.msgForPointer(pick_fx.id, .up).?, &fx);
+    try testing.expect(!model.palette_open);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    const provider = fx.pendingClipboardAt(0).?;
+    try testing.expectEqual(main.copy_turn_key, provider.key);
+    try testing.expectEqual(native_sdk.EffectClipboardOp.write, provider.op);
+    try testing.expectEqualStrings("fx-sess-palette", provider.text);
+
+    var local_fx = Effects.init(testing.allocator);
+    defer local_fx.deinit();
+    local_fx.executor = .fake;
+    main.update(&model, .start_search, &local_fx);
+    tree = try buildTree(arena, &model);
+    const pick_local = try expectButton(
+        findByKind(tree.root, .dialog) orelse return error.WidgetNotFound,
+        "Copy session id",
+    );
+    main.update(&model, tree.msgForPointer(pick_local.id, .up).?, &local_fx);
+    try testing.expect(!model.palette_open);
+    try testing.expectEqual(@as(usize, 1), local_fx.pendingClipboardCount());
+    const local = local_fx.pendingClipboardAt(0).?;
+    try testing.expectEqual(main.copy_turn_key, local.key);
+    try testing.expectEqual(native_sdk.EffectClipboardOp.write, local.op);
+    var id_buf: [16]u8 = undefined;
+    const expected_id = try std.fmt.bufPrint(&id_buf, "{d}", .{selected});
+    try testing.expectEqualStrings(expected_id, local.text);
 }
 
 test "palette Tasks match session model; miss query shows no-results copy" {
