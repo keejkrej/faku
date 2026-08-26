@@ -301,6 +301,7 @@
               <textarea placeholder="{composer_placeholder}" text="{draft}" submit-on-enter="true" on-input="draft_edit" on-submit="send" autofocus="{composer_active}" />
               <input-group-actions>
                 <button variant="ghost" size="icon" icon="file-text" label="Attach image" on-press="start_image_attach"></button>
+                <button variant="ghost" size="sm" on-press="pick_image">Pick image</button>
                 <if test="{has_commands}">
                   <button variant="ghost" size="sm" selected="{commands_open}" on-press="toggle_commands">Commands</button>
                 </if>
@@ -347,7 +348,11 @@
             <if test="{image_attach_active}">
               <row gap="8" cross="center">
                 <text-field grow="1" placeholder="Image path" text="{image_edit}" on-input="image_path_edit" autofocus="true" />
+                <button variant="ghost" size="sm" on-press="pick_image">Pick image</button>
               </row>
+            </if>
+            <if test="{has_attach_status}">
+              <text wrap="true" foreground="text_muted">{attach_status}</text>
             </if>
             <if test="{has_image_attach}">
               <row gap="4" cross="center">

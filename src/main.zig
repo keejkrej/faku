@@ -23,6 +23,7 @@ const acp = @import("acp.zig");
 const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const acp_proxy = @import("acp_proxy.zig");
+const pick_image = @import("pick_image.zig");
 const rewind = @import("rewind.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
@@ -76,6 +77,7 @@ pub const max_queued_text = 1024;
 const max_fx_path = 256;
 pub const max_store_dir = 512;
 pub const max_project_path = 512;
+pub const max_attach_status = 192;
 pub const max_fx_session_id = 128;
 pub const max_tool_call_id = 128;
 pub const max_tool_kind = 32;
@@ -161,6 +163,10 @@ pub const transcript_pin_offset: f32 = 1_000_000;
 /// fetch / file; sits in the gap between daemon keys and
 /// `fx_spawn_overlap`. Verified: Native Effects `WriteClipboardOptions`
 /// + notes example.
+/// One-shot OS image-picker sidecar (`osascript` / `zenity` / `kdialog`).
+/// Distinct from fx ask / daemon / clipboard / preview keys. Native has
+/// no `fx.pickFile`; this spawn is the documented workaround.
+pub const pick_image_key: u64 = 31;
 pub const copy_turn_key: u64 = 32;
 /// Worst-case join of every in-memory turn with a blank line between.
 const max_copy_session = max_turns * max_body + (max_turns - 1) * 2;
@@ -719,6 +725,8 @@ pub const Msg = union(enum) {
     start_project_edit,
     project_path_edit: canvas.TextInputEvent,
     start_image_attach,
+    /// Composer Pick image: one-shot OS file-dialog sidecar. Not `fx.pickFile`.
+    pick_image,
     image_path_edit: canvas.TextInputEvent,
     /// Native window file drop. Path is a local image Faku already
     /// understands for `fx ask --image` (see `imagePathFromDrop`).
@@ -820,6 +828,12 @@ pub const Model = struct {
     project_edit_buffer: canvas.TextBuffer(max_project_path) = .{},
     image_attach_active: bool = false,
     image_path_buffer: canvas.TextBuffer(max_project_path) = .{},
+    /// Runtime-only composer status for picker cancel / missing-tool.
+    attach_status_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
+    attach_status_len: usize = 0,
+    pick_image_live: bool = false,
+    pick_image_got_path: bool = false,
+    pick_image_tried_fallback: bool = false,
     /// Runtime ImageId bound by the composer `<image>`. 0 until
     /// `fx.loadImage` reports `.loaded`. Same draft `image_path` as
     /// the chip — not a second persist field.
@@ -967,6 +981,13 @@ pub const Model = struct {
         "settings_daemon_buffer",
         "project_edit_buffer",
         "image_path_buffer",
+        "attach_status_storage",
+        "attach_status_len",
+        "pick_image_live",
+        "pick_image_got_path",
+        "pick_image_tried_fallback",
+        "setAttachStatus",
+        "clearAttachStatus",
         "attach_preview_load_id",
         "next_attach_preview_id",
         "startImageAttach",
@@ -2181,6 +2202,22 @@ pub const Model = struct {
         const path = model.draftImagePath();
         if (path.len == 0) return "";
         return std.fs.path.basename(path);
+    }
+
+    pub fn attach_status(model: *const Model) []const u8 {
+        return model.attach_status_storage[0..model.attach_status_len];
+    }
+
+    pub fn has_attach_status(model: *const Model) bool {
+        return model.attach_status_len > 0;
+    }
+
+    pub fn setAttachStatus(model: *Model, text: []const u8) void {
+        writeFixed(&model.attach_status_storage, &model.attach_status_len, std.mem.trim(u8, text, " \t\r\n"));
+    }
+
+    pub fn clearAttachStatus(model: *Model) void {
+        model.attach_status_len = 0;
     }
 
     pub fn startImageAttach(model: *Model) void {
@@ -3708,6 +3745,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             persistComposerProject(model, fx);
         },
         .start_image_attach => model.startImageAttach(),
+        .pick_image => startPickImage(model, fx),
         .image_path_edit => |edit| {
             model.applyImagePath(edit);
             store.persistDraftIfPossible(model);
@@ -4416,6 +4454,10 @@ fn maybeCancelDaemonTurn(model: *Model, fx: *Effects, session_id: u32) void {
 }
 
 fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
+    if (line.key == pick_image_key) {
+        applyPickImageLine(model, fx, line);
+        return;
+    }
     if (model.daemon_load_key != 0 and line.key == model.daemon_load_key) {
         store.applyDaemonCatalogLine(model, line.line);
         store.maybeHydrateDaemonSession(model, fx, model.selected);
@@ -4645,6 +4687,10 @@ fn persistDaemonRuntimeId(model: *Model, fx: *Effects, parsed: protocol.ParsedSe
 }
 
 fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (exit.key == pick_image_key) {
+        handlePickImageExit(model, fx, exit);
+        return;
+    }
     if (model.daemon_load_key != 0 and exit.key == model.daemon_load_key) {
         model.daemon_load_key = 0;
         model.pending_daemon_catalog = false;
@@ -4769,8 +4815,70 @@ fn applyFileDrop(model: *Model, fx: *Effects, path: []const u8) void {
     }
     model.image_path_buffer.clear();
     model.applyImagePath(.{ .insert_text = trimmed });
+    model.clearAttachStatus();
     store.persistDraftIfPossible(model);
     refreshAttachPreview(model, fx);
+}
+
+fn startPickImage(model: *Model, fx: *Effects) void {
+    if (model.pick_image_live) return;
+    const argv = pick_image.hostArgv(.first) orelse {
+        model.setAttachStatus(pick_image.hostMissingStatus());
+        return;
+    };
+    model.pick_image_live = true;
+    model.pick_image_got_path = false;
+    model.pick_image_tried_fallback = false;
+    model.clearAttachStatus();
+    fx.spawn(.{
+        .key = pick_image_key,
+        .argv = argv,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+}
+
+fn applyPickImageLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
+    const raw = pick_image.firstStdoutPath(line.line);
+    if (pick_image.takeErrorMessage(raw)) |msg| {
+        model.setAttachStatus(msg);
+        return;
+    }
+    const path = imagePathFromDrop(&.{raw}) orelse return;
+    applyFileDrop(model, fx, path);
+    model.pick_image_got_path = true;
+}
+
+fn isMissingPickerExit(exit: native_sdk.EffectExit) bool {
+    if (exit.reason != .exited) return true;
+    return exit.code == 127 or exit.code == pick_image.missing_exit;
+}
+
+fn handlePickImageExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (model.pick_image_got_path) {
+        model.pick_image_live = false;
+        return;
+    }
+    if (isMissingPickerExit(exit)) {
+        if (!model.pick_image_tried_fallback) {
+            if (pick_image.hostArgv(.fallback)) |argv| {
+                model.pick_image_tried_fallback = true;
+                fx.spawn(.{
+                    .key = pick_image_key,
+                    .argv = argv,
+                    .on_line = Effects.lineMsg(.fx_line),
+                    .on_exit = Effects.exitMsg(.fx_exit),
+                });
+                return;
+            }
+        }
+        model.pick_image_live = false;
+        if (!model.has_attach_status()) {
+            model.setAttachStatus(pick_image.hostMissingStatus());
+        }
+        return;
+    }
+    model.pick_image_live = false;
 }
 
 pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
@@ -4927,5 +5035,6 @@ test {
     _ = @import("store.zig");
     _ = @import("daemon_proxy.zig");
     _ = @import("acp_proxy.zig");
+    _ = @import("pick_image.zig");
     _ = @import("rewind.zig");
 }

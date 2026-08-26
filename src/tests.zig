@@ -6,6 +6,7 @@ const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const acp_proxy = @import("acp_proxy.zig");
 const rewind = @import("rewind.zig");
+const pick_image = @import("pick_image.zig");
 const acp = @import("acp.zig");
 
 const canvas = native_sdk.canvas;
@@ -2555,6 +2556,194 @@ test "window drop of a png sets draft image_path; txt and empty do not" {
     loaded.store_io = testing.io;
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
     try testing.expectEqualStrings(image, loaded.draftImagePath());
+}
+
+fn findPickerSpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (pick_image.isPickerArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn findPickerSpawnNamed(fx: *Effects, bin: []const u8) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.argv.len > 0 and std.mem.eql(u8, spawn.argv[0], bin)) return spawn;
+    }
+    return null;
+}
+
+test "pick_image button dispatches and fake executor captures OS dialog argv" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    var tree = try buildTree(arena, &model);
+    const pick = try expectButtonMsg(tree, "Pick image", .pick_image);
+    try testing.expect(pressableAppearsBefore(tree.root, "Attach image", "Pick image"));
+
+    main.update(&model, tree.msgForPointer(pick.id, .up).?, &fx);
+    if (pick_image.hostArgv(.first) == null) {
+        try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+        try testing.expect(model.has_attach_status());
+        return;
+    }
+    try testing.expect(model.pick_image_live);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const spawn = findPickerSpawn(&fx) orelse return error.MissingPickerSpawn;
+    try testing.expectEqual(main.pick_image_key, spawn.key);
+    try testing.expect(pick_image.isPickerArgv(spawn.argv));
+    const expected = pick_image.hostArgv(.first).?;
+    try testing.expectEqualStrings(expected[0], spawn.argv[0]);
+}
+
+test "picker stdout path sets image_path the same way drop does" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-image-pick", .{tmp.sub_path[0..]});
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/picked.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const id = model.addSession("pick session", .fx);
+    _ = model.appendTurn(id, .user, "already started");
+    model.selected = id;
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+
+    main.update(&model, .pick_image, &fx);
+    const spawn = findPickerSpawn(&fx) orelse return error.MissingPickerSpawn;
+    try fx.feedLine(spawn.key, image);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(image, model.draftImagePath());
+    try testing.expectEqualStrings("picked.png", model.image_chip_label());
+    try testing.expect(model.has_image_attach());
+    try testing.expect(model.pick_image_got_path);
+    try testing.expect(!model.has_attach_status());
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "picked.png");
+    _ = try expectButton(tree.root, "Clear image");
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings(image, loaded.draftImagePath());
+}
+
+test "picker cancel empty and non-image leave image_path unchanged" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/keep.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("keep attach", .fx);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    main.update(&model, .pick_image, &fx);
+    var spawn = findPickerSpawn(&fx) orelse return error.MissingPickerSpawn;
+    try fx.feedLine(spawn.key, "   ");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(image, model.draftImagePath());
+
+    try fx.feedLine(spawn.key, "/tmp/notes.txt");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(image, model.draftImagePath());
+    try testing.expect(!model.pick_image_got_path);
+
+    try fx.feedExit(spawn.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(image, model.draftImagePath());
+    try testing.expect(!model.pick_image_live);
+    try testing.expect(!model.has_attach_status());
+
+    main.update(&model, .pick_image, &fx);
+    spawn = findPickerSpawn(&fx) orelse return error.MissingPickerSpawn;
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(image, model.draftImagePath());
+}
+
+test "picker missing tools surfaces composer status; typed path and drop still work" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/after-miss.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("missing picker", .fx);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    main.update(&model, .pick_image, &fx);
+    const first = findPickerSpawn(&fx) orelse return error.MissingPickerSpawn;
+    try fx.feedExit(first.key, 127);
+    drainEffects(&model, &fx);
+
+    if (pick_image.hostArgv(.fallback)) |fallback| {
+        const second = findPickerSpawnNamed(&fx, fallback[0]) orelse return error.MissingFallbackSpawn;
+        try testing.expect(pick_image.isPickerArgv(second.argv));
+        try fx.feedExit(second.key, 127);
+        drainEffects(&model, &fx);
+    }
+
+    try testing.expectEqualStrings(image, model.draftImagePath());
+    try testing.expect(model.has_attach_status());
+    try testing.expectEqualStrings(pick_image.hostMissingStatus(), model.attach_status());
+    try testing.expect(!model.pick_image_live);
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, pick_image.hostMissingStatus());
+    _ = try expectButton(tree.root, "Attach image");
+
+    main.update(&model, .start_image_attach, &fx);
+    main.update(&model, .{ .image_path_edit = .clear }, &fx);
+    main.update(&model, .{ .image_path_edit = .{ .insert_text = image } }, &fx);
+    try testing.expectEqualStrings(image, model.draftImagePath());
+
+    const drop_paths = [_][]const u8{image};
+    const png_drop = native_sdk.platform.FileDropEvent{ .paths = &drop_paths };
+    const png_msg = main.onDrop(png_drop) orelse return error.MissingFileDrop;
+    main.update(&model, png_msg, &fx);
+    try testing.expectEqualStrings(image, model.draftImagePath());
+    try testing.expect(!model.has_attach_status());
 }
 
 test "Waku access_mode maps to verified FX_PERMISSION_MODE values" {
