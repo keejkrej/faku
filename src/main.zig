@@ -191,6 +191,11 @@ const max_copy_session = max_turns * max_body + (max_turns - 1) * 2;
 /// Scratch for `copySession`. `writeClipboard` copies `.text` during
 /// the call; this outlives the join so the slice stays valid.
 var copy_session_buf: [max_copy_session]u8 = undefined;
+/// Decimal local session id (`u32` ≤ 10 digits). Same clipboard key
+/// as copy turn / copy session — Native has one writeClipboard effect.
+var copy_session_id_buf: [16]u8 = undefined;
+/// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
+pub const no_provider_session_id_status = "No provider session id";
 /// Caller-chosen ImageId for the composer attach preview. `fx.loadImage`
 /// uses this as the effect key (shared with spawn / clipboard / file).
 /// 0 is the no-image sentinel. Sits in the gap after `copy_turn_key`
@@ -911,6 +916,10 @@ pub const PaletteAction = enum(u32) {
     settings = 6,
     minimize = 7,
     maximize = 8,
+    /// Selected session's local numeric id as decimal text. Not a UUID.
+    copy_session_id = 9,
+    /// Selected session `fx_session_id` (fx ask --json / ACP sessionId).
+    copy_fx_session_id = 10,
 };
 
 /// Follow-up queued while that session is busy. Becomes its own turn after a
@@ -1032,6 +1041,10 @@ pub const Msg = union(enum) {
     copy_turn: u32,
     copy_last_turn,
     copy_session,
+    /// Palette: local numeric session id as decimal text. Not a UUID.
+    copy_session_id,
+    /// Palette: `fx_session_id` / ACP sessionId. Empty is a status, not a write.
+    copy_fx_session_id,
     switcher_forward,
     switcher_backward,
     switcher_confirm,
@@ -1044,7 +1057,7 @@ pub const Msg = union(enum) {
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "focus_composer", "open_find", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "focus_composer", "open_find", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app" };
 };
 
 pub const Model = struct {
@@ -3143,6 +3156,8 @@ const palette_action_specs = [_]PaletteActionSpec{
     .{ .action = .settings, .label = "Settings", .keywords = &.{ "settings", "preferences" }, .suggested = false },
     .{ .action = .minimize, .label = "Minimize", .keywords = &.{ "minimize", "window" }, .suggested = false },
     .{ .action = .maximize, .label = "Maximize", .keywords = &.{ "maximize", "window", "zoom" }, .suggested = false },
+    .{ .action = .copy_session_id, .label = "Copy session id", .keywords = &.{ "copy", "id", "session" }, .suggested = false },
+    .{ .action = .copy_fx_session_id, .label = "Copy provider session id", .keywords = &.{ "copy", "id", "session", "fx", "acp", "provider" }, .suggested = false },
 };
 
 pub fn paletteActionId(action: PaletteAction) u32 {
@@ -3588,6 +3603,25 @@ fn copySession(model: *Model, fx: *Effects) void {
     writeVisibleClipboard(fx, text);
 }
 
+/// Selected session's local `u32` id as decimal text. No invented UUID.
+fn copySessionId(model: *Model, fx: *Effects) void {
+    if (model.sessionByIdConst(model.selected) == null) return;
+    const text = std.fmt.bufPrint(&copy_session_id_buf, "{d}", .{model.selected}) catch return;
+    writeVisibleClipboard(fx, text);
+}
+
+/// Selected session `fx_session_id` (fx ask --json / ACP sessionId).
+/// Empty does not writeClipboard — short status instead.
+fn copyFxSessionId(model: *Model, fx: *Effects) void {
+    const session = model.sessionByIdConst(model.selected) orelse return;
+    const text = session.fxSessionId();
+    if (text.len == 0) {
+        model.setWindowStatus(no_provider_session_id_status);
+        return;
+    }
+    writeVisibleClipboard(fx, text);
+}
+
 /// Selected session, newest first. Empty text is skipped so a trailing
 /// blank assistant/tool/thought turn does not hide the last real copy.
 fn latestNonEmptyTurnId(model: *const Model) ?u32 {
@@ -3755,6 +3789,8 @@ fn runPaletteAction(model: *Model, fx: *Effects, action: PaletteAction) void {
         .settings => update(model, .toggle_settings, fx),
         .minimize => update(model, .minimize_window, fx),
         .maximize => update(model, .maximize_window, fx),
+        .copy_session_id => update(model, .copy_session_id, fx),
+        .copy_fx_session_id => update(model, .copy_fx_session_id, fx),
     }
 }
 
@@ -4266,6 +4302,8 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .copy_turn => |id| copyTurn(model, fx, id),
         .copy_last_turn => copyLastTurn(model, fx),
         .copy_session => copySession(model, fx),
+        .copy_session_id => copySessionId(model, fx),
+        .copy_fx_session_id => copyFxSessionId(model, fx),
         .clipboard_done => {},
         .attach_preview_done => |result| applyAttachPreviewResult(model, fx, result),
         .tick => |timer| {
