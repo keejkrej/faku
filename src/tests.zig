@@ -6412,14 +6412,15 @@ test "palette copies local session id and fx session id; empty fx id skips clipb
 
     main.update(&model, .copy_fx_session_id, &fx);
     try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try testing.expectEqualStrings(expected_id, fx.pendingClipboardAt(0).?.text);
     try testing.expectEqualStrings(main.no_provider_session_id_status, model.window_status());
 
     if (model.sessionById(selected)) |session| {
         session.setFxSessionId("fx-sess-palette");
     }
     main.update(&model, .copy_fx_session_id, &fx);
-    try testing.expectEqual(@as(usize, 2), fx.pendingClipboardCount());
-    const provider = fx.pendingClipboardAt(1).?;
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    const provider = fx.pendingClipboardAt(0).?;
     try testing.expectEqual(main.copy_turn_key, provider.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, provider.op);
     try testing.expectEqualStrings("fx-sess-palette", provider.text);
@@ -6431,8 +6432,8 @@ test "palette copies local session id and fx session id; empty fx id skips clipb
     const pick_local = try expectButton(open, "Copy session id");
     main.update(&model, tree.msgForPointer(pick_local.id, .up).?, &fx);
     try testing.expect(!model.palette_open);
-    try testing.expectEqual(@as(usize, 3), fx.pendingClipboardCount());
-    try testing.expectEqualStrings(expected_id, fx.pendingClipboardAt(2).?.text);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try testing.expectEqualStrings(expected_id, fx.pendingClipboardAt(0).?.text);
 
     main.update(&model, .start_search, &fx);
     tree = try buildTree(arena, &model);
@@ -6442,8 +6443,8 @@ test "palette copies local session id and fx session id; empty fx id skips clipb
     );
     main.update(&model, tree.msgForPointer(pick_fx.id, .up).?, &fx);
     try testing.expect(!model.palette_open);
-    try testing.expectEqual(@as(usize, 4), fx.pendingClipboardCount());
-    try testing.expectEqualStrings("fx-sess-palette", fx.pendingClipboardAt(3).?.text);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try testing.expectEqualStrings("fx-sess-palette", fx.pendingClipboardAt(0).?.text);
 }
 
 test "palette Tasks match session model; miss query shows no-results copy" {
