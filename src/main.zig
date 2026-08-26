@@ -31,7 +31,7 @@ const palette = @import("palette.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 const goal = @import("goal.zig");
 const composer = @import("composer.zig");
-const copy = @import("copy.zig");
+const copy_helpers = @import("copy.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -183,9 +183,9 @@ pub const maximize_window_key: u64 = 30;
 /// Distinct from fx ask / daemon / clipboard / preview keys. Native has
 /// no `fx.pickFile`; this spawn is the documented workaround.
 pub const pick_image_key: u64 = 31;
-pub const copy_turn_key = copy.copy_turn_key;
+pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
-pub const no_provider_session_id_status = copy.no_provider_session_id_status;
+pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_status;
 /// Caller-chosen ImageId for the composer attach preview. `fx.loadImage`
 /// uses this as the effect key (shared with spawn / clipboard / file).
 /// 0 is the no-image sentinel. Sits in the gap after `copy_turn_key`
@@ -196,11 +196,11 @@ pub const attach_preview_id_last: u64 = 63;
 const demo_ticks_complete: u32 = 12;
 const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
 /// Desktop notification title when the session has no stored title.
-pub const notify_fallback_title = copy.notify_fallback_title;
+pub const notify_fallback_title = copy_helpers.notify_fallback_title;
 /// Desktop notification body when the last assistant turn is empty.
-pub const notify_fallback_body = copy.notify_fallback_body;
+pub const notify_fallback_body = copy_helpers.notify_fallback_body;
 /// Short body cap. Native allows 1024; keep the toast readable.
-pub const notify_body_max = copy.notify_body_max;
+pub const notify_body_max = copy_helpers.notify_body_max;
 
 pub const Mode = enum { demo, daemon };
 pub const Role = enum { user, assistant, tool, reasoning };
@@ -3727,11 +3727,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .transcript_scrolled => |scroll| model.applyTranscriptScroll(scroll),
         .jump_latest => model.pinTranscriptToLatest(),
-        .copy_turn => |id| copy.copyTurn(model, fx, id),
-        .copy_last_turn => copy.copyLastTurn(model, fx),
-        .copy_session => copy.copySession(model, fx),
-        .copy_session_id => copy.copySessionId(model, fx),
-        .copy_fx_session_id => copy.copyFxSessionId(model, fx),
+        .copy_turn => |id| copy_helpers.copyTurn(model, fx, id),
+        .copy_last_turn => copy_helpers.copyLastTurn(model, fx),
+        .copy_session => copy_helpers.copySession(model, fx),
+        .copy_session_id => copy_helpers.copySessionId(model, fx),
+        .copy_fx_session_id => copy_helpers.copyFxSessionId(model, fx),
         .clipboard_done => {},
         .attach_preview_done => |result| applyAttachPreviewResult(model, fx, result),
         .tick => |timer| {
@@ -4115,7 +4115,7 @@ fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
     if (drain) {
-        copy.notifyTurnComplete(model, fx, finished_id);
+        copy_helpers.notifyTurnComplete(model, fx, finished_id);
         var copy: [max_queued_text]u8 = undefined;
         if (model.takeNextQueued(finished_id, &copy)) |n| {
             store.persistIfPossible(model, finished_id, fx);
