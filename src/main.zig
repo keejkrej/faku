@@ -31,6 +31,7 @@ const palette = @import("palette.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 const goal = @import("goal.zig");
 const composer = @import("composer.zig");
+const copy_helpers = @import("copy.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -72,10 +73,10 @@ pub const palette_search_row_height = palette.palette_search_row_height;
 pub const palette_section_header_height = palette.palette_section_header_height;
 pub const palette_card_width = palette.palette_card_width;
 pub const palette_card_height = palette.palette_card_height;
-const max_turns = 128;
+pub const max_turns = 128;
 const max_title = 64;
 const max_search = 64;
-const max_body = 4096;
+pub const max_body = 4096;
 pub const max_draft = 512;
 pub const max_queued = 16;
 pub const max_queued_text = 1024;
@@ -174,11 +175,6 @@ const stream_chunk_bytes: usize = 8;
 /// lands on the newest turn after layout. Verified: native-sdk.dev
 /// scroll docs + engine clamp.
 pub const transcript_pin_offset: f32 = 1_000_000;
-/// Caller-chosen identity for `fx.writeClipboard` on a transcript
-/// turn or a joined session. Shares the effects key space with spawn /
-/// fetch / file; sits in the gap between daemon keys and
-/// `fx_spawn_overlap`. Verified: Native Effects `WriteClipboardOptions`
-/// + notes example.
 /// One-shot OS maximize sidecar (`osascript` / `wmctrl` / `xdotool`).
 /// Distinct from fx ask / daemon / picker / clipboard keys. Native
 /// still has no `fx.maximizeWindow`; this spawn is the workaround.
@@ -187,17 +183,9 @@ pub const maximize_window_key: u64 = 30;
 /// Distinct from fx ask / daemon / clipboard / preview keys. Native has
 /// no `fx.pickFile`; this spawn is the documented workaround.
 pub const pick_image_key: u64 = 31;
-pub const copy_turn_key: u64 = 32;
-/// Worst-case join of every in-memory turn with a blank line between.
-const max_copy_session = max_turns * max_body + (max_turns - 1) * 2;
-/// Scratch for `copySession`. `writeClipboard` copies `.text` during
-/// the call; this outlives the join so the slice stays valid.
-var copy_session_buf: [max_copy_session]u8 = undefined;
-/// Decimal local session id (`u32` ≤ 10 digits). Same clipboard key
-/// as copy turn / copy session — Native has one writeClipboard effect.
-var copy_session_id_buf: [16]u8 = undefined;
+pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
-pub const no_provider_session_id_status = "No provider session id";
+pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_status;
 /// Caller-chosen ImageId for the composer attach preview. `fx.loadImage`
 /// uses this as the effect key (shared with spawn / clipboard / file).
 /// 0 is the no-image sentinel. Sits in the gap after `copy_turn_key`
@@ -208,11 +196,11 @@ pub const attach_preview_id_last: u64 = 63;
 const demo_ticks_complete: u32 = 12;
 const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
 /// Desktop notification title when the session has no stored title.
-pub const notify_fallback_title = "Faku";
+pub const notify_fallback_title = copy_helpers.notify_fallback_title;
 /// Desktop notification body when the last assistant turn is empty.
-pub const notify_fallback_body = "Reply ready";
+pub const notify_fallback_body = copy_helpers.notify_fallback_body;
 /// Short body cap. Native allows 1024; keep the toast readable.
-pub const notify_body_max: usize = 120;
+pub const notify_body_max = copy_helpers.notify_body_max;
 
 pub const Mode = enum { demo, daemon };
 pub const Role = enum { user, assistant, tool, reasoning };
@@ -2520,7 +2508,7 @@ pub const Model = struct {
         return null;
     }
 
-    fn turnById(model: *Model, id: u32) ?*Turn {
+    pub fn turnById(model: *Model, id: u32) ?*Turn {
         for (model.turn_store[0..model.turn_count]) |*turn| {
             if (turn.id == id) return turn;
         }
@@ -3085,128 +3073,6 @@ fn fileExists(io: std.Io, path: []const u8) bool {
 pub const fx_ask_chdir_script = "cd -- \"$1\" && shift && exec \"$@\"";
 
 pub const Effects = native_sdk.Effects(Msg);
-
-fn lastAssistantText(model: *const Model, session_id: u32) []const u8 {
-    var i = model.turn_count;
-    while (i > 0) {
-        i -= 1;
-        const turn = &model.turn_store[i];
-        if (turn.session_id == session_id and turn.role == .assistant) return turn.text();
-    }
-    return "";
-}
-
-fn truncateNotifyBody(text: []const u8) []const u8 {
-    if (text.len <= notify_body_max) return text;
-    var end = notify_body_max;
-    while (end > 0 and (text[end] & 0xC0) == 0x80) end -= 1;
-    return text[0..end];
-}
-
-fn turnCompleteTitle(model: *const Model, session_id: u32) []const u8 {
-    const session = model.sessionByIdConst(session_id) orelse return notify_fallback_title;
-    if (session.title().len == 0) return notify_fallback_title;
-    return session.title();
-}
-
-fn turnCompleteBody(model: *const Model, session_id: u32) []const u8 {
-    const text = std.mem.trim(u8, lastAssistantText(model, session_id), " \t\r\n");
-    if (text.len == 0) return notify_fallback_body;
-    return truncateNotifyBody(text);
-}
-
-/// Successful stream settle only. Native has no focus observation, so
-/// this always fires — not Waku's unfocused-only gate.
-fn notifyTurnComplete(model: *const Model, fx: *Effects, session_id: u32) void {
-    fx.showNotification(.{
-        .title = turnCompleteTitle(model, session_id),
-        .body = turnCompleteBody(model, session_id),
-    });
-}
-
-/// Copy visible transcript text through Native `fx.writeClipboard`.
-/// Empty text is a no-op — no fake clipboard, no `pbcopy` spawn.
-fn writeVisibleClipboard(fx: *Effects, text: []const u8) void {
-    if (text.len == 0) return;
-    fx.writeClipboard(.{
-        .key = copy_turn_key,
-        .text = text,
-        .on_result = Effects.clipboardMsg(.clipboard_done),
-    });
-}
-
-/// Copy a turn's visible text (markdown source / tool / thought body)
-/// through Native `fx.writeClipboard`. Empty text is a no-op.
-fn copyTurn(model: *Model, fx: *Effects, id: u32) void {
-    const turn = model.turnById(id) orelse return;
-    writeVisibleClipboard(fx, turn.text());
-}
-
-/// Selected session, store order. Skip empty turns. Join remaining
-/// user / assistant / tool / thought bodies with a blank line.
-/// Returns null when nothing remains so the clipboard is not requested.
-fn joinSelectedSessionText(model: *const Model) ?[]const u8 {
-    var n: usize = 0;
-    var any = false;
-    for (model.turn_store[0..model.turn_count]) |*turn| {
-        if (turn.session_id != model.selected) continue;
-        const text = turn.text();
-        if (text.len == 0) continue;
-        if (any) {
-            copy_session_buf[n] = '\n';
-            copy_session_buf[n + 1] = '\n';
-            n += 2;
-        }
-        @memcpy(copy_session_buf[n..][0..text.len], text);
-        n += text.len;
-        any = true;
-    }
-    if (!any) return null;
-    return copy_session_buf[0..n];
-}
-
-fn copySession(model: *Model, fx: *Effects) void {
-    const text = joinSelectedSessionText(model) orelse return;
-    writeVisibleClipboard(fx, text);
-}
-
-/// Selected session's local `u32` id as decimal text. No invented UUID.
-fn copySessionId(model: *Model, fx: *Effects) void {
-    if (model.sessionByIdConst(model.selected) == null) return;
-    const text = std.fmt.bufPrint(&copy_session_id_buf, "{d}", .{model.selected}) catch return;
-    writeVisibleClipboard(fx, text);
-}
-
-/// Selected session `fx_session_id` (fx ask --json / ACP sessionId).
-/// Empty does not writeClipboard — short status instead.
-fn copyFxSessionId(model: *Model, fx: *Effects) void {
-    const session = model.sessionByIdConst(model.selected) orelse return;
-    const text = session.fxSessionId();
-    if (text.len == 0) {
-        model.setWindowStatus(no_provider_session_id_status);
-        return;
-    }
-    writeVisibleClipboard(fx, text);
-}
-
-/// Selected session, newest first. Empty text is skipped so a trailing
-/// blank assistant/tool/thought turn does not hide the last real copy.
-fn latestNonEmptyTurnId(model: *const Model) ?u32 {
-    var i: usize = model.turn_count;
-    while (i > 0) {
-        i -= 1;
-        const turn = model.turn_store[i];
-        if (turn.session_id != model.selected) continue;
-        if (turn.text().len == 0) continue;
-        return turn.id;
-    }
-    return null;
-}
-
-fn copyLastTurn(model: *Model, fx: *Effects) void {
-    const id = latestNonEmptyTurnId(model) orelse return;
-    copyTurn(model, fx, id);
-}
 
 fn nextAttachPreviewId(model: *Model) u64 {
     var id = model.next_attach_preview_id;
@@ -3861,11 +3727,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .transcript_scrolled => |scroll| model.applyTranscriptScroll(scroll),
         .jump_latest => model.pinTranscriptToLatest(),
-        .copy_turn => |id| copyTurn(model, fx, id),
-        .copy_last_turn => copyLastTurn(model, fx),
-        .copy_session => copySession(model, fx),
-        .copy_session_id => copySessionId(model, fx),
-        .copy_fx_session_id => copyFxSessionId(model, fx),
+        .copy_turn => |id| copy_helpers.copyTurn(model, fx, id),
+        .copy_last_turn => copy_helpers.copyLastTurn(model, fx),
+        .copy_session => copy_helpers.copySession(model, fx),
+        .copy_session_id => copy_helpers.copySessionId(model, fx),
+        .copy_fx_session_id => copy_helpers.copyFxSessionId(model, fx),
         .clipboard_done => {},
         .attach_preview_done => |result| applyAttachPreviewResult(model, fx, result),
         .tick => |timer| {
@@ -4249,7 +4115,7 @@ fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
     if (drain) {
-        notifyTurnComplete(model, fx, finished_id);
+        copy_helpers.notifyTurnComplete(model, fx, finished_id);
         var copy: [max_queued_text]u8 = undefined;
         if (model.takeNextQueued(finished_id, &copy)) |n| {
             store.persistIfPossible(model, finished_id, fx);
@@ -5040,4 +4906,5 @@ test {
     _ = @import("sidebar_dates.zig");
     _ = @import("goal.zig");
     _ = @import("composer.zig");
+    _ = @import("copy.zig");
 }
