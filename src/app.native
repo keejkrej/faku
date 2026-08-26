@@ -31,6 +31,7 @@
           <row height="28" cross="center">
             <spacer width="8" />
             <list-item height="28" on-press="unassign_selected" label="Today">
+              <!-- Unassign target (`folder_id` 0). Also the Today date bucket. -->
               <text foreground="text_muted">Today</text>
             </list-item>
             <spacer grow="1" />
@@ -43,6 +44,14 @@
           <scroll grow="1">
             <column>
               <for each="sidebar_rows" key="id" as="s">
+                <if test="{s.is_date_header}">
+                  <!-- Date buckets use UTC civil days from updated_at. The
+                       chrome Today list-item above stays the unassign target. -->
+                  <row height="28" cross="center" padding="4">
+                    <text foreground="text_muted">{s.title}</text>
+                  </row>
+                </if>
+                <else>
                 <if test="{s.is_header}">
                   <list-item height="32" selected="{s.selected}" on-press="assign_selected:{s.folder_id}" label="{s.title}">
                     <row height="28" cross="center" padding="4">
@@ -65,7 +74,7 @@
                 </if>
                 <else>
                   <!-- Grouped folder children: 15px inset (Waku SIDEBAR_GROUP_GUIDE_X) + 1px
-                       Native separator rail + 52px session card height. Today rows stay flush. -->
+                       Native separator rail + 52px session card height. Today / ungrouped rows stay flush. -->
                   <if test="{s.grouped}">
                     <row height="52" cross="stretch">
                       <spacer width="15" />
@@ -122,6 +131,7 @@
                       </context-menu>
                     </list-item>
                   </else>
+                </else>
                 </else>
               </for>
             </column>

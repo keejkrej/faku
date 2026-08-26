@@ -9355,3 +9355,178 @@ test "catalog load after a busy Send does not restore session.busy" {
     store.hydrateSession(&loaded, session_id, testing.allocator, testing.io);
     try testing.expect(!loaded.sessionById(session_id).?.busy);
 }
+
+const day_ms: i64 = 86_400_000;
+const pinned_now_ms: i64 = 1_704_067_200_000; // 2024-01-01 00:00:00 UTC
+
+fn pinClock(fx: *Effects, clock: *native_sdk.TestClock, now_ms: i64) void {
+    clock.setWallMs(now_ms);
+    fx.clock = clock.clock();
+}
+
+test "sessionDateBucket uses UTC days; 0 and missing now are Today" {
+    try testing.expectEqual(main.DateBucket.today, main.sessionDateBucket(0, pinned_now_ms));
+    try testing.expectEqual(main.DateBucket.today, main.sessionDateBucket(pinned_now_ms, 0));
+    try testing.expectEqual(main.DateBucket.today, main.sessionDateBucket(pinned_now_ms, pinned_now_ms));
+    try testing.expectEqual(main.DateBucket.today, main.sessionDateBucket(pinned_now_ms + 1, pinned_now_ms));
+    try testing.expectEqual(main.DateBucket.yesterday, main.sessionDateBucket(pinned_now_ms - day_ms, pinned_now_ms));
+    try testing.expectEqual(main.DateBucket.older, main.sessionDateBucket(pinned_now_ms - (2 * day_ms), pinned_now_ms));
+    try testing.expectEqual(main.DateBucket.older, main.sessionDateBucket(pinned_now_ms - (40 * day_ms), pinned_now_ms));
+}
+
+test "ungrouped sessions land in Today Yesterday Older; folder rows stay put" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var clock = native_sdk.TestClock{};
+    pinClock(&fx, &clock, pinned_now_ms);
+
+    var model = Model{};
+    model.now_ms = pinned_now_ms;
+    const today_new = model.addSession("today newer", .fx);
+    const today_old = model.addSession("today older", .fx);
+    const yesterday = model.addSession("yesterday thread", .fx);
+    const older = model.addSession("older thread", .fx);
+    const grouped = model.addSession("folder thread", .fx);
+    model.sessionById(today_new).?.updated_at = pinned_now_ms + 3_600_000;
+    model.sessionById(today_old).?.updated_at = pinned_now_ms + 1_000;
+    model.sessionById(yesterday).?.updated_at = pinned_now_ms - day_ms;
+    model.sessionById(older).?.updated_at = pinned_now_ms - (3 * day_ms);
+    model.sessionById(grouped).?.updated_at = pinned_now_ms - (10 * day_ms);
+    const folder_id = model.addFolder("New folder");
+    try testing.expect(model.assignSessionFolder(grouped, folder_id));
+
+    const rows = model.sidebar_rows(arena);
+    try expectSidebarTitles(rows, &.{
+        "Today",
+        "today newer",
+        "today older",
+        "Yesterday",
+        "yesterday thread",
+        "Older",
+        "older thread",
+        "New folder",
+        "folder thread",
+    });
+    try testing.expect(rows[0].is_date_header);
+    try testing.expect(rows[0].is_header);
+    try testing.expectEqual(@as(u32, 0), rows[0].folder_id);
+    try testing.expect(!rows[1].is_header);
+    try testing.expect(!rows[1].grouped);
+    try testing.expect(rows[3].is_date_header);
+    try testing.expectEqualStrings("Yesterday", rows[3].title);
+    try testing.expect(rows[5].is_date_header);
+    try testing.expectEqualStrings("Older", rows[5].title);
+    try testing.expect(rows[7].is_header);
+    try testing.expect(!rows[7].is_date_header);
+    try testing.expectEqual(folder_id, rows[7].folder_id);
+    try testing.expect(rows[8].grouped);
+    try testing.expectEqual(folder_id, rows[8].folder_id);
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .list_item, "Today");
+    try testing.expectEqual(@as(usize, 2), countByText(tree.root, .text, "Today"));
+    _ = try expectByText(tree.root, .text, "Yesterday");
+    _ = try expectByText(tree.root, .text, "Older");
+    _ = try expectButton(tree.root, "today newer");
+    _ = try expectButton(tree.root, "yesterday thread");
+    _ = try expectButton(tree.root, "older thread");
+    _ = try expectByText(tree.root, .list_item, "New folder");
+    try testing.expect(pressableAppearsBefore(tree.root, "today newer", "yesterday thread"));
+    try testing.expect(pressableAppearsBefore(tree.root, "yesterday thread", "older thread"));
+    try testing.expect(pressableAppearsBefore(tree.root, "older thread", "folder thread"));
+    try expectNoContextMenu(try expectByText(tree.root, .list_item, "Today"));
+    try testing.expect(!sessionRowHasGroupRail(tree.root, "today newer"));
+    try testing.expect(!sessionRowHasGroupRail(tree.root, "yesterday thread"));
+    try testing.expect(sessionRowHasGroupRail(tree.root, "folder thread"));
+}
+
+test "Today unassign still works when extra date headers exist" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-date-unassign", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var clock = native_sdk.TestClock{};
+    pinClock(&fx, &clock, pinned_now_ms);
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.now_ms = pinned_now_ms;
+    const today = model.addSession("today thread", .fx);
+    const yesterday = model.addSession("yesterday thread", .fx);
+    const grouped = model.addSession("folder thread", .fx);
+    _ = model.appendTurn(today, .user, "today");
+    _ = model.appendTurn(yesterday, .user, "yesterday");
+    _ = model.appendTurn(grouped, .user, "grouped");
+    model.sessionById(today).?.updated_at = pinned_now_ms;
+    model.sessionById(yesterday).?.updated_at = pinned_now_ms - day_ms;
+    model.sessionById(grouped).?.updated_at = pinned_now_ms - (4 * day_ms);
+    const folder_id = model.addFolder("New folder");
+    try testing.expect(model.assignSessionFolder(grouped, folder_id));
+    try store.saveSession(&model, today, testing.allocator, testing.io);
+    try store.saveSession(&model, yesterday, testing.allocator, testing.io);
+    try store.saveSession(&model, grouped, testing.allocator, testing.io);
+    store.persistFoldersIfPossible(&model);
+    model.selected = grouped;
+
+    var tree = try buildTree(arena, &model);
+    const today_row = try expectByText(tree.root, .list_item, "Today");
+    try testing.expectEqual(Msg.unassign_selected, tree.msgForPointer(today_row.id, .up).?);
+    main.update(&model, tree.msgForPointer(today_row.id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 0), model.sessionById(grouped).?.folder_id);
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "Today",
+        "today thread",
+        "Yesterday",
+        "yesterday thread",
+        "Older",
+        "folder thread",
+        "New folder",
+    });
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    loaded.now_ms = pinned_now_ms;
+    try testing.expectEqual(@as(u32, 0), loaded.sessionById(grouped).?.folder_id);
+    try expectSidebarTitles(loaded.sidebar_rows(arena), &.{
+        "Today",
+        "today thread",
+        "Yesterday",
+        "yesterday thread",
+        "Older",
+        "folder thread",
+        "New folder",
+    });
+}
+
+test "Send stamps updated_at from Effects.wallMs" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var clock = native_sdk.TestClock{};
+    pinClock(&fx, &clock, pinned_now_ms);
+
+    var model = main.initialModel();
+    const id = model.selected;
+    try testing.expectEqual(@as(i64, 0), model.sessionById(id).?.updated_at);
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "stamp this send" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(pinned_now_ms, model.sessionById(id).?.updated_at);
+    try testing.expectEqual(pinned_now_ms, model.now_ms);
+}
