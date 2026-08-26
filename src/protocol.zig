@@ -87,6 +87,22 @@
 //! is false or unknown — those follow-ups queue. No `attachSession`
 //! first.
 //!
+//! `goal` is `Command::Goal { operation }` (`GoalOperation` tagged
+//! `kind`). Verified against egoist/waku `crates/waku-protocol/src/protocol.rs`
+//! (`Goal { operation: GoalOperation }`, command enum camelCase) and
+//! `crates/waku-protocol/src/model.rs` (`#[serde(tag = "kind",
+//! rename_all = "camelCase", rename_all_fields = "camelCase")]`):
+//! `{ "kind": "refresh" }`, `{ "kind": "set", "objective": string|null,
+//! "status": ThreadGoalStatus|null, "replace": bool }`, `{ "kind": "clear" }`.
+//! `ThreadGoalStatus` is Codex camelCase: `active` | `paused` | `blocked`
+//! | `usageLimited` | `budgetLimited` | `complete`. Outcome is an async
+//! `goalUpdated` driver event (payload is `ThreadGoal` or JSON null when
+//! cleared), or `error`. This port does not invent token-budget fields.
+//! A one-shot sidecar may only see stdout during the short spawn — still
+//! emit the command; parse `goalUpdated` if it arrives, otherwise keep
+//! last-known local objective/status. Goal is a Waku-daemon Command for
+//! live Codex provider runtimes. fx ask / fx acp / demo do not get Goal.
+//!
 //! `attachSession` is a bare command. Verified against egoist/waku
 //! `Command::AttachSession` (unit variant, no payload field),
 //! `src/app/runtime.rs` (`request(session_id, Uuid::nil(), AttachSession)`),
@@ -226,6 +242,8 @@ pub fn defaultStartOptions() StartOptions {
 /// First-cut commands. Full daemon surface is larger; this port only
 /// names the ones a desktop needs to boot a transcript. There is no
 /// `fork` command on this wire — session fork is a local catalog clone.
+/// `goal` is the Codex `/goal` first cut (set/clear/refresh over the
+/// daemon sidecar). It is not an fx / ACP method.
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -235,6 +253,7 @@ pub const CommandTag = enum {
     prompt,
     steer,
     cancel,
+    goal,
     close_session,
 
     pub fn wireName(tag: CommandTag) []const u8 {
@@ -247,6 +266,7 @@ pub const CommandTag = enum {
             .prompt => "prompt",
             .steer => "steer",
             .cancel => "cancel",
+            .goal => "goal",
             .close_session => "closeSession",
         };
     }
@@ -262,6 +282,7 @@ pub const EventKind = enum {
     permission,
     steer_accepted,
     steer_rejected,
+    goal_updated,
     turn_finished,
     @"error",
     process_exited,
@@ -276,6 +297,7 @@ pub const EventKind = enum {
             .permission => "permission",
             .steer_accepted => "steerAccepted",
             .steer_rejected => "steerRejected",
+            .goal_updated => "goalUpdated",
             .turn_finished => "turnFinished",
             .@"error" => "error",
             .process_exited => "processExited",
@@ -313,6 +335,59 @@ pub const ParsedServer = struct {
     payload_type: []const u8 = "",
     /// `sessionRuntime.supportsSteer` when the payload includes it.
     supports_steer: bool = false,
+    /// `goalUpdated` payload `objective` when present.
+    goal_objective: []const u8 = "",
+    /// `goalUpdated` payload `status` when present (Codex camelCase).
+    goal_status: []const u8 = "",
+    /// True when `goalUpdated` payload is JSON null (provider cleared).
+    goal_cleared: bool = false,
+    /// True when the `goalUpdated` object included `objective`.
+    goal_has_objective: bool = false,
+    /// True when the `goalUpdated` object included `status`.
+    goal_has_status: bool = false,
+};
+
+/// Codex / Waku `ThreadGoalStatus`. Wire names are camelCase.
+pub const ThreadGoalStatus = enum {
+    active,
+    paused,
+    blocked,
+    usage_limited,
+    budget_limited,
+    complete,
+
+    pub fn wireName(status: ThreadGoalStatus) []const u8 {
+        return switch (status) {
+            .active => "active",
+            .paused => "paused",
+            .blocked => "blocked",
+            .usage_limited => "usageLimited",
+            .budget_limited => "budgetLimited",
+            .complete => "complete",
+        };
+    }
+
+    pub fn fromWire(name: []const u8) ?ThreadGoalStatus {
+        inline for (std.meta.tags(ThreadGoalStatus)) |status| {
+            if (std.mem.eql(u8, status.wireName(), name)) return status;
+        }
+        return null;
+    }
+};
+
+/// `GoalOperation` tagged `kind` (Waku serde camelCase).
+pub const GoalKind = enum { refresh, set, clear };
+
+pub const GoalSet = struct {
+    objective: ?[]const u8 = null,
+    status: ?[]const u8 = null,
+    replace: bool = false,
+};
+
+pub const GoalOperation = union(GoalKind) {
+    refresh,
+    set: GoalSet,
+    clear,
 };
 
 /// Runtime id taken from a verified `sessionRuntime` response payload.
@@ -489,6 +564,54 @@ pub fn writeSteer(
     try writeJsonString(&cur, prompt);
     try cur.write("}}");
     return cur.slice();
+}
+
+/// Request frame wrapping verified `command: { type: "goal", operation }`.
+/// Same request-frame `sessionId` / `runtimeId` as prompt / steer / cancel.
+/// `operation` is `GoalOperation` tagged `kind`. Nil UUID requestId =
+/// notify (no response). Timeout 120s.
+pub fn writeGoal(
+    buf: []u8,
+    request_id: []const u8,
+    session_id: []const u8,
+    runtime_id: []const u8,
+    operation: GoalOperation,
+) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    try cur.write("{\"type\":\"request\",\"requestId\":");
+    try writeJsonString(&cur, request_id);
+    try cur.write(",\"sessionId\":");
+    try writeJsonString(&cur, session_id);
+    try cur.write(",\"runtimeId\":");
+    try writeJsonString(&cur, runtime_id);
+    try cur.write(",\"command\":{\"type\":\"goal\",\"operation\":");
+    try writeGoalOperation(&cur, operation);
+    try cur.write("}}");
+    return cur.slice();
+}
+
+fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
+    switch (operation) {
+        .refresh => try cur.write("{\"kind\":\"refresh\"}"),
+        .clear => try cur.write("{\"kind\":\"clear\"}"),
+        .set => |args| {
+            try cur.write("{\"kind\":\"set\",\"objective\":");
+            if (args.objective) |objective| {
+                try writeJsonString(cur, objective);
+            } else {
+                try cur.write("null");
+            }
+            try cur.write(",\"status\":");
+            if (args.status) |status| {
+                try writeJsonString(cur, status);
+            } else {
+                try cur.write("null");
+            }
+            try cur.write(",\"replace\":");
+            try writeBool(cur, args.replace);
+            try cur.write("}");
+        },
+    }
 }
 
 /// Start command. Defaults to first-party `fx` / binary `fx`.
@@ -880,10 +1003,21 @@ fn parseEvent(obj: std.json.ObjectMap, parsed: *ParsedServer) void {
             parsed.text_delta = s;
             if (parsed.event_kind == .@"error") parsed.message = s;
         },
+        .null => {
+            if (parsed.event_kind == .goal_updated) parsed.goal_cleared = true;
+        },
         .object => |o| {
             if (jsonBoolValue(o.get("success"))) |ok| parsed.turn_success = ok;
             if (jsonStringValue(o.get("summary"))) |summary| parsed.message = summary;
             if (jsonStringValue(o.get("text"))) |text| parsed.text_delta = text;
+            if (o.get("objective")) |objective_val| {
+                parsed.goal_has_objective = true;
+                parsed.goal_objective = jsonStringValue(objective_val) orelse "";
+            }
+            if (o.get("status")) |status_val| {
+                parsed.goal_has_status = true;
+                parsed.goal_status = jsonStringValue(status_val) orelse "";
+            }
         },
         else => {},
     }
@@ -971,6 +1105,45 @@ test "steer request wraps a camelCase command with prompt payload" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"cancel\"") == null);
 }
 
+test "goal request wraps camelCase operation refresh set and clear" {
+    var buf: [512]u8 = undefined;
+    const refresh = try writeGoal(
+        &buf,
+        NIL_UUID,
+        "00000000-0000-0000-0000-000000000001",
+        "00000000-0000-0000-0000-000000000003",
+        .refresh,
+    );
+    try std.testing.expect(std.mem.indexOf(u8, refresh, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, refresh, "\"sessionId\":\"00000000-0000-0000-0000-000000000001\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, refresh, "\"runtimeId\":\"00000000-0000-0000-0000-000000000003\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, refresh, "\"command\":{\"type\":\"goal\",\"operation\":{\"kind\":\"refresh\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, refresh, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, refresh, "\"type\":\"steer\"") == null);
+
+    const set = try writeGoal(&buf, NIL_UUID, NIL_UUID, NIL_UUID, .{
+        .set = .{
+            .objective = "Ship the feature",
+            .status = ThreadGoalStatus.active.wireName(),
+            .replace = false,
+        },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, set, "\"command\":{\"type\":\"goal\",\"operation\":{\"kind\":\"set\",\"objective\":\"Ship the feature\",\"status\":\"active\",\"replace\":false}}") != null);
+
+    const nulls = try writeGoal(&buf, NIL_UUID, NIL_UUID, NIL_UUID, .{
+        .set = .{ .objective = null, .status = null, .replace = true },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, nulls, "\"kind\":\"set\",\"objective\":null,\"status\":null,\"replace\":true") != null);
+
+    const clear = try writeGoal(&buf, NIL_UUID, NIL_UUID, NIL_UUID, .clear);
+    try std.testing.expect(std.mem.indexOf(u8, clear, "\"command\":{\"type\":\"goal\",\"operation\":{\"kind\":\"clear\"}}") != null);
+    try std.testing.expectEqualStrings("active", ThreadGoalStatus.active.wireName());
+    try std.testing.expectEqualStrings("usageLimited", ThreadGoalStatus.usage_limited.wireName());
+    try std.testing.expectEqualStrings("budgetLimited", ThreadGoalStatus.budget_limited.wireName());
+    try std.testing.expectEqual(ThreadGoalStatus.complete, ThreadGoalStatus.fromWire("complete").?);
+    try std.testing.expect(ThreadGoalStatus.fromWire("unknown") == null);
+}
+
 test "start defaults to first-party fx over acp" {
     var buf: [512]u8 = undefined;
     const json = try writeStart(&buf, NIL_UUID, NIL_UUID, NIL_UUID, defaultStartOptions());
@@ -1009,8 +1182,10 @@ test "first-cut command tags stay camelCase on the wire" {
     try std.testing.expectEqualStrings("attachSession", CommandTag.attach_session.wireName());
     try std.testing.expectEqualStrings("cancel", CommandTag.cancel.wireName());
     try std.testing.expectEqualStrings("steer", CommandTag.steer.wireName());
+    try std.testing.expectEqualStrings("goal", CommandTag.goal.wireName());
     try std.testing.expectEqualStrings("steerAccepted", EventKind.steer_accepted.wireName());
     try std.testing.expectEqualStrings("steerRejected", EventKind.steer_rejected.wireName());
+    try std.testing.expectEqualStrings("goalUpdated", EventKind.goal_updated.wireName());
     try std.testing.expectEqualStrings("turnFinished", EventKind.turn_finished.wireName());
     try std.testing.expectEqualStrings("textDelta", EventKind.text_delta.wireName());
 }
@@ -1092,6 +1267,30 @@ test "server-frame parser round-trips hello rejected response and events" {
     try std.testing.expectEqual(EventKind.@"error", boom.event_kind.?);
     try std.testing.expect(isTerminalServerFrame(boom));
     try std.testing.expectEqualStrings("provider died", boom.message);
+}
+
+test "goalUpdated event yields objective and status or a clear" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const updated = parseServerFrame(arena, "{\"type\":\"event\",\"sessionId\":\"00000000-0000-0000-0000-000000000001\",\"runtimeId\":\"00000000-0000-0000-0000-000000000003\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":{\"objective\":\"Ship the feature\",\"status\":\"usageLimited\"}}}");
+    try std.testing.expectEqual(ServerFrame.event, updated.frame);
+    try std.testing.expectEqual(EventKind.goal_updated, updated.event_kind.?);
+    try std.testing.expectEqualStrings("goalUpdated", updated.event_kind_name);
+    try std.testing.expect(updated.goal_has_objective);
+    try std.testing.expect(updated.goal_has_status);
+    try std.testing.expect(!updated.goal_cleared);
+    try std.testing.expectEqualStrings("Ship the feature", updated.goal_objective);
+    try std.testing.expectEqualStrings("usageLimited", updated.goal_status);
+    try std.testing.expect(!isTerminalServerFrame(updated));
+
+    const cleared = parseServerFrame(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":null}}");
+    try std.testing.expectEqual(EventKind.goal_updated, cleared.event_kind.?);
+    try std.testing.expect(cleared.goal_cleared);
+    try std.testing.expectEqual(@as(usize, 0), cleared.goal_objective.len);
+    try std.testing.expect(!cleared.goal_has_objective);
 }
 
 test "taskState response yields session skeletons and project path fallback" {

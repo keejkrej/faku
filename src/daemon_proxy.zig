@@ -4,7 +4,8 @@
 //! builds that buffer (hello + attachSession + start + prompt when no
 //! runtime id, hello + attachSession + prompt when one is stored, hello +
 //! saveTaskState, hello + loadTaskState, hello + hydrateSession,
-//! hello + closeSession, hello + cancel, or hello + steer) and,
+//! hello + closeSession, hello + cancel, hello + steer, or hello +
+//! `goal`) and,
 //! when run as `faku daemon-proxy <addr>`, forwards those JSON frames over
 //! `ws://{addr}/v1`, prints each incoming text frame as one stdout line,
 //! and exits on `turnFinished` / `rejected` / `error`. A save-only stdin
@@ -13,7 +14,9 @@
 //! `requestId` is a notify and would never return the catalog. A
 //! hydrate-only stdin waits for the `session` response the same way. A
 //! close-only, cancel-only, or steer-only stdin exits after server
-//! hello / response like save.
+//! hello / response like save. A goal-only stdin waits for a response
+//! or `goalUpdated` / `error` (not hello) so a same-batch event can
+//! reach stdout; missing event keeps last-known local goal fields.
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -94,6 +97,15 @@ pub const SteerStdin = struct {
     session_id: []const u8,
     runtime_id: []const u8 = protocol.NIL_UUID,
     prompt: []const u8,
+};
+
+pub const GoalStdin = struct {
+    token: []const u8 = "",
+    client_id: []const u8 = CLIENT_ID,
+    request_id: []const u8 = protocol.NIL_UUID,
+    session_id: []const u8,
+    runtime_id: []const u8 = protocol.NIL_UUID,
+    operation: protocol.GoalOperation,
 };
 
 pub const ParsedAddress = struct {
@@ -308,6 +320,27 @@ pub fn writeSteerStdin(buf: []u8, args: SteerStdin) WriteError![]const u8 {
     return cur.slice();
 }
 
+/// NDJSON stdin for a Codex `/goal` mutation. Hello + `goal` (request-frame
+/// `sessionId` / `runtimeId`, command payload `operation`). Own spawn
+/// key — Native cannot write into a running prompt sidecar. No
+/// attachSession, no prompt command. Outcome is async `goalUpdated`.
+pub fn writeGoalStdin(buf: []u8, args: GoalStdin) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    const hello = try protocol.writeClientHello(cur.remaining(), args.token, args.client_id, &.{});
+    cur.pos += hello.len;
+    try cur.write("\n");
+    const goal = try protocol.writeGoal(
+        cur.remaining(),
+        args.request_id,
+        args.session_id,
+        args.runtime_id,
+        args.operation,
+    );
+    cur.pos += goal.len;
+    try cur.write("\n");
+    return cur.slice();
+}
+
 fn outboundWaitsForTurn(outbound: []const u8) bool {
     return std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") != null;
 }
@@ -324,6 +357,12 @@ fn outboundWaitsForHydrateResponse(outbound: []const u8) bool {
         std.mem.indexOf(u8, outbound, "\"type\":\"saveTaskState\"") == null;
 }
 
+fn outboundWaitsForGoal(outbound: []const u8) bool {
+    return std.mem.indexOf(u8, outbound, "\"type\":\"goal\"") != null and
+        std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") == null and
+        std.mem.indexOf(u8, outbound, "\"type\":\"saveTaskState\"") == null;
+}
+
 fn isSaveOnlyTerminal(parsed: protocol.ParsedServer) bool {
     return switch (parsed.frame) {
         .hello, .rejected, .response, .task_state_changed, .shutting_down => true,
@@ -336,6 +375,14 @@ fn isLoadOnlyTerminal(parsed: protocol.ParsedServer) bool {
     return switch (parsed.frame) {
         .rejected, .response, .shutting_down => true,
         .event => parsed.event_kind == .@"error",
+        else => false,
+    };
+}
+
+fn isGoalOnlyTerminal(parsed: protocol.ParsedServer) bool {
+    return switch (parsed.frame) {
+        .rejected, .response, .shutting_down => true,
+        .event => parsed.event_kind == .@"error" or parsed.event_kind == .goal_updated,
         else => false,
     };
 }
@@ -419,6 +466,7 @@ pub fn run(io: std.Io, address: []const u8, outbound: []const u8, stdout: *std.I
     const wait_for_turn = outboundWaitsForTurn(outbound);
     const wait_for_load = outboundWaitsForLoadResponse(outbound);
     const wait_for_hydrate = outboundWaitsForHydrateResponse(outbound);
+    const wait_for_goal = outboundWaitsForGoal(outbound);
     var payload_buf: [nativeLineCap]u8 = undefined;
     while (true) {
         const n = readTextFrame(&reader.interface, &payload_buf) catch |err| switch (err) {
@@ -438,6 +486,10 @@ pub fn run(io: std.Io, address: []const u8, outbound: []const u8, stdout: *std.I
         if (wait_for_turn) continue;
         if (wait_for_load or wait_for_hydrate) {
             if (isLoadOnlyTerminal(parsed)) return;
+            continue;
+        }
+        if (wait_for_goal) {
+            if (isGoalOnlyTerminal(parsed)) return;
             continue;
         }
         if (isSaveOnlyTerminal(parsed)) return;
@@ -768,6 +820,48 @@ test "writeSteerStdin emits hello and steer with prompt payload" {
     try std.testing.expect(!outboundWaitsForTurn(stdin));
     try std.testing.expect(!outboundWaitsForLoadResponse(stdin));
     try std.testing.expect(!outboundWaitsForHydrateResponse(stdin));
+}
+
+test "writeGoalStdin emits hello and goal operation without a prompt" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeGoalStdin(&buf, .{
+        .token = "secret",
+        .session_id = "00000000-0000-0000-0000-000000000007",
+        .runtime_id = "00000000-0000-0000-0000-000000000003",
+        .operation = .{
+            .set = .{
+                .objective = "Ship the feature",
+                .status = "active",
+                .replace = false,
+            },
+        },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"goal\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"00000000-0000-0000-0000-000000000007\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"00000000-0000-0000-0000-000000000003\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"goal\",\"operation\":{\"kind\":\"set\",\"objective\":\"Ship the feature\",\"status\":\"active\",\"replace\":false}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"steer\"") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(!outboundWaitsForLoadResponse(stdin));
+    try std.testing.expect(!outboundWaitsForHydrateResponse(stdin));
+    try std.testing.expect(outboundWaitsForGoal(stdin));
+
+    const refresh = try writeGoalStdin(&buf, .{
+        .session_id = "00000000-0000-0000-0000-000000000007",
+        .operation = .refresh,
+    });
+    try std.testing.expect(std.mem.indexOf(u8, refresh, "\"kind\":\"refresh\"") != null);
+    try std.testing.expect(outboundWaitsForGoal(refresh));
+
+    const clear = try writeGoalStdin(&buf, .{
+        .session_id = "00000000-0000-0000-0000-000000000007",
+        .operation = .clear,
+    });
+    try std.testing.expect(std.mem.indexOf(u8, clear, "\"kind\":\"clear\"") != null);
 }
 
 test "localIdFromWire reverses wireUuid" {

@@ -352,6 +352,14 @@
                 </else>
               </input-group-actions>
             </input-group>
+            <if test="{show_goal}">
+              <row gap="8" cross="center">
+                <text grow="1" wrap="false" overflow="ellipsis" foreground="text_muted">{goal_label}</text>
+                <button variant="ghost" size="sm" on-press="goal_set">Set goal</button>
+                <button variant="ghost" size="sm" on-press="goal_clear">Clear goal</button>
+                <button variant="ghost" size="sm" on-press="goal_refresh">Refresh goal</button>
+              </row>
+            </if>
             <if test="{image_attach_active}">
               <row gap="8" cross="center">
                 <text-field grow="1" placeholder="Image path" text="{image_edit}" on-input="image_path_edit" autofocus="true" />
