@@ -11,7 +11,6 @@ const maximize_window = @import("maximize_window.zig");
 const keys = @import("keys.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 const goal = @import("goal.zig");
-const composer = @import("composer.zig");
 const acp = @import("acp.zig");
 
 const canvas = native_sdk.canvas;
@@ -2656,12 +2655,12 @@ test "composer attach preview binds when the file exists; missing and clear do n
 }
 
 test "imagePathFromDrop takes the first local image and ignores the rest" {
-    const png = composer.imagePathFromDrop(&.{ "notes.txt", "/tmp/shot.png", "/tmp/other.jpg" });
+    const png = main.imagePathFromDrop(&.{ "notes.txt", "/tmp/shot.png", "/tmp/other.jpg" });
     try testing.expectEqualStrings("/tmp/shot.png", png.?);
-    try testing.expect(composer.imagePathFromDrop(&.{}) == null);
-    try testing.expect(composer.imagePathFromDrop(&.{"notes.txt"}) == null);
-    try testing.expect(composer.imagePathFromDrop(&.{"/tmp/photos/"}) == null);
-    try testing.expectEqualStrings("/tmp/photo.JPEG", composer.imagePathFromDrop(&.{"/tmp/photo.JPEG"}).?);
+    try testing.expect(main.imagePathFromDrop(&.{}) == null);
+    try testing.expect(main.imagePathFromDrop(&.{"notes.txt"}) == null);
+    try testing.expect(main.imagePathFromDrop(&.{"/tmp/photos/"}) == null);
+    try testing.expectEqualStrings("/tmp/photo.JPEG", main.imagePathFromDrop(&.{"/tmp/photo.JPEG"}).?);
 }
 
 test "window drop of a png sets draft image_path; txt and empty do not" {
@@ -2919,13 +2918,13 @@ test "picker missing tools surfaces composer status; typed path and drop still w
 }
 
 test "Waku access_mode maps to verified FX_PERMISSION_MODE values" {
-    try testing.expectEqualStrings("ask", composer.fxPermissionMode("ask"));
-    try testing.expectEqualStrings("auto", composer.fxPermissionMode("auto"));
-    try testing.expectEqualStrings("auto", composer.fxPermissionMode("autoAcceptEdits"));
-    try testing.expectEqualStrings("yolo", composer.fxPermissionMode("fullAccess"));
-    try testing.expectEqualStrings("yolo", composer.fxPermissionMode("yolo"));
-    try testing.expectEqualStrings("", composer.fxPermissionMode("nope"));
-    try testing.expectEqualStrings("", composer.fxPermissionMode(""));
+    try testing.expectEqualStrings("ask", main.fxPermissionMode("ask"));
+    try testing.expectEqualStrings("auto", main.fxPermissionMode("auto"));
+    try testing.expectEqualStrings("auto", main.fxPermissionMode("autoAcceptEdits"));
+    try testing.expectEqualStrings("yolo", main.fxPermissionMode("fullAccess"));
+    try testing.expectEqualStrings("yolo", main.fxPermissionMode("yolo"));
+    try testing.expectEqualStrings("", main.fxPermissionMode("nope"));
+    try testing.expectEqualStrings("", main.fxPermissionMode(""));
 }
 
 test "Waku access_mode maps to fx ACP ask|code, not fullAccess" {
