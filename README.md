@@ -27,6 +27,10 @@ titles are editable; Collapse all folders collapses every sidebar folder (restor
 sidebar trash removes a session (and closeSession if a daemon is set);
 sidebar session rows have a Native context menu (Rename / Remove);
 a working sidebar session shows a Native spinner beside the title;
+ungrouped and folder session rows can show a muted relative
+last-activity time from `updated_at` (just now / Nm / Nh /
+Yesterday / Nd / date; omitted when `updated_at` is missing/0;
+static from last `wallMs`, not a live ticker);
 sidebar folder rows have a Native context menu (Rename / Delete);
 the composer project row sets the selected session cwd; the usage
 control stays empty unless ACP reports `usage_update`; user and
@@ -239,8 +243,13 @@ Ungrouped sessions (`folder_id` 0 or omitted) group into Today / Yesterday /
 Older date buckets from each session `updated_at` (unix ms). Missing or 0
 is Today so existing catalogs stay in one bucket. Boundaries are UTC civil
 days from the loop clock (`Effects.wallMs`); Zig std has no tz database.
+Ungrouped and folder session rows can show a muted one-line relative
+last-activity label from that same `updated_at` vs `Effects.wallMs`
+(just now / Nm / Nh / Yesterday / Nd / UTC `YYYY-MM-DD`). Missing or 0
+omits the label so chrome does not invent a time. The label is static
+from the last loop clock; there is no repeating live ticker.
 This is not full Waku date grouping (no This week / This month / This year /
-More, no Project/Updated sort, no "working Xm" labels). A session `folder_id`
+More, no Project/Updated sort, no "working Xm" live labels). A session `folder_id`
 lists it under that folder. Folder sessions get a 1px Native separator rail
 and 15px inset (Waku group guides); ungrouped date-bucket rows stay flush.
 Clicking a folder header (or its move control) assigns the

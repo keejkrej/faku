@@ -89,6 +89,9 @@
                               <else>
                                 <text grow="1" wrap="false" overflow="ellipsis">{s.title}</text>
                               </else>
+                              <if test="{s.has_relative_time}">
+                                <text wrap="false" overflow="ellipsis" foreground="text_muted">{s.relative_time}</text>
+                              </if>
                               <if test="{s.busy}">
                                 <spinner width="12" height="12"></spinner>
                               </if>
@@ -116,6 +119,9 @@
                             <else>
                               <text grow="1" wrap="false" overflow="ellipsis">{s.title}</text>
                             </else>
+                            <if test="{s.has_relative_time}">
+                              <text wrap="false" overflow="ellipsis" foreground="text_muted">{s.relative_time}</text>
+                            </if>
                             <if test="{s.busy}">
                               <spinner width="12" height="12"></spinner>
                             </if>

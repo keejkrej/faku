@@ -543,6 +543,10 @@ pub const SidebarRow = struct {
     busy: bool = false,
     /// Today / Yesterday / Older label. Not a folder; no assign/delete chrome.
     is_date_header: bool = false,
+    /// Static last-activity label from `updated_at` vs `now_ms`. Empty when
+    /// `updated_at` or the clock is missing/0 so chrome does not invent a time.
+    relative_time: []const u8 = "",
+    has_relative_time: bool = false,
 };
 
 /// Ungrouped-session date bucket. UTC civil days from unix ms — Zig std
@@ -562,6 +566,8 @@ pub const DateBucket = enum(u32) {
     }
 };
 
+const ms_per_minute: i64 = 60_000;
+const ms_per_hour: i64 = 3_600_000;
 const ms_per_day: i64 = 86_400_000;
 
 /// UTC-day bucket for an ungrouped session. Future timestamps count as Today.
@@ -572,6 +578,59 @@ pub fn sessionDateBucket(updated_at: i64, now_ms: i64) DateBucket {
     if (day >= today) return .today;
     if (day + 1 == today) return .yesterday;
     return .older;
+}
+
+/// Short last-activity label from `updated_at` vs wall ms. Missing/0
+/// returns null so chrome does not invent a time. Same UTC-day rules
+/// as `sessionDateBucket`. Static: last `now_ms`, not a live ticker.
+pub fn sessionRelativeTime(updated_at: i64, now_ms: i64, buf: []u8) ?[]const u8 {
+    if (updated_at <= 0 or now_ms <= 0) return null;
+    const age = now_ms - updated_at;
+    if (age < ms_per_minute) return "just now";
+    if (age < ms_per_hour) {
+        const n = @divTrunc(age, ms_per_minute);
+        if (n < 1) return "just now";
+        return std.fmt.bufPrint(buf, "{d}m", .{n}) catch null;
+    }
+    const today = @divFloor(now_ms, ms_per_day);
+    const day = @divFloor(updated_at, ms_per_day);
+    const days = today - day;
+    if (days <= 0) {
+        const n = @divTrunc(age, ms_per_hour);
+        if (n < 1) return "just now";
+        return std.fmt.bufPrint(buf, "{d}h", .{n}) catch null;
+    }
+    if (days == 1) return "Yesterday";
+    if (days < 7) return std.fmt.bufPrint(buf, "{d}d", .{days}) catch null;
+    return formatUtcYmd(updated_at, buf);
+}
+
+const CivilDate = struct { year: i64, month: u8, day: u8 };
+
+fn utcYmd(ms: i64) ?CivilDate {
+    const z0 = @divFloor(ms, ms_per_day);
+    const z = z0 + 719468;
+    const era = @divFloor(z, 146097);
+    const doe = z - era * 146097;
+    const yoe = @divFloor(doe - @divFloor(doe, 1460) + @divFloor(doe, 36524) - @divFloor(doe, 146096), 365);
+    var year = yoe + era * 400;
+    const doy = doe - (365 * yoe + @divFloor(yoe, 4) - @divFloor(yoe, 100));
+    const mp = @divFloor(5 * doy + 2, 153);
+    const day_i = doy - @divFloor(153 * mp + 2, 5) + 1;
+    const month_i = if (mp < 10) mp + 3 else mp - 9;
+    if (month_i <= 2) year += 1;
+    if (day_i < 1 or day_i > 31) return null;
+    if (month_i < 1 or month_i > 12) return null;
+    return .{
+        .year = year,
+        .month = @intCast(month_i),
+        .day = @intCast(day_i),
+    };
+}
+
+fn formatUtcYmd(ms: i64, buf: []u8) ?[]const u8 {
+    const ymd = utcYmd(ms) orelse return null;
+    return std.fmt.bufPrint(buf, "{d}-{d:0>2}-{d:0>2}", .{ ymd.year, ymd.month, ymd.day }) catch null;
 }
 
 pub const AssignFolder = struct {
@@ -916,7 +975,8 @@ pub const Model = struct {
     fx_spawn_live: bool = false,
     fx_spawn_acp: bool = false,
     /// Journaled wall-clock ms from `fx.wallMs` (or a test pin). 0 means
-    /// grouping treats missing `updated_at` as Today.
+    /// grouping treats missing `updated_at` as Today and relative-time
+    /// labels stay omitted.
     now_ms: i64 = 0,
 
     pub const view_unbound = .{
@@ -1280,13 +1340,13 @@ pub const Model = struct {
         const out = arena.alloc(SidebarRow, count) catch return &.{};
         var i: usize = 0;
         if (show_date_headers) {
-            i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .today);
-            i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .yesterday);
-            i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .older);
+            i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .today, arena);
+            i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .yesterday, arena);
+            i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .older, arena);
         } else {
             for (ungrouped[0..ungrouped_n]) |id| {
                 const session = model.sessionByIdConst(id) orelse continue;
-                out[i] = sessionSidebarRow(model, session);
+                out[i] = sessionSidebarRow(model, session, arena);
                 i += 1;
             }
         }
@@ -1306,7 +1366,7 @@ pub const Model = struct {
             if (folder.collapsed) continue;
             for (model.session_store[0..model.session_count]) |*session| {
                 if (effectiveFolderId(model, session) != folder.id) continue;
-                out[i] = sessionSidebarRow(model, session);
+                out[i] = sessionSidebarRow(model, session, arena);
                 i += 1;
             }
         }
@@ -2969,6 +3029,7 @@ fn appendDateBucket(
     start: usize,
     ungrouped: []const u32,
     bucket: DateBucket,
+    arena: std.mem.Allocator,
 ) usize {
     var i = start;
     var header = false;
@@ -2980,13 +3041,14 @@ fn appendDateBucket(
             i += 1;
             header = true;
         }
-        out[i] = sessionSidebarRow(model, session);
+        out[i] = sessionSidebarRow(model, session, arena);
         i += 1;
     }
     return i;
 }
 
-fn sessionSidebarRow(model: *const Model, session: *const Session) SidebarRow {
+fn sessionSidebarRow(model: *const Model, session: *const Session, arena: std.mem.Allocator) SidebarRow {
+    const relative = allocRelativeTime(arena, session.updated_at, model.now_ms);
     return .{
         .id = session.id,
         .title = sessionDisplayTitle(session),
@@ -2998,7 +3060,15 @@ fn sessionSidebarRow(model: *const Model, session: *const Session) SidebarRow {
         .grouped = session.folder_id != 0,
         .busy = session.busy,
         .is_date_header = false,
+        .relative_time = relative,
+        .has_relative_time = relative.len > 0,
     };
+}
+
+fn allocRelativeTime(arena: std.mem.Allocator, updated_at: i64, now_ms: i64) []const u8 {
+    var buf: [16]u8 = undefined;
+    const label = sessionRelativeTime(updated_at, now_ms, &buf) orelse return "";
+    return arena.dupe(u8, label) catch "";
 }
 
 fn selectedSessionInFolder(model: *const Model, folder_id: u32) bool {
