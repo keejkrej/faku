@@ -2729,7 +2729,7 @@ test "picker missing tools surfaces composer status; typed path and drop still w
     try testing.expectEqualStrings(pick_image.hostMissingStatus(), model.attach_status());
     try testing.expect(!model.pick_image_live);
 
-    var tree = try buildTree(arena, &model);
+    const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, pick_image.hostMissingStatus());
     _ = try expectButton(tree.root, "Attach image");
 
