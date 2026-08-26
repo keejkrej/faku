@@ -273,10 +273,17 @@ Keys match Waku: `newSession` or `newSession{project_path}` for untitled
 drafts, `session{id}` after the session has started. Each record is
 `{ text, image_path }` — one optional local path, not a Waku
 `waku-attachment:` blob. Composer Attach pastes that same `image_path`
-and shows a clearable chip; Native has no `fx.pickFile` / file-open
-effect, so this cut does not fake an OS picker. Dropping an image file
-onto the window sets that same composer attach path (`fx ask --image`);
-it is a Native file drop, not an OS picker and not an ACP image block.
+and shows a clearable chip. Pick image one-shots a platform sidecar that
+opens a real OS file dialog (macOS `osascript` `choose file` of type
+`public.image`; Linux `zenity --file-selection` with the image filter,
+else `kdialog --getopenfilename`). Native still has no `fx.pickFile` /
+file-open effect — `Runtime.showOpenDialog` is a host-bridge / WebView
+API, not an fx effect. Spawn stdin is unused. If Linux has neither
+zenity nor kdialog, composer status says so and typed-path + drop stay.
+Windows has no picker in this cut (app.zon is macos/linux). Dropping an
+image file onto the window sets that same composer attach path
+(`fx ask --image`); it is a Native file drop, not an OS picker and not
+an ACP image block.
 When that file exists,
 the chip row binds a Native `<image>` via `fx.loadImage` (ImageId, 0
 until `.loaded`) and Send adds `fx ask --image PATH` before `--`; a
