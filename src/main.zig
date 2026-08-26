@@ -182,6 +182,12 @@ pub const attach_preview_id_first: u64 = 33;
 pub const attach_preview_id_last: u64 = 63;
 const demo_ticks_complete: u32 = 12;
 const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
+/// Desktop notification title when the session has no stored title.
+pub const notify_fallback_title = "Faku";
+/// Desktop notification body when the last assistant turn is empty.
+pub const notify_fallback_body = "Reply ready";
+/// Short body cap. Native allows 1024; keep the toast readable.
+pub const notify_body_max: usize = 120;
 
 pub const Mode = enum { demo, daemon };
 pub const Role = enum { user, assistant, tool, reasoning };
@@ -3108,6 +3114,44 @@ pub const fx_ask_chdir_script = "cd -- \"$1\" && shift && exec \"$@\"";
 
 pub const Effects = native_sdk.Effects(Msg);
 
+fn lastAssistantText(model: *const Model, session_id: u32) []const u8 {
+    var i = model.turn_count;
+    while (i > 0) {
+        i -= 1;
+        const turn = &model.turn_store[i];
+        if (turn.session_id == session_id and turn.role == .assistant) return turn.text();
+    }
+    return "";
+}
+
+fn truncateNotifyBody(text: []const u8) []const u8 {
+    if (text.len <= notify_body_max) return text;
+    var end = notify_body_max;
+    while (end > 0 and (text[end] & 0xC0) == 0x80) end -= 1;
+    return text[0..end];
+}
+
+fn turnCompleteTitle(model: *const Model, session_id: u32) []const u8 {
+    const session = model.sessionByIdConst(session_id) orelse return notify_fallback_title;
+    if (session.title().len == 0) return notify_fallback_title;
+    return session.title();
+}
+
+fn turnCompleteBody(model: *const Model, session_id: u32) []const u8 {
+    const text = std.mem.trim(u8, lastAssistantText(model, session_id), " \t\r\n");
+    if (text.len == 0) return notify_fallback_body;
+    return truncateNotifyBody(text);
+}
+
+/// Successful stream settle only. Native has no focus observation, so
+/// this always fires — not Waku's unfocused-only gate.
+fn notifyTurnComplete(model: *const Model, fx: *Effects, session_id: u32) void {
+    fx.showNotification(.{
+        .title = turnCompleteTitle(model, session_id),
+        .body = turnCompleteBody(model, session_id),
+    });
+}
+
 /// Copy visible transcript text through Native `fx.writeClipboard`.
 /// Empty text is a no-op — no fake clipboard, no `pbcopy` spawn.
 fn writeVisibleClipboard(fx: *Effects, text: []const u8) void {
@@ -4250,6 +4294,7 @@ fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
     if (drain) {
+        notifyTurnComplete(model, fx, finished_id);
         var copy: [max_queued_text]u8 = undefined;
         if (model.takeNextQueued(finished_id, &copy)) |n| {
             store.persistIfPossible(model, finished_id, fx);
