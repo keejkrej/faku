@@ -9392,8 +9392,8 @@ test "ungrouped sessions land in Today Yesterday Older; folder rows stay put" {
     const yesterday = model.addSession("yesterday thread", .fx);
     const older = model.addSession("older thread", .fx);
     const grouped = model.addSession("folder thread", .fx);
-    model.sessionById(today_new).?.updated_at = pinned_now_ms;
-    model.sessionById(today_old).?.updated_at = pinned_now_ms - 1_000;
+    model.sessionById(today_new).?.updated_at = pinned_now_ms + 3_600_000;
+    model.sessionById(today_old).?.updated_at = pinned_now_ms + 1_000;
     model.sessionById(yesterday).?.updated_at = pinned_now_ms - day_ms;
     model.sessionById(older).?.updated_at = pinned_now_ms - (3 * day_ms);
     model.sessionById(grouped).?.updated_at = pinned_now_ms - (10 * day_ms);
@@ -9427,7 +9427,7 @@ test "ungrouped sessions land in Today Yesterday Older; folder rows stay put" {
     try testing.expect(rows[8].grouped);
     try testing.expectEqual(folder_id, rows[8].folder_id);
 
-    var tree = try buildTree(arena, &model);
+    const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .list_item, "Today");
     try testing.expectEqual(@as(usize, 2), countByText(tree.root, .text, "Today"));
     _ = try expectByText(tree.root, .text, "Yesterday");
