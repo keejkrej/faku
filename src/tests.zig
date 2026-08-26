@@ -10,6 +10,7 @@ const pick_image = @import("pick_image.zig");
 const maximize_window = @import("maximize_window.zig");
 const keys = @import("keys.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
+const goal = @import("goal.zig");
 const acp = @import("acp.zig");
 
 const canvas = native_sdk.canvas;
@@ -3995,12 +3996,12 @@ test "goal composer row is hidden without a daemon and shows Set/Clear when one 
 
 test "goal usage meter formats used/budget time and tokensUsed-only" {
     var buf: [48]u8 = undefined;
-    try testing.expectEqualStrings("12k/100k · 3m", main.formatThreadGoalUsage(&buf, 100_000, 12_000, 180).?);
-    try testing.expectEqualStrings("12k", main.formatThreadGoalUsage(&buf, null, 12_000, null).?);
-    try testing.expectEqualStrings("500", main.formatThreadGoalUsage(&buf, null, 500, null).?);
-    try testing.expectEqualStrings("3m", main.formatThreadGoalUsage(&buf, null, null, 180).?);
-    try testing.expectEqualStrings("45s", main.formatThreadGoalUsage(&buf, null, null, 45).?);
-    try testing.expect(main.formatThreadGoalUsage(&buf, null, null, null) == null);
+    try testing.expectEqualStrings("12k/100k · 3m", goal.formatThreadGoalUsage(&buf, 100_000, 12_000, 180).?);
+    try testing.expectEqualStrings("12k", goal.formatThreadGoalUsage(&buf, null, 12_000, null).?);
+    try testing.expectEqualStrings("500", goal.formatThreadGoalUsage(&buf, null, 500, null).?);
+    try testing.expectEqualStrings("3m", goal.formatThreadGoalUsage(&buf, null, null, 180).?);
+    try testing.expectEqualStrings("45s", goal.formatThreadGoalUsage(&buf, null, null, 45).?);
+    try testing.expect(goal.formatThreadGoalUsage(&buf, null, null, null) == null);
 }
 
 test "goal composer row shows a muted one-line usage meter when usage is known" {
