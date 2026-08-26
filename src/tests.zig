@@ -9886,3 +9886,106 @@ test "Send stamps updated_at from Effects.wallMs" {
     try testing.expectEqual(pinned_now_ms, model.sessionById(id).?.updated_at);
     try testing.expectEqual(pinned_now_ms, model.now_ms);
 }
+
+fn expectRelativeTime(updated_at: i64, now_ms: i64, expected: ?[]const u8) !void {
+    var buf: [16]u8 = undefined;
+    const label = main.sessionRelativeTime(updated_at, now_ms, &buf);
+    if (expected) |want| {
+        try testing.expectEqualStrings(want, label.?);
+    } else {
+        try testing.expect(label == null);
+    }
+}
+
+test "sessionRelativeTime covers now, minutes, hours, yesterday, days, date; omits 0" {
+    try expectRelativeTime(0, pinned_now_ms, null);
+    try expectRelativeTime(pinned_now_ms, 0, null);
+    try expectRelativeTime(pinned_now_ms, pinned_now_ms, "just now");
+    try expectRelativeTime(pinned_now_ms + 1, pinned_now_ms, "just now");
+    try expectRelativeTime(pinned_now_ms - 5_000, pinned_now_ms, "just now");
+    try expectRelativeTime(pinned_now_ms - (5 * 60_000), pinned_now_ms, "5m");
+    try expectRelativeTime(pinned_now_ms - (2 * 3_600_000), pinned_now_ms, "2h");
+    try expectRelativeTime(pinned_now_ms - day_ms, pinned_now_ms, "Yesterday");
+    try expectRelativeTime(pinned_now_ms - (3 * day_ms), pinned_now_ms, "3d");
+    try expectRelativeTime(pinned_now_ms - (40 * day_ms), pinned_now_ms, "2023-11-22");
+}
+
+test "sidebar session rows show static relative last-activity; 0 omits; date buckets stay" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var clock = native_sdk.TestClock{};
+    pinClock(&fx, &clock, pinned_now_ms);
+
+    var model = Model{};
+    model.now_ms = pinned_now_ms;
+    const now_id = model.addSession("just now thread", .fx);
+    const five_id = model.addSession("five minute thread", .fx);
+    const yesterday_id = model.addSession("yesterday thread", .fx);
+    const older_id = model.addSession("older thread", .fx);
+    const missing_id = model.addSession("no stamp thread", .fx);
+    const grouped_id = model.addSession("folder thread", .fx);
+    model.sessionById(now_id).?.updated_at = pinned_now_ms;
+    model.sessionById(five_id).?.updated_at = pinned_now_ms - (5 * 60_000);
+    model.sessionById(yesterday_id).?.updated_at = pinned_now_ms - day_ms;
+    model.sessionById(older_id).?.updated_at = pinned_now_ms - (40 * day_ms);
+    model.sessionById(missing_id).?.updated_at = 0;
+    model.sessionById(grouped_id).?.updated_at = pinned_now_ms - (5 * 60_000);
+    const folder_id = model.addFolder("New folder");
+    try testing.expect(model.assignSessionFolder(grouped_id, folder_id));
+
+    const rows = model.sidebar_rows(arena);
+    try expectSidebarTitles(rows, &.{
+        "Today",
+        "just now thread",
+        "five minute thread",
+        "no stamp thread",
+        "Yesterday",
+        "yesterday thread",
+        "Older",
+        "older thread",
+        "New folder",
+        "folder thread",
+    });
+    try testing.expect(rows[0].is_date_header);
+    try testing.expect(!rows[0].has_relative_time);
+    try testing.expectEqualStrings("just now", rows[1].relative_time);
+    try testing.expect(rows[1].has_relative_time);
+    try testing.expect(!rows[1].grouped);
+    try testing.expectEqualStrings("5m", rows[2].relative_time);
+    try testing.expectEqualStrings("", rows[3].relative_time);
+    try testing.expect(!rows[3].has_relative_time);
+    try testing.expectEqualStrings("Yesterday", rows[4].title);
+    try testing.expect(rows[4].is_date_header);
+    try testing.expectEqualStrings("Yesterday", rows[5].relative_time);
+    try testing.expectEqualStrings("2023-11-22", rows[7].relative_time);
+    try testing.expect(rows[9].grouped);
+    try testing.expectEqualStrings("5m", rows[9].relative_time);
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .list_item, "Today");
+    try testing.expectEqual(@as(usize, 2), countByText(tree.root, .text, "Today"));
+    _ = try expectByText(tree.root, .text, "Yesterday");
+    _ = try expectByText(tree.root, .text, "Older");
+    const now_row = try expectByText(tree.root, .list_item, "just now thread");
+    _ = try expectByText(now_row, .text, "just now");
+    try expectOneLineEllipsis(try expectByText(now_row, .text, "just now"), null);
+    const five_row = try expectByText(tree.root, .list_item, "five minute thread");
+    _ = try expectByText(five_row, .text, "5m");
+    const yesterday_row = try expectByText(tree.root, .list_item, "yesterday thread");
+    _ = try expectByText(yesterday_row, .text, "Yesterday");
+    const older_row = try expectByText(tree.root, .list_item, "older thread");
+    _ = try expectByText(older_row, .text, "2023-11-22");
+    const missing_row = try expectByText(tree.root, .list_item, "no stamp thread");
+    try testing.expect(findByText(missing_row, .text, "just now") == null);
+    try testing.expect(findByText(missing_row, .text, "5m") == null);
+    try testing.expect(findByText(missing_row, .text, "2023-11-22") == null);
+    const folder_row = try expectByText(tree.root, .list_item, "folder thread");
+    _ = try expectByText(folder_row, .text, "5m");
+    try testing.expect(sessionRowHasGroupRail(tree.root, "folder thread"));
+    try testing.expect(!sessionRowHasGroupRail(tree.root, "just now thread"));
+}
