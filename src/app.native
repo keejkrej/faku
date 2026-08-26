@@ -207,6 +207,7 @@
         <if test="{can_rewind}">
           <button variant="ghost" size="sm" on-press="rewind">Rewind</button>
         </if>
+        <button variant="ghost" size="icon" icon="app:maximize" label="Maximize" on-press="maximize_window"></button>
         <button variant="ghost" size="icon" icon="app:minimize" label="Minimize" on-press="minimize_window"></button>
         <button variant="ghost" size="icon" icon="x" label="Close" on-press="close_window"></button>
       </row>
@@ -368,6 +369,9 @@
             </if>
             <if test="{has_attach_status}">
               <text wrap="true" foreground="text_muted">{attach_status}</text>
+            </if>
+            <if test="{has_window_status}">
+              <text wrap="true" foreground="text_muted">{window_status}</text>
             </if>
             <if test="{has_image_attach}">
               <row gap="4" cross="center">
