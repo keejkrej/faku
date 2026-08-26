@@ -225,15 +225,21 @@ Path (Native `app_dirs` data directory, app name `faku`):
 Boot: if that file loads, the sidebar is session skeletons only (id, title,
 provider, untitled/has_started, project_path, fx_session_id, runtime_id, model,
 access_mode, interaction_mode, reasoning_effort, folder_id, context_used, context_size,
-available_commands) — no demo rows and no transcripts. The document also stores
+available_commands, updated_at) — no demo rows and no transcripts. The document also stores
 `last_project_path`, `last_model`, `last_access_mode`,
 `last_interaction_mode`, `last_reasoning_effort`, `last_daemon_address`, `sidebar_collapsed`,
 `sidebar_width`, `folders`, and `collapsed_folder_ids` so a new session can inherit the last workspace and last
 model/access/interaction, a later send can reuse the last sidecar address,
 the sidebar collapse control is restored, and New folder groups persist.
-Ungrouped sessions stay under Today; a session `folder_id` lists it under
-that folder. Folder sessions get a 1px Native separator rail and 15px inset
-(Waku group guides); Today rows stay flush. Clicking a folder header (or its move control) assigns the
+Ungrouped sessions (`folder_id` 0 or omitted) group into Today / Yesterday /
+Older date buckets from each session `updated_at` (unix ms). Missing or 0
+is Today so existing catalogs stay in one bucket. Boundaries are UTC civil
+days from the loop clock (`Effects.wallMs`); Zig std has no tz database.
+This is not full Waku date grouping (no This week / This month / This year /
+More, no Project/Updated sort, no "working Xm" labels). A session `folder_id`
+lists it under that folder. Folder sessions get a 1px Native separator rail
+and 15px inset (Waku group guides); ungrouped date-bucket rows stay flush.
+Clicking a folder header (or its move control) assigns the
 selected session; clicking Today unassigns it (`folder_id` 0). A second
 click on a folder already holding the selected session edits its title.
 Deleting a folder unassigns its sessions (`folder_id` 0); it does not

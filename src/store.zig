@@ -7,7 +7,7 @@
 //!
 //! One JSON document `sessions.json`. Catalog load copies only session
 //! skeletons (id, title, provider, untitled, has_started, project_path,
-//! fx_session_id, runtime_id, model, access_mode, interaction_mode, reasoning_effort, folder_id, rewind_refs,
+//! fx_session_id, runtime_id, model, access_mode, interaction_mode, reasoning_effort, folder_id, updated_at, rewind_refs,
 //! context_used, context_size, available_commands) — no transcripts. Selecting
 //! a session hydrates its turns,
 //! `queued_messages`, `rewind_refs`, and last-known context usage. Document extras also keep
@@ -17,7 +17,9 @@
 //! `last_project_path` / `last_daemon_address` so the settings gear and
 //! composer chips can edit persisted defaults, and `folders` /
 //! `collapsed_folder_ids` so New folder groups persist. A session
-//! `folder_id` of 0 (or omitted) stays under Today.
+//! `folder_id` of 0 (or omitted) stays in the ungrouped date buckets
+//! (Today / Yesterday / Older from `updated_at`). Missing `updated_at`
+//! is 0 and groups as Today.
 //! Save is merge-only (never deletes session rows).
 //! `removeSession` is the only session delete. Deleting a folder rewrites
 //! `folders` extras and unassigns `folder_id`; it is not `removeSession`.
@@ -469,6 +471,7 @@ fn applyDaemonSkeletons(model: *Model, skeletons: []const protocol.TaskStateSkel
             "",
             "",
             0,
+            0,
         );
     }
     if (model.session_count == 0) return;
@@ -785,6 +788,7 @@ const StoredSession = struct {
     queued_messages: []StoredQueued,
     rewind_refs: []StoredRewind = &.{},
     folder_id: u32 = 0,
+    updated_at: i64 = 0,
     context_used: u64 = 0,
     context_size: u64 = 0,
     available_commands: []StoredCommand = &.{},
@@ -894,7 +898,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
         model.restoreFolder(folder.id, folder.title, collapsed);
     }
     for (document.sessions) |stored| {
-        model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode, stored.runtime_id, stored.interaction_mode, stored.reasoning_effort, stored.folder_id);
+        model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode, stored.runtime_id, stored.interaction_mode, stored.reasoning_effort, stored.folder_id, stored.updated_at);
         applyRewindRefs(model, stored.id, stored.rewind_refs);
         applyContextUsage(model, stored.id, stored.context_used, stored.context_size);
         applyAvailableCommands(model, stored.id, stored.available_commands);
@@ -947,6 +951,7 @@ fn upsertSession(document: *Document, arena: std.mem.Allocator, model: *const Mo
         existing.interaction_mode = incoming.interaction_mode;
         existing.reasoning_effort = incoming.reasoning_effort;
         existing.folder_id = incoming.folder_id;
+        existing.updated_at = incoming.updated_at;
         existing.rewind_refs = incoming.rewind_refs;
         existing.context_used = incoming.context_used;
         existing.context_size = incoming.context_size;
@@ -1007,6 +1012,7 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
         .interaction_mode = try arena.dupe(u8, session.interactionMode()),
         .reasoning_effort = try arena.dupe(u8, session.reasoningEffort()),
         .folder_id = session.folder_id,
+        .updated_at = session.updated_at,
         .context_used = session.context_used,
         .context_size = session.context_size,
         .available_commands = try snapshotAvailableCommands(arena, session),
@@ -1161,6 +1167,7 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         .queued_messages = try queued.toOwnedSlice(arena),
         .rewind_refs = try parseRewindRefs(arena, obj.get("rewind_refs")),
         .folder_id = jsonUint(obj.get("folder_id")) orelse 0,
+        .updated_at = jsonInt(obj.get("updated_at")) orelse 0,
         .context_used = jsonU64(obj.get("context_used")) orelse 0,
         .context_size = jsonU64(obj.get("context_size")) orelse 0,
         .available_commands = try parseAvailableCommands(arena, obj.get("available_commands")),
@@ -1435,6 +1442,8 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
     try appendJsonString(out, allocator, session.reasoning_effort);
     try out.appendSlice(allocator, ",\"folder_id\":");
     try appendUint(out, allocator, session.folder_id);
+    try out.appendSlice(allocator, ",\"updated_at\":");
+    try appendInt(out, allocator, session.updated_at);
     try out.appendSlice(allocator, ",\"context_used\":");
     try appendU64(out, allocator, session.context_used);
     try out.appendSlice(allocator, ",\"context_size\":");
@@ -2280,4 +2289,40 @@ fn writeTitle(session: *main.Session, title: []const u8) void {
     const take = @min(session.title_storage.len, title.len);
     @memcpy(session.title_storage[0..take], title[0..take]);
     session.title_len = take;
+}
+
+test "updated_at persists; missing field loads as 0" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    source.now_ms = 1_704_067_200_000;
+    const id = source.addSession("stamp me", .fx);
+    try testing.expectEqual(@as(i64, 1_704_067_200_000), source.sessionById(id).?.updated_at);
+    _ = source.appendTurn(id, .user, "hello");
+    source.sessionById(id).?.updated_at = 1_703_980_800_000;
+    try saveSession(&source, id, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqual(@as(i64, 1_703_980_800_000), loaded.session_store[0].updated_at);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var legacy = Model{};
+    legacy.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&legacy, allocator, io));
+    try testing.expectEqual(@as(u32, 1), legacy.session_count);
+    try testing.expectEqual(@as(i64, 0), legacy.session_store[0].updated_at);
+    try testing.expectEqual(main.DateBucket.today, main.sessionDateBucket(legacy.session_store[0].updated_at, 1_704_067_200_000));
 }

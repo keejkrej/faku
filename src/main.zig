@@ -49,6 +49,8 @@ const max_sessions = 16;
 const max_folders = 16;
 /// Sidebar folder-header keys sit above session ids so `for` keys stay unique.
 pub const folder_row_id_base: u32 = 1_000_000;
+/// Date-bucket header keys sit above folder headers.
+pub const date_row_id_base: u32 = 4_000_000;
 /// In-memory session selection history for sidebar Back / Forward.
 pub const selection_history_cap: u32 = 32;
 /// Runtime-only Ctrl-Tab switcher snapshot. Same cap as Waku's overlay.
@@ -258,8 +260,11 @@ pub const Session = struct {
     /// Send-time HEAD snapshots. Cap last 20. Rewind uses the latest sha.
     rewind_refs: [rewind.max_refs]rewind.Ref = [_]rewind.Ref{.{}} ** rewind.max_refs,
     rewind_ref_count: usize = 0,
-    /// 0 = ungrouped (Today). Unknown ids also render under Today.
+    /// 0 = ungrouped (date buckets). Unknown ids also render ungrouped.
     folder_id: u32 = 0,
+    /// Last user/assistant activity, unix milliseconds. 0 = missing and
+    /// groups as Today. Distinct from rewind `recorded_at`.
+    updated_at: i64 = 0,
     /// Last ACP `usage_update` token counts. `context_size == 0` means unknown.
     context_used: u64 = 0,
     context_size: u64 = 0,
@@ -510,7 +515,7 @@ pub const SessionRow = struct {
     selected: bool,
 };
 
-/// Flattened Today sessions + folder headers + folder sessions for the sidebar.
+/// Flattened date-bucket sessions + folder headers + folder sessions.
 pub const SidebarRow = struct {
     id: u32,
     title: []const u8,
@@ -520,11 +525,42 @@ pub const SidebarRow = struct {
     editing: bool,
     folder_id: u32,
     /// True for session rows nested under a folder (`folder_id != 0`).
-    /// False for folder headers and Today / unassigned sessions.
+    /// False for folder headers, date headers, and unassigned sessions.
     grouped: bool = false,
     /// Process-local. Headers stay false; store schema does not persist this.
     busy: bool = false,
+    /// Today / Yesterday / Older label. Not a folder; no assign/delete chrome.
+    is_date_header: bool = false,
 };
+
+/// Ungrouped-session date bucket. UTC civil days from unix ms — Zig std
+/// has no tz database, and Faku does not invent one. `updated_at` 0 or
+/// omitted is Today so existing catalogs stay in one bucket.
+pub const DateBucket = enum(u32) {
+    today = 0,
+    yesterday = 1,
+    older = 2,
+
+    pub fn title(self: DateBucket) []const u8 {
+        return switch (self) {
+            .today => "Today",
+            .yesterday => "Yesterday",
+            .older => "Older",
+        };
+    }
+};
+
+const ms_per_day: i64 = 86_400_000;
+
+/// UTC-day bucket for an ungrouped session. Future timestamps count as Today.
+pub fn sessionDateBucket(updated_at: i64, now_ms: i64) DateBucket {
+    if (updated_at <= 0 or now_ms <= 0) return .today;
+    const today = @divFloor(now_ms, ms_per_day);
+    const day = @divFloor(updated_at, ms_per_day);
+    if (day >= today) return .today;
+    if (day + 1 == today) return .yesterday;
+    return .older;
+}
 
 pub const AssignFolder = struct {
     session_id: u32,
@@ -859,6 +895,9 @@ pub const Model = struct {
     next_fx_key: u64 = fx_spawn_overlap_key_first,
     fx_spawn_live: bool = false,
     fx_spawn_acp: bool = false,
+    /// Journaled wall-clock ms from `fx.wallMs` (or a test pin). 0 means
+    /// grouping treats missing `updated_at` as Today.
+    now_ms: i64 = 0,
 
     pub const view_unbound = .{
         "session_store",
@@ -995,6 +1034,7 @@ pub const Model = struct {
         "store_dir_len",
         "task_state_loaded",
         "store_io",
+        "now_ms",
         "last_project_path_storage",
         "last_project_path_len",
         "last_spawn_cwd_storage",
@@ -1182,9 +1222,25 @@ pub const Model = struct {
     }
 
     pub fn sidebar_rows(model: *const Model, arena: std.mem.Allocator) []const SidebarRow {
-        var count: usize = 0;
-        for (model.session_store[0..model.session_count]) |*session| {
-            if (effectiveFolderId(model, session) == 0) count += 1;
+        var ungrouped: [max_sessions]u32 = undefined;
+        const ungrouped_n = collectUngroupedNewestFirst(model, &ungrouped);
+        var today_n: usize = 0;
+        var yesterday_n: usize = 0;
+        var older_n: usize = 0;
+        for (ungrouped[0..ungrouped_n]) |id| {
+            const session = model.sessionByIdConst(id) orelse continue;
+            switch (sessionDateBucket(session.updated_at, model.now_ms)) {
+                .today => today_n += 1,
+                .yesterday => yesterday_n += 1,
+                .older => older_n += 1,
+            }
+        }
+        const show_date_headers = yesterday_n > 0 or older_n > 0;
+        var count: usize = ungrouped_n;
+        if (show_date_headers) {
+            if (today_n > 0) count += 1;
+            if (yesterday_n > 0) count += 1;
+            if (older_n > 0) count += 1;
         }
         for (model.folder_store[0..model.folder_count]) |*folder| {
             var matches: usize = 0;
@@ -1196,10 +1252,16 @@ pub const Model = struct {
         }
         const out = arena.alloc(SidebarRow, count) catch return &.{};
         var i: usize = 0;
-        for (model.session_store[0..model.session_count]) |*session| {
-            if (effectiveFolderId(model, session) != 0) continue;
-            out[i] = sessionSidebarRow(model, session);
-            i += 1;
+        if (show_date_headers) {
+            i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .today);
+            i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .yesterday);
+            i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .older);
+        } else {
+            for (ungrouped[0..ungrouped_n]) |id| {
+                const session = model.sessionByIdConst(id) orelse continue;
+                out[i] = sessionSidebarRow(model, session);
+                i += 1;
+            }
         }
         for (model.folder_store[0..model.folder_count]) |*folder| {
             out[i] = .{
@@ -1211,6 +1273,7 @@ pub const Model = struct {
                 .editing = model.editing_folder_id == folder.id,
                 .folder_id = folder.id,
                 .grouped = false,
+                .is_date_header = false,
             };
             i += 1;
             if (folder.collapsed) continue;
@@ -2383,6 +2446,7 @@ pub const Model = struct {
         writeFixed(&session.interaction_mode_storage, &session.interaction_mode_len, interaction);
         const effort = if (model.lastReasoningEffort().len > 0) model.lastReasoningEffort() else default_reasoning_effort;
         writeFixed(&session.reasoning_effort_storage, &session.reasoning_effort_len, effort);
+        session.updated_at = model.now_ms;
         model.session_store[model.session_count] = session;
         model.session_count += 1;
         model.next_id += 1;
@@ -2396,7 +2460,10 @@ pub const Model = struct {
         model.turn_store[model.turn_count] = turn;
         model.turn_count += 1;
         model.next_turn_id += 1;
-        if (model.sessionById(session_id)) |session| session.has_started = true;
+        if (model.sessionById(session_id)) |session| {
+            session.has_started = true;
+            if (role == .user or role == .assistant) stampSessionActivity(session, model.now_ms);
+        }
         if (model.transcript_pinned and (session_id == model.selected or model.selected == 0)) {
             model.pinTranscriptToLatest();
         }
@@ -2527,6 +2594,7 @@ pub const Model = struct {
         interaction_mode: []const u8,
         reasoning_effort: []const u8,
         folder_id: u32,
+        updated_at: i64,
     ) void {
         if (model.session_count >= max_sessions) return;
         var session = Session{
@@ -2535,6 +2603,7 @@ pub const Model = struct {
             .untitled = untitled,
             .has_started = has_started,
             .detail_loaded = false,
+            .updated_at = updated_at,
         };
         writeFixed(&session.title_storage, &session.title_len, title_text);
         writeFixed(&session.project_path_storage, &session.project_path_len, project_path);
@@ -2805,6 +2874,75 @@ fn paletteSelectableIdAt(model: *const Model, index: u32) ?u32 {
     return null;
 }
 
+fn stampSessionActivity(session: *Session, now_ms: i64) void {
+    if (now_ms <= 0) return;
+    session.updated_at = now_ms;
+}
+
+fn dateHeaderRow(bucket: DateBucket) SidebarRow {
+    return .{
+        .id = date_row_id_base + @intFromEnum(bucket) + 1,
+        .title = bucket.title(),
+        .provider = "",
+        .selected = false,
+        .is_header = true,
+        .editing = false,
+        .folder_id = 0,
+        .grouped = false,
+        .is_date_header = true,
+    };
+}
+
+fn collectUngroupedNewestFirst(model: *const Model, dest: []u32) usize {
+    var n: usize = 0;
+    for (model.session_store[0..model.session_count]) |*session| {
+        if (effectiveFolderId(model, session) != 0) continue;
+        if (n >= dest.len) break;
+        dest[n] = session.id;
+        n += 1;
+    }
+    var i: usize = 1;
+    while (i < n) : (i += 1) {
+        const id = dest[i];
+        const stamp = ungroupedSortStamp(model, id);
+        var j = i;
+        while (j > 0 and ungroupedSortStamp(model, dest[j - 1]) < stamp) {
+            dest[j] = dest[j - 1];
+            j -= 1;
+        }
+        dest[j] = id;
+    }
+    return n;
+}
+
+fn ungroupedSortStamp(model: *const Model, id: u32) i64 {
+    const session = model.sessionByIdConst(id) orelse return 0;
+    return session.updated_at;
+}
+
+fn appendDateBucket(
+    model: *const Model,
+    out: []SidebarRow,
+    start: usize,
+    ungrouped: []const u32,
+    bucket: DateBucket,
+) usize {
+    var i = start;
+    var header = false;
+    for (ungrouped) |id| {
+        const session = model.sessionByIdConst(id) orelse continue;
+        if (sessionDateBucket(session.updated_at, model.now_ms) != bucket) continue;
+        if (!header) {
+            out[i] = dateHeaderRow(bucket);
+            i += 1;
+            header = true;
+        }
+        out[i] = sessionSidebarRow(model, session);
+        i += 1;
+    }
+    return i;
+}
+
 fn sessionSidebarRow(model: *const Model, session: *const Session) SidebarRow {
     return .{
         .id = session.id,
@@ -2816,6 +2954,7 @@ fn sessionSidebarRow(model: *const Model, session: *const Session) SidebarRow {
         .folder_id = session.folder_id,
         .grouped = session.folder_id != 0,
         .busy = session.busy,
+        .is_date_header = false,
     };
 }
 
@@ -3276,6 +3415,7 @@ fn persistDeletedFolder(model: *Model, folder_id: u32, fx: *Effects) void {
 }
 
 pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
+    model.now_ms = fx.wallMs();
     switch (msg) {
         .new_session => {
             store.persistDraftIfPossible(model);
@@ -3644,6 +3784,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
 /// Boot probe: `~/.local/bin/fx --help` then `fx --help` (PATH). Wired
 /// through `.init_fx` so the first paint already has the spawn in flight.
 pub fn initFx(model: *Model, fx: *Effects) void {
+    model.now_ms = fx.wallMs();
     store.maybeLoadDaemonCatalog(model, fx);
     store.maybeHydrateDaemonSession(model, fx, model.selected);
     refreshAttachPreview(model, fx);
@@ -3664,6 +3805,7 @@ fn handleSend(model: *Model, fx: *Effects) void {
             return;
         }
         if (model.enqueue(model.selected, text) != 0) {
+            if (model.sessionById(model.selected)) |session| stampSessionActivity(session, model.now_ms);
             store.persistIfPossible(model, model.selected, fx);
         }
         model.draft_buffer.clear();
