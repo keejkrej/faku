@@ -41,7 +41,11 @@ tool / thought text the same way (empty session is a no-op); Fork
 clones the selected local transcript into a new `sessions.json` row
 (empty `fx_session_id` / `runtime_id`) and is not a provider session
 fork; Rewind undoes the last turn's files and those chat turns, using
-the Send-time HEAD, not a provider session fork; headless paths are
+the Send-time HEAD, not a provider session fork; a successful stream
+turn fires a desktop notification through Native `fx.showNotification`
+(session title or Faku; truncated last assistant text or Reply ready).
+Native has no window-focus observation, so this is not Waku's
+unfocused-only gate — it always notifies on success. Headless paths are
 unchanged.
 
 ## Why fx
@@ -312,8 +316,8 @@ persists. Chrome lists each queued follow-up for the selected session
 so one item can be dropped without clearing the rest; Dismiss all still
 clears that session's queue. A successful finish (demo timer complete,
 ACP `stopReason` other than cancelled/refusal, or `fx ask` exit 0)
-drains the next queued prompt. Stop, Esc, a cancelled/refused ACP
-prompt, and a non-zero `fx ask` exit do not drain; partial assistant
+drains the next queued prompt and shows `fx.showNotification`. Stop, Esc, a cancelled/refused ACP
+prompt, and a non-zero `fx ask` exit do not drain and do not notify; partial assistant
 text stays, then the session is saved.
 
 One-shot `fx acp` mints and resumes an `fx_session_id` (same saved fx

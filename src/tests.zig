@@ -814,6 +814,173 @@ test "user and assistant **bold** bind to markdown source" {
     try testing.expectEqualStrings("also", assistant_rendered.text);
 }
 
+const NotifySink = struct {
+    platform: native_sdk.NullPlatform = undefined,
+    host: native_sdk.platform.Platform = undefined,
+};
+
+fn attachNotifySink(sink: *NotifySink, fx: *Effects) void {
+    sink.platform = native_sdk.NullPlatform.init(.{});
+    sink.host = sink.platform.platform();
+    fx.bindServices(&sink.host.services);
+}
+
+fn beginLiveTurn(model: *Model, title: []const u8, assistant: []const u8) u32 {
+    const id = model.addSession(title, .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .user, "prompt");
+    const turn = model.appendTurn(id, .assistant, assistant);
+    model.phase = .streaming;
+    model.streaming_session = id;
+    model.stream_turn_id = turn;
+    if (model.sessionById(id)) |session| session.busy = true;
+    return id;
+}
+
+fn tickDemoUntilIdle(model: *Model, fx: *Effects) void {
+    var n: u32 = 0;
+    while (n < 16 and model.is_streaming()) : (n += 1) {
+        main.update(model, .{ .tick = .{ .key = main.stream_timer_key } }, fx);
+    }
+}
+
+test "successful demo turn notifies via fx.showNotification" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    var sink: NotifySink = undefined;
+    attachNotifySink(&sink, &fx);
+
+    var model = Model{};
+    _ = beginLiveTurn(&model, "port waku to zig", "");
+    try testing.expectEqual(@as(usize, 0), sink.platform.notificationCount());
+
+    tickDemoUntilIdle(&model, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 1), sink.platform.notificationCount());
+    try testing.expectEqualStrings("port waku to zig", sink.platform.lastNotificationTitle());
+    try testing.expectEqualStrings(lastAssistant(&model), sink.platform.lastNotificationBody());
+    try testing.expect(lastAssistant(&model).len > 0);
+}
+
+test "send then successful complete records title and body" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var sink: NotifySink = undefined;
+    attachNotifySink(&sink, &fx);
+
+    var model = Model{};
+    const id = model.addSession("from send", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "hello" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(@as(usize, 0), sink.platform.notificationCount());
+
+    // Native 0.9.3 fake executor suppresses the platform call; deliver
+    // the completing ticks so showNotification reaches NullPlatform.
+    fx.executor = .real;
+    tickDemoUntilIdle(&model, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 1), sink.platform.notificationCount());
+    try testing.expectEqualStrings("from send", sink.platform.lastNotificationTitle());
+    try testing.expectEqualStrings(lastAssistant(&model), sink.platform.lastNotificationBody());
+}
+
+test "no notify while a turn is still streaming" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    var sink: NotifySink = undefined;
+    attachNotifySink(&sink, &fx);
+
+    var model = Model{};
+    _ = beginLiveTurn(&model, "still going", "");
+    main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(@as(usize, 0), sink.platform.notificationCount());
+}
+
+test "stop cancel and error do not notify" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    var sink: NotifySink = undefined;
+    attachNotifySink(&sink, &fx);
+
+    var stopped = Model{};
+    _ = beginLiveTurn(&stopped, "stopped", "partial");
+    main.update(&stopped, .stop, &fx);
+    try testing.expect(!stopped.is_streaming());
+    try testing.expectEqual(@as(usize, 0), sink.platform.notificationCount());
+
+    var cancelled = Model{};
+    _ = beginLiveTurn(&cancelled, "cancelled", "partial");
+    cancelled.fx_spawn_acp = true;
+    cancelled.fx_spawn_key = 77;
+    main.update(&cancelled, .{ .fx_line = .{
+        .key = 77,
+        .line = "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"cancelled\"}}",
+    } }, &fx);
+    try testing.expect(!cancelled.is_streaming());
+    try testing.expectEqual(@as(usize, 0), sink.platform.notificationCount());
+
+    var failed = Model{};
+    _ = beginLiveTurn(&failed, "failed ask", "partial");
+    failed.fx_spawn_key = main.fx_ask_key;
+    main.update(&failed, .{ .fx_exit = .{
+        .key = main.fx_ask_key,
+        .code = 1,
+        .reason = .exited,
+    } }, &fx);
+    try testing.expect(!failed.is_streaming());
+    try testing.expectEqual(@as(usize, 0), sink.platform.notificationCount());
+}
+
+test "empty successful turn notifies Reply ready" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    var sink: NotifySink = undefined;
+    attachNotifySink(&sink, &fx);
+
+    var model = Model{};
+    _ = beginLiveTurn(&model, "quiet", "");
+    model.fx_spawn_key = main.fx_ask_key;
+    main.update(&model, .{ .fx_exit = .{
+        .key = main.fx_ask_key,
+        .code = 0,
+        .reason = .exited,
+    } }, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 1), sink.platform.notificationCount());
+    try testing.expectEqualStrings("quiet", sink.platform.lastNotificationTitle());
+    try testing.expectEqualStrings(main.notify_fallback_body, sink.platform.lastNotificationBody());
+}
+
+test "long assistant body is truncated on the notification" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    var sink: NotifySink = undefined;
+    attachNotifySink(&sink, &fx);
+
+    const long = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" ++
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" ++
+        "more";
+    try testing.expect(long.len > main.notify_body_max);
+
+    var model = Model{};
+    _ = beginLiveTurn(&model, "long reply", long);
+    model.fx_spawn_key = main.fx_ask_key;
+    main.update(&model, .{ .fx_exit = .{
+        .key = main.fx_ask_key,
+        .code = 0,
+        .reason = .exited,
+    } }, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 1), sink.platform.notificationCount());
+    try testing.expectEqualStrings("long reply", sink.platform.lastNotificationTitle());
+    try testing.expectEqual(@as(usize, main.notify_body_max), sink.platform.lastNotificationBody().len);
+    try testing.expectEqualStrings(long[0..main.notify_body_max], sink.platform.lastNotificationBody());
+}
+
 test "escape stops a live demo stream" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
