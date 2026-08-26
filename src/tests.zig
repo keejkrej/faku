@@ -9713,7 +9713,9 @@ test "catalog load after a busy Send does not restore session.busy" {
 }
 
 const day_ms: i64 = 86_400_000;
-const pinned_now_ms: i64 = 1_704_067_200_000; // 2024-01-01 00:00:00 UTC
+const pinned_now_ms: i64 = 1_704_067_200_000; // 2024-01-01 00:00:00 UTC (Monday)
+/// Friday 2024-01-19 00:00:00 UTC so This week (Mon–Wed) and This month (1–14) are both non-empty.
+const week_month_now_ms: i64 = pinned_now_ms + (18 * day_ms);
 
 fn pinClock(fx: *Effects, clock: *native_sdk.TestClock, now_ms: i64) void {
     clock.setWallMs(now_ms);
@@ -9728,6 +9730,22 @@ test "sessionDateBucket uses UTC days; 0 and missing now are Today" {
     try testing.expectEqual(main.DateBucket.yesterday, main.sessionDateBucket(pinned_now_ms - day_ms, pinned_now_ms));
     try testing.expectEqual(main.DateBucket.older, main.sessionDateBucket(pinned_now_ms - (2 * day_ms), pinned_now_ms));
     try testing.expectEqual(main.DateBucket.older, main.sessionDateBucket(pinned_now_ms - (40 * day_ms), pinned_now_ms));
+}
+
+test "sessionDateBucket This week and This month use UTC Monday week and month" {
+    try testing.expectEqual(main.DateBucket.today, main.sessionDateBucket(week_month_now_ms, week_month_now_ms));
+    try testing.expectEqual(main.DateBucket.yesterday, main.sessionDateBucket(week_month_now_ms - day_ms, week_month_now_ms));
+    try testing.expectEqual(main.DateBucket.this_week, main.sessionDateBucket(week_month_now_ms - (2 * day_ms), week_month_now_ms));
+    try testing.expectEqual(main.DateBucket.this_week, main.sessionDateBucket(week_month_now_ms - (4 * day_ms), week_month_now_ms));
+    try testing.expectEqual(main.DateBucket.this_month, main.sessionDateBucket(week_month_now_ms - (5 * day_ms), week_month_now_ms));
+    try testing.expectEqual(main.DateBucket.this_month, main.sessionDateBucket(week_month_now_ms - (18 * day_ms), week_month_now_ms));
+    try testing.expectEqual(main.DateBucket.older, main.sessionDateBucket(week_month_now_ms - (19 * day_ms), week_month_now_ms));
+    try testing.expectEqual(main.DateBucket.older, main.sessionDateBucket(week_month_now_ms - (40 * day_ms), week_month_now_ms));
+    // Thursday 2024-02-01: week started Monday 2024-01-29, so late January is This week, not This month.
+    const feb_first_ms = pinned_now_ms + (31 * day_ms);
+    try testing.expectEqual(main.DateBucket.yesterday, main.sessionDateBucket(feb_first_ms - day_ms, feb_first_ms));
+    try testing.expectEqual(main.DateBucket.this_week, main.sessionDateBucket(feb_first_ms - (3 * day_ms), feb_first_ms));
+    try testing.expectEqual(main.DateBucket.older, main.sessionDateBucket(feb_first_ms - (4 * day_ms), feb_first_ms));
 }
 
 test "ungrouped sessions land in Today Yesterday Older; folder rows stay put" {
@@ -9799,6 +9817,104 @@ test "ungrouped sessions land in Today Yesterday Older; folder rows stay put" {
     try testing.expect(!sessionRowHasGroupRail(tree.root, "today newer"));
     try testing.expect(!sessionRowHasGroupRail(tree.root, "yesterday thread"));
     try testing.expect(sessionRowHasGroupRail(tree.root, "folder thread"));
+}
+
+test "ungrouped sessions land in This week and This month; empty buckets omit headers" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var clock = native_sdk.TestClock{};
+    pinClock(&fx, &clock, week_month_now_ms);
+
+    var model = Model{};
+    model.now_ms = week_month_now_ms;
+    const today_new = model.addSession("today newer", .fx);
+    const today_old = model.addSession("today older", .fx);
+    const yesterday = model.addSession("yesterday thread", .fx);
+    const week_new = model.addSession("week newer", .fx);
+    const week_old = model.addSession("week older", .fx);
+    const month = model.addSession("month thread", .fx);
+    const older = model.addSession("older thread", .fx);
+    const grouped = model.addSession("folder thread", .fx);
+    model.sessionById(today_new).?.updated_at = week_month_now_ms + 3_600_000;
+    model.sessionById(today_old).?.updated_at = week_month_now_ms + 1_000;
+    model.sessionById(yesterday).?.updated_at = week_month_now_ms - day_ms;
+    model.sessionById(week_new).?.updated_at = week_month_now_ms - (2 * day_ms);
+    model.sessionById(week_old).?.updated_at = week_month_now_ms - (4 * day_ms);
+    model.sessionById(month).?.updated_at = week_month_now_ms - (10 * day_ms);
+    model.sessionById(older).?.updated_at = week_month_now_ms - (40 * day_ms);
+    model.sessionById(grouped).?.updated_at = week_month_now_ms - (10 * day_ms);
+    const folder_id = model.addFolder("New folder");
+    try testing.expect(model.assignSessionFolder(grouped, folder_id));
+
+    const rows = model.sidebar_rows(arena);
+    try expectSidebarTitles(rows, &.{
+        "Today",
+        "today newer",
+        "today older",
+        "Yesterday",
+        "yesterday thread",
+        "This week",
+        "week newer",
+        "week older",
+        "This month",
+        "month thread",
+        "Older",
+        "older thread",
+        "New folder",
+        "folder thread",
+    });
+    try testing.expect(rows[0].is_date_header);
+    try testing.expectEqualStrings("This week", rows[5].title);
+    try testing.expect(rows[5].is_date_header);
+    try testing.expect(!rows[5].grouped);
+    try testing.expectEqualStrings("This month", rows[8].title);
+    try testing.expect(rows[8].is_date_header);
+    try testing.expect(rows[12].is_header);
+    try testing.expect(!rows[12].is_date_header);
+    try testing.expect(rows[13].grouped);
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .list_item, "Today");
+    try testing.expectEqual(@as(usize, 2), countByText(tree.root, .text, "Today"));
+    _ = try expectByText(tree.root, .text, "Yesterday");
+    _ = try expectByText(tree.root, .text, "This week");
+    _ = try expectByText(tree.root, .text, "This month");
+    _ = try expectByText(tree.root, .text, "Older");
+    _ = try expectButton(tree.root, "week newer");
+    _ = try expectButton(tree.root, "month thread");
+    try testing.expect(pressableAppearsBefore(tree.root, "today newer", "yesterday thread"));
+    try testing.expect(pressableAppearsBefore(tree.root, "yesterday thread", "week newer"));
+    try testing.expect(pressableAppearsBefore(tree.root, "week newer", "week older"));
+    try testing.expect(pressableAppearsBefore(tree.root, "week older", "month thread"));
+    try testing.expect(pressableAppearsBefore(tree.root, "month thread", "older thread"));
+    try testing.expect(pressableAppearsBefore(tree.root, "older thread", "folder thread"));
+    try expectNoContextMenu(try expectByText(tree.root, .list_item, "Today"));
+    try testing.expect(!sessionRowHasGroupRail(tree.root, "week newer"));
+    try testing.expect(!sessionRowHasGroupRail(tree.root, "month thread"));
+    try testing.expect(sessionRowHasGroupRail(tree.root, "folder thread"));
+
+    var month_only = Model{};
+    month_only.now_ms = week_month_now_ms;
+    const today_only = month_only.addSession("today only", .fx);
+    const month_only_id = month_only.addSession("month only", .fx);
+    month_only.sessionById(today_only).?.updated_at = week_month_now_ms;
+    month_only.sessionById(month_only_id).?.updated_at = week_month_now_ms - (10 * day_ms);
+    try expectSidebarTitles(month_only.sidebar_rows(arena), &.{
+        "Today",
+        "today only",
+        "This month",
+        "month only",
+    });
+    const month_tree = try buildTree(arena, &month_only);
+    try testing.expect(findByText(month_tree.root, .text, "Yesterday") == null);
+    try testing.expect(findByText(month_tree.root, .text, "This week") == null);
+    try testing.expect(findByText(month_tree.root, .text, "Older") == null);
+    _ = try expectByText(month_tree.root, .text, "This month");
 }
 
 test "Today unassign still works when extra date headers exist" {

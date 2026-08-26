@@ -18,8 +18,8 @@
 //! composer chips can edit persisted defaults, and `folders` /
 //! `collapsed_folder_ids` so New folder groups persist. A session
 //! `folder_id` of 0 (or omitted) stays in the ungrouped date buckets
-//! (Today / Yesterday / Older from `updated_at`). Missing `updated_at`
-//! is 0 and groups as Today.
+//! (Today / Yesterday / This week / This month / Older from `updated_at`).
+//! Missing `updated_at` is 0 and groups as Today.
 //! Save is merge-only (never deletes session rows).
 //! `removeSession` is the only session delete. Deleting a folder rewrites
 //! `folders` extras and unassigns `folder_id`; it is not `removeSession`.
