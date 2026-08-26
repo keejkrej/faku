@@ -356,6 +356,16 @@
             <if test="{show_goal}">
               <row gap="8" cross="center">
                 <text grow="1" wrap="false" overflow="ellipsis" foreground="text_muted">{goal_label}</text>
+                <stack>
+                  <select placeholder="Status" on-press="toggle_goal_status_picker">{goal_status_label}</select>
+                  <if test="{goal_status_picker_open}">
+                    <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_goal_status_picker">
+                      <for each="goal_status_picker_rows" key="row_id" as="g">
+                        <menu-item selected="{g.selected}" on-press="pick_goal_status:{g.id}">{g.label}</menu-item>
+                      </for>
+                    </dropdown-menu>
+                  </if>
+                </stack>
                 <button variant="ghost" size="sm" on-press="goal_set">Set goal</button>
                 <button variant="ghost" size="sm" on-press="goal_clear">Clear goal</button>
                 <button variant="ghost" size="sm" on-press="goal_refresh">Refresh goal</button>

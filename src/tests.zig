@@ -3863,6 +3863,7 @@ test "goal clear and refresh emit the matching operations; last_daemon_address i
 
     main.update(&model, .goal_clear, &fx);
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.threadGoalObjective().len);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.threadGoalStatus().len);
     var found_clear = false;
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
@@ -3930,6 +3931,8 @@ test "no daemon address leaves the fx path alone and does not fake Goal" {
     main.update(&model, .goal_set, &fx);
     try testing.expectEqualStrings("would be a goal", model.draft());
     try testing.expectEqual(@as(usize, 0), model.sessionById(model.selected).?.threadGoalObjective().len);
+    main.update(&model, .{ .pick_goal_status = "paused" }, &fx);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(model.selected).?.threadGoalStatus().len);
     try testing.expect(findGoalOnlySpawn(&fx) == null);
     try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
     var i: usize = 0;
@@ -3951,6 +3954,8 @@ test "goal composer row is hidden without a daemon and shows Set/Clear when one 
     try testing.expect(findByText(tree.root, .button, "Set goal") == null);
     try testing.expect(findByText(tree.root, .button, "Clear goal") == null);
     try testing.expect(findByText(tree.root, .button, "Refresh goal") == null);
+    try testing.expect(findByText(tree.root, .select, "Status") == null);
+    try testing.expect(findByText(tree.root, .select, "active") == null);
 
     model.setLastDaemonAddress("127.0.0.1:8787");
     if (model.sessionById(id)) |session| session.setThreadGoal("Ship the feature", "active");
@@ -3960,6 +3965,88 @@ test "goal composer row is hidden without a daemon and shows Set/Clear when one 
     _ = try expectButtonMsg(tree, "Clear goal", .goal_clear);
     _ = try expectButtonMsg(tree, "Refresh goal", .goal_refresh);
     _ = try expectByText(tree.root, .text, "Ship the feature");
+    _ = try expectSelectMsg(tree, "active", .toggle_goal_status_picker);
+    try testing.expectEqualStrings("active", model.goal_status_label());
+}
+
+test "goal status picker lists ThreadGoalStatus; pick_goal_status writes set with null objective" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-goal-status", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("goal status", .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .user, "started");
+    if (model.sessionById(id)) |session| session.setThreadGoal("Ship the feature", "active");
+    try testing.expectEqualStrings("Ship the feature", model.goal_label());
+    try testing.expectEqualStrings("active", model.goal_status_label());
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+    try testing.expect(findByText(tree.root, .menu_item, "paused") == null);
+    const chip = try expectSelectMsg(tree, "active", .toggle_goal_status_picker);
+    main.update(&model, tree.msgForPointer(chip.id, .up).?, &fx);
+    try testing.expect(model.goal_status_picker_open);
+    try testing.expect(!model.access_picker_open);
+    try testing.expect(!model.effort_picker_open);
+    try testing.expect(!model.model_picker_open);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
+    const rows = [_][]const u8{ "active", "paused", "blocked", "usageLimited", "budgetLimited", "complete" };
+    for (rows) |name| {
+        const item = try expectByText(tree.root, .menu_item, name);
+        switch (tree.msgForPointer(item.id, .up).?) {
+            .pick_goal_status => |picked| try testing.expectEqualStrings(name, picked),
+            else => return error.WrongMsg,
+        }
+        if (std.mem.eql(u8, name, "active")) {
+            try testing.expect(item.state.selected);
+        } else {
+            try testing.expect(!item.state.selected);
+        }
+    }
+
+    const paused = try expectByText(tree.root, .menu_item, "paused");
+    main.update(&model, tree.msgForPointer(paused.id, .up).?, &fx);
+    try testing.expect(!model.goal_status_picker_open);
+    try testing.expectEqualStrings("Ship the feature", model.sessionById(id).?.threadGoalObjective());
+    try testing.expectEqualStrings("paused", model.sessionById(id).?.threadGoalStatus());
+    try testing.expectEqualStrings("paused", model.goal_status_label());
+
+    const spawn = findGoalOnlySpawn(&fx) orelse return error.GoalStatusSpawnMissing;
+    try testing.expect(argvHas(spawn.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(spawn.argv, "127.0.0.1:8787"));
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"command\":{\"type\":\"goal\",\"operation\":{\"kind\":\"set\",\"objective\":null,\"status\":\"paused\",\"replace\":false}}") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"prompt\"") == null);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Ship the feature");
+    _ = try expectSelectMsg(tree, "paused", .toggle_goal_status_picker);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+
+    main.update(&model, .goal_clear, &fx);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.threadGoalObjective().len);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.threadGoalStatus().len);
+    try testing.expectEqualStrings("No goal", model.goal_label());
+    try testing.expectEqualStrings("Status", model.goal_status_label());
 }
 
 test "steer sidecar failure leaves the draft queued path untouched and the turn live" {

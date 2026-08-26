@@ -359,7 +359,7 @@ The composer circle is Stop while streaming (cancels; does not queue).
 Enter still queues a follow-up. The placeholder becomes
 "Queue a follow-up...". Esc still closes overlays first, then cancels.
 
-Keys: Cmd/Ctrl-N is sidebar New Task and focuses the composer, Cmd/Ctrl-K and sidebar Search open the local command palette (actions + session jump; no daemon; title / provider / project_path / model match is the palette Tasks section, not an inline sidebar filter), Cmd/Ctrl-/ toggles the composer model picker (stored ACP options, or `FX_MODEL` + last-used; plain `/` still types in the composer), Cmd/Ctrl-F filters the selected transcript to matching turns (no glyph highlight), Cmd/Ctrl-L focuses the composer, Cmd/Ctrl-M minimizes the chromeless window via `fx.minimizeWindow`, Cmd/Ctrl-Shift-M maximizes via an OS sidecar (macOS `osascript` System Events `zoomed` on the Faku-named / frontmost window; Linux `wmctrl -r :ACTIVE: -b toggle,maximized_vert,maximized_horz`, else `xdotool getactivewindow windowstate --add MAXIMIZED_VERT MAXIMIZED_HORZ`; missing Linux tools set a status string and do not crash; Windows is skipped because app.zon is macos/linux). Native still has no `fx.maximizeWindow` — this is the documented workaround, not an invented Native API. Cmd/Ctrl-W closes the chromeless window via `fx.closeWindow` (same as header X; settings hides the header Close/Minimize/Maximize controls, so these keys are the keyboard path), Cmd/Ctrl-Q calls Native `fx.quitApp`, Cmd/Ctrl-, opens settings, Cmd/Ctrl-[ and Cmd/Ctrl-] walk sidebar session history, Cmd/Ctrl-B toggles the sidebar rail, Cmd/Ctrl-C copies the last non-empty turn via `fx.writeClipboard`, Enter send/queue, the composer circle is Stop while streaming (cancels; does not queue), Esc overlay-then-cancel (closes the model, access, or effort picker first when one is open). Ctrl-Tab opens a local session switcher (cycle with Ctrl-Tab / Ctrl-Shift-Tab, click to switch, Esc cancels); it is not a provider session fork. Cmd/Ctrl-Enter
+Keys: Cmd/Ctrl-N is sidebar New Task and focuses the composer, Cmd/Ctrl-K and sidebar Search open the local command palette (actions + session jump; no daemon; title / provider / project_path / model match is the palette Tasks section, not an inline sidebar filter), Cmd/Ctrl-/ toggles the composer model picker (stored ACP options, or `FX_MODEL` + last-used; plain `/` still types in the composer), Cmd/Ctrl-F filters the selected transcript to matching turns (no glyph highlight), Cmd/Ctrl-L focuses the composer, Cmd/Ctrl-M minimizes the chromeless window via `fx.minimizeWindow`, Cmd/Ctrl-Shift-M maximizes via an OS sidecar (macOS `osascript` System Events `zoomed` on the Faku-named / frontmost window; Linux `wmctrl -r :ACTIVE: -b toggle,maximized_vert,maximized_horz`, else `xdotool getactivewindow windowstate --add MAXIMIZED_VERT MAXIMIZED_HORZ`; missing Linux tools set a status string and do not crash; Windows is skipped because app.zon is macos/linux). Native still has no `fx.maximizeWindow` — this is the documented workaround, not an invented Native API. Cmd/Ctrl-W closes the chromeless window via `fx.closeWindow` (same as header X; settings hides the header Close/Minimize/Maximize controls, so these keys are the keyboard path), Cmd/Ctrl-Q calls Native `fx.quitApp`, Cmd/Ctrl-, opens settings, Cmd/Ctrl-[ and Cmd/Ctrl-] walk sidebar session history, Cmd/Ctrl-B toggles the sidebar rail, Cmd/Ctrl-C copies the last non-empty turn via `fx.writeClipboard`, Enter send/queue, the composer circle is Stop while streaming (cancels; does not queue), Esc overlay-then-cancel (closes the model, access, effort, or goal-status picker first when one is open). Ctrl-Tab opens a local session switcher (cycle with Ctrl-Tab / Ctrl-Shift-Tab, click to switch, Esc cancels); it is not a provider session fork. Cmd/Ctrl-Enter
 steers a live daemon turn via a one-shot sidecar (hello + `steer`).
 Waku does not steer when attach `supportsSteer` is false or unknown —
 those follow-ups queue, same as Send while busy. fx ask / fx acp / demo
@@ -367,9 +367,12 @@ stay queue-only.
 When `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set,
 composer Set goal / Clear goal / Refresh goal one-shots hello + `goal`
 (set/clear/refresh). Set reuses the composer draft as the objective
-(status `active`). The current objective shows with ellipsis. This is
-not the full Waku goal dialog (no token budget meters, no status
-picker). fx ask / fx acp / demo do not get Goal.
+(status `active`). The current objective shows with ellipsis. The goal
+row can set Codex `ThreadGoalStatus` (`active` / `paused` / `blocked` /
+`usageLimited` / `budgetLimited` / `complete`) over the daemon sidecar
+(`goal` set, `objective: null`, `replace: false`). This is not the full
+Waku goal dialog (no token budget meters). fx ask / fx acp / demo do
+not get Goal.
 
 Daemon (sidecar, not embedded): when `WAKU_DAEMON_ADDRESS` is set, Send
 spawns the same binary as `faku daemon-proxy <addr>` with hello +
@@ -400,10 +403,11 @@ only a first-run fill when that local catalog is missing.
 This is a sidecar. The Waku daemon is not embedded.
 Daemon sidecar hello is protocol v4 (`protocolVersion: 4`) to match
 current waku-daemon. Codex `/goal` is a first cut over that sidecar
-(hello + `goal` set/clear/refresh; persist last-known objective/status
-from `goalUpdated` when it arrives in the same spawn). It is not on
-fx ask / fx acp / demo and not the full Waku goal dialog. fx-first
-(`fx acp` / `fx ask` / demo) does not use daemon hello.
+(hello + `goal` set/clear/refresh and a composer status picker; persist
+last-known objective/status from `goalUpdated` when it arrives in the
+same spawn). It is not on fx ask / fx acp / demo and not the full Waku
+goal dialog. fx-first (`fx acp` / `fx ask` / demo) does not use daemon
+hello.
 
 Client Hello: { type, protocolVersion, token, clientId, resumeFrom }.
 Request: { type, requestId, sessionId, runtimeId, command }. Nil UUID
