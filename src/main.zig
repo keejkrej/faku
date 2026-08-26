@@ -734,8 +734,9 @@ pub const ModelPickerRow = struct {
     selected: bool,
 };
 
-/// Composer access/effort picker row. `row_id` is a 1-based Native `for` key.
-/// `id` is the stored chip value (ask/auto/fullAccess, or fx effort).
+/// Composer access/effort/goal-status picker row. `row_id` is a 1-based Native
+/// `for` key. `id` is the stored chip value (ask/auto/fullAccess, fx effort,
+/// or Codex `ThreadGoalStatus` camelCase).
 pub const ChipPickerRow = struct {
     row_id: u32,
     id: []const u8,
@@ -827,6 +828,10 @@ pub const Msg = union(enum) {
     goal_set,
     goal_clear,
     goal_refresh,
+    toggle_goal_status_picker,
+    close_goal_status_picker,
+    /// Composer `/goal` status chip. Wire name is Codex `ThreadGoalStatus`.
+    pick_goal_status: []const u8,
     stop,
     /// Composer circle while a turn is streaming. Cancels without the
     /// Esc overlay cascade (find open still stops the turn).
@@ -940,6 +945,8 @@ pub const Model = struct {
     effort_picker_open: bool = false,
     /// Runtime-only settings effort picker. Not persisted to sessions.json.
     settings_effort_picker_open: bool = false,
+    /// Runtime-only composer `/goal` status picker. Not persisted.
+    goal_status_picker_open: bool = false,
     palette_highlight: u32 = 0,
     find_buffer: canvas.TextBuffer(max_search) = .{},
     find_active: bool = false,
@@ -1176,6 +1183,8 @@ pub const Model = struct {
         "pickSettingsEffort",
         "toggleSettingsEffortPicker",
         "closeSettingsEffortPicker",
+        "toggleGoalStatusPicker",
+        "closeGoalStatusPicker",
         "closeComposerPickers",
         "access_selected_ask",
         "access_selected_auto",
@@ -1322,6 +1331,7 @@ pub const Model = struct {
         model.model_picker_open = false;
         model.access_picker_open = false;
         model.effort_picker_open = false;
+        model.goal_status_picker_open = false;
     }
 
     pub fn closeModelPicker(model: *Model) void {
@@ -1357,6 +1367,14 @@ pub const Model = struct {
             model.closeComposerPickers();
         }
         model.settings_effort_picker_open = !model.settings_effort_picker_open;
+    }
+
+    pub fn closeGoalStatusPicker(model: *Model) void {
+        model.goal_status_picker_open = false;
+    }
+
+    pub fn toggleGoalStatusPicker(model: *Model) void {
+        model.goal_status_picker_open = !model.goal_status_picker_open;
     }
 
     pub fn find_query(model: *const Model) []const u8 {
@@ -1631,6 +1649,26 @@ pub const Model = struct {
                 .id = opt.id,
                 .label = opt.label,
                 .selected = std.mem.eql(u8, current, opt.label),
+            };
+        }
+        return out;
+    }
+
+    /// Codex `ThreadGoalStatus` wire names. Hidden unless `show_goal`.
+    pub fn goal_status_picker_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
+        const tags = std.meta.tags(protocol.ThreadGoalStatus);
+        const current = if (model.sessionByIdConst(model.selected)) |session|
+            session.threadGoalStatus()
+        else
+            "";
+        const out = arena.alloc(ChipPickerRow, tags.len) catch return &.{};
+        for (tags, 0..) |status, index| {
+            const name = status.wireName();
+            out[index] = .{
+                .row_id = @intCast(index + 1),
+                .id = name,
+                .label = name,
+                .selected = std.mem.eql(u8, current, name),
             };
         }
         return out;
@@ -2140,6 +2178,13 @@ pub const Model = struct {
         const session = model.sessionByIdConst(model.selected) orelse return "No goal";
         if (session.threadGoalObjective().len == 0) return "No goal";
         return session.threadGoalObjective();
+    }
+
+    /// Current Codex `ThreadGoalStatus` wire name, or "Status".
+    pub fn goal_status_label(model: *const Model) []const u8 {
+        const session = model.sessionByIdConst(model.selected) orelse return "Status";
+        if (session.threadGoalStatus().len == 0) return "Status";
+        return session.threadGoalStatus();
     }
 
     pub fn project_edit(model: *const Model) []const u8 {
@@ -3597,7 +3642,7 @@ fn confirmPalette(model: *Model, fx: *Effects) void {
 
 fn cycleSwitcher(model: *Model, reverse: bool) void {
     if (model.palette_open) model.closePalette();
-    if (model.model_picker_open or model.access_picker_open or model.effort_picker_open) {
+    if (model.model_picker_open or model.access_picker_open or model.effort_picker_open or model.goal_status_picker_open) {
         model.closeModelPicker();
     }
     if (model.switcher_open) {
@@ -3829,6 +3874,19 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .goal_set => handleGoalSet(model, fx),
         .goal_clear => handleGoalClear(model, fx),
         .goal_refresh => handleGoalRefresh(model, fx),
+        .toggle_goal_status_picker => {
+            if (!model.goal_status_picker_open) {
+                closeSwitcher(model);
+                if (model.palette_open) model.closePalette();
+                model.model_picker_open = false;
+                model.access_picker_open = false;
+                model.effort_picker_open = false;
+                model.settings_effort_picker_open = false;
+            }
+            model.toggleGoalStatusPicker();
+        },
+        .close_goal_status_picker => model.closeGoalStatusPicker(),
+        .pick_goal_status => |status| handleGoalSetStatus(model, fx, status),
         .switcher_forward => cycleSwitcher(model, false),
         .switcher_backward => cycleSwitcher(model, true),
         .switcher_confirm => confirmSwitcher(model, fx),
@@ -3849,6 +3907,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             }
             if (model.settings_effort_picker_open) {
                 model.closeSettingsEffortPicker();
+                return;
+            }
+            if (model.goal_status_picker_open) {
+                model.closeGoalStatusPicker();
                 return;
             }
             if (model.model_picker_open) {
@@ -3954,6 +4016,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 model.access_picker_open = false;
                 model.effort_picker_open = false;
                 model.settings_effort_picker_open = false;
+                model.goal_status_picker_open = false;
             }
             model.toggleModelPicker();
         },
@@ -3969,6 +4032,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 model.model_picker_open = false;
                 model.effort_picker_open = false;
                 model.settings_effort_picker_open = false;
+                model.goal_status_picker_open = false;
             }
             model.toggleAccessPicker();
         },
@@ -3984,6 +4048,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 model.model_picker_open = false;
                 model.access_picker_open = false;
                 model.settings_effort_picker_open = false;
+                model.goal_status_picker_open = false;
             }
             model.toggleEffortPicker();
         },
@@ -4164,6 +4229,24 @@ fn handleGoalClear(model: *Model, fx: *Effects) void {
 
 fn handleGoalRefresh(model: *Model, fx: *Effects) void {
     _ = maybeSendGoal(model, fx, model.selected, .refresh);
+}
+
+/// Composer `/goal` status chip. Keep the provider objective (`objective: null`)
+/// and write the chosen Codex `ThreadGoalStatus`. No-op without a daemon.
+fn handleGoalSetStatus(model: *Model, fx: *Effects, status: []const u8) void {
+    model.closeGoalStatusPicker();
+    if (store.resolveDaemonMirrorAddress(model).len == 0) return;
+    const parsed = protocol.ThreadGoalStatus.fromWire(status) orelse return;
+    const session = model.sessionById(model.selected) orelse return;
+    session.setThreadGoalStatus(parsed.wireName());
+    store.persistIfPossible(model, session.id, fx);
+    _ = maybeSendGoal(model, fx, session.id, .{
+        .set = .{
+            .objective = null,
+            .status = session.threadGoalStatus(),
+            .replace = false,
+        },
+    });
 }
 
 /// Best-effort one-shot hello + `goal`. Live `WAKU_DAEMON_ADDRESS` or
