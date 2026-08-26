@@ -9898,16 +9898,17 @@ fn expectRelativeTime(updated_at: i64, now_ms: i64, expected: ?[]const u8) !void
 }
 
 test "sessionRelativeTime covers now, minutes, hours, yesterday, days, date; omits 0" {
-    try expectRelativeTime(0, pinned_now_ms, null);
-    try expectRelativeTime(pinned_now_ms, 0, null);
-    try expectRelativeTime(pinned_now_ms, pinned_now_ms, "just now");
-    try expectRelativeTime(pinned_now_ms + 1, pinned_now_ms, "just now");
-    try expectRelativeTime(pinned_now_ms - 5_000, pinned_now_ms, "just now");
-    try expectRelativeTime(pinned_now_ms - (5 * 60_000), pinned_now_ms, "5m");
-    try expectRelativeTime(pinned_now_ms - (2 * 3_600_000), pinned_now_ms, "2h");
-    try expectRelativeTime(pinned_now_ms - day_ms, pinned_now_ms, "Yesterday");
-    try expectRelativeTime(pinned_now_ms - (3 * day_ms), pinned_now_ms, "3d");
-    try expectRelativeTime(pinned_now_ms - (40 * day_ms), pinned_now_ms, "2023-11-22");
+    const noon = pinned_now_ms + (12 * 3_600_000);
+    try expectRelativeTime(0, noon, null);
+    try expectRelativeTime(noon, 0, null);
+    try expectRelativeTime(noon, noon, "just now");
+    try expectRelativeTime(noon + 1, noon, "just now");
+    try expectRelativeTime(noon - 5_000, noon, "just now");
+    try expectRelativeTime(noon - (5 * 60_000), noon, "5m");
+    try expectRelativeTime(noon - (2 * 3_600_000), noon, "2h");
+    try expectRelativeTime(noon - day_ms, noon, "Yesterday");
+    try expectRelativeTime(noon - (3 * day_ms), noon, "3d");
+    try expectRelativeTime(pinned_now_ms - (40 * day_ms), noon, "2023-11-22");
 }
 
 test "sidebar session rows show static relative last-activity; 0 omits; date buckets stay" {
@@ -9918,23 +9919,24 @@ test "sidebar session rows show static relative last-activity; 0 omits; date buc
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
+    const noon = pinned_now_ms + (12 * 3_600_000);
     var clock = native_sdk.TestClock{};
-    pinClock(&fx, &clock, pinned_now_ms);
+    pinClock(&fx, &clock, noon);
 
     var model = Model{};
-    model.now_ms = pinned_now_ms;
+    model.now_ms = noon;
     const now_id = model.addSession("just now thread", .fx);
     const five_id = model.addSession("five minute thread", .fx);
     const yesterday_id = model.addSession("yesterday thread", .fx);
     const older_id = model.addSession("older thread", .fx);
     const missing_id = model.addSession("no stamp thread", .fx);
     const grouped_id = model.addSession("folder thread", .fx);
-    model.sessionById(now_id).?.updated_at = pinned_now_ms;
-    model.sessionById(five_id).?.updated_at = pinned_now_ms - (5 * 60_000);
-    model.sessionById(yesterday_id).?.updated_at = pinned_now_ms - day_ms;
+    model.sessionById(now_id).?.updated_at = noon;
+    model.sessionById(five_id).?.updated_at = noon - (5 * 60_000);
+    model.sessionById(yesterday_id).?.updated_at = noon - day_ms;
     model.sessionById(older_id).?.updated_at = pinned_now_ms - (40 * day_ms);
     model.sessionById(missing_id).?.updated_at = 0;
-    model.sessionById(grouped_id).?.updated_at = pinned_now_ms - (5 * 60_000);
+    model.sessionById(grouped_id).?.updated_at = noon - (5 * 60_000);
     const folder_id = model.addFolder("New folder");
     try testing.expect(model.assignSessionFolder(grouped_id, folder_id));
 
