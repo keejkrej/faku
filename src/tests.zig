@@ -9,6 +9,7 @@ const rewind = @import("rewind.zig");
 const pick_image = @import("pick_image.zig");
 const maximize_window = @import("maximize_window.zig");
 const keys = @import("keys.zig");
+const sidebar_dates = @import("sidebar_dates.zig");
 const acp = @import("acp.zig");
 
 const canvas = native_sdk.canvas;
@@ -10334,42 +10335,42 @@ fn pinClock(fx: *Effects, clock: *native_sdk.TestClock, now_ms: i64) void {
 }
 
 test "sessionDateBucket uses UTC days; 0 and missing now are Today" {
-    try testing.expectEqual(main.DateBucket.today, main.sessionDateBucket(0, pinned_now_ms));
-    try testing.expectEqual(main.DateBucket.today, main.sessionDateBucket(pinned_now_ms, 0));
-    try testing.expectEqual(main.DateBucket.today, main.sessionDateBucket(pinned_now_ms, pinned_now_ms));
-    try testing.expectEqual(main.DateBucket.today, main.sessionDateBucket(pinned_now_ms + 1, pinned_now_ms));
-    try testing.expectEqual(main.DateBucket.yesterday, main.sessionDateBucket(pinned_now_ms - day_ms, pinned_now_ms));
-    try testing.expectEqual(main.DateBucket.older, main.sessionDateBucket(pinned_now_ms - (2 * day_ms), pinned_now_ms));
-    try testing.expectEqual(main.DateBucket.older, main.sessionDateBucket(pinned_now_ms - (40 * day_ms), pinned_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(0, pinned_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(pinned_now_ms, 0));
+    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(pinned_now_ms, pinned_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(pinned_now_ms + 1, pinned_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.yesterday, sidebar_dates.sessionDateBucket(pinned_now_ms - day_ms, pinned_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(pinned_now_ms - (2 * day_ms), pinned_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(pinned_now_ms - (40 * day_ms), pinned_now_ms));
 }
 
 test "sessionDateBucket This week and This month use UTC Monday week and month" {
-    try testing.expectEqual(main.DateBucket.today, main.sessionDateBucket(week_month_now_ms, week_month_now_ms));
-    try testing.expectEqual(main.DateBucket.yesterday, main.sessionDateBucket(week_month_now_ms - day_ms, week_month_now_ms));
-    try testing.expectEqual(main.DateBucket.this_week, main.sessionDateBucket(week_month_now_ms - (2 * day_ms), week_month_now_ms));
-    try testing.expectEqual(main.DateBucket.this_week, main.sessionDateBucket(week_month_now_ms - (4 * day_ms), week_month_now_ms));
-    try testing.expectEqual(main.DateBucket.this_month, main.sessionDateBucket(week_month_now_ms - (5 * day_ms), week_month_now_ms));
-    try testing.expectEqual(main.DateBucket.this_month, main.sessionDateBucket(week_month_now_ms - (18 * day_ms), week_month_now_ms));
-    try testing.expectEqual(main.DateBucket.older, main.sessionDateBucket(week_month_now_ms - (19 * day_ms), week_month_now_ms));
-    try testing.expectEqual(main.DateBucket.older, main.sessionDateBucket(week_month_now_ms - (40 * day_ms), week_month_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(week_month_now_ms, week_month_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.yesterday, sidebar_dates.sessionDateBucket(week_month_now_ms - day_ms, week_month_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(week_month_now_ms - (2 * day_ms), week_month_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(week_month_now_ms - (4 * day_ms), week_month_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_month, sidebar_dates.sessionDateBucket(week_month_now_ms - (5 * day_ms), week_month_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_month, sidebar_dates.sessionDateBucket(week_month_now_ms - (18 * day_ms), week_month_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(week_month_now_ms - (19 * day_ms), week_month_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(week_month_now_ms - (40 * day_ms), week_month_now_ms));
     // Thursday 2024-02-01: week started Monday 2024-01-29, so late January is This week, not This month.
     const feb_first_ms = pinned_now_ms + (31 * day_ms);
-    try testing.expectEqual(main.DateBucket.yesterday, main.sessionDateBucket(feb_first_ms - day_ms, feb_first_ms));
-    try testing.expectEqual(main.DateBucket.this_week, main.sessionDateBucket(feb_first_ms - (3 * day_ms), feb_first_ms));
-    try testing.expectEqual(main.DateBucket.this_year, main.sessionDateBucket(feb_first_ms - (4 * day_ms), feb_first_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.yesterday, sidebar_dates.sessionDateBucket(feb_first_ms - day_ms, feb_first_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(feb_first_ms - (3 * day_ms), feb_first_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_year, sidebar_dates.sessionDateBucket(feb_first_ms - (4 * day_ms), feb_first_ms));
 }
 
 test "sessionDateBucket This year is same UTC year, older than this month" {
-    try testing.expectEqual(main.DateBucket.today, main.sessionDateBucket(year_now_ms, year_now_ms));
-    try testing.expectEqual(main.DateBucket.yesterday, main.sessionDateBucket(year_now_ms - day_ms, year_now_ms));
-    try testing.expectEqual(main.DateBucket.this_week, main.sessionDateBucket(year_now_ms - (2 * day_ms), year_now_ms));
-    try testing.expectEqual(main.DateBucket.this_week, main.sessionDateBucket(year_now_ms - (4 * day_ms), year_now_ms));
-    try testing.expectEqual(main.DateBucket.this_month, main.sessionDateBucket(year_now_ms - (5 * day_ms), year_now_ms));
-    try testing.expectEqual(main.DateBucket.this_month, main.sessionDateBucket(year_now_ms - (14 * day_ms), year_now_ms));
-    try testing.expectEqual(main.DateBucket.this_year, main.sessionDateBucket(year_now_ms - (15 * day_ms), year_now_ms));
-    try testing.expectEqual(main.DateBucket.this_year, main.sessionDateBucket(year_now_ms - (74 * day_ms), year_now_ms));
-    try testing.expectEqual(main.DateBucket.older, main.sessionDateBucket(year_now_ms - (75 * day_ms), year_now_ms));
-    try testing.expectEqual(main.DateBucket.older, main.sessionDateBucket(year_now_ms - (400 * day_ms), year_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(year_now_ms, year_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.yesterday, sidebar_dates.sessionDateBucket(year_now_ms - day_ms, year_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(year_now_ms - (2 * day_ms), year_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(year_now_ms - (4 * day_ms), year_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_month, sidebar_dates.sessionDateBucket(year_now_ms - (5 * day_ms), year_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_month, sidebar_dates.sessionDateBucket(year_now_ms - (14 * day_ms), year_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_year, sidebar_dates.sessionDateBucket(year_now_ms - (15 * day_ms), year_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_year, sidebar_dates.sessionDateBucket(year_now_ms - (74 * day_ms), year_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(year_now_ms - (75 * day_ms), year_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(year_now_ms - (400 * day_ms), year_now_ms));
 }
 
 test "ungrouped sessions land in Today Yesterday Older; folder rows stay put" {
@@ -10737,7 +10738,7 @@ test "Send stamps updated_at from Effects.wallMs" {
 
 fn expectRelativeTime(updated_at: i64, now_ms: i64, expected: ?[]const u8) !void {
     var buf: [16]u8 = undefined;
-    const label = main.sessionRelativeTime(updated_at, now_ms, &buf);
+    const label = sidebar_dates.sessionRelativeTime(updated_at, now_ms, &buf);
     if (expected) |want| {
         try testing.expectEqualStrings(want, label.?);
     } else {
