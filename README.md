@@ -240,10 +240,11 @@ available_commands, updated_at) — no demo rows and no transcripts. The documen
 model/access/interaction, a later send can reuse the last sidecar address,
 the sidebar collapse control is restored, and New folder groups persist.
 Ungrouped sessions (`folder_id` 0 or omitted) group into Today / Yesterday /
-This week / This month / Older date buckets from each session `updated_at`
+This week / This month / This year / Older date buckets from each session `updated_at`
 (unix ms). Missing or 0 is Today so existing catalogs stay in one bucket.
 This week is after yesterday and still in the current UTC week (Monday
-start). This month is the same UTC month, older than this week. Boundaries
+start). This month is the same UTC month, older than this week. This year
+is the same UTC calendar year, older than this month. Boundaries
 are UTC civil days from the loop clock (`Effects.wallMs`); Zig std has no
 tz database.
 Ungrouped and folder session rows can show a muted one-line relative
@@ -251,7 +252,7 @@ last-activity label from that same `updated_at` vs `Effects.wallMs`
 (just now / Nm / Nh / Yesterday / Nd / UTC `YYYY-MM-DD`). Missing or 0
 omits the label so chrome does not invent a time. The label is static
 from the last loop clock; there is no repeating live ticker.
-This is not full Waku date grouping (no This year / More, no Project/Updated
+This is not full Waku date grouping (no More, no Project/Updated
 sort, no "working Xm" live labels). A session `folder_id`
 lists it under that folder. Folder sessions get a 1px Native separator rail
 and 15px inset (Waku group guides); ungrouped date-bucket rows stay flush.
