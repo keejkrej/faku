@@ -592,7 +592,7 @@ test "writeTurnStdin emits hello attachSession and prompt JSON" {
         .prompt = "trace the listener",
     });
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"protocolVersion\":3") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"protocolVersion\":4") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ ATTACH_REQUEST_ID) != null);
