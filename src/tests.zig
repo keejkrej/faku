@@ -1068,14 +1068,14 @@ test "composer placeholder is Queue a follow-up while streaming" {
     _ = try expectButtonMsg(tree, "Stop", .stop_turn);
 }
 
-test "protocol stubs speak camelCase v3 and default to fx" {
-    try testing.expectEqual(@as(u32, 3), protocol.PROTOCOL_VERSION);
+test "protocol stubs speak camelCase v4 and default to fx" {
+    try testing.expectEqual(@as(u32, 4), protocol.PROTOCOL_VERSION);
     try testing.expectEqualStrings("fx", protocol.ProviderId.default.wireName());
     try testing.expectEqualStrings("fx", protocol.FX_ACP_ARGV[0]);
     try testing.expectEqualStrings("acp", protocol.FX_ACP_ARGV[1]);
     var buf: [512]u8 = undefined;
     const hello = try protocol.writeHello(&buf, .{ .token = "t", .client_id = "c" });
-    try testing.expect(std.mem.indexOf(u8, hello, "protocolVersion") != null);
+    try testing.expect(std.mem.indexOf(u8, hello, "\"protocolVersion\":4") != null);
     const start = try protocol.writeStart(&buf, protocol.NIL_UUID, protocol.NIL_UUID, protocol.NIL_UUID, protocol.defaultStartOptions());
     try testing.expect(std.mem.indexOf(u8, start, "\"provider\":\"fx\"") != null);
 }

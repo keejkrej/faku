@@ -200,7 +200,7 @@ Mid-turn `session/cancel` still cannot be written from the window.
 Ready: desktop shell, demo sessions + timer fallback, one-shot `fx acp`
 when the CLI is present (via `acp-proxy`, which auto-answers
 `session/request_permission`), `fx ask --image` / `fx ask` fallback, local
-session catalog + hydrate, waku-protocol v3 JSON builders + server-frame
+session catalog + hydrate, waku-protocol v4 JSON builders + server-frame
 parser, one-shot daemon sidecar, provider id "fx".
 
 Later: a long-lived daemon socket in the update loop (not this cut),
@@ -389,6 +389,9 @@ address is set. Wire `loadTaskState` talks to the daemon only, and is
 only a first-run fill when that local catalog is missing.
 
 This is a sidecar. The Waku daemon is not embedded.
+Daemon sidecar hello is protocol v4 (`protocolVersion: 4`) to match
+current waku-daemon. Codex `/goal` is not shipped. fx-first
+(`fx acp` / `fx ask` / demo) does not use daemon hello.
 
 Client Hello: { type, protocolVersion, token, clientId, resumeFrom }.
 Request: { type, requestId, sessionId, runtimeId, command }. Nil UUID

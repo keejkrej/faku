@@ -1,4 +1,4 @@
-//! waku-protocol v3: client JSON builders plus a server-frame parser.
+//! waku-protocol v4: client JSON builders plus a server-frame parser.
 //!
 //! Daemon transport is JSON text frames over WebSocket `ws://{addr}/v1`.
 //! Native has no first-party WebSocket effect. Live daemon talk is a
@@ -122,7 +122,7 @@
 
 const std = @import("std");
 
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 pub const REQUEST_TIMEOUT_S: u32 = 120;
 pub const MAX_WIRE_MESSAGE_BYTES: usize = 48 * 1024 * 1024;
 
@@ -931,14 +931,14 @@ pub fn isTerminalServerFrame(parsed: ParsedServer) bool {
     };
 }
 
-test "client hello is camelCase protocol v3" {
+test "client hello is camelCase protocol v4" {
     var buf: [256]u8 = undefined;
     const json = try writeClientHello(&buf, "secret", "00000000-0000-0000-0000-000000000002", &.{});
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"hello\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json, "\"protocolVersion\":3") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"protocolVersion\":4") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"token\":\"secret\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "protocol_version") == null);
-    try std.testing.expectEqual(@as(u32, 3), PROTOCOL_VERSION);
+    try std.testing.expectEqual(@as(u32, 4), PROTOCOL_VERSION);
 }
 
 test "prompt request wraps a camelCase command" {
@@ -1051,9 +1051,9 @@ test "server-frame parser round-trips hello rejected response and events" {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const hello = parseServerFrame(arena, "{\"type\":\"hello\",\"protocolVersion\":3,\"daemonVersion\":\"0.1.9\"}");
+    const hello = parseServerFrame(arena, "{\"type\":\"hello\",\"protocolVersion\":4,\"daemonVersion\":\"0.1.9\"}");
     try std.testing.expectEqual(ServerFrame.hello, hello.frame);
-    try std.testing.expectEqual(@as(u32, 3), hello.protocol_version);
+    try std.testing.expectEqual(@as(u32, 4), hello.protocol_version);
     try std.testing.expectEqualStrings("0.1.9", hello.daemon_version);
 
     const rejected = parseServerFrame(arena, "{\"type\":\"rejected\",\"message\":\"bad token\"}");
