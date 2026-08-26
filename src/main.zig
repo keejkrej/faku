@@ -2508,7 +2508,7 @@ pub const Model = struct {
         return null;
     }
 
-    fn turnById(model: *Model, id: u32) ?*Turn {
+    pub fn turnById(model: *Model, id: u32) ?*Turn {
         for (model.turn_store[0..model.turn_count]) |*turn| {
             if (turn.id == id) return turn;
         }
