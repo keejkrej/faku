@@ -7,6 +7,7 @@ const daemon_proxy = @import("daemon_proxy.zig");
 const acp_proxy = @import("acp_proxy.zig");
 const rewind = @import("rewind.zig");
 const pick_image = @import("pick_image.zig");
+const maximize_window = @import("maximize_window.zig");
 const acp = @import("acp.zig");
 
 const canvas = native_sdk.canvas;
@@ -6162,6 +6163,7 @@ test "empty palette lists New Task; query new t still includes it" {
     try testing.expect(paletteHasLabel(empty, "Find in transcript"));
     try testing.expect(paletteHasLabel(empty, "Settings"));
     try testing.expect(paletteHasLabel(empty, "Minimize"));
+    try testing.expect(paletteHasLabel(empty, "Maximize"));
     try testing.expect(!paletteHasLabel(empty, "Collapse all folders"));
     try testing.expect(!paletteHasLabel(empty, "Open Project"));
     try testing.expect(!paletteHasLabel(empty, "port waku to zig"));
@@ -9291,11 +9293,15 @@ test "header Minimize sits before Close and requests fx.minimizeWindow" {
 
     var tree = try buildTree(arena, &model);
     const toolbar = try expectByText(tree.root, .row, "Toolbar");
+    const maximize = try expectButton(toolbar, "Maximize");
     const minimize = try expectButton(toolbar, "Minimize");
     const close = try expectButton(toolbar, "Close");
+    try testing.expectEqualStrings("Maximize", widgetName(maximize));
     try testing.expectEqualStrings("Minimize", widgetName(minimize));
+    try testing.expectEqual(Msg.maximize_window, tree.msgForPointer(maximize.id, .up).?);
     try testing.expectEqual(Msg.minimize_window, tree.msgForPointer(minimize.id, .up).?);
     try testing.expectEqual(Msg.close_window, tree.msgForPointer(close.id, .up).?);
+    try testing.expect(pressableAppearsBefore(toolbar, "Maximize", "Minimize"));
     try testing.expect(pressableAppearsBefore(toolbar, "Minimize", "Close"));
 
     var actions = fx.windowActionState();
@@ -9323,6 +9329,7 @@ test "header Minimize sits before Close and requests fx.minimizeWindow" {
     const settings_toolbar = try expectByText(tree.root, .row, "Toolbar");
     try testing.expect(findPressableContaining(settings_toolbar, "Close") == null);
     try testing.expect(findPressableContaining(settings_toolbar, "Minimize") == null);
+    try testing.expect(findPressableContaining(settings_toolbar, "Maximize") == null);
 }
 
 test "cmd-m and ctrl-m minimize the window via onKey" {
@@ -9379,6 +9386,170 @@ test "cmd-m and ctrl-m minimize the window via onKey" {
         .modifiers = .{ .super = true },
     };
     try testing.expectEqual(Msg.focus_composer, main.onKey(cmd_l).?);
+
+    const cmd_shift_m = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "m",
+        .modifiers = .{ .super = true, .shift = true },
+    };
+    try testing.expectEqual(Msg.maximize_window, main.onKey(cmd_shift_m).?);
+    try testing.expect(main.onKey(cmd_shift_m).? != .minimize_window);
+}
+
+fn findMaximizeSpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (maximize_window.isMaximizeArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn findMaximizeSpawnNamed(fx: *Effects, bin: []const u8) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.argv.len > 0 and std.mem.eql(u8, spawn.argv[0], bin) and maximize_window.isMaximizeArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+test "header Maximize sits before Minimize and requests maximize_window" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    var tree = try buildTree(arena, &model);
+    const toolbar = try expectByText(tree.root, .row, "Toolbar");
+    const maximize = try expectButtonMsg(tree, "Maximize", .maximize_window);
+    try testing.expectEqualStrings("Maximize", widgetName(maximize));
+    try testing.expect(pressableAppearsBefore(toolbar, "Maximize", "Minimize"));
+    try testing.expect(pressableAppearsBefore(toolbar, "Minimize", "Close"));
+
+    const before = fx.pendingSpawnCount();
+    main.update(&model, tree.msgForPointer(maximize.id, .up).?, &fx);
+    if (maximize_window.hostArgv(.first) == null) {
+        try testing.expectEqual(before, fx.pendingSpawnCount());
+        try testing.expect(model.has_window_status());
+        try testing.expectEqualStrings(maximize_window.hostMissingStatus(), model.window_status());
+        return;
+    }
+    try testing.expect(model.maximize_window_live);
+    try testing.expectEqual(before + 1, fx.pendingSpawnCount());
+    const spawn = findMaximizeSpawn(&fx) orelse return error.MissingMaximizeSpawn;
+    try testing.expectEqual(main.maximize_window_key, spawn.key);
+    try testing.expect(maximize_window.isMaximizeArgv(spawn.argv));
+    const expected = maximize_window.hostArgv(.first).?;
+    try testing.expectEqualStrings(expected[0], spawn.argv[0]);
+    try testing.expectEqualStrings(expected[expected.len - 1], spawn.argv[spawn.argv.len - 1]);
+}
+
+test "cmd-shift-m and ctrl-shift-m maximize via onKey without stealing cmd-m" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "m" } }, &fx);
+    try testing.expectEqualStrings("m", model.draft());
+
+    const cmd_m = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "m",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.minimize_window, main.onKey(cmd_m).?);
+
+    const cmd_shift_m = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "M",
+        .modifiers = .{ .super = true, .shift = true },
+    };
+    try testing.expectEqual(Msg.maximize_window, main.onKey(cmd_shift_m).?);
+    main.update(&model, main.onKey(cmd_shift_m).?, &fx);
+    try testing.expectEqualStrings("m", model.draft());
+
+    if (maximize_window.hostArgv(.first) == null) {
+        try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+        try testing.expectEqualStrings(maximize_window.hostMissingStatus(), model.window_status());
+        return;
+    }
+    const first = findMaximizeSpawn(&fx) orelse return error.MissingMaximizeSpawn;
+    try testing.expectEqual(main.maximize_window_key, first.key);
+    try testing.expect(maximize_window.isMaximizeArgv(first.argv));
+
+    const ctrl_shift_m = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "m",
+        .modifiers = .{ .control = true, .shift = true },
+    };
+    try testing.expectEqual(Msg.maximize_window, main.onKey(ctrl_shift_m).?);
+}
+
+test "maximize_window fake executor records OS sidecar argv" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    main.update(&model, .maximize_window, &fx);
+    if (maximize_window.hostArgv(.first) == null) {
+        try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+        try testing.expectEqualStrings(maximize_window.hostMissingStatus(), model.window_status());
+        return;
+    }
+    const spawn = findMaximizeSpawn(&fx) orelse return error.MissingMaximizeSpawn;
+    try testing.expectEqual(main.maximize_window_key, spawn.key);
+    try testing.expect(maximize_window.isMaximizeArgv(spawn.argv));
+    const expected = maximize_window.hostArgv(.first).?;
+    try testing.expectEqual(expected.len, spawn.argv.len);
+    for (expected, spawn.argv) |want, got| {
+        try testing.expectEqualStrings(want, got);
+    }
+    try testing.expectEqualStrings("", spawn.stdin);
+    try testing.expect(model.maximize_window_live);
+    try testing.expect(!model.has_window_status());
+}
+
+test "maximize missing Linux tools surfaces window status" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    main.update(&model, .maximize_window, &fx);
+    if (maximize_window.hostArgv(.first) == null) {
+        try testing.expectEqualStrings(maximize_window.hostMissingStatus(), model.window_status());
+        const tree = try buildTree(arena, &model);
+        _ = try expectByText(tree.root, .text, maximize_window.hostMissingStatus());
+        return;
+    }
+
+    const first = findMaximizeSpawn(&fx) orelse return error.MissingMaximizeSpawn;
+    try fx.feedExit(first.key, 127);
+    drainEffects(&model, &fx);
+
+    if (maximize_window.hostArgv(.fallback)) |fallback| {
+        const second = findMaximizeSpawnNamed(&fx, fallback[0]) orelse return error.MissingFallbackSpawn;
+        try testing.expect(maximize_window.isMaximizeArgv(second.argv));
+        try testing.expectEqualStrings(fallback[0], second.argv[0]);
+        try fx.feedExit(second.key, 127);
+        drainEffects(&model, &fx);
+    }
+
+    try testing.expect(model.has_window_status());
+    try testing.expectEqualStrings(maximize_window.hostMissingStatus(), model.window_status());
+    try testing.expect(!model.maximize_window_live);
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, maximize_window.hostMissingStatus());
 }
 
 test "cmd-w and ctrl-w close the window via onKey" {

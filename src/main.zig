@@ -24,6 +24,7 @@ const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const acp_proxy = @import("acp_proxy.zig");
 const pick_image = @import("pick_image.zig");
+const maximize_window = @import("maximize_window.zig");
 const rewind = @import("rewind.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
@@ -35,6 +36,8 @@ const canvas_label = "main-canvas";
 /// Declared shell-window label. Chromeless close/minimize ride
 /// `fx.closeWindow` / `fx.minimizeWindow` against this spelling —
 /// same address as `app.zon` / the scene. Unknown label is a no-op.
+/// Maximize is an OS sidecar (`maximize_window.zig`); Native still
+/// has no `fx.maximizeWindow`.
 pub const main_window_label = "main";
 pub const window_width: f32 = 1380;
 pub const window_height: f32 = 880;
@@ -125,15 +128,20 @@ pub const shell_scene: native_sdk.ShellConfig = .{ .windows = &shell_windows };
 /// (`examples/deck`); Native check rejects an invented `icon="minus"`.
 const minimize_icon = canvas.svg_icon.parseComptime(@embedFile("icons/minimize.svg"));
 
+/// Chromeless Maximize square. Native has no `fx.maximizeWindow`
+/// and no built-in maximize glyph.
+const maximize_icon = canvas.svg_icon.parseComptime(@embedFile("icons/maximize.svg"));
+
 /// Composer Stop square. Native has no built-in stop/square
 /// (https://native-sdk.dev/components/icon).
 const stop_icon = canvas.svg_icon.parseComptime(@embedFile("icons/stop.svg"));
 
 /// One table feeds boot registration and the model contract so
-/// `icon="app:minimize"` / `icon="app:stop"` are verified against
-/// what `main` registers.
+/// `icon="app:minimize"` / `icon="app:maximize"` / `icon="app:stop"`
+/// are verified against what `main` registers.
 pub const app_icons = [_]canvas.icons.Entry{
     .{ .name = "minimize", .icon = &minimize_icon },
+    .{ .name = "maximize", .icon = &maximize_icon },
     .{ .name = "stop", .icon = &stop_icon },
 };
 
@@ -167,6 +175,10 @@ pub const transcript_pin_offset: f32 = 1_000_000;
 /// fetch / file; sits in the gap between daemon keys and
 /// `fx_spawn_overlap`. Verified: Native Effects `WriteClipboardOptions`
 /// + notes example.
+/// One-shot OS maximize sidecar (`osascript` / `wmctrl` / `xdotool`).
+/// Distinct from fx ask / daemon / picker / clipboard keys. Native
+/// still has no `fx.maximizeWindow`; this spawn is the workaround.
+pub const maximize_window_key: u64 = 30;
 /// One-shot OS image-picker sidecar (`osascript` / `zenity` / `kdialog`).
 /// Distinct from fx ask / daemon / clipboard / preview keys. Native has
 /// no `fx.pickFile`; this spawn is the documented workaround.
@@ -769,6 +781,7 @@ pub const PaletteAction = enum(u32) {
     find_in_transcript = 5,
     settings = 6,
     minimize = 7,
+    maximize = 8,
 };
 
 /// Follow-up queued while that session is busy. Becomes its own turn after a
@@ -877,6 +890,8 @@ pub const Msg = union(enum) {
     session_title_edit: canvas.TextInputEvent,
     close_window,
     minimize_window,
+    /// Chromeless Maximize: one-shot OS zoom sidecar. Not `fx.maximizeWindow`.
+    maximize_window,
     quit_app,
     sidebar_resized: f32,
     transcript_scrolled: canvas.ScrollState,
@@ -959,6 +974,11 @@ pub const Model = struct {
     pick_image_live: bool = false,
     pick_image_got_path: bool = false,
     pick_image_tried_fallback: bool = false,
+    /// Runtime-only chrome status when the OS maximize sidecar is missing.
+    window_status_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
+    window_status_len: usize = 0,
+    maximize_window_live: bool = false,
+    maximize_window_tried_fallback: bool = false,
     /// Runtime ImageId bound by the composer `<image>`. 0 until
     /// `fx.loadImage` reports `.loaded`. Same draft `image_path` as
     /// the chip — not a second persist field.
@@ -1115,6 +1135,12 @@ pub const Model = struct {
         "pick_image_tried_fallback",
         "setAttachStatus",
         "clearAttachStatus",
+        "window_status_storage",
+        "window_status_len",
+        "maximize_window_live",
+        "maximize_window_tried_fallback",
+        "setWindowStatus",
+        "clearWindowStatus",
         "attach_preview_load_id",
         "next_attach_preview_id",
         "startImageAttach",
@@ -2377,6 +2403,22 @@ pub const Model = struct {
         model.attach_status_len = 0;
     }
 
+    pub fn window_status(model: *const Model) []const u8 {
+        return model.window_status_storage[0..model.window_status_len];
+    }
+
+    pub fn has_window_status(model: *const Model) bool {
+        return model.window_status_len > 0;
+    }
+
+    pub fn setWindowStatus(model: *Model, text: []const u8) void {
+        writeFixed(&model.window_status_storage, &model.window_status_len, std.mem.trim(u8, text, " \t\r\n"));
+    }
+
+    pub fn clearWindowStatus(model: *Model) void {
+        model.window_status_len = 0;
+    }
+
     pub fn startImageAttach(model: *Model) void {
         model.image_attach_active = true;
         model.image_path_buffer.set(model.draftImagePath());
@@ -2914,6 +2956,7 @@ const palette_action_specs = [_]PaletteActionSpec{
     .{ .action = .find_in_transcript, .label = "Find in transcript", .keywords = &.{ "find", "search", "transcript" }, .suggested = false },
     .{ .action = .settings, .label = "Settings", .keywords = &.{ "settings", "preferences" }, .suggested = false },
     .{ .action = .minimize, .label = "Minimize", .keywords = &.{ "minimize", "window" }, .suggested = false },
+    .{ .action = .maximize, .label = "Maximize", .keywords = &.{ "maximize", "window", "zoom" }, .suggested = false },
 };
 
 pub fn paletteActionId(action: PaletteAction) u32 {
@@ -3525,6 +3568,7 @@ fn runPaletteAction(model: *Model, fx: *Effects, action: PaletteAction) void {
         .find_in_transcript => update(model, .open_find, fx),
         .settings => update(model, .toggle_settings, fx),
         .minimize => update(model, .minimize_window, fx),
+        .maximize => update(model, .maximize_window, fx),
     }
 }
 
@@ -3750,6 +3794,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         // a live turn keep it.
         .close_window => fx.closeWindow(main_window_label),
         .minimize_window => fx.minimizeWindow(main_window_label),
+        .maximize_window => startMaximizeWindow(model, fx),
         .quit_app => fx.quitApp(),
         .remove_session => |id| {
             if (model.editing_session_id == id) model.closeSessionTitleEdit();
@@ -4992,6 +5037,10 @@ fn persistDaemonRuntimeId(model: *Model, fx: *Effects, parsed: protocol.ParsedSe
 }
 
 fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (exit.key == maximize_window_key) {
+        handleMaximizeWindowExit(model, fx, exit);
+        return;
+    }
     if (exit.key == pick_image_key) {
         handlePickImageExit(model, fx, exit);
         return;
@@ -5125,6 +5174,49 @@ fn applyFileDrop(model: *Model, fx: *Effects, path: []const u8) void {
     refreshAttachPreview(model, fx);
 }
 
+fn startMaximizeWindow(model: *Model, fx: *Effects) void {
+    if (model.maximize_window_live) return;
+    const argv = maximize_window.hostArgv(.first) orelse {
+        model.setWindowStatus(maximize_window.hostMissingStatus());
+        return;
+    };
+    model.maximize_window_live = true;
+    model.maximize_window_tried_fallback = false;
+    model.clearWindowStatus();
+    fx.spawn(.{
+        .key = maximize_window_key,
+        .argv = argv,
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+}
+
+fn isMissingMaximizeExit(exit: native_sdk.EffectExit) bool {
+    if (exit.reason != .exited) return true;
+    return exit.code == 127 or exit.code == maximize_window.missing_exit;
+}
+
+fn handleMaximizeWindowExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (isMissingMaximizeExit(exit)) {
+        if (!model.maximize_window_tried_fallback) {
+            if (maximize_window.hostArgv(.fallback)) |argv| {
+                model.maximize_window_tried_fallback = true;
+                fx.spawn(.{
+                    .key = maximize_window_key,
+                    .argv = argv,
+                    .on_exit = Effects.exitMsg(.fx_exit),
+                });
+                return;
+            }
+        }
+        model.maximize_window_live = false;
+        if (!model.has_window_status()) {
+            model.setWindowStatus(maximize_window.hostMissingStatus());
+        }
+        return;
+    }
+    model.maximize_window_live = false;
+}
+
 fn startPickImage(model: *Model, fx: *Effects) void {
     if (model.pick_image_live) return;
     const argv = pick_image.hostArgv(.first) orelse {
@@ -5212,6 +5304,9 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
         return .focus_composer;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "m")) {
+        // Cmd/Ctrl-M stays Minimize. Shift-M is Maximize so the
+        // chromeless zoom sidecar does not steal minimize.
+        if (keyboard.modifiers.shift) return .maximize_window;
         return .minimize_window;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "w")) {
@@ -5341,5 +5436,6 @@ test {
     _ = @import("daemon_proxy.zig");
     _ = @import("acp_proxy.zig");
     _ = @import("pick_image.zig");
+    _ = @import("maximize_window.zig");
     _ = @import("rewind.zig");
 }
