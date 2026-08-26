@@ -280,6 +280,8 @@ fx's documented effort values (auto / none / minimal / low / medium /
 high / xhigh / max), persists on the session / `last_reasoning_effort`,
 and rides daemon `StartOptions.reasoningEffort`. One-shot `fx acp` does
 not get an invented env/flag.
+Composer chip, access, effort, slash-prefix, and attach helpers live
+in `src/composer.zig`.
 The composer project row edits the selected session cwd and persists
 it as `last_project_path`. The under-composer usage control is Native
 `progress` (0–1): it fills from an ACP `session/update` `usage_update`
