@@ -3302,6 +3302,20 @@ fn findSteerOnlySpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     return null;
 }
 
+fn isGoalOnlyStdin(stdin: []const u8) bool {
+    return std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"goal\"") != null and
+        std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null and
+        std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null;
+}
+
+fn findGoalOnlySpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (isGoalOnlyStdin(spawn.stdin)) return spawn;
+    }
+    return null;
+}
+
 fn findSaveOnlySpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
@@ -3785,6 +3799,166 @@ test "attach supportsSteer false or unknown queues instead of steering" {
     main.update(&model, .steer, &fx);
     try testing.expectEqual(@as(u32, 2), model.queuedCount(id));
     try testing.expect(findSteerOnlySpawn(&fx) == null);
+}
+
+test "goal set updates the session and records hello plus goal on a sidecar" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-goal-set", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setDaemonToken("secret");
+    model.setSidecarPath("faku");
+    const id = model.addSession("goal set", .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .user, "started");
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "Ship the feature" } }, &fx);
+    main.update(&model, .goal_set, &fx);
+    try testing.expectEqualStrings("Ship the feature", model.sessionById(id).?.threadGoalObjective());
+    try testing.expectEqualStrings("active", model.sessionById(id).?.threadGoalStatus());
+    try testing.expectEqualStrings("", model.draft());
+
+    const spawn = findGoalOnlySpawn(&fx) orelse return error.GoalSpawnMissing;
+    try testing.expect(argvHas(spawn.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(spawn.argv, "127.0.0.1:8787"));
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"token\":\"secret\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"command\":{\"type\":\"goal\",\"operation\":{\"kind\":\"set\",\"objective\":\"Ship the feature\",\"status\":\"active\",\"replace\":false}}") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"prompt\"") == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"steer\"") == null);
+    try testing.expect(spawn.key != model.daemon_spawn_key);
+}
+
+test "goal clear and refresh emit the matching operations; last_daemon_address is enough" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("goal last addr", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setThreadGoal("old objective", "paused");
+    try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
+    try testing.expect(model.show_goal());
+
+    main.update(&model, .goal_refresh, &fx);
+    const refresh = findGoalOnlySpawn(&fx) orelse return error.GoalRefreshMissing;
+    try testing.expect(argvHas(refresh.argv, "10.0.0.2:9"));
+    try testing.expect(std.mem.indexOf(u8, refresh.stdin, "\"kind\":\"refresh\"") != null);
+    try testing.expectEqualStrings("old objective", model.sessionById(id).?.threadGoalObjective());
+
+    main.update(&model, .goal_clear, &fx);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.threadGoalObjective().len);
+    var found_clear = false;
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (std.mem.indexOf(u8, spawn.stdin, "\"kind\":\"clear\"") != null) found_clear = true;
+    }
+    try testing.expect(found_clear);
+}
+
+test "goalUpdated sidecar line stores objective and status; null clears" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-goal-event", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("goal event", .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .user, "started");
+    if (model.sessionById(id)) |session| session.setThreadGoal("keep me", "active");
+
+    main.update(&model, .goal_refresh, &fx);
+    const spawn = findGoalOnlySpawn(&fx) orelse return error.GoalSpawnMissing;
+    const key = spawn.key;
+
+    try fx.feedLine(key, "{\"type\":\"event\",\"sessionId\":\"00000000-0000-0000-0000-000000000001\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":{\"objective\":\"From daemon\",\"status\":\"usageLimited\"}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("From daemon", model.sessionById(id).?.threadGoalObjective());
+    try testing.expectEqualStrings("usageLimited", model.sessionById(id).?.threadGoalStatus());
+
+    try fx.feedLine(key, "{\"type\":\"event\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":null}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.threadGoalObjective().len);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.threadGoalStatus().len);
+}
+
+test "no daemon address leaves the fx path alone and does not fake Goal" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    model.setSidecarPath("faku");
+    try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
+    try testing.expect(!model.show_goal());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "keep fx ask" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.is_streaming());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "would be a goal" } }, &fx);
+    main.update(&model, .goal_set, &fx);
+    try testing.expectEqualStrings("would be a goal", model.draft());
+    try testing.expectEqual(@as(usize, 0), model.sessionById(model.selected).?.threadGoalObjective().len);
+    try testing.expect(findGoalOnlySpawn(&fx) == null);
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"goal\"") == null);
+    }
+}
+
+test "goal composer row is hidden without a daemon and shows Set/Clear when one is set" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    const id = model.addSession("goal chrome", .fx);
+    model.selected = id;
+    var tree = try buildTree(arena, &model);
+    try testing.expect(!model.show_goal());
+    try testing.expect(findByText(tree.root, .button, "Set goal") == null);
+    try testing.expect(findByText(tree.root, .button, "Clear goal") == null);
+    try testing.expect(findByText(tree.root, .button, "Refresh goal") == null);
+
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    if (model.sessionById(id)) |session| session.setThreadGoal("Ship the feature", "active");
+    tree = try buildTree(arena, &model);
+    try testing.expect(model.show_goal());
+    _ = try expectButtonMsg(tree, "Set goal", .goal_set);
+    _ = try expectButtonMsg(tree, "Clear goal", .goal_clear);
+    _ = try expectButtonMsg(tree, "Refresh goal", .goal_refresh);
+    _ = try expectByText(tree.root, .text, "Ship the feature");
 }
 
 test "steer sidecar failure leaves the draft queued path untouched and the turn live" {

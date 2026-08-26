@@ -8,7 +8,7 @@
 //! One JSON document `sessions.json`. Catalog load copies only session
 //! skeletons (id, title, provider, untitled, has_started, project_path,
 //! fx_session_id, runtime_id, model, access_mode, interaction_mode, reasoning_effort, folder_id, updated_at, rewind_refs,
-//! context_used, context_size, available_commands) — no transcripts. Selecting
+//! context_used, context_size, available_commands, thread_goal_objective, thread_goal_status) — no transcripts. Selecting
 //! a session hydrates its turns,
 //! `queued_messages`, `rewind_refs`, and last-known context usage. Document extras also keep
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
@@ -792,6 +792,8 @@ const StoredSession = struct {
     context_used: u64 = 0,
     context_size: u64 = 0,
     available_commands: []StoredCommand = &.{},
+    thread_goal_objective: []const u8 = "",
+    thread_goal_status: []const u8 = "",
 };
 
 const StoredCommand = struct {
@@ -902,6 +904,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
         applyRewindRefs(model, stored.id, stored.rewind_refs);
         applyContextUsage(model, stored.id, stored.context_used, stored.context_size);
         applyAvailableCommands(model, stored.id, stored.available_commands);
+        applyThreadGoal(model, stored.id, stored.thread_goal_objective, stored.thread_goal_status);
     }
     if (model.sessionById(document.selected) != null) {
         model.selected = document.selected;
@@ -926,6 +929,7 @@ fn applyDetail(model: *Model, allocator: std.mem.Allocator, bytes: []const u8, s
     applyRewindRefs(model, session_id, stored.rewind_refs);
     applyContextUsage(model, session_id, stored.context_used, stored.context_size);
     applyAvailableCommands(model, session_id, stored.available_commands);
+    applyThreadGoal(model, session_id, stored.thread_goal_objective, stored.thread_goal_status);
 }
 
 fn findStored(document: Document, id: u32) ?*StoredSession {
@@ -956,6 +960,8 @@ fn upsertSession(document: *Document, arena: std.mem.Allocator, model: *const Mo
         existing.context_used = incoming.context_used;
         existing.context_size = incoming.context_size;
         existing.available_commands = incoming.available_commands;
+        existing.thread_goal_objective = incoming.thread_goal_objective;
+        existing.thread_goal_status = incoming.thread_goal_status;
         if (live.detail_loaded) {
             existing.turns = incoming.turns;
             existing.queued_messages = incoming.queued_messages;
@@ -1016,6 +1022,8 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
         .context_used = session.context_used,
         .context_size = session.context_size,
         .available_commands = try snapshotAvailableCommands(arena, session),
+        .thread_goal_objective = try arena.dupe(u8, session.threadGoalObjective()),
+        .thread_goal_status = try arena.dupe(u8, session.threadGoalStatus()),
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
         .rewind_refs = try snapshotRewindRefs(arena, session),
@@ -1066,6 +1074,11 @@ fn applyAvailableCommands(model: *Model, session_id: u32, commands: []const Stor
     for (commands) |item| {
         session.appendAvailableCommand(item.name, item.description);
     }
+}
+
+fn applyThreadGoal(model: *Model, session_id: u32, objective: []const u8, status: []const u8) void {
+    const session = model.sessionById(session_id) orelse return;
+    session.setThreadGoal(objective, status);
 }
 
 fn readDocument(arena: std.mem.Allocator, io: std.Io, dir: []const u8) !Document {
@@ -1171,6 +1184,8 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         .context_used = jsonU64(obj.get("context_used")) orelse 0,
         .context_size = jsonU64(obj.get("context_size")) orelse 0,
         .available_commands = try parseAvailableCommands(arena, obj.get("available_commands")),
+        .thread_goal_objective = jsonString(obj.get("thread_goal_objective")) orelse "",
+        .thread_goal_status = jsonString(obj.get("thread_goal_status")) orelse "",
     };
 }
 
@@ -1457,7 +1472,11 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
         try appendJsonString(out, allocator, item.description);
         try out.append(allocator, '}');
     }
-    try out.appendSlice(allocator, "],\"turns\":[");
+    try out.appendSlice(allocator, "],\"thread_goal_objective\":");
+    try appendJsonString(out, allocator, session.thread_goal_objective);
+    try out.appendSlice(allocator, ",\"thread_goal_status\":");
+    try appendJsonString(out, allocator, session.thread_goal_status);
+    try out.appendSlice(allocator, ",\"turns\":[");
     for (session.turns, 0..) |turn, i| {
         if (i != 0) try out.append(allocator, ',');
         try out.appendSlice(allocator, "{\"id\":");
@@ -1751,6 +1770,44 @@ test "session available_commands persist, replace, and hydrate; empty clears" {
     cleared.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&cleared, allocator, io));
     try testing.expectEqual(@as(usize, 0), cleared.session_store[0].availableCommands().len);
+}
+
+test "session thread goal persists, hydrates, and clears" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("goal thread", .fx);
+    if (source.sessionById(id)) |session| session.setThreadGoal("Ship the feature", "active");
+    _ = source.appendTurn(id, .user, "remember goal");
+    try saveSession(&source, id, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqualStrings("Ship the feature", loaded.session_store[0].threadGoalObjective());
+    try testing.expectEqualStrings("active", loaded.session_store[0].threadGoalStatus());
+
+    hydrateSession(&loaded, loaded.session_store[0].id, allocator, io);
+    try testing.expectEqualStrings("Ship the feature", loaded.session_store[0].threadGoalObjective());
+    try testing.expectEqualStrings("active", loaded.session_store[0].threadGoalStatus());
+
+    if (loaded.sessionById(loaded.session_store[0].id)) |session| session.clearThreadGoal();
+    try saveSession(&loaded, loaded.session_store[0].id, allocator, io);
+
+    var cleared = Model{};
+    cleared.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&cleared, allocator, io));
+    try testing.expectEqual(@as(usize, 0), cleared.session_store[0].threadGoalObjective().len);
+    try testing.expectEqual(@as(usize, 0), cleared.session_store[0].threadGoalStatus().len);
 }
 
 test "session fx_session_id persists and loads" {

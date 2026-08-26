@@ -87,6 +87,10 @@ pub const max_fx_model = 128;
 pub const max_access_mode = 32;
 pub const max_interaction_mode = 16;
 pub const max_reasoning_effort = 16;
+/// Codex `ThreadGoal.objective`. Same cap as the composer draft.
+pub const max_thread_goal_objective = max_draft;
+/// Codex `ThreadGoalStatus` wire name (`budgetLimited` is 13).
+pub const max_thread_goal_status = 16;
 pub const max_available_commands = acp.max_available_commands;
 pub const max_model_options = acp.max_model_options;
 pub const max_command_name = 64;
@@ -288,6 +292,12 @@ pub const Session = struct {
     /// Runtime-only; empty array is a real clear.
     model_options: [max_model_options]ModelOption = [_]ModelOption{.{}} ** max_model_options,
     model_option_count: usize = 0,
+    /// Last-known Codex thread goal. Daemon `goalUpdated` / local set/clear.
+    /// Empty objective means no goal. Not invented on fx/demo.
+    thread_goal_objective_storage: [max_thread_goal_objective]u8 = [_]u8{0} ** max_thread_goal_objective,
+    thread_goal_objective_len: usize = 0,
+    thread_goal_status_storage: [max_thread_goal_status]u8 = [_]u8{0} ** max_thread_goal_status,
+    thread_goal_status_len: usize = 0,
 
     pub fn title(self: *const Session) []const u8 {
         return self.title_storage[0..self.title_len];
@@ -422,6 +432,32 @@ pub const Session = struct {
         writeFixed(&stored.label_storage, &stored.label_len, resolved);
         self.model_options[self.model_option_count] = stored;
         self.model_option_count += 1;
+    }
+
+    pub fn threadGoalObjective(self: *const Session) []const u8 {
+        return self.thread_goal_objective_storage[0..self.thread_goal_objective_len];
+    }
+
+    pub fn threadGoalStatus(self: *const Session) []const u8 {
+        return self.thread_goal_status_storage[0..self.thread_goal_status_len];
+    }
+
+    pub fn setThreadGoalObjective(self: *Session, value: []const u8) void {
+        writeFixed(&self.thread_goal_objective_storage, &self.thread_goal_objective_len, value);
+    }
+
+    pub fn setThreadGoalStatus(self: *Session, value: []const u8) void {
+        writeFixed(&self.thread_goal_status_storage, &self.thread_goal_status_len, value);
+    }
+
+    pub fn setThreadGoal(self: *Session, objective: []const u8, status: []const u8) void {
+        self.setThreadGoalObjective(objective);
+        self.setThreadGoalStatus(status);
+    }
+
+    pub fn clearThreadGoal(self: *Session) void {
+        self.thread_goal_objective_len = 0;
+        self.thread_goal_status_len = 0;
     }
 
     pub fn replaceModelOptions(self: *Session, options: []const acp.ParsedModelOption) void {
@@ -773,6 +809,11 @@ pub const Msg = union(enum) {
     draft_edit: canvas.TextInputEvent,
     send,
     steer,
+    /// Composer / header Codex `/goal` set. Reuses the draft as objective.
+    /// No-op without a daemon address (does not fake Goal on fx/demo).
+    goal_set,
+    goal_clear,
+    goal_refresh,
     stop,
     /// Composer circle while a turn is streaming. Cancels without the
     /// Esc overlay cascade (find open still stops the turn).
@@ -1034,6 +1075,7 @@ pub const Model = struct {
         "history_index",
         "can_go_back",
         "can_go_forward",
+        "has_goal",
         "pushSelectionHistory",
         "dropSelectionHistory",
         "next_id",
@@ -2054,6 +2096,24 @@ pub const Model = struct {
     pub fn can_fork(model: *const Model) bool {
         if (model.sessionByIdConst(model.selected) == null) return false;
         return model.turnCount(model.selected) > 0;
+    }
+
+    /// Composer `/goal` row. Live `WAKU_DAEMON_ADDRESS` or persisted
+    /// `last_daemon_address`. Hidden on fx ask / fx acp / demo.
+    pub fn show_goal(model: *const Model) bool {
+        return store.resolveDaemonMirrorAddress(model).len > 0;
+    }
+
+    pub fn has_goal(model: *const Model) bool {
+        const session = model.sessionByIdConst(model.selected) orelse return false;
+        return session.threadGoalObjective().len > 0;
+    }
+
+    /// Current objective, or a muted empty label. Markup ellipsizes.
+    pub fn goal_label(model: *const Model) []const u8 {
+        const session = model.sessionByIdConst(model.selected) orelse return "No goal";
+        if (session.threadGoalObjective().len == 0) return "No goal";
+        return session.threadGoalObjective();
     }
 
     pub fn project_edit(model: *const Model) []const u8 {
@@ -3721,6 +3781,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .send => handleSend(model, fx),
         .stop_turn => stopStream(model, fx),
         .steer => handleSteer(model, fx),
+        .goal_set => handleGoalSet(model, fx),
+        .goal_clear => handleGoalClear(model, fx),
+        .goal_refresh => handleGoalRefresh(model, fx),
         .switcher_forward => cycleSwitcher(model, false),
         .switcher_backward => cycleSwitcher(model, true),
         .switcher_confirm => confirmSwitcher(model, fx),
@@ -4024,6 +4087,72 @@ fn handleSteer(model: *Model, fx: *Effects) void {
         return;
     }
     handleSend(model, fx);
+}
+
+fn handleGoalSet(model: *Model, fx: *Effects) void {
+    if (store.resolveDaemonMirrorAddress(model).len == 0) return;
+    const text = std.mem.trim(u8, model.draft(), " \t\r\n");
+    if (text.len == 0) return;
+    const session = model.sessionById(model.selected) orelse return;
+    session.setThreadGoal(text, protocol.ThreadGoalStatus.active.wireName());
+    store.persistIfPossible(model, session.id, fx);
+    _ = maybeSendGoal(model, fx, session.id, .{
+        .set = .{
+            .objective = session.threadGoalObjective(),
+            .status = session.threadGoalStatus(),
+            .replace = false,
+        },
+    });
+    var key_buf: [store.max_draft_key]u8 = undefined;
+    const draft_key = store.draftKey(session, &key_buf);
+    model.draft_buffer.clear();
+    if (draft_key) |key| store.discardDraftIfPossible(model, key);
+}
+
+fn handleGoalClear(model: *Model, fx: *Effects) void {
+    if (store.resolveDaemonMirrorAddress(model).len == 0) return;
+    const session = model.sessionById(model.selected) orelse return;
+    session.clearThreadGoal();
+    store.persistIfPossible(model, session.id, fx);
+    _ = maybeSendGoal(model, fx, session.id, .clear);
+}
+
+fn handleGoalRefresh(model: *Model, fx: *Effects) void {
+    _ = maybeSendGoal(model, fx, model.selected, .refresh);
+}
+
+/// Best-effort one-shot hello + `goal`. Live `WAKU_DAEMON_ADDRESS` or
+/// persisted `last_daemon_address`. Missing address is a no-op — fx ask /
+/// fx acp / demo do not fake Goal. Own spawn key.
+fn maybeSendGoal(model: *Model, fx: *Effects, session_id: u32, operation: protocol.GoalOperation) bool {
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    const session = model.sessionById(session_id) orelse return false;
+    var id_buf: [36]u8 = undefined;
+    const wire_id = daemon_proxy.wireUuid(session.id, &id_buf);
+    const runtime_id = if (protocol.isUsableRuntimeId(session.runtimeId()))
+        session.runtimeId()
+    else
+        protocol.NIL_UUID;
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeGoalStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .session_id = wire_id,
+        .runtime_id = runtime_id,
+        .operation = operation,
+    }) catch return false;
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
 }
 
 fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) void {
@@ -4604,6 +4733,7 @@ fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
         applyPickImageLine(model, fx, line);
         return;
     }
+    applyDaemonGoalLine(model, fx, line.line);
     if (model.daemon_load_key != 0 and line.key == model.daemon_load_key) {
         store.applyDaemonCatalogLine(model, line.line);
         store.maybeHydrateDaemonSession(model, fx, model.selected);
@@ -4796,6 +4926,35 @@ fn refreshToolTurnText(turn: *Turn) void {
     var text_buf: [max_body]u8 = undefined;
     const text = acp.toolTurnBody(&text_buf, turn.toolTitle(), turn.toolKind(), turn.toolStatus(), turn.toolContent());
     writeFixed(&turn.body_storage, &turn.body_len, text);
+}
+
+/// Apply a `goalUpdated` driver event from any daemon sidecar line.
+/// One-shot may miss the event; last-known local fields stay. Does not
+/// invent token-budget fields. JSON null payload clears.
+fn applyDaemonGoalLine(model: *Model, fx: *Effects, line: []const u8) void {
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseServerFrame(arena_state.allocator(), line);
+    if (parsed.frame != .event) return;
+    if (parsed.event_kind != .goal_updated) return;
+    const session = goalSessionForEvent(model, parsed.session_id) orelse return;
+    if (parsed.goal_cleared) {
+        session.clearThreadGoal();
+    } else {
+        if (parsed.goal_has_objective) session.setThreadGoalObjective(parsed.goal_objective);
+        if (parsed.goal_has_status) session.setThreadGoalStatus(parsed.goal_status);
+    }
+    store.persistIfPossible(model, session.id, fx);
+}
+
+fn goalSessionForEvent(model: *Model, wire_id: []const u8) ?*Session {
+    if (daemon_proxy.localIdFromWire(wire_id)) |local_id| {
+        if (model.sessionById(local_id)) |session| return session;
+    }
+    if (model.streaming_session != 0) {
+        if (model.sessionById(model.streaming_session)) |session| return session;
+    }
+    return model.sessionById(model.selected);
 }
 
 fn handleDaemonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {

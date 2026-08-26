@@ -233,7 +233,7 @@ Path (Native `app_dirs` data directory, app name `faku`):
 Boot: if that file loads, the sidebar is session skeletons only (id, title,
 provider, untitled/has_started, project_path, fx_session_id, runtime_id, model,
 access_mode, interaction_mode, reasoning_effort, folder_id, context_used, context_size,
-available_commands, updated_at) — no demo rows and no transcripts. The document also stores
+available_commands, thread_goal_objective, thread_goal_status, updated_at) — no demo rows and no transcripts. The document also stores
 `last_project_path`, `last_model`, `last_access_mode`,
 `last_interaction_mode`, `last_reasoning_effort`, `last_daemon_address`, `sidebar_collapsed`,
 `sidebar_width`, `folders`, and `collapsed_folder_ids` so a new session can inherit the last workspace and last
@@ -362,6 +362,12 @@ steers a live daemon turn via a one-shot sidecar (hello + `steer`).
 Waku does not steer when attach `supportsSteer` is false or unknown —
 those follow-ups queue, same as Send while busy. fx ask / fx acp / demo
 stay queue-only.
+When `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set,
+composer Set goal / Clear goal / Refresh goal one-shots hello + `goal`
+(set/clear/refresh). Set reuses the composer draft as the objective
+(status `active`). The current objective shows with ellipsis. This is
+not the full Waku goal dialog (no token budget meters, no status
+picker). fx ask / fx acp / demo do not get Goal.
 
 Daemon (sidecar, not embedded): when `WAKU_DAEMON_ADDRESS` is set, Send
 spawns the same binary as `faku daemon-proxy <addr>` with hello +
@@ -391,14 +397,17 @@ only a first-run fill when that local catalog is missing.
 
 This is a sidecar. The Waku daemon is not embedded.
 Daemon sidecar hello is protocol v4 (`protocolVersion: 4`) to match
-current waku-daemon. Codex `/goal` is not shipped. fx-first
+current waku-daemon. Codex `/goal` is a first cut over that sidecar
+(hello + `goal` set/clear/refresh; persist last-known objective/status
+from `goalUpdated` when it arrives in the same spawn). It is not on
+fx ask / fx acp / demo and not the full Waku goal dialog. fx-first
 (`fx acp` / `fx ask` / demo) does not use daemon hello.
 
 Client Hello: { type, protocolVersion, token, clientId, resumeFrom }.
 Request: { type, requestId, sessionId, runtimeId, command }. Nil UUID
 requestId = notify. Timeout 120s. First-cut commands: loadTaskState,
 hydrateSession, saveTaskState, attachSession, start, prompt, steer, cancel,
-closeSession. Start defaults to provider/binary "fx".
+goal, closeSession. Start defaults to provider/binary "fx".
 
 ## License
 
