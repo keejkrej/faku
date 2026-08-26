@@ -8,6 +8,7 @@ const acp_proxy = @import("acp_proxy.zig");
 const rewind = @import("rewind.zig");
 const pick_image = @import("pick_image.zig");
 const maximize_window = @import("maximize_window.zig");
+const keys = @import("keys.zig");
 const acp = @import("acp.zig");
 
 const canvas = native_sdk.canvas;
@@ -2039,8 +2040,8 @@ test "composer Commands lists stored names; empty hides; pick inserts /name and 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
     main.update(&model, .toggle_commands, &fx);
     try testing.expect(model.commands_open);
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expect(!model.commands_open);
     try testing.expectEqualStrings("/web ", model.draft());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -2493,8 +2494,8 @@ test "composer attach pastes image_path, persists, and clears" {
     _ = try expectButton(tree.root, "Clear image");
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expect(!model.image_attach_active);
     try testing.expectEqualStrings(image, model.draftImagePath());
 
@@ -5254,7 +5255,7 @@ test "cmd-n and ctrl-n create a session via onKey" {
     try testing.expectEqual(@as(u32, 2), model.session_count);
 
     const plain_n = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "n" };
-    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_n));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_n));
     try testing.expectEqual(@as(u32, 2), model.session_count);
     try testing.expectEqualStrings("n", model.draft());
 
@@ -5267,8 +5268,8 @@ test "cmd-n and ctrl-n create a session via onKey" {
         .key = "n",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.new_session, main.onKey(cmd_n).?);
-    main.update(&model, main.onKey(cmd_n).?, &fx);
+    try testing.expectEqual(Msg.new_session, keys.onKey(cmd_n).?);
+    main.update(&model, keys.onKey(cmd_n).?, &fx);
     try testing.expectEqual(@as(u32, 3), model.session_count);
     try testing.expectEqualStrings("untitled", model.selected_title());
     try testing.expectEqualStrings("New task", model.header_title());
@@ -5284,30 +5285,30 @@ test "cmd-n and ctrl-n create a session via onKey" {
         .key = "N",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.new_session, main.onKey(ctrl_n).?);
-    main.update(&model, main.onKey(ctrl_n).?, &fx);
+    try testing.expectEqual(Msg.new_session, keys.onKey(ctrl_n).?);
+    main.update(&model, keys.onKey(ctrl_n).?, &fx);
     try testing.expectEqual(@as(u32, 4), model.session_count);
     try testing.expectEqualStrings("fx", model.selected_provider());
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
 
     const plain_enter = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "enter" };
-    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_enter));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_enter));
 
     const cmd_enter = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
         .key = "enter",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.steer, main.onKey(cmd_enter).?);
+    try testing.expectEqual(Msg.steer, keys.onKey(cmd_enter).?);
 
     const ctrl_enter = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
         .key = "Enter",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.steer, main.onKey(ctrl_enter).?);
+    try testing.expectEqual(Msg.steer, keys.onKey(ctrl_enter).?);
 }
 
 test "new task and cmd-n focus the composer via the same autofocus edge" {
@@ -5363,8 +5364,8 @@ test "new task and cmd-n focus the composer via the same autofocus edge" {
         .key = "n",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.new_session, main.onKey(cmd_n).?);
-    main.update(&model, main.onKey(cmd_n).?, &fx);
+    try testing.expectEqual(Msg.new_session, keys.onKey(cmd_n).?);
+    main.update(&model, keys.onKey(cmd_n).?, &fx);
     try testing.expectEqual(@as(u32, 4), model.session_count);
     try testing.expect(model.sessionById(model.selected).?.untitled);
     try testing.expect(model.composer_active);
@@ -5381,7 +5382,7 @@ test "new task and cmd-n focus the composer via the same autofocus edge" {
         .key = "l",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.focus_composer, main.onKey(cmd_l).?);
+    try testing.expectEqual(Msg.focus_composer, keys.onKey(cmd_l).?);
 }
 
 test "selecting a session focuses the composer; rename and search do not" {
@@ -5523,12 +5524,12 @@ test "cmd-[ / cmd-] and ctrl-[ / ctrl-] walk session history via onKey" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "[" } }, &fx);
     try testing.expectEqualStrings("[", model.draft());
     const plain_back = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "[" };
-    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_back));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_back));
     try testing.expectEqualStrings("fix auth listener", model.selected_title());
     try testing.expectEqualStrings("[", model.draft());
 
     const plain_forward = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "]" };
-    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_forward));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_forward));
     try testing.expectEqualStrings("fix auth listener", model.selected_title());
 
     const cmd_back = canvas.WidgetKeyboardEvent{
@@ -5536,13 +5537,13 @@ test "cmd-[ / cmd-] and ctrl-[ / ctrl-] walk session history via onKey" {
         .key = "[",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.history_back, main.onKey(cmd_back).?);
-    main.update(&model, main.onKey(cmd_back).?, &fx);
+    try testing.expectEqual(Msg.history_back, keys.onKey(cmd_back).?);
+    main.update(&model, keys.onKey(cmd_back).?, &fx);
     try testing.expectEqualStrings("port waku to zig", model.selected_title());
     try testing.expect(!model.can_go_back());
     try testing.expect(model.can_go_forward());
 
-    main.update(&model, main.onKey(cmd_back).?, &fx);
+    main.update(&model, keys.onKey(cmd_back).?, &fx);
     try testing.expectEqualStrings("port waku to zig", model.selected_title());
     try testing.expect(!model.can_go_back());
 
@@ -5551,13 +5552,13 @@ test "cmd-[ / cmd-] and ctrl-[ / ctrl-] walk session history via onKey" {
         .key = "]",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.history_forward, main.onKey(cmd_forward).?);
-    main.update(&model, main.onKey(cmd_forward).?, &fx);
+    try testing.expectEqual(Msg.history_forward, keys.onKey(cmd_forward).?);
+    main.update(&model, keys.onKey(cmd_forward).?, &fx);
     try testing.expectEqualStrings("fix auth listener", model.selected_title());
     try testing.expect(model.can_go_back());
     try testing.expect(!model.can_go_forward());
 
-    main.update(&model, main.onKey(cmd_forward).?, &fx);
+    main.update(&model, keys.onKey(cmd_forward).?, &fx);
     try testing.expectEqualStrings("fix auth listener", model.selected_title());
     try testing.expect(!model.can_go_forward());
 
@@ -5566,8 +5567,8 @@ test "cmd-[ / cmd-] and ctrl-[ / ctrl-] walk session history via onKey" {
         .key = "[",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.history_back, main.onKey(ctrl_back).?);
-    main.update(&model, main.onKey(ctrl_back).?, &fx);
+    try testing.expectEqual(Msg.history_back, keys.onKey(ctrl_back).?);
+    main.update(&model, keys.onKey(ctrl_back).?, &fx);
     try testing.expectEqualStrings("port waku to zig", model.selected_title());
 
     const ctrl_forward = canvas.WidgetKeyboardEvent{
@@ -5575,12 +5576,12 @@ test "cmd-[ / cmd-] and ctrl-[ / ctrl-] walk session history via onKey" {
         .key = "]",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.history_forward, main.onKey(ctrl_forward).?);
-    main.update(&model, main.onKey(ctrl_forward).?, &fx);
+    try testing.expectEqual(Msg.history_forward, keys.onKey(ctrl_forward).?);
+    main.update(&model, keys.onKey(ctrl_forward).?, &fx);
     try testing.expectEqualStrings("fix auth listener", model.selected_title());
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
 }
 
 test "plain tab and super-tab stay unbound; ctrl-tab opens the session switcher" {
@@ -5599,29 +5600,29 @@ test "plain tab and super-tab stay unbound; ctrl-tab opens the session switcher"
     try testing.expect(!model.switcher_open);
 
     const plain_tab = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "tab" };
-    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_tab));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_tab));
 
     const super_tab = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
         .key = "tab",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(@as(?Msg, null), main.onKey(super_tab));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(super_tab));
 
     const ctrl_super_tab = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
         .key = "tab",
         .modifiers = .{ .control = true, .super = true },
     };
-    try testing.expectEqual(@as(?Msg, null), main.onKey(ctrl_super_tab));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(ctrl_super_tab));
 
     const ctrl_tab = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
         .key = "tab",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.switcher_forward, main.onKey(ctrl_tab).?);
-    main.update(&model, main.onKey(ctrl_tab).?, &fx);
+    try testing.expectEqual(Msg.switcher_forward, keys.onKey(ctrl_tab).?);
+    main.update(&model, keys.onKey(ctrl_tab).?, &fx);
     try testing.expect(model.switcher_open);
     try testing.expectEqual(@as(u32, 2), model.switcher_count);
     try testing.expectEqual(port, model.switcher_ids[0]);
@@ -5636,7 +5637,7 @@ test "plain tab and super-tab stay unbound; ctrl-tab opens the session switcher"
     try testing.expectEqual(Msg{ .switcher_pick = auth }, tree.msgForPointer(auth_row.id, .up).?);
     _ = try expectByText(dialog, .button, "Switch");
 
-    main.update(&model, main.onKey(ctrl_tab).?, &fx);
+    main.update(&model, keys.onKey(ctrl_tab).?, &fx);
     try testing.expect(model.switcher_open);
     try testing.expectEqual(@as(u32, 0), model.switcher_highlight);
     try testing.expectEqual(port, model.selected);
@@ -5652,15 +5653,15 @@ test "plain tab and super-tab stay unbound; ctrl-tab opens the session switcher"
         .key = "Tab",
         .modifiers = .{ .control = true, .shift = true },
     };
-    try testing.expectEqual(Msg.switcher_backward, main.onKey(ctrl_shift_tab).?);
-    main.update(&model, main.onKey(ctrl_shift_tab).?, &fx);
+    try testing.expectEqual(Msg.switcher_backward, keys.onKey(ctrl_shift_tab).?);
+    main.update(&model, keys.onKey(ctrl_shift_tab).?, &fx);
     try testing.expect(model.switcher_open);
     try testing.expectEqual(@as(u32, 3), model.switcher_count);
     try testing.expectEqual(third, model.switcher_ids[2]);
     try testing.expectEqual(@as(u32, 2), model.switcher_highlight);
     try testing.expectEqual(port, model.selected);
 
-    main.update(&model, main.onKey(ctrl_shift_tab).?, &fx);
+    main.update(&model, keys.onKey(ctrl_shift_tab).?, &fx);
     try testing.expectEqual(@as(u32, 1), model.switcher_highlight);
     try testing.expectEqual(port, model.selected);
 
@@ -5668,17 +5669,17 @@ test "plain tab and super-tab stay unbound; ctrl-tab opens the session switcher"
     try testing.expect(!model.switcher_open);
     try testing.expectEqual(auth, model.selected);
 
-    main.update(&model, main.onKey(ctrl_tab).?, &fx);
+    main.update(&model, keys.onKey(ctrl_tab).?, &fx);
     try testing.expect(model.switcher_open);
     try testing.expectEqual(auth, model.selected);
     const before = model.selected;
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expect(!model.switcher_open);
     try testing.expectEqual(before, model.selected);
 
-    main.update(&model, main.onKey(ctrl_tab).?, &fx);
+    main.update(&model, keys.onKey(ctrl_tab).?, &fx);
     try testing.expect(model.switcher_open);
     const highlighted = model.switcher_ids[model.switcher_highlight];
     main.update(&model, .switcher_confirm, &fx);
@@ -5744,7 +5745,7 @@ test "cmd-b and ctrl-b toggle sidebar collapse via onKey" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "b" } }, &fx);
     try testing.expectEqualStrings("b", model.draft());
     const plain_b = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "b" };
-    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_b));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_b));
     try testing.expect(!model.sidebar_collapsed);
     try testing.expectEqualStrings("b", model.draft());
 
@@ -5757,8 +5758,8 @@ test "cmd-b and ctrl-b toggle sidebar collapse via onKey" {
         .key = "b",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.toggle_sidebar, main.onKey(cmd_b).?);
-    main.update(&model, main.onKey(cmd_b).?, &fx);
+    try testing.expectEqual(Msg.toggle_sidebar, keys.onKey(cmd_b).?);
+    main.update(&model, keys.onKey(cmd_b).?, &fx);
     try testing.expect(model.sidebar_collapsed);
     try testing.expect(!model.sidebar_expanded());
     try testing.expectEqual(main.sidebar_rail_width / main.window_width, model.sidebar_split);
@@ -5770,7 +5771,7 @@ test "cmd-b and ctrl-b toggle sidebar collapse via onKey" {
     try testing.expect(findPressableContaining(tree.root, "New Task") == null);
     _ = try expectButton(tree.root, "Expand sidebar");
 
-    main.update(&model, main.onKey(cmd_b).?, &fx);
+    main.update(&model, keys.onKey(cmd_b).?, &fx);
     try testing.expect(!model.sidebar_collapsed);
     try testing.expectEqual(main.sidebar_default_width / main.window_width, model.sidebar_split);
 
@@ -5785,8 +5786,8 @@ test "cmd-b and ctrl-b toggle sidebar collapse via onKey" {
         .key = "B",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.toggle_sidebar, main.onKey(ctrl_b).?);
-    main.update(&model, main.onKey(ctrl_b).?, &fx);
+    try testing.expectEqual(Msg.toggle_sidebar, keys.onKey(ctrl_b).?);
+    main.update(&model, keys.onKey(ctrl_b).?, &fx);
     try testing.expect(model.sidebar_collapsed);
 
     const cmd_n = canvas.WidgetKeyboardEvent{
@@ -5794,13 +5795,13 @@ test "cmd-b and ctrl-b toggle sidebar collapse via onKey" {
         .key = "n",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.new_session, main.onKey(cmd_n).?);
+    try testing.expectEqual(Msg.new_session, keys.onKey(cmd_n).?);
     const cmd_back = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
         .key = "[",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.history_back, main.onKey(cmd_back).?);
+    try testing.expectEqual(Msg.history_back, keys.onKey(cmd_back).?);
 }
 
 test "cmd-b persist extras stay merge-only" {
@@ -5818,13 +5819,13 @@ test "cmd-b persist extras stay merge-only" {
         .key = "b",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.toggle_sidebar, main.onKey(cmd_b).?);
+    try testing.expectEqual(Msg.toggle_sidebar, keys.onKey(cmd_b).?);
 
     var missing = main.initialModel();
     missing.task_state_loaded = true;
     missing.setStoreDir(dir);
     missing.store_io = testing.io;
-    main.update(&missing, main.onKey(cmd_b).?, &fx);
+    main.update(&missing, keys.onKey(cmd_b).?, &fx);
     try testing.expect(missing.sidebar_collapsed);
     var missing_path: [std.fs.max_path_bytes]u8 = undefined;
     try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().readFileAlloc(testing.io, store.catalogPath(dir, &missing_path).?, testing.allocator, .limited(64)));
@@ -5837,7 +5838,7 @@ test "cmd-b persist extras stay merge-only" {
     try store.saveSession(&source, source.session_store[1].id, testing.allocator, testing.io);
     source.sidebar_last_width = 320;
     source.sidebar_split = 320 / main.window_width;
-    main.update(&source, main.onKey(cmd_b).?, &fx);
+    main.update(&source, keys.onKey(cmd_b).?, &fx);
     try testing.expect(source.sidebar_collapsed);
 
     var loaded = Model{};
@@ -5851,7 +5852,7 @@ test "cmd-b persist extras stay merge-only" {
     try testing.expectEqual(@as(u32, 320), loaded.sidebarWidthPixels());
     try testing.expectEqual(main.sidebar_rail_width / main.window_width, loaded.sidebar_split);
 
-    main.update(&loaded, main.onKey(cmd_b).?, &fx);
+    main.update(&loaded, keys.onKey(cmd_b).?, &fx);
     try testing.expect(!loaded.sidebar_collapsed);
 
     var restored = Model{};
@@ -5891,12 +5892,12 @@ test "cmd-c and ctrl-c copy the last non-empty turn via writeClipboard" {
     };
     const plain_c = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "c" };
 
-    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_c));
-    try testing.expectEqual(Msg.copy_last_turn, main.onKey(cmd_c).?);
-    try testing.expectEqual(Msg.copy_last_turn, main.onKey(ctrl_c).?);
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_c));
+    try testing.expectEqual(Msg.copy_last_turn, keys.onKey(cmd_c).?);
+    try testing.expectEqual(Msg.copy_last_turn, keys.onKey(ctrl_c).?);
 
     try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
-    main.update(&model, main.onKey(cmd_c).?, &fx);
+    main.update(&model, keys.onKey(cmd_c).?, &fx);
     try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 
@@ -5912,14 +5913,14 @@ test "cmd-c and ctrl-c copy the last non-empty turn via writeClipboard" {
     _ = try expectButton(tree.root, "Copy");
     try testing.expect(findByText(tree.root, .button, "Rewind") == null);
 
-    main.update(&model, main.onKey(cmd_c).?, &fx);
+    main.update(&model, keys.onKey(cmd_c).?, &fx);
     try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
     const first = fx.pendingClipboardAt(0).?;
     try testing.expectEqual(main.copy_turn_key, first.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, first.op);
     try testing.expectEqualStrings("last non-empty body", first.text);
 
-    main.update(&model, main.onKey(ctrl_c).?, &fx);
+    main.update(&model, keys.onKey(ctrl_c).?, &fx);
     try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
     try testing.expectEqual(main.copy_turn_key, fx.pendingClipboardAt(0).?.key);
     try testing.expectEqualStrings("last non-empty body", fx.pendingClipboardAt(0).?.text);
@@ -5929,19 +5930,19 @@ test "cmd-c and ctrl-c copy the last non-empty turn via writeClipboard" {
         .key = "b",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.toggle_sidebar, main.onKey(cmd_b).?);
+    try testing.expectEqual(Msg.toggle_sidebar, keys.onKey(cmd_b).?);
     const cmd_back = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
         .key = "[",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.history_back, main.onKey(cmd_back).?);
+    try testing.expectEqual(Msg.history_back, keys.onKey(cmd_back).?);
     const cmd_forward = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
         .key = "]",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.history_forward, main.onKey(cmd_forward).?);
+    try testing.expectEqual(Msg.history_forward, keys.onKey(cmd_forward).?);
 }
 
 fn expectLaidOutHeight(root: canvas.Widget, id: canvas.ObjectId, height: f32) !void {
@@ -6237,8 +6238,8 @@ test "palette query also matches provider and Esc closes the palette" {
     try testing.expect(!paletteHasLabel(model.palette_rows(arena), "port waku to zig"));
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expectEqualStrings("", model.search_query());
     try testing.expect(!model.palette_open);
     try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
@@ -6258,15 +6259,15 @@ test "cmd-k and ctrl-k open the command palette via onKey" {
     try testing.expectEqualStrings("", model.search_query());
 
     const plain_k = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "k" };
-    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_k));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_k));
 
     const cmd_k = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
         .key = "k",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.start_search, main.onKey(cmd_k).?);
-    main.update(&model, main.onKey(cmd_k).?, &fx);
+    try testing.expectEqual(Msg.start_search, keys.onKey(cmd_k).?);
+    main.update(&model, keys.onKey(cmd_k).?, &fx);
     try testing.expect(model.palette_open);
     try testing.expectEqualStrings("", model.search_query());
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "New Task"));
@@ -6289,8 +6290,8 @@ test "cmd-k and ctrl-k open the command palette via onKey" {
         .key = "K",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.start_search, main.onKey(ctrl_k).?);
-    main.update(&model, main.onKey(ctrl_k).?, &fx);
+    try testing.expectEqual(Msg.start_search, keys.onKey(ctrl_k).?);
+    main.update(&model, keys.onKey(ctrl_k).?, &fx);
     try testing.expect(model.palette_open);
 
     tree = try buildTree(arena, &model);
@@ -6302,8 +6303,8 @@ test "cmd-k and ctrl-k open the command palette via onKey" {
     try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
     try testing.expect(paletteHasLabel(model.palette_rows(arena), "fix auth listener"));
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expectEqualStrings("", model.search_query());
     try testing.expect(!model.palette_open);
     try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
@@ -6582,8 +6583,8 @@ test "Esc with palette_open does not cancel a busy demo stream" {
     try testing.expect(model.is_streaming());
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expect(!model.palette_open);
     try testing.expect(model.is_streaming());
     try testing.expectEqual(main.Phase.streaming, model.phase);
@@ -6632,7 +6633,7 @@ test "cmd-f and ctrl-f open transcript find via onKey" {
     try testing.expect(findPressableContaining(tree.root, "Close find") == null);
 
     const plain_f = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "f" };
-    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_f));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_f));
     try testing.expect(!model.find_active);
 
     const cmd_f = canvas.WidgetKeyboardEvent{
@@ -6640,8 +6641,8 @@ test "cmd-f and ctrl-f open transcript find via onKey" {
         .key = "f",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.open_find, main.onKey(cmd_f).?);
-    main.update(&model, main.onKey(cmd_f).?, &fx);
+    try testing.expectEqual(Msg.open_find, keys.onKey(cmd_f).?);
+    main.update(&model, keys.onKey(cmd_f).?, &fx);
     try testing.expect(model.find_active);
     try testing.expect(!model.composer_active);
     try testing.expectEqualStrings("", model.find_query());
@@ -6655,7 +6656,7 @@ test "cmd-f and ctrl-f open transcript find via onKey" {
 
     main.update(&model, .{ .find_edit = .{ .insert_text = "keep" } }, &fx);
     try testing.expectEqualStrings("keep", model.find_query());
-    main.update(&model, main.onKey(cmd_f).?, &fx);
+    main.update(&model, keys.onKey(cmd_f).?, &fx);
     try testing.expect(model.find_active);
     try testing.expectEqualStrings("keep", model.find_query());
     try testing.expect(!model.composer_active);
@@ -6669,8 +6670,8 @@ test "cmd-f and ctrl-f open transcript find via onKey" {
         .key = "F",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.open_find, main.onKey(ctrl_f).?);
-    main.update(&model, main.onKey(ctrl_f).?, &fx);
+    try testing.expectEqual(Msg.open_find, keys.onKey(ctrl_f).?);
+    main.update(&model, keys.onKey(ctrl_f).?, &fx);
     try testing.expect(model.find_active);
 
     tree = try buildTree(arena, &model);
@@ -6684,8 +6685,8 @@ test "cmd-f and ctrl-f open transcript find via onKey" {
         .key = "k",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.start_search, main.onKey(cmd_k).?);
-    main.update(&model, main.onKey(cmd_k).?, &fx);
+    try testing.expectEqual(Msg.start_search, keys.onKey(cmd_k).?);
+    main.update(&model, keys.onKey(cmd_k).?, &fx);
     try testing.expect(model.palette_open);
     try testing.expect(model.find_active);
 
@@ -6764,8 +6765,8 @@ test "transcript find filters the selected session's visible turns" {
     try expectTurnTexts(model.visible_turns(arena), &.{});
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expect(!model.find_active);
     try testing.expectEqualStrings("", model.find_query());
     try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "beta world" });
@@ -6833,7 +6834,7 @@ test "cmd-l and ctrl-l focus the composer via onKey" {
     try testing.expect(findByText(tree.root, .image, "Attached image") == null);
 
     const plain_l = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "l" };
-    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_l));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_l));
     try testing.expect(!model.composer_active);
 
     const cmd_l = canvas.WidgetKeyboardEvent{
@@ -6841,8 +6842,8 @@ test "cmd-l and ctrl-l focus the composer via onKey" {
         .key = "l",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.focus_composer, main.onKey(cmd_l).?);
-    main.update(&model, main.onKey(cmd_l).?, &fx);
+    try testing.expectEqual(Msg.focus_composer, keys.onKey(cmd_l).?);
+    main.update(&model, keys.onKey(cmd_l).?, &fx);
     try testing.expect(model.composer_active);
     try testing.expectEqualStrings("", model.draft());
 
@@ -6876,8 +6877,8 @@ test "cmd-l and ctrl-l focus the composer via onKey" {
         .key = "L",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.focus_composer, main.onKey(ctrl_l).?);
-    main.update(&model, main.onKey(ctrl_l).?, &fx);
+    try testing.expectEqual(Msg.focus_composer, keys.onKey(ctrl_l).?);
+    main.update(&model, keys.onKey(ctrl_l).?, &fx);
     try testing.expect(model.composer_active);
     try testing.expect(model.palette_open);
 
@@ -6895,13 +6896,13 @@ test "cmd-l and ctrl-l focus the composer via onKey" {
         .key = "k",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.start_search, main.onKey(cmd_k).?);
+    try testing.expectEqual(Msg.start_search, keys.onKey(cmd_k).?);
     const cmd_c = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
         .key = "c",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.copy_last_turn, main.onKey(cmd_c).?);
+    try testing.expectEqual(Msg.copy_last_turn, keys.onKey(cmd_c).?);
 }
 
 test "cmd-comma and ctrl-comma open settings via onKey" {
@@ -6918,15 +6919,15 @@ test "cmd-comma and ctrl-comma open settings via onKey" {
     try testing.expect(!model.palette_open);
 
     const plain_comma = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "," };
-    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_comma));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_comma));
 
     const cmd_comma = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
         .key = ",",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.toggle_settings, main.onKey(cmd_comma).?);
-    main.update(&model, main.onKey(cmd_comma).?, &fx);
+    try testing.expectEqual(Msg.toggle_settings, keys.onKey(cmd_comma).?);
+    main.update(&model, keys.onKey(cmd_comma).?, &fx);
     try testing.expect(model.settings_open);
 
     var tree = try buildTree(arena, &model);
@@ -6935,7 +6936,7 @@ test "cmd-comma and ctrl-comma open settings via onKey" {
     try testing.expect(findByPlaceholder(tree.root, .text_field, "FX_MODEL") != null);
     try testing.expect(findByText(tree.root, .button, "Send") == null);
 
-    main.update(&model, main.onKey(cmd_comma).?, &fx);
+    main.update(&model, keys.onKey(cmd_comma).?, &fx);
     try testing.expect(!model.settings_open);
 
     const ctrl_comma = canvas.WidgetKeyboardEvent{
@@ -6943,16 +6944,16 @@ test "cmd-comma and ctrl-comma open settings via onKey" {
         .key = ",",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.toggle_settings, main.onKey(ctrl_comma).?);
-    main.update(&model, main.onKey(ctrl_comma).?, &fx);
+    try testing.expectEqual(Msg.toggle_settings, keys.onKey(ctrl_comma).?);
+    main.update(&model, keys.onKey(ctrl_comma).?, &fx);
     try testing.expect(model.settings_open);
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Default model");
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expect(!model.settings_open);
 
     tree = try buildTree(arena, &model);
@@ -6964,8 +6965,8 @@ test "cmd-comma and ctrl-comma open settings via onKey" {
         .key = "k",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.start_search, main.onKey(cmd_k).?);
-    main.update(&model, main.onKey(cmd_k).?, &fx);
+    try testing.expectEqual(Msg.start_search, keys.onKey(cmd_k).?);
+    main.update(&model, keys.onKey(cmd_k).?, &fx);
     try testing.expect(model.palette_open);
     try testing.expect(!model.settings_open);
 
@@ -7236,8 +7237,8 @@ test "settings gear opens the panel; Esc and gear return to the session" {
     try testing.expect(findByText(tree.root, .button, "Send") == null);
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expect(!model.settings_open);
 
     tree = try buildTree(arena, &model);
@@ -7630,7 +7631,7 @@ test "demo model picker shows FX_MODEL fallback; Cmd-/ toggles; plain slash does
     try testing.expect(findByText(tree.root, .button, "anthropic/claude-sonnet-4") == null);
 
     const plain_slash = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "/" };
-    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_slash));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_slash));
     try testing.expect(!model.model_picker_open);
 
     const cmd_slash = canvas.WidgetKeyboardEvent{
@@ -7638,8 +7639,8 @@ test "demo model picker shows FX_MODEL fallback; Cmd-/ toggles; plain slash does
         .key = "/",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.toggle_model_picker, main.onKey(cmd_slash).?);
-    main.update(&model, main.onKey(cmd_slash).?, &fx);
+    try testing.expectEqual(Msg.toggle_model_picker, keys.onKey(cmd_slash).?);
+    main.update(&model, keys.onKey(cmd_slash).?, &fx);
     try testing.expect(model.model_picker_open);
 
     tree = try buildTree(arena, &model);
@@ -7655,8 +7656,8 @@ test "demo model picker shows FX_MODEL fallback; Cmd-/ toggles; plain slash does
         .key = "slash",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.toggle_model_picker, main.onKey(ctrl_slash).?);
-    main.update(&model, main.onKey(ctrl_slash).?, &fx);
+    try testing.expectEqual(Msg.toggle_model_picker, keys.onKey(ctrl_slash).?);
+    main.update(&model, keys.onKey(ctrl_slash).?, &fx);
     try testing.expect(!model.model_picker_open);
 
     main.update(&model, .{ .settings_model_edit = .{ .insert_text = "openai/gpt-5.4" } }, &fx);
@@ -7688,8 +7689,8 @@ test "Esc with model_picker_open does not cancel a busy demo stream" {
     try testing.expect(model.is_streaming());
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expect(!model.model_picker_open);
     try testing.expect(model.is_streaming());
     try testing.expectEqual(main.Phase.streaming, model.phase);
@@ -7726,8 +7727,8 @@ test "Esc and on-dismiss close access or effort picker without canceling a busy 
     main.update(&model, .toggle_effort_picker, &fx);
     try testing.expect(model.effort_picker_open);
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expect(!model.effort_picker_open);
     try testing.expect(!model.access_picker_open);
     try testing.expect(model.is_streaming());
@@ -7967,8 +7968,8 @@ test "Esc with settings effort menu open closes the menu and leaves settings ope
     try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expect(!model.settings_effort_picker_open);
     try testing.expect(model.settings_open);
 
@@ -8822,8 +8823,8 @@ test "second click on a folder title edits it; empty name becomes New folder" {
     try testing.expectEqualStrings("New folder", empty.folder_store[0].title());
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expectEqual(@as(u32, 0), model.editing_folder_id);
 
     tree = try buildTree(arena, &model);
@@ -9402,8 +9403,8 @@ test "click the selected session title edits it; empty name becomes untitled" {
     try testing.expect(!empty.session_store[0].untitled);
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expectEqual(@as(u32, 0), model.editing_session_id);
 
     tree = try buildTree(arena, &model);
@@ -9606,7 +9607,7 @@ test "cmd-m and ctrl-m minimize the window via onKey" {
     try testing.expectEqualStrings("m", model.draft());
 
     const plain_m = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "m" };
-    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_m));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_m));
     try testing.expectEqualStrings("m", model.draft());
 
     var actions = fx.windowActionState();
@@ -9617,8 +9618,8 @@ test "cmd-m and ctrl-m minimize the window via onKey" {
         .key = "m",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.minimize_window, main.onKey(cmd_m).?);
-    main.update(&model, main.onKey(cmd_m).?, &fx);
+    try testing.expectEqual(Msg.minimize_window, keys.onKey(cmd_m).?);
+    main.update(&model, keys.onKey(cmd_m).?, &fx);
     actions = fx.windowActionState();
     try testing.expectEqual(@as(u32, 1), actions.minimize_count);
     try testing.expectEqual(@as(u32, 0), actions.close_count);
@@ -9630,8 +9631,8 @@ test "cmd-m and ctrl-m minimize the window via onKey" {
         .key = "M",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.minimize_window, main.onKey(ctrl_m).?);
-    main.update(&model, main.onKey(ctrl_m).?, &fx);
+    try testing.expectEqual(Msg.minimize_window, keys.onKey(ctrl_m).?);
+    main.update(&model, keys.onKey(ctrl_m).?, &fx);
     actions = fx.windowActionState();
     try testing.expectEqual(@as(u32, 2), actions.minimize_count);
     try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
@@ -9641,22 +9642,22 @@ test "cmd-m and ctrl-m minimize the window via onKey" {
         .key = "n",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.new_session, main.onKey(cmd_n).?);
+    try testing.expectEqual(Msg.new_session, keys.onKey(cmd_n).?);
 
     const cmd_l = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
         .key = "l",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.focus_composer, main.onKey(cmd_l).?);
+    try testing.expectEqual(Msg.focus_composer, keys.onKey(cmd_l).?);
 
     const cmd_shift_m = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
         .key = "m",
         .modifiers = .{ .super = true, .shift = true },
     };
-    try testing.expectEqual(Msg.maximize_window, main.onKey(cmd_shift_m).?);
-    try testing.expect(main.onKey(cmd_shift_m).? != .minimize_window);
+    try testing.expectEqual(Msg.maximize_window, keys.onKey(cmd_shift_m).?);
+    try testing.expect(keys.onKey(cmd_shift_m).? != .minimize_window);
 }
 
 fn findMaximizeSpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
@@ -9724,15 +9725,15 @@ test "cmd-shift-m and ctrl-shift-m maximize via onKey without stealing cmd-m" {
         .key = "m",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.minimize_window, main.onKey(cmd_m).?);
+    try testing.expectEqual(Msg.minimize_window, keys.onKey(cmd_m).?);
 
     const cmd_shift_m = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
         .key = "M",
         .modifiers = .{ .super = true, .shift = true },
     };
-    try testing.expectEqual(Msg.maximize_window, main.onKey(cmd_shift_m).?);
-    main.update(&model, main.onKey(cmd_shift_m).?, &fx);
+    try testing.expectEqual(Msg.maximize_window, keys.onKey(cmd_shift_m).?);
+    main.update(&model, keys.onKey(cmd_shift_m).?, &fx);
     try testing.expectEqualStrings("m", model.draft());
 
     if (maximize_window.hostArgv(.first) == null) {
@@ -9749,7 +9750,7 @@ test "cmd-shift-m and ctrl-shift-m maximize via onKey without stealing cmd-m" {
         .key = "m",
         .modifiers = .{ .control = true, .shift = true },
     };
-    try testing.expectEqual(Msg.maximize_window, main.onKey(ctrl_shift_m).?);
+    try testing.expectEqual(Msg.maximize_window, keys.onKey(ctrl_shift_m).?);
 }
 
 test "maximize_window fake executor records OS sidecar argv" {
@@ -9826,7 +9827,7 @@ test "cmd-w and ctrl-w close the window via onKey" {
     try testing.expectEqualStrings("w", model.draft());
 
     const plain_w = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "w" };
-    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_w));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_w));
     try testing.expectEqualStrings("w", model.draft());
 
     var actions = fx.windowActionState();
@@ -9838,8 +9839,8 @@ test "cmd-w and ctrl-w close the window via onKey" {
         .key = "w",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.close_window, main.onKey(cmd_w).?);
-    main.update(&model, main.onKey(cmd_w).?, &fx);
+    try testing.expectEqual(Msg.close_window, keys.onKey(cmd_w).?);
+    main.update(&model, keys.onKey(cmd_w).?, &fx);
     actions = fx.windowActionState();
     try testing.expectEqual(@as(u32, 1), actions.close_count);
     try testing.expectEqual(@as(u32, 0), actions.quit_count);
@@ -9851,8 +9852,8 @@ test "cmd-w and ctrl-w close the window via onKey" {
         .key = "W",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.close_window, main.onKey(ctrl_w).?);
-    main.update(&model, main.onKey(ctrl_w).?, &fx);
+    try testing.expectEqual(Msg.close_window, keys.onKey(ctrl_w).?);
+    main.update(&model, keys.onKey(ctrl_w).?, &fx);
     actions = fx.windowActionState();
     try testing.expectEqual(@as(u32, 2), actions.close_count);
     try testing.expectEqual(@as(u32, 0), actions.quit_count);
@@ -9871,7 +9872,7 @@ test "cmd-q and ctrl-q quit the app via onKey" {
     try testing.expectEqualStrings("q", model.draft());
 
     const plain_q = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "q" };
-    try testing.expectEqual(@as(?Msg, null), main.onKey(plain_q));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_q));
     try testing.expectEqualStrings("q", model.draft());
 
     var actions = fx.windowActionState();
@@ -9883,8 +9884,8 @@ test "cmd-q and ctrl-q quit the app via onKey" {
         .key = "q",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.quit_app, main.onKey(cmd_q).?);
-    main.update(&model, main.onKey(cmd_q).?, &fx);
+    try testing.expectEqual(Msg.quit_app, keys.onKey(cmd_q).?);
+    main.update(&model, keys.onKey(cmd_q).?, &fx);
     actions = fx.windowActionState();
     try testing.expectEqual(@as(u32, 1), actions.quit_count);
     try testing.expectEqual(@as(u32, 0), actions.close_count);
@@ -9895,8 +9896,8 @@ test "cmd-q and ctrl-q quit the app via onKey" {
         .key = "Q",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.quit_app, main.onKey(ctrl_q).?);
-    main.update(&model, main.onKey(ctrl_q).?, &fx);
+    try testing.expectEqual(Msg.quit_app, keys.onKey(ctrl_q).?);
+    main.update(&model, keys.onKey(ctrl_q).?, &fx);
     actions = fx.windowActionState();
     try testing.expectEqual(@as(u32, 2), actions.quit_count);
     try testing.expectEqual(@as(u32, 0), actions.close_count);
@@ -9940,8 +9941,8 @@ test "header Close requests the real window close; Esc stays with settings" {
     try testing.expect(model.settings_open);
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expect(!model.settings_open);
     actions = fx.windowActionState();
     try testing.expectEqual(@as(u32, 1), actions.close_count);
@@ -9998,8 +9999,8 @@ test "composer project row sets selected session project_path and reloads" {
     try testing.expect(!model.project_is_local());
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expect(!model.project_edit_active);
 
     tree = try buildTree(arena, &model);
@@ -10214,8 +10215,8 @@ test "Stop and Esc clear the sidebar spinner and session.busy" {
     main.update(&model, .send, &fx);
     try testing.expect(model.sessionById(session_id).?.busy);
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
-    try testing.expectEqual(Msg.stop, main.onKey(escape).?);
-    main.update(&model, main.onKey(escape).?, &fx);
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
     try testing.expect(!model.is_streaming());
     try testing.expect(!model.sessionById(session_id).?.busy);
     tree = try buildTree(arena, &model);
