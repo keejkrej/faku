@@ -3892,12 +3892,16 @@ test "goalUpdated sidecar line stores objective and status; null clears" {
     _ = model.appendTurn(id, .user, "started");
     if (model.sessionById(id)) |session| session.setThreadGoal("keep me", "active");
 
-    try fx.feedLine(9, "{\"type\":\"event\",\"sessionId\":\"00000000-0000-0000-0000-000000000001\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":{\"objective\":\"From daemon\",\"status\":\"usageLimited\"}}}");
+    main.update(&model, .goal_refresh, &fx);
+    const spawn = findGoalOnlySpawn(&fx) orelse return error.GoalSpawnMissing;
+    const key = spawn.key;
+
+    try fx.feedLine(key, "{\"type\":\"event\",\"sessionId\":\"00000000-0000-0000-0000-000000000001\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":{\"objective\":\"From daemon\",\"status\":\"usageLimited\"}}}");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("From daemon", model.sessionById(id).?.threadGoalObjective());
     try testing.expectEqualStrings("usageLimited", model.sessionById(id).?.threadGoalStatus());
 
-    try fx.feedLine(9, "{\"type\":\"event\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":null}}");
+    try fx.feedLine(key, "{\"type\":\"event\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":null}}");
     drainEffects(&model, &fx);
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.threadGoalObjective().len);
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.threadGoalStatus().len);
