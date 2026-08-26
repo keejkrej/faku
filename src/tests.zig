@@ -9716,6 +9716,8 @@ const day_ms: i64 = 86_400_000;
 const pinned_now_ms: i64 = 1_704_067_200_000; // 2024-01-01 00:00:00 UTC (Monday)
 /// Friday 2024-01-19 00:00:00 UTC so This week (Mon–Wed) and This month (1–14) are both non-empty.
 const week_month_now_ms: i64 = pinned_now_ms + (18 * day_ms);
+/// Friday 2024-03-15 00:00:00 UTC so This month (1–10) and This year (Jan–Feb) are both non-empty.
+const year_now_ms: i64 = pinned_now_ms + (74 * day_ms);
 
 fn pinClock(fx: *Effects, clock: *native_sdk.TestClock, now_ms: i64) void {
     clock.setWallMs(now_ms);
@@ -9745,7 +9747,20 @@ test "sessionDateBucket This week and This month use UTC Monday week and month" 
     const feb_first_ms = pinned_now_ms + (31 * day_ms);
     try testing.expectEqual(main.DateBucket.yesterday, main.sessionDateBucket(feb_first_ms - day_ms, feb_first_ms));
     try testing.expectEqual(main.DateBucket.this_week, main.sessionDateBucket(feb_first_ms - (3 * day_ms), feb_first_ms));
-    try testing.expectEqual(main.DateBucket.older, main.sessionDateBucket(feb_first_ms - (4 * day_ms), feb_first_ms));
+    try testing.expectEqual(main.DateBucket.this_year, main.sessionDateBucket(feb_first_ms - (4 * day_ms), feb_first_ms));
+}
+
+test "sessionDateBucket This year is same UTC year, older than this month" {
+    try testing.expectEqual(main.DateBucket.today, main.sessionDateBucket(year_now_ms, year_now_ms));
+    try testing.expectEqual(main.DateBucket.yesterday, main.sessionDateBucket(year_now_ms - day_ms, year_now_ms));
+    try testing.expectEqual(main.DateBucket.this_week, main.sessionDateBucket(year_now_ms - (2 * day_ms), year_now_ms));
+    try testing.expectEqual(main.DateBucket.this_week, main.sessionDateBucket(year_now_ms - (4 * day_ms), year_now_ms));
+    try testing.expectEqual(main.DateBucket.this_month, main.sessionDateBucket(year_now_ms - (5 * day_ms), year_now_ms));
+    try testing.expectEqual(main.DateBucket.this_month, main.sessionDateBucket(year_now_ms - (14 * day_ms), year_now_ms));
+    try testing.expectEqual(main.DateBucket.this_year, main.sessionDateBucket(year_now_ms - (15 * day_ms), year_now_ms));
+    try testing.expectEqual(main.DateBucket.this_year, main.sessionDateBucket(year_now_ms - (74 * day_ms), year_now_ms));
+    try testing.expectEqual(main.DateBucket.older, main.sessionDateBucket(year_now_ms - (75 * day_ms), year_now_ms));
+    try testing.expectEqual(main.DateBucket.older, main.sessionDateBucket(year_now_ms - (400 * day_ms), year_now_ms));
 }
 
 test "ungrouped sessions land in Today Yesterday Older; folder rows stay put" {
@@ -9913,8 +9928,116 @@ test "ungrouped sessions land in This week and This month; empty buckets omit he
     const month_tree = try buildTree(arena, &month_only);
     try testing.expect(findByText(month_tree.root, .text, "Yesterday") == null);
     try testing.expect(findByText(month_tree.root, .text, "This week") == null);
+    try testing.expect(findByText(month_tree.root, .text, "This year") == null);
     try testing.expect(findByText(month_tree.root, .text, "Older") == null);
     _ = try expectByText(month_tree.root, .text, "This month");
+}
+
+test "ungrouped sessions land in This year between This month and Older; empty buckets omit headers" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var clock = native_sdk.TestClock{};
+    pinClock(&fx, &clock, year_now_ms);
+
+    var model = Model{};
+    model.now_ms = year_now_ms;
+    const today_new = model.addSession("today newer", .fx);
+    const today_old = model.addSession("today older", .fx);
+    const yesterday = model.addSession("yesterday thread", .fx);
+    const week = model.addSession("week thread", .fx);
+    const month_new = model.addSession("month newer", .fx);
+    const month_old = model.addSession("month older", .fx);
+    const year_new = model.addSession("year newer", .fx);
+    const year_old = model.addSession("year older", .fx);
+    const older = model.addSession("older thread", .fx);
+    const grouped = model.addSession("folder thread", .fx);
+    model.sessionById(today_new).?.updated_at = year_now_ms + 3_600_000;
+    model.sessionById(today_old).?.updated_at = year_now_ms + 1_000;
+    model.sessionById(yesterday).?.updated_at = year_now_ms - day_ms;
+    model.sessionById(week).?.updated_at = year_now_ms - (3 * day_ms);
+    model.sessionById(month_new).?.updated_at = year_now_ms - (5 * day_ms);
+    model.sessionById(month_old).?.updated_at = year_now_ms - (14 * day_ms);
+    model.sessionById(year_new).?.updated_at = year_now_ms - (15 * day_ms);
+    model.sessionById(year_old).?.updated_at = year_now_ms - (60 * day_ms);
+    model.sessionById(older).?.updated_at = year_now_ms - (80 * day_ms);
+    model.sessionById(grouped).?.updated_at = year_now_ms - (15 * day_ms);
+    const folder_id = model.addFolder("New folder");
+    try testing.expect(model.assignSessionFolder(grouped, folder_id));
+
+    const rows = model.sidebar_rows(arena);
+    try expectSidebarTitles(rows, &.{
+        "Today",
+        "today newer",
+        "today older",
+        "Yesterday",
+        "yesterday thread",
+        "This week",
+        "week thread",
+        "This month",
+        "month newer",
+        "month older",
+        "This year",
+        "year newer",
+        "year older",
+        "Older",
+        "older thread",
+        "New folder",
+        "folder thread",
+    });
+    try testing.expect(rows[0].is_date_header);
+    try testing.expectEqualStrings("This month", rows[7].title);
+    try testing.expect(rows[7].is_date_header);
+    try testing.expectEqualStrings("This year", rows[10].title);
+    try testing.expect(rows[10].is_date_header);
+    try testing.expect(!rows[10].grouped);
+    try testing.expectEqualStrings("Older", rows[13].title);
+    try testing.expect(rows[13].is_date_header);
+    try testing.expect(rows[15].is_header);
+    try testing.expect(!rows[15].is_date_header);
+    try testing.expect(rows[16].grouped);
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .list_item, "Today");
+    try testing.expectEqual(@as(usize, 2), countByText(tree.root, .text, "Today"));
+    _ = try expectByText(tree.root, .text, "This month");
+    _ = try expectByText(tree.root, .text, "This year");
+    _ = try expectByText(tree.root, .text, "Older");
+    _ = try expectButton(tree.root, "month newer");
+    _ = try expectButton(tree.root, "year newer");
+    _ = try expectButton(tree.root, "year older");
+    _ = try expectButton(tree.root, "older thread");
+    try testing.expect(pressableAppearsBefore(tree.root, "month older", "year newer"));
+    try testing.expect(pressableAppearsBefore(tree.root, "year newer", "year older"));
+    try testing.expect(pressableAppearsBefore(tree.root, "year older", "older thread"));
+    try testing.expect(pressableAppearsBefore(tree.root, "older thread", "folder thread"));
+    try expectNoContextMenu(try expectByText(tree.root, .list_item, "Today"));
+    try testing.expect(!sessionRowHasGroupRail(tree.root, "year newer"));
+    try testing.expect(!sessionRowHasGroupRail(tree.root, "month newer"));
+    try testing.expect(sessionRowHasGroupRail(tree.root, "folder thread"));
+
+    var year_only = Model{};
+    year_only.now_ms = year_now_ms;
+    const today_only = year_only.addSession("today only", .fx);
+    const year_only_id = year_only.addSession("year only", .fx);
+    year_only.sessionById(today_only).?.updated_at = year_now_ms;
+    year_only.sessionById(year_only_id).?.updated_at = year_now_ms - (20 * day_ms);
+    try expectSidebarTitles(year_only.sidebar_rows(arena), &.{
+        "Today",
+        "today only",
+        "This year",
+        "year only",
+    });
+    const year_tree = try buildTree(arena, &year_only);
+    try testing.expect(findByText(year_tree.root, .text, "Yesterday") == null);
+    try testing.expect(findByText(year_tree.root, .text, "This week") == null);
+    try testing.expect(findByText(year_tree.root, .text, "This month") == null);
+    try testing.expect(findByText(year_tree.root, .text, "Older") == null);
+    _ = try expectByText(year_tree.root, .text, "This year");
 }
 
 test "Today unassign still works when extra date headers exist" {

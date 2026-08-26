@@ -46,7 +46,7 @@
               <for each="sidebar_rows" key="id" as="s">
                 <if test="{s.is_date_header}">
                   <!-- Date buckets use UTC civil days from updated_at
-                       (Today / Yesterday / This week / This month / Older).
+                       (Today / Yesterday / This week / This month / This year / Older).
                        The chrome Today list-item above stays the unassign target. -->
                   <row height="28" cross="center" padding="4">
                     <text foreground="text_muted">{s.title}</text>

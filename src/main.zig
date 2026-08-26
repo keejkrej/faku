@@ -541,7 +541,7 @@ pub const SidebarRow = struct {
     grouped: bool = false,
     /// Process-local. Headers stay false; store schema does not persist this.
     busy: bool = false,
-    /// Today / Yesterday / This week / This month / Older label.
+    /// Today / Yesterday / This week / This month / This year / Older label.
     /// Not a folder; no assign/delete chrome.
     is_date_header: bool = false,
     /// Static last-activity label from `updated_at` vs `now_ms`. Empty when
@@ -554,14 +554,16 @@ pub const SidebarRow = struct {
 /// has no tz database, and Faku does not invent one. `updated_at` 0 or
 /// omitted is Today so existing catalogs stay in one bucket. This week
 /// is after yesterday and still in the current UTC week (Monday start).
-/// This month is the same UTC month, older than this week. Not full
-/// Waku grouping: no This year / More.
+/// This month is the same UTC month, older than this week. This year
+/// is the same UTC calendar year, older than this month. Not full
+/// Waku grouping: no More / Project sort.
 pub const DateBucket = enum(u32) {
     today = 0,
     yesterday = 1,
     this_week = 2,
     this_month = 3,
-    older = 4,
+    this_year = 4,
+    older = 5,
 
     pub fn title(self: DateBucket) []const u8 {
         return switch (self) {
@@ -569,6 +571,7 @@ pub const DateBucket = enum(u32) {
             .yesterday => "Yesterday",
             .this_week => "This week",
             .this_month => "This month",
+            .this_year => "This year",
             .older => "Older",
         };
     }
@@ -592,6 +595,7 @@ pub fn sessionDateBucket(updated_at: i64, now_ms: i64) DateBucket {
     const now_ymd = utcYmd(now_ms) orelse return .older;
     const then_ymd = utcYmd(updated_at) orelse return .older;
     if (then_ymd.year == now_ymd.year and then_ymd.month == now_ymd.month) return .this_month;
+    if (then_ymd.year == now_ymd.year) return .this_year;
     return .older;
 }
 
@@ -1330,6 +1334,7 @@ pub const Model = struct {
         var yesterday_n: usize = 0;
         var this_week_n: usize = 0;
         var this_month_n: usize = 0;
+        var this_year_n: usize = 0;
         var older_n: usize = 0;
         for (ungrouped[0..ungrouped_n]) |id| {
             const session = model.sessionByIdConst(id) orelse continue;
@@ -1338,16 +1343,18 @@ pub const Model = struct {
                 .yesterday => yesterday_n += 1,
                 .this_week => this_week_n += 1,
                 .this_month => this_month_n += 1,
+                .this_year => this_year_n += 1,
                 .older => older_n += 1,
             }
         }
-        const show_date_headers = yesterday_n > 0 or this_week_n > 0 or this_month_n > 0 or older_n > 0;
+        const show_date_headers = yesterday_n > 0 or this_week_n > 0 or this_month_n > 0 or this_year_n > 0 or older_n > 0;
         var count: usize = ungrouped_n;
         if (show_date_headers) {
             if (today_n > 0) count += 1;
             if (yesterday_n > 0) count += 1;
             if (this_week_n > 0) count += 1;
             if (this_month_n > 0) count += 1;
+            if (this_year_n > 0) count += 1;
             if (older_n > 0) count += 1;
         }
         for (model.folder_store[0..model.folder_count]) |*folder| {
@@ -1365,6 +1372,7 @@ pub const Model = struct {
             i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .yesterday, arena);
             i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .this_week, arena);
             i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .this_month, arena);
+            i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .this_year, arena);
             i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .older, arena);
         } else {
             for (ungrouped[0..ungrouped_n]) |id| {
