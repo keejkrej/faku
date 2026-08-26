@@ -8,7 +8,8 @@
 //! One JSON document `sessions.json`. Catalog load copies only session
 //! skeletons (id, title, provider, untitled, has_started, project_path,
 //! fx_session_id, runtime_id, model, access_mode, interaction_mode, reasoning_effort, folder_id, updated_at, rewind_refs,
-//! context_used, context_size, available_commands, thread_goal_objective, thread_goal_status) — no transcripts. Selecting
+//! context_used, context_size, available_commands, thread_goal_objective, thread_goal_status,
+//! thread_goal_token_budget, thread_goal_tokens_used, thread_goal_time_used_seconds) — no transcripts. Selecting
 //! a session hydrates its turns,
 //! `queued_messages`, `rewind_refs`, and last-known context usage. Document extras also keep
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
@@ -794,6 +795,9 @@ const StoredSession = struct {
     available_commands: []StoredCommand = &.{},
     thread_goal_objective: []const u8 = "",
     thread_goal_status: []const u8 = "",
+    thread_goal_token_budget: ?u64 = null,
+    thread_goal_tokens_used: ?u64 = null,
+    thread_goal_time_used_seconds: ?u64 = null,
 };
 
 const StoredCommand = struct {
@@ -904,7 +908,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
         applyRewindRefs(model, stored.id, stored.rewind_refs);
         applyContextUsage(model, stored.id, stored.context_used, stored.context_size);
         applyAvailableCommands(model, stored.id, stored.available_commands);
-        applyThreadGoal(model, stored.id, stored.thread_goal_objective, stored.thread_goal_status);
+        applyThreadGoal(model, stored.id, stored.thread_goal_objective, stored.thread_goal_status, stored.thread_goal_token_budget, stored.thread_goal_tokens_used, stored.thread_goal_time_used_seconds);
     }
     if (model.sessionById(document.selected) != null) {
         model.selected = document.selected;
@@ -929,7 +933,7 @@ fn applyDetail(model: *Model, allocator: std.mem.Allocator, bytes: []const u8, s
     applyRewindRefs(model, session_id, stored.rewind_refs);
     applyContextUsage(model, session_id, stored.context_used, stored.context_size);
     applyAvailableCommands(model, session_id, stored.available_commands);
-    applyThreadGoal(model, session_id, stored.thread_goal_objective, stored.thread_goal_status);
+    applyThreadGoal(model, session_id, stored.thread_goal_objective, stored.thread_goal_status, stored.thread_goal_token_budget, stored.thread_goal_tokens_used, stored.thread_goal_time_used_seconds);
 }
 
 fn findStored(document: Document, id: u32) ?*StoredSession {
@@ -962,6 +966,9 @@ fn upsertSession(document: *Document, arena: std.mem.Allocator, model: *const Mo
         existing.available_commands = incoming.available_commands;
         existing.thread_goal_objective = incoming.thread_goal_objective;
         existing.thread_goal_status = incoming.thread_goal_status;
+        existing.thread_goal_token_budget = incoming.thread_goal_token_budget;
+        existing.thread_goal_tokens_used = incoming.thread_goal_tokens_used;
+        existing.thread_goal_time_used_seconds = incoming.thread_goal_time_used_seconds;
         if (live.detail_loaded) {
             existing.turns = incoming.turns;
             existing.queued_messages = incoming.queued_messages;
@@ -1024,6 +1031,9 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
         .available_commands = try snapshotAvailableCommands(arena, session),
         .thread_goal_objective = try arena.dupe(u8, session.threadGoalObjective()),
         .thread_goal_status = try arena.dupe(u8, session.threadGoalStatus()),
+        .thread_goal_token_budget = session.threadGoalTokenBudget(),
+        .thread_goal_tokens_used = session.threadGoalTokensUsed(),
+        .thread_goal_time_used_seconds = session.threadGoalTimeUsedSeconds(),
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
         .rewind_refs = try snapshotRewindRefs(arena, session),
@@ -1076,9 +1086,18 @@ fn applyAvailableCommands(model: *Model, session_id: u32, commands: []const Stor
     }
 }
 
-fn applyThreadGoal(model: *Model, session_id: u32, objective: []const u8, status: []const u8) void {
+fn applyThreadGoal(
+    model: *Model,
+    session_id: u32,
+    objective: []const u8,
+    status: []const u8,
+    token_budget: ?u64,
+    tokens_used: ?u64,
+    time_used_seconds: ?u64,
+) void {
     const session = model.sessionById(session_id) orelse return;
     session.setThreadGoal(objective, status);
+    session.setThreadGoalUsage(token_budget, tokens_used, time_used_seconds);
 }
 
 fn readDocument(arena: std.mem.Allocator, io: std.Io, dir: []const u8) !Document {
@@ -1186,6 +1205,9 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         .available_commands = try parseAvailableCommands(arena, obj.get("available_commands")),
         .thread_goal_objective = jsonString(obj.get("thread_goal_objective")) orelse "",
         .thread_goal_status = jsonString(obj.get("thread_goal_status")) orelse "",
+        .thread_goal_token_budget = jsonU64(obj.get("thread_goal_token_budget")),
+        .thread_goal_tokens_used = jsonU64(obj.get("thread_goal_tokens_used")),
+        .thread_goal_time_used_seconds = jsonU64(obj.get("thread_goal_time_used_seconds")),
     };
 }
 
@@ -1476,6 +1498,18 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
     try appendJsonString(out, allocator, session.thread_goal_objective);
     try out.appendSlice(allocator, ",\"thread_goal_status\":");
     try appendJsonString(out, allocator, session.thread_goal_status);
+    if (session.thread_goal_token_budget) |budget| {
+        try out.appendSlice(allocator, ",\"thread_goal_token_budget\":");
+        try appendU64(out, allocator, budget);
+    }
+    if (session.thread_goal_tokens_used) |used| {
+        try out.appendSlice(allocator, ",\"thread_goal_tokens_used\":");
+        try appendU64(out, allocator, used);
+    }
+    if (session.thread_goal_time_used_seconds) |secs| {
+        try out.appendSlice(allocator, ",\"thread_goal_time_used_seconds\":");
+        try appendU64(out, allocator, secs);
+    }
     try out.appendSlice(allocator, ",\"turns\":[");
     for (session.turns, 0..) |turn, i| {
         if (i != 0) try out.append(allocator, ',');
@@ -1786,7 +1820,10 @@ test "session thread goal persists, hydrates, and clears" {
     source.setStoreDir(dir);
     source.store_io = io;
     const id = source.addSession("goal thread", .fx);
-    if (source.sessionById(id)) |session| session.setThreadGoal("Ship the feature", "active");
+    if (source.sessionById(id)) |session| {
+        session.setThreadGoal("Ship the feature", "active");
+        session.setThreadGoalUsage(100_000, 12_000, 180);
+    }
     _ = source.appendTurn(id, .user, "remember goal");
     try saveSession(&source, id, allocator, io);
 
@@ -1795,19 +1832,41 @@ test "session thread goal persists, hydrates, and clears" {
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
     try testing.expectEqualStrings("Ship the feature", loaded.session_store[0].threadGoalObjective());
     try testing.expectEqualStrings("active", loaded.session_store[0].threadGoalStatus());
+    try testing.expectEqual(@as(?u64, 100_000), loaded.session_store[0].threadGoalTokenBudget());
+    try testing.expectEqual(@as(?u64, 12_000), loaded.session_store[0].threadGoalTokensUsed());
+    try testing.expectEqual(@as(?u64, 180), loaded.session_store[0].threadGoalTimeUsedSeconds());
+    try testing.expectEqualStrings("12k/100k · 3m", loaded.session_store[0].threadGoalUsageLabel());
 
     hydrateSession(&loaded, loaded.session_store[0].id, allocator, io);
     try testing.expectEqualStrings("Ship the feature", loaded.session_store[0].threadGoalObjective());
     try testing.expectEqualStrings("active", loaded.session_store[0].threadGoalStatus());
+    try testing.expectEqual(@as(?u64, 12_000), loaded.session_store[0].threadGoalTokensUsed());
 
-    if (loaded.sessionById(loaded.session_store[0].id)) |session| session.clearThreadGoal();
+    if (loaded.sessionById(loaded.session_store[0].id)) |session| {
+        session.setThreadGoalUsage(null, 12_000, null);
+    }
     try saveSession(&loaded, loaded.session_store[0].id, allocator, io);
+
+    var used_only = Model{};
+    used_only.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&used_only, allocator, io));
+    try testing.expectEqual(@as(?u64, null), used_only.session_store[0].threadGoalTokenBudget());
+    try testing.expectEqual(@as(?u64, 12_000), used_only.session_store[0].threadGoalTokensUsed());
+    try testing.expectEqual(@as(?u64, null), used_only.session_store[0].threadGoalTimeUsedSeconds());
+    try testing.expectEqualStrings("12k", used_only.session_store[0].threadGoalUsageLabel());
+
+    if (used_only.sessionById(used_only.session_store[0].id)) |session| session.clearThreadGoal();
+    try saveSession(&used_only, used_only.session_store[0].id, allocator, io);
 
     var cleared = Model{};
     cleared.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&cleared, allocator, io));
     try testing.expectEqual(@as(usize, 0), cleared.session_store[0].threadGoalObjective().len);
     try testing.expectEqual(@as(usize, 0), cleared.session_store[0].threadGoalStatus().len);
+    try testing.expectEqual(@as(?u64, null), cleared.session_store[0].threadGoalTokenBudget());
+    try testing.expectEqual(@as(?u64, null), cleared.session_store[0].threadGoalTokensUsed());
+    try testing.expectEqual(@as(?u64, null), cleared.session_store[0].threadGoalTimeUsedSeconds());
+    try testing.expectEqual(@as(usize, 0), cleared.session_store[0].threadGoalUsageLabel().len);
 }
 
 test "session fx_session_id persists and loads" {

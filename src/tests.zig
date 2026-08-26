@@ -3898,15 +3898,35 @@ test "goalUpdated sidecar line stores objective and status; null clears" {
     const spawn = findGoalOnlySpawn(&fx) orelse return error.GoalSpawnMissing;
     const key = spawn.key;
 
-    try fx.feedLine(key, "{\"type\":\"event\",\"sessionId\":\"00000000-0000-0000-0000-000000000001\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":{\"objective\":\"From daemon\",\"status\":\"usageLimited\"}}}");
+    try fx.feedLine(key, "{\"type\":\"event\",\"sessionId\":\"00000000-0000-0000-0000-000000000001\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":{\"objective\":\"From daemon\",\"status\":\"usageLimited\",\"tokenBudget\":100000,\"tokensUsed\":12000,\"timeUsedSeconds\":180}}}");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("From daemon", model.sessionById(id).?.threadGoalObjective());
     try testing.expectEqualStrings("usageLimited", model.sessionById(id).?.threadGoalStatus());
+    try testing.expectEqual(@as(?u64, 100_000), model.sessionById(id).?.threadGoalTokenBudget());
+    try testing.expectEqual(@as(?u64, 12_000), model.sessionById(id).?.threadGoalTokensUsed());
+    try testing.expectEqual(@as(?u64, 180), model.sessionById(id).?.threadGoalTimeUsedSeconds());
+    try testing.expectEqualStrings("12k/100k · 3m", model.sessionById(id).?.threadGoalUsageLabel());
+
+    try fx.feedLine(key, "{\"type\":\"event\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":{\"tokensUsed\":500}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("From daemon", model.sessionById(id).?.threadGoalObjective());
+    try testing.expectEqual(@as(?u64, 100_000), model.sessionById(id).?.threadGoalTokenBudget());
+    try testing.expectEqual(@as(?u64, 500), model.sessionById(id).?.threadGoalTokensUsed());
+    try testing.expectEqual(@as(?u64, 180), model.sessionById(id).?.threadGoalTimeUsedSeconds());
+
+    try fx.feedLine(key, "{\"type\":\"event\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":{\"tokenBudget\":null}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(?u64, null), model.sessionById(id).?.threadGoalTokenBudget());
+    try testing.expectEqual(@as(?u64, 500), model.sessionById(id).?.threadGoalTokensUsed());
 
     try fx.feedLine(key, "{\"type\":\"event\",\"event\":{\"kind\":\"goalUpdated\",\"payload\":null}}");
     drainEffects(&model, &fx);
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.threadGoalObjective().len);
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.threadGoalStatus().len);
+    try testing.expectEqual(@as(?u64, null), model.sessionById(id).?.threadGoalTokenBudget());
+    try testing.expectEqual(@as(?u64, null), model.sessionById(id).?.threadGoalTokensUsed());
+    try testing.expectEqual(@as(?u64, null), model.sessionById(id).?.threadGoalTimeUsedSeconds());
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.threadGoalUsageLabel().len);
 }
 
 test "no daemon address leaves the fx path alone and does not fake Goal" {
@@ -3961,12 +3981,60 @@ test "goal composer row is hidden without a daemon and shows Set/Clear when one 
     if (model.sessionById(id)) |session| session.setThreadGoal("Ship the feature", "active");
     tree = try buildTree(arena, &model);
     try testing.expect(model.show_goal());
+    try testing.expect(!model.has_goal_usage());
     _ = try expectButtonMsg(tree, "Set goal", .goal_set);
     _ = try expectButtonMsg(tree, "Clear goal", .goal_clear);
     _ = try expectButtonMsg(tree, "Refresh goal", .goal_refresh);
     _ = try expectByText(tree.root, .text, "Ship the feature");
+    try testing.expect(findByText(tree.root, .text, "12k/100k · 3m") == null);
     _ = try expectSelectMsg(tree, "active", .toggle_goal_status_picker);
     try testing.expectEqualStrings("active", model.goal_status_label());
+}
+
+test "goal usage meter formats used/budget time and tokensUsed-only" {
+    var buf: [48]u8 = undefined;
+    try testing.expectEqualStrings("12k/100k · 3m", main.formatThreadGoalUsage(&buf, 100_000, 12_000, 180).?);
+    try testing.expectEqualStrings("12k", main.formatThreadGoalUsage(&buf, null, 12_000, null).?);
+    try testing.expectEqualStrings("500", main.formatThreadGoalUsage(&buf, null, 500, null).?);
+    try testing.expectEqualStrings("3m", main.formatThreadGoalUsage(&buf, null, null, 180).?);
+    try testing.expectEqualStrings("45s", main.formatThreadGoalUsage(&buf, null, null, 45).?);
+    try testing.expect(main.formatThreadGoalUsage(&buf, null, null, null) == null);
+}
+
+test "goal composer row shows a muted one-line usage meter when usage is known" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    const id = model.addSession("goal usage chrome", .fx);
+    model.selected = id;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    if (model.sessionById(id)) |session| {
+        session.setThreadGoal("Ship the feature", "active");
+        session.setThreadGoalUsage(100_000, 12_000, 180);
+    }
+    try testing.expect(model.show_goal());
+    try testing.expect(model.has_goal_usage());
+    try testing.expectEqualStrings("12k/100k · 3m", model.goal_usage_label());
+
+    var tree = try buildTree(arena, &model);
+    const meter = try expectByText(tree.root, .text, "12k/100k · 3m");
+    try expectOneLineEllipsis(meter, null);
+    _ = try expectByText(tree.root, .text, "Ship the feature");
+
+    if (model.sessionById(id)) |session| session.setThreadGoalUsage(null, 12_000, null);
+    try testing.expectEqualStrings("12k", model.goal_usage_label());
+    tree = try buildTree(arena, &model);
+    const used_only = try expectByText(tree.root, .text, "12k");
+    try expectOneLineEllipsis(used_only, null);
+    try testing.expect(findByText(tree.root, .text, "12k/100k · 3m") == null);
+
+    if (model.sessionById(id)) |session| session.clearThreadGoal();
+    try testing.expect(!model.has_goal_usage());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "12k") == null);
+    try testing.expect(findByText(tree.root, .text, "12k/100k · 3m") == null);
 }
 
 test "goal status picker lists ThreadGoalStatus; pick_goal_status writes set with null objective" {

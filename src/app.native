@@ -356,6 +356,9 @@
             <if test="{show_goal}">
               <row gap="8" cross="center">
                 <text grow="1" wrap="false" overflow="ellipsis" foreground="text_muted">{goal_label}</text>
+                <if test="{has_goal_usage}">
+                  <text wrap="false" overflow="ellipsis" foreground="text_muted">{goal_usage_label}</text>
+                </if>
                 <stack>
                   <select placeholder="Status" on-press="toggle_goal_status_picker">{goal_status_label}</select>
                   <if test="{goal_status_picker_open}">

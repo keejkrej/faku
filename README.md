@@ -235,7 +235,7 @@ Path (Native `app_dirs` data directory, app name `faku`):
 Boot: if that file loads, the sidebar is session skeletons only (id, title,
 provider, untitled/has_started, project_path, fx_session_id, runtime_id, model,
 access_mode, interaction_mode, reasoning_effort, folder_id, context_used, context_size,
-available_commands, thread_goal_objective, thread_goal_status, updated_at) — no demo rows and no transcripts. The document also stores
+available_commands, thread_goal_objective, thread_goal_status, thread_goal_token_budget, thread_goal_tokens_used, thread_goal_time_used_seconds, updated_at) — no demo rows and no transcripts. The document also stores
 `last_project_path`, `last_model`, `last_access_mode`,
 `last_interaction_mode`, `last_reasoning_effort`, `last_daemon_address`, `sidebar_collapsed`,
 `sidebar_width`, `folders`, and `collapsed_folder_ids` so a new session can inherit the last workspace and last
@@ -370,9 +370,11 @@ composer Set goal / Clear goal / Refresh goal one-shots hello + `goal`
 (status `active`). The current objective shows with ellipsis. The goal
 row can set Codex `ThreadGoalStatus` (`active` / `paused` / `blocked` /
 `usageLimited` / `budgetLimited` / `complete`) over the daemon sidecar
-(`goal` set, `objective: null`, `replace: false`). This is not the full
-Waku goal dialog (no token budget meters). fx ask / fx acp / demo do
-not get Goal.
+(`goal` set, `objective: null`, `replace: false`). When `goalUpdated`
+includes `tokensUsed` / `tokenBudget` / `timeUsedSeconds`, the goal
+row shows a muted one-line meter (`12k/100k · 3m`, or `tokensUsed`
+only if there is no budget). This is not the full Waku goal dialog
+(no editable budget field). fx ask / fx acp / demo do not get Goal.
 
 Daemon (sidecar, not embedded): when `WAKU_DAEMON_ADDRESS` is set, Send
 spawns the same binary as `faku daemon-proxy <addr>` with hello +
@@ -404,10 +406,11 @@ This is a sidecar. The Waku daemon is not embedded.
 Daemon sidecar hello is protocol v4 (`protocolVersion: 4`) to match
 current waku-daemon. Codex `/goal` is a first cut over that sidecar
 (hello + `goal` set/clear/refresh and a composer status picker; persist
-last-known objective/status from `goalUpdated` when it arrives in the
-same spawn). It is not on fx ask / fx acp / demo and not the full Waku
-goal dialog. fx-first (`fx acp` / `fx ask` / demo) does not use daemon
-hello.
+last-known objective/status/usage from `goalUpdated` when it arrives
+in the same spawn). Usage is documented `ThreadGoal` fields only
+(`tokenBudget`, `tokensUsed`, `timeUsedSeconds`). It is not on
+fx ask / fx acp / demo and not the full Waku goal dialog. fx-first
+(`fx acp` / `fx ask` / demo) does not use daemon hello.
 
 Client Hello: { type, protocolVersion, token, clientId, resumeFrom }.
 Request: { type, requestId, sessionId, runtimeId, command }. Nil UUID
