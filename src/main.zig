@@ -43,7 +43,7 @@ const palette_run = @import("palette_run.zig");
 const persist = @import("persist.zig");
 const session_actions = @import("session_actions.zig");
 const settings_actions = @import("settings_actions.zig");
-const session = @import("session.zig");
+const session_mod = @import("session.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -86,7 +86,7 @@ pub const palette_section_header_height = palette.palette_section_header_height;
 pub const palette_card_width = palette.palette_card_width;
 pub const palette_card_height = palette.palette_card_height;
 pub const max_turns = 128;
-pub const max_title = session.max_title;
+pub const max_title = session_mod.max_title;
 const max_search = 64;
 pub const max_body = 4096;
 pub const max_draft = 512;
@@ -94,27 +94,27 @@ pub const max_queued = 16;
 pub const max_queued_text = 1024;
 pub const max_fx_path = 256;
 pub const max_store_dir = 512;
-pub const max_project_path = session.max_project_path;
+pub const max_project_path = session_mod.max_project_path;
 pub const max_attach_status = 192;
-pub const max_fx_session_id = session.max_fx_session_id;
+pub const max_fx_session_id = session_mod.max_fx_session_id;
 pub const max_tool_call_id = 128;
 pub const max_tool_kind = 32;
 pub const max_tool_status = 32;
-pub const max_runtime_id = session.max_runtime_id;
-pub const max_fx_model = session.max_fx_model;
-pub const max_access_mode = session.max_access_mode;
-pub const max_interaction_mode = session.max_interaction_mode;
-pub const max_reasoning_effort = session.max_reasoning_effort;
+pub const max_runtime_id = session_mod.max_runtime_id;
+pub const max_fx_model = session_mod.max_fx_model;
+pub const max_access_mode = session_mod.max_access_mode;
+pub const max_interaction_mode = session_mod.max_interaction_mode;
+pub const max_reasoning_effort = session_mod.max_reasoning_effort;
 /// Codex `ThreadGoal.objective`. Same cap as the composer draft.
-pub const max_thread_goal_objective = session.max_thread_goal_objective;
+pub const max_thread_goal_objective = session_mod.max_thread_goal_objective;
 /// Codex `ThreadGoalStatus` wire name (`budgetLimited` is 13).
-pub const max_thread_goal_status = session.max_thread_goal_status;
+pub const max_thread_goal_status = session_mod.max_thread_goal_status;
 /// Compact `12k/100k · 3m` meter on the composer goal row.
-pub const max_thread_goal_usage_label = session.max_thread_goal_usage_label;
-pub const max_available_commands = session.max_available_commands;
-pub const max_model_options = session.max_model_options;
-pub const max_command_name = session.max_command_name;
-pub const max_command_description = session.max_command_description;
+pub const max_thread_goal_usage_label = session_mod.max_thread_goal_usage_label;
+pub const max_available_commands = session_mod.max_available_commands;
+pub const max_model_options = session_mod.max_model_options;
+pub const max_command_name = session_mod.max_command_name;
+pub const max_command_description = session_mod.max_command_description;
 /// Waku `runtime_mode` default. Maps to fx `FX_PERMISSION_MODE=yolo`.
 pub const default_access_mode = "fullAccess";
 /// Waku `StartOptions.interaction_mode` default (`build` | `plan`).
@@ -219,10 +219,10 @@ pub const Role = enum { user, assistant, tool, reasoning };
 pub const Phase = enum { idle, streaming };
 pub const ReplyPath = enum { demo, fx, daemon };
 
-pub const Provider = session.Provider;
-pub const AvailableCommand = session.AvailableCommand;
-pub const ModelOption = session.ModelOption;
-pub const Session = session.Session;
+pub const Provider = session_mod.Provider;
+pub const AvailableCommand = session_mod.AvailableCommand;
+pub const ModelOption = session_mod.ModelOption;
+pub const Session = session_mod.Session;
 
 pub const Turn = struct {
     id: u32 = 0,
@@ -2468,7 +2468,7 @@ pub const Model = struct {
     }
 };
 
-pub const writeFixed = session.writeFixed;
+pub const writeFixed = session_mod.writeFixed;
 
 pub fn sessionDisplayTitle(session: *const Session) []const u8 {
     if (session.untitled or std.mem.eql(u8, session.title(), "untitled")) return "New task";
