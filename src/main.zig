@@ -23,7 +23,6 @@ const acp = @import("acp.zig");
 const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const acp_proxy = @import("acp_proxy.zig");
-const pick_image = @import("pick_image.zig");
 const maximize_window = @import("maximize_window.zig");
 const rewind = @import("rewind.zig");
 const keys = @import("keys.zig");
@@ -34,6 +33,7 @@ const composer = @import("composer.zig");
 const copy_helpers = @import("copy.zig");
 const session_switcher = @import("switcher.zig");
 const sidebar_row_helpers = @import("sidebar_rows.zig");
+const attach_helpers = @import("attach.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -184,7 +184,7 @@ pub const maximize_window_key: u64 = 30;
 /// One-shot OS image-picker sidecar (`osascript` / `zenity` / `kdialog`).
 /// Distinct from fx ask / daemon / clipboard / preview keys. Native has
 /// no `fx.pickFile`; this spawn is the documented workaround.
-pub const pick_image_key: u64 = 31;
+pub const pick_image_key = attach_helpers.pick_image_key;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
 pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_status;
@@ -193,8 +193,8 @@ pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_st
 /// 0 is the no-image sentinel. Sits in the gap after `copy_turn_key`
 /// and before `fx_spawn_overlap`. Verified: Native 0.9.3
 /// `LoadImageOptions` + markup `<image image="{binding}">`.
-pub const attach_preview_id_first: u64 = 33;
-pub const attach_preview_id_last: u64 = 63;
+pub const attach_preview_id_first = attach_helpers.attach_preview_id_first;
+pub const attach_preview_id_last = attach_helpers.attach_preview_id_last;
 const demo_ticks_complete: u32 = 12;
 const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
 /// Desktop notification title when the session has no stored title.
@@ -715,7 +715,6 @@ pub const effortLabel = composer.effortLabel;
 pub const imagePathFromDrop = composer.imagePathFromDrop;
 const slashCommandPrefix = composer.slashCommandPrefix;
 const isDocumentedReasoningEffort = composer.isDocumentedReasoningEffort;
-const isAttachImagePath = composer.isAttachImagePath;
 
 pub const PaletteRow = palette.PaletteRow;
 pub const PaletteAction = palette.PaletteAction;
@@ -2845,7 +2844,7 @@ fn asciiEqlIgnoreCase(left: []const u8, right: []const u8) bool {
     return true;
 }
 
-fn directoryExists(io: std.Io, path: []const u8) bool {
+pub fn directoryExists(io: std.Io, path: []const u8) bool {
     var dir = std.Io.Dir.cwd().openDir(io, path, .{}) catch return false;
     dir.close(io);
     return true;
@@ -2862,61 +2861,6 @@ fn fileExists(io: std.Io, path: []const u8) bool {
 pub const fx_ask_chdir_script = "cd -- \"$1\" && shift && exec \"$@\"";
 
 pub const Effects = native_sdk.Effects(Msg);
-
-fn nextAttachPreviewId(model: *Model) u64 {
-    var id = model.next_attach_preview_id;
-    if (id < attach_preview_id_first or id > attach_preview_id_last) {
-        id = attach_preview_id_first;
-    }
-    if (id == model.attach_preview or id == model.attach_preview_load_id) {
-        id += 1;
-        if (id > attach_preview_id_last) id = attach_preview_id_first;
-    }
-    model.next_attach_preview_id = if (id >= attach_preview_id_last)
-        attach_preview_id_first
-    else
-        id + 1;
-    return id;
-}
-
-/// Drop in-flight / displayed preview pixels. Does not touch `image_path`.
-fn dropAttachPreview(model: *Model, fx: *Effects) void {
-    if (model.attach_preview != 0) {
-        _ = fx.unregisterImage(model.attach_preview);
-        model.attach_preview = 0;
-    }
-    if (model.attach_preview_load_id != 0) {
-        fx.cancel(model.attach_preview_load_id);
-        model.attach_preview_load_id = 0;
-    }
-}
-
-/// Load a Native preview for the current draft path when that file exists.
-/// Missing path keeps the basename chip only. Verified: Native 0.9.3
-/// `fx.loadImage` local-path first + `<image image="{attach_preview}">`.
-fn refreshAttachPreview(model: *Model, fx: *Effects) void {
-    dropAttachPreview(model, fx);
-    const path = model.resolveSpawnImage();
-    if (path.len == 0) return;
-    const id = nextAttachPreviewId(model);
-    model.attach_preview_load_id = id;
-    fx.loadImage(.{
-        .id = id,
-        .path = path,
-        .on_result = Effects.imageMsg(.attach_preview_done),
-    });
-}
-
-fn applyAttachPreviewResult(model: *Model, fx: *Effects, result: native_sdk.EffectImageResult) void {
-    if (result.id != model.attach_preview_load_id) {
-        if (result.outcome == .loaded) _ = fx.unregisterImage(result.id);
-        return;
-    }
-    model.attach_preview_load_id = 0;
-    if (result.outcome == .loaded) {
-        model.attach_preview = result.id;
-    }
-}
 
 fn openPalette(model: *Model) void {
     session_switcher.closeSwitcher(model);
@@ -2982,7 +2926,7 @@ pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     store.hydrateIfPossible(model, id);
     store.maybeHydrateDaemonSession(model, fx, id);
     store.loadDraftIfPossible(model);
-    refreshAttachPreview(model, fx);
+    attach_helpers.refreshAttachPreview(model, fx);
     model.pinTranscriptToLatest();
     model.composer_active = true;
 }
@@ -3045,7 +2989,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             // Client-built; persist is a no-op until first real content.
             store.persistIfPossible(model, id, fx);
             store.loadDraftIfPossible(model);
-            refreshAttachPreview(model, fx);
+            attach_helpers.refreshAttachPreview(model, fx);
             model.composer_active = true;
         },
         .select => |id| {
@@ -3127,7 +3071,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.closeCommands();
             store.removeIfPossible(model, id, fx);
             store.loadDraftIfPossible(model);
-            refreshAttachPreview(model, fx);
+            attach_helpers.refreshAttachPreview(model, fx);
         },
         .start_search => openPalette(model),
         .palette_confirm => confirmPalette(model, fx),
@@ -3344,17 +3288,17 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             persistComposerProject(model, fx);
         },
         .start_image_attach => model.startImageAttach(),
-        .pick_image => startPickImage(model, fx),
+        .pick_image => attach_helpers.startPickImage(model, fx),
         .image_path_edit => |edit| {
             model.applyImagePath(edit);
             store.persistDraftIfPossible(model);
-            refreshAttachPreview(model, fx);
+            attach_helpers.refreshAttachPreview(model, fx);
         },
-        .file_drop => |path| applyFileDrop(model, fx, path),
+        .file_drop => |path| attach_helpers.applyFileDrop(model, fx, path),
         .clear_image_attach => {
             model.clearImageAttach();
             store.persistDraftIfPossible(model);
-            refreshAttachPreview(model, fx);
+            attach_helpers.refreshAttachPreview(model, fx);
         },
         .toggle_commands => model.toggleCommands(),
         .insert_command => |id| {
@@ -3391,7 +3335,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.composer_active = true;
             store.persistIfPossible(model, model.selected, fx);
             store.persistDraftIfPossible(model);
-            refreshAttachPreview(model, fx);
+            attach_helpers.refreshAttachPreview(model, fx);
         },
         .toggle_sidebar => {
             model.toggleSidebar();
@@ -3409,7 +3353,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .copy_session_id => copy_helpers.copySessionId(model, fx),
         .copy_fx_session_id => copy_helpers.copyFxSessionId(model, fx),
         .clipboard_done => {},
-        .attach_preview_done => |result| applyAttachPreviewResult(model, fx, result),
+        .attach_preview_done => |result| attach_helpers.applyAttachPreviewResult(model, fx, result),
         .tick => |timer| {
             if (timer.outcome != .fired) return;
             tickStream(model, fx);
@@ -3426,7 +3370,7 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     model.now_ms = fx.wallMs();
     store.maybeLoadDaemonCatalog(model, fx);
     store.maybeHydrateDaemonSession(model, fx, model.selected);
-    refreshAttachPreview(model, fx);
+    attach_helpers.refreshAttachPreview(model, fx);
     startFxProbe(model, fx);
 }
 
@@ -3450,7 +3394,7 @@ fn handleSend(model: *Model, fx: *Effects) void {
         model.draft_buffer.clear();
         if (draft_key) |key| store.discardDraftIfPossible(model, key);
         model.clearImageAttach();
-        refreshAttachPreview(model, fx);
+        attach_helpers.refreshAttachPreview(model, fx);
         return;
     }
     if (text.len == 0) return;
@@ -3458,7 +3402,7 @@ fn handleSend(model: *Model, fx: *Effects) void {
     model.draft_buffer.clear();
     if (draft_key) |key| store.discardDraftIfPossible(model, key);
     model.clearImageAttach();
-    refreshAttachPreview(model, fx);
+    attach_helpers.refreshAttachPreview(model, fx);
 }
 
 /// Waku ⌘Enter: inject into a live daemon turn when attach reported
@@ -3476,7 +3420,7 @@ fn handleSteer(model: *Model, fx: *Effects) void {
         model.draft_buffer.clear();
         if (draft_key) |key| store.discardDraftIfPossible(model, key);
         model.clearImageAttach();
-        refreshAttachPreview(model, fx);
+        attach_helpers.refreshAttachPreview(model, fx);
         return;
     }
     handleSend(model, fx);
@@ -3997,7 +3941,7 @@ fn maybeCancelDaemonTurn(model: *Model, fx: *Effects, session_id: u32) void {
 
 fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
     if (line.key == pick_image_key) {
-        applyPickImageLine(model, fx, line);
+        attach_helpers.applyPickImageLine(model, fx, line);
         return;
     }
     applyDaemonGoalLine(model, fx, line.line);
@@ -4272,7 +4216,7 @@ fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
         return;
     }
     if (exit.key == pick_image_key) {
-        handlePickImageExit(model, fx, exit);
+        attach_helpers.handlePickImageExit(model, fx, exit);
         return;
     }
     if (model.daemon_load_key != 0 and exit.key == model.daemon_load_key) {
@@ -4361,23 +4305,7 @@ fn fxProbePath(model: *const Model, index: u32, buf: *[max_fx_path]u8) ?[]const 
 }
 
 /// Native `UiApp.Options.on_drop` → Msg. Window-level; no OS picker.
-pub fn onDrop(drop: native_sdk.platform.FileDropEvent) ?Msg {
-    const path = imagePathFromDrop(drop.paths) orelse return null;
-    return .{ .file_drop = path };
-}
-
-fn applyFileDrop(model: *Model, fx: *Effects, path: []const u8) void {
-    const trimmed = std.mem.trim(u8, path, " \t\r\n");
-    if (!isAttachImagePath(trimmed)) return;
-    if (model.store_io) |io| {
-        if (directoryExists(io, trimmed)) return;
-    }
-    model.image_path_buffer.clear();
-    model.applyImagePath(.{ .insert_text = trimmed });
-    model.clearAttachStatus();
-    store.persistDraftIfPossible(model);
-    refreshAttachPreview(model, fx);
-}
+pub const onDrop = attach_helpers.onDrop;
 
 fn startMaximizeWindow(model: *Model, fx: *Effects) void {
     if (model.maximize_window_live) return;
@@ -4420,67 +4348,6 @@ fn handleMaximizeWindowExit(model: *Model, fx: *Effects, exit: native_sdk.Effect
         return;
     }
     model.maximize_window_live = false;
-}
-
-fn startPickImage(model: *Model, fx: *Effects) void {
-    if (model.pick_image_live) return;
-    const argv = pick_image.hostArgv(.first) orelse {
-        model.setAttachStatus(pick_image.hostMissingStatus());
-        return;
-    };
-    model.pick_image_live = true;
-    model.pick_image_got_path = false;
-    model.pick_image_tried_fallback = false;
-    model.clearAttachStatus();
-    fx.spawn(.{
-        .key = pick_image_key,
-        .argv = argv,
-        .on_line = Effects.lineMsg(.fx_line),
-        .on_exit = Effects.exitMsg(.fx_exit),
-    });
-}
-
-fn applyPickImageLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
-    const raw = pick_image.firstStdoutPath(line.line);
-    if (pick_image.takeErrorMessage(raw)) |msg| {
-        model.setAttachStatus(msg);
-        return;
-    }
-    const path = imagePathFromDrop(&.{raw}) orelse return;
-    applyFileDrop(model, fx, path);
-    model.pick_image_got_path = true;
-}
-
-fn isMissingPickerExit(exit: native_sdk.EffectExit) bool {
-    if (exit.reason != .exited) return true;
-    return exit.code == 127 or exit.code == pick_image.missing_exit;
-}
-
-fn handlePickImageExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
-    if (model.pick_image_got_path) {
-        model.pick_image_live = false;
-        return;
-    }
-    if (isMissingPickerExit(exit)) {
-        if (!model.pick_image_tried_fallback) {
-            if (pick_image.hostArgv(.fallback)) |argv| {
-                model.pick_image_tried_fallback = true;
-                fx.spawn(.{
-                    .key = pick_image_key,
-                    .argv = argv,
-                    .on_line = Effects.lineMsg(.fx_line),
-                    .on_exit = Effects.exitMsg(.fx_exit),
-                });
-                return;
-            }
-        }
-        model.pick_image_live = false;
-        if (!model.has_attach_status()) {
-            model.setAttachStatus(pick_image.hostMissingStatus());
-        }
-        return;
-    }
-    model.pick_image_live = false;
 }
 
 pub const AppUi = canvas.Ui(Msg);
@@ -4585,4 +4452,5 @@ test {
     _ = @import("copy.zig");
     _ = @import("switcher.zig");
     _ = @import("sidebar_rows.zig");
+    _ = @import("attach.zig");
 }
