@@ -62,7 +62,8 @@ helpers live in `src/spawn.zig`. Send / stream lifecycle /
 daemon steer-cancel helpers live in `src/stream.zig`. Sidecar
 stdout / ACP / daemon line handlers and fx-exit routing live in
 `src/lines.zig`. Maximize spawn/exit helpers live in
-`src/maximize_window.zig`.
+`src/maximize_window.zig`. Boot fx-probe spawn/exit lives in
+`src/fx_probe.zig`.
 
 ## Why fx
 

@@ -38,6 +38,7 @@ const session_fork = @import("fork.zig");
 const prompt_spawn = @import("spawn.zig");
 const turn_stream = @import("stream.zig");
 const sidecar_lines = @import("lines.zig");
+const fx_probe = @import("fx_probe.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -86,7 +87,7 @@ pub const max_body = 4096;
 pub const max_draft = 512;
 pub const max_queued = 16;
 pub const max_queued_text = 1024;
-const max_fx_path = 256;
+pub const max_fx_path = 256;
 pub const max_store_dir = 512;
 pub const max_project_path = 512;
 pub const max_attach_status = 192;
@@ -163,7 +164,7 @@ pub fn registerIcons() void {
 
 pub const stream_timer_key: u64 = 1;
 pub const fx_ask_key: u64 = 2;
-pub const fx_probe_key: u64 = 3;
+pub const fx_probe_key = fx_probe.fx_probe_key;
 pub const daemon_proxy_key_first: u64 = 4;
 /// Overlapping one-shot `fx acp` / `fx ask` children (queue drain while
 /// the previous process has not exited yet). Avoids probe/daemon keys.
@@ -3366,7 +3367,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .fx_line => |line| sidecar_lines.handleFxLine(model, fx, line),
         .fx_exit => |exit| sidecar_lines.handleFxExit(model, fx, exit),
-        .fx_probe_exit => |exit| handleFxProbeExit(model, fx, exit),
+        .fx_probe_exit => |exit| fx_probe.handleFxProbeExit(model, fx, exit),
     }
 }
 
@@ -3377,7 +3378,7 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     store.maybeLoadDaemonCatalog(model, fx);
     store.maybeHydrateDaemonSession(model, fx, model.selected);
     attach_helpers.refreshAttachPreview(model, fx);
-    startFxProbe(model, fx);
+    fx_probe.startFxProbe(model, fx);
 }
 
 fn persistComposerChips(model: *Model, fx: *Effects) void {
@@ -3390,63 +3391,7 @@ fn persistComposerProject(model: *Model, fx: *Effects) void {
     store.persistIfPossible(model, model.selected, fx);
 }
 
-pub fn startFxProbe(model: *Model, fx: *Effects) void {
-    if (model.fx_probe_started) return;
-    model.fx_probe_started = true;
-    model.fx_probe_index = 0;
-    spawnFxProbe(model, fx);
-}
-
-fn spawnFxProbe(model: *Model, fx: *Effects) void {
-    while (model.fx_probe_index < 2) {
-        var path_buf: [max_fx_path]u8 = undefined;
-        if (fxProbePath(model, model.fx_probe_index, &path_buf)) |path| {
-            model.setFxPath(path);
-            fx.spawn(.{
-                .key = fx_probe_key,
-                .argv = &.{ model.fxPath(), "--help" },
-                .output = .collect,
-                .on_exit = Effects.exitMsg(.fx_probe_exit),
-            });
-            return;
-        }
-        model.fx_probe_index += 1;
-    }
-    model.fx_available = false;
-    model.fx_path_len = 0;
-}
-
-fn handleFxProbeExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
-    if (exit.key != fx_probe_key) return;
-    if (exit.reason == .exited and exit.code == 0) {
-        model.fx_available = true;
-        return;
-    }
-    model.fx_available = false;
-    model.fx_path_len = 0;
-    model.fx_probe_index += 1;
-    spawnFxProbe(model, fx);
-}
-
-fn fxProbePath(model: *const Model, index: u32, buf: *[max_fx_path]u8) ?[]const u8 {
-    switch (index) {
-        0 => {
-            const home = model.homeDir();
-            if (home.len == 0) return null;
-            const suffix = "/.local/bin/fx";
-            if (home.len + suffix.len > buf.len) return null;
-            @memcpy(buf[0..home.len], home);
-            @memcpy(buf[home.len..][0..suffix.len], suffix);
-            return buf[0 .. home.len + suffix.len];
-        },
-        1 => {
-            const name = "fx";
-            @memcpy(buf[0..name.len], name);
-            return buf[0..name.len];
-        },
-        else => return null,
-    }
-}
+pub const startFxProbe = fx_probe.startFxProbe;
 
 /// Native `UiApp.Options.on_drop` → Msg. Window-level; no OS picker.
 pub const onDrop = attach_helpers.onDrop;
@@ -3558,4 +3503,5 @@ test {
     _ = @import("spawn.zig");
     _ = @import("stream.zig");
     _ = @import("lines.zig");
+    _ = @import("fx_probe.zig");
 }

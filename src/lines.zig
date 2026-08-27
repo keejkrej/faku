@@ -3,7 +3,7 @@
 //! `handleFxLine` / `handleAcpLine` / `handleDaemonLine`, ACP apply
 //! helpers, daemon goalUpdated apply, and `handleFxExit` live here.
 //! Maximize spawn/exit helpers live in `maximize_window.zig`. Probe
-//! helpers stay in `main.zig`. Stream finish still comes from
+//! helpers live in `fx_probe.zig`. Stream finish still comes from
 //! `stream.zig`. Behavior is unchanged from the former `main` line
 //! handlers.
 
