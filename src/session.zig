@@ -3,8 +3,9 @@
 //! `AvailableCommand` / `ModelOption` / `Session` live here.
 //! `writeFixed` is the shared fixed-buffer helper Session methods
 //! use (re-exported from `main`). Update arms stay in
-//! `session_actions.zig`. Model / Msg / `update` stay in `main.zig`.
-//! Behavior is unchanged from the former `main` Session cluster.
+//! `session_actions.zig`. Model / Msg live in `model.zig`. `update`
+//! stays in `main.zig`. Behavior is unchanged from the former `main`
+//! Session cluster.
 
 const std = @import("std");
 const protocol = @import("protocol.zig");

@@ -1,9 +1,10 @@
 //! Sidebar row builders: date buckets, folder rows, and width clamps.
 //!
 //! Ungrouped date-header rows, folder headers, session row shaping,
-//! and sidebar split clamp/resize live here. `Model`, `Session`, and
-//! `SidebarRow` stay in `main.zig`. Behavior is unchanged from the
-//! former `main` sidebar row helpers.
+//! and sidebar split clamp/resize live here. `Model` and `SidebarRow`
+//! live in `model.zig` (re-exported from `main`). `Session` lives in
+//! `session.zig`. Behavior is unchanged from the former `main` sidebar
+//! row helpers.
 
 const std = @import("std");
 const main = @import("main.zig");
