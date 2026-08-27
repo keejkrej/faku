@@ -59,7 +59,9 @@ unchanged. Clipboard and turn-complete notify helpers live in
 `src/copy.zig`. Session fork / rewind helpers live in
 `src/fork.zig`. Prompt-start / fx ask / fx acp / daemon spawn
 helpers live in `src/spawn.zig`. Send / stream lifecycle /
-daemon steer-cancel helpers live in `src/stream.zig`.
+daemon steer-cancel helpers live in `src/stream.zig`. Sidecar
+stdout / ACP / daemon line handlers and fx-exit routing live in
+`src/lines.zig`.
 
 ## Why fx
 
