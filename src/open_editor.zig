@@ -163,10 +163,10 @@ pub fn startOpenEditor(model: *Model, fx: *Effects) void {
     model.open_editor_live = true;
     model.open_editor_stage = .first;
     model.clearWindowStatus();
-    spawnEditor(model, fx, tool, path);
+    spawnEditor(fx, tool, path);
 }
 
-fn spawnEditor(model: *Model, fx: *Effects, tool: Tool, path: []const u8) void {
+fn spawnEditor(fx: *Effects, tool: Tool, path: []const u8) void {
     var scratch: ArgvScratch = .{};
     fx.spawn(.{
         .key = open_editor_key,
@@ -186,7 +186,7 @@ pub fn handleOpenEditorExit(model: *Model, fx: *Effects, exit: native_sdk.Effect
             if (resolveOpenPath(model)) |path| {
                 if (hostTool(stage)) |tool| {
                     model.open_editor_stage = stage;
-                    spawnEditor(model, fx, tool, path);
+                    spawnEditor(fx, tool, path);
                     return;
                 }
             }
