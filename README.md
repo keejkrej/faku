@@ -58,7 +58,8 @@ unfocused-only gate — it always notifies on success. Headless paths are
 unchanged. Clipboard and turn-complete notify helpers live in
 `src/copy.zig`. Session fork / rewind helpers live in
 `src/fork.zig`. Prompt-start / fx ask / fx acp / daemon spawn
-helpers live in `src/spawn.zig`.
+helpers live in `src/spawn.zig`. Send / stream lifecycle /
+daemon steer-cancel helpers live in `src/stream.zig`.
 
 ## Why fx
 

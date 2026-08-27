@@ -2,9 +2,8 @@
 //!
 //! `startPrompt` path selection (daemon / fx acp / fx ask / demo),
 //! StartOptions mapping, and `takeFxAskSessionId` live here. Stream
-//! lifecycle (`handleSend`, `tickStream`, `finishStream`, `stopStream`)
-//! and line handlers stay in `main.zig`. Behavior is unchanged from
-//! the former `main` spawn helpers.
+//! lifecycle lives in `stream.zig`. Line handlers stay in `main.zig`.
+//! Behavior is unchanged from the former `main` spawn helpers.
 
 const std = @import("std");
 const main = @import("main.zig");

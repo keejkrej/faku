@@ -36,6 +36,7 @@ const sidebar_row_helpers = @import("sidebar_rows.zig");
 const attach_helpers = @import("attach.zig");
 const session_fork = @import("fork.zig");
 const prompt_spawn = @import("spawn.zig");
+const turn_stream = @import("stream.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -172,7 +173,7 @@ pub const max_daemon_token = 256;
 pub const max_sidecar_path = 512;
 pub const daemon_line_bytes: usize = 64 * 1024;
 pub const stream_interval_ms: u64 = 90;
-const stream_chunk_bytes: usize = 8;
+pub const stream_chunk_bytes: usize = 8;
 /// Overshoot for a programmatic jump to the transcript end. Native
 /// clamps `scroll` `value` against the content edge
 /// (`content_extent_y - viewport_extent_y`), so a large source offset
@@ -197,8 +198,8 @@ pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_st
 /// `LoadImageOptions` + markup `<image image="{binding}">`.
 pub const attach_preview_id_first = attach_helpers.attach_preview_id_first;
 pub const attach_preview_id_last = attach_helpers.attach_preview_id_last;
-const demo_ticks_complete: u32 = 12;
-const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
+pub const demo_ticks_complete: u32 = 12;
+pub const demo_reply = "fx here (demo). The fx CLI was not found, so this is a local timer stream. Install fx and Send runs `fx ask`.";
 /// Desktop notification title when the session has no stored title.
 pub const notify_fallback_title = copy_helpers.notify_fallback_title;
 /// Desktop notification body when the last assistant turn is empty.
@@ -2811,7 +2812,7 @@ pub fn sessionDisplayTitle(session: *const Session) []const u8 {
     return session.title();
 }
 
-fn stampSessionActivity(session: *Session, now_ms: i64) void {
+pub fn stampSessionActivity(session: *Session, now_ms: i64) void {
     if (now_ms <= 0) return;
     session.updated_at = now_ms;
 }
@@ -3097,9 +3098,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.draft_buffer.apply(edit);
             store.persistDraftIfPossible(model);
         },
-        .send => handleSend(model, fx),
-        .stop_turn => stopStream(model, fx),
-        .steer => handleSteer(model, fx),
+        .send => turn_stream.handleSend(model, fx),
+        .stop_turn => turn_stream.stopStream(model, fx),
+        .steer => turn_stream.handleSteer(model, fx),
         .goal_set => goal.handleGoalSet(model, fx),
         .goal_clear => goal.handleGoalClear(model, fx),
         .goal_refresh => goal.handleGoalRefresh(model, fx),
@@ -3178,7 +3179,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 model.exitFind();
                 return;
             }
-            stopStream(model, fx);
+            turn_stream.stopStream(model, fx);
         },
         .toggle_settings => model.toggleSettings(),
         .settings_model_edit => |edit| {
@@ -3360,7 +3361,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .attach_preview_done => |result| attach_helpers.applyAttachPreviewResult(model, fx, result),
         .tick => |timer| {
             if (timer.outcome != .fired) return;
-            tickStream(model, fx);
+            turn_stream.tickStream(model, fx);
         },
         .fx_line => |line| handleFxLine(model, fx, line),
         .fx_exit => |exit| handleFxExit(model, fx, exit),
@@ -3378,58 +3379,6 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     startFxProbe(model, fx);
 }
 
-fn handleSend(model: *Model, fx: *Effects) void {
-    if (!model.fx_probe_started) startFxProbe(model, fx);
-    const text = std.mem.trim(u8, model.draft(), " \t\r\n");
-    var key_buf: [store.max_draft_key]u8 = undefined;
-    const draft_key = if (model.sessionById(model.selected)) |session|
-        store.draftKey(session, &key_buf)
-    else
-        null;
-    if (model.is_streaming()) {
-        if (text.len == 0) {
-            stopStream(model, fx);
-            return;
-        }
-        if (model.enqueue(model.selected, text) != 0) {
-            if (model.sessionById(model.selected)) |session| stampSessionActivity(session, model.now_ms);
-            store.persistIfPossible(model, model.selected, fx);
-        }
-        model.draft_buffer.clear();
-        if (draft_key) |key| store.discardDraftIfPossible(model, key);
-        model.clearImageAttach();
-        attach_helpers.refreshAttachPreview(model, fx);
-        return;
-    }
-    if (text.len == 0) return;
-    prompt_spawn.startPrompt(model, fx, model.selected, text);
-    model.draft_buffer.clear();
-    if (draft_key) |key| store.discardDraftIfPossible(model, key);
-    model.clearImageAttach();
-    attach_helpers.refreshAttachPreview(model, fx);
-}
-
-/// Waku ⌘Enter: inject into a live daemon turn when attach reported
-/// `supportsSteer`. Otherwise the same as Send (queue while busy).
-fn handleSteer(model: *Model, fx: *Effects) void {
-    if (!model.fx_probe_started) startFxProbe(model, fx);
-    const text = std.mem.trim(u8, model.draft(), " \t\r\n");
-    if (text.len == 0) return;
-    if (maybeSteerDaemonTurn(model, fx, text)) {
-        var key_buf: [store.max_draft_key]u8 = undefined;
-        const draft_key = if (model.sessionById(model.selected)) |session|
-            store.draftKey(session, &key_buf)
-        else
-            null;
-        model.draft_buffer.clear();
-        if (draft_key) |key| store.discardDraftIfPossible(model, key);
-        model.clearImageAttach();
-        attach_helpers.refreshAttachPreview(model, fx);
-        return;
-    }
-    handleSend(model, fx);
-}
-
 fn persistComposerChips(model: *Model, fx: *Effects) void {
     store.persistSettingsIfPossible(model);
     store.persistIfPossible(model, model.selected, fx);
@@ -3438,132 +3387,6 @@ fn persistComposerChips(model: *Model, fx: *Effects) void {
 fn persistComposerProject(model: *Model, fx: *Effects) void {
     store.persistSettingsIfPossible(model);
     store.persistIfPossible(model, model.selected, fx);
-}
-
-fn tickStream(model: *Model, fx: *Effects) void {
-    if (model.phase != .streaming) return;
-    model.stream_cursor += 1;
-    const start = @min(demo_reply.len, (model.stream_cursor - 1) * stream_chunk_bytes);
-    const end = @min(demo_reply.len, start + stream_chunk_bytes);
-    if (end > start) model.appendToTurn(model.stream_turn_id, demo_reply[start..end]);
-    if (model.stream_cursor >= demo_ticks_complete or end >= demo_reply.len) {
-        finishStream(model, fx, true);
-    }
-}
-
-fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
-    const finished_id = model.streaming_session;
-    if (model.sessionById(finished_id)) |session| session.busy = false;
-    model.phase = .idle;
-    model.stream_cursor = 0;
-    model.stream_turn_id = 0;
-    model.streaming_session = 0;
-    fx.cancelTimer(stream_timer_key);
-    if (drain) {
-        copy_helpers.notifyTurnComplete(model, fx, finished_id);
-        var copy: [max_queued_text]u8 = undefined;
-        if (model.takeNextQueued(finished_id, &copy)) |n| {
-            store.persistIfPossible(model, finished_id, fx);
-            prompt_spawn.startPrompt(model, fx, finished_id, copy[0..n]);
-            return;
-        }
-    }
-    store.persistIfPossible(model, finished_id, fx);
-}
-
-fn stopStream(model: *Model, fx: *Effects) void {
-    if (!model.is_streaming()) return;
-    const finished_id = model.streaming_session;
-    const was_daemon = model.daemon_spawn_key != 0;
-    if (model.sessionById(finished_id)) |session| session.busy = false;
-    model.phase = .idle;
-    model.stream_cursor = 0;
-    model.stream_turn_id = 0;
-    model.streaming_session = 0;
-    fx.cancelTimer(stream_timer_key);
-    fx.cancel(fx_ask_key);
-    if (model.fx_spawn_key != 0) fx.cancel(model.fx_spawn_key);
-    if (model.daemon_spawn_key != 0) fx.cancel(model.daemon_spawn_key);
-    model.fx_spawn_live = false;
-    if (was_daemon) maybeCancelDaemonTurn(model, fx, finished_id);
-    store.persistIfPossible(model, finished_id, fx);
-}
-
-/// Live daemon turn that Waku would steer: address set, prompt sidecar
-/// still running, and attach/start reported `supportsSteer`. Unknown
-/// or false queues instead (same as Waku `session_can_steer`).
-fn canSteerLiveDaemonTurn(model: *const Model) bool {
-    if (model.daemonAddress().len == 0) return false;
-    if (model.daemon_spawn_key == 0 or !model.is_streaming()) return false;
-    const session = model.sessionByIdConst(model.streaming_session) orelse return false;
-    return session.supports_steer;
-}
-
-/// Best-effort one-shot hello + `steer` into a live daemon turn. Own
-/// spawn key — Native cannot write into the running prompt sidecar.
-/// Returns true only after a spawn is recorded so the caller can clear
-/// the draft. Write failure leaves the draft and does not enqueue.
-fn maybeSteerDaemonTurn(model: *Model, fx: *Effects, prompt: []const u8) bool {
-    if (!canSteerLiveDaemonTurn(model)) return false;
-    const session = model.sessionById(model.streaming_session) orelse return false;
-    var id_buf: [36]u8 = undefined;
-    const wire_id = daemon_proxy.wireUuid(session.id, &id_buf);
-    const runtime_id = if (protocol.isUsableRuntimeId(session.runtimeId()))
-        session.runtimeId()
-    else
-        protocol.NIL_UUID;
-    var stdin_buf: [4096]u8 = undefined;
-    const stdin = daemon_proxy.writeSteerStdin(&stdin_buf, .{
-        .token = model.daemonToken(),
-        .session_id = wire_id,
-        .runtime_id = runtime_id,
-        .prompt = prompt,
-    }) catch return false;
-
-    const key = model.next_daemon_key;
-    model.next_daemon_key += 1;
-    fx.spawn(.{
-        .key = key,
-        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, model.daemonAddress() },
-        .stdin = stdin,
-        .max_line_bytes = daemon_line_bytes,
-        .on_line = Effects.lineMsg(.fx_line),
-        .on_exit = Effects.exitMsg(.fx_exit),
-    });
-    return true;
-}
-
-/// Best-effort one-shot hello + bare `cancel` after Stop / Esc of a
-/// daemon turn. Own spawn key — Native cannot write into the running
-/// prompt sidecar. Missing live address is a no-op (fx ask / fx acp /
-/// demo stay cancel-the-spawn only). Sidecar failure must not
-/// resurrect the turn already settled above.
-fn maybeCancelDaemonTurn(model: *Model, fx: *Effects, session_id: u32) void {
-    if (model.daemonAddress().len == 0) return;
-    const session = model.sessionById(session_id) orelse return;
-    var id_buf: [36]u8 = undefined;
-    const wire_id = daemon_proxy.wireUuid(session.id, &id_buf);
-    const runtime_id = if (protocol.isUsableRuntimeId(session.runtimeId()))
-        session.runtimeId()
-    else
-        protocol.NIL_UUID;
-    var stdin_buf: [4096]u8 = undefined;
-    const stdin = daemon_proxy.writeCancelStdin(&stdin_buf, .{
-        .token = model.daemonToken(),
-        .session_id = wire_id,
-        .runtime_id = runtime_id,
-    }) catch return;
-
-    const key = model.next_daemon_key;
-    model.next_daemon_key += 1;
-    fx.spawn(.{
-        .key = key,
-        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, model.daemonAddress() },
-        .stdin = stdin,
-        .max_line_bytes = daemon_line_bytes,
-        .on_line = Effects.lineMsg(.fx_line),
-        .on_exit = Effects.exitMsg(.fx_exit),
-    });
 }
 
 fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
@@ -3655,7 +3478,7 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
     if (acp.isPromptResult(parsed) or (parsed.has_error and parsed.id != null)) {
         const drain = acp.promptSucceeded(parsed);
         if (model.fx_spawn_key != 0) fx.cancel(model.fx_spawn_key);
-        finishStream(model, fx, drain);
+        turn_stream.finishStream(model, fx, drain);
     }
 }
 
@@ -3813,13 +3636,13 @@ fn handleDaemonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
             if (parsed.event_kind == .text_delta and parsed.text_delta.len > 0) {
                 model.appendToTurn(model.stream_turn_id, parsed.text_delta);
             } else if (parsed.event_kind == .turn_finished) {
-                finishStream(model, fx, parsed.turn_success);
+                turn_stream.finishStream(model, fx, parsed.turn_success);
             } else if (parsed.event_kind == .@"error") {
-                finishStream(model, fx, false);
+                turn_stream.finishStream(model, fx, false);
             }
         },
         .response => persistDaemonRuntimeId(model, fx, parsed),
-        .rejected => finishStream(model, fx, false),
+        .rejected => turn_stream.finishStream(model, fx, false),
         else => {},
     }
 }
@@ -3870,10 +3693,10 @@ fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     }
     if (model.phase != .streaming) return;
     const success = exit.reason == .exited and exit.code == 0;
-    finishStream(model, fx, success);
+    turn_stream.finishStream(model, fx, success);
 }
 
-fn startFxProbe(model: *Model, fx: *Effects) void {
+pub fn startFxProbe(model: *Model, fx: *Effects) void {
     if (model.fx_probe_started) return;
     model.fx_probe_started = true;
     model.fx_probe_index = 0;
@@ -4082,4 +3905,5 @@ test {
     _ = @import("attach.zig");
     _ = @import("fork.zig");
     _ = @import("spawn.zig");
+    _ = @import("stream.zig");
 }
