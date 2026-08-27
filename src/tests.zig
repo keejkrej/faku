@@ -10216,6 +10216,12 @@ test "git branch label is omitted for empty missing rejected empty and nonzero" 
     drainEffects(&model, &fx);
     try testing.expect(!model.has_git_branch());
 
+    git_branch.refresh(&model, &fx);
+    spawn = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try fx.feedExitReason(spawn.key, 0, .rejected);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_branch());
+
     const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .button, project);
     try testing.expect(findByText(tree.root, .text, "main") == null);
@@ -10257,10 +10263,9 @@ test "changing session or project_path does not keep the previous branch" {
     main.update(&model, .{ .select = second }, &fx);
     try testing.expectEqual(second, model.selected);
     try testing.expect(!model.has_git_branch());
-    try testing.expect(model.git_branch_key != first_key);
-
-    try fx.feedLine(first_key, "stale-a");
-    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_branch_key);
+    try testing.expectError(error.EffectNotFound, fx.feedLine(first_key, "stale-a"));
+    git_branch.applyLine(&model, .{ .key = first_key, .line = "stale-a" });
     try testing.expect(!model.has_git_branch());
 
     main.update(&model, .{ .select = first }, &fx);
@@ -10279,8 +10284,8 @@ test "changing session or project_path does not keep the previous branch" {
     try testing.expect(second_spawn.key != again.key);
     try expectGitBranchArgv(second_spawn, project_b);
 
-    try fx.feedLine(again.key, "stale-a");
-    drainEffects(&model, &fx);
+    try testing.expectError(error.EffectNotFound, fx.feedLine(again.key, "stale-a"));
+    git_branch.applyLine(&model, .{ .key = again.key, .line = "stale-a" });
     try testing.expect(!model.has_git_branch());
 
     try fx.feedLine(second_spawn.key, "branch-b");
