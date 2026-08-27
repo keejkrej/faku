@@ -87,6 +87,7 @@ pub fn rows(model: *const Model, arena: std.mem.Allocator) []const SidebarRow {
             .folder_id = folder.id,
             .grouped = false,
             .is_date_header = false,
+            .collapsed = folder.collapsed,
         };
         i += 1;
         if (folder.collapsed) continue;

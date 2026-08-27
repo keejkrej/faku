@@ -8368,6 +8368,9 @@ test "session with folder_id appears under that folder not Today" {
     });
     try testing.expect(model.sidebar_rows(arena)[1].is_header);
     try testing.expectEqual(folder_id, model.sidebar_rows(arena)[1].folder_id);
+    try testing.expect(!model.sidebar_rows(arena)[1].collapsed);
+    try testing.expect(!model.sidebar_rows(arena)[0].collapsed);
+    try testing.expect(!model.sidebar_rows(arena)[2].collapsed);
     try expectRowTitles(model.session_rows(arena), &.{ "port waku to zig", "fix auth listener" });
 
     var tree = try buildTree(arena, &model);
@@ -8385,9 +8388,13 @@ test "session with folder_id appears under that folder not Today" {
         "port waku to zig",
         "New folder",
     });
+    try testing.expect(model.sidebar_rows(arena)[1].is_header);
+    try testing.expect(model.sidebar_rows(arena)[1].collapsed);
+    try testing.expect(!model.sidebar_rows(arena)[0].collapsed);
     tree = try buildTree(arena, &model);
     try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
     _ = try expectByText(tree.root, .list_item, "New folder");
+    _ = try expectButton(tree.root, "Expand folder");
 
     var loaded = Model{};
     loaded.setStoreDir(dir);
@@ -8598,15 +8605,19 @@ test "grouped folder sessions get a Native guide rail; Today rows stay flush" {
     try testing.expect(!rows[0].is_header);
     try testing.expect(!rows[0].grouped);
     try testing.expectEqual(@as(u32, 0), rows[0].folder_id);
+    try testing.expect(!rows[0].collapsed);
     try testing.expect(rows[1].is_header);
     try testing.expect(!rows[1].grouped);
     try testing.expectEqual(folder_id, rows[1].folder_id);
+    try testing.expect(!rows[1].collapsed);
     try testing.expect(!rows[2].is_header);
     try testing.expect(rows[2].grouped);
     try testing.expectEqual(folder_id, rows[2].folder_id);
+    try testing.expect(!rows[2].collapsed);
     try testing.expect(!rows[3].is_header);
     try testing.expect(rows[3].grouped);
     try testing.expectEqual(folder_id, rows[3].folder_id);
+    try testing.expect(!rows[3].collapsed);
 
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .list_item, "port waku to zig");
@@ -8649,11 +8660,15 @@ test "grouped folder sessions get a Native guide rail; Today rows stay flush" {
         "port waku to zig",
         "New folder",
     });
+    try testing.expect(model.sidebar_rows(arena)[1].is_header);
+    try testing.expect(model.sidebar_rows(arena)[1].collapsed);
+    try testing.expect(!model.sidebar_rows(arena)[0].collapsed);
     tree = try buildTree(arena, &model);
     try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
     try testing.expect(findPressableContaining(tree.root, "rewrite the parser") == null);
     _ = try expectByText(tree.root, .list_item, "New folder");
     _ = try expectByText(tree.root, .list_item, "port waku to zig");
+    _ = try expectButton(tree.root, "Expand folder");
     try testing.expect(!sessionRowHasGroupRail(tree.root, "port waku to zig"));
     try testing.expectEqual(@as(usize, 1), countByKind(tree.root, .separator));
 
@@ -8770,7 +8785,7 @@ test "clicking a folder header assigns the selected session; Today unassigns" {
     tree = try buildTree(arena, &model);
     try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
     _ = try expectByText(tree.root, .list_item, "New folder");
-    _ = try expectButton(tree.root, "Collapse folder");
+    _ = try expectButton(tree.root, "Expand folder");
     _ = try expectButton(tree.root, "Search");
 }
 
@@ -8889,7 +8904,7 @@ test "second click on a folder title edits it; empty name becomes New folder" {
     try testing.expect(findPressableContaining(tree.root, "port waku to zig") == null);
     try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
     _ = try expectByText(tree.root, .list_item, "New folder");
-    _ = try expectButton(tree.root, "Collapse folder");
+    _ = try expectButton(tree.root, "Expand folder");
 }
 
 test "deleting a folder unassigns its sessions; they stay in Today" {
@@ -9005,7 +9020,7 @@ test "deleting a folder unassigns its sessions; they stay in Today" {
     tree = try buildTree(arena, &model);
     try testing.expect(findPressableContaining(tree.root, "fix auth listener") == null);
     _ = try expectByText(tree.root, .list_item, "Work");
-    _ = try expectButton(tree.root, "Collapse folder");
+    _ = try expectButton(tree.root, "Expand folder");
     _ = try expectButton(tree.root, "Delete folder");
     _ = try expectButton(tree.root, "Close");
 }
@@ -10656,17 +10671,22 @@ test "ungrouped sessions land in Today Yesterday Older; folder rows stay put" {
     try testing.expect(rows[0].is_date_header);
     try testing.expect(rows[0].is_header);
     try testing.expectEqual(@as(u32, 0), rows[0].folder_id);
+    try testing.expect(!rows[0].collapsed);
     try testing.expect(!rows[1].is_header);
     try testing.expect(!rows[1].grouped);
+    try testing.expect(!rows[1].collapsed);
     try testing.expect(rows[3].is_date_header);
     try testing.expectEqualStrings("Yesterday", rows[3].title);
+    try testing.expect(!rows[3].collapsed);
     try testing.expect(rows[5].is_date_header);
     try testing.expectEqualStrings("Older", rows[5].title);
     try testing.expect(rows[7].is_header);
     try testing.expect(!rows[7].is_date_header);
     try testing.expectEqual(folder_id, rows[7].folder_id);
+    try testing.expect(!rows[7].collapsed);
     try testing.expect(rows[8].grouped);
     try testing.expectEqual(folder_id, rows[8].folder_id);
+    try testing.expect(!rows[8].collapsed);
 
     const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .list_item, "Today");
