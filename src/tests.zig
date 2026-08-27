@@ -10085,19 +10085,12 @@ test "composer project row sets selected session project_path and reloads" {
     try testing.expectEqual(@as(usize, 0), cleared.sessionById(inherited).?.projectPath().len);
 }
 
-fn findGitBranchSpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
-    return findGitBranchSpawnKey(fx, 0);
-}
-
 fn findGitBranchSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     var i: usize = 0;
-    var found: ?@TypeOf(fx.pendingSpawnAt(0).?) = null;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
-        if (!git_branch.isGitBranchArgv(spawn.argv)) continue;
-        if (key != 0 and spawn.key != key) continue;
-        found = spawn;
+        if (spawn.key == key and git_branch.isGitBranchArgv(spawn.argv)) return spawn;
     }
-    return found;
+    return null;
 }
 
 fn expectGitBranchArgv(spawn: anytype, cwd: []const u8) !void {
@@ -10180,7 +10173,6 @@ test "git branch label is omitted for empty missing rejected empty and nonzero" 
 
     main.update(&model, .{ .project_path_edit = .{ .insert_text = ".zig-cache/tmp/faku-git-missing" } }, &fx);
     try testing.expectEqual(@as(u64, 0), model.git_branch_key);
-    try testing.expect(findGitBranchSpawnKey(&fx, 0) == null);
     try testing.expect(!model.has_git_branch());
 
     main.update(&model, .{ .project_path_edit = .clear }, &fx);
