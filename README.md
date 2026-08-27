@@ -64,7 +64,8 @@ helpers live in `src/spawn.zig`. Send / stream lifecycle /
 daemon steer-cancel helpers live in `src/stream.zig`. Sidecar
 stdout / ACP / daemon line handlers and fx-exit routing live in
 `src/lines.zig`. Maximize spawn/exit helpers live in
-`src/maximize_window.zig`. Composer git-branch probe helpers live in
+`src/maximize_window.zig`. Composer Pick folder helpers live in
+`src/pick_folder.zig`. Composer git-branch probe helpers live in
 `src/git_branch.zig`. Boot fx-probe spawn/exit lives in
 `src/fx_probe.zig`. Folder/chip persist helpers live in
 `src/persist.zig`. Session / folder / title-edit update helpers live
@@ -181,8 +182,13 @@ image / fallback path still starts
 
 New sessions inherit `last_project_path` from `sessions.json` when one
 was persisted. The composer project row under the prompt sets that
-session `project_path` (empty is Local / host cwd). When that path
-exists, the same row shows a muted current-branch label from a
+session `project_path` (empty is Local / host cwd). Pick folder
+one-shots an OS directory dialog (macOS `osascript` `choose folder`
+POSIX path; Linux `zenity --file-selection --directory`, else
+`kdialog --getexistingdirectory`) because Native still has no
+`fx.pickFile` — this is not Waku's daemon project picker. Typed path
+remains. When that path exists, the same row shows a muted
+current-branch label from a
 one-shot `fx.spawn` of `git branch --show-current` (chdir via the
 same `/bin/sh -c 'cd -- "$1" && shift && exec "$@"'` workaround
 `fx ask` uses, because Native `SpawnOptions` has no `cwd`). Detached

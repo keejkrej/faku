@@ -312,6 +312,8 @@ pub const Msg = union(enum) {
     pick_effort: []const u8,
     start_project_edit,
     project_path_edit: canvas.TextInputEvent,
+    /// Composer Pick folder: one-shot OS directory-dialog sidecar. Not `fx.pickFile`.
+    pick_folder,
     start_image_attach,
     /// Composer Pick image: one-shot OS file-dialog sidecar. Not `fx.pickFile`.
     pick_image,
@@ -430,6 +432,9 @@ pub const Model = struct {
     pick_image_live: bool = false,
     pick_image_got_path: bool = false,
     pick_image_tried_fallback: bool = false,
+    pick_folder_live: bool = false,
+    pick_folder_got_path: bool = false,
+    pick_folder_tried_fallback: bool = false,
     /// Runtime-only chrome status when the OS maximize sidecar is missing.
     window_status_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
     window_status_len: usize = 0,
@@ -598,6 +603,9 @@ pub const Model = struct {
         "pick_image_live",
         "pick_image_got_path",
         "pick_image_tried_fallback",
+        "pick_folder_live",
+        "pick_folder_got_path",
+        "pick_folder_tried_fallback",
         "setAttachStatus",
         "clearAttachStatus",
         "window_status_storage",
@@ -665,6 +673,7 @@ pub const Model = struct {
         "startProjectEdit",
         "closeProjectEdit",
         "applySelectedProjectPath",
+        "setSelectedProjectPath",
         "selectedProjectPath",
         "resolvedAccessMode",
         "resolvedInteractionMode",
@@ -1647,6 +1656,17 @@ pub const Model = struct {
             session.setProjectPath(path);
         }
         model.setLastProjectPath(path);
+    }
+
+    /// Sets the selected session cwd and `last_project_path`. Same write
+    /// as typing a path on the composer project row.
+    pub fn setSelectedProjectPath(model: *Model, path: []const u8) void {
+        const trimmed = std.mem.trim(u8, path, " \t\r\n");
+        model.project_edit_buffer.set(trimmed);
+        if (model.sessionById(model.selected)) |session| {
+            session.setProjectPath(trimmed);
+        }
+        model.setLastProjectPath(trimmed);
     }
 
     pub fn cycleSelectedAccess(model: *Model) void {

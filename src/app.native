@@ -422,6 +422,7 @@
             <if test="{project_edit_active}">
               <row gap="8" cross="center">
                 <text-field grow="1" placeholder="Workspace path" text="{project_edit}" on-input="project_path_edit" autofocus="true" />
+                <button variant="ghost" size="sm" on-press="pick_folder">Pick folder</button>
                 <spacer grow="1" />
                 <progress value="{context_usage}" width="16" height="16" label="Context usage" />
               </row>
@@ -429,6 +430,7 @@
             <else>
               <row gap="8" cross="center">
                 <button variant="ghost" size="sm" icon="folder" on-press="start_project_edit">{project_label}</button>
+                <button variant="ghost" size="sm" on-press="pick_folder">Pick folder</button>
                 <if test="{project_is_local}">
                   <button variant="ghost" size="sm" icon="terminal" on-press="start_project_edit">Local</button>
                 </if>
