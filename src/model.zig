@@ -1041,6 +1041,32 @@ pub const Model = struct {
         return out[0..i];
     }
 
+    /// Find-bar muted count (`1 match` / `N matches` / `No matches`). Empty
+    /// when find is inactive or the trimmed query is blank so the row can hide it.
+    /// Same selected-session ascii-contains predicate as `visible_turns`.
+    pub fn find_match_label(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        if (!model.find_active) return "";
+        const query = std.mem.trim(u8, model.find_query(), " \t\r\n");
+        if (query.len == 0) return "";
+        var count: usize = 0;
+        for (model.turn_store[0..model.turn_count]) |turn| {
+            if (turn.session_id != model.selected) continue;
+            if (!main.asciiContainsIgnoreCase(turn.text(), query)) continue;
+            count += 1;
+        }
+        return switch (count) {
+            0 => "No matches",
+            1 => "1 match",
+            else => std.fmt.allocPrint(arena, "{d} matches", .{count}) catch "matches",
+        };
+    }
+
+    /// True when the find bar should show `find_match_label`.
+    pub fn has_find_match_label(model: *const Model) bool {
+        if (!model.find_active) return false;
+        return std.mem.trim(u8, model.find_query(), " \t\r\n").len > 0;
+    }
+
     pub fn selected_title(model: *const Model) []const u8 {
         if (model.activeSessionConst()) |session| return session.title();
         return "untitled";
