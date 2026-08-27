@@ -35,6 +35,7 @@ const session_switcher = @import("switcher.zig");
 const sidebar_row_helpers = @import("sidebar_rows.zig");
 const attach_helpers = @import("attach.zig");
 const session_fork = @import("fork.zig");
+const prompt_spawn = @import("spawn.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -709,6 +710,8 @@ pub const ChipPickerRow = struct {
 const access_chip_options = composer.access_chip_options;
 const effort_chip_options = composer.effort_chip_options;
 pub const fxPermissionMode = composer.fxPermissionMode;
+pub const startOptionsFromSession = prompt_spawn.startOptionsFromSession;
+pub const takeFxAskSessionId = prompt_spawn.takeFxAskSessionId;
 pub const nextAccessMode = composer.nextAccessMode;
 pub const accessLabel = composer.accessLabel;
 pub const nextReasoningEffort = composer.nextReasoningEffort;
@@ -2797,7 +2800,7 @@ pub const Model = struct {
     }
 };
 
-fn writeFixed(storage: []u8, len: *usize, text: []const u8) void {
+pub fn writeFixed(storage: []u8, len: *usize, text: []const u8) void {
     const take = @min(storage.len, text.len);
     @memcpy(storage[0..take], text[0..take]);
     len.* = take;
@@ -3399,7 +3402,7 @@ fn handleSend(model: *Model, fx: *Effects) void {
         return;
     }
     if (text.len == 0) return;
-    startPrompt(model, fx, model.selected, text);
+    prompt_spawn.startPrompt(model, fx, model.selected, text);
     model.draft_buffer.clear();
     if (draft_key) |key| store.discardDraftIfPossible(model, key);
     model.clearImageAttach();
@@ -3427,52 +3430,6 @@ fn handleSteer(model: *Model, fx: *Effects) void {
     handleSend(model, fx);
 }
 
-fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) void {
-    const session = model.sessionById(session_id) orelse return;
-    session_fork.recordRewindRefIfPossible(model, session.id);
-    const titled = session.untitled;
-    if (session.untitled) {
-        writeFixed(&session.title_storage, &session.title_len, text);
-        session.untitled = false;
-    }
-    _ = model.appendTurn(session.id, .user, text);
-    const assistant_id = model.appendTurn(session.id, .assistant, "");
-    if (titled) store.persistIfPossible(model, session.id, fx);
-    session.busy = true;
-    model.phase = .streaming;
-    model.stream_cursor = 0;
-    model.stream_turn_id = assistant_id;
-    model.streaming_session = session.id;
-    if (model.daemonAddress().len > 0) {
-        model.reply_path = .daemon;
-        startDaemonProxy(model, fx, session, text);
-        return;
-    }
-    if (session.provider == .fx and model.fx_available and model.fxPath().len > 0) {
-        model.reply_path = .fx;
-        const image_path = model.resolveSpawnImage();
-        if (image_path.len > 0) {
-            startFxAsk(model, fx, session, text);
-            return;
-        }
-        if (!startFxAcp(model, fx, session, text)) {
-            startFxAsk(model, fx, session, text);
-        }
-        return;
-    }
-    model.reply_path = .demo;
-    startDemoTimer(fx);
-}
-
-fn startDemoTimer(fx: *Effects) void {
-    fx.startTimer(.{
-        .key = stream_timer_key,
-        .interval_ms = stream_interval_ms,
-        .mode = .repeating,
-        .on_fire = Effects.timerMsg(.tick),
-    });
-}
-
 fn persistComposerChips(model: *Model, fx: *Effects) void {
     store.persistSettingsIfPossible(model);
     store.persistIfPossible(model, model.selected, fx);
@@ -3481,239 +3438,6 @@ fn persistComposerChips(model: *Model, fx: *Effects) void {
 fn persistComposerProject(model: *Model, fx: *Effects) void {
     store.persistSettingsIfPossible(model);
     store.persistIfPossible(model, model.selected, fx);
-}
-
-/// Map stored session fields onto verified `StartOptions`. Empty
-/// `project_path` becomes `"."`. Empty model is omitted on the wire.
-/// `computer_use_enabled` is not stored here and stays false.
-pub fn startOptionsFromSession(session: *const Session) protocol.StartOptions {
-    return .{
-        .provider = session.provider.wireName(),
-        .binary = session.provider.defaultBinary(),
-        .cwd = if (session.projectPath().len > 0) session.projectPath() else ".",
-        .mode = if (session.accessMode().len > 0) session.accessMode() else default_access_mode,
-        .interaction_mode = if (session.interactionMode().len > 0) session.interactionMode() else default_interaction_mode,
-        .model = if (session.model().len > 0) session.model() else null,
-        .reasoning_effort = if (session.reasoningEffort().len > 0) session.reasoningEffort() else null,
-        .computer_use_enabled = false,
-    };
-}
-
-fn startDaemonProxy(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) void {
-    var id_buf: [36]u8 = undefined;
-    const session_id = daemon_proxy.wireUuid(session.id, &id_buf);
-    const has_runtime = protocol.isUsableRuntimeId(session.runtimeId());
-    const runtime_id = if (has_runtime) session.runtimeId() else protocol.NIL_UUID;
-    const start = if (has_runtime) null else startOptionsFromSession(session);
-    var stdin_buf: [4096]u8 = undefined;
-    const stdin = daemon_proxy.writeTurnStdin(&stdin_buf, .{
-        .token = model.daemonToken(),
-        .session_id = session_id,
-        .runtime_id = runtime_id,
-        .prompt = prompt,
-        .start = start,
-    }) catch {
-        model.reply_path = .demo;
-        startDemoTimer(fx);
-        return;
-    };
-
-    model.setLastDaemonAddress(model.daemonAddress());
-    model.daemon_spawn_key = model.next_daemon_key;
-    model.next_daemon_key += 1;
-
-    fx.spawn(.{
-        .key = model.daemon_spawn_key,
-        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, model.daemonAddress() },
-        .stdin = stdin,
-        .max_line_bytes = daemon_line_bytes,
-        .on_line = Effects.lineMsg(.fx_line),
-        .on_exit = Effects.exitMsg(.fx_exit),
-    });
-}
-
-fn allocateFxSpawnKey(model: *Model) u64 {
-    const key = if (model.fx_spawn_live) blk: {
-        const k = model.next_fx_key;
-        model.next_fx_key = k + 1;
-        break :blk k;
-    } else fx_ask_key;
-    model.fx_spawn_key = key;
-    model.fx_spawn_live = true;
-    return key;
-}
-
-fn startFxAcp(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) bool {
-    const path = model.fxPath();
-    const cwd = model.resolveAcpCwd(session);
-    const resume_id = session.fxSessionId();
-    const model_id = session.model();
-    const permission_mode = fxPermissionMode(session.accessMode());
-    model.setLastSpawnCwd(cwd);
-    model.setLastSpawnFxModel(model_id);
-    model.setLastSpawnFxPermissionMode(permission_mode);
-    model.setLastSpawnImagePath("");
-
-    var stdin_buf: [8192]u8 = undefined;
-    const stdin = acp.writeTurnStdin(&stdin_buf, .{
-        .cwd = cwd,
-        .resume_id = resume_id,
-        .prompt = prompt,
-        .model = model_id,
-        .access_mode = session.accessMode(),
-    }) catch return false;
-
-    var model_assign: [max_fx_model + 16]u8 = undefined;
-    var perm_assign: [max_access_mode + 24]u8 = undefined;
-    const model_arg = if (model_id.len > 0)
-        std.fmt.bufPrint(&model_assign, "FX_MODEL={s}", .{model_id}) catch ""
-    else
-        "";
-    const perm_arg = if (permission_mode.len > 0)
-        std.fmt.bufPrint(&perm_assign, "FX_PERMISSION_MODE={s}", .{permission_mode}) catch ""
-    else
-        "";
-
-    var argv_buf: [16][]const u8 = undefined;
-    var n: usize = 0;
-    argv_buf[n] = model.sidecarPath();
-    n += 1;
-    argv_buf[n] = acp_proxy.SUBCOMMAND;
-    n += 1;
-    argv_buf[n] = "--";
-    n += 1;
-    if (model_arg.len > 0 or perm_arg.len > 0) {
-        argv_buf[n] = fx_env_bin;
-        n += 1;
-        if (model_arg.len > 0) {
-            argv_buf[n] = model_arg;
-            n += 1;
-        }
-        if (perm_arg.len > 0) {
-            argv_buf[n] = perm_arg;
-            n += 1;
-        }
-    }
-    argv_buf[n] = path;
-    n += 1;
-    argv_buf[n] = "acp";
-    n += 1;
-
-    model.fx_spawn_acp = true;
-    fx.spawn(.{
-        .key = allocateFxSpawnKey(model),
-        .argv = argv_buf[0..n],
-        .stdin = stdin,
-        .on_line = Effects.lineMsg(.fx_line),
-        .on_exit = Effects.exitMsg(.fx_exit),
-    });
-    return true;
-}
-
-fn startFxAsk(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) void {
-    const path = model.fxPath();
-    const cwd = model.resolveSpawnCwd(session);
-    const resume_id = session.fxSessionId();
-    const model_id = session.model();
-    const permission_mode = fxPermissionMode(session.accessMode());
-    const image_path = model.resolveSpawnImage();
-    model.setLastSpawnCwd(cwd);
-    model.setLastSpawnFxModel(model_id);
-    model.setLastSpawnFxPermissionMode(permission_mode);
-    model.setLastSpawnImagePath(image_path);
-
-    // Native SpawnOptions has no `env`. `/usr/bin/env KEY=val` sets the
-    // child only — do not export on the Faku process.
-    var model_assign: [max_fx_model + 16]u8 = undefined;
-    var perm_assign: [max_access_mode + 24]u8 = undefined;
-    const model_arg = if (model_id.len > 0)
-        std.fmt.bufPrint(&model_assign, "FX_MODEL={s}", .{model_id}) catch ""
-    else
-        "";
-    const perm_arg = if (permission_mode.len > 0)
-        std.fmt.bufPrint(&perm_assign, "FX_PERMISSION_MODE={s}", .{permission_mode}) catch ""
-    else
-        "";
-
-    var argv_buf: [20][]const u8 = undefined;
-    var n: usize = 0;
-    if (cwd.len > 0) {
-        argv_buf[n] = "/bin/sh";
-        n += 1;
-        argv_buf[n] = "-c";
-        n += 1;
-        argv_buf[n] = fx_ask_chdir_script;
-        n += 1;
-        argv_buf[n] = "sh";
-        n += 1;
-        argv_buf[n] = cwd;
-        n += 1;
-    }
-    if (model_arg.len > 0 or perm_arg.len > 0) {
-        argv_buf[n] = fx_env_bin;
-        n += 1;
-        if (model_arg.len > 0) {
-            argv_buf[n] = model_arg;
-            n += 1;
-        }
-        if (perm_arg.len > 0) {
-            argv_buf[n] = perm_arg;
-            n += 1;
-        }
-    }
-    argv_buf[n] = path;
-    n += 1;
-    argv_buf[n] = "ask";
-    n += 1;
-    argv_buf[n] = "--json";
-    n += 1;
-    if (resume_id.len > 0) {
-        argv_buf[n] = "--resume";
-        n += 1;
-        argv_buf[n] = resume_id;
-        n += 1;
-    }
-    if (image_path.len > 0) {
-        argv_buf[n] = "--image";
-        n += 1;
-        argv_buf[n] = image_path;
-        n += 1;
-    }
-    argv_buf[n] = "--";
-    n += 1;
-    argv_buf[n] = prompt;
-    n += 1;
-
-    model.fx_spawn_acp = false;
-    fx.spawn(.{
-        .key = allocateFxSpawnKey(model),
-        .argv = argv_buf[0..n],
-        .on_line = Effects.lineMsg(.fx_line),
-        .on_exit = Effects.exitMsg(.fx_exit),
-    });
-}
-
-/// A stdout line that is a JSON object with a non-empty `session_id`.
-/// Copies the id into `dest` and returns the copied slice.
-pub fn takeFxAskSessionId(line: []const u8, dest: []u8) ?[]const u8 {
-    const trimmed = std.mem.trim(u8, line, " \t\r\n");
-    if (trimmed.len < 2 or trimmed[0] != '{') return null;
-    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_state.deinit();
-    const root = std.json.parseFromSliceLeaky(std.json.Value, arena_state.allocator(), trimmed, .{}) catch return null;
-    const obj = switch (root) {
-        .object => |o| o,
-        else => return null,
-    };
-    const raw = obj.get("session_id") orelse return null;
-    const id = switch (raw) {
-        .string => |s| s,
-        else => return null,
-    };
-    if (id.len == 0) return null;
-    const take = @min(dest.len, id.len);
-    @memcpy(dest[0..take], id[0..take]);
-    return dest[0..take];
 }
 
 fn tickStream(model: *Model, fx: *Effects) void {
@@ -3740,7 +3464,7 @@ fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
         var copy: [max_queued_text]u8 = undefined;
         if (model.takeNextQueued(finished_id, &copy)) |n| {
             store.persistIfPossible(model, finished_id, fx);
-            startPrompt(model, fx, finished_id, copy[0..n]);
+            prompt_spawn.startPrompt(model, fx, finished_id, copy[0..n]);
             return;
         }
     }
@@ -4357,4 +4081,5 @@ test {
     _ = @import("sidebar_rows.zig");
     _ = @import("attach.zig");
     _ = @import("fork.zig");
+    _ = @import("spawn.zig");
 }
