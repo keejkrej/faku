@@ -10147,7 +10147,7 @@ test "composer project row shows one-shot git branch --show-current" {
     try testing.expect(model.has_git_branch());
     try testing.expectEqualStrings("feat/composer-row", model.git_branch_label());
 
-    var tree = try buildTree(arena, &model);
+    const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .button, project);
     _ = try expectByText(tree.root, .text, "feat/composer-row");
     try testing.expect(findByText(tree.root, .button, "Local") == null);
@@ -10216,7 +10216,7 @@ test "git branch label is omitted for empty missing rejected empty and nonzero" 
     drainEffects(&model, &fx);
     try testing.expect(!model.has_git_branch());
 
-    var tree = try buildTree(arena, &model);
+    const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .button, project);
     try testing.expect(findByText(tree.root, .text, "main") == null);
     try testing.expect(findByText(tree.root, .text, "unknown") == null);
@@ -10291,7 +10291,7 @@ test "changing session or project_path does not keep the previous branch" {
     try testing.expect(!model.has_git_branch());
     try testing.expect(model.project_is_local());
 
-    var tree = try buildTree(arena, &model);
+    const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .button, "choose a project");
     _ = try expectByText(tree.root, .button, "Local");
     try testing.expect(findByText(tree.root, .text, "branch-a") == null);
