@@ -17,6 +17,7 @@ const session_mod = @import("session.zig");
 const git_branch = @import("git_branch.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
+const open_editor = @import("open_editor.zig");
 
 const canvas = native_sdk.canvas;
 const main = @import("main.zig");
@@ -320,6 +321,8 @@ pub const Msg = union(enum) {
     reveal_folder,
     /// Composer Open in Terminal: one-shot OS terminal sidecar. Not a Native effect.
     open_terminal,
+    /// Composer Open in Editor: one-shot OS editor sidecar. Not a Native effect.
+    open_editor,
     start_image_attach,
     /// Composer Pick image: one-shot OS file-dialog sidecar. Not `fx.pickFile`.
     pick_image,
@@ -446,6 +449,8 @@ pub const Model = struct {
     open_terminal_tried_fallback: bool = false,
     open_terminal_wd_storage: [open_terminal.wd_arg_len]u8 = [_]u8{0} ** open_terminal.wd_arg_len,
     open_terminal_wd_len: usize = 0,
+    open_editor_live: bool = false,
+    open_editor_stage: open_editor.Stage = .first,
     /// Runtime-only chrome status when the OS maximize sidecar is missing.
     window_status_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
     window_status_len: usize = 0,
@@ -622,6 +627,8 @@ pub const Model = struct {
         "open_terminal_tried_fallback",
         "open_terminal_wd_storage",
         "open_terminal_wd_len",
+        "open_editor_live",
+        "open_editor_stage",
         "setAttachStatus",
         "clearAttachStatus",
         "window_status_storage",
@@ -1544,6 +1551,11 @@ pub const Model = struct {
     /// Composer Open in Terminal. Absolute existing selected-session directory.
     pub fn can_open_terminal(model: *const Model) bool {
         return open_terminal.canOpenTerminal(model);
+    }
+
+    /// Composer Open in Editor. Absolute existing selected-session directory.
+    pub fn can_open_editor(model: *const Model) bool {
+        return open_editor.canOpenEditor(model);
     }
 
     /// Runtime-only muted branch on the composer project row.

@@ -429,6 +429,9 @@
                 <if test="{can_open_terminal}">
                   <button variant="ghost" size="sm" on-press="open_terminal">Open in Terminal</button>
                 </if>
+                <if test="{can_open_editor}">
+                  <button variant="ghost" size="sm" on-press="open_editor">Open in Editor</button>
+                </if>
                 <spacer grow="1" />
                 <progress value="{context_usage}" width="16" height="16" label="Context usage" />
               </row>
@@ -442,6 +445,9 @@
                 </if>
                 <if test="{can_open_terminal}">
                   <button variant="ghost" size="sm" on-press="open_terminal">Open in Terminal</button>
+                </if>
+                <if test="{can_open_editor}">
+                  <button variant="ghost" size="sm" on-press="open_editor">Open in Editor</button>
                 </if>
                 <if test="{project_is_local}">
                   <button variant="ghost" size="sm" icon="terminal" on-press="start_project_edit">Local</button>

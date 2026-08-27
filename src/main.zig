@@ -50,6 +50,7 @@ const util = @import("util.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
+const open_editor = @import("open_editor.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -210,6 +211,11 @@ pub const reveal_folder_key = reveal_folder.reveal_folder_key;
 /// pick_image (31), copy_turn (32). Native has no typed open-terminal
 /// effect on this Effects revision.
 pub const open_terminal_key = open_terminal.open_terminal_key;
+/// One-shot OS editor sidecar (`cursor` / `code`, macOS `open -a`).
+/// Distinct from open_terminal (27), reveal_folder (28), pick_folder (29),
+/// maximize (30), pick_image (31), copy_turn (32). Native has no typed
+/// open-editor effect on this Effects revision.
+pub const open_editor_key = open_editor.open_editor_key;
 /// One-shot `git branch --show-current` probe. Distinct from maximize /
 /// pick-image / fx-ask / daemon / clipboard / probe keys. Incremented
 /// per refresh from `git_branch_key_first`.
@@ -390,6 +396,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .pick_folder => pick_folder.startPickFolder(model, fx),
         .reveal_folder => reveal_folder.startRevealFolder(model, fx),
         .open_terminal => open_terminal.startOpenTerminal(model, fx),
+        .open_editor => open_editor.startOpenEditor(model, fx),
         .start_image_attach => model.startImageAttach(),
         .pick_image => attach_helpers.startPickImage(model, fx),
         .image_path_edit => |edit| {
@@ -548,6 +555,7 @@ test {
     _ = @import("pick_folder.zig");
     _ = @import("reveal_folder.zig");
     _ = @import("open_terminal.zig");
+    _ = @import("open_editor.zig");
     _ = @import("maximize_window.zig");
     _ = @import("rewind.zig");
     _ = @import("keys.zig");
