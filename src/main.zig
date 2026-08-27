@@ -42,6 +42,7 @@ const fx_probe = @import("fx_probe.zig");
 const palette_run = @import("palette_run.zig");
 const persist = @import("persist.zig");
 const session_actions = @import("session_actions.zig");
+const settings_actions = @import("settings_actions.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -2930,17 +2931,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .goal_set => goal.handleGoalSet(model, fx),
         .goal_clear => goal.handleGoalClear(model, fx),
         .goal_refresh => goal.handleGoalRefresh(model, fx),
-        .toggle_goal_status_picker => {
-            if (!model.goal_status_picker_open) {
-                session_switcher.closeSwitcher(model);
-                if (model.palette_open) model.closePalette();
-                model.model_picker_open = false;
-                model.access_picker_open = false;
-                model.effort_picker_open = false;
-                model.settings_effort_picker_open = false;
-            }
-            model.toggleGoalStatusPicker();
-        },
+        .toggle_goal_status_picker => settings_actions.handleToggleGoalStatusPicker(model),
         .close_goal_status_picker => model.closeGoalStatusPicker(),
         .pick_goal_status => |status| goal.handleGoalSetStatus(model, fx, status),
         .switcher_forward => session_switcher.cycleSwitcher(model, false),
@@ -2948,171 +2939,31 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .switcher_confirm => session_switcher.confirmSwitcher(model, fx),
         .switcher_cancel => session_switcher.closeSwitcher(model),
         .switcher_pick => |id| session_switcher.pickSwitcher(model, fx, id),
-        .stop => {
-            if (model.switcher_open) {
-                session_switcher.closeSwitcher(model);
-                return;
-            }
-            if (model.access_picker_open) {
-                model.closeAccessPicker();
-                return;
-            }
-            if (model.effort_picker_open) {
-                model.closeEffortPicker();
-                return;
-            }
-            if (model.settings_effort_picker_open) {
-                model.closeSettingsEffortPicker();
-                return;
-            }
-            if (model.goal_status_picker_open) {
-                model.closeGoalStatusPicker();
-                return;
-            }
-            if (model.model_picker_open) {
-                model.closeModelPicker();
-                return;
-            }
-            if (model.palette_open) {
-                model.closePalette();
-                return;
-            }
-            if (model.settings_open) {
-                model.closeSettings();
-                return;
-            }
-            if (model.project_edit_active) {
-                model.closeProjectEdit();
-                return;
-            }
-            if (model.image_attach_active) {
-                model.closeImageAttach();
-                return;
-            }
-            if (model.commands_open) {
-                model.closeCommands();
-                return;
-            }
-            if (model.editing_folder_id != 0) {
-                model.closeFolderTitleEdit();
-                return;
-            }
-            if (model.editing_session_id != 0) {
-                model.closeSessionTitleEdit();
-                return;
-            }
-            if (model.find_active or model.find_query().len > 0) {
-                model.exitFind();
-                return;
-            }
-            turn_stream.stopStream(model, fx);
-        },
-        .toggle_settings => model.toggleSettings(),
-        .settings_model_edit => |edit| {
-            model.applySettingsModel(edit);
-            store.persistSettingsIfPossible(model);
-        },
-        .settings_project_edit => |edit| {
-            model.applySettingsProject(edit);
-            store.persistSettingsIfPossible(model);
-        },
-        .settings_daemon_edit => |edit| {
-            model.applySettingsDaemon(edit);
-            store.persistSettingsIfPossible(model);
-        },
-        .settings_access_ask => {
-            model.setSettingsAccess("ask");
-            store.persistSettingsIfPossible(model);
-        },
-        .settings_access_auto => {
-            model.setSettingsAccess("auto");
-            store.persistSettingsIfPossible(model);
-        },
-        .settings_access_full => {
-            model.setSettingsAccess("fullAccess");
-            store.persistSettingsIfPossible(model);
-        },
-        .settings_interaction_build => {
-            model.setSettingsInteraction("build");
-            store.persistSettingsIfPossible(model);
-        },
-        .settings_interaction_plan => {
-            model.setSettingsInteraction("plan");
-            store.persistSettingsIfPossible(model);
-        },
-        .toggle_settings_effort_picker => {
-            if (!model.settings_effort_picker_open) {
-                session_switcher.closeSwitcher(model);
-                if (model.palette_open) model.closePalette();
-                model.closeComposerPickers();
-            }
-            model.toggleSettingsEffortPicker();
-        },
+        .stop => settings_actions.handleStop(model, fx),
+        .toggle_settings => settings_actions.handleToggleSettings(model),
+        .settings_model_edit => |edit| settings_actions.handleSettingsModelEdit(model, edit),
+        .settings_project_edit => |edit| settings_actions.handleSettingsProjectEdit(model, edit),
+        .settings_daemon_edit => |edit| settings_actions.handleSettingsDaemonEdit(model, edit),
+        .settings_access_ask => settings_actions.handleSettingsAccessAsk(model),
+        .settings_access_auto => settings_actions.handleSettingsAccessAuto(model),
+        .settings_access_full => settings_actions.handleSettingsAccessFull(model),
+        .settings_interaction_build => settings_actions.handleSettingsInteractionBuild(model),
+        .settings_interaction_plan => settings_actions.handleSettingsInteractionPlan(model),
+        .toggle_settings_effort_picker => settings_actions.handleToggleSettingsEffortPicker(model),
         .close_settings_effort_picker => model.closeSettingsEffortPicker(),
-        .pick_settings_effort => |id| {
-            model.pickSettingsEffort(id);
-            store.persistSettingsIfPossible(model);
-        },
-        .cycle_access => {
-            model.cycleSelectedAccess();
-            persist.persistComposerChips(model, fx);
-        },
-        .cycle_interaction => {
-            model.cycleSelectedInteraction();
-            persist.persistComposerChips(model, fx);
-        },
-        .cycle_effort => {
-            model.cycleSelectedEffort();
-            persist.persistComposerChips(model, fx);
-        },
-        .toggle_model_picker => {
-            if (!model.model_picker_open) {
-                session_switcher.closeSwitcher(model);
-                if (model.palette_open) model.closePalette();
-                model.access_picker_open = false;
-                model.effort_picker_open = false;
-                model.settings_effort_picker_open = false;
-                model.goal_status_picker_open = false;
-            }
-            model.toggleModelPicker();
-        },
+        .pick_settings_effort => |id| settings_actions.handlePickSettingsEffort(model, id),
+        .cycle_access => settings_actions.handleCycleAccess(model, fx),
+        .cycle_interaction => settings_actions.handleCycleInteraction(model, fx),
+        .cycle_effort => settings_actions.handleCycleEffort(model, fx),
+        .toggle_model_picker => settings_actions.handleToggleModelPicker(model),
         .close_model_picker => model.closeModelPicker(),
-        .pick_model => |id| {
-            model.pickSelectedModel(id);
-            persist.persistComposerChips(model, fx);
-        },
-        .toggle_access_picker => {
-            if (!model.access_picker_open) {
-                session_switcher.closeSwitcher(model);
-                if (model.palette_open) model.closePalette();
-                model.model_picker_open = false;
-                model.effort_picker_open = false;
-                model.settings_effort_picker_open = false;
-                model.goal_status_picker_open = false;
-            }
-            model.toggleAccessPicker();
-        },
+        .pick_model => |id| settings_actions.handlePickModel(model, fx, id),
+        .toggle_access_picker => settings_actions.handleToggleAccessPicker(model),
         .close_access_picker => model.closeAccessPicker(),
-        .pick_access => |id| {
-            model.pickSelectedAccess(id);
-            persist.persistComposerChips(model, fx);
-        },
-        .toggle_effort_picker => {
-            if (!model.effort_picker_open) {
-                session_switcher.closeSwitcher(model);
-                if (model.palette_open) model.closePalette();
-                model.model_picker_open = false;
-                model.access_picker_open = false;
-                model.settings_effort_picker_open = false;
-                model.goal_status_picker_open = false;
-            }
-            model.toggleEffortPicker();
-        },
+        .pick_access => |id| settings_actions.handlePickAccess(model, fx, id),
+        .toggle_effort_picker => settings_actions.handleToggleEffortPicker(model),
         .close_effort_picker => model.closeEffortPicker(),
-        .pick_effort => |id| {
-            model.pickSelectedEffort(id);
-            persist.persistComposerChips(model, fx);
-        },
+        .pick_effort => |id| settings_actions.handlePickEffort(model, fx, id),
         .start_project_edit => model.startProjectEdit(),
         .project_path_edit => |edit| {
             model.applySelectedProjectPath(edit);
@@ -3302,4 +3153,5 @@ test {
     _ = @import("palette_run.zig");
     _ = @import("persist.zig");
     _ = @import("session_actions.zig");
+    _ = @import("settings_actions.zig");
 }
