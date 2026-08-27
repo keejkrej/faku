@@ -53,6 +53,8 @@ pub const PaletteAction = enum(u32) {
     reveal_folder = 11,
     /// Selected session workspace in the host terminal. Not Waku PTY.
     open_terminal = 12,
+    /// Selected session workspace in Cursor / VS Code. Not an embedded editor.
+    open_editor = 13,
 };
 
 pub const PaletteActionSpec = struct {
@@ -75,6 +77,7 @@ pub const palette_action_specs = [_]PaletteActionSpec{
     .{ .action = .copy_fx_session_id, .label = "Copy provider session id", .keywords = &.{ "copy", "id", "session", "fx", "acp", "provider" }, .suggested = false },
     .{ .action = .reveal_folder, .label = "Reveal project folder", .keywords = &.{ "reveal", "finder", "files", "folder", "open", "project" }, .suggested = false },
     .{ .action = .open_terminal, .label = "Open project in Terminal", .keywords = &.{ "terminal", "shell", "iterm", "console", "project", "open" }, .suggested = false },
+    .{ .action = .open_editor, .label = "Open project in Editor", .keywords = &.{ "editor", "vscode", "cursor", "code", "project", "open" }, .suggested = false },
 };
 
 pub fn paletteActionId(action: PaletteAction) u32 {
@@ -225,6 +228,7 @@ fn paletteActionAvailable(model: *const Model, spec: PaletteActionSpec) bool {
     return switch (spec.action) {
         .collapse_folders => model.can_collapse_folders(),
         .open_terminal => model.can_open_terminal(),
+        .open_editor => model.can_open_editor(),
         else => true,
     };
 }
