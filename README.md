@@ -66,7 +66,8 @@ stdout / ACP / daemon line handlers and fx-exit routing live in
 `src/fx_probe.zig`. Folder/chip persist helpers live in
 `src/persist.zig`. Session / folder / title-edit update helpers live
 in `src/session_actions.zig`. Settings / Esc-stop / composer-picker
-update helpers live in `src/settings_actions.zig`.
+update helpers live in `src/settings_actions.zig`. Session type lives
+in `src/session.zig`.
 
 ## Why fx
 
