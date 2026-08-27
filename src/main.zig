@@ -32,6 +32,7 @@ const sidebar_dates = @import("sidebar_dates.zig");
 const goal = @import("goal.zig");
 const composer = @import("composer.zig");
 const copy_helpers = @import("copy.zig");
+const session_switcher = @import("switcher.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -64,7 +65,7 @@ pub const date_row_id_base: u32 = 4_000_000;
 /// In-memory session selection history for sidebar Back / Forward.
 pub const selection_history_cap: u32 = 32;
 /// Runtime-only Ctrl-Tab switcher snapshot. Same cap as Waku's overlay.
-pub const switcher_cap: u32 = 10;
+pub const switcher_cap = session_switcher.switcher_cap;
 pub const palette_action_id_base = palette.palette_action_id_base;
 pub const palette_header_id_base = palette.palette_header_id_base;
 pub const palette_max_task_results = palette.palette_max_task_results;
@@ -3129,73 +3130,8 @@ fn applyAttachPreviewResult(model: *Model, fx: *Effects, result: native_sdk.Effe
     }
 }
 
-fn switcherContains(ids: []const u32, count: u32, id: u32) bool {
-    var i: u32 = 0;
-    while (i < count) : (i += 1) {
-        if (ids[i] == id) return true;
-    }
-    return false;
-}
-
-fn pushSwitcherId(ids: *[switcher_cap]u32, count: *u32, id: u32) void {
-    if (id == 0 or count.* >= switcher_cap) return;
-    if (switcherContains(ids, count.*, id)) return;
-    ids[count.*] = id;
-    count.* += 1;
-}
-
-fn switcherSessionAllowed(model: *const Model, id: u32, allow_current: bool) bool {
-    const session = model.sessionByIdConst(id) orelse return false;
-    if (allow_current and id == model.selected) return true;
-    return session.hasStarted();
-}
-
-fn snapshotSwitcher(model: *Model) void {
-    var ids = [_]u32{0} ** switcher_cap;
-    var count: u32 = 0;
-
-    if (switcherSessionAllowed(model, model.selected, true)) {
-        pushSwitcherId(&ids, &count, model.selected);
-    }
-
-    if (model.history_count > 0) {
-        var i: i32 = @intCast(model.history_count - 1);
-        while (i >= 0) : (i -= 1) {
-            const id = model.history_store[@intCast(i)];
-            if (switcherSessionAllowed(model, id, false)) {
-                pushSwitcherId(&ids, &count, id);
-            }
-        }
-    }
-
-    for (model.session_store[0..model.session_count]) |session| {
-        if (session.hasStarted()) {
-            pushSwitcherId(&ids, &count, session.id);
-        }
-    }
-
-    model.switcher_ids = ids;
-    model.switcher_count = count;
-}
-
-fn initialSwitcherHighlight(count: u32, first_is_current: bool, reverse: bool) u32 {
-    if (count == 0) return 0;
-    if (first_is_current) {
-        if (count == 1) return 0;
-        return if (reverse) count - 1 else 1;
-    }
-    return if (reverse) count - 1 else 0;
-}
-
-fn closeSwitcher(model: *Model) void {
-    model.switcher_open = false;
-    model.switcher_count = 0;
-    model.switcher_highlight = 0;
-    model.switcher_ids = [_]u32{0} ** switcher_cap;
-}
-
 fn openPalette(model: *Model) void {
-    closeSwitcher(model);
+    session_switcher.closeSwitcher(model);
     model.closeModelPicker();
     model.palette_open = true;
     model.search_buffer.clear();
@@ -3245,55 +3181,7 @@ fn confirmPalette(model: *Model, fx: *Effects) void {
     runPalettePick(model, fx, id);
 }
 
-fn cycleSwitcher(model: *Model, reverse: bool) void {
-    if (model.palette_open) model.closePalette();
-    if (model.model_picker_open or model.access_picker_open or model.effort_picker_open or model.goal_status_picker_open) {
-        model.closeModelPicker();
-    }
-    if (model.switcher_open) {
-        if (model.switcher_count == 0) {
-            closeSwitcher(model);
-            return;
-        }
-        if (reverse) {
-            model.switcher_highlight = if (model.switcher_highlight == 0)
-                model.switcher_count - 1
-            else
-                model.switcher_highlight - 1;
-        } else {
-            model.switcher_highlight = (model.switcher_highlight + 1) % model.switcher_count;
-        }
-        return;
-    }
-
-    snapshotSwitcher(model);
-    if (model.switcher_count == 0) return;
-    const first_is_current = model.switcher_ids[0] == model.selected;
-    model.switcher_highlight = initialSwitcherHighlight(model.switcher_count, first_is_current, reverse);
-    model.switcher_open = true;
-}
-
-fn commitSwitcher(model: *Model, fx: *Effects, id: u32) void {
-    if (!model.switcher_open) return;
-    closeSwitcher(model);
-    if (model.sessionById(id) == null) return;
-    model.pushSelectionHistory(id);
-    applySessionSelection(model, fx, id);
-}
-
-fn confirmSwitcher(model: *Model, fx: *Effects) void {
-    if (!model.switcher_open or model.switcher_count == 0) return;
-    if (model.switcher_highlight >= model.switcher_count) return;
-    commitSwitcher(model, fx, model.switcher_ids[model.switcher_highlight]);
-}
-
-fn pickSwitcher(model: *Model, fx: *Effects, id: u32) void {
-    if (!model.switcher_open) return;
-    if (!switcherContains(&model.switcher_ids, model.switcher_count, id)) return;
-    commitSwitcher(model, fx, id);
-}
-
-fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
+pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     if (model.sessionById(id) == null) return;
     store.persistDraftIfPossible(model);
     model.closeProjectEdit();
@@ -3481,7 +3369,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .goal_refresh => goal.handleGoalRefresh(model, fx),
         .toggle_goal_status_picker => {
             if (!model.goal_status_picker_open) {
-                closeSwitcher(model);
+                session_switcher.closeSwitcher(model);
                 if (model.palette_open) model.closePalette();
                 model.model_picker_open = false;
                 model.access_picker_open = false;
@@ -3492,14 +3380,14 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .close_goal_status_picker => model.closeGoalStatusPicker(),
         .pick_goal_status => |status| goal.handleGoalSetStatus(model, fx, status),
-        .switcher_forward => cycleSwitcher(model, false),
-        .switcher_backward => cycleSwitcher(model, true),
-        .switcher_confirm => confirmSwitcher(model, fx),
-        .switcher_cancel => closeSwitcher(model),
-        .switcher_pick => |id| pickSwitcher(model, fx, id),
+        .switcher_forward => session_switcher.cycleSwitcher(model, false),
+        .switcher_backward => session_switcher.cycleSwitcher(model, true),
+        .switcher_confirm => session_switcher.confirmSwitcher(model, fx),
+        .switcher_cancel => session_switcher.closeSwitcher(model),
+        .switcher_pick => |id| session_switcher.pickSwitcher(model, fx, id),
         .stop => {
             if (model.switcher_open) {
-                closeSwitcher(model);
+                session_switcher.closeSwitcher(model);
                 return;
             }
             if (model.access_picker_open) {
@@ -3591,7 +3479,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .toggle_settings_effort_picker => {
             if (!model.settings_effort_picker_open) {
-                closeSwitcher(model);
+                session_switcher.closeSwitcher(model);
                 if (model.palette_open) model.closePalette();
                 model.closeComposerPickers();
             }
@@ -3616,7 +3504,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .toggle_model_picker => {
             if (!model.model_picker_open) {
-                closeSwitcher(model);
+                session_switcher.closeSwitcher(model);
                 if (model.palette_open) model.closePalette();
                 model.access_picker_open = false;
                 model.effort_picker_open = false;
@@ -3632,7 +3520,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .toggle_access_picker => {
             if (!model.access_picker_open) {
-                closeSwitcher(model);
+                session_switcher.closeSwitcher(model);
                 if (model.palette_open) model.closePalette();
                 model.model_picker_open = false;
                 model.effort_picker_open = false;
@@ -3648,7 +3536,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .toggle_effort_picker => {
             if (!model.effort_picker_open) {
-                closeSwitcher(model);
+                session_switcher.closeSwitcher(model);
                 if (model.palette_open) model.closePalette();
                 model.model_picker_open = false;
                 model.access_picker_open = false;
@@ -4907,4 +4795,5 @@ test {
     _ = @import("goal.zig");
     _ = @import("composer.zig");
     _ = @import("copy.zig");
+    _ = @import("switcher.zig");
 }
