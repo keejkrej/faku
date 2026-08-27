@@ -48,6 +48,7 @@ const model_mod = @import("model.zig");
 const git_branch = @import("git_branch.zig");
 const util = @import("util.zig");
 const pick_folder = @import("pick_folder.zig");
+const reveal_folder = @import("reveal_folder.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -199,6 +200,10 @@ pub const pick_image_key = attach_helpers.pick_image_key;
 /// Distinct from pick_image (31), maximize (30), copy_turn (32). Native
 /// has no `fx.pickFile`; this spawn is the documented workaround.
 pub const pick_folder_key = pick_folder.pick_folder_key;
+/// One-shot OS file-manager sidecar (`open` / `xdg-open`). Distinct from
+/// pick_folder (29), maximize (30), pick_image (31), copy_turn (32).
+/// Native has no typed `fx.revealPath` on this Effects revision.
+pub const reveal_folder_key = reveal_folder.reveal_folder_key;
 /// One-shot `git branch --show-current` probe. Distinct from maximize /
 /// pick-image / fx-ask / daemon / clipboard / probe keys. Incremented
 /// per refresh from `git_branch_key_first`.
@@ -377,6 +382,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             persist.persistComposerProject(model, fx);
         },
         .pick_folder => pick_folder.startPickFolder(model, fx),
+        .reveal_folder => reveal_folder.startRevealFolder(model, fx),
         .start_image_attach => model.startImageAttach(),
         .pick_image => attach_helpers.startPickImage(model, fx),
         .image_path_edit => |edit| {
@@ -533,6 +539,7 @@ test {
     _ = @import("acp_proxy.zig");
     _ = @import("pick_image.zig");
     _ = @import("pick_folder.zig");
+    _ = @import("reveal_folder.zig");
     _ = @import("maximize_window.zig");
     _ = @import("rewind.zig");
     _ = @import("keys.zig");

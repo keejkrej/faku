@@ -1,0 +1,193 @@
+//! One-shot OS file-manager reveal sidecar.
+//!
+//! Native documents `Cmd.revealPath` / `runtime.revealPath` (fire-and-forget,
+//! fail closed). This SDK revision has no typed `fx.revealPath` on Effects.
+//! `fx.hostSend("native-sdk.os.revealPath", path)` exists but the fake
+//! executor drops native host-sends, so tests cannot assert it. Reveal
+//! folder therefore `fx.spawn`s a documented OS file-manager open:
+//!
+//!   macOS:  `open` on the directory (Finder)
+//!   Linux:  `xdg-open` on the directory (Files / Nautilus / xdg)
+//!   Windows: skipped (app.zon is macos/linux; no Windows spawn path)
+//!
+//! This is not Waku's Open-in app picker and not an invented Native
+//! effect. Spawn stdin is unused (write-once then close).
+
+const std = @import("std");
+const builtin = @import("builtin");
+const native_sdk = @import("native_sdk");
+const main = @import("main.zig");
+
+const Model = main.Model;
+const Effects = main.Effects;
+
+/// Distinct from pick_folder (29), maximize (30), pick_image (31),
+/// copy_turn (32), attach_preview 33–63, fx_probe (3), fx_spawn 64+,
+/// git_branch 200+. 28 sits in that gap and is unused by those tables.
+pub const reveal_folder_key: u64 = 28;
+
+pub const missing_exit: u8 = 2;
+
+pub const linux_missing_status = "No OS folder reveal (install xdg-open).";
+pub const macos_missing_status = "No OS folder reveal (open missing).";
+pub const windows_missing_status = "Reveal folder is not available on Windows.";
+pub const no_project_status = "No project folder to reveal.";
+
+pub const macos_bin = "open";
+pub const linux_bin = "xdg-open";
+
+pub const Tool = enum { open, xdg_open };
+
+const argv_len: usize = 2;
+
+pub fn hostTool() ?Tool {
+    return switch (builtin.os.tag) {
+        .macos => .open,
+        .linux => .xdg_open,
+        else => null,
+    };
+}
+
+pub fn hostBin() ?[]const u8 {
+    return binFor(hostTool() orelse return null);
+}
+
+pub fn hostMissingStatus() []const u8 {
+    return switch (builtin.os.tag) {
+        .macos => macos_missing_status,
+        .windows => windows_missing_status,
+        else => linux_missing_status,
+    };
+}
+
+pub fn binFor(tool: Tool) []const u8 {
+    return switch (tool) {
+        .open => macos_bin,
+        .xdg_open => linux_bin,
+    };
+}
+
+pub fn argvForTool(tool: Tool, path: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    buf.* = .{ binFor(tool), path };
+    return buf;
+}
+
+pub fn argvFor(path: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    return argvForTool(hostTool() orelse .xdg_open, path, buf);
+}
+
+pub fn isRevealArgv(argv: []const []const u8) bool {
+    if (argv.len != argv_len) return false;
+    return std.mem.eql(u8, argv[0], macos_bin) or std.mem.eql(u8, argv[0], linux_bin);
+}
+
+/// Existing selected-session directory. Relative paths count so the
+/// control can show; `resolveRevealPath` still requires absolute.
+pub fn canReveal(model: *const Model) bool {
+    return existingProjectDir(model) != null;
+}
+
+/// Absolute existing directory, or null (empty / relative / missing /
+/// not-a-dir / no store_io).
+pub fn resolveRevealPath(model: *const Model) ?[]const u8 {
+    const path = existingProjectDir(model) orelse return null;
+    if (!std.fs.path.isAbsolute(path)) return null;
+    return path;
+}
+
+fn existingProjectDir(model: *const Model) ?[]const u8 {
+    const path = std.mem.trim(u8, model.selectedProjectPath(), " \t\r\n");
+    if (path.len == 0) return null;
+    const io = model.store_io orelse return null;
+    if (!main.directoryExists(io, path)) return null;
+    return path;
+}
+
+pub fn startRevealFolder(model: *Model, fx: *Effects) void {
+    if (model.reveal_folder_live) return;
+    const path = resolveRevealPath(model) orelse {
+        model.setWindowStatus(no_project_status);
+        return;
+    };
+    if (hostBin() == null) {
+        model.setWindowStatus(hostMissingStatus());
+        return;
+    }
+    model.reveal_folder_live = true;
+    model.clearWindowStatus();
+    var argv_buf: [argv_len][]const u8 = undefined;
+    fx.spawn(.{
+        .key = reveal_folder_key,
+        .argv = argvFor(path, &argv_buf),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+}
+
+fn isMissingRevealExit(exit: native_sdk.EffectExit) bool {
+    if (exit.reason != .exited) return true;
+    return exit.code == 127 or exit.code == missing_exit;
+}
+
+pub fn handleRevealFolderExit(model: *Model, exit: native_sdk.EffectExit) void {
+    if (isMissingRevealExit(exit) and !model.has_window_status()) {
+        model.setWindowStatus(hostMissingStatus());
+    }
+    model.reveal_folder_live = false;
+}
+
+test "macos argv is open on the directory" {
+    var buf: [argv_len][]const u8 = undefined;
+    const argv = argvForTool(.open, "/tmp/proj", &buf);
+    try std.testing.expectEqual(@as(usize, 2), argv.len);
+    try std.testing.expectEqualStrings(macos_bin, argv[0]);
+    try std.testing.expectEqualStrings("/tmp/proj", argv[1]);
+    try std.testing.expect(isRevealArgv(argv));
+}
+
+test "linux argv is xdg-open on the directory" {
+    var buf: [argv_len][]const u8 = undefined;
+    const argv = argvForTool(.xdg_open, "/tmp/proj", &buf);
+    try std.testing.expectEqual(@as(usize, 2), argv.len);
+    try std.testing.expectEqualStrings(linux_bin, argv[0]);
+    try std.testing.expectEqualStrings("/tmp/proj", argv[1]);
+    try std.testing.expect(isRevealArgv(argv));
+}
+
+test "host tool is the platform file manager; Windows is skipped" {
+    switch (builtin.os.tag) {
+        .macos => {
+            try std.testing.expectEqual(Tool.open, hostTool().?);
+            try std.testing.expectEqualStrings(macos_bin, hostBin().?);
+        },
+        .linux => {
+            try std.testing.expectEqual(Tool.xdg_open, hostTool().?);
+            try std.testing.expectEqualStrings(linux_bin, hostBin().?);
+        },
+        else => {
+            try std.testing.expect(hostTool() == null);
+            try std.testing.expect(hostBin() == null);
+        },
+    }
+}
+
+test "reveal argv is not a folder-picker argv" {
+    const pick_folder = @import("pick_folder.zig");
+    var buf: [argv_len][]const u8 = undefined;
+    try std.testing.expect(!pick_folder.isPickerArgv(argvFor("/tmp/proj", &buf)));
+    try std.testing.expect(!isRevealArgv(pick_folder.argvFor(.osascript)));
+    try std.testing.expect(!isRevealArgv(pick_folder.argvFor(.zenity)));
+    try std.testing.expect(!isRevealArgv(pick_folder.argvFor(.kdialog)));
+}
+
+test "reveal_folder_key is distinct from pick_folder and neighbors" {
+    const pick_folder = @import("pick_folder.zig");
+    const attach = @import("attach.zig");
+    const maximize_window = @import("maximize_window.zig");
+    const copy = @import("copy.zig");
+    try std.testing.expect(reveal_folder_key != pick_folder.pick_folder_key);
+    try std.testing.expect(reveal_folder_key != attach.pick_image_key);
+    try std.testing.expect(reveal_folder_key != maximize_window.maximize_window_key);
+    try std.testing.expect(reveal_folder_key != copy.copy_turn_key);
+    try std.testing.expect(reveal_folder_key != 3);
+    try std.testing.expect(reveal_folder_key < 64);
+}
