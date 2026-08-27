@@ -44,6 +44,7 @@ fn runPaletteAction(model: *Model, fx: *Effects, action: PaletteAction) void {
         .maximize => main.update(model, .maximize_window, fx),
         .copy_session_id => main.update(model, .copy_session_id, fx),
         .copy_fx_session_id => main.update(model, .copy_fx_session_id, fx),
+        .reveal_folder => main.update(model, .reveal_folder, fx),
     }
 }
 

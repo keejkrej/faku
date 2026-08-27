@@ -15,6 +15,7 @@ const sidebar_row_helpers = @import("sidebar_rows.zig");
 const store = @import("store.zig");
 const session_mod = @import("session.zig");
 const git_branch = @import("git_branch.zig");
+const reveal_folder = @import("reveal_folder.zig");
 
 const canvas = native_sdk.canvas;
 const main = @import("main.zig");
@@ -314,6 +315,8 @@ pub const Msg = union(enum) {
     project_path_edit: canvas.TextInputEvent,
     /// Composer Pick folder: one-shot OS directory-dialog sidecar. Not `fx.pickFile`.
     pick_folder,
+    /// Composer Reveal folder: one-shot OS file-manager sidecar. Not `fx.revealPath`.
+    reveal_folder,
     start_image_attach,
     /// Composer Pick image: one-shot OS file-dialog sidecar. Not `fx.pickFile`.
     pick_image,
@@ -435,6 +438,7 @@ pub const Model = struct {
     pick_folder_live: bool = false,
     pick_folder_got_path: bool = false,
     pick_folder_tried_fallback: bool = false,
+    reveal_folder_live: bool = false,
     /// Runtime-only chrome status when the OS maximize sidecar is missing.
     window_status_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
     window_status_len: usize = 0,
@@ -606,6 +610,7 @@ pub const Model = struct {
         "pick_folder_live",
         "pick_folder_got_path",
         "pick_folder_tried_fallback",
+        "reveal_folder_live",
         "setAttachStatus",
         "clearAttachStatus",
         "window_status_storage",
@@ -1518,6 +1523,11 @@ pub const Model = struct {
 
     pub fn project_is_local(model: *const Model) bool {
         return model.selectedProjectPath().len == 0;
+    }
+
+    /// Composer Reveal folder. Existing selected-session directory only.
+    pub fn can_reveal_folder(model: *const Model) bool {
+        return reveal_folder.canReveal(model);
     }
 
     /// Runtime-only muted branch on the composer project row.
