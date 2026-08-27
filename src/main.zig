@@ -40,6 +40,7 @@ const turn_stream = @import("stream.zig");
 const sidecar_lines = @import("lines.zig");
 const fx_probe = @import("fx_probe.zig");
 const palette_run = @import("palette_run.zig");
+const persist = @import("persist.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -2872,30 +2873,6 @@ pub const Effects = native_sdk.Effects(Msg);
 
 pub const applySessionSelection = palette_run.applySessionSelection;
 
-fn persistAssignedFolder(model: *Model, session_id: u32, folder_id: u32, fx: *Effects) void {
-    if (!model.assignSessionFolder(session_id, folder_id)) return;
-    store.persistFoldersIfPossible(model);
-    if (model.sessionByIdConst(session_id)) |session| {
-        if (session.hasStarted()) store.persistIfPossible(model, session_id, fx);
-    }
-}
-
-fn persistDeletedFolder(model: *Model, folder_id: u32, fx: *Effects) void {
-    if (model.folderById(folder_id) == null) return;
-    var started: [max_sessions]u32 = undefined;
-    var started_n: usize = 0;
-    for (model.session_store[0..model.session_count]) |session| {
-        if (session.folder_id != folder_id or !session.hasStarted()) continue;
-        started[started_n] = session.id;
-        started_n += 1;
-    }
-    if (!model.deleteFolder(folder_id)) return;
-    store.persistFoldersIfPossible(model);
-    for (started[0..started_n]) |session_id| {
-        store.persistIfPossible(model, session_id, fx);
-    }
-}
-
 pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     model.now_ms = fx.wallMs();
     switch (msg) {
@@ -2948,7 +2925,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .rename_folder => |id| {
             model.startFolderTitleEdit(id);
         },
-        .delete_folder => |folder_id| persistDeletedFolder(model, folder_id, fx),
+        .delete_folder => |folder_id| persist.persistDeletedFolder(model, folder_id, fx),
         .assign_selected => |folder_id| {
             if (model.editing_folder_id == folder_id) return;
             if (model.editing_folder_id != 0) model.closeFolderTitleEdit();
@@ -2958,11 +2935,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 model.startFolderTitleEdit(folder_id);
                 return;
             }
-            persistAssignedFolder(model, model.selected, folder_id, fx);
+            persist.persistAssignedFolder(model, model.selected, folder_id, fx);
         },
         .unassign_selected => {
             model.closeFolderTitleEdit();
-            persistAssignedFolder(model, model.selected, 0, fx);
+            persist.persistAssignedFolder(model, model.selected, 0, fx);
         },
         .folder_title_edit => |edit| {
             model.applyFolderTitle(edit);
@@ -2980,7 +2957,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistIfPossible(model, session_id, fx);
         },
         .assign_folder => |assign| {
-            persistAssignedFolder(model, assign.session_id, assign.folder_id, fx);
+            persist.persistAssignedFolder(model, assign.session_id, assign.folder_id, fx);
         },
         // Chromeless titlebar has no OS close. This is the documented
         // window-action effect (`examples/deck`): last-window close
@@ -3150,15 +3127,15 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .cycle_access => {
             model.cycleSelectedAccess();
-            persistComposerChips(model, fx);
+            persist.persistComposerChips(model, fx);
         },
         .cycle_interaction => {
             model.cycleSelectedInteraction();
-            persistComposerChips(model, fx);
+            persist.persistComposerChips(model, fx);
         },
         .cycle_effort => {
             model.cycleSelectedEffort();
-            persistComposerChips(model, fx);
+            persist.persistComposerChips(model, fx);
         },
         .toggle_model_picker => {
             if (!model.model_picker_open) {
@@ -3174,7 +3151,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .close_model_picker => model.closeModelPicker(),
         .pick_model => |id| {
             model.pickSelectedModel(id);
-            persistComposerChips(model, fx);
+            persist.persistComposerChips(model, fx);
         },
         .toggle_access_picker => {
             if (!model.access_picker_open) {
@@ -3190,7 +3167,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .close_access_picker => model.closeAccessPicker(),
         .pick_access => |id| {
             model.pickSelectedAccess(id);
-            persistComposerChips(model, fx);
+            persist.persistComposerChips(model, fx);
         },
         .toggle_effort_picker => {
             if (!model.effort_picker_open) {
@@ -3206,12 +3183,12 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .close_effort_picker => model.closeEffortPicker(),
         .pick_effort => |id| {
             model.pickSelectedEffort(id);
-            persistComposerChips(model, fx);
+            persist.persistComposerChips(model, fx);
         },
         .start_project_edit => model.startProjectEdit(),
         .project_path_edit => |edit| {
             model.applySelectedProjectPath(edit);
-            persistComposerProject(model, fx);
+            persist.persistComposerProject(model, fx);
         },
         .start_image_attach => model.startImageAttach(),
         .pick_image => attach_helpers.startPickImage(model, fx),
@@ -3298,16 +3275,6 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     store.maybeHydrateDaemonSession(model, fx, model.selected);
     attach_helpers.refreshAttachPreview(model, fx);
     fx_probe.startFxProbe(model, fx);
-}
-
-fn persistComposerChips(model: *Model, fx: *Effects) void {
-    store.persistSettingsIfPossible(model);
-    store.persistIfPossible(model, model.selected, fx);
-}
-
-fn persistComposerProject(model: *Model, fx: *Effects) void {
-    store.persistSettingsIfPossible(model);
-    store.persistIfPossible(model, model.selected, fx);
 }
 
 pub const startFxProbe = fx_probe.startFxProbe;
@@ -3424,4 +3391,5 @@ test {
     _ = @import("lines.zig");
     _ = @import("fx_probe.zig");
     _ = @import("palette_run.zig");
+    _ = @import("persist.zig");
 }
