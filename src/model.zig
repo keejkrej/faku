@@ -14,6 +14,7 @@ const palette = @import("palette.zig");
 const sidebar_row_helpers = @import("sidebar_rows.zig");
 const store = @import("store.zig");
 const session_mod = @import("session.zig");
+const git_branch = @import("git_branch.zig");
 
 const canvas = native_sdk.canvas;
 const main = @import("main.zig");
@@ -432,6 +433,15 @@ pub const Model = struct {
     window_status_len: usize = 0,
     maximize_window_live: bool = false,
     maximize_window_tried_fallback: bool = false,
+    /// Runtime-only composer branch label. One-shot `git branch
+    /// --show-current`; not persisted to sessions.json.
+    git_branch_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
+    git_branch_len: usize = 0,
+    git_branch_key: u64 = 0,
+    next_git_branch_key: u64 = git_branch.git_branch_key_first,
+    git_branch_probe_session: u32 = 0,
+    git_branch_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    git_branch_probe_path_len: usize = 0,
     /// Runtime ImageId bound by the composer `<image>`. 0 until
     /// `fx.loadImage` reports `.loaded`. Same draft `image_path` as
     /// the chip — not a second persist field.
@@ -594,6 +604,13 @@ pub const Model = struct {
         "maximize_window_tried_fallback",
         "setWindowStatus",
         "clearWindowStatus",
+        "git_branch_storage",
+        "git_branch_len",
+        "git_branch_key",
+        "next_git_branch_key",
+        "git_branch_probe_session",
+        "git_branch_probe_path_storage",
+        "git_branch_probe_path_len",
         "attach_preview_load_id",
         "next_attach_preview_id",
         "startImageAttach",
@@ -1490,6 +1507,15 @@ pub const Model = struct {
 
     pub fn project_is_local(model: *const Model) bool {
         return model.selectedProjectPath().len == 0;
+    }
+
+    /// Runtime-only muted branch on the composer project row.
+    pub fn git_branch_label(model: *const Model) []const u8 {
+        return git_branch.gitBranchLabel(model);
+    }
+
+    pub fn has_git_branch(model: *const Model) bool {
+        return git_branch.hasGitBranch(model);
     }
 
     /// Composer usage control. 0 when the live path has not reported usage.

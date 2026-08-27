@@ -8,6 +8,7 @@ const acp_proxy = @import("acp_proxy.zig");
 const rewind = @import("rewind.zig");
 const pick_image = @import("pick_image.zig");
 const maximize_window = @import("maximize_window.zig");
+const git_branch = @import("git_branch.zig");
 const keys = @import("keys.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 const goal = @import("goal.zig");
@@ -10082,6 +10083,219 @@ test "composer project row sets selected session project_path and reloads" {
 
     const inherited = cleared.addSession("untitled next", .fx);
     try testing.expectEqual(@as(usize, 0), cleared.sessionById(inherited).?.projectPath().len);
+}
+
+fn findGitBranchSpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    return findGitBranchSpawnKey(fx, 0);
+}
+
+fn findGitBranchSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    var found: ?@TypeOf(fx.pendingSpawnAt(0).?) = null;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (!git_branch.isGitBranchArgv(spawn.argv)) continue;
+        if (key != 0 and spawn.key != key) continue;
+        found = spawn;
+    }
+    return found;
+}
+
+fn expectGitBranchArgv(spawn: anytype, cwd: []const u8) !void {
+    try testing.expect(git_branch.isGitBranchArgv(spawn.argv));
+    try testing.expectEqualStrings(git_branch.sh_bin, spawn.argv[0]);
+    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(cwd, spawn.argv[4]);
+    try testing.expectEqualStrings(git_branch.git_bin, spawn.argv[5]);
+    try testing.expectEqualStrings(git_branch.git_branch_cmd, spawn.argv[6]);
+    try testing.expectEqualStrings(git_branch.git_show_current, spawn.argv[7]);
+    try testing.expect(spawn.key != main.fx_ask_key);
+    try testing.expect(spawn.key != main.fx_probe_key);
+    try testing.expect(spawn.key != main.maximize_window_key);
+    try testing.expect(spawn.key != main.pick_image_key);
+    try testing.expect(spawn.key != main.copy_turn_key);
+    try testing.expect(spawn.key >= main.git_branch_key_first);
+}
+
+test "composer project row shows one-shot git branch --show-current" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-proj", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("git row", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const spawn = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try testing.expectEqual(model.git_branch_key, spawn.key);
+    try expectGitBranchArgv(spawn, project);
+    try testing.expect(!model.has_git_branch());
+
+    try fx.feedLine(spawn.key, "feat/composer-row\n");
+    drainEffects(&model, &fx);
+    try testing.expect(model.has_git_branch());
+    try testing.expectEqualStrings("feat/composer-row", model.git_branch_label());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, project);
+    _ = try expectByText(tree.root, .text, "feat/composer-row");
+    try testing.expect(findByText(tree.root, .button, "Local") == null);
+}
+
+test "git branch label is omitted for empty missing rejected empty and nonzero" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-omit", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("omit branch", .fx);
+    model.selected = id;
+
+    try testing.expect(model.project_is_local());
+    git_branch.refresh(&model, &fx);
+    try testing.expect(findGitBranchSpawnKey(&fx, model.git_branch_key) == null);
+    try testing.expect(!model.has_git_branch());
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = ".zig-cache/tmp/faku-git-missing" } }, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_branch_key);
+    try testing.expect(findGitBranchSpawnKey(&fx, 0) == null);
+    try testing.expect(!model.has_git_branch());
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    var spawn = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try expectGitBranchArgv(spawn, project);
+    try fx.feedLine(spawn.key, "   \n");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_branch());
+
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_branch());
+
+    git_branch.refresh(&model, &fx);
+    spawn = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try fx.feedLine(spawn.key, "not a branch");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_branch());
+
+    git_branch.refresh(&model, &fx);
+    spawn = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try fx.feedLine(spawn.key, "main");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("main", model.git_branch_label());
+    try fx.feedExit(spawn.key, 128);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_branch());
+
+    git_branch.refresh(&model, &fx);
+    spawn = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try fx.feedExit(spawn.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_branch());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, project);
+    try testing.expect(findByText(tree.root, .text, "main") == null);
+    try testing.expect(findByText(tree.root, .text, "unknown") == null);
+    try testing.expect(findByText(tree.root, .text, "HEAD") == null);
+}
+
+test "changing session or project_path does not keep the previous branch" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var a_buf: [256]u8 = undefined;
+    var b_buf: [256]u8 = undefined;
+    const project_a = try std.fmt.bufPrint(&a_buf, ".zig-cache/tmp/{s}/git-a", .{tmp.sub_path[0..]});
+    const project_b = try std.fmt.bufPrint(&b_buf, ".zig-cache/tmp/{s}/git-b", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project_a);
+    try std.Io.Dir.cwd().createDirPath(testing.io, project_b);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const first = model.addSession("first repo", .fx);
+    const second = model.addSession("second repo", .fx);
+    model.selected = first;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project_a } }, &fx);
+    const first_spawn = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    const first_key = first_spawn.key;
+    try fx.feedLine(first_key, "branch-a");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("branch-a", model.git_branch_label());
+
+    main.update(&model, .{ .select = second }, &fx);
+    try testing.expectEqual(second, model.selected);
+    try testing.expect(!model.has_git_branch());
+    try testing.expect(model.git_branch_key != first_key);
+
+    try fx.feedLine(first_key, "stale-a");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_branch());
+
+    main.update(&model, .{ .select = first }, &fx);
+    const again = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try testing.expect(again.key != first_key);
+    try expectGitBranchArgv(again, project_a);
+    try testing.expect(!model.has_git_branch());
+    try fx.feedLine(again.key, "branch-a");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("branch-a", model.git_branch_label());
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project_b } }, &fx);
+    try testing.expect(!model.has_git_branch());
+    const second_spawn = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try testing.expect(second_spawn.key != again.key);
+    try expectGitBranchArgv(second_spawn, project_b);
+
+    try fx.feedLine(again.key, "stale-a");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_branch());
+
+    try fx.feedLine(second_spawn.key, "branch-b");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("branch-b", model.git_branch_label());
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    try testing.expect(!model.has_git_branch());
+    try testing.expect(model.project_is_local());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "choose a project");
+    _ = try expectByText(tree.root, .button, "Local");
+    try testing.expect(findByText(tree.root, .text, "branch-a") == null);
+    try testing.expect(findByText(tree.root, .text, "branch-b") == null);
 }
 
 fn expectContextProgress(widget: canvas.Widget, expected: f32) !canvas.Widget {

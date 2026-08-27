@@ -11,6 +11,7 @@ const palette = @import("palette.zig");
 const store = @import("store.zig");
 const attach_helpers = @import("attach.zig");
 const session_switcher = @import("switcher.zig");
+const git_branch = @import("git_branch.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -83,6 +84,7 @@ pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     store.maybeHydrateDaemonSession(model, fx, id);
     store.loadDraftIfPossible(model);
     attach_helpers.refreshAttachPreview(model, fx);
+    git_branch.refresh(model, fx);
     model.pinTranscriptToLatest();
     model.composer_active = true;
 }

@@ -37,8 +37,10 @@ last-activity time from `updated_at` (just now / Nm / Nh /
 Yesterday / Nd / date; omitted when `updated_at` is missing/0;
 static from last `wallMs`, not a live ticker);
 sidebar folder rows have a Native context menu (Rename / Delete);
-the composer project row sets the selected session cwd; the usage
-control stays empty unless ACP reports `usage_update`; user and
+the composer project row sets the selected session cwd and, when that
+path exists, shows a muted one-shot `git branch --show-current` label
+(not Waku's daemon branch picker; Native still has no git effect);
+the usage control stays empty unless ACP reports `usage_update`; user and
 assistant turns render Native markdown; the transcript stays pinned
 to the latest turn via Native `scroll` `value` / `on-scroll`
 (`canvas.ScrollState` extents; overshoot `value` clamps to the end)
@@ -62,7 +64,8 @@ helpers live in `src/spawn.zig`. Send / stream lifecycle /
 daemon steer-cancel helpers live in `src/stream.zig`. Sidecar
 stdout / ACP / daemon line handlers and fx-exit routing live in
 `src/lines.zig`. Maximize spawn/exit helpers live in
-`src/maximize_window.zig`. Boot fx-probe spawn/exit lives in
+`src/maximize_window.zig`. Composer git-branch probe helpers live in
+`src/git_branch.zig`. Boot fx-probe spawn/exit lives in
 `src/fx_probe.zig`. Folder/chip persist helpers live in
 `src/persist.zig`. Session / folder / title-edit update helpers live
 in `src/session_actions.zig`. Settings / Esc-stop / composer-picker
@@ -177,8 +180,16 @@ image / fallback path still starts
 
 New sessions inherit `last_project_path` from `sessions.json` when one
 was persisted. The composer project row under the prompt sets that
-session `project_path` (empty is Local / host cwd). There is no
-worktree materialization.
+session `project_path` (empty is Local / host cwd). When that path
+exists, the same row shows a muted current-branch label from a
+one-shot `fx.spawn` of `git branch --show-current` (chdir via the
+same `/bin/sh -c 'cd -- "$1" && shift && exec "$@"'` workaround
+`fx ask` uses, because Native `SpawnOptions` has no `cwd`). Detached
+HEAD and non-repos print empty; the label is omitted. This is not
+Waku's daemon `InspectBranches` / checkout picker, not a live watch,
+and not a `git status` dirty count. Native still has no git effect.
+The branch is runtime-only (like the busy spinner) and is not stored
+on `sessions.json`. There is no worktree materialization.
 
 A stdout ACP `session/new` result with `sessionId` updates the stored
 id and is not appended to the assistant turn. `fx ask --json` lines
