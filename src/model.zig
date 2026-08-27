@@ -182,6 +182,8 @@ pub const SidebarRow = struct {
     /// `updated_at` or the clock is missing/0 so chrome does not invent a time.
     relative_time: []const u8 = "",
     has_relative_time: bool = false,
+    /// Folder headers mirror `Folder.collapsed`. Session and date rows stay false.
+    collapsed: bool = false,
 };
 
 pub const AssignFolder = struct {

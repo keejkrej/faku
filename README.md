@@ -28,7 +28,7 @@ numeric id and fx/ACP session id); the sidebar collapse
 control works and is restored; the sidebar chevrons walk session
 selection history; clicking a session focuses the composer; New folder creates a local catalog folder; clicking
 a folder (or the move control) assigns the selected session; folder
-titles are editable; Collapse all folders collapses every sidebar folder (restored via `collapsed_folder_ids`); the selected session title is editable; deleting a folder unassigns its sessions;
+titles are editable; collapsed folder headers show a right chevron (expand) and expanded ones a down chevron (collapse); Collapse all folders collapses every sidebar folder (restored via `collapsed_folder_ids`); the selected session title is editable; deleting a folder unassigns its sessions;
 sidebar trash removes a session (and closeSession if a daemon is set);
 sidebar session rows have a Native context menu (Rename / Remove);
 a working sidebar session shows a Native spinner beside the title;
