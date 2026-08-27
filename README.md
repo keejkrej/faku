@@ -16,7 +16,8 @@ and it is fx-first. Desktop chrome matches the stopped Waku-parity cut
 Header, sidebar, and Ctrl-Tab switcher titles stay on one line with
 Native ellipsis; the full name remains the accessible list-item
 label. That is in-window chrome, not the OS window title. Ctrl-Tab
-session switcher helpers live in `src/switcher.zig`. The
+session switcher helpers live in `src/switcher.zig`. Sidebar
+row builders live in `src/sidebar_rows.zig`. The
 header X closes the window because chrome is off; the header
 Minimize control and Cmd/Ctrl-M call Native `fx.minimizeWindow`; the
 header Maximize control and Cmd/Ctrl-Shift-M one-shot an OS zoom
