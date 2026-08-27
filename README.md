@@ -66,7 +66,8 @@ stdout / ACP / daemon line handlers and fx-exit routing live in
 `src/lines.zig`. Maximize spawn/exit helpers live in
 `src/maximize_window.zig`. Composer Pick folder helpers live in
 `src/pick_folder.zig`. Composer Reveal folder helpers live in
-`src/reveal_folder.zig`. Composer git-branch probe helpers live in
+`src/reveal_folder.zig`. Composer Open in Terminal helpers live in
+`src/open_terminal.zig`. Composer git-branch probe helpers live in
 `src/git_branch.zig`. Boot fx-probe spawn/exit lives in
 `src/fx_probe.zig`. Folder/chip persist helpers live in
 `src/persist.zig`. Session / folder / title-edit update helpers live
@@ -191,7 +192,11 @@ POSIX path; Linux `zenity --file-selection --directory`, else
 remains. Reveal folder opens the selected session workspace in the OS
 file manager via an `open` / `xdg-open` sidecar (not Native
 `fx.revealPath`, which this SDK does not expose on Effects, and not
-Waku's Open-in app picker). When that path exists, the same row shows
+Waku's Open-in app picker). Open in Terminal opens that same workspace
+in the host terminal via `open -a Terminal` / `x-terminal-emulator
+--working-directory=` (else `gnome-terminal`) — an OS sidecar, not
+Waku's embedded right-panel terminal and not a full Open-in app picker.
+When that path exists, the same row shows
 a muted current-branch label from a
 one-shot `fx.spawn` of `git branch --show-current` (chdir via the
 same `/bin/sh -c 'cd -- "$1" && shift && exec "$@"'` workaround
