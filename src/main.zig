@@ -2787,7 +2787,7 @@ pub const Model = struct {
         }
     }
 
-    fn appendToTurn(model: *Model, turn_id: u32, extra: []const u8) void {
+    pub fn appendToTurn(model: *Model, turn_id: u32, extra: []const u8) void {
         const turn = model.turnById(turn_id) orelse return;
         const session_id = turn.session_id;
         const room = turn.body_storage.len - turn.body_len;
