@@ -5,6 +5,10 @@
 //! (write-once then close). This is not an invented Native window effect
 //! and not a fake in-app size change.
 //!
+//! Spawn/exit orchestration (`startMaximizeWindow` / missing-exit
+//! fallback / `handleMaximizeWindowExit`) lives here too. Native still
+//! has none.
+//!
 //!   macOS:  osascript System Events `zoomed` on the Faku-named window
 //!           of the frontmost process, else window 1 of that process.
 //!           Exact script is `osascript_script` below.
@@ -15,6 +19,16 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const native_sdk = @import("native_sdk");
+const main = @import("main.zig");
+
+const Model = main.Model;
+const Effects = main.Effects;
+
+/// One-shot OS maximize sidecar (`osascript` / `wmctrl` / `xdotool`).
+/// Distinct from fx ask / daemon / picker / clipboard keys. Native
+/// still has no `fx.maximizeWindow`; this spawn is the workaround.
+pub const maximize_window_key: u64 = 30;
 
 pub const missing_exit: u8 = 2;
 
@@ -83,6 +97,49 @@ pub fn hostMissingStatus() []const u8 {
         .windows => windows_missing_status,
         else => linux_missing_status,
     };
+}
+
+pub fn startMaximizeWindow(model: *Model, fx: *Effects) void {
+    if (model.maximize_window_live) return;
+    const argv = hostArgv(.first) orelse {
+        model.setWindowStatus(hostMissingStatus());
+        return;
+    };
+    model.maximize_window_live = true;
+    model.maximize_window_tried_fallback = false;
+    model.clearWindowStatus();
+    fx.spawn(.{
+        .key = maximize_window_key,
+        .argv = argv,
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+}
+
+fn isMissingMaximizeExit(exit: native_sdk.EffectExit) bool {
+    if (exit.reason != .exited) return true;
+    return exit.code == 127 or exit.code == missing_exit;
+}
+
+pub fn handleMaximizeWindowExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (isMissingMaximizeExit(exit)) {
+        if (!model.maximize_window_tried_fallback) {
+            if (hostArgv(.fallback)) |argv| {
+                model.maximize_window_tried_fallback = true;
+                fx.spawn(.{
+                    .key = maximize_window_key,
+                    .argv = argv,
+                    .on_exit = Effects.exitMsg(.fx_exit),
+                });
+                return;
+            }
+        }
+        model.maximize_window_live = false;
+        if (!model.has_window_status()) {
+            model.setWindowStatus(hostMissingStatus());
+        }
+        return;
+    }
+    model.maximize_window_live = false;
 }
 
 pub fn isMaximizeArgv(argv: []const []const u8) bool {

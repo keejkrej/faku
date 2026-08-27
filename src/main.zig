@@ -184,7 +184,7 @@ pub const transcript_pin_offset: f32 = 1_000_000;
 /// One-shot OS maximize sidecar (`osascript` / `wmctrl` / `xdotool`).
 /// Distinct from fx ask / daemon / picker / clipboard keys. Native
 /// still has no `fx.maximizeWindow`; this spawn is the workaround.
-pub const maximize_window_key: u64 = 30;
+pub const maximize_window_key = maximize_window.maximize_window_key;
 /// One-shot OS image-picker sidecar (`osascript` / `zenity` / `kdialog`).
 /// Distinct from fx ask / daemon / clipboard / preview keys. Native has
 /// no `fx.pickFile`; this spawn is the documented workaround.
@@ -3070,7 +3070,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         // a live turn keep it.
         .close_window => fx.closeWindow(main_window_label),
         .minimize_window => fx.minimizeWindow(main_window_label),
-        .maximize_window => startMaximizeWindow(model, fx),
+        .maximize_window => maximize_window.startMaximizeWindow(model, fx),
         .quit_app => fx.quitApp(),
         .remove_session => |id| {
             if (model.editing_session_id == id) model.closeSessionTitleEdit();
@@ -3450,49 +3450,6 @@ fn fxProbePath(model: *const Model, index: u32, buf: *[max_fx_path]u8) ?[]const 
 
 /// Native `UiApp.Options.on_drop` → Msg. Window-level; no OS picker.
 pub const onDrop = attach_helpers.onDrop;
-
-fn startMaximizeWindow(model: *Model, fx: *Effects) void {
-    if (model.maximize_window_live) return;
-    const argv = maximize_window.hostArgv(.first) orelse {
-        model.setWindowStatus(maximize_window.hostMissingStatus());
-        return;
-    };
-    model.maximize_window_live = true;
-    model.maximize_window_tried_fallback = false;
-    model.clearWindowStatus();
-    fx.spawn(.{
-        .key = maximize_window_key,
-        .argv = argv,
-        .on_exit = Effects.exitMsg(.fx_exit),
-    });
-}
-
-fn isMissingMaximizeExit(exit: native_sdk.EffectExit) bool {
-    if (exit.reason != .exited) return true;
-    return exit.code == 127 or exit.code == maximize_window.missing_exit;
-}
-
-pub fn handleMaximizeWindowExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
-    if (isMissingMaximizeExit(exit)) {
-        if (!model.maximize_window_tried_fallback) {
-            if (maximize_window.hostArgv(.fallback)) |argv| {
-                model.maximize_window_tried_fallback = true;
-                fx.spawn(.{
-                    .key = maximize_window_key,
-                    .argv = argv,
-                    .on_exit = Effects.exitMsg(.fx_exit),
-                });
-                return;
-            }
-        }
-        model.maximize_window_live = false;
-        if (!model.has_window_status()) {
-            model.setWindowStatus(maximize_window.hostMissingStatus());
-        }
-        return;
-    }
-    model.maximize_window_live = false;
-}
 
 pub const AppUi = canvas.Ui(Msg);
 pub const app_markup = @embedFile("app.native");

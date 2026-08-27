@@ -61,7 +61,8 @@ unchanged. Clipboard and turn-complete notify helpers live in
 helpers live in `src/spawn.zig`. Send / stream lifecycle /
 daemon steer-cancel helpers live in `src/stream.zig`. Sidecar
 stdout / ACP / daemon line handlers and fx-exit routing live in
-`src/lines.zig`.
+`src/lines.zig`. Maximize spawn/exit helpers live in
+`src/maximize_window.zig`.
 
 ## Why fx
 
