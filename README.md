@@ -313,6 +313,7 @@ When that file exists,
 the chip row binds a Native `<image>` via `fx.loadImage` (ImageId, 0
 until `.loaded`) and Send adds `fx ask --image PATH` before `--`; a
 missing file keeps the chip only and omits the flag.
+Attach preview, file drop, and OS picker helpers live in `src/attach.zig`.
 Saves are cheap rewrites on each `draft_edit` and when leaving a
 session. The `newSession` key (text and image) is discarded after the
 first successful send so the next New Task does not resurrect that
