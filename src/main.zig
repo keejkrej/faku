@@ -45,6 +45,7 @@ const session_actions = @import("session_actions.zig");
 const settings_actions = @import("settings_actions.zig");
 const session_mod = @import("session.zig");
 const model_mod = @import("model.zig");
+const git_branch = @import("git_branch.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -192,6 +193,10 @@ pub const maximize_window_key = maximize_window.maximize_window_key;
 /// Distinct from fx ask / daemon / clipboard / preview keys. Native has
 /// no `fx.pickFile`; this spawn is the documented workaround.
 pub const pick_image_key = attach_helpers.pick_image_key;
+/// One-shot `git branch --show-current` probe. Distinct from maximize /
+/// pick-image / fx-ask / daemon / clipboard / probe keys. Incremented
+/// per refresh from `git_branch_key_first`.
+pub const git_branch_key_first = git_branch.git_branch_key_first;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
 pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_status;
@@ -465,6 +470,7 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     store.maybeLoadDaemonCatalog(model, fx);
     store.maybeHydrateDaemonSession(model, fx, model.selected);
     attach_helpers.refreshAttachPreview(model, fx);
+    git_branch.refresh(model, fx);
     fx_probe.startFxProbe(model, fx);
 }
 
@@ -587,4 +593,5 @@ test {
     _ = @import("settings_actions.zig");
     _ = @import("session.zig");
     _ = @import("model.zig");
+    _ = @import("git_branch.zig");
 }
