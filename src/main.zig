@@ -33,6 +33,7 @@ const goal = @import("goal.zig");
 const composer = @import("composer.zig");
 const copy_helpers = @import("copy.zig");
 const session_switcher = @import("switcher.zig");
+const sidebar_row_helpers = @import("sidebar_rows.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -61,7 +62,7 @@ const max_folders = 16;
 /// Sidebar folder-header keys sit above session ids so `for` keys stay unique.
 pub const folder_row_id_base: u32 = 1_000_000;
 /// Date-bucket header keys sit above folder headers.
-pub const date_row_id_base: u32 = 4_000_000;
+pub const date_row_id_base = sidebar_row_helpers.date_row_id_base;
 /// In-memory session selection history for sidebar Back / Forward.
 pub const selection_history_cap: u32 = 32;
 /// Runtime-only Ctrl-Tab switcher snapshot. Same cap as Waku's overlay.
@@ -1354,80 +1355,7 @@ pub const Model = struct {
     }
 
     pub fn sidebar_rows(model: *const Model, arena: std.mem.Allocator) []const SidebarRow {
-        var ungrouped: [max_sessions]u32 = undefined;
-        const ungrouped_n = collectUngroupedNewestFirst(model, &ungrouped);
-        var today_n: usize = 0;
-        var yesterday_n: usize = 0;
-        var this_week_n: usize = 0;
-        var this_month_n: usize = 0;
-        var this_year_n: usize = 0;
-        var older_n: usize = 0;
-        for (ungrouped[0..ungrouped_n]) |id| {
-            const session = model.sessionByIdConst(id) orelse continue;
-            switch (sessionDateBucket(session.updated_at, model.now_ms)) {
-                .today => today_n += 1,
-                .yesterday => yesterday_n += 1,
-                .this_week => this_week_n += 1,
-                .this_month => this_month_n += 1,
-                .this_year => this_year_n += 1,
-                .older => older_n += 1,
-            }
-        }
-        const show_date_headers = yesterday_n > 0 or this_week_n > 0 or this_month_n > 0 or this_year_n > 0 or older_n > 0;
-        var count: usize = ungrouped_n;
-        if (show_date_headers) {
-            if (today_n > 0) count += 1;
-            if (yesterday_n > 0) count += 1;
-            if (this_week_n > 0) count += 1;
-            if (this_month_n > 0) count += 1;
-            if (this_year_n > 0) count += 1;
-            if (older_n > 0) count += 1;
-        }
-        for (model.folder_store[0..model.folder_count]) |*folder| {
-            var matches: usize = 0;
-            for (model.session_store[0..model.session_count]) |*session| {
-                if (effectiveFolderId(model, session) == folder.id) matches += 1;
-            }
-            count += 1;
-            if (!folder.collapsed) count += matches;
-        }
-        const out = arena.alloc(SidebarRow, count) catch return &.{};
-        var i: usize = 0;
-        if (show_date_headers) {
-            i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .today, arena);
-            i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .yesterday, arena);
-            i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .this_week, arena);
-            i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .this_month, arena);
-            i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .this_year, arena);
-            i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .older, arena);
-        } else {
-            for (ungrouped[0..ungrouped_n]) |id| {
-                const session = model.sessionByIdConst(id) orelse continue;
-                out[i] = sessionSidebarRow(model, session, arena);
-                i += 1;
-            }
-        }
-        for (model.folder_store[0..model.folder_count]) |*folder| {
-            out[i] = .{
-                .id = folder_row_id_base + folder.id,
-                .title = folder.title(),
-                .provider = "",
-                .selected = selectedSessionInFolder(model, folder.id),
-                .is_header = true,
-                .editing = model.editing_folder_id == folder.id,
-                .folder_id = folder.id,
-                .grouped = false,
-                .is_date_header = false,
-            };
-            i += 1;
-            if (folder.collapsed) continue;
-            for (model.session_store[0..model.session_count]) |*session| {
-                if (effectiveFolderId(model, session) != folder.id) continue;
-                out[i] = sessionSidebarRow(model, session, arena);
-                i += 1;
-            }
-        }
-        return out[0..i];
+        return sidebar_row_helpers.rows(model, arena);
     }
 
     pub fn switcher_rows(model: *const Model, arena: std.mem.Allocator) []const SessionRow {
@@ -1808,28 +1736,28 @@ pub const Model = struct {
     }
 
     pub fn sidebarWidthPixels(model: *const Model) u32 {
-        return @intFromFloat(@round(clampSidebarWidth(model.sidebar_last_width)));
+        return @intFromFloat(@round(sidebar_row_helpers.clampSidebarWidth(model.sidebar_last_width)));
     }
 
     pub fn applySidebarWidth(model: *Model, width: u32) void {
         if (width == 0) return;
-        model.sidebar_last_width = clampSidebarWidth(@floatFromInt(width));
+        model.sidebar_last_width = sidebar_row_helpers.clampSidebarWidth(@floatFromInt(width));
     }
 
     pub fn syncSidebarSplit(model: *Model) void {
         if (model.sidebar_collapsed) {
-            model.sidebar_split = collapsedSidebarSplit();
+            model.sidebar_split = sidebar_row_helpers.collapsedSidebarSplit();
             return;
         }
         const width = if (model.sidebar_last_width > 0) model.sidebar_last_width else sidebar_default_width;
-        model.sidebar_split = clampExpandedSidebarSplit(width / window_width);
+        model.sidebar_split = sidebar_row_helpers.clampExpandedSidebarSplit(width / window_width);
     }
 
     pub fn toggleSidebar(model: *Model) void {
         if (model.sidebar_collapsed) {
             model.sidebar_collapsed = false;
         } else {
-            rememberExpandedWidth(model);
+            sidebar_row_helpers.rememberExpandedWidth(model);
             model.sidebar_collapsed = true;
         }
         model.syncSidebarSplit();
@@ -2609,11 +2537,11 @@ pub const Model = struct {
     }
 
     pub fn nextUntitledFolderTitle(model: *const Model, buf: []u8) []const u8 {
-        if (!folderTitleTaken(model, "New folder")) return "New folder";
+        if (!sidebar_row_helpers.folderTitleTaken(model, "New folder")) return "New folder";
         var n: u32 = 2;
         while (n < 1000) : (n += 1) {
             const title = std.fmt.bufPrint(buf, "New folder {d}", .{n}) catch return "New folder";
-            if (!folderTitleTaken(model, title)) return title;
+            if (!sidebar_row_helpers.folderTitleTaken(model, title)) return title;
         }
         return "New folder";
     }
@@ -2885,113 +2813,6 @@ fn stampSessionActivity(session: *Session, now_ms: i64) void {
     session.updated_at = now_ms;
 }
 
-fn dateHeaderRow(bucket: DateBucket) SidebarRow {
-    return .{
-        .id = date_row_id_base + @intFromEnum(bucket) + 1,
-        .title = bucket.title(),
-        .provider = "",
-        .selected = false,
-        .is_header = true,
-        .editing = false,
-        .folder_id = 0,
-        .grouped = false,
-        .is_date_header = true,
-    };
-}
-
-fn collectUngroupedNewestFirst(model: *const Model, dest: []u32) usize {
-    var n: usize = 0;
-    for (model.session_store[0..model.session_count]) |*session| {
-        if (effectiveFolderId(model, session) != 0) continue;
-        if (n >= dest.len) break;
-        dest[n] = session.id;
-        n += 1;
-    }
-    var i: usize = 1;
-    while (i < n) : (i += 1) {
-        const id = dest[i];
-        const stamp = ungroupedSortStamp(model, id);
-        var j = i;
-        while (j > 0 and ungroupedSortStamp(model, dest[j - 1]) < stamp) {
-            dest[j] = dest[j - 1];
-            j -= 1;
-        }
-        dest[j] = id;
-    }
-    return n;
-}
-
-fn ungroupedSortStamp(model: *const Model, id: u32) i64 {
-    const session = model.sessionByIdConst(id) orelse return 0;
-    return session.updated_at;
-}
-
-fn appendDateBucket(
-    model: *const Model,
-    out: []SidebarRow,
-    start: usize,
-    ungrouped: []const u32,
-    bucket: DateBucket,
-    arena: std.mem.Allocator,
-) usize {
-    var i = start;
-    var header = false;
-    for (ungrouped) |id| {
-        const session = model.sessionByIdConst(id) orelse continue;
-        if (sessionDateBucket(session.updated_at, model.now_ms) != bucket) continue;
-        if (!header) {
-            out[i] = dateHeaderRow(bucket);
-            i += 1;
-            header = true;
-        }
-        out[i] = sessionSidebarRow(model, session, arena);
-        i += 1;
-    }
-    return i;
-}
-
-fn sessionSidebarRow(model: *const Model, session: *const Session, arena: std.mem.Allocator) SidebarRow {
-    const relative = allocRelativeTime(arena, session.updated_at, model.now_ms);
-    return .{
-        .id = session.id,
-        .title = sessionDisplayTitle(session),
-        .provider = session.provider_label(),
-        .selected = session.id == model.selected,
-        .is_header = false,
-        .editing = model.editing_session_id == session.id,
-        .folder_id = session.folder_id,
-        .grouped = session.folder_id != 0,
-        .busy = session.busy,
-        .is_date_header = false,
-        .relative_time = relative,
-        .has_relative_time = relative.len > 0,
-    };
-}
-
-fn allocRelativeTime(arena: std.mem.Allocator, updated_at: i64, now_ms: i64) []const u8 {
-    var buf: [16]u8 = undefined;
-    const label = sessionRelativeTime(updated_at, now_ms, &buf) orelse return "";
-    return arena.dupe(u8, label) catch "";
-}
-
-fn selectedSessionInFolder(model: *const Model, folder_id: u32) bool {
-    const session = model.sessionByIdConst(model.selected) orelse return false;
-    return effectiveFolderId(model, session) == folder_id;
-}
-
-fn effectiveFolderId(model: *const Model, session: *const Session) u32 {
-    if (session.folder_id == 0) return 0;
-    if (model.folderByIdConst(session.folder_id) == null) return 0;
-    return session.folder_id;
-}
-
-fn folderTitleTaken(model: *const Model, title: []const u8) bool {
-    for (model.folder_store[0..model.folder_count]) |*folder| {
-        if (std.mem.eql(u8, folder.title(), title)) return true;
-    }
-    return false;
-}
-
 fn commandNameStartsWith(name: []const u8, prefix: []const u8) bool {
     if (prefix.len == 0) return true;
     if (prefix.len > name.len) return false;
@@ -3022,39 +2843,6 @@ fn asciiEqlIgnoreCase(left: []const u8, right: []const u8) bool {
         if (std.ascii.toLower(a) != std.ascii.toLower(b)) return false;
     }
     return true;
-}
-
-fn clampSidebarWidth(width: f32) f32 {
-    const raw = if (width > 0) width else sidebar_default_width;
-    return @max(sidebar_min_width, @min(sidebar_max_width, raw));
-}
-
-fn collapsedSidebarSplit() f32 {
-    return sidebar_rail_width / window_width;
-}
-
-fn clampExpandedSidebarSplit(value: f32) f32 {
-    const min_split = sidebar_min_width / window_width;
-    const max_split = sidebar_max_width / window_width;
-    return @max(min_split, @min(max_split, value));
-}
-
-fn rememberExpandedWidth(model: *Model) void {
-    if (model.sidebar_collapsed) return;
-    model.sidebar_last_width = clampSidebarWidth(model.sidebar_split * window_width);
-}
-
-fn applySidebarResize(model: *Model, fraction: f32) void {
-    const width = fraction * window_width;
-    if (model.sidebar_collapsed) {
-        if (width < sidebar_min_width) return;
-        model.sidebar_collapsed = false;
-        model.sidebar_last_width = clampSidebarWidth(width);
-        model.syncSidebarSplit();
-        return;
-    }
-    model.sidebar_split = clampExpandedSidebarSplit(fraction);
-    model.sidebar_last_width = clampSidebarWidth(model.sidebar_split * window_width);
 }
 
 fn directoryExists(io: std.Io, path: []const u8) bool {
@@ -3296,7 +3084,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             if (model.editing_folder_id != 0) model.closeFolderTitleEdit();
             // Second click on the folder that already holds the selected
             // session edits the title and does not assign again.
-            if (selectedSessionInFolder(model, folder_id)) {
+            if (sidebar_row_helpers.selectedSessionInFolder(model, folder_id)) {
                 model.startFolderTitleEdit(folder_id);
                 return;
             }
@@ -3610,7 +3398,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistLayoutIfPossible(model);
         },
         .sidebar_resized => |fraction| {
-            applySidebarResize(model, fraction);
+            sidebar_row_helpers.applySidebarResize(model, fraction);
             store.persistLayoutIfPossible(model);
         },
         .transcript_scrolled => |scroll| model.applyTranscriptScroll(scroll),
@@ -4796,4 +4584,5 @@ test {
     _ = @import("composer.zig");
     _ = @import("copy.zig");
     _ = @import("switcher.zig");
+    _ = @import("sidebar_rows.zig");
 }
