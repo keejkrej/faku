@@ -2,9 +2,10 @@
 //!
 //! `handleFxLine` / `handleAcpLine` / `handleDaemonLine`, ACP apply
 //! helpers, daemon goalUpdated apply, and `handleFxExit` live here.
-//! Probe and maximize spawn/exit helpers stay in `main.zig`. Stream
-//! finish still comes from `stream.zig`. Behavior is unchanged from
-//! the former `main` line handlers.
+//! Maximize spawn/exit helpers live in `maximize_window.zig`. Probe
+//! helpers stay in `main.zig`. Stream finish still comes from
+//! `stream.zig`. Behavior is unchanged from the former `main` line
+//! handlers.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -15,6 +16,7 @@ const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const attach_helpers = @import("attach.zig");
 const turn_stream = @import("stream.zig");
+const maximize_window = @import("maximize_window.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -24,11 +26,11 @@ const max_line_keep = main.max_line_keep;
 const max_fx_session_id = main.max_fx_session_id;
 const max_body = main.max_body;
 const fx_ask_key = main.fx_ask_key;
-const maximize_window_key = main.maximize_window_key;
+const maximize_window_key = maximize_window.maximize_window_key;
 const pick_image_key = main.pick_image_key;
 const writeFixed = main.writeFixed;
 const takeFxAskSessionId = main.takeFxAskSessionId;
-const handleMaximizeWindowExit = main.handleMaximizeWindowExit;
+const handleMaximizeWindowExit = maximize_window.handleMaximizeWindowExit;
 
 pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
     if (line.key == pick_image_key) {
