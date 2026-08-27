@@ -39,6 +39,7 @@ const prompt_spawn = @import("spawn.zig");
 const turn_stream = @import("stream.zig");
 const sidecar_lines = @import("lines.zig");
 const fx_probe = @import("fx_probe.zig");
+const palette_run = @import("palette_run.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -2869,89 +2870,7 @@ pub const fx_ask_chdir_script = "cd -- \"$1\" && shift && exec \"$@\"";
 
 pub const Effects = native_sdk.Effects(Msg);
 
-fn openPalette(model: *Model) void {
-    session_switcher.closeSwitcher(model);
-    model.closeModelPicker();
-    model.palette_open = true;
-    model.search_buffer.clear();
-    model.palette_highlight = 0;
-    model.composer_active = false;
-}
-
-fn clampPaletteHighlight(model: *Model) void {
-    palette.clampHighlight(model);
-}
-
-fn runPaletteAction(model: *Model, fx: *Effects, action: PaletteAction) void {
-    switch (action) {
-        .new_task => update(model, .new_session, fx),
-        .focus_composer => update(model, .focus_composer, fx),
-        .toggle_sidebar => update(model, .toggle_sidebar, fx),
-        .collapse_folders => update(model, .collapse_all_folders, fx),
-        .find_in_transcript => update(model, .open_find, fx),
-        .settings => update(model, .toggle_settings, fx),
-        .minimize => update(model, .minimize_window, fx),
-        .maximize => update(model, .maximize_window, fx),
-        .copy_session_id => update(model, .copy_session_id, fx),
-        .copy_fx_session_id => update(model, .copy_fx_session_id, fx),
-    }
-}
-
-fn runPalettePick(model: *Model, fx: *Effects, id: u32) void {
-    if (!model.palette_open or id == 0) return;
-    if (id >= palette_header_id_base) return;
-    if (id >= palette_action_id_base) {
-        const action = palette.paletteActionFromId(id) orelse return;
-        if (action == .collapse_folders and !model.can_collapse_folders()) return;
-        model.closePalette();
-        runPaletteAction(model, fx, action);
-        return;
-    }
-    if (model.sessionByIdConst(id) == null) return;
-    model.closePalette();
-    model.pushSelectionHistory(id);
-    applySessionSelection(model, fx, id);
-}
-
-fn confirmPalette(model: *Model, fx: *Effects) void {
-    if (!model.palette_open) return;
-    clampPaletteHighlight(model);
-    const id = palette.selectableIdAt(model, model.palette_highlight) orelse return;
-    runPalettePick(model, fx, id);
-}
-
-pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
-    if (model.sessionById(id) == null) return;
-    store.persistDraftIfPossible(model);
-    model.closeProjectEdit();
-    model.closeImageAttach();
-    model.closeCommands();
-    model.closeModelPicker();
-    model.closeFolderTitleEdit();
-    model.closeSessionTitleEdit();
-    model.selected = id;
-    store.hydrateIfPossible(model, id);
-    store.maybeHydrateDaemonSession(model, fx, id);
-    store.loadDraftIfPossible(model);
-    attach_helpers.refreshAttachPreview(model, fx);
-    model.pinTranscriptToLatest();
-    model.composer_active = true;
-}
-
-fn goHistory(step: i32, model: *Model, fx: *Effects) void {
-    if (step == 0 or model.history_count == 0) return;
-    var i: i32 = @intCast(model.history_index);
-    const last: i32 = @intCast(model.history_count - 1);
-    while (true) {
-        i += step;
-        if (i < 0 or i > last) return;
-        const id = model.history_store[@intCast(i)];
-        if (model.sessionById(id) == null) continue;
-        model.history_index = @intCast(i);
-        applySessionSelection(model, fx, id);
-        return;
-    }
-}
+pub const applySessionSelection = palette_run.applySessionSelection;
 
 fn persistAssignedFolder(model: *Model, session_id: u32, folder_id: u32, fx: *Effects) void {
     if (!model.assignSessionFolder(session_id, folder_id)) return;
@@ -3007,11 +2926,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             }
             if (model.sessionById(id) != null) {
                 model.pushSelectionHistory(id);
-                applySessionSelection(model, fx, id);
+                palette_run.applySessionSelection(model, fx, id);
             }
         },
-        .history_back => goHistory(-1, model, fx),
-        .history_forward => goHistory(1, model, fx),
+        .history_back => palette_run.goHistory(-1, model, fx),
+        .history_forward => palette_run.goHistory(1, model, fx),
         .new_folder => {
             var title_buf: [max_title]u8 = undefined;
             const title = model.nextUntitledFolderTitle(&title_buf);
@@ -3080,10 +2999,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.loadDraftIfPossible(model);
             attach_helpers.refreshAttachPreview(model, fx);
         },
-        .start_search => openPalette(model),
-        .palette_confirm => confirmPalette(model, fx),
+        .start_search => palette_run.openPalette(model),
+        .palette_confirm => palette_run.confirmPalette(model, fx),
         .palette_cancel => model.closePalette(),
-        .palette_pick => |id| runPalettePick(model, fx, id),
+        .palette_pick => |id| palette_run.runPalettePick(model, fx, id),
         .open_find => {
             model.find_active = true;
             model.composer_active = false;
@@ -3093,7 +3012,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .search_edit => |edit| {
             model.search_buffer.apply(edit);
             model.palette_highlight = 0;
-            if (model.palette_open) clampPaletteHighlight(model);
+            if (model.palette_open) palette_run.clampPaletteHighlight(model);
         },
         .find_edit => |edit| model.find_buffer.apply(edit),
         .draft_edit => |edit| {
@@ -3504,4 +3423,5 @@ test {
     _ = @import("stream.zig");
     _ = @import("lines.zig");
     _ = @import("fx_probe.zig");
+    _ = @import("palette_run.zig");
 }
