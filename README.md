@@ -56,7 +56,8 @@ turn fires a desktop notification through Native `fx.showNotification`
 Native has no window-focus observation, so this is not Waku's
 unfocused-only gate — it always notifies on success. Headless paths are
 unchanged. Clipboard and turn-complete notify helpers live in
-`src/copy.zig`.
+`src/copy.zig`. Session fork / rewind helpers live in
+`src/fork.zig`.
 
 ## Why fx
 

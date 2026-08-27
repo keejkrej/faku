@@ -34,6 +34,7 @@ const copy_helpers = @import("copy.zig");
 const session_switcher = @import("switcher.zig");
 const sidebar_row_helpers = @import("sidebar_rows.zig");
 const attach_helpers = @import("attach.zig");
+const session_fork = @import("fork.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -57,7 +58,7 @@ pub const sidebar_max_width: f32 = 420;
 pub const sidebar_rail_width: f32 = 48;
 const default_sidebar_split: f32 = sidebar_default_width / window_width;
 
-const max_sessions = 16;
+pub const max_sessions = 16;
 const max_folders = 16;
 /// Sidebar folder-header keys sit above session ids so `for` keys stay unique.
 pub const folder_row_id_base: u32 = 1_000_000;
@@ -3305,9 +3306,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.insertAvailableCommand(id);
             store.persistDraftIfPossible(model);
         },
-        .rewind => applyRewindIfPossible(model, fx),
-        .fork => forkSelectedSession(model, fx),
-        .fork_turn => |id| forkSelectedThroughTurn(model, fx, id),
+        .rewind => session_fork.applyRewindIfPossible(model, fx),
+        .fork => session_fork.forkSelectedSession(model, fx),
+        .fork_turn => |id| session_fork.forkSelectedThroughTurn(model, fx, id),
         .clear_queue => {
             model.dropQueuedForSession(model.selected);
             store.persistIfPossible(model, model.selected, fx);
@@ -3428,7 +3429,7 @@ fn handleSteer(model: *Model, fx: *Effects) void {
 
 fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) void {
     const session = model.sessionById(session_id) orelse return;
-    recordRewindRefIfPossible(model, session.id);
+    session_fork.recordRewindRefIfPossible(model, session.id);
     const titled = session.untitled;
     if (session.untitled) {
         writeFixed(&session.title_storage, &session.title_len, text);
@@ -3744,104 +3745,6 @@ fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
         }
     }
     store.persistIfPossible(model, finished_id, fx);
-}
-
-fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
-    const io = model.store_io orelse return;
-    const session = model.sessionById(session_id) orelse return;
-    var sha_buf: [rewind.max_sha]u8 = undefined;
-    const captured = rewind.captureHead(std.heap.page_allocator, io, session.projectPath(), &sha_buf) orelse return;
-    session.appendRewindRef(captured.sha, rewind.recorded_ref, captured.recorded_at);
-}
-
-/// Header Fork: local catalog clone through the last turn.
-fn forkSelectedSession(model: *Model, fx: *Effects) void {
-    store.hydrateIfPossible(model, model.selected);
-    const available = model.turnCount(model.selected);
-    if (available == 0) return;
-    forkSelectedThrough(model, fx, available - 1);
-}
-
-/// Per-turn Fork: clone turns `0..=index` of the selected session.
-/// Unknown / other-session ids are a no-op.
-fn forkSelectedThroughTurn(model: *Model, fx: *Effects, turn_id: u32) void {
-    store.hydrateIfPossible(model, model.selected);
-    const index = selectedTurnIndex(model, turn_id) orelse return;
-    forkSelectedThrough(model, fx, index);
-}
-
-fn selectedTurnIndex(model: *const Model, turn_id: u32) ?u32 {
-    var index: u32 = 0;
-    for (model.turn_store[0..model.turn_count]) |turn| {
-        if (turn.session_id != model.selected) continue;
-        if (turn.id == turn_id) return index;
-        index += 1;
-    }
-    return null;
-}
-
-/// Local catalog clone through `through_index` (inclusive). New id, empty
-/// `fx_session_id` / `runtime_id` so the next Send uses `session/new`.
-/// Not a provider session fork and not a daemon RPC. Empty / full / no
-/// room / past-the-end cut is a no-op.
-fn forkSelectedThrough(model: *Model, fx: *Effects, through_index: u32) void {
-    const source_id = model.selected;
-    store.hydrateIfPossible(model, source_id);
-    const source = model.sessionById(source_id) orelse return;
-    const available = model.turnCount(source_id);
-    if (available == 0 or through_index >= available) return;
-    const needed = through_index + 1;
-    if (model.session_count >= max_sessions) return;
-    if (model.turn_count + needed > max_turns) return;
-
-    const fork_id = model.addSession(source.title(), source.provider);
-    if (fork_id == 0) return;
-    if (model.sessionById(source_id)) |from| {
-        if (model.sessionById(fork_id)) |session| {
-            session.setProjectPath(from.projectPath());
-            session.setModel(from.model());
-            session.setAccessMode(from.accessMode());
-            session.setInteractionMode(from.interactionMode());
-            session.setReasoningEffort(from.reasoningEffort());
-            session.folder_id = from.folder_id;
-            session.untitled = from.untitled;
-            session.setFxSessionId("");
-            session.setRuntimeId("");
-            // Session-level refs: header fork keeps the whole prefix.
-            // Mid-session cuts keep the same stored shas. Do not invent shas.
-            for (from.rewindRefs()) |item| {
-                session.appendRewindRef(item.sha(), item.refName(), item.recorded_at);
-            }
-        }
-    }
-
-    const original_turn_count = model.turn_count;
-    var copied: u32 = 0;
-    var i: usize = 0;
-    while (i < original_turn_count) : (i += 1) {
-        const turn = model.turn_store[i];
-        if (turn.session_id != source_id) continue;
-        if (copied > through_index) break;
-        _ = model.appendTurn(fork_id, turn.role, turn.text());
-        copied += 1;
-    }
-
-    model.pushSelectionHistory(fork_id);
-    applySessionSelection(model, fx, fork_id);
-    store.persistIfPossible(model, fork_id, fx);
-}
-
-/// Reset workspace files to the latest Send-time HEAD, consume that ref,
-/// and drop the last prompt's turns. Does not change `fx_session_id`.
-/// Failed git is a no-op (ref and transcript stay).
-fn applyRewindIfPossible(model: *Model, fx: *Effects) void {
-    const io = model.store_io orelse return;
-    const session = model.sessionById(model.selected) orelse return;
-    const sha = session.latestRewindSha() orelse return;
-    if (!rewind.resetHard(std.heap.page_allocator, io, session.projectPath(), sha)) return;
-    session.popLatestRewindRef();
-    model.dropLastPromptTurns(session.id);
-    store.persistIfPossible(model, session.id, fx);
 }
 
 fn stopStream(model: *Model, fx: *Effects) void {
@@ -4453,4 +4356,5 @@ test {
     _ = @import("switcher.zig");
     _ = @import("sidebar_rows.zig");
     _ = @import("attach.zig");
+    _ = @import("fork.zig");
 }
