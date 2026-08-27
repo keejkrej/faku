@@ -41,6 +41,7 @@ const sidecar_lines = @import("lines.zig");
 const fx_probe = @import("fx_probe.zig");
 const palette_run = @import("palette_run.zig");
 const persist = @import("persist.zig");
+const session_actions = @import("session_actions.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -83,7 +84,7 @@ pub const palette_section_header_height = palette.palette_section_header_height;
 pub const palette_card_width = palette.palette_card_width;
 pub const palette_card_height = palette.palette_card_height;
 pub const max_turns = 128;
-const max_title = 64;
+pub const max_title = 64;
 const max_search = 64;
 pub const max_body = 4096;
 pub const max_draft = 512;
@@ -2876,89 +2877,22 @@ pub const applySessionSelection = palette_run.applySessionSelection;
 pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     model.now_ms = fx.wallMs();
     switch (msg) {
-        .new_session => {
-            store.persistDraftIfPossible(model);
-            model.closeProjectEdit();
-            model.closeImageAttach();
-            model.closeCommands();
-            model.closeModelPicker();
-            model.closeFolderTitleEdit();
-            model.closeSessionTitleEdit();
-            const id = model.addSession("untitled", .fx);
-            if (id == 0) return;
-            if (model.sessionById(id)) |session| session.untitled = true;
-            model.pushSelectionHistory(id);
-            model.selected = id;
-            // Client-built; persist is a no-op until first real content.
-            store.persistIfPossible(model, id, fx);
-            store.loadDraftIfPossible(model);
-            attach_helpers.refreshAttachPreview(model, fx);
-            model.composer_active = true;
-        },
-        .select => |id| {
-            if (model.editing_session_id == id) return;
-            if (id == model.selected and model.sessionById(id) != null) {
-                model.startSessionTitleEdit(id);
-                return;
-            }
-            if (model.sessionById(id) != null) {
-                model.pushSelectionHistory(id);
-                palette_run.applySessionSelection(model, fx, id);
-            }
-        },
+        .new_session => session_actions.handleNewSession(model, fx),
+        .select => |id| session_actions.handleSelect(model, fx, id),
         .history_back => palette_run.goHistory(-1, model, fx),
         .history_forward => palette_run.goHistory(1, model, fx),
-        .new_folder => {
-            var title_buf: [max_title]u8 = undefined;
-            const title = model.nextUntitledFolderTitle(&title_buf);
-            if (model.addFolder(title) == 0) return;
-            store.persistFoldersIfPossible(model);
-        },
-        .toggle_folder => |folder_id| {
-            model.toggleFolderCollapsed(folder_id);
-            store.persistFoldersIfPossible(model);
-        },
-        .collapse_all_folders => {
-            if (model.folder_count == 0) return;
-            if (model.collapseAllFolders()) store.persistFoldersIfPossible(model);
-        },
-        .rename_folder => |id| {
-            model.startFolderTitleEdit(id);
-        },
+        .new_folder => session_actions.handleNewFolder(model),
+        .toggle_folder => |folder_id| session_actions.handleToggleFolder(model, folder_id),
+        .collapse_all_folders => session_actions.handleCollapseAllFolders(model),
+        .rename_folder => |id| session_actions.handleRenameFolder(model, id),
         .delete_folder => |folder_id| persist.persistDeletedFolder(model, folder_id, fx),
-        .assign_selected => |folder_id| {
-            if (model.editing_folder_id == folder_id) return;
-            if (model.editing_folder_id != 0) model.closeFolderTitleEdit();
-            // Second click on the folder that already holds the selected
-            // session edits the title and does not assign again.
-            if (sidebar_row_helpers.selectedSessionInFolder(model, folder_id)) {
-                model.startFolderTitleEdit(folder_id);
-                return;
-            }
-            persist.persistAssignedFolder(model, model.selected, folder_id, fx);
-        },
-        .unassign_selected => {
-            model.closeFolderTitleEdit();
-            persist.persistAssignedFolder(model, model.selected, 0, fx);
-        },
-        .folder_title_edit => |edit| {
-            model.applyFolderTitle(edit);
-            store.persistFoldersIfPossible(model);
-        },
-        .edit_session_title => {
-            if (model.selected != 0) model.startSessionTitleEdit(model.selected);
-        },
-        .rename_session => |id| {
-            model.startSessionTitleEdit(id);
-        },
-        .session_title_edit => |edit| {
-            const session_id = model.editing_session_id;
-            model.applySessionTitle(edit);
-            store.persistIfPossible(model, session_id, fx);
-        },
-        .assign_folder => |assign| {
-            persist.persistAssignedFolder(model, assign.session_id, assign.folder_id, fx);
-        },
+        .assign_selected => |folder_id| session_actions.handleAssignSelected(model, fx, folder_id),
+        .unassign_selected => session_actions.handleUnassignSelected(model, fx),
+        .folder_title_edit => |edit| session_actions.handleFolderTitleEdit(model, edit),
+        .edit_session_title => session_actions.handleEditSessionTitle(model),
+        .rename_session => |id| session_actions.handleRenameSession(model, id),
+        .session_title_edit => |edit| session_actions.handleSessionTitleEdit(model, fx, edit),
+        .assign_folder => |assign| persist.persistAssignedFolder(model, assign.session_id, assign.folder_id, fx),
         // Chromeless titlebar has no OS close. This is the documented
         // window-action effect (`examples/deck`): last-window close
         // follows the host exit path. Esc stays `.stop` so the session
@@ -2969,13 +2903,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .minimize_window => fx.minimizeWindow(main_window_label),
         .maximize_window => maximize_window.startMaximizeWindow(model, fx),
         .quit_app => fx.quitApp(),
-        .remove_session => |id| {
-            if (model.editing_session_id == id) model.closeSessionTitleEdit();
-            model.closeCommands();
-            store.removeIfPossible(model, id, fx);
-            store.loadDraftIfPossible(model);
-            attach_helpers.refreshAttachPreview(model, fx);
-        },
+        .remove_session => |id| session_actions.handleRemoveSession(model, fx, id),
         .start_search => palette_run.openPalette(model),
         .palette_confirm => palette_run.confirmPalette(model, fx),
         .palette_cancel => model.closePalette(),
@@ -3220,26 +3148,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 store.persistIfPossible(model, model.selected, fx);
             }
         },
-        .edit_queued => |id| {
-            var found = false;
-            for (model.queued_store[0..model.queued_count]) |item| {
-                if (item.id != id) continue;
-                found = true;
-                if (std.mem.trim(u8, item.text(), " \t\r\n").len == 0) return;
-                break;
-            }
-            if (!found) return;
-            var copy: [max_queued_text]u8 = undefined;
-            const n = model.takeQueued(id, &copy) orelse return;
-            const text = std.mem.trim(u8, copy[0..n], " \t\r\n");
-            if (text.len == 0) return;
-            model.draft_buffer.set(text);
-            model.clearImageAttach();
-            model.composer_active = true;
-            store.persistIfPossible(model, model.selected, fx);
-            store.persistDraftIfPossible(model);
-            attach_helpers.refreshAttachPreview(model, fx);
-        },
+        .edit_queued => |id| session_actions.handleEditQueued(model, fx, id),
         .toggle_sidebar => {
             model.toggleSidebar();
             store.persistLayoutIfPossible(model);
@@ -3392,4 +3301,5 @@ test {
     _ = @import("fx_probe.zig");
     _ = @import("palette_run.zig");
     _ = @import("persist.zig");
+    _ = @import("session_actions.zig");
 }
