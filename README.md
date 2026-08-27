@@ -67,7 +67,8 @@ stdout / ACP / daemon line handlers and fx-exit routing live in
 `src/persist.zig`. Session / folder / title-edit update helpers live
 in `src/session_actions.zig`. Settings / Esc-stop / composer-picker
 update helpers live in `src/settings_actions.zig`. Session type lives
-in `src/session.zig`.
+in `src/session.zig`. Model / Msg / Turn / Folder live in
+`src/model.zig`.
 
 ## Why fx
 

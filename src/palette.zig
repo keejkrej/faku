@@ -1,8 +1,9 @@
 //! Command palette: row building and action specs.
 //!
-//! Overlay matching, section headers, and action ids live here. `Msg`,
-//! `Model`, and `Session` stay in `main.zig`. Behavior is unchanged
-//! from the former `main` palette helpers.
+//! Overlay matching, section headers, and action ids live here. `Msg`
+//! and `Model` live in `model.zig` (re-exported from `main`). `Session`
+//! lives in `session.zig`. Behavior is unchanged from the former
+//! `main` palette helpers.
 
 const std = @import("std");
 const main = @import("main.zig");

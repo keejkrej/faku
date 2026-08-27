@@ -1,7 +1,8 @@
 //! Ctrl-Tab session switcher helpers.
 //!
 //! Snapshot, highlight, cycle, commit, and close live here.
-//! Msg routing, Model fields, and `switcher_rows` stay in `main.zig`.
+//! Msg routing stays in `main.zig`. Model fields and `switcher_rows`
+//! live in `model.zig`.
 //! Behavior is unchanged from the former `main` switcher helpers.
 
 const main = @import("main.zig");
