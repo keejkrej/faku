@@ -51,6 +51,8 @@ pub const PaletteAction = enum(u32) {
     copy_fx_session_id = 10,
     /// Selected session workspace in the OS file manager. Not Open-in.
     reveal_folder = 11,
+    /// Selected session workspace in the host terminal. Not Waku PTY.
+    open_terminal = 12,
 };
 
 pub const PaletteActionSpec = struct {
@@ -72,6 +74,7 @@ pub const palette_action_specs = [_]PaletteActionSpec{
     .{ .action = .copy_session_id, .label = "Copy session id", .keywords = &.{ "copy", "id", "session" }, .suggested = false },
     .{ .action = .copy_fx_session_id, .label = "Copy provider session id", .keywords = &.{ "copy", "id", "session", "fx", "acp", "provider" }, .suggested = false },
     .{ .action = .reveal_folder, .label = "Reveal project folder", .keywords = &.{ "reveal", "finder", "files", "folder", "open", "project" }, .suggested = false },
+    .{ .action = .open_terminal, .label = "Open project in Terminal", .keywords = &.{ "terminal", "shell", "iterm", "console", "project", "open" }, .suggested = false },
 };
 
 pub fn paletteActionId(action: PaletteAction) u32 {
@@ -219,7 +222,11 @@ fn paletteSessionRow(session: *const Session, selected: bool) PaletteRow {
 }
 
 fn paletteActionAvailable(model: *const Model, spec: PaletteActionSpec) bool {
-    return spec.action != .collapse_folders or model.can_collapse_folders();
+    return switch (spec.action) {
+        .collapse_folders => model.can_collapse_folders(),
+        .open_terminal => model.can_open_terminal(),
+        else => true,
+    };
 }
 
 fn paletteActionMatches(spec: PaletteActionSpec, query: []const u8) bool {

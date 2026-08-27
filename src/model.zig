@@ -16,6 +16,7 @@ const store = @import("store.zig");
 const session_mod = @import("session.zig");
 const git_branch = @import("git_branch.zig");
 const reveal_folder = @import("reveal_folder.zig");
+const open_terminal = @import("open_terminal.zig");
 
 const canvas = native_sdk.canvas;
 const main = @import("main.zig");
@@ -317,6 +318,8 @@ pub const Msg = union(enum) {
     pick_folder,
     /// Composer Reveal folder: one-shot OS file-manager sidecar. Not `fx.revealPath`.
     reveal_folder,
+    /// Composer Open in Terminal: one-shot OS terminal sidecar. Not a Native effect.
+    open_terminal,
     start_image_attach,
     /// Composer Pick image: one-shot OS file-dialog sidecar. Not `fx.pickFile`.
     pick_image,
@@ -439,6 +442,10 @@ pub const Model = struct {
     pick_folder_got_path: bool = false,
     pick_folder_tried_fallback: bool = false,
     reveal_folder_live: bool = false,
+    open_terminal_live: bool = false,
+    open_terminal_tried_fallback: bool = false,
+    open_terminal_wd_storage: [open_terminal.wd_arg_len]u8 = [_]u8{0} ** open_terminal.wd_arg_len,
+    open_terminal_wd_len: usize = 0,
     /// Runtime-only chrome status when the OS maximize sidecar is missing.
     window_status_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
     window_status_len: usize = 0,
@@ -611,6 +618,10 @@ pub const Model = struct {
         "pick_folder_got_path",
         "pick_folder_tried_fallback",
         "reveal_folder_live",
+        "open_terminal_live",
+        "open_terminal_tried_fallback",
+        "open_terminal_wd_storage",
+        "open_terminal_wd_len",
         "setAttachStatus",
         "clearAttachStatus",
         "window_status_storage",
@@ -1528,6 +1539,11 @@ pub const Model = struct {
     /// Composer Reveal folder. Existing selected-session directory only.
     pub fn can_reveal_folder(model: *const Model) bool {
         return reveal_folder.canReveal(model);
+    }
+
+    /// Composer Open in Terminal. Absolute existing selected-session directory.
+    pub fn can_open_terminal(model: *const Model) bool {
+        return open_terminal.canOpenTerminal(model);
     }
 
     /// Runtime-only muted branch on the composer project row.

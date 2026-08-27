@@ -426,6 +426,9 @@
                 <if test="{can_reveal_folder}">
                   <button variant="ghost" size="sm" on-press="reveal_folder">Reveal folder</button>
                 </if>
+                <if test="{can_open_terminal}">
+                  <button variant="ghost" size="sm" on-press="open_terminal">Open in Terminal</button>
+                </if>
                 <spacer grow="1" />
                 <progress value="{context_usage}" width="16" height="16" label="Context usage" />
               </row>
@@ -436,6 +439,9 @@
                 <button variant="ghost" size="sm" on-press="pick_folder">Pick folder</button>
                 <if test="{can_reveal_folder}">
                   <button variant="ghost" size="sm" on-press="reveal_folder">Reveal folder</button>
+                </if>
+                <if test="{can_open_terminal}">
+                  <button variant="ghost" size="sm" on-press="open_terminal">Open in Terminal</button>
                 </if>
                 <if test="{project_is_local}">
                   <button variant="ghost" size="sm" icon="terminal" on-press="start_project_edit">Local</button>

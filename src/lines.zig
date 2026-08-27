@@ -20,6 +20,7 @@ const maximize_window = @import("maximize_window.zig");
 const git_branch = @import("git_branch.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
+const open_terminal = @import("open_terminal.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -33,6 +34,7 @@ const maximize_window_key = maximize_window.maximize_window_key;
 const pick_image_key = main.pick_image_key;
 const pick_folder_key = main.pick_folder_key;
 const reveal_folder_key = main.reveal_folder_key;
+const open_terminal_key = main.open_terminal_key;
 const writeFixed = main.writeFixed;
 const takeFxAskSessionId = main.takeFxAskSessionId;
 const handleMaximizeWindowExit = maximize_window.handleMaximizeWindowExit;
@@ -335,6 +337,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (exit.key == reveal_folder_key) {
         reveal_folder.handleRevealFolderExit(model, exit);
+        return;
+    }
+    if (exit.key == open_terminal_key) {
+        open_terminal.handleOpenTerminalExit(model, fx, exit);
         return;
     }
     if (model.daemon_load_key != 0 and exit.key == model.daemon_load_key) {
