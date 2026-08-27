@@ -3,7 +3,7 @@
 //! `handleSend` / `handleSteer`, demo `tickStream`, finish drain +
 //! queued restart, `stopStream` cancels, and daemon steer/cancel
 //! one-shots live here. Prompt spawn stays in `spawn.zig`. Line
-//! handlers stay in `main.zig`. Behavior is unchanged from the
+//! handlers live in `lines.zig`. Behavior is unchanged from the
 //! former `main` stream helpers.
 
 const std = @import("std");
