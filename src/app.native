@@ -215,6 +215,9 @@
       <if test="{find_active}">
         <row height="32" padding="8" gap="6" cross="center">
           <search-field grow="1" height="32" placeholder="Find" text="{find_query}" on-input="find_edit" autofocus="true" label="Find in transcript" />
+          <if test="{has_find_match_label}">
+            <text wrap="false" overflow="ellipsis" foreground="text_muted">{find_match_label}</text>
+          </if>
           <button variant="ghost" size="icon" icon="x" label="Close find" on-press="close_find"></button>
         </row>
       </if>

@@ -6722,39 +6722,64 @@ test "transcript find filters the selected session's visible turns" {
 
     try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "beta world" });
     try testing.expect(!model.find_active);
+    try testing.expectEqualStrings("", model.find_match_label(arena));
+    try testing.expect(!model.has_find_match_label());
 
     main.update(&model, .open_find, &fx);
     try testing.expect(model.find_active);
     try testing.expect(!model.composer_active);
     try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "beta world" });
+    try testing.expectEqualStrings("", model.find_match_label(arena));
+    try testing.expect(!model.has_find_match_label());
 
     var tree = try buildTree(arena, &model);
     const find_field = try expectByText(tree.root, .search_field, "Find in transcript");
     try testing.expectEqualStrings("Find", find_field.placeholder);
     try testing.expect(findAnyText(tree.root, "alpha hello"));
     try testing.expect(findAnyText(tree.root, "beta world"));
+    try testing.expect(findByText(tree.root, .text, "1 match") == null);
+    try testing.expect(findByText(tree.root, .text, "No matches") == null);
 
     main.update(&model, .{ .find_edit = .{ .insert_text = "hello" } }, &fx);
     try testing.expectEqualStrings("hello", model.find_query());
     try expectTurnTexts(model.visible_turns(arena), &.{"alpha hello"});
+    try testing.expectEqualStrings("1 match", model.find_match_label(arena));
+    try testing.expect(model.has_find_match_label());
 
     tree = try buildTree(arena, &model);
     try testing.expect(findAnyText(tree.root, "alpha hello"));
     try testing.expect(!findAnyText(tree.root, "beta world"));
     _ = try expectByText(tree.root, .search_field, "Find in transcript");
+    _ = try expectByText(tree.root, .text, "1 match");
 
     main.update(&model, .{ .find_edit = .clear }, &fx);
     try testing.expectEqualStrings("", model.find_query());
     try testing.expect(model.find_active);
     try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "beta world" });
+    try testing.expectEqualStrings("", model.find_match_label(arena));
+    try testing.expect(!model.has_find_match_label());
 
+    main.update(&model, .{ .find_edit = .{ .insert_text = "a" } }, &fx);
+    try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "beta world" });
+    try testing.expectEqualStrings("2 matches", model.find_match_label(arena));
+    try testing.expect(model.has_find_match_label());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "2 matches");
+    try testing.expect(findAnyText(tree.root, "alpha hello"));
+    try testing.expect(findAnyText(tree.root, "beta world"));
+
+    main.update(&model, .{ .find_edit = .clear }, &fx);
     main.update(&model, .{ .find_edit = .{ .insert_text = "zzz" } }, &fx);
     try expectTurnTexts(model.visible_turns(arena), &.{});
     try testing.expect(model.find_active);
+    try testing.expectEqualStrings("No matches", model.find_match_label(arena));
+    try testing.expect(model.has_find_match_label());
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .search_field, "Find in transcript");
     _ = try expectByText(tree.root, .text, "What should we build?");
+    _ = try expectByText(tree.root, .text, "No matches");
     try testing.expect(!findAnyText(tree.root, "alpha hello"));
     try testing.expect(!findAnyText(tree.root, "beta world"));
 
@@ -6762,9 +6787,11 @@ test "transcript find filters the selected session's visible turns" {
     try testing.expect(model.find_active);
     try testing.expectEqualStrings("zzz", model.find_query());
     try expectTurnTexts(model.visible_turns(arena), &.{"zzz only here"});
+    try testing.expectEqualStrings("1 match", model.find_match_label(arena));
 
     main.update(&model, .{ .select = id }, &fx);
     try expectTurnTexts(model.visible_turns(arena), &.{});
+    try testing.expectEqualStrings("No matches", model.find_match_label(arena));
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
     try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
@@ -6772,9 +6799,12 @@ test "transcript find filters the selected session's visible turns" {
     try testing.expect(!model.find_active);
     try testing.expectEqualStrings("", model.find_query());
     try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "beta world" });
+    try testing.expectEqualStrings("", model.find_match_label(arena));
+    try testing.expect(!model.has_find_match_label());
 
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .search_field, "Find in transcript") == null);
+    try testing.expect(findByText(tree.root, .text, "No matches") == null);
     try testing.expect(findAnyText(tree.root, "alpha hello"));
     try testing.expect(findAnyText(tree.root, "beta world"));
 }
