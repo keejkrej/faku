@@ -7,6 +7,7 @@ const daemon_proxy = @import("daemon_proxy.zig");
 const acp_proxy = @import("acp_proxy.zig");
 const rewind = @import("rewind.zig");
 const pick_image = @import("pick_image.zig");
+const pick_folder = @import("pick_folder.zig");
 const maximize_window = @import("maximize_window.zig");
 const git_branch = @import("git_branch.zig");
 const keys = @import("keys.zig");
@@ -2916,6 +2917,267 @@ test "picker missing tools surfaces composer status; typed path and drop still w
     main.update(&model, png_msg, &fx);
     try testing.expectEqualStrings(image, model.draftImagePath());
     try testing.expect(!model.has_attach_status());
+}
+
+fn findFolderPickerSpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (pick_folder.isPickerArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn findFolderPickerSpawnNamed(fx: *Effects, bin: []const u8) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.argv.len > 0 and std.mem.eql(u8, spawn.argv[0], bin) and pick_folder.isPickerArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+test "pick_folder button sits on idle and project-edit rows and captures OS dialog argv" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    var tree = try buildTree(arena, &model);
+    const pick = try expectButtonMsg(tree, "Pick folder", .pick_folder);
+    try testing.expect(pressableAppearsBefore(tree.root, "choose a project", "Pick folder"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Pick folder", "Local"));
+    _ = try expectByText(tree.root, .button, "Local");
+
+    main.update(&model, tree.msgForPointer(pick.id, .up).?, &fx);
+    if (pick_folder.hostArgv(.first) == null) {
+        try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+        try testing.expect(model.has_window_status());
+        try testing.expectEqualStrings(pick_folder.hostMissingStatus(), model.window_status());
+        return;
+    }
+    try testing.expect(model.pick_folder_live);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const spawn = findFolderPickerSpawn(&fx) orelse return error.MissingFolderPickerSpawn;
+    try testing.expectEqual(main.pick_folder_key, spawn.key);
+    try testing.expect(spawn.key != main.pick_image_key);
+    try testing.expect(pick_folder.isPickerArgv(spawn.argv));
+    try testing.expect(!pick_image.isPickerArgv(spawn.argv));
+    const expected = pick_folder.hostArgv(.first).?;
+    try testing.expectEqualStrings(expected[0], spawn.argv[0]);
+    try testing.expectEqualStrings("", spawn.stdin);
+
+    main.update(&model, .start_project_edit, &fx);
+    try testing.expect(model.project_edit_active);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Pick folder", .pick_folder);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Workspace path") != null);
+}
+
+test "pick_folder stdout directory sets project_path the same way typing does" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const store_dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-folder-pick", .{tmp.sub_path[0..]});
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/picked-proj", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(store_dir);
+    model.store_io = testing.io;
+    const id = model.addSession("pick folder session", .fx);
+    _ = model.appendTurn(id, .user, "already started");
+    model.selected = id;
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+
+    main.update(&model, .pick_folder, &fx);
+    const spawn = findFolderPickerSpawn(&fx) orelse return error.MissingFolderPickerSpawn;
+    try testing.expectEqual(main.pick_folder_key, spawn.key);
+    try testing.expect(spawn.key != main.pick_image_key);
+    try fx.feedLine(spawn.key, project);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(project, model.sessionById(id).?.projectPath());
+    try testing.expectEqualStrings(project, model.lastProjectPath());
+    try testing.expectEqualStrings(project, model.project_label());
+    try testing.expect(!model.project_is_local());
+    try testing.expect(model.pick_folder_got_path);
+    try testing.expect(!model.has_window_status());
+    try testing.expectEqual(@as(usize, 0), model.draftImagePath().len);
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, project);
+    try testing.expect(findByText(tree.root, .button, "Local") == null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(store_dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings(project, loaded.session_store[0].projectPath());
+    try testing.expectEqualStrings(project, loaded.lastProjectPath());
+
+    try testing.expect(findGitBranchSpawnKey(&fx, model.git_branch_key) != null);
+}
+
+test "pick_folder cancel empty and file path leave project_path unchanged" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/keep-proj", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+    var file_buf: [256]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, ".zig-cache/tmp/{s}/not-a-dir.txt", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = file_path, .data = "nope" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("keep project", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+
+    main.update(&model, .pick_folder, &fx);
+    var spawn = findFolderPickerSpawn(&fx) orelse return error.MissingFolderPickerSpawn;
+    try fx.feedLine(spawn.key, "   ");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+
+    try fx.feedLine(spawn.key, file_path);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+    try testing.expect(!model.pick_folder_got_path);
+
+    try fx.feedExit(spawn.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+    try testing.expect(!model.pick_folder_live);
+    try testing.expect(!model.has_window_status());
+
+    main.update(&model, .pick_folder, &fx);
+    spawn = findFolderPickerSpawn(&fx) orelse return error.MissingFolderPickerSpawn;
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+}
+
+test "pick_folder missing tools surfaces window status; typed path stays" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/after-miss-proj", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("missing folder picker", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+
+    main.update(&model, .pick_folder, &fx);
+    const first = findFolderPickerSpawn(&fx) orelse return error.MissingFolderPickerSpawn;
+    try fx.feedExit(first.key, 127);
+    drainEffects(&model, &fx);
+
+    if (pick_folder.hostArgv(.fallback)) |fallback| {
+        const second = findFolderPickerSpawnNamed(&fx, fallback[0]) orelse return error.MissingFallbackSpawn;
+        try testing.expect(pick_folder.isPickerArgv(second.argv));
+        try testing.expect(!pick_image.isPickerArgv(second.argv));
+        try fx.feedExit(second.key, 127);
+        drainEffects(&model, &fx);
+    }
+
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+    try testing.expect(model.has_window_status());
+    try testing.expectEqualStrings(pick_folder.hostMissingStatus(), model.window_status());
+    try testing.expect(!model.pick_folder_live);
+    try testing.expect(model.project_is_local() == false);
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, pick_folder.hostMissingStatus());
+    _ = try expectByText(tree.root, .button, project);
+    _ = try expectButton(tree.root, "Pick folder");
+    try testing.expect(findByText(tree.root, .button, "Local") == null);
+
+    main.update(&model, .start_project_edit, &fx);
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+}
+
+test "in-flight second Pick folder is a no-op" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    main.update(&model, .pick_folder, &fx);
+    if (pick_folder.hostArgv(.first) == null) {
+        try testing.expect(model.has_window_status());
+        return;
+    }
+    try testing.expect(model.pick_folder_live);
+    const first_count = fx.pendingSpawnCount();
+    main.update(&model, .pick_folder, &fx);
+    try testing.expectEqual(first_count, fx.pendingSpawnCount());
+    try testing.expect(model.pick_folder_live);
+}
+
+test "pick_folder stdout line does not set image_path" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/folder-not-image", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/keep-attach.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("folder not image", .fx);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    main.update(&model, .pick_folder, &fx);
+    const spawn = findFolderPickerSpawn(&fx) orelse return error.MissingFolderPickerSpawn;
+    try testing.expectEqual(main.pick_folder_key, spawn.key);
+    try testing.expect(spawn.key != main.pick_image_key);
+    try fx.feedLine(spawn.key, project);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+    try testing.expectEqualStrings(image, model.draftImagePath());
+    try testing.expect(model.has_image_attach());
+
+    try fx.feedLine(spawn.key, image);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+    try testing.expectEqualStrings(image, model.draftImagePath());
 }
 
 test "Waku access_mode maps to verified FX_PERMISSION_MODE values" {
@@ -10120,6 +10382,7 @@ fn expectGitBranchArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.fx_probe_key);
     try testing.expect(spawn.key != main.maximize_window_key);
     try testing.expect(spawn.key != main.pick_image_key);
+    try testing.expect(spawn.key != main.pick_folder_key);
     try testing.expect(spawn.key != main.copy_turn_key);
     try testing.expect(spawn.key >= main.git_branch_key_first);
 }

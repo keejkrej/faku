@@ -74,7 +74,7 @@ pub fn isPickerArgv(argv: []const []const u8) bool {
         return argvHas(argv, osascript_script) or argvHas(argv, "public.image");
     }
     if (std.mem.eql(u8, argv[0], zenity_bin)) {
-        return argvHas(argv, "--file-selection");
+        return argvHas(argv, "--file-selection") and !argvHas(argv, "--directory");
     }
     if (std.mem.eql(u8, argv[0], kdialog_bin)) {
         return argvHas(argv, "--getopenfilename");
