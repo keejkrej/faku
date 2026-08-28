@@ -6,9 +6,9 @@
 //! workaround `fx ask` uses (`fx_ask_chdir_script`). Detached HEAD
 //! prints empty; a follow-up `git rev-parse --short HEAD` may fill
 //! the select label with a conservative short hex. Non-repos stay
-//! omitted. Local heads, checkout, and create-and-checkout live in
-//! `git_checkout.zig`. Not Waku's daemon `InspectBranches` picker
-//! and not a live watch.
+//! omitted. Local heads, remote-tracking checkout, create, and safe
+//! delete live in `git_checkout.zig`. Not Waku's daemon
+//! `InspectBranches` picker and not a live watch.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).

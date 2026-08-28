@@ -534,9 +534,10 @@ pub const Model = struct {
     git_branch_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_branch_probe_path_len: usize = 0,
     git_branch_probe_is_rev_parse: bool = false,
-    /// Runtime-only local `refs/heads` names for the checkout picker.
-    /// One-shot `git for-each-ref`; not persisted to sessions.json.
-    git_branch_list_store: [git_checkout.max_local_branches]git_checkout.CachedBranch = [_]git_checkout.CachedBranch{.{}} ** git_checkout.max_local_branches,
+    /// Runtime-only local `refs/heads` plus remote-tracking names for
+    /// the checkout picker. One-shot `git for-each-ref`; not persisted
+    /// to sessions.json.
+    git_branch_list_store: [git_checkout.max_listed_branches]git_checkout.CachedBranch = [_]git_checkout.CachedBranch{.{}} ** git_checkout.max_listed_branches,
     git_branch_list_count: u32 = 0,
     git_branch_list_key: u64 = 0,
     next_git_branch_list_key: u64 = git_checkout.git_branch_list_key_first,
@@ -1922,8 +1923,8 @@ pub const Model = struct {
     }
 
     /// Ghost select on the project row: current branch and/or a listed
-    /// local head. Detached HEAD can still open the picker when
-    /// `for-each-ref` returned ≥1 name.
+    /// local head or remote-tracking ref. Detached HEAD can still open
+    /// the picker when `for-each-ref` returned ≥1 name.
     pub fn can_pick_git_branch(model: *const Model) bool {
         return git_checkout.canPickGitBranch(model);
     }
@@ -1955,7 +1956,8 @@ pub const Model = struct {
     }
 
     /// Non-current listed local heads for the delete card. Never includes
-    /// the current branch; empty when only HEAD is listed.
+    /// the current branch or remote-tracking names; empty when only HEAD
+    /// is listed.
     pub fn git_branch_delete_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
         const current = git_branch.gitBranchLabel(model);
         const selected = git_checkout.gitBranchDeleteLabel(model);
@@ -1965,6 +1967,7 @@ pub const Model = struct {
         var written: usize = 0;
         var i: usize = 0;
         while (i < n) : (i += 1) {
+            if (git_checkout.listedBranchIsRemote(model, i)) continue;
             const name = git_checkout.listedBranch(model, i);
             if (name.len == 0) continue;
             if (std.mem.eql(u8, current, name)) continue;

@@ -39,7 +39,8 @@ static from last `wallMs`, not a live ticker);
 sidebar folder rows have a Native context menu (Rename / Delete);
 the composer project row sets the selected session cwd and, when that
 path exists, shows a muted one-shot `git branch --show-current` label
-that can open a local checkout picker (`for-each-ref` + `git checkout`)
+that can open a checkout picker (`for-each-ref` + `git checkout`, or
+`git checkout --track` for a remote-tracking ref with no local counterpart)
 or create-and-checkout a new local branch from HEAD (`git checkout -b`)
 or safe-delete a non-current local head (`git branch -d`)
 plus a one-shot `git status --porcelain` dirty file count and a
@@ -84,8 +85,9 @@ stdout / ACP / daemon line handlers and fx-exit routing live in
 `src/reveal_folder.zig`. Composer Open in Terminal helpers live in
 `src/open_terminal.zig`. Composer Open in Editor helpers live in
 `src/open_editor.zig`. Composer git-branch probe helpers live in
-`src/git_branch.zig`. Composer local-branch list / checkout helpers live in
-`src/git_checkout.zig` (list, checkout, and create-and-checkout). Composer git-dirty probe helpers live in
+`src/git_branch.zig`. Composer branch list / checkout helpers live in
+`src/git_checkout.zig` (list, local checkout, remote-tracking `--track`,
+create-and-checkout, and safe delete). Composer git-dirty probe helpers live in
 `src/git_dirty.zig`. Composer git-numstat probe helpers live in
 `src/git_numstat.zig`. Composer `@` file-mention probe helpers live in
 `src/file_mention.zig`. Boot fx-probe spawn/exit lives in
@@ -259,15 +261,20 @@ same `/bin/sh -c 'cd -- "$1" && shift && exec "$@"'` workaround
 HEAD prints empty; a follow-up `git rev-parse --short HEAD` may
 show a conservative short hex as the select label. Non-repos omit
 the control. The same refresh also one-shots
-`git for-each-ref --format=%(refname:short) refs/heads` (cap 64,
-lexicographic) so that select can check out another local head
-via one-shot `git checkout <name>` (name is its own argv slot).
-New branch… on that picker opens a runtime-only create card and
-one-shots `git checkout -b <name>` from current HEAD the same way.
+`git for-each-ref --format=%(refname) refs/heads refs/remotes`
+(64 local heads plus 32 remote-tracking names, lexicographic) so
+that select can check out another local head via one-shot
+`git checkout <name>` or a remote-tracking ref with no local
+counterpart via `git checkout --track <name>` (`--track` and the
+name each their own argv slot). Symbolic `*/HEAD` is omitted;
+`origin/feat` is omitted when local `feat` exists. New branch… on
+that picker opens a runtime-only create card and one-shots
+`git checkout -b <name>` from current HEAD the same way.
 Delete branch… opens a runtime-only delete card of non-current
 listed local heads and one-shots `git branch -d <name>` (safe
-delete only; never `-D` / force). The current branch is never
-offered. Selecting the current branch is a no-op; a failed checkout,
+delete only; never `-D` / force; never `origin/…`). The current
+branch is never offered. Selecting the current local branch is a
+no-op; picking a remote-tracking name is not. A failed checkout,
 create, or delete sets a short composer status and leaves the
 previous label until refresh.
 The same refresh also one-shots `git status --porcelain` and, when that
@@ -281,10 +288,11 @@ are non-zero, a muted `+N −M` label next to the dirty count
 (tracked binary `-` rows skipped; blank lines ignored; deletions
 stay tracked-only). Zero, failed, or skipped probes omit those
 labels — this cut does not invent "clean". This is not Waku's
-daemon `InspectBranches` / worktrees / remotes / live watch,
+daemon `InspectBranches` remotes / worktrees / live watch,
 not a commit dialog, not a staged/unstaged split, not Waku's
-Environment Summary, not force delete (`git branch -D`), and not
-Review. Native still has no git effect. The branch, dirty count,
+Environment Summary, not force delete (`git branch -D`), not
+fetch / push / prune, and not Review. Native still has no git
+effect. The branch, dirty count,
 and +/- are runtime-only (like the busy spinner) and are not stored
 on `sessions.json`. There is no worktree materialization.
 The same refresh also one-shots

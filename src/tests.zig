@@ -11921,14 +11921,16 @@ fn expectGitBranchListArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_checkout.git_for_each_ref_cmd, spawn.argv[6]);
-    try testing.expectEqualStrings(git_checkout.git_refname_short_format, spawn.argv[7]);
+    try testing.expectEqualStrings(git_checkout.git_refname_format, spawn.argv[7]);
     try testing.expectEqualStrings(git_checkout.git_heads_ref, spawn.argv[8]);
+    try testing.expectEqualStrings(git_checkout.git_remotes_ref, spawn.argv[9]);
     try testing.expect(spawn.key >= main.git_branch_list_key_first);
     try testing.expect(spawn.key < main.git_dirty_key_first);
     try testing.expect(spawn.key != main.git_branch_key_first);
     try testing.expect(spawn.key != main.git_checkout_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitTrackCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitDeleteArgv(spawn.argv));
 }
@@ -11946,6 +11948,36 @@ fn expectGitCheckoutArgv(spawn: anytype, cwd: []const u8, name: []const u8) !voi
     try testing.expect(spawn.key < main.git_create_key_first);
     try testing.expect(spawn.key != main.git_branch_list_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitTrackCheckoutArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitDeleteArgv(spawn.argv));
+}
+
+fn findGitTrackCheckoutSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_checkout.isGitTrackCheckoutArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn expectGitTrackCheckoutArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void {
+    try testing.expect(git_checkout.isGitTrackCheckoutArgv(spawn.argv));
+    try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
+    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(cwd, spawn.argv[4]);
+    try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
+    try testing.expectEqualStrings(git_checkout.git_checkout_cmd, spawn.argv[6]);
+    try testing.expectEqualStrings(git_checkout.git_track_flag, spawn.argv[7]);
+    try testing.expectEqualStrings(name, spawn.argv[8]);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], name) == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_track_flag) == null);
+    try testing.expect(spawn.key >= main.git_checkout_key_first);
+    try testing.expect(spawn.key < main.git_create_key_first);
+    try testing.expect(spawn.key != main.git_branch_list_key_first);
+    try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitDeleteArgv(spawn.argv));
@@ -11975,6 +12007,7 @@ fn expectGitCreateArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void 
     try testing.expect(spawn.key != main.git_branch_list_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitTrackCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitDeleteArgv(spawn.argv));
 }
@@ -12012,11 +12045,11 @@ test "composer project row lists local heads and checks out another branch" {
     try testing.expect(model.has_git_branch());
     try testing.expect(model.can_pick_git_branch());
 
-    try fx.feedLine(list.key, "zeta\n");
+    try fx.feedLine(list.key, "refs/heads/zeta\n");
     drainEffects(&model, &fx);
-    try fx.feedLine(list.key, "main\n");
+    try fx.feedLine(list.key, "refs/heads/main\n");
     drainEffects(&model, &fx);
-    try fx.feedLine(list.key, "feat/a\n");
+    try fx.feedLine(list.key, "refs/heads/feat/a\n");
     drainEffects(&model, &fx);
     try fx.feedExit(list.key, 0);
     drainEffects(&model, &fx);
@@ -12059,6 +12092,109 @@ test "composer project row lists local heads and checks out another branch" {
     try testing.expect(findGitNumstatSpawnKey(&fx, model.git_numstat_key) != null);
     try testing.expect(findFileMentionSpawnKey(&fx, model.file_mention_key) != null);
     try testing.expect(findGitBranchListSpawnKey(&fx, model.git_branch_list_key) != null);
+}
+
+test "composer project row lists remote-tracking refs and checks them out with --track" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-co-remote", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("remote checkout", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try fx.feedLine(branch.key, "main\n");
+    drainEffects(&model, &fx);
+    const list = findGitBranchListSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingGitBranchListSpawn;
+    try expectGitBranchListArgv(list, project);
+    try fx.feedLine(list.key, "refs/heads/main\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(list.key, "refs/heads/feat/old\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(list.key, "refs/remotes/origin/HEAD\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(list.key, "refs/remotes/origin/main\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(list.key, "refs/remotes/origin/feat\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(list.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, 3), model.git_branch_list_count);
+    try testing.expectEqualStrings("feat/old", git_checkout.listedBranch(&model, 0));
+    try testing.expect(!git_checkout.listedBranchIsRemote(&model, 0));
+    try testing.expectEqualStrings("main", git_checkout.listedBranch(&model, 1));
+    try testing.expect(!git_checkout.listedBranchIsRemote(&model, 1));
+    try testing.expectEqualStrings("origin/feat", git_checkout.listedBranch(&model, 2));
+    try testing.expect(git_checkout.listedBranchIsRemote(&model, 2));
+    try testing.expect(!git_checkout.isListedRemoteName(&model, "origin/main"));
+    try testing.expect(!git_checkout.isListedRemoteName(&model, "origin/HEAD"));
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    try testing.expect(model.git_branch_picker_open);
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "New branch…");
+    _ = try expectByText(tree.root, .menu_item, "Delete branch…");
+    _ = try expectByText(tree.root, .menu_item, "feat/old");
+    _ = try expectByText(tree.root, .menu_item, "origin/feat");
+    try testing.expect(findByText(tree.root, .menu_item, "origin/main") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "origin/HEAD") == null);
+
+    const before_checkout = model.git_checkout_key;
+    main.update(&model, .{ .pick_git_branch = "main" }, &fx);
+    try testing.expect(!model.git_branch_picker_open);
+    try testing.expectEqual(before_checkout, model.git_checkout_key);
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    main.update(&model, .{ .pick_git_branch = "origin/feat" }, &fx);
+    try testing.expect(!model.git_branch_picker_open);
+    try testing.expect(findGitCheckoutSpawnKey(&fx, model.git_checkout_key) == null);
+    const tracked = findGitTrackCheckoutSpawnKey(&fx, model.git_checkout_key) orelse return error.MissingGitTrackCheckoutSpawn;
+    try expectGitTrackCheckoutArgv(tracked, project, "origin/feat");
+    try testing.expectEqualStrings("main", model.git_branch_label());
+
+    try fx.feedExit(tracked.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_checkout_key);
+    const refreshed = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchRefresh;
+    try testing.expect(findGitDirtySpawnKey(&fx, model.git_dirty_key) != null);
+    try testing.expect(findGitNumstatSpawnKey(&fx, model.git_numstat_key) != null);
+    try testing.expect(findFileMentionSpawnKey(&fx, model.file_mention_key) != null);
+    try testing.expect(findGitBranchListSpawnKey(&fx, model.git_branch_list_key) != null);
+    try fx.feedLine(refreshed.key, "main\n");
+    drainEffects(&model, &fx);
+
+    const list2 = findGitBranchListSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingGitBranchListRefresh;
+    try fx.feedLine(list2.key, "refs/heads/main\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(list2.key, "refs/heads/feat/old\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(list2.key, "refs/remotes/origin/feat\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(list2.key, 0);
+    drainEffects(&model, &fx);
+
+    main.update(&model, .start_git_branch_delete, &fx);
+    try testing.expect(model.git_branch_delete_active);
+    main.update(&model, .toggle_git_branch_delete_picker, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "feat/old");
+    try testing.expect(findByText(tree.root, .menu_item, "origin/feat") == null);
+    main.update(&model, .{ .pick_git_branch_delete = "origin/feat" }, &fx);
+    try testing.expectEqualStrings("", model.git_branch_delete());
+    main.update(&model, .cancel_git_branch_delete, &fx);
 }
 
 test "git checkout failure sets composer status and keeps the previous branch" {
@@ -12129,7 +12265,7 @@ test "detached HEAD still opens the local branch picker when heads exist" {
     try testing.expectEqualStrings("a1b2c3d", model.git_branch_label());
 
     const list = findGitBranchListSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingGitBranchListSpawn;
-    try fx.feedLine(list.key, "main\n");
+    try fx.feedLine(list.key, "refs/heads/main\n");
     drainEffects(&model, &fx);
     try fx.feedExit(list.key, 0);
     drainEffects(&model, &fx);
@@ -12310,6 +12446,7 @@ fn expectGitDeleteArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void 
     try testing.expect(spawn.key != main.git_branch_list_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitTrackCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
 }
@@ -12339,9 +12476,9 @@ test "Delete branch opens delete UI; Esc and cancel close it; current is omitted
     try fx.feedLine(branch.key, "main\n");
     drainEffects(&model, &fx);
     const list = findGitBranchListSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingGitBranchListSpawn;
-    try fx.feedLine(list.key, "main\n");
+    try fx.feedLine(list.key, "refs/heads/main\n");
     drainEffects(&model, &fx);
-    try fx.feedLine(list.key, "feat/old\n");
+    try fx.feedLine(list.key, "refs/heads/feat/old\n");
     drainEffects(&model, &fx);
     try fx.feedExit(list.key, 0);
     drainEffects(&model, &fx);
@@ -12414,9 +12551,9 @@ test "confirm delete spawns branch -d; success refreshes; failure sets status" {
     try fx.feedLine(branch.key, "main\n");
     drainEffects(&model, &fx);
     const list = findGitBranchListSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingGitBranchListSpawn;
-    try fx.feedLine(list.key, "main\n");
+    try fx.feedLine(list.key, "refs/heads/main\n");
     drainEffects(&model, &fx);
-    try fx.feedLine(list.key, "feat/old\n");
+    try fx.feedLine(list.key, "refs/heads/feat/old\n");
     drainEffects(&model, &fx);
     try fx.feedExit(list.key, 0);
     drainEffects(&model, &fx);
@@ -12468,9 +12605,9 @@ test "confirm delete spawns branch -d; success refreshes; failure sets status" {
     try testing.expectEqualStrings("main", model.git_branch_label());
 
     const list2 = findGitBranchListSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingGitBranchListRefresh;
-    try fx.feedLine(list2.key, "main\n");
+    try fx.feedLine(list2.key, "refs/heads/main\n");
     drainEffects(&model, &fx);
-    try fx.feedLine(list2.key, "feat/blocked\n");
+    try fx.feedLine(list2.key, "refs/heads/feat/blocked\n");
     drainEffects(&model, &fx);
     try fx.feedExit(list2.key, 0);
     drainEffects(&model, &fx);
