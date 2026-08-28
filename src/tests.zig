@@ -13,6 +13,7 @@ const open_terminal = @import("open_terminal.zig");
 const open_editor = @import("open_editor.zig");
 const maximize_window = @import("maximize_window.zig");
 const git_branch = @import("git_branch.zig");
+const git_dirty = @import("git_dirty.zig");
 const file_mention = @import("file_mention.zig");
 const keys = @import("keys.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
@@ -3115,6 +3116,8 @@ test "pick_folder stdout directory sets project_path the same way typing does" {
     try testing.expectEqualStrings(project, loaded.lastProjectPath());
 
     try testing.expect(findGitBranchSpawnKey(&fx, model.git_branch_key) != null);
+    try testing.expect(findGitDirtySpawnKey(&fx, model.git_dirty_key) != null);
+    try testing.expect(!loaded.has_git_dirty());
 }
 
 test "pick_folder cancel empty and file path leave project_path unchanged" {
@@ -11690,9 +11693,11 @@ fn expectGitBranchArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.pick_folder_key);
     try testing.expect(spawn.key != main.copy_turn_key);
     try testing.expect(spawn.key != main.file_mention_key_first);
+    try testing.expect(spawn.key != main.git_dirty_key_first);
     try testing.expect(spawn.key >= main.git_branch_key_first);
-    try testing.expect(spawn.key < main.file_mention_key_first);
+    try testing.expect(spawn.key < main.git_dirty_key_first);
     try testing.expect(!file_mention.isGitLsFilesArgv(spawn.argv));
+    try testing.expect(!git_dirty.isGitDirtyArgv(spawn.argv));
 }
 
 test "composer project row shows one-shot git branch --show-current" {
@@ -11881,6 +11886,233 @@ test "changing session or project_path does not keep the previous branch" {
     try testing.expect(findByText(tree.root, .text, "branch-b") == null);
 }
 
+fn findGitDirtySpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_dirty.isGitDirtyArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn expectGitDirtyArgv(spawn: anytype, cwd: []const u8) !void {
+    try testing.expect(git_dirty.isGitDirtyArgv(spawn.argv));
+    try testing.expectEqualStrings(git_dirty.sh_bin, spawn.argv[0]);
+    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(cwd, spawn.argv[4]);
+    try testing.expectEqualStrings(git_dirty.git_bin, spawn.argv[5]);
+    try testing.expectEqualStrings(git_dirty.git_status_cmd, spawn.argv[6]);
+    try testing.expectEqualStrings(git_dirty.git_porcelain, spawn.argv[7]);
+    try testing.expect(spawn.key != main.fx_ask_key);
+    try testing.expect(spawn.key != main.fx_probe_key);
+    try testing.expect(spawn.key != main.maximize_window_key);
+    try testing.expect(spawn.key != main.pick_image_key);
+    try testing.expect(spawn.key != main.pick_folder_key);
+    try testing.expect(spawn.key != main.copy_turn_key);
+    try testing.expect(spawn.key != main.git_branch_key_first);
+    try testing.expect(spawn.key != main.file_mention_key_first);
+    try testing.expect(spawn.key >= main.git_dirty_key_first);
+    try testing.expect(spawn.key < main.file_mention_key_first);
+    try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
+    try testing.expect(!file_mention.isGitLsFilesArgv(spawn.argv));
+}
+
+test "composer project row shows one-shot git status --porcelain dirty count" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/dirty-proj", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("dirty row", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const spawn = findGitDirtySpawnKey(&fx, model.git_dirty_key) orelse return error.MissingGitDirtySpawn;
+    try testing.expectEqual(model.git_dirty_key, spawn.key);
+    try expectGitDirtyArgv(spawn, project);
+    try testing.expect(!model.has_git_dirty());
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try expectGitBranchArgv(branch, project);
+    try testing.expect(spawn.key != branch.key);
+
+    try fx.feedLine(spawn.key, " M src/a.zig\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("1 change", model.git_dirty_label());
+    try fx.feedLine(spawn.key, " M src/b.zig\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(spawn.key, "?? new.txt\n");
+    drainEffects(&model, &fx);
+    try testing.expect(model.has_git_dirty());
+    try testing.expectEqualStrings("3 changes", model.git_dirty_label());
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("3 changes", model.git_dirty_label());
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, project);
+    _ = try expectByText(tree.root, .text, "3 changes");
+    try testing.expect(findByText(tree.root, .text, "clean") == null);
+    try testing.expect(findByText(tree.root, .button, "Local") == null);
+}
+
+test "git dirty label is omitted for empty missing rejected empty and nonzero" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/dirty-omit", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("omit dirty", .fx);
+    model.selected = id;
+
+    try testing.expect(model.project_is_local());
+    git_dirty.refresh(&model, &fx);
+    try testing.expect(findGitDirtySpawnKey(&fx, model.git_dirty_key) == null);
+    try testing.expect(!model.has_git_dirty());
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = ".zig-cache/tmp/faku-dirty-missing" } }, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_dirty_key);
+    try testing.expect(!model.has_git_dirty());
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    var spawn = findGitDirtySpawnKey(&fx, model.git_dirty_key) orelse return error.MissingGitDirtySpawn;
+    try expectGitDirtyArgv(spawn, project);
+    try fx.feedLine(spawn.key, "   \n");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_dirty());
+
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_dirty());
+
+    git_dirty.refresh(&model, &fx);
+    spawn = findGitDirtySpawnKey(&fx, model.git_dirty_key) orelse return error.MissingGitDirtySpawn;
+    try fx.feedLine(spawn.key, " M src/a.zig\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("1 change", model.git_dirty_label());
+    try fx.feedExit(spawn.key, 128);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_dirty());
+
+    git_dirty.refresh(&model, &fx);
+    spawn = findGitDirtySpawnKey(&fx, model.git_dirty_key) orelse return error.MissingGitDirtySpawn;
+    try fx.feedExit(spawn.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_dirty());
+
+    git_dirty.refresh(&model, &fx);
+    spawn = findGitDirtySpawnKey(&fx, model.git_dirty_key) orelse return error.MissingGitDirtySpawn;
+    try fx.feedLine(spawn.key, " M src/a.zig\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("1 change", model.git_dirty_label());
+    try fx.feedExitReason(spawn.key, 0, .rejected);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_dirty());
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, project);
+    try testing.expect(findByText(tree.root, .text, "1 change") == null);
+    try testing.expect(findByText(tree.root, .text, "clean") == null);
+    try testing.expect(findByText(tree.root, .text, "0 changes") == null);
+}
+
+test "changing session or project_path cancels the previous dirty probe" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var a_buf: [256]u8 = undefined;
+    var b_buf: [256]u8 = undefined;
+    const project_a = try std.fmt.bufPrint(&a_buf, ".zig-cache/tmp/{s}/dirty-a", .{tmp.sub_path[0..]});
+    const project_b = try std.fmt.bufPrint(&b_buf, ".zig-cache/tmp/{s}/dirty-b", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project_a);
+    try std.Io.Dir.cwd().createDirPath(testing.io, project_b);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const first = model.addSession("first dirty", .fx);
+    const second = model.addSession("second dirty", .fx);
+    model.selected = first;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project_a } }, &fx);
+    const first_spawn = findGitDirtySpawnKey(&fx, model.git_dirty_key) orelse return error.MissingGitDirtySpawn;
+    const first_key = first_spawn.key;
+    try fx.feedLine(first_key, " M a.zig\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("1 change", model.git_dirty_label());
+
+    main.update(&model, .{ .select = second }, &fx);
+    try testing.expectEqual(second, model.selected);
+    try testing.expect(!model.has_git_dirty());
+    try testing.expectEqual(@as(u64, 0), model.git_dirty_key);
+    try testing.expectError(error.EffectNotFound, fx.feedLine(first_key, " M stale.zig\n"));
+    git_dirty.applyLine(&model, .{ .key = first_key, .line = " M stale.zig" });
+    try testing.expect(!model.has_git_dirty());
+
+    main.update(&model, .{ .select = first }, &fx);
+    const again = findGitDirtySpawnKey(&fx, model.git_dirty_key) orelse return error.MissingGitDirtySpawn;
+    try testing.expect(again.key != first_key);
+    try expectGitDirtyArgv(again, project_a);
+    try testing.expect(!model.has_git_dirty());
+    try fx.feedLine(again.key, " M a.zig\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("1 change", model.git_dirty_label());
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project_b } }, &fx);
+    try testing.expect(!model.has_git_dirty());
+    const second_spawn = findGitDirtySpawnKey(&fx, model.git_dirty_key) orelse return error.MissingGitDirtySpawn;
+    try testing.expect(second_spawn.key != again.key);
+    try expectGitDirtyArgv(second_spawn, project_b);
+
+    try testing.expectError(error.EffectNotFound, fx.feedLine(again.key, " M stale.zig\n"));
+    git_dirty.applyLine(&model, .{ .key = again.key, .line = " M stale.zig" });
+    try testing.expect(!model.has_git_dirty());
+
+    try fx.feedLine(second_spawn.key, " M b.zig\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(second_spawn.key, "?? extra.txt\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("2 changes", model.git_dirty_label());
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    try testing.expect(!model.has_git_dirty());
+    try testing.expect(model.project_is_local());
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "choose a project");
+    _ = try expectByText(tree.root, .button, "Local");
+    try testing.expect(findByText(tree.root, .text, "1 change") == null);
+    try testing.expect(findByText(tree.root, .text, "2 changes") == null);
+}
+
 fn findFileMentionSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
@@ -11926,7 +12158,9 @@ fn expectFileMentionArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.open_editor_key);
     try testing.expect(spawn.key != main.copy_turn_key);
     try testing.expect(spawn.key >= main.file_mention_key_first);
+    try testing.expect(spawn.key != main.git_dirty_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
+    try testing.expect(!git_dirty.isGitDirtyArgv(spawn.argv));
     try testing.expect(!file_mention.isWalkArgv(spawn.argv));
 }
 
@@ -11934,6 +12168,7 @@ fn expectFileMentionWalkArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(file_mention.isWalkArgv(spawn.argv));
     try testing.expect(!file_mention.isGitLsFilesArgv(spawn.argv));
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
+    try testing.expect(!git_dirty.isGitDirtyArgv(spawn.argv));
     try testing.expectEqualStrings(file_mention.sh_bin, spawn.argv[0]);
     try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
@@ -12349,6 +12584,10 @@ test "git ls-files sidecar argv and first-N stdout; empty missing rejected skip"
     const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
     try expectGitBranchArgv(branch, project);
     try testing.expect(mention.key != branch.key);
+    const dirty = findGitDirtySpawnKey(&fx, model.git_dirty_key) orelse return error.MissingGitDirtySpawn;
+    try expectGitDirtyArgv(dirty, project);
+    try testing.expect(mention.key != dirty.key);
+    try testing.expect(branch.key != dirty.key);
 
     try fx.feedLine(mention.key, "src/a.zig\n");
     drainEffects(&model, &fx);
@@ -12370,6 +12609,7 @@ test "git ls-files sidecar argv and first-N stdout; empty missing rejected skip"
     try expectFileMentionWalkArgv(walk, project);
     try testing.expect(walk.key != mention.key);
     try testing.expect(walk.key != branch.key);
+    try testing.expect(walk.key != dirty.key);
 
     try fx.feedLine(walk.key, "./src/a.zig\n");
     drainEffects(&model, &fx);

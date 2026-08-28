@@ -15,6 +15,7 @@ const sidebar_row_helpers = @import("sidebar_rows.zig");
 const store = @import("store.zig");
 const session_mod = @import("session.zig");
 const git_branch = @import("git_branch.zig");
+const git_dirty = @import("git_dirty.zig");
 const file_mention = @import("file_mention.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
@@ -508,6 +509,16 @@ pub const Model = struct {
     git_branch_probe_session: u32 = 0,
     git_branch_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_branch_probe_path_len: usize = 0,
+    /// Runtime-only composer dirty count. One-shot `git status
+    /// --porcelain` line count; not persisted to sessions.json.
+    git_dirty_count: u32 = 0,
+    git_dirty_label_storage: [git_dirty.max_git_dirty_label]u8 = [_]u8{0} ** git_dirty.max_git_dirty_label,
+    git_dirty_label_len: usize = 0,
+    git_dirty_key: u64 = 0,
+    next_git_dirty_key: u64 = git_dirty.git_dirty_key_first,
+    git_dirty_probe_session: u32 = 0,
+    git_dirty_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    git_dirty_probe_path_len: usize = 0,
     /// Runtime-only file cache for composer `@` mentions.
     /// Git ls-files first; bounded walk only when that spawn fails.
     /// Not persisted to sessions.json.
@@ -708,6 +719,14 @@ pub const Model = struct {
         "git_branch_probe_session",
         "git_branch_probe_path_storage",
         "git_branch_probe_path_len",
+        "git_dirty_count",
+        "git_dirty_label_storage",
+        "git_dirty_label_len",
+        "git_dirty_key",
+        "next_git_dirty_key",
+        "git_dirty_probe_session",
+        "git_dirty_probe_path_storage",
+        "git_dirty_probe_path_len",
         "file_mention_store",
         "file_mention_count",
         "file_mention_key",
@@ -1776,6 +1795,15 @@ pub const Model = struct {
 
     pub fn has_git_branch(model: *const Model) bool {
         return git_branch.hasGitBranch(model);
+    }
+
+    /// Runtime-only muted dirty count on the composer project row.
+    pub fn git_dirty_label(model: *const Model) []const u8 {
+        return git_dirty.gitDirtyLabel(model);
+    }
+
+    pub fn has_git_dirty(model: *const Model) bool {
+        return git_dirty.hasGitDirty(model);
     }
 
     /// Composer usage control. 0 when the live path has not reported usage.

@@ -12,6 +12,7 @@ const store = @import("store.zig");
 const persist = @import("persist.zig");
 const attach_helpers = @import("attach.zig");
 const git_branch = @import("git_branch.zig");
+const git_dirty = @import("git_dirty.zig");
 const file_mention = @import("file_mention.zig");
 const sidebar_row_helpers = @import("sidebar_rows.zig");
 const palette_run = @import("palette_run.zig");
@@ -40,6 +41,7 @@ pub fn handleNewSession(model: *Model, fx: *Effects) void {
     store.loadDraftIfPossible(model);
     attach_helpers.refreshAttachPreview(model, fx);
     git_branch.refresh(model, fx);
+    git_dirty.refresh(model, fx);
     file_mention.refresh(model, fx);
     model.composer_active = true;
 }
@@ -120,6 +122,7 @@ pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
     store.loadDraftIfPossible(model);
     attach_helpers.refreshAttachPreview(model, fx);
     git_branch.refresh(model, fx);
+    git_dirty.refresh(model, fx);
     file_mention.refresh(model, fx);
 }
 

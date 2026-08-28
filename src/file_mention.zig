@@ -30,9 +30,10 @@ const Effects = main.Effects;
 const writeFixed = main.writeFixed;
 
 /// One-shot file-mention probe (git ls-files, then a bounded walk
-/// when git cannot list). Distinct from git_branch (200+), maximize /
-/// pick-image / fx-ask / daemon / clipboard / probe keys. Incremented
-/// per spawn so a cancelled probe cannot paint a later session.
+/// when git cannot list). Distinct from git_branch (200+), git_dirty
+/// (300+), maximize / pick-image / fx-ask / daemon / clipboard /
+/// probe keys. Incremented per spawn so a cancelled probe cannot
+/// paint a later session.
 pub const file_mention_key_first: u64 = 400;
 
 pub const max_file_mentions: usize = 256;
@@ -360,6 +361,7 @@ pub fn handleExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void
 
 test "argv is chdir script plus git ls-files cached/others; not git branch" {
     const git_branch = @import("git_branch.zig");
+    const git_dirty = @import("git_dirty.zig");
     var buf: [git_argv_len][]const u8 = undefined;
     const argv = argvFor("/tmp/faku-ls", &buf);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
@@ -384,14 +386,20 @@ test "argv is chdir script plus git ls-files cached/others; not git branch" {
         git_ls_files_cmd,
     }));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
     var branch_buf: [8][]const u8 = undefined;
     const branch = git_branch.argvFor("/tmp/faku-ls", &branch_buf);
     try std.testing.expect(!isGitLsFilesArgv(branch));
-    try std.testing.expect(file_mention_key_first > git_branch.git_branch_key_first);
+    var dirty_buf: [8][]const u8 = undefined;
+    const dirty = git_dirty.argvFor("/tmp/faku-ls", &dirty_buf);
+    try std.testing.expect(!isGitLsFilesArgv(dirty));
+    try std.testing.expect(file_mention_key_first > git_dirty.git_dirty_key_first);
+    try std.testing.expect(git_dirty.git_dirty_key_first > git_branch.git_branch_key_first);
 }
 
 test "walk argv is chdir script plus find maxdepth 8 skips; not git" {
     const git_branch = @import("git_branch.zig");
+    const git_dirty = @import("git_dirty.zig");
     var buf: [walk_argv_len][]const u8 = undefined;
     const argv = walkArgvFor("/tmp/faku-walk", &buf);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
@@ -405,6 +413,7 @@ test "walk argv is chdir script plus find maxdepth 8 skips; not git" {
     try std.testing.expect(isWalkArgv(argv));
     try std.testing.expect(!isGitLsFilesArgv(argv));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
     try std.testing.expect(scriptHas(argv[7], find_maxdepth_flag));
     try std.testing.expect(scriptHas(argv[7], find_maxdepth));
     try std.testing.expect(scriptHas(argv[7], find_prune));

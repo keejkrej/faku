@@ -46,6 +46,7 @@ const settings_actions = @import("settings_actions.zig");
 const session_mod = @import("session.zig");
 const model_mod = @import("model.zig");
 const git_branch = @import("git_branch.zig");
+const git_dirty = @import("git_dirty.zig");
 const file_mention = @import("file_mention.zig");
 const util = @import("util.zig");
 const pick_folder = @import("pick_folder.zig");
@@ -218,12 +219,17 @@ pub const open_terminal_key = open_terminal.open_terminal_key;
 /// open-editor effect on this Effects revision.
 pub const open_editor_key = open_editor.open_editor_key;
 /// One-shot `git branch --show-current` probe. Distinct from maximize /
-/// pick-image / fx-ask / daemon / clipboard / probe keys. Incremented
-/// per refresh from `git_branch_key_first`.
+/// pick-image / fx-ask / daemon / clipboard / probe keys and from
+/// git_dirty (300+). Incremented per refresh from
+/// `git_branch_key_first`.
 pub const git_branch_key_first = git_branch.git_branch_key_first;
+/// One-shot `git status --porcelain` dirty count. Distinct from
+/// git_branch (200+) and file_mention (400+). Incremented per
+/// refresh from `git_dirty_key_first`.
+pub const git_dirty_key_first = git_dirty.git_dirty_key_first;
 /// One-shot file-mention probe (git ls-files, then a bounded walk
 /// when git cannot list) for composer `@` mentions. Distinct from
-/// git_branch (200+). Incremented per spawn from
+/// git_branch (200+) and git_dirty (300+). Incremented per spawn from
 /// `file_mention_key_first` (400).
 pub const file_mention_key_first = file_mention.file_mention_key_first;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
@@ -491,6 +497,7 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     store.maybeHydrateDaemonSession(model, fx, model.selected);
     attach_helpers.refreshAttachPreview(model, fx);
     git_branch.refresh(model, fx);
+    git_dirty.refresh(model, fx);
     file_mention.refresh(model, fx);
     fx_probe.startFxProbe(model, fx);
 }
@@ -608,6 +615,7 @@ test {
     _ = @import("session.zig");
     _ = @import("model.zig");
     _ = @import("git_branch.zig");
+    _ = @import("git_dirty.zig");
     _ = @import("file_mention.zig");
     _ = @import("util.zig");
 }
