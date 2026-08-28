@@ -23,10 +23,10 @@ const Effects = main.Effects;
 const writeFixed = main.writeFixed;
 
 /// One-shot `git status --porcelain` probe. Distinct from git_branch
-/// (200+), git_numstat (350+), maximize / pick-image / fx-ask /
-/// daemon / clipboard / probe keys, and from file_mention (400+).
-/// Incremented per refresh so a cancelled spawn cannot paint a later
-/// session.
+/// (200+), git_numstat (350+), git_push (360+), maximize /
+/// pick-image / fx-ask / daemon / clipboard / probe keys, and from
+/// file_mention (400+). Incremented per refresh so a cancelled spawn
+/// cannot paint a later session.
 pub const git_dirty_key_first: u64 = 300;
 
 /// `4294967295 changes` is 19 bytes. Keep headroom.

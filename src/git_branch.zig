@@ -7,8 +7,8 @@
 //! prints empty; a follow-up `git rev-parse --short HEAD` may fill
 //! the select label with a conservative short hex. Non-repos stay
 //! omitted. Local heads, remote-tracking checkout, create, safe
-//! delete, and fetch live in `git_checkout.zig`. Not Waku's daemon
-//! `InspectBranches` picker and not a live watch.
+//! delete, fetch, and push live in `git_checkout.zig`. Not Waku's
+//! daemon `InspectBranches` picker and not a live watch.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -26,8 +26,8 @@ const writeFixed = main.writeFixed;
 /// --short HEAD`) probe. Distinct from maximize / pick-image /
 /// fx-ask / daemon / clipboard / probe keys, from git_branch_list
 /// (250+), git_checkout (275+), git_create (290+), git_dirty (300+),
-/// git_delete (320+), git_fetch (340+), git_numstat (350+), and from
-/// file_mention (400+). Incremented
+/// git_delete (320+), git_fetch (340+), git_numstat (350+),
+/// git_push (360+), and from file_mention (400+). Incremented
 /// per refresh so a cancelled spawn cannot paint a later session.
 pub const git_branch_key_first: u64 = 200;
 

@@ -1,5 +1,5 @@
 //! First-cut local + remote-tracking branch list, checkout, create,
-//! safe delete, and fetch for the composer project row.
+//! safe delete, fetch, and push for the composer project row.
 //!
 //! Native has no git/workspace effect. When the selected session has a
 //! non-empty `project_path` that exists, Faku `fx.spawn`s
@@ -23,11 +23,15 @@
 //! branch… one-shots `git branch -d <name>` for listed local heads
 //! that are not occupied (safe delete; never `-D`; never `origin/…`).
 //! Fetch… one-shots `git fetch --prune` (`--prune` its own argv
-//! slot; never interpolated into the `-c` script). Cap is 64 local
-//! heads plus 32 remote-tracking names that have no local counterpart
-//! (skip symbolic `*/HEAD`), sorted lexicographically. Not Waku's
-//! daemon `InspectBranches` picker, live watch, worktree add / New
-//! Worktree, push / prune-alone, stash, merge, force delete, or
+//! slot; never interpolated into the `-c` script). Push… one-shots
+//! `git push` with no extra flags (Waku's upstream-present path
+//! only; `push` its own argv slot). Not `--set-upstream` when there
+//! is no upstream, not force, not daemon `WorkspaceOperation::Push`,
+//! not `InspectCommit` / `Commit`. Cap is 64 local heads plus 32
+//! remote-tracking names that have no local counterpart (skip
+//! symbolic `*/HEAD`), sorted lexicographically. Not Waku's daemon
+//! `InspectBranches` picker, live watch, worktree add / New
+//! Worktree, prune-alone, stash, merge, force delete, or
 //! Environment Summary.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
@@ -49,34 +53,45 @@ const writeFixed = main.writeFixed;
 /// One-shot `refs/heads` + `refs/remotes` list. Distinct from
 /// git_branch (200+), git_checkout (275+; also `--track`),
 /// git_create (290+), git_dirty (300+), git_delete (320+),
-/// git_fetch (340+), git_numstat (350+), and file_mention (400+).
-/// Incremented per refresh so a cancelled spawn cannot paint a
-/// later session.
+/// git_fetch (340+), git_numstat (350+), git_push (360+), and
+/// file_mention (400+). Incremented per refresh so a cancelled
+/// spawn cannot paint a later session.
 pub const git_branch_list_key_first: u64 = 250;
 
 /// One-shot `git checkout <name>` or `git checkout --track <name>`.
 /// Distinct from the list family (250+), git_create (290+),
 /// git_branch (200+), git_dirty (300+), git_delete (320+),
-/// git_fetch (340+), git_numstat (350+), and file_mention (400+).
+/// git_fetch (340+), git_numstat (350+), git_push (360+), and
+/// file_mention (400+).
 pub const git_checkout_key_first: u64 = 275;
 
 /// One-shot `git checkout -b <name>`. Distinct from list (250+),
 /// checkout (275+), git_dirty (300+), git_delete (320+),
-/// git_fetch (340+), git_numstat (350+), and file_mention (400+).
-/// Band is 290+ (below dirty 300+).
+/// git_fetch (340+), git_numstat (350+), git_push (360+), and
+/// file_mention (400+). Band is 290+ (below dirty 300+).
 pub const git_create_key_first: u64 = 290;
 
 /// One-shot `git branch -d <name>`. Distinct from list (250+),
 /// checkout (275+), create (290+), git_dirty (300+), git_fetch
-/// (340+), git_numstat (350+), and file_mention (400+). Band is
-/// 320+ (between dirty 300+ and fetch 340+).
+/// (340+), git_numstat (350+), git_push (360+), and
+/// file_mention (400+). Band is 320+ (between dirty 300+ and
+/// fetch 340+).
 pub const git_delete_key_first: u64 = 320;
 
 /// One-shot `git fetch --prune`. Distinct from list (250+),
 /// checkout (275+), create (290+), git_dirty (300+), git_delete
-/// (320+), git_numstat (350+), and file_mention (400+). Band is
-/// 340+ (between delete 320+ and numstat 350+).
+/// (320+), git_numstat (350+), git_push (360+), and
+/// file_mention (400+). Band is 340+ (between delete 320+ and
+/// numstat 350+).
 pub const git_fetch_key_first: u64 = 340;
+
+/// One-shot `git push` (no extra flags). Distinct from list (250+),
+/// checkout (275+), create (290+), git_dirty (300+), git_delete
+/// (320+), git_fetch (340+), git_numstat (350+), and
+/// file_mention (400+). Band is 360+ (between numstat 350+ and
+/// file_mention 400+). Incremented per spawn so a cancelled
+/// push cannot paint a later session.
+pub const git_push_key_first: u64 = 360;
 
 pub const max_local_branches: usize = 64;
 pub const max_remote_branches: usize = 32;
@@ -87,6 +102,7 @@ pub const occupied_picker_suffix = " (worktree)";
 pub const create_failed_status = "Could not create branch.";
 pub const delete_failed_status = "Could not delete branch.";
 pub const fetch_failed_status = "Could not fetch.";
+pub const push_failed_status = "Could not push.";
 
 pub const git_bin = git_branch.git_bin;
 pub const git_for_each_ref_cmd = "for-each-ref";
@@ -102,6 +118,7 @@ pub const git_branch_cmd = git_branch.git_branch_cmd;
 pub const git_delete_d_flag = "-d";
 pub const git_fetch_cmd = "fetch";
 pub const git_prune_flag = "--prune";
+pub const git_push_cmd = "push";
 pub const sh_bin = git_branch.sh_bin;
 
 const list_argv_len: usize = 10;
@@ -110,6 +127,7 @@ const track_checkout_argv_len: usize = 9;
 const create_argv_len: usize = 9;
 const delete_argv_len: usize = 9;
 const fetch_argv_len: usize = 8;
+const push_argv_len: usize = 7;
 
 pub const CachedBranch = struct {
     storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
@@ -304,6 +322,31 @@ pub fn isGitFetchArgv(argv: []const []const u8) bool {
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_fetch_cmd)) return false;
     return std.mem.eql(u8, argv[7], git_prune_flag);
+}
+
+/// `git push` with no extra flags — `push` is its own argv slot,
+/// never interpolated into the `-c` script. Not `--set-upstream`,
+/// not `-u`, not `--force`, not `--tags`.
+pub fn pushArgvFor(cwd: []const u8, buf: *[push_argv_len][]const u8) []const []const u8 {
+    buf.* = .{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        cwd,
+        git_bin,
+        git_push_cmd,
+    };
+    return buf;
+}
+
+pub fn isGitPushArgv(argv: []const []const u8) bool {
+    if (argv.len != push_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], "-c")) return false;
+    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[5], git_bin)) return false;
+    return std.mem.eql(u8, argv[6], git_push_cmd);
 }
 
 fn parsedRefLessThan(_: void, a: ParsedRef, b: ParsedRef) bool {
@@ -667,6 +710,12 @@ fn cancelFetch(model: *Model, fx: *Effects) void {
     model.git_fetch_key = 0;
 }
 
+fn cancelPush(model: *Model, fx: *Effects) void {
+    if (model.git_push_key == 0) return;
+    fx.cancel(model.git_push_key);
+    model.git_push_key = 0;
+}
+
 fn probeSupported() bool {
     return builtin.os.tag != .windows;
 }
@@ -679,9 +728,9 @@ fn probePath(model: *const Model) []const u8 {
     return path;
 }
 
-/// Cancel any in-flight list / checkout / create / delete / fetch,
-/// drop the cached heads and remotes, and spawn `for-each-ref` when
-/// the selected session has an existing `project_path`. Empty /
+/// Cancel any in-flight list / checkout / create / delete / fetch /
+/// push, drop the cached heads and remotes, and spawn `for-each-ref`
+/// when the selected session has an existing `project_path`. Empty /
 /// missing / Windows skips the spawn so the picker stays omitted
 /// unless `has_git_branch` is already true.
 pub fn refresh(model: *Model, fx: *Effects) void {
@@ -690,6 +739,7 @@ pub fn refresh(model: *Model, fx: *Effects) void {
     cancelCreate(model, fx);
     cancelDelete(model, fx);
     cancelFetch(model, fx);
+    cancelPush(model, fx);
     clearListedBranches(model);
     closePicker(model);
     closeCreate(model);
@@ -753,6 +803,14 @@ fn fetchStillCurrent(model: *const Model) bool {
     return std.mem.eql(u8, path, probed);
 }
 
+fn pushStillCurrent(model: *const Model) bool {
+    if (model.git_push_key == 0) return false;
+    if (model.git_push_probe_session != model.selected) return false;
+    const path = model.selectedProjectPath();
+    const probed = model.git_push_probe_path_storage[0..model.git_push_probe_path_len];
+    return std.mem.eql(u8, path, probed);
+}
+
 pub fn applyListLine(model: *Model, line: native_sdk.EffectLine) void {
     if (line.key != model.git_branch_list_key or model.git_branch_list_key == 0) return;
     if (!listStillCurrent(model)) return;
@@ -784,11 +842,11 @@ fn refreshWorkspaceProbes(model: *Model, fx: *Effects) void {
 /// its local counterpart is the current branch. Another plausible
 /// local name one-shots `git checkout` unless that local is occupied
 /// in another worktree (status, no spawn). Implausible names are
-/// ignored. In-flight create, delete, or fetch is a no-op so the
-/// one-shots do not overlap.
+/// ignored. In-flight create, delete, fetch, or push is a no-op so
+/// the one-shots do not overlap.
 pub fn pickBranch(model: *Model, fx: *Effects, name: []const u8) void {
     closePicker(model);
-    if (model.git_create_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0) return;
+    if (model.git_create_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0) return;
     if (!git_branch.isPlausibleBranchName(name)) return;
     const remote = isListedRemoteName(model, name);
     if (!remote and std.mem.eql(u8, name, git_branch.gitBranchLabel(model))) return;
@@ -842,9 +900,9 @@ pub fn handleCheckoutExit(model: *Model, fx: *Effects, exit: native_sdk.EffectEx
 
 /// Confirm the create card: plausible draft one-shots `git checkout -b`.
 /// Empty / implausible names do not spawn and keep the field open.
-/// Busy session or in-flight create/checkout/delete/fetch is a no-op.
+/// Busy session or in-flight create/checkout/delete/fetch/push is a no-op.
 pub fn confirmCreate(model: *Model, fx: *Effects) void {
-    if (model.git_create_key != 0 or model.git_checkout_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0) return;
+    if (model.git_create_key != 0 or model.git_checkout_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0) return;
     if (model.is_streaming()) return;
     const name = std.mem.trim(u8, model.git_branch_create_buffer.text(), " \t\r\n");
     if (!git_branch.isPlausibleBranchName(name)) return;
@@ -885,9 +943,9 @@ pub fn handleCreateExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
 /// Confirm the delete card: a listed non-current, unoccupied name
 /// one-shots `git branch -d`. Empty / current / occupied /
 /// implausible names do not spawn and keep the card open. Busy
-/// session or in-flight checkout/create/delete/fetch is a no-op.
+/// session or in-flight checkout/create/delete/fetch/push is a no-op.
 pub fn confirmDelete(model: *Model, fx: *Effects) void {
-    if (model.git_delete_key != 0 or model.git_checkout_key != 0 or model.git_create_key != 0 or model.git_fetch_key != 0) return;
+    if (model.git_delete_key != 0 or model.git_checkout_key != 0 or model.git_create_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0) return;
     if (model.is_streaming()) return;
     const name = std.mem.trim(u8, gitBranchDeleteLabel(model), " \t\r\n");
     if (!isListedNonCurrent(model, name)) return;
@@ -926,12 +984,12 @@ pub fn handleDeleteExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
 }
 
 /// Fetch… closes the picker and one-shots `git fetch --prune`.
-/// Busy session or in-flight checkout/create/delete/fetch is a no-op.
+/// Busy session or in-flight checkout/create/delete/fetch/push is a no-op.
 pub fn startFetch(model: *Model, fx: *Effects) void {
     closePicker(model);
     closeCreate(model);
     closeDelete(model);
-    if (model.git_fetch_key != 0 or model.git_checkout_key != 0 or model.git_create_key != 0 or model.git_delete_key != 0) return;
+    if (model.git_fetch_key != 0 or model.git_checkout_key != 0 or model.git_create_key != 0 or model.git_delete_key != 0 or model.git_push_key != 0) return;
     if (model.is_streaming()) return;
     if (!probeSupported()) return;
     const cwd = probePath(model);
@@ -964,6 +1022,51 @@ pub fn handleFetchExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit)
         return;
     }
     model.setAttachStatus(fetch_failed_status);
+}
+
+/// Push… closes the picker and one-shots `git push` (no extra flags).
+/// This is Waku's upstream-present path only — not `--set-upstream`,
+/// not force, not daemon `WorkspaceOperation::Push`. Always offered
+/// when the branch picker is offered; no ahead-count / can_push gate.
+/// Busy session or in-flight checkout/create/delete/fetch/push is a
+/// no-op.
+pub fn startPush(model: *Model, fx: *Effects) void {
+    closePicker(model);
+    closeCreate(model);
+    closeDelete(model);
+    if (model.git_push_key != 0 or model.git_checkout_key != 0 or model.git_create_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0) return;
+    if (model.is_streaming()) return;
+    if (!probeSupported()) return;
+    const cwd = probePath(model);
+    if (cwd.len == 0) return;
+
+    var argv_buf: [push_argv_len][]const u8 = undefined;
+    const argv = pushArgvFor(cwd, &argv_buf);
+
+    const key = model.next_git_push_key;
+    model.next_git_push_key = key + 1;
+    model.git_push_key = key;
+    model.git_push_probe_session = model.selected;
+    writeFixed(&model.git_push_probe_path_storage, &model.git_push_probe_path_len, cwd);
+
+    fx.spawn(.{
+        .key = key,
+        .argv = argv,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+}
+
+pub fn handlePushExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (exit.key != model.git_push_key or model.git_push_key == 0) return;
+    const current = pushStillCurrent(model);
+    model.git_push_key = 0;
+    if (!current) return;
+    if (exit.reason == .exited and exit.code == 0) {
+        refreshWorkspaceProbes(model, fx);
+        return;
+    }
+    model.setAttachStatus(push_failed_status);
 }
 
 test "list argv is chdir script plus for-each-ref refs/heads and refs/remotes" {
@@ -1011,6 +1114,7 @@ test "list argv is chdir script plus for-each-ref refs/heads and refs/remotes" {
     try std.testing.expect(!isGitCreateArgv(argv));
     try std.testing.expect(!isGitDeleteArgv(argv));
     try std.testing.expect(!isGitFetchArgv(argv));
+    try std.testing.expect(!isGitPushArgv(argv));
 }
 
 test "checkout argv keeps the name as its own slot and rejects implausible names" {
@@ -1028,6 +1132,7 @@ test "checkout argv keeps the name as its own slot and rejects implausible names
     try std.testing.expect(!isGitCreateArgv(argv));
     try std.testing.expect(!isGitDeleteArgv(argv));
     try std.testing.expect(!isGitFetchArgv(argv));
+    try std.testing.expect(!isGitPushArgv(argv));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "feat/composer") == null);
 
@@ -1046,7 +1151,8 @@ test "checkout argv keeps the name as its own slot and rejects implausible names
     try std.testing.expect(git_delete_key_first > git_dirty.git_dirty_key_first);
     try std.testing.expect(git_fetch_key_first > git_delete_key_first);
     try std.testing.expect(git_numstat.git_numstat_key_first > git_fetch_key_first);
-    try std.testing.expect(file_mention.file_mention_key_first > git_numstat.git_numstat_key_first);
+    try std.testing.expect(git_push_key_first > git_numstat.git_numstat_key_first);
+    try std.testing.expect(file_mention.file_mention_key_first > git_push_key_first);
 }
 
 test "track checkout argv is checkout --track with the name as its own slot and rejects implausible names" {
@@ -1067,6 +1173,7 @@ test "track checkout argv is checkout --track with the name as its own slot and 
     try std.testing.expect(!isGitBranchListArgv(argv));
     try std.testing.expect(!isGitDeleteArgv(argv));
     try std.testing.expect(!isGitFetchArgv(argv));
+    try std.testing.expect(!isGitPushArgv(argv));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "origin/feat") == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "--track") == null);
@@ -1099,6 +1206,7 @@ test "create argv is checkout -b with the name as its own slot and rejects impla
     try std.testing.expect(!isGitBranchListArgv(argv));
     try std.testing.expect(!isGitDeleteArgv(argv));
     try std.testing.expect(!isGitFetchArgv(argv));
+    try std.testing.expect(!isGitPushArgv(argv));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "feat/new-branch") == null);
 
@@ -1130,6 +1238,7 @@ test "delete argv is branch -d with the name as its own slot and rejects implaus
     try std.testing.expect(!isGitTrackCheckoutArgv(argv));
     try std.testing.expect(!isGitBranchListArgv(argv));
     try std.testing.expect(!isGitFetchArgv(argv));
+    try std.testing.expect(!isGitPushArgv(argv));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "feat/old-branch") == null);
     try std.testing.expect(!std.mem.eql(u8, argv[7], "-D"));
@@ -1167,6 +1276,7 @@ test "fetch argv is fetch --prune as its own slot and is not fetch-without-prune
     try std.testing.expectEqualStrings(git_fetch_cmd, argv[6]);
     try std.testing.expectEqualStrings(git_prune_flag, argv[7]);
     try std.testing.expect(isGitFetchArgv(argv));
+    try std.testing.expect(!isGitPushArgv(argv));
     try std.testing.expect(!isGitDeleteArgv(argv));
     try std.testing.expect(!isGitCreateArgv(argv));
     try std.testing.expect(!isGitCheckoutArgv(argv));
@@ -1205,6 +1315,84 @@ test "fetch argv is fetch --prune as its own slot and is not fetch-without-prune
     }));
     try std.testing.expect(git_fetch_key_first > git_delete_key_first);
     try std.testing.expect(git_numstat.git_numstat_key_first > git_fetch_key_first);
+    try std.testing.expect(git_push_key_first > git_numstat.git_numstat_key_first);
+    try std.testing.expect(file_mention.file_mention_key_first > git_push_key_first);
+}
+
+test "push argv is git push with no extra flags and is not fetch/checkout/create/delete" {
+    var buf: [push_argv_len][]const u8 = undefined;
+    const argv = pushArgvFor("/tmp/faku-push", &buf);
+    try std.testing.expectEqual(@as(usize, 7), argv.len);
+    try std.testing.expectEqualStrings(sh_bin, argv[0]);
+    try std.testing.expectEqualStrings("-c", argv[1]);
+    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings("sh", argv[3]);
+    try std.testing.expectEqualStrings("/tmp/faku-push", argv[4]);
+    try std.testing.expectEqualStrings(git_bin, argv[5]);
+    try std.testing.expectEqualStrings(git_push_cmd, argv[6]);
+    try std.testing.expect(isGitPushArgv(argv));
+    try std.testing.expect(!isGitFetchArgv(argv));
+    try std.testing.expect(!isGitDeleteArgv(argv));
+    try std.testing.expect(!isGitCreateArgv(argv));
+    try std.testing.expect(!isGitCheckoutArgv(argv));
+    try std.testing.expect(!isGitTrackCheckoutArgv(argv));
+    try std.testing.expect(!isGitBranchListArgv(argv));
+    try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_push_cmd) == null);
+    try std.testing.expect(!isGitPushArgv(&.{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-push",
+        git_bin,
+        git_fetch_cmd,
+        git_prune_flag,
+    }));
+    try std.testing.expect(!isGitPushArgv(&.{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-push",
+        git_bin,
+        git_checkout_cmd,
+        "main",
+    }));
+    try std.testing.expect(!isGitPushArgv(&.{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-push",
+        git_bin,
+        git_checkout_cmd,
+        git_create_b_flag,
+        "feat/new",
+    }));
+    try std.testing.expect(!isGitPushArgv(&.{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-push",
+        git_bin,
+        git_branch_cmd,
+        git_delete_d_flag,
+        "feat/old",
+    }));
+    try std.testing.expect(!isGitPushArgv(&.{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-push",
+        git_bin,
+        git_push_cmd,
+        "--set-upstream",
+    }));
+    try std.testing.expect(git_push_key_first > git_numstat.git_numstat_key_first);
+    try std.testing.expect(file_mention.file_mention_key_first > git_push_key_first);
 }
 
 test "collectStdoutRefs skips remote HEAD, de-dupes local counterparts, and caps remotes" {
