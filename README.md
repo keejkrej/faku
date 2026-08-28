@@ -40,8 +40,9 @@ sidebar folder rows have a Native context menu (Rename / Delete);
 the composer project row sets the selected session cwd and, when that
 path exists, shows a muted one-shot `git branch --show-current` label
 plus a one-shot `git status --porcelain` dirty file count and a
-one-shot `git diff --numstat HEAD` tracked +/- (not Waku's daemon
-branch picker, Environment Summary, or untracked-as-additions;
+one-shot `git diff --numstat HEAD` +/- that also adds untracked
+text-line counts on the + side (not Waku's daemon branch picker,
+InspectBranches, Environment Summary, or live watch;
 Native still has no git effect);
 typing `@` in the composer (last whitespace token; caret assumed at
 the end — Native has no caret API) opens a small card of files and
@@ -255,19 +256,20 @@ HEAD and non-repos print empty; the label is omitted. The same
 refresh also one-shots `git status --porcelain` and, when that
 stdout has non-empty lines, a muted `N change` / `N changes` label
 next to the branch (one line per path; blank lines ignored). The
-same refresh also one-shots `git diff --numstat HEAD --` and, when
-tracked additions or deletions are non-zero, a muted `+N −M` label
-next to the dirty count (binary `-` rows skipped; blank lines
-ignored). Zero, failed, or skipped probes omit those labels — this
-cut does not invent "clean" and does not count untracked files
-(Waku's BranchSnapshot also adds untracked text-line additions;
-that stays a leftover). This is not Waku's daemon `InspectBranches`
-/ checkout picker, not a live watch, not a commit dialog, not a
-staged/unstaged split, not Waku's Environment Summary, and not
-Review. Native still has no git effect. The branch, dirty count,
-and tracked +/- are runtime-only (like the busy spinner) and are
-not stored on `sessions.json`. There is no worktree
-materialization.
+same refresh also one-shots `git diff --numstat HEAD --` plus
+untracked text-line additions (`git ls-files --others
+--exclude-standard`; `grep -Iq` skips binaries; files over 1 MiB
+are skipped) and, when the combined additions or tracked deletions
+are non-zero, a muted `+N −M` label next to the dirty count
+(tracked binary `-` rows skipped; blank lines ignored; deletions
+stay tracked-only). Zero, failed, or skipped probes omit those
+labels — this cut does not invent "clean". This is not Waku's
+daemon `InspectBranches` / checkout picker, not a live watch, not
+a commit dialog, not a staged/unstaged split, not Waku's
+Environment Summary, and not Review. Native still has no git
+effect. The branch, dirty count, and +/- are runtime-only (like
+the busy spinner) and are not stored on `sessions.json`. There is
+no worktree materialization.
 The same refresh also one-shots
 `git ls-files --cached --others --exclude-standard` (same chdir
 workaround) and keeps a bounded runtime list of relative paths for

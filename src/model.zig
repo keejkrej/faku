@@ -520,8 +520,8 @@ pub const Model = struct {
     git_dirty_probe_session: u32 = 0,
     git_dirty_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_dirty_probe_path_len: usize = 0,
-    /// Runtime-only composer tracked +/-. One-shot `git diff
-    /// --numstat HEAD --`; not persisted to sessions.json.
+    /// Runtime-only composer +/-. One-shot `git diff --numstat HEAD --`
+    /// plus untracked text-line additions; not persisted to sessions.json.
     git_numstat_additions: u64 = 0,
     git_numstat_deletions: u64 = 0,
     git_numstat_label_storage: [git_numstat.max_git_numstat_label]u8 = [_]u8{0} ** git_numstat.max_git_numstat_label,
@@ -1827,7 +1827,8 @@ pub const Model = struct {
         return git_dirty.hasGitDirty(model);
     }
 
-    /// Runtime-only muted tracked +/- on the composer project row.
+    /// Runtime-only muted +/- on the composer project row (tracked
+    /// numstat plus untracked text-line additions).
     pub fn git_numstat_label(model: *const Model) []const u8 {
         return git_numstat.gitNumstatLabel(model);
     }

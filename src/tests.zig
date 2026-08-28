@@ -12133,11 +12133,13 @@ fn expectGitNumstatArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(git_numstat.sh_bin, spawn.argv[0]);
     try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
-    try testing.expectEqualStrings(git_numstat.git_bin, spawn.argv[5]);
-    try testing.expectEqualStrings(git_numstat.git_diff_cmd, spawn.argv[6]);
-    try testing.expectEqualStrings(git_numstat.git_numstat, spawn.argv[7]);
-    try testing.expectEqualStrings(git_numstat.git_head, spawn.argv[8]);
-    try testing.expectEqualStrings(git_numstat.git_pathspec_end, spawn.argv[9]);
+    try testing.expectEqualStrings(git_numstat.sh_bin, spawn.argv[5]);
+    try testing.expectEqualStrings("-c", spawn.argv[6]);
+    try testing.expectEqualStrings(git_numstat.numstat_untracked_script, spawn.argv[7]);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[7], git_numstat.git_numstat) != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[7], git_numstat.git_ls_files_others) != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[7], git_numstat.git_ls_files_exclude_standard) != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[7], git_numstat.grep_text_flag) != null);
     try testing.expect(spawn.key != main.fx_ask_key);
     try testing.expect(spawn.key != main.fx_probe_key);
     try testing.expect(spawn.key != main.maximize_window_key);
@@ -12152,6 +12154,7 @@ fn expectGitNumstatArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_dirty.isGitDirtyArgv(spawn.argv));
     try testing.expect(!file_mention.isGitLsFilesArgv(spawn.argv));
+    try testing.expect(!file_mention.isWalkArgv(spawn.argv));
 }
 
 test "composer project row shows one-shot git diff --numstat HEAD +/-" {
@@ -12195,13 +12198,16 @@ test "composer project row shows one-shot git diff --numstat HEAD +/-" {
     drainEffects(&model, &fx);
     try testing.expect(model.has_git_numstat());
     try testing.expectEqualStrings("+12 −1", model.git_numstat_label());
+    try fx.feedLine(spawn.key, "5\t0\tnew.txt\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("+17 −1", model.git_numstat_label());
     try fx.feedExit(spawn.key, 0);
     drainEffects(&model, &fx);
-    try testing.expectEqualStrings("+12 −1", model.git_numstat_label());
+    try testing.expectEqualStrings("+17 −1", model.git_numstat_label());
 
     const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .button, project);
-    _ = try expectByText(tree.root, .text, "+12 −1");
+    _ = try expectByText(tree.root, .text, "+17 −1");
     try testing.expect(findByText(tree.root, .text, "clean") == null);
     try testing.expect(findByText(tree.root, .button, "Local") == null);
 }
@@ -12286,6 +12292,85 @@ test "git numstat label is omitted for empty missing rejected zero and nonzero" 
     try testing.expect(findByText(tree.root, .text, "+0 −4") == null);
     try testing.expect(findByText(tree.root, .text, "clean") == null);
     try testing.expect(findByText(tree.root, .text, "+0 −0") == null);
+}
+
+test "git numstat adds untracked text lines to + and omits when both sides stay zero" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/numstat-untracked", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("untracked numstat", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    var spawn = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try expectGitNumstatArgv(spawn, project);
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    const dirty = findGitDirtySpawnKey(&fx, model.git_dirty_key) orelse return error.MissingGitDirtySpawn;
+    const mention = findFileMentionSpawnKey(&fx, model.file_mention_key) orelse return error.MissingFileMentionSpawn;
+    try testing.expect(spawn.key != branch.key);
+    try testing.expect(spawn.key != dirty.key);
+    try testing.expect(spawn.key != mention.key);
+    try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
+    try testing.expect(!git_dirty.isGitDirtyArgv(spawn.argv));
+    try testing.expect(!file_mention.isGitLsFilesArgv(spawn.argv));
+    try testing.expect(!file_mention.isWalkArgv(spawn.argv));
+
+    try fx.feedLine(spawn.key, "3\t1\tsrc/a.zig\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("+3 −1", model.git_numstat_label());
+    try fx.feedLine(spawn.key, "-\t-\tpic.png\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(spawn.key, "5\t0\tnew.txt\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("+8 −1", model.git_numstat_label());
+    try fx.feedLine(spawn.key, "0\t0\tempty.txt\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("+8 −1", model.git_numstat_label());
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("+8 −1", model.git_numstat_label());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "+8 −1");
+    try testing.expect(findByText(tree.root, .text, "clean") == null);
+
+    git_numstat.refresh(&model, &fx);
+    spawn = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try fx.feedLine(spawn.key, "5\t0\tonly-new.txt\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("+5 −0", model.git_numstat_label());
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("+5 −0", model.git_numstat_label());
+
+    git_numstat.refresh(&model, &fx);
+    spawn = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try fx.feedLine(spawn.key, "-\t-\tbin.dat\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(spawn.key, "0\t0\tempty.txt\n");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_numstat());
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_numstat());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "+8 −1") == null);
+    try testing.expect(findByText(tree.root, .text, "+5 −0") == null);
+    try testing.expect(findByText(tree.root, .text, "clean") == null);
 }
 
 test "changing session or project_path cancels the previous numstat probe" {
