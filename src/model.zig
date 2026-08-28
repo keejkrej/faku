@@ -535,8 +535,8 @@ pub const Model = struct {
     git_branch_probe_path_len: usize = 0,
     git_branch_probe_is_rev_parse: bool = false,
     /// Runtime-only local `refs/heads` plus remote-tracking names for
-    /// the checkout picker. One-shot `git for-each-ref`; not persisted
-    /// to sessions.json.
+    /// the checkout picker, including occupancy from `%(worktreepath)`.
+    /// One-shot `git for-each-ref`; not persisted to sessions.json.
     git_branch_list_store: [git_checkout.max_listed_branches]git_checkout.CachedBranch = [_]git_checkout.CachedBranch{.{}} ** git_checkout.max_listed_branches,
     git_branch_list_count: u32 = 0,
     git_branch_list_key: u64 = 0,
@@ -1923,8 +1923,9 @@ pub const Model = struct {
     }
 
     /// Ghost select on the project row: current branch and/or a listed
-    /// local head or remote-tracking ref. Detached HEAD can still open
-    /// the picker when `for-each-ref` returned ≥1 name.
+    /// local head or remote-tracking ref. Occupied locals stay listed.
+    /// Detached HEAD can still open the picker when `for-each-ref`
+    /// returned ≥1 name.
     pub fn can_pick_git_branch(model: *const Model) bool {
         return git_checkout.canPickGitBranch(model);
     }
@@ -1937,10 +1938,15 @@ pub const Model = struct {
         var i: usize = 0;
         while (i < n) : (i += 1) {
             const name = git_checkout.listedBranch(model, i);
+            const occupied = git_checkout.listedBranchIsOccupied(model, i);
+            const label = if (occupied)
+                std.fmt.allocPrint(arena, "{s}{s}", .{ name, git_checkout.occupied_picker_suffix }) catch name
+            else
+                name;
             out[i] = .{
                 .row_id = @intCast(i + 1),
                 .id = name,
-                .label = name,
+                .label = label,
                 .selected = std.mem.eql(u8, current, name),
             };
         }
@@ -1956,8 +1962,8 @@ pub const Model = struct {
     }
 
     /// Non-current listed local heads for the delete card. Never includes
-    /// the current branch or remote-tracking names; empty when only HEAD
-    /// is listed.
+    /// the current branch, remote-tracking names, or locals occupied in
+    /// another worktree; empty when only HEAD / occupied rows remain.
     pub fn git_branch_delete_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
         const current = git_branch.gitBranchLabel(model);
         const selected = git_checkout.gitBranchDeleteLabel(model);
@@ -1968,6 +1974,7 @@ pub const Model = struct {
         var i: usize = 0;
         while (i < n) : (i += 1) {
             if (git_checkout.listedBranchIsRemote(model, i)) continue;
+            if (git_checkout.listedBranchIsOccupied(model, i)) continue;
             const name = git_checkout.listedBranch(model, i);
             if (name.len == 0) continue;
             if (std.mem.eql(u8, current, name)) continue;
