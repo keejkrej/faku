@@ -2210,6 +2210,89 @@ test "composer slash prefix auto-opens stored commands; filters by name; empty h
     }
 }
 
+test "composer Enter confirms first slash-command row and does not send" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-slash-enter", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("slash enter", .fx);
+    _ = model.appendTurn(id, .user, "already started");
+    model.selected = id;
+    if (model.sessionById(id)) |session| {
+        session.appendAvailableCommand("commit", "Create a commit");
+        session.appendAvailableCommand("compact", "Compact the conversation");
+    }
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "/com" } }, &fx);
+    try testing.expect(model.commands_list_open());
+    try testing.expect(model.slashPrefixCommandsShowing());
+    try testing.expect(!model.commands_open);
+    {
+        const rows = model.command_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expectEqualStrings("/commit", rows[0].slash_name);
+        try testing.expect(rows[0].selected);
+        try testing.expect(!rows[1].selected);
+        try testing.expectEqual(@as(u32, 1), rows[0].id);
+    }
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "/commit");
+    const commit = try expectButton(tree.root, "/commit");
+    if (@hasField(canvas.Widget, "selected")) {
+        try testing.expect(commit.selected);
+    }
+
+    main.update(&model, .composer_enter, &fx);
+    try testing.expectEqualStrings("/commit ", model.draft());
+    try testing.expect(!model.commands_list_open());
+    try testing.expect(!model.slashPrefixCommandsShowing());
+    try testing.expect(!model.commands_open);
+    try testing.expect(!model.autocomplete_dismissed);
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expect(!model.fx_spawn_live);
+    try testing.expect(!model.is_streaming());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "/compact") == null);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("/commit ", composer.text);
+    }
+
+    model.draft_buffer.clear();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "/com" } }, &fx);
+    try testing.expect(model.slashPrefixCommandsShowing());
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expect(model.autocomplete_dismissed);
+    try testing.expect(!model.commands_list_open());
+    try testing.expect(!model.slashPrefixCommandsShowing());
+    try testing.expectEqualStrings("/com", model.draft());
+    try testing.expect(!model.is_streaming());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "p" } }, &fx);
+    try testing.expectEqualStrings("/comp", model.draft());
+    try testing.expect(!model.autocomplete_dismissed);
+    try testing.expect(model.commands_list_open());
+    try testing.expect(model.slashPrefixCommandsShowing());
+}
+
 test "composer slash prefix stays closed when no commands are stored" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -12100,6 +12183,136 @@ test "composer @ mention rows rank basename prefix above path contains" {
     _ = try expectByText(tree.root, .text, "notes");
     const main_row = try expectButton(tree.root, "src/main.zig");
     try testing.expectEqual(Msg{ .insert_mention = 4 }, tree.msgForPointer(main_row.id, .up).?);
+}
+
+test "composer Enter confirms first @ mention; Esc dismisses; Send button still sends" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-mention-enter", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try expectComposerEnterMarkup();
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("mention enter", .fx);
+    _ = model.appendTurn(id, .user, "already started");
+    model.selected = id;
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+    file_mention.applyStdoutPaths(&model,
+        \\notes/email.md
+        \\src/lib/util.zig
+        \\README.md
+        \\src/main.zig
+    );
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "@mai" } }, &fx);
+    try testing.expect(model.mentions_list_open());
+    try testing.expect(!model.autocomplete_dismissed);
+    try testing.expectEqual(@as(u32, 0), model.autocomplete_highlight);
+    {
+        const rows = model.mention_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expect(rows[0].selected);
+        try testing.expect(!rows[1].selected);
+        try testing.expectEqualStrings("src/main.zig", rows[0].path);
+        try testing.expectEqual(@as(u32, 4), rows[0].id);
+    }
+
+    const tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("@mai", composer.text);
+    } else return error.WidgetNotFound;
+    const first_row = try expectButton(tree.root, "src/main.zig");
+    if (@hasField(canvas.Widget, "selected")) {
+        try testing.expect(first_row.selected);
+        const second_row = try expectButton(tree.root, "notes/email.md");
+        try testing.expect(!second_row.selected);
+    }
+
+    main.update(&model, .composer_enter, &fx);
+    try testing.expectEqualStrings("@src/main.zig ", model.draft());
+    try testing.expect(model.composer_active);
+    try testing.expect(!model.mentions_list_open());
+    try testing.expect(!model.autocomplete_dismissed);
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expect(!model.fx_spawn_live);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings("@src/main.zig ", loaded.draft());
+    try testing.expectEqual(@as(u32, 0), loaded.autocomplete_highlight);
+    try testing.expect(!loaded.autocomplete_dismissed);
+
+    model.draft_buffer.clear();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "plain send" } }, &fx);
+    try testing.expect(!model.mentions_list_open());
+    try testing.expect(!model.commands_list_open());
+    main.update(&model, .composer_enter, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqualStrings("", model.draft());
+    try testing.expectEqual(@as(usize, 2), countRole(&model, .user));
+    main.update(&model, .stop_turn, &fx);
+    try testing.expect(!model.is_streaming());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "@mai" } }, &fx);
+    try testing.expect(model.mentions_list_open());
+    try testing.expectEqualStrings("@mai", model.draft());
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqualStrings("", model.draft());
+    try testing.expectEqual(@as(usize, 3), countRole(&model, .user));
+    main.update(&model, .stop_turn, &fx);
+    try testing.expect(!model.is_streaming());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "keep streaming" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expect(model.sessionById(id).?.busy);
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "@mai" } }, &fx);
+    try testing.expect(model.mentions_list_open());
+    try testing.expectEqualStrings("@mai", model.draft());
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expect(model.autocomplete_dismissed);
+    try testing.expect(!model.mentions_list_open());
+    try testing.expectEqualStrings("@mai", model.draft());
+    try testing.expect(model.is_streaming());
+    try testing.expect(model.sessionById(id).?.busy);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "n" } }, &fx);
+    try testing.expectEqualStrings("@main", model.draft());
+    try testing.expect(!model.autocomplete_dismissed);
+    try testing.expect(model.mentions_list_open());
+    try testing.expectEqual(@as(u32, 0), model.autocomplete_highlight);
+}
+
+fn expectComposerEnterMarkup() !void {
+    inline for (Msg.view_unbound) |name| {
+        try testing.expect(!std.mem.eql(u8, name, "composer_enter"));
+    }
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-submit=\"composer_enter\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"send\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "selected=\"{c.selected}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "selected=\"{m.selected}\"") != null);
 }
 
 test "git ls-files sidecar argv and first-N stdout; empty missing rejected skip" {

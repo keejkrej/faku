@@ -318,7 +318,7 @@
               </card>
             </if>
             <input-group label="Message composer" height="88">
-              <textarea placeholder="{composer_placeholder}" text="{draft}" submit-on-enter="true" on-input="draft_edit" on-submit="send" autofocus="{composer_active}" />
+              <textarea placeholder="{composer_placeholder}" text="{draft}" submit-on-enter="true" on-input="draft_edit" on-submit="composer_enter" autofocus="{composer_active}" />
               <input-group-actions>
                 <button variant="ghost" size="icon" icon="file-text" label="Attach image" on-press="start_image_attach"></button>
                 <button variant="ghost" size="sm" on-press="pick_image">Pick image</button>
@@ -411,7 +411,7 @@
               <card size="sm" padding="10">
                 <column gap="2">
                   <for each="command_rows" key="id" as="c">
-                    <list-item height="44" on-press="insert_command:{c.id}" label="{c.slash_name}">
+                    <list-item height="44" selected="{c.selected}" on-press="insert_command:{c.id}" label="{c.slash_name}">
                       <column gap="2" padding="4">
                         <text>{c.slash_name}</text>
                         <if test="{c.has_description}">
@@ -427,7 +427,7 @@
               <card size="sm" padding="10">
                 <column gap="2">
                   <for each="mention_rows" key="id" as="m">
-                    <list-item height="44" on-press="insert_mention:{m.id}" label="{m.path}">
+                    <list-item height="44" selected="{m.selected}" on-press="insert_mention:{m.id}" label="{m.path}">
                       <column gap="2" padding="4">
                         <text>{m.name}</text>
                         <if test="{m.has_parent}">

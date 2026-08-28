@@ -328,8 +328,8 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         // window-action effect (`examples/deck`): last-window close
         // follows the host exit path. Esc stays `.stop` so the session
         // switcher / command palette / settings / transcript-find / project-edit /
-        // image-attach / commands / folder-title-edit / session-title-edit /
-        // a live turn keep it.
+        // image-attach / commands / typing-triggered @ / slash card /
+        // folder-title-edit / session-title-edit / a live turn keep it.
         .close_window => fx.closeWindow(main_window_label),
         .minimize_window => fx.minimizeWindow(main_window_label),
         .maximize_window => maximize_window.startMaximizeWindow(model, fx),
@@ -359,7 +359,18 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .draft_edit => |edit| {
             model.draft_buffer.apply(edit);
+            model.autocomplete_dismissed = false;
+            model.autocomplete_highlight = 0;
             store.persistDraftIfPossible(model);
+        },
+        .composer_enter => {
+            if (model.commands_list_open() or model.mentions_list_open()) {
+                if (model.insertHighlightedAutocomplete()) {
+                    store.persistDraftIfPossible(model);
+                }
+            } else {
+                turn_stream.handleSend(model, fx);
+            }
         },
         .send => turn_stream.handleSend(model, fx),
         .stop_turn => turn_stream.stopStream(model, fx),

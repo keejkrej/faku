@@ -171,6 +171,11 @@ Clicking a row replaces only that last `@query` token with `@relpath`
 plus a trailing space (`@src/` for a directory). File paths stay
 relative as git or the walk printed them (`find`'s leading `./` is
 stripped). Not a provider/ACP method, not Open-in, and not copy path.
+Enter on the composer confirms the first visible `@` mention or
+slash-command row instead of sending; Esc dismisses that card for the
+current draft (typing again reopens). Not Waku's up/down/tab key
+context — Native textarea eats those keys. Click still inserts. The
+Send button still sends.
 ACP `session_info_update` applies a non-empty `title` to the session
 (header / sidebar); official `cwd` is not on this notification.
 The `session/prompt` result `stopReason`

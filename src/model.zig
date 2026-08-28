@@ -218,6 +218,7 @@ pub const CommandRow = struct {
     slash_name: []const u8,
     description: []const u8,
     has_description: bool,
+    selected: bool = false,
 };
 
 /// File-mention row. `id` is a 1-based index into the runtime
@@ -234,6 +235,7 @@ pub const MentionRow = struct {
     name: []const u8,
     parent: []const u8,
     has_parent: bool,
+    selected: bool = false,
 };
 
 /// Composer model picker row. `row_id` is a 1-based Native `for` key.
@@ -295,6 +297,8 @@ pub const Msg = union(enum) {
     search_edit: canvas.TextInputEvent,
     find_edit: canvas.TextInputEvent,
     draft_edit: canvas.TextInputEvent,
+    /// Composer Enter: confirm the open `@` / slash card, else send.
+    composer_enter,
     send,
     steer,
     /// Composer / header Codex `/goal` set. Reuses the draft as objective.
@@ -438,6 +442,13 @@ pub const Model = struct {
     /// Runtime-only composer `/goal` status picker. Not persisted.
     goal_status_picker_open: bool = false,
     palette_highlight: u32 = 0,
+    /// Runtime-only first-visible-row highlight for the composer `@` /
+    /// slash card. Not persisted to sessions.json. This cut does not
+    /// cycle rows; Native textarea eats ArrowUp/ArrowDown/Tab.
+    autocomplete_highlight: u32 = 0,
+    /// Runtime-only Esc dismiss of the typing-triggered `@` / slash
+    /// card. Cleared on the next `draft_edit`. Not persisted.
+    autocomplete_dismissed: bool = false,
     find_buffer: canvas.TextBuffer(max_search) = .{},
     find_active: bool = false,
     /// 0-based index among matching turns for the selected session.
@@ -634,6 +645,11 @@ pub const Model = struct {
         "draft_buffer",
         "search_buffer",
         "palette_highlight",
+        "autocomplete_highlight",
+        "autocomplete_dismissed",
+        "clampedAutocompleteHighlight",
+        "slashPrefixCommandsShowing",
+        "insertHighlightedAutocomplete",
         "find_buffer",
         "find_match_index",
         "findMatchCount",
@@ -1053,8 +1069,13 @@ pub const Model = struct {
                 .slash_name = slash,
                 .description = cmd.description(),
                 .has_description = cmd.description().len > 0,
+                .selected = false,
             };
             i += 1;
+        }
+        const highlight = model.clampedAutocompleteHighlight(i);
+        for (out[0..i], 0..) |*row, index| {
+            row.selected = index == highlight;
         }
         return out[0..i];
     }
@@ -1122,6 +1143,7 @@ pub const Model = struct {
                 .name = name,
                 .parent = parent,
                 .has_parent = parent.len > 0,
+                .selected = i == model.clampedAutocompleteHighlight(take),
             };
         }
         return out;
@@ -1369,13 +1391,24 @@ pub const Model = struct {
         if (prefix) |filter| {
             if (filter.len > 0 and !hasCommandNamePrefix(model, filter)) return false;
         }
+        // Commands button toggle stays visible after Esc. The
+        // typing-triggered slash-prefix card does not.
+        if (!model.commands_open and model.autocomplete_dismissed) return false;
         return true;
     }
 
+    /// Slash-prefix card (`/`… with no whitespace) is showing, not the
+    /// Commands button toggle.
+    pub fn slashPrefixCommandsShowing(model: *const Model) bool {
+        return model.commands_list_open() and !model.commands_open;
+    }
+
     /// `@` mention card. Hidden when slash commands are open, the
-    /// caret-at-end parser sees no mention, the cache is empty, or
-    /// the filter has no matches. No placeholders.
+    /// caret-at-end parser sees no mention, the cache is empty, the
+    /// filter has no matches, or Esc dismissed the current draft.
+    /// No placeholders.
     pub fn mentions_list_open(model: *const Model) bool {
+        if (model.autocomplete_dismissed) return false;
         if (model.commands_list_open()) return false;
         const query = fileMentionQuery(model.draft()) orelse return false;
         return hasFileMentionMatch(model, query);
@@ -2122,6 +2155,13 @@ pub const Model = struct {
         model.commands_open = false;
     }
 
+    pub fn clampedAutocompleteHighlight(model: *const Model, row_count: usize) usize {
+        if (row_count == 0) return 0;
+        const last = row_count - 1;
+        const highlight = model.autocomplete_highlight;
+        return if (highlight > last) last else highlight;
+    }
+
     /// Official ACP slash insert is `/name` plus a trailing space so the
     /// user can type input. This cut does not store `input`; space is
     /// always appended. Writes the composer draft only — no spawn.
@@ -2133,6 +2173,7 @@ pub const Model = struct {
         const text = std.fmt.bufPrint(&buf, "/{s} ", .{cmd.name()}) catch return;
         model.draft_buffer.set(text);
         model.commands_open = false;
+        model.autocomplete_dismissed = false;
     }
 
     /// Replace the last `@query` token with `@relpath ` from the
@@ -2146,6 +2187,29 @@ pub const Model = struct {
         const text = replaceMentionToken(model.draft(), relpath, &buf) orelse return;
         model.draft_buffer.set(text);
         model.composer_active = true;
+        model.autocomplete_dismissed = false;
+    }
+
+    /// Confirm the highlighted `@` / slash row (first visible row in
+    /// this cut). `false` when neither card is open or the open card
+    /// has no rows.
+    pub fn insertHighlightedAutocomplete(model: *Model) bool {
+        var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+        if (model.commands_list_open()) {
+            const rows = model.command_rows(arena);
+            if (rows.len == 0) return false;
+            model.insertAvailableCommand(rows[model.clampedAutocompleteHighlight(rows.len)].id);
+            return true;
+        }
+        if (model.mentions_list_open()) {
+            const rows = model.mention_rows(arena);
+            if (rows.len == 0) return false;
+            model.insertAvailableMention(rows[model.clampedAutocompleteHighlight(rows.len)].id);
+            return true;
+        }
+        return false;
     }
 
     pub fn lastSpawnImagePath(model: *const Model) []const u8 {
