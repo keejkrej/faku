@@ -231,12 +231,15 @@ pub const git_branch_key_first = git_branch.git_branch_key_first;
 /// file_mention (400+).
 pub const git_branch_list_key_first = git_checkout.git_branch_list_key_first;
 /// One-shot `git checkout <name>`. Distinct from git_branch (200+),
-/// git_branch_list (250+), git_dirty (300+), git_numstat (350+), and
-/// file_mention (400+).
+/// git_branch_list (250+), git_create (290+), git_dirty (300+),
+/// git_numstat (350+), and file_mention (400+).
 pub const git_checkout_key_first = git_checkout.git_checkout_key_first;
+/// One-shot `git checkout -b <name>`. Distinct from list (250+),
+/// checkout (275+), git_dirty (300+). Band is 290+.
+pub const git_create_key_first = git_checkout.git_create_key_first;
 /// One-shot `git status --porcelain` dirty count. Distinct from
 /// git_branch (200+), git_branch_list (250+), git_checkout (275+),
-/// git_numstat (350+), and file_mention (400+).
+/// git_create (290+), git_numstat (350+), and file_mention (400+).
 /// Incremented per refresh from `git_dirty_key_first`.
 pub const git_dirty_key_first = git_dirty.git_dirty_key_first;
 /// One-shot `git diff --numstat HEAD --` +/- plus untracked text-line
@@ -437,6 +440,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .toggle_git_branch_picker => settings_actions.handleToggleGitBranchPicker(model),
         .close_git_branch_picker => model.closeGitBranchPicker(),
         .pick_git_branch => |name| settings_actions.handlePickGitBranch(model, fx, name),
+        .start_git_branch_create => settings_actions.handleStartGitBranchCreate(model),
+        .git_branch_create_edit => |edit| settings_actions.handleGitBranchCreateEdit(model, edit),
+        .confirm_git_branch_create => settings_actions.handleConfirmGitBranchCreate(model, fx),
+        .cancel_git_branch_create => settings_actions.handleCancelGitBranchCreate(model),
         .start_project_edit => model.startProjectEdit(),
         .project_path_edit => |edit| {
             model.applySelectedProjectPath(edit);

@@ -349,6 +349,10 @@ pub const Msg = union(enum) {
     toggle_git_branch_picker,
     close_git_branch_picker,
     pick_git_branch: []const u8,
+    start_git_branch_create,
+    git_branch_create_edit: canvas.TextInputEvent,
+    confirm_git_branch_create,
+    cancel_git_branch_create,
     start_project_edit,
     project_path_edit: canvas.TextInputEvent,
     /// Composer Pick folder: one-shot OS directory-dialog sidecar. Not `fx.pickFile`.
@@ -449,6 +453,8 @@ pub const Model = struct {
     goal_status_picker_open: bool = false,
     /// Runtime-only composer project-row branch checkout picker. Not persisted.
     git_branch_picker_open: bool = false,
+    /// Runtime-only New branch… create card. Draft name is not persisted.
+    git_branch_create_active: bool = false,
     palette_highlight: u32 = 0,
     /// Runtime-only first-visible-row highlight for the composer `@` /
     /// slash card. Not persisted to sessions.json. This cut does not
@@ -484,6 +490,7 @@ pub const Model = struct {
     settings_daemon_buffer: canvas.TextBuffer(max_daemon_address) = .{},
     project_edit_active: bool = false,
     project_edit_buffer: canvas.TextBuffer(max_project_path) = .{},
+    git_branch_create_buffer: canvas.TextBuffer(git_branch.max_git_branch) = .{},
     image_attach_active: bool = false,
     image_path_buffer: canvas.TextBuffer(max_project_path) = .{},
     /// Runtime-only composer status for picker cancel / missing-tool.
@@ -531,6 +538,11 @@ pub const Model = struct {
     git_checkout_probe_session: u32 = 0,
     git_checkout_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_checkout_probe_path_len: usize = 0,
+    git_create_key: u64 = 0,
+    next_git_create_key: u64 = git_checkout.git_create_key_first,
+    git_create_probe_session: u32 = 0,
+    git_create_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    git_create_probe_path_len: usize = 0,
     /// Runtime-only composer dirty count. One-shot `git status
     /// --porcelain` line count; not persisted to sessions.json.
     git_dirty_count: u32 = 0,
@@ -721,6 +733,7 @@ pub const Model = struct {
         "settings_project_buffer",
         "settings_daemon_buffer",
         "project_edit_buffer",
+        "git_branch_create_buffer",
         "image_path_buffer",
         "attach_status_storage",
         "attach_status_len",
@@ -766,6 +779,11 @@ pub const Model = struct {
         "git_checkout_probe_session",
         "git_checkout_probe_path_storage",
         "git_checkout_probe_path_len",
+        "git_create_key",
+        "next_git_create_key",
+        "git_create_probe_session",
+        "git_create_probe_path_storage",
+        "git_create_probe_path_len",
         "git_dirty_count",
         "git_dirty_label_storage",
         "git_dirty_label_len",
@@ -2023,8 +2041,13 @@ pub const Model = struct {
         session.setTitle(model.session_title_draft());
     }
 
+    pub fn git_branch_create(model: *const Model) []const u8 {
+        return model.git_branch_create_buffer.text();
+    }
+
     pub fn startProjectEdit(model: *Model) void {
         model.closeGitBranchPicker();
+        git_checkout.closeCreate(model);
         model.project_edit_active = true;
         model.project_edit_buffer.set(model.selectedProjectPath());
     }
