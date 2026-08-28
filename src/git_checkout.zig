@@ -45,18 +45,23 @@
 //! string when it is a safe argv. Failed / empty / exit 1 falls
 //! back to the cached composer branch label (`pushBranchFromLabel`,
 //! not a detached short SHA) and otherwise omits the base (today's
-//! HEAD). Dest stays flat `~/.faku/worktrees/<name>`. Collision
-//! still fails with status. Success retargets the selected session
-//! `project_path` to that absolute path. Not force, not daemon
-//! `WorkspaceOperation::Push` / `NewWorktree`, not
-//! `InspectCommit` / `Commit`. Cap is 64 local heads plus 32
+//! HEAD). Dest stays flat `~/.faku/worktrees/<name>` (no
+//! `{project_id}` nest). A taken dest directory or listed local
+//! `faku/<name>` skips to the next Waku candidate (`slug`,
+//! `slug-2`, … `slug-8`; cap 8 because Native is one-shot, not
+//! Waku's 100 + session-id hex). A failed `worktree add` retries
+//! the next free candidate the same way. Exhausted candidates set
+//! status and leave `project_path` alone. Success retargets the
+//! selected session `project_path` to the dest actually used. Not
+//! force, not daemon `WorkspaceOperation::Push` / `NewWorktree`,
+//! not `InspectCommit` / `Commit`. Cap is 64 local heads plus 32
 //! remote-tracking names that have no local counterpart (skip
 //! symbolic `*/HEAD`), sorted lexicographically. Not Waku's daemon
 //! `InspectBranches` picker, live watch, `waku/` prefix /
-//! `~/.waku/worktrees/{project_id}` nesting, collision suffixes,
-//! defer-until-Send workspace mode, base-ref picker UI, prune-alone,
-//! stash, merge, force delete, canonicalize(show-toplevel), or
-//! Environment Summary.
+//! `~/.waku/worktrees/{project_id}` nesting, defer-until-Send
+//! workspace mode, base-ref picker UI, prune-alone, stash, merge,
+//! force delete, canonicalize(show-toplevel), or Environment
+//! Summary.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -194,6 +199,9 @@ pub const worktree_parent_suffix = ".faku/worktrees";
 pub const worktree_slug_default = "new-worktree";
 pub const max_worktree_slug_bytes: usize = 48;
 pub const max_worktree_slug_words: usize = 6;
+/// Native one-shot cap: `slug`, `slug-2`, … `slug-8`. Not Waku's
+/// 100-candidate loop or `{slug}-{8 hex of session_id}` fallback.
+pub const max_worktree_candidates: u32 = 8;
 /// `mkdir -p` the parent (`$1`), then chdir to the repo (`$2`) and
 /// exec the remaining argv. Parent, cwd, branch, and path stay
 /// argv slots — never interpolated into this script.
@@ -671,6 +679,28 @@ pub fn worktreeDestPath(home: []const u8, name: []const u8, buf: []u8) ?[]const 
     buf[parent.len] = '/';
     @memcpy(buf[parent.len + 1 ..][0..sanitized.len], sanitized);
     return buf[0 .. parent.len + 1 + sanitized.len];
+}
+
+/// Waku `candidate_name`: index 0 is `slug`; else `{slug}-{index+1}`
+/// so `slug`, `slug-2`, `slug-3`, … Cap is `max_worktree_candidates`
+/// (`slug` … `slug-8`). Not a session-id hex fallback.
+pub fn worktreeCandidateName(slug: []const u8, index: u32, buf: []u8) ?[]const u8 {
+    if (index >= max_worktree_candidates) return null;
+    const sanitized = sanitizeWorktreeName(slug) orelse return null;
+    if (index == 0) {
+        if (sanitized.len > buf.len) return null;
+        @memcpy(buf[0..sanitized.len], sanitized);
+        return buf[0..sanitized.len];
+    }
+    return std.fmt.bufPrint(buf, "{s}-{d}", .{ sanitized, index + 1 }) catch null;
+}
+
+/// Waku occupancy: a candidate is taken when the dest exists or the
+/// local `faku/<name>` head exists. Callers supply those facts (dest
+/// directory and last `for-each-ref` list); this is not a live
+/// `show-ref` spawn.
+pub fn worktreeCandidateOccupied(path_exists: bool, local_branch_exists: bool) bool {
+    return path_exists or local_branch_exists;
 }
 
 pub fn isSafeWorktreePath(path: []const u8) bool {
@@ -1248,17 +1278,26 @@ fn continueNoUpstream(model: *Model, fx: *Effects) void {
     spawnShowCurrent(model, fx);
 }
 
+fn resetWorktreeAddState(model: *Model) void {
+    model.git_worktree_add_dest_len = 0;
+    model.git_worktree_add_branch_len = 0;
+    model.git_worktree_add_slug_len = 0;
+    model.git_worktree_add_attempt = 0;
+    model.git_worktree_base_len = 0;
+}
+
 fn cancelWorktreeAdd(model: *Model, fx: *Effects) void {
     if (model.git_worktree_add_key == 0) return;
     fx.cancel(model.git_worktree_add_key);
     model.git_worktree_add_key = 0;
+    resetWorktreeAddState(model);
 }
 
 fn cancelWorktreeBase(model: *Model, fx: *Effects) void {
     if (model.git_worktree_base_key == 0) return;
     fx.cancel(model.git_worktree_base_key);
     model.git_worktree_base_key = 0;
-    model.git_worktree_base_len = 0;
+    resetWorktreeAddState(model);
 }
 
 fn probeSupported() bool {
@@ -1689,6 +1728,52 @@ fn gitWorktreeBase(model: *const Model) []const u8 {
     return model.git_worktree_base_storage[0..model.git_worktree_base_len];
 }
 
+fn gitWorktreeAddSlug(model: *const Model) []const u8 {
+    return model.git_worktree_add_slug_storage[0..model.git_worktree_add_slug_len];
+}
+
+fn worktreeDestExists(model: *const Model, dest: []const u8) bool {
+    const io = model.store_io orelse return false;
+    return main.directoryExists(io, dest);
+}
+
+fn assignWorktreeCandidate(model: *Model, home: []const u8, slug: []const u8, index: u32) bool {
+    var name_buf: [git_branch.max_git_branch]u8 = undefined;
+    const name = worktreeCandidateName(slug, index, name_buf[0..]) orelse return false;
+    var dest_buf: [main.max_project_path]u8 = undefined;
+    const dest = worktreeDestPath(home, name, dest_buf[0..]) orelse return false;
+    var branch_buf: [git_branch.max_git_branch]u8 = undefined;
+    const branch = worktreeBranchName(name, branch_buf[0..]) orelse return false;
+    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, dest);
+    writeFixed(&model.git_worktree_add_branch_storage, &model.git_worktree_add_branch_len, branch);
+    model.git_worktree_add_attempt = index;
+    return true;
+}
+
+fn worktreeCandidateIsTaken(model: *const Model, dest: []const u8, branch: []const u8) bool {
+    return worktreeCandidateOccupied(worktreeDestExists(model, dest), hasListedLocalName(model, branch));
+}
+
+fn pickWorktreeCandidate(model: *Model, home: []const u8, slug: []const u8, start: u32) bool {
+    var index = start;
+    while (index < max_worktree_candidates) : (index += 1) {
+        if (!assignWorktreeCandidate(model, home, slug, index)) continue;
+        const dest = model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len];
+        const branch = model.git_worktree_add_branch_storage[0..model.git_worktree_add_branch_len];
+        if (worktreeCandidateIsTaken(model, dest, branch)) continue;
+        return true;
+    }
+    return false;
+}
+
+fn retryWorktreeAdd(model: *Model, fx: *Effects) bool {
+    const slug = gitWorktreeAddSlug(model);
+    if (slug.len == 0) return false;
+    if (!pickWorktreeCandidate(model, model.homeDir(), slug, model.git_worktree_add_attempt + 1)) return false;
+    spawnWorktreeAdd(model, fx);
+    return model.git_worktree_add_key != 0;
+}
+
 fn spawnWorktreeAdd(model: *Model, fx: *Effects) void {
     const stored_cwd = model.git_worktree_add_probe_path_storage[0..model.git_worktree_add_probe_path_len];
     const stored_dest = model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len];
@@ -1712,10 +1797,13 @@ fn spawnWorktreeAdd(model: *Model, fx: *Effects) void {
 /// Confirm the New worktree… card: a safe name probes
 /// `refs/remotes/origin/HEAD` then one-shots
 /// `mkdir -p ~/.faku/worktrees` plus
-/// `git worktree add -b faku/<name> <path> [base]`. Empty / unsafe
-/// names do not spawn and keep the field open. Busy session or
-/// in-flight checkout/create/delete/fetch/push/worktree-add/base
-/// probe is a no-op.
+/// `git worktree add -b faku/<name> <path> [base]`. Occupied dest
+/// or listed `faku/<name>` walks Waku candidates (`slug` …
+/// `slug-8`) and keeps the original slug. Empty / unsafe names do
+/// not spawn and keep the field open. All candidates taken sets
+/// status. Busy session or in-flight
+/// checkout/create/delete/fetch/push/worktree-add/base probe is a
+/// no-op.
 pub fn confirmWorktreeAdd(model: *Model, fx: *Effects) void {
     if (gitMutationInFlight(model)) return;
     if (model.is_streaming()) return;
@@ -1728,15 +1816,15 @@ pub fn confirmWorktreeAdd(model: *Model, fx: *Effects) void {
 
     var parent_buf: [main.max_project_path]u8 = undefined;
     const parent = worktreeParentPath(home, parent_buf[0..]) orelse return;
-    var dest_buf: [main.max_project_path]u8 = undefined;
-    const dest = worktreeDestPath(home, name, dest_buf[0..]) orelse return;
-    var branch_buf: [git_branch.max_git_branch]u8 = undefined;
-    const branch = worktreeBranchName(name, branch_buf[0..]) orelse return;
+    writeFixed(&model.git_worktree_add_slug_storage, &model.git_worktree_add_slug_len, name);
+    if (!pickWorktreeCandidate(model, home, name, 0)) {
+        resetWorktreeAddState(model);
+        model.setAttachStatus(worktree_add_failed_status);
+        return;
+    }
 
     model.git_worktree_add_probe_session = model.selected;
     writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, cwd);
-    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, dest);
-    writeFixed(&model.git_worktree_add_branch_storage, &model.git_worktree_add_branch_len, branch);
     model.git_worktree_base_len = 0;
 
     const stored_dest = model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len];
@@ -1782,10 +1870,12 @@ pub fn handleWorktreeBaseExit(model: *Model, fx: *Effects, exit: native_sdk.Effe
 }
 
 /// On success, retarget the selected session `project_path` to the
-/// new worktree (absolute) and return true so the caller can persist
-/// + refresh via `persistComposerProject`. Failure sets a short
-/// status and leaves `project_path` unchanged.
-pub fn handleWorktreeAddExit(model: *Model, exit: native_sdk.EffectExit) bool {
+/// dest actually used (absolute) and return true so the caller can
+/// persist + refresh via `persistComposerProject`. A failed add
+/// retries the next free candidate (`slug-2` … `slug-8`) via
+/// `fx.spawn`. Exhausted candidates set a short status and leave
+/// `project_path` unchanged.
+pub fn handleWorktreeAddExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) bool {
     if (exit.key != model.git_worktree_add_key or model.git_worktree_add_key == 0) return false;
     const current = worktreeAddStillCurrent(model);
     model.git_worktree_add_key = 0;
@@ -1794,11 +1884,11 @@ pub fn handleWorktreeAddExit(model: *Model, exit: native_sdk.EffectExit) bool {
         const dest = model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len];
         if (dest.len > 0) model.setSelectedProjectPath(dest);
         closeWorktreeCreate(model);
-        model.git_worktree_add_dest_len = 0;
-        model.git_worktree_add_branch_len = 0;
-        model.git_worktree_base_len = 0;
+        resetWorktreeAddState(model);
         return true;
     }
+    if (retryWorktreeAdd(model, fx)) return false;
+    resetWorktreeAddState(model);
     model.setAttachStatus(worktree_add_failed_status);
     return false;
 }
@@ -2169,8 +2259,32 @@ test "worktree name sanitization refuses empty, slash, and implausible names" {
     try std.testing.expect(worktreeParentPath("", path_buf[0..]) == null);
     try std.testing.expect(worktreeParentPath("relative", path_buf[0..]) == null);
     try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat", worktreeDestPath("/home/u", "feat", path_buf[0..]).?);
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat-2", worktreeDestPath("/home/u", "feat-2", path_buf[0..]).?);
     try std.testing.expect(worktreeDestPath("/home/u", "feat/foo", path_buf[0..]) == null);
     try std.testing.expect(worktreeDestPath("", "feat", path_buf[0..]) == null);
+}
+
+test "worktreeCandidateName matches Waku slug, slug-2, … slug-8" {
+    var buf: [git_branch.max_git_branch]u8 = undefined;
+    try std.testing.expectEqualStrings("feat", worktreeCandidateName("feat", 0, buf[0..]).?);
+    try std.testing.expectEqualStrings("feat-2", worktreeCandidateName("feat", 1, buf[0..]).?);
+    try std.testing.expectEqualStrings("feat-3", worktreeCandidateName("feat", 2, buf[0..]).?);
+    try std.testing.expectEqualStrings("feat-8", worktreeCandidateName("feat", 7, buf[0..]).?);
+    try std.testing.expect(worktreeCandidateName("feat", 8, buf[0..]) == null);
+    try std.testing.expect(worktreeCandidateName("feat", 100, buf[0..]) == null);
+    try std.testing.expectEqualStrings("feat-foo", worktreeCandidateName("  feat-foo  ", 0, buf[0..]).?);
+    try std.testing.expectEqualStrings("feat-foo-2", worktreeCandidateName("  feat-foo  ", 1, buf[0..]).?);
+    try std.testing.expect(worktreeCandidateName("", 0, buf[0..]) == null);
+    try std.testing.expect(worktreeCandidateName("feat/foo", 0, buf[0..]) == null);
+    try std.testing.expect(worktreeCandidateName("feat/foo", 1, buf[0..]) == null);
+    try std.testing.expectEqual(@as(u32, 8), max_worktree_candidates);
+}
+
+test "worktreeCandidateOccupied is dest or listed local branch" {
+    try std.testing.expect(!worktreeCandidateOccupied(false, false));
+    try std.testing.expect(worktreeCandidateOccupied(true, false));
+    try std.testing.expect(worktreeCandidateOccupied(false, true));
+    try std.testing.expect(worktreeCandidateOccupied(true, true));
 }
 
 test "worktree slug lowercases, splits, caps words, and truncates" {
@@ -2309,6 +2423,10 @@ test "worktree add argv is mkdir+chdir plus worktree add -b with and without bas
 }
 
 test "handleWorktreeAddExit success retargets project_path; failure leaves it" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
     var model = Model{};
     const id = model.addSession("worktree dest", .fx);
     model.selected = id;
@@ -2321,24 +2439,125 @@ test "handleWorktreeAddExit success retargets project_path; failure leaves it" {
     writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/feat");
     model.git_worktree_create_active = true;
 
-    const failed = handleWorktreeAddExit(&model, .{ .key = git_worktree_add_key_first, .reason = .exited, .code = 1 });
+    const failed = handleWorktreeAddExit(&model, &fx, .{ .key = git_worktree_add_key_first, .reason = .exited, .code = 1 });
     try std.testing.expect(!failed);
     try std.testing.expectEqualStrings("/tmp/proj", model.selectedProjectPath());
     try std.testing.expectEqualStrings(worktree_add_failed_status, model.attach_status());
     try std.testing.expect(model.git_worktree_create_active);
     try std.testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 
     model.clearAttachStatus();
     model.git_worktree_add_key = git_worktree_add_key_first + 1;
     model.git_worktree_add_probe_session = id;
     writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, "/tmp/proj");
     writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/feat");
-    const ok = handleWorktreeAddExit(&model, .{ .key = git_worktree_add_key_first + 1, .reason = .exited, .code = 0 });
+    const ok = handleWorktreeAddExit(&model, &fx, .{ .key = git_worktree_add_key_first + 1, .reason = .exited, .code = 0 });
     try std.testing.expect(ok);
     try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat", model.selectedProjectPath());
     try std.testing.expect(!model.git_worktree_create_active);
     try std.testing.expect(!model.has_attach_status());
     try std.testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+}
+
+test "handleWorktreeAddExit retries slug-2 and success retargets that dest" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setHome("/home/u");
+    const id = model.addSession("worktree retry", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath("/tmp/proj");
+
+    model.git_worktree_add_key = git_worktree_add_key_first;
+    model.next_git_worktree_add_key = git_worktree_add_key_first + 1;
+    model.git_worktree_add_probe_session = id;
+    writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, "/tmp/proj");
+    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/feat");
+    writeFixed(&model.git_worktree_add_branch_storage, &model.git_worktree_add_branch_len, "faku/feat");
+    writeFixed(&model.git_worktree_add_slug_storage, &model.git_worktree_add_slug_len, "feat");
+    model.git_worktree_add_attempt = 0;
+    model.git_worktree_create_active = true;
+
+    const retrying = handleWorktreeAddExit(&model, &fx, .{ .key = git_worktree_add_key_first, .reason = .exited, .code = 1 });
+    try std.testing.expect(!retrying);
+    try std.testing.expectEqualStrings("/tmp/proj", model.selectedProjectPath());
+    try std.testing.expect(!model.has_attach_status());
+    try std.testing.expect(model.git_worktree_create_active);
+    try std.testing.expectEqual(git_worktree_add_key_first + 1, model.git_worktree_add_key);
+    try std.testing.expectEqual(@as(u32, 1), model.git_worktree_add_attempt);
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat-2", model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len]);
+    try std.testing.expectEqualStrings("faku/feat-2", model.git_worktree_add_branch_storage[0..model.git_worktree_add_branch_len]);
+    try std.testing.expectEqualStrings("feat", model.git_worktree_add_slug_storage[0..model.git_worktree_add_slug_len]);
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const spawn = fx.pendingSpawnAt(0).?;
+    try std.testing.expect(isGitWorktreeAddArgv(spawn.argv));
+    try std.testing.expectEqual(git_worktree_add_key_first + 1, spawn.key);
+    try std.testing.expectEqualStrings("faku/feat-2", spawn.argv[10]);
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat-2", spawn.argv[11]);
+
+    const dest_two = model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len];
+    const ok = handleWorktreeAddExit(&model, &fx, .{ .key = git_worktree_add_key_first + 1, .reason = .exited, .code = 0 });
+    try std.testing.expect(ok);
+    try std.testing.expectEqualStrings(dest_two, model.selectedProjectPath());
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat-2", model.selectedProjectPath());
+    try std.testing.expect(!model.git_worktree_create_active);
+    try std.testing.expect(!model.has_attach_status());
+    try std.testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+}
+
+test "handleWorktreeAddExit sets status after the last candidate fails" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setHome("/home/u");
+    const id = model.addSession("worktree exhaust", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath("/tmp/proj");
+
+    model.git_worktree_add_key = git_worktree_add_key_first;
+    model.next_git_worktree_add_key = git_worktree_add_key_first + 1;
+    model.git_worktree_add_probe_session = id;
+    writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, "/tmp/proj");
+    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/feat-8");
+    writeFixed(&model.git_worktree_add_branch_storage, &model.git_worktree_add_branch_len, "faku/feat-8");
+    writeFixed(&model.git_worktree_add_slug_storage, &model.git_worktree_add_slug_len, "feat");
+    model.git_worktree_add_attempt = max_worktree_candidates - 1;
+    model.git_worktree_create_active = true;
+
+    const exhausted = handleWorktreeAddExit(&model, &fx, .{ .key = git_worktree_add_key_first, .reason = .exited, .code = 1 });
+    try std.testing.expect(!exhausted);
+    try std.testing.expectEqualStrings("/tmp/proj", model.selectedProjectPath());
+    try std.testing.expectEqualStrings(worktree_add_failed_status, model.attach_status());
+    try std.testing.expect(model.git_worktree_create_active);
+    try std.testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "pickWorktreeCandidate skips listed faku/name then fails when all are taken" {
+    var model = Model{};
+    model.setHome("/home/u");
+    model.git_branch_list_store[0].set("faku/feat", false, false);
+    model.git_branch_list_count = 1;
+    try std.testing.expect(pickWorktreeCandidate(&model, "/home/u", "feat", 0));
+    try std.testing.expectEqual(@as(u32, 1), model.git_worktree_add_attempt);
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat-2", model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len]);
+    try std.testing.expectEqualStrings("faku/feat-2", model.git_worktree_add_branch_storage[0..model.git_worktree_add_branch_len]);
+
+    var i: usize = 0;
+    while (i < max_worktree_candidates) : (i += 1) {
+        var name_buf: [git_branch.max_git_branch]u8 = undefined;
+        const name = worktreeCandidateName("feat", @intCast(i), name_buf[0..]).?;
+        var branch_buf: [git_branch.max_git_branch]u8 = undefined;
+        const branch = worktreeBranchName(name, branch_buf[0..]).?;
+        model.git_branch_list_store[i].set(branch, false, false);
+    }
+    model.git_branch_list_count = max_worktree_candidates;
+    try std.testing.expect(!pickWorktreeCandidate(&model, "/home/u", "feat", 0));
 }
 
 test "startWorktreeCreate prefills a prompt slug from the session title" {

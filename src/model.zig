@@ -594,6 +594,11 @@ pub const Model = struct {
     git_worktree_add_dest_len: usize = 0,
     git_worktree_add_branch_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     git_worktree_add_branch_len: usize = 0,
+    /// Original sanitized New worktree… slug. Collision suffixes
+    /// (`slug-2` …) rewrite dest/branch; this stays the base name.
+    git_worktree_add_slug_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
+    git_worktree_add_slug_len: usize = 0,
+    git_worktree_add_attempt: u32 = 0,
     git_worktree_base_key: u64 = 0,
     next_git_worktree_base_key: u64 = git_checkout.git_worktree_base_key_first,
     git_worktree_base_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
@@ -883,6 +888,9 @@ pub const Model = struct {
         "git_worktree_add_dest_len",
         "git_worktree_add_branch_storage",
         "git_worktree_add_branch_len",
+        "git_worktree_add_slug_storage",
+        "git_worktree_add_slug_len",
+        "git_worktree_add_attempt",
         "git_worktree_base_key",
         "next_git_worktree_base_key",
         "git_worktree_base_storage",

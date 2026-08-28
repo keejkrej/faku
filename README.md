@@ -45,8 +45,9 @@ local counterpart; local heads checked out in another worktree stay listed
 and are refused for checkout/delete)
 or create-and-checkout a new local branch from HEAD (`git checkout -b`)
 or create a new worktree (`git worktree add -b faku/<slug>`
-under `~/.faku/worktrees/<slug>` from a probed default base, then
-retarget the session `project_path`)
+under flat `~/.faku/worktrees/<slug>` from a probed default base,
+with `slug-2` … `slug-8` on dest/branch collision, then
+retarget the session `project_path` to the dest actually used)
 or safe-delete a non-current, unoccupied local head (`git branch -d`)
 or fetch remotes via `git fetch --prune`
 or push the current branch via `git push` when it has an upstream,
@@ -56,7 +57,7 @@ one-shot `git diff --numstat HEAD` +/- that also adds untracked
 text-line counts on the + side, and muted ahead/behind vs
 `@{upstream}` (`↑A ↓B`) when that name exists (not Waku's daemon
 InspectBranches live watch / `{project_id}` worktree nesting /
-collision suffixes / canonicalize(show-toplevel) / Environment
+canonicalize(show-toplevel) / Environment
 Summary / force delete / prune-alone / base-ref picker / Commit;
 Native still has no git
 effect);
@@ -100,7 +101,7 @@ stdout / ACP / daemon line handlers and fx-exit routing live in
 `src/git_branch.zig`. Composer branch list / checkout helpers live in
 `src/git_checkout.zig` (list, local checkout, remote-tracking `--track`,
 create-and-checkout, safe delete, fetch, push, and New worktree…
-slug-prefill plus default-base probe). Composer git-dirty probe helpers live in
+slug-prefill plus default-base probe and collision suffixes). Composer git-dirty probe helpers live in
 `src/git_dirty.zig`. Composer git-numstat probe helpers live in
 `src/git_numstat.zig`. Composer git ahead/behind probe helpers live in
 `src/git_ahead_behind.zig`. Composer `@` file-mention probe helpers live in
@@ -304,12 +305,17 @@ the path, and the optional base each their own slot; `mkdir -p` of
 exit 1 falls back to the cached composer branch label (not a
 detached short SHA) and otherwise omits the base (today's HEAD).
 The dest path stays flat `~/.faku/worktrees/<name>` (absolute from
-`$HOME`). Unsafe / empty names are refused. Dest or branch
-collision still fails with status. On success the selected
-session's `project_path` is set to that dest and persisted; probes
-refresh against the new path. This is not Waku's `waku/` prefix,
-`~/.waku/worktrees/{project_id}` nesting, collision suffixes,
-daemon `WorkspaceOperation::NewWorktree`, defer-until-Send, or a
+`$HOME`; no `{project_id}` nest). Unsafe / empty names are refused.
+A dest directory that exists or a listed local `faku/<name>` walks
+Waku candidates (`slug`, `slug-2`, … `slug-8`; cap 8 because
+Native is one-shot, not Waku's 100 + session-id hex). A failed
+`worktree add` retries the next free candidate the same way.
+Exhausted candidates set `Could not create worktree.` and leave
+`project_path` alone. On success the selected session's
+`project_path` is set to the dest actually used and persisted;
+probes refresh against that path. This is not Waku's `waku/`
+prefix, `~/.waku/worktrees/{project_id}` nesting, daemon
+`WorkspaceOperation::NewWorktree`, defer-until-Send, or a
 base-ref picker UI.
 Delete branch… opens a runtime-only delete card of non-current,
 unoccupied listed local heads and one-shots `git branch -d <name>`
@@ -350,7 +356,7 @@ label — this cut does not invent "synced" or "0 ahead". Zero,
 failed, or skipped dirty / +/- probes omit those labels — this cut
 does not invent "clean". This is not Waku's daemon
 `InspectBranches` live watch, not Waku `{project_id}` worktree
-nesting / collision suffixes / `waku/` prefix, not defer-until-Send
+nesting / `waku/` prefix, not defer-until-Send
 workspace mode, not a worktree base-ref picker UI, not
 canonicalize(`git rev-parse --show-toplevel`), not a
 commit dialog, not a staged/unstaged split, not Waku's
@@ -362,7 +368,9 @@ Native still has no git effect. The branch, dirty count,
 are not stored on `sessions.json`. Occupancy uses the session
 `project_path` /
 probe cwd heuristic. New worktree… materializes one-shot under
-`~/.faku/worktrees/<name>` and retargets that session path.
+flat `~/.faku/worktrees/<name>` (or `<name>-2` … `<name>-8` on
+collision) and retargets that session path. This is not daemon
+`WorkspaceOperation::NewWorktree`.
 The same refresh also one-shots
 `git ls-files --cached --others --exclude-standard` (same chdir
 workaround) and keeps a bounded runtime list of relative paths for
