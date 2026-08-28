@@ -44,8 +44,8 @@ typing `@` in the composer (last whitespace token; caret assumed at
 the end — Native has no caret API) opens a small card of tracked
 files from a one-shot `git ls-files` of that same workspace when the
 cache has matches (`user@host` does not trigger; slash prefix stays
-authoritative; not Waku's 50k-file index, fuzzy rank, or caret-aware
-trigger);
+authoritative; visible rows are scored over that bounded cache, not
+Waku's 50k-file index / caret-aware trigger / untracked files);
 the usage control stays empty unless ACP reports `usage_update`; user and
 assistant turns render Native markdown; the transcript stays pinned
 to the latest turn via Native `scroll` `value` / `on-scroll`
@@ -152,6 +152,11 @@ Typing `@` (last whitespace-separated token; `user@host` does not
 trigger; mid-prompt `@foo` with more text after it is not a mention
 under the caret-at-end assumption) opens a tracked-file mention list
 from the runtime `git ls-files` cache when that cache has matches.
+A non-empty `@query` ranks visible rows by match quality (basename
+prefix, then basename contains / path-segment prefix, then full-path
+contains) rather than first-N contains in cache order. Empty `@`
+keeps a stable path order. Cap remains 12. Not Waku's 50k-file
+index, caret-aware trigger, or untracked files.
 Slash prefix stays authoritative; the two lists never show together.
 Clicking a row replaces only that last `@query` token with `@relpath`
 plus a trailing space. Paths stay repo-relative as `git ls-files`
@@ -234,9 +239,11 @@ on `sessions.json`. There is no worktree materialization.
 The same refresh also one-shots `git ls-files` (same chdir
 workaround) and keeps a bounded runtime list of tracked relative
 paths for composer `@` mentions. That cache is not stored on
-`sessions.json`. Untracked / ignored / non-git workspaces / Windows
-stay empty this cut. Not Waku's 50k-file index, not a daemon
-catalog, and not a live watch.
+`sessions.json`. The visible mention card is scored/fuzzy-ranked
+over this cache (`composer.fileMentionScore`); it is still not
+Waku's 50k-file index, caret-aware trigger, untracked files, a
+daemon catalog, or a live watch. Untracked / ignored / non-git
+workspaces / Windows stay empty this cut.
 
 A stdout ACP `session/new` result with `sessionId` updates the stored
 id and is not appended to the assistant turn. `fx ask --json` lines

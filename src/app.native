@@ -429,7 +429,10 @@
                   <for each="mention_rows" key="id" as="m">
                     <list-item height="44" on-press="insert_mention:{m.id}" label="{m.path}">
                       <column gap="2" padding="4">
-                        <text>{m.path}</text>
+                        <text>{m.name}</text>
+                        <if test="{m.has_parent}">
+                          <text foreground="text_muted">{m.parent}</text>
+                        </if>
                       </column>
                     </list-item>
                   </for>

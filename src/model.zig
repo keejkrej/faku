@@ -221,12 +221,16 @@ pub const CommandRow = struct {
 };
 
 /// Tracked-file mention row. `id` is a 1-based index into the runtime
-/// `git ls-files` cache (stable across the visible filter) so Native
-/// `insert_mention:{m.id}` never binds 0 and a filtered click still
-/// inserts that path, not a neighbor.
+/// `git ls-files` cache (stable across the visible ranked filter) so
+/// Native `insert_mention:{m.id}` never binds 0 and a filtered click
+/// still inserts that path, not a neighbor. `name` / `parent` are
+/// slices of `path` for scanable labels.
 pub const MentionRow = struct {
     id: u32,
     path: []const u8,
+    name: []const u8,
+    parent: []const u8,
+    has_parent: bool,
 };
 
 /// Composer model picker row. `row_id` is a 1-based Native `for` key.
@@ -1053,18 +1057,47 @@ pub const Model = struct {
         if (model.commands_list_open()) return &.{};
         const query = fileMentionQuery(model.draft()) orelse return &.{};
         if (model.file_mention_count == 0) return &.{};
-        const out = arena.alloc(MentionRow, file_mention.file_mention_visible_cap) catch return &.{};
-        var i: usize = 0;
+
+        const Scored = struct {
+            score: u32,
+            index: usize,
+            path: []const u8,
+        };
+        var scored_buf: [file_mention.max_file_mentions]Scored = undefined;
+        var n: usize = 0;
         for (model.file_mention_store[0..model.file_mention_count], 0..) |*item, index| {
-            if (!main.asciiContainsIgnoreCase(item.text(), query)) continue;
-            out[i] = .{
-                .id = @intCast(index + 1),
-                .path = item.text(),
-            };
-            i += 1;
-            if (i == file_mention.file_mention_visible_cap) break;
+            const path = item.text();
+            const score = composer.fileMentionScore(path, query);
+            if (score == 0) continue;
+            scored_buf[n] = .{ .score = score, .index = index, .path = path };
+            n += 1;
         }
-        return out[0..i];
+        if (n == 0) return &.{};
+
+        const lessThan = struct {
+            fn lessThan(_: void, a: Scored, b: Scored) bool {
+                if (a.score != b.score) return a.score > b.score;
+                const path_order = std.mem.order(u8, a.path, b.path);
+                if (path_order != .eq) return path_order == .lt;
+                return a.index < b.index;
+            }
+        }.lessThan;
+        std.mem.sort(Scored, scored_buf[0..n], {}, lessThan);
+
+        const take = @min(n, file_mention.file_mention_visible_cap);
+        const out = arena.alloc(MentionRow, take) catch return &.{};
+        for (scored_buf[0..take], 0..) |item, i| {
+            const name = composer.fileMentionBasename(item.path);
+            const parent = composer.fileMentionParent(item.path);
+            out[i] = .{
+                .id = @intCast(item.index + 1),
+                .path = item.path,
+                .name = name,
+                .parent = parent,
+                .has_parent = parent.len > 0,
+            };
+        }
+        return out;
     }
 
     pub fn model_picker_rows(model: *const Model, arena: std.mem.Allocator) []const ModelPickerRow {
@@ -2562,7 +2595,7 @@ fn hasCommandNamePrefix(model: *const Model, prefix: []const u8) bool {
 fn hasFileMentionMatch(model: *const Model, query: []const u8) bool {
     if (model.file_mention_count == 0) return false;
     for (model.file_mention_store[0..model.file_mention_count]) |*item| {
-        if (main.asciiContainsIgnoreCase(item.text(), query)) return true;
+        if (composer.fileMentionScore(item.text(), query) > 0) return true;
     }
     return false;
 }
