@@ -226,9 +226,9 @@ pub const open_editor_key = open_editor.open_editor_key;
 /// git_dirty (300+). Incremented per refresh from
 /// `git_branch_key_first`.
 pub const git_branch_key_first = git_branch.git_branch_key_first;
-/// One-shot local `refs/heads` list. Distinct from git_branch (200+),
-/// git_checkout (275+), git_dirty (300+), git_numstat (350+), and
-/// file_mention (400+).
+/// One-shot `refs/heads` + `refs/remotes` list. Distinct from
+/// git_branch (200+), git_checkout (275+; also `--track`), git_dirty
+/// (300+), git_numstat (350+), and file_mention (400+).
 pub const git_branch_list_key_first = git_checkout.git_branch_list_key_first;
 /// One-shot `git checkout <name>`. Distinct from git_branch (200+),
 /// git_branch_list (250+), git_create (290+), git_dirty (300+),
