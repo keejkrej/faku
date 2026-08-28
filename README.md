@@ -44,8 +44,9 @@ that can open a checkout picker (`for-each-ref` `%(refname)%00%(worktreepath)` +
 local counterpart; local heads checked out in another worktree stay listed
 and are refused for checkout/delete)
 or create-and-checkout a new local branch from HEAD (`git checkout -b`)
-or create a new worktree from HEAD (`git worktree add -b faku/…`
-under `~/.faku/worktrees/…`, then retarget the session `project_path`)
+or create a new worktree (`git worktree add -b faku/<slug>`
+under `~/.faku/worktrees/<slug>` from a probed default base, then
+retarget the session `project_path`)
 or safe-delete a non-current, unoccupied local head (`git branch -d`)
 or fetch remotes via `git fetch --prune`
 or push the current branch via `git push` when it has an upstream,
@@ -54,9 +55,10 @@ plus a one-shot `git status --porcelain` dirty file count, a
 one-shot `git diff --numstat HEAD` +/- that also adds untracked
 text-line counts on the + side, and muted ahead/behind vs
 `@{upstream}` (`↑A ↓B`) when that name exists (not Waku's daemon
-InspectBranches live watch / Waku prompt-slug worktrees /
-canonicalize(show-toplevel) / Environment Summary / force delete /
-prune-alone / base-ref picker / Commit; Native still has no git
+InspectBranches live watch / `{project_id}` worktree nesting /
+collision suffixes / canonicalize(show-toplevel) / Environment
+Summary / force delete / prune-alone / base-ref picker / Commit;
+Native still has no git
 effect);
 typing `@` in the composer (last whitespace token; caret assumed at
 the end — Native has no caret API) opens a small card of files and
@@ -97,7 +99,8 @@ stdout / ACP / daemon line handlers and fx-exit routing live in
 `src/open_editor.zig`. Composer git-branch probe helpers live in
 `src/git_branch.zig`. Composer branch list / checkout helpers live in
 `src/git_checkout.zig` (list, local checkout, remote-tracking `--track`,
-create-and-checkout, and safe delete). Composer git-dirty probe helpers live in
+create-and-checkout, safe delete, fetch, push, and New worktree…
+slug-prefill plus default-base probe). Composer git-dirty probe helpers live in
 `src/git_dirty.zig`. Composer git-numstat probe helpers live in
 `src/git_numstat.zig`. Composer git ahead/behind probe helpers live in
 `src/git_ahead_behind.zig`. Composer `@` file-mention probe helpers live in
@@ -286,16 +289,28 @@ omitted; `origin/feat` is omitted when local `feat` exists.
 Remotes are never occupied. New branch… on that picker opens a
 runtime-only create card and one-shots `git checkout -b <name>`
 from current HEAD the same way.
-New worktree… opens a runtime-only create card and one-shots
-`git worktree add -b faku/<name> <path>` from current HEAD (`-b`,
-the branch, and the path each their own argv slot; `mkdir -p` of
-`~/.faku/worktrees` via a fixed script). The dest path is
-`~/.faku/worktrees/<name>` (absolute from `$HOME`). Unsafe / empty
-names are refused. On success the selected session's `project_path`
-is set to that dest and persisted; probes refresh against the new
-path. This is not Waku's `waku/` prefix, prompt-slug, or
-`~/.waku/worktrees/{project_id}` layout, not a base-ref picker, and
-not daemon `WorkspaceOperation::NewWorktree` / defer-until-Send.
+New worktree… opens a runtime-only create card prefilled from a
+prompt slug of the selected session title (lowercase, split on
+non-ascii-alnum, six words, 48 bytes; empty → `new-worktree`; the
+user can still edit). Confirm probes
+`git symbolic-ref --quiet --short refs/remotes/origin/HEAD` (chdir
+script; own argv slots; key band 390+) then one-shots
+`git worktree add -b faku/<name> <path>` with that default base as
+its own trailing argv slot when one resolves (`-b`, the branch,
+the path, and the optional base each their own slot; `mkdir -p` of
+`~/.faku/worktrees` via a fixed script). `origin/<name>` prefers
+`<name>` when that is a plausible branch; otherwise the whole
+`origin/<name>` string when it is a safe argv. Failed / empty /
+exit 1 falls back to the cached composer branch label (not a
+detached short SHA) and otherwise omits the base (today's HEAD).
+The dest path stays flat `~/.faku/worktrees/<name>` (absolute from
+`$HOME`). Unsafe / empty names are refused. Dest or branch
+collision still fails with status. On success the selected
+session's `project_path` is set to that dest and persisted; probes
+refresh against the new path. This is not Waku's `waku/` prefix,
+`~/.waku/worktrees/{project_id}` nesting, collision suffixes,
+daemon `WorkspaceOperation::NewWorktree`, defer-until-Send, or a
+base-ref picker UI.
 Delete branch… opens a runtime-only delete card of non-current,
 unoccupied listed local heads and one-shots `git branch -d <name>`
 (safe delete only; never `-D` / force; never `origin/…`; occupied
@@ -334,9 +349,9 @@ failed, rejected, Local, empty/missing path, or Windows omits that
 label — this cut does not invent "synced" or "0 ahead". Zero,
 failed, or skipped dirty / +/- probes omit those labels — this cut
 does not invent "clean". This is not Waku's daemon
-`InspectBranches` live watch, not Waku prompt-slug / `waku/`
-prefix / `~/.waku/worktrees/{project_id}`, not defer-until-Send
-workspace mode, not a worktree base-ref picker, not
+`InspectBranches` live watch, not Waku `{project_id}` worktree
+nesting / collision suffixes / `waku/` prefix, not defer-until-Send
+workspace mode, not a worktree base-ref picker UI, not
 canonicalize(`git rev-parse --show-toplevel`), not a
 commit dialog, not a staged/unstaged split, not Waku's
 Environment Summary, not force delete (`git branch -D`), not

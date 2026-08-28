@@ -253,13 +253,18 @@ pub const git_fetch_key_first = git_checkout.git_fetch_key_first;
 /// file_mention (400+). Band is 360+.
 pub const git_push_key_first = git_checkout.git_push_key_first;
 /// One-shot `git worktree add -b`. Distinct from push (360+),
-/// git_ahead_behind (380+), and file_mention (400+). Band is 370+.
+/// git_ahead_behind (380+), git_worktree_base (390+), and
+/// file_mention (400+). Band is 370+.
 pub const git_worktree_add_key_first = git_checkout.git_worktree_add_key_first;
 /// One-shot `git rev-list --left-right --count @{upstream}...HEAD`.
-/// Distinct from git_worktree_add (370+) and file_mention (400+).
-/// Band is 380+. Incremented per refresh from
-/// `git_ahead_behind_key_first`.
+/// Distinct from git_worktree_add (370+), git_worktree_base (390+),
+/// and file_mention (400+). Band is 380+. Incremented per refresh
+/// from `git_ahead_behind_key_first`.
 pub const git_ahead_behind_key_first = git_ahead_behind.git_ahead_behind_key_first;
+/// One-shot `git symbolic-ref --quiet --short refs/remotes/origin/HEAD`
+/// for New worktree… base. Distinct from git_ahead_behind (380+)
+/// and file_mention (400+). Band is 390+.
+pub const git_worktree_base_key_first = git_checkout.git_worktree_base_key_first;
 /// One-shot `git status --porcelain` dirty count. Distinct from
 /// git_branch (200+), git_branch_list (250+), git_checkout (275+),
 /// git_create (290+), git_delete (320+), git_fetch (340+),
@@ -275,8 +280,9 @@ pub const git_numstat_key_first = git_numstat.git_numstat_key_first;
 /// One-shot file-mention probe (git ls-files, then a bounded walk
 /// when git cannot list) for composer `@` mentions. Distinct from
 /// git_branch (200+), git_dirty (300+), git_numstat (350+),
-/// git_push (360+), git_worktree_add (370+), and git_ahead_behind
-/// (380+). Incremented per spawn from `file_mention_key_first` (400).
+/// git_push (360+), git_worktree_add (370+), git_ahead_behind
+/// (380+), and git_worktree_base (390+). Incremented per spawn
+/// from `file_mention_key_first` (400).
 pub const file_mention_key_first = file_mention.file_mention_key_first;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.

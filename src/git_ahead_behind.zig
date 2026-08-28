@@ -32,7 +32,7 @@ const writeFixed = main.writeFixed;
 /// git_numstat (350+), git_push (360+), git_worktree_add (370+),
 /// maximize / pick-image / fx-ask / daemon / clipboard / probe keys,
 /// and from file_mention (400+). Band is 380+ (between worktree-add
-/// 370+ and file_mention 400+). Incremented per refresh so a
+/// 370+ and worktree-base 390+). Incremented per refresh so a
 /// cancelled spawn cannot paint a later session.
 pub const git_ahead_behind_key_first: u64 = 380;
 
@@ -256,7 +256,8 @@ test "argv is chdir script plus git rev-list --left-right --count @{upstream}...
     try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
     try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
     try std.testing.expect(git_ahead_behind_key_first > git_checkout.git_worktree_add_key_first);
-    try std.testing.expect(file_mention.file_mention_key_first > git_ahead_behind_key_first);
+    try std.testing.expect(git_checkout.git_worktree_base_key_first > git_ahead_behind_key_first);
+    try std.testing.expect(file_mention.file_mention_key_first > git_checkout.git_worktree_base_key_first);
     try std.testing.expect(git_ahead_behind_key_first > git_checkout.git_push_key_first);
 }
 

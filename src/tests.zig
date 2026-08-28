@@ -13186,7 +13186,43 @@ fn findGitWorktreeAddSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt
     return null;
 }
 
-fn expectGitWorktreeAddArgv(spawn: anytype, cwd: []const u8, home: []const u8, name: []const u8) !void {
+fn findGitWorktreeBaseSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_checkout.isGitWorktreeBaseArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn expectGitWorktreeBaseArgv(spawn: anytype, cwd: []const u8) !void {
+    try testing.expect(git_checkout.isGitWorktreeBaseArgv(spawn.argv));
+    try testing.expectEqual(@as(usize, 10), spawn.argv.len);
+    try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
+    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(cwd, spawn.argv[4]);
+    try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
+    try testing.expectEqualStrings(git_checkout.git_symbolic_ref_cmd, spawn.argv[6]);
+    try testing.expectEqualStrings(git_checkout.git_quiet_flag, spawn.argv[7]);
+    try testing.expectEqualStrings(git_checkout.git_short_flag, spawn.argv[8]);
+    try testing.expectEqualStrings(git_checkout.git_origin_head_ref, spawn.argv[9]);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_origin_head_ref) == null);
+    try testing.expect(spawn.key >= main.git_worktree_base_key_first);
+    try testing.expect(spawn.key < main.file_mention_key_first);
+    try testing.expect(spawn.key > main.git_ahead_behind_key_first);
+    try testing.expect(!git_checkout.isGitWorktreeAddArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitUpstreamArgv(spawn.argv));
+}
+
+fn finishWorktreeBaseProbe(fx: *Effects, model: *Model, stdout: []const u8, code: u8) !void {
+    const probe = findGitWorktreeBaseSpawnKey(fx, model.git_worktree_base_key) orelse return error.MissingGitWorktreeBaseSpawn;
+    try expectGitWorktreeBaseArgv(probe, model.selectedProjectPath());
+    if (stdout.len > 0) try fx.feedLine(probe.key, stdout);
+    drainEffects(model, fx);
+    try fx.feedExit(probe.key, code);
+    drainEffects(model, fx);
+}
+
+fn expectGitWorktreeAddArgv(spawn: anytype, cwd: []const u8, home: []const u8, name: []const u8, base: []const u8) !void {
     var parent_buf: [main.max_project_path]u8 = undefined;
     const parent = git_checkout.worktreeParentPath(home, parent_buf[0..]) orelse return error.MissingWorktreeParent;
     var dest_buf: [main.max_project_path]u8 = undefined;
@@ -13194,7 +13230,13 @@ fn expectGitWorktreeAddArgv(spawn: anytype, cwd: []const u8, home: []const u8, n
     var branch_buf: [git_branch.max_git_branch]u8 = undefined;
     const branch = git_checkout.worktreeBranchName(name, branch_buf[0..]) orelse return error.MissingWorktreeBranch;
     try testing.expect(git_checkout.isGitWorktreeAddArgv(spawn.argv));
-    try testing.expectEqual(@as(usize, 12), spawn.argv.len);
+    if (base.len == 0) {
+        try testing.expectEqual(@as(usize, 12), spawn.argv.len);
+    } else {
+        try testing.expectEqual(@as(usize, 13), spawn.argv.len);
+        try testing.expectEqualStrings(base, spawn.argv[12]);
+        try testing.expect(std.mem.indexOf(u8, spawn.argv[2], base) == null);
+    }
     try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
     try testing.expectEqualStrings(git_checkout.git_worktree_mkdir_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(parent, spawn.argv[4]);
@@ -13214,6 +13256,7 @@ fn expectGitWorktreeAddArgv(spawn: anytype, cwd: []const u8, home: []const u8, n
     try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitPushArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitWorktreeBaseArgv(spawn.argv));
 }
 
 test "New worktree opens create UI; Esc and cancel close it" {
@@ -13254,7 +13297,7 @@ test "New worktree opens create UI; Esc and cancel close it" {
     try testing.expect(!model.git_branch_picker_open);
     try testing.expect(model.git_worktree_create_active);
     try testing.expect(!model.git_branch_create_active);
-    try testing.expectEqualStrings("", model.git_worktree_create());
+    try testing.expectEqualStrings("worktree-ui", model.git_worktree_create());
     tree = try buildTree(arena, &model);
     try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "New worktree name") != null);
@@ -13270,6 +13313,8 @@ test "New worktree opens create UI; Esc and cancel close it" {
 
     main.update(&model, .toggle_git_branch_picker, &fx);
     main.update(&model, .start_git_worktree_create, &fx);
+    try testing.expectEqualStrings("worktree-ui", model.git_worktree_create());
+    main.update(&model, .{ .git_worktree_create_edit = .clear }, &fx);
     main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-tmp" } }, &fx);
     try testing.expectEqualStrings("feat-tmp", model.git_worktree_create());
     main.update(&model, .cancel_git_worktree_create, &fx);
@@ -13306,9 +13351,11 @@ test "confirm New worktree one-shots git worktree add -b; success retargets proj
 
     main.update(&model, .start_git_worktree_create, &fx);
     try testing.expect(model.git_worktree_create_active);
+    try testing.expectEqualStrings("worktree-add", model.git_worktree_create());
     main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "not a branch" } }, &fx);
     main.update(&model, .confirm_git_worktree_create, &fx);
     try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_base_key);
     try testing.expect(model.git_worktree_create_active);
     try testing.expectEqualStrings(project, model.selectedProjectPath());
 
@@ -13316,16 +13363,28 @@ test "confirm New worktree one-shots git worktree add -b; success retargets proj
     main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat/foo" } }, &fx);
     main.update(&model, .confirm_git_worktree_create, &fx);
     try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_base_key);
 
     main.update(&model, .{ .git_worktree_create_edit = .clear }, &fx);
     main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-new" } }, &fx);
     model.phase = .streaming;
     main.update(&model, .confirm_git_worktree_create, &fx);
     try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_base_key);
     model.phase = .idle;
     main.update(&model, .confirm_git_worktree_create, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    const probe_key = model.git_worktree_base_key;
+    try testing.expect(probe_key >= main.git_worktree_base_key_first);
+    main.update(&model, .confirm_git_worktree_create, &fx);
+    try testing.expectEqual(probe_key, model.git_worktree_base_key);
+    main.update(&model, .start_git_push, &fx);
+    try testing.expectEqual(probe_key, model.git_worktree_base_key);
+    try testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try finishWorktreeBaseProbe(&fx, &model, "origin/main\n", 0);
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_base_key);
     const created = findGitWorktreeAddSpawnKey(&fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddSpawn;
-    try expectGitWorktreeAddArgv(created, project, home, "feat-new");
+    try expectGitWorktreeAddArgv(created, project, home, "feat-new", "main");
     try testing.expect(model.git_worktree_create_active);
     try testing.expectEqualStrings(project, model.selectedProjectPath());
 
@@ -13358,16 +13417,45 @@ test "confirm New worktree one-shots git worktree add -b; success retargets proj
     try testing.expectEqualStrings(project, model.selectedProjectPath());
 
     main.update(&model, .start_git_worktree_create, &fx);
+    main.update(&model, .{ .git_worktree_create_edit = .clear }, &fx);
     main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-blocked" } }, &fx);
     main.update(&model, .confirm_git_worktree_create, &fx);
+    try finishWorktreeBaseProbe(&fx, &model, "", 1);
     const failed = findGitWorktreeAddSpawnKey(&fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddFailSpawn;
-    try expectGitWorktreeAddArgv(failed, project, home, "feat-blocked");
+    try expectGitWorktreeAddArgv(failed, project, home, "feat-blocked", "main");
     try fx.feedExit(failed.key, 1);
     drainEffects(&model, &fx);
     try testing.expectEqualStrings(project, model.selectedProjectPath());
     try testing.expectEqualStrings(git_checkout.worktree_add_failed_status, model.attach_status());
     try testing.expect(model.has_attach_status());
     try testing.expect(model.git_worktree_create_active);
+
+    model.clearAttachStatus();
+    main.writeFixed(&model.git_branch_storage, &model.git_branch_len, "a1b2c3d");
+    main.update(&model, .{ .git_worktree_create_edit = .clear }, &fx);
+    main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-head" } }, &fx);
+    main.update(&model, .confirm_git_worktree_create, &fx);
+    try finishWorktreeBaseProbe(&fx, &model, "", 1);
+    const no_base = findGitWorktreeAddSpawnKey(&fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddNoBase;
+    try expectGitWorktreeAddArgv(no_base, project, home, "feat-head", "");
+    try fx.feedExit(no_base.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+    try testing.expectEqualStrings(git_checkout.worktree_add_failed_status, model.attach_status());
+
+    model.clearAttachStatus();
+    main.update(&model, .{ .git_worktree_create_edit = .clear }, &fx);
+    main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-cancel" } }, &fx);
+    main.update(&model, .confirm_git_worktree_create, &fx);
+    const stale_probe = findGitWorktreeBaseSpawnKey(&fx, model.git_worktree_base_key) orelse return error.MissingGitWorktreeBaseCancel;
+    try testing.expect(stale_probe.key >= main.git_worktree_base_key_first);
+    main.update(&model, .cancel_git_worktree_create, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_base_key);
+    try testing.expect(!model.git_worktree_create_active);
+    try fx.feedExit(stale_probe.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
 }
 
 fn findGitRevParseSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
