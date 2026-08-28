@@ -12253,11 +12253,15 @@ test "confirm create-and-checkout spawns checkout -b; success refreshes; failure
     drainEffects(&model, &fx);
     try testing.expectEqual(@as(u64, 0), model.git_create_key);
     try testing.expect(!model.git_branch_create_active);
-    try testing.expect(findGitBranchSpawnKey(&fx, model.git_branch_key) != null);
+    const refreshed = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchRefresh;
     try testing.expect(findGitDirtySpawnKey(&fx, model.git_dirty_key) != null);
     try testing.expect(findGitNumstatSpawnKey(&fx, model.git_numstat_key) != null);
     try testing.expect(findFileMentionSpawnKey(&fx, model.file_mention_key) != null);
     try testing.expect(findGitBranchListSpawnKey(&fx, model.git_branch_list_key) != null);
+    try testing.expectEqualStrings("", model.git_branch_label());
+    try fx.feedLine(refreshed.key, "feat/new\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("feat/new", model.git_branch_label());
 
     main.update(&model, .start_git_branch_create, &fx);
     main.update(&model, .{ .git_branch_create_edit = .{ .insert_text = "feat/blocked" } }, &fx);
@@ -12266,7 +12270,7 @@ test "confirm create-and-checkout spawns checkout -b; success refreshes; failure
     try expectGitCreateArgv(failed, project, "feat/blocked");
     try fx.feedExit(failed.key, 1);
     drainEffects(&model, &fx);
-    try testing.expectEqualStrings("main", model.git_branch_label());
+    try testing.expectEqualStrings("feat/new", model.git_branch_label());
     try testing.expectEqualStrings(git_checkout.create_failed_status, model.attach_status());
     try testing.expect(model.has_attach_status());
     try testing.expect(model.git_branch_create_active);
