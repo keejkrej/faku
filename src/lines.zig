@@ -66,6 +66,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         file_mention.applyLine(model, line);
         return;
     }
+    if (model.git_push_key != 0 and line.key == model.git_push_key) {
+        git_checkout.applyPushLine(model, line);
+        return;
+    }
     if (line.key == pick_image_key) {
         attach_helpers.applyPickImageLine(model, fx, line);
         return;

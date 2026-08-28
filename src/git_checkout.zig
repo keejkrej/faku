@@ -23,11 +23,16 @@
 //! branch… one-shots `git branch -d <name>` for listed local heads
 //! that are not occupied (safe delete; never `-D`; never `origin/…`).
 //! Fetch… one-shots `git fetch --prune` (`--prune` its own argv
-//! slot; never interpolated into the `-c` script). Push… one-shots
-//! `git push` with no extra flags (Waku's upstream-present path
-//! only; `push` its own argv slot). Not `--set-upstream` when there
-//! is no upstream, not force, not daemon `WorkspaceOperation::Push`,
-//! not `InspectCommit` / `Commit`. Cap is 64 local heads plus 32
+//! slot; never interpolated into the `-c` script). Push… probes
+//! `@{upstream}` and one-shots `git push` when that name exists
+//! (`push` its own argv slot). When there is no upstream it
+//! one-shots `git push --set-upstream <remote> <branch>`
+//! (`--set-upstream`, remote, and branch each their own argv slot;
+//! remote prefers `origin` from `git remote`, else the first name).
+//! Detached HEAD or no remotes set a short composer status and do
+//! not spawn a push. Not force, not daemon
+//! `WorkspaceOperation::Push`, not `InspectCommit` / `Commit`. Cap
+//! is 64 local heads plus 32
 //! remote-tracking names that have no local counterpart (skip
 //! symbolic `*/HEAD`), sorted lexicographically. Not Waku's daemon
 //! `InspectBranches` picker, live watch, worktree add / New
@@ -85,13 +90,23 @@ pub const git_delete_key_first: u64 = 320;
 /// numstat 350+).
 pub const git_fetch_key_first: u64 = 340;
 
-/// One-shot `git push` (no extra flags). Distinct from list (250+),
-/// checkout (275+), create (290+), git_dirty (300+), git_delete
-/// (320+), git_fetch (340+), git_numstat (350+), and
+/// One-shot `git push` (bare or `--set-upstream`) plus the upstream /
+/// show-current / remotes probes that choose the path. Distinct from
+/// list (250+), checkout (275+), create (290+), git_dirty (300+),
+/// git_delete (320+), git_fetch (340+), git_numstat (350+), and
 /// file_mention (400+). Band is 360+ (between numstat 350+ and
 /// file_mention 400+). Incremented per spawn so a cancelled
 /// push cannot paint a later session.
 pub const git_push_key_first: u64 = 360;
+
+/// Push… probe / push stages that share `git_push_key` (360+).
+pub const GitPushPhase = enum(u8) {
+    idle,
+    upstream,
+    show_current,
+    remotes,
+    push,
+};
 
 pub const max_local_branches: usize = 64;
 pub const max_remote_branches: usize = 32;
@@ -119,6 +134,13 @@ pub const git_delete_d_flag = "-d";
 pub const git_fetch_cmd = "fetch";
 pub const git_prune_flag = "--prune";
 pub const git_push_cmd = "push";
+pub const git_set_upstream_flag = "--set-upstream";
+pub const git_remote_cmd = "remote";
+pub const git_rev_parse_cmd = git_branch.git_rev_parse_cmd;
+pub const git_abbrev_ref = "--abbrev-ref";
+pub const git_symbolic_full_name = "--symbolic-full-name";
+pub const git_upstream_rev = "@{upstream}";
+pub const git_origin_remote = "origin";
 pub const sh_bin = git_branch.sh_bin;
 
 const list_argv_len: usize = 10;
@@ -128,6 +150,10 @@ const create_argv_len: usize = 9;
 const delete_argv_len: usize = 9;
 const fetch_argv_len: usize = 8;
 const push_argv_len: usize = 7;
+const upstream_argv_len: usize = 10;
+const remote_argv_len: usize = 7;
+const show_current_argv_len: usize = 8;
+const set_upstream_push_argv_len: usize = 10;
 
 pub const CachedBranch = struct {
     storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
@@ -347,6 +373,132 @@ pub fn isGitPushArgv(argv: []const []const u8) bool {
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     return std.mem.eql(u8, argv[6], git_push_cmd);
+}
+
+/// `git rev-parse --abbrev-ref --symbolic-full-name @{upstream}`.
+/// `@{upstream}` is its own argv slot — never interpolated into the
+/// `-c` script. Missing / failed stdout means no upstream.
+pub fn upstreamArgvFor(cwd: []const u8, buf: *[upstream_argv_len][]const u8) []const []const u8 {
+    buf.* = .{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        cwd,
+        git_bin,
+        git_rev_parse_cmd,
+        git_abbrev_ref,
+        git_symbolic_full_name,
+        git_upstream_rev,
+    };
+    return buf;
+}
+
+pub fn isGitUpstreamArgv(argv: []const []const u8) bool {
+    if (argv.len != upstream_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], "-c")) return false;
+    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[5], git_bin)) return false;
+    if (!std.mem.eql(u8, argv[6], git_rev_parse_cmd)) return false;
+    if (!std.mem.eql(u8, argv[7], git_abbrev_ref)) return false;
+    if (!std.mem.eql(u8, argv[8], git_symbolic_full_name)) return false;
+    return std.mem.eql(u8, argv[9], git_upstream_rev);
+}
+
+/// `git remote` with `remote` as its own argv slot.
+pub fn remoteArgvFor(cwd: []const u8, buf: *[remote_argv_len][]const u8) []const []const u8 {
+    buf.* = .{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        cwd,
+        git_bin,
+        git_remote_cmd,
+    };
+    return buf;
+}
+
+pub fn isGitRemoteArgv(argv: []const []const u8) bool {
+    if (argv.len != remote_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], "-c")) return false;
+    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[5], git_bin)) return false;
+    return std.mem.eql(u8, argv[6], git_remote_cmd);
+}
+
+/// `git push --set-upstream <remote> <branch>` — flag, remote, and
+/// branch each their own argv slot, never interpolated into the `-c`
+/// script. Rejects implausible names so a raw string never reaches
+/// the shell script. Not `-u`, not `--force`.
+pub fn setUpstreamPushArgvFor(
+    cwd: []const u8,
+    remote: []const u8,
+    branch: []const u8,
+    buf: *[set_upstream_push_argv_len][]const u8,
+) ?[]const []const u8 {
+    if (!isPlausibleRemoteName(remote)) return null;
+    if (!git_branch.isPlausibleBranchName(branch)) return null;
+    buf.* = .{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        cwd,
+        git_bin,
+        git_push_cmd,
+        git_set_upstream_flag,
+        remote,
+        branch,
+    };
+    return buf;
+}
+
+pub fn isGitSetUpstreamPushArgv(argv: []const []const u8) bool {
+    if (argv.len != set_upstream_push_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], "-c")) return false;
+    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[5], git_bin)) return false;
+    if (!std.mem.eql(u8, argv[6], git_push_cmd)) return false;
+    if (!std.mem.eql(u8, argv[7], git_set_upstream_flag)) return false;
+    if (!isPlausibleRemoteName(argv[8])) return false;
+    return git_branch.isPlausibleBranchName(argv[9]);
+}
+
+/// Non-empty first stdout line means `@{upstream}` resolved.
+pub fn stdoutHasUpstream(raw: []const u8) bool {
+    return git_branch.firstStdoutBranch(raw).len > 0;
+}
+
+/// Remote names use the same conservative check-ref-format subset as
+/// local heads. `origin` is the Waku-preferred default.
+pub fn isPlausibleRemoteName(name: []const u8) bool {
+    return git_branch.isPlausibleBranchName(name);
+}
+
+/// Prefer `origin` when listed; otherwise the first plausible name.
+/// Slices alias `raw`.
+pub fn pickRemoteName(raw: []const u8) []const u8 {
+    var chosen: []const u8 = "";
+    var it = std.mem.splitScalar(u8, raw, '\n');
+    while (it.next()) |line| {
+        const name = std.mem.trim(u8, line, " \t\r\n");
+        if (!isPlausibleRemoteName(name)) continue;
+        if (chosen.len == 0) chosen = name;
+        if (std.mem.eql(u8, name, git_origin_remote)) return name;
+    }
+    return chosen;
+}
+
+/// Cached composer label is reusable when it is a real branch name,
+/// not a detached short SHA. Otherwise Push… probes `--show-current`.
+pub fn pushBranchFromLabel(label: []const u8) ?[]const u8 {
+    if (!git_branch.isPlausibleBranchName(label)) return null;
+    if (git_branch.isPlausibleShortSha(label)) return null;
+    return label;
 }
 
 fn parsedRefLessThan(_: void, a: ParsedRef, b: ParsedRef) bool {
@@ -710,10 +862,120 @@ fn cancelFetch(model: *Model, fx: *Effects) void {
     model.git_fetch_key = 0;
 }
 
+fn resetPushState(model: *Model) void {
+    model.git_push_phase = .idle;
+    model.git_push_has_upstream = false;
+    model.git_push_branch_len = 0;
+    model.git_push_remote_len = 0;
+}
+
 fn cancelPush(model: *Model, fx: *Effects) void {
     if (model.git_push_key == 0) return;
     fx.cancel(model.git_push_key);
     model.git_push_key = 0;
+    resetPushState(model);
+}
+
+fn gitPushBranch(model: *const Model) []const u8 {
+    return model.git_push_branch_storage[0..model.git_push_branch_len];
+}
+
+fn gitPushRemote(model: *const Model) []const u8 {
+    return model.git_push_remote_storage[0..model.git_push_remote_len];
+}
+
+fn pushCwd(model: *const Model) []const u8 {
+    const probed = model.git_push_probe_path_storage[0..model.git_push_probe_path_len];
+    if (probed.len > 0) return probed;
+    return probePath(model);
+}
+
+fn failPush(model: *Model) void {
+    model.git_push_key = 0;
+    resetPushState(model);
+    model.setAttachStatus(push_failed_status);
+}
+
+fn applyRemoteCandidate(model: *Model, name: []const u8) void {
+    if (!isPlausibleRemoteName(name)) return;
+    const current = gitPushRemote(model);
+    if (current.len == 0) {
+        writeFixed(&model.git_push_remote_storage, &model.git_push_remote_len, name);
+        return;
+    }
+    if (std.mem.eql(u8, current, git_origin_remote)) return;
+    if (std.mem.eql(u8, name, git_origin_remote)) {
+        writeFixed(&model.git_push_remote_storage, &model.git_push_remote_len, name);
+    }
+}
+
+fn spawnPushCmd(model: *Model, fx: *Effects, cwd: []const u8, argv: []const []const u8, phase: GitPushPhase) void {
+    const key = model.next_git_push_key;
+    model.next_git_push_key = key + 1;
+    model.git_push_key = key;
+    model.git_push_phase = phase;
+    model.git_push_probe_session = model.selected;
+    writeFixed(&model.git_push_probe_path_storage, &model.git_push_probe_path_len, cwd);
+    fx.spawn(.{
+        .key = key,
+        .argv = argv,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+}
+
+fn spawnBarePush(model: *Model, fx: *Effects) void {
+    const cwd = pushCwd(model);
+    if (cwd.len == 0) {
+        failPush(model);
+        return;
+    }
+    var argv_buf: [push_argv_len][]const u8 = undefined;
+    spawnPushCmd(model, fx, cwd, pushArgvFor(cwd, &argv_buf), .push);
+}
+
+fn spawnShowCurrent(model: *Model, fx: *Effects) void {
+    const cwd = pushCwd(model);
+    if (cwd.len == 0) {
+        failPush(model);
+        return;
+    }
+    var argv_buf: [show_current_argv_len][]const u8 = undefined;
+    spawnPushCmd(model, fx, cwd, git_branch.argvFor(cwd, &argv_buf), .show_current);
+}
+
+fn spawnRemotes(model: *Model, fx: *Effects) void {
+    const cwd = pushCwd(model);
+    if (cwd.len == 0) {
+        failPush(model);
+        return;
+    }
+    model.git_push_remote_len = 0;
+    var argv_buf: [remote_argv_len][]const u8 = undefined;
+    spawnPushCmd(model, fx, cwd, remoteArgvFor(cwd, &argv_buf), .remotes);
+}
+
+fn spawnSetUpstreamPush(model: *Model, fx: *Effects) void {
+    const cwd = pushCwd(model);
+    if (cwd.len == 0) {
+        failPush(model);
+        return;
+    }
+    var argv_buf: [set_upstream_push_argv_len][]const u8 = undefined;
+    const argv = setUpstreamPushArgvFor(cwd, gitPushRemote(model), gitPushBranch(model), &argv_buf) orelse {
+        failPush(model);
+        return;
+    };
+    spawnPushCmd(model, fx, cwd, argv, .push);
+}
+
+fn continueNoUpstream(model: *Model, fx: *Effects) void {
+    if (pushBranchFromLabel(git_branch.gitBranchLabel(model))) |branch| {
+        writeFixed(&model.git_push_branch_storage, &model.git_push_branch_len, branch);
+        spawnRemotes(model, fx);
+        return;
+    }
+    spawnShowCurrent(model, fx);
 }
 
 fn probeSupported() bool {
@@ -1024,12 +1286,15 @@ pub fn handleFetchExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit)
     model.setAttachStatus(fetch_failed_status);
 }
 
-/// Push… closes the picker and one-shots `git push` (no extra flags).
-/// This is Waku's upstream-present path only — not `--set-upstream`,
-/// not force, not daemon `WorkspaceOperation::Push`. Always offered
-/// when the branch picker is offered; no ahead-count / can_push gate.
-/// Busy session or in-flight checkout/create/delete/fetch/push is a
-/// no-op.
+/// Push… closes the picker and probes `@{upstream}`. A resolved
+/// upstream one-shots `git push` (no extra flags). No upstream
+/// one-shots `git push --set-upstream <remote> <branch>` after
+/// resolving the current branch and a remote (`origin` preferred).
+/// Detached HEAD or no remotes set `Could not push.` and do not
+/// spawn a push. Not force, not daemon `WorkspaceOperation::Push`.
+/// Always offered when the branch picker is offered; no
+/// ahead-count / can_push gate. Busy session or in-flight
+/// checkout/create/delete/fetch/push is a no-op.
 pub fn startPush(model: *Model, fx: *Effects) void {
     closePicker(model);
     closeCreate(model);
@@ -1040,33 +1305,75 @@ pub fn startPush(model: *Model, fx: *Effects) void {
     const cwd = probePath(model);
     if (cwd.len == 0) return;
 
-    var argv_buf: [push_argv_len][]const u8 = undefined;
-    const argv = pushArgvFor(cwd, &argv_buf);
+    resetPushState(model);
+    var argv_buf: [upstream_argv_len][]const u8 = undefined;
+    spawnPushCmd(model, fx, cwd, upstreamArgvFor(cwd, &argv_buf), .upstream);
+}
 
-    const key = model.next_git_push_key;
-    model.next_git_push_key = key + 1;
-    model.git_push_key = key;
-    model.git_push_probe_session = model.selected;
-    writeFixed(&model.git_push_probe_path_storage, &model.git_push_probe_path_len, cwd);
-
-    fx.spawn(.{
-        .key = key,
-        .argv = argv,
-        .on_line = Effects.lineMsg(.fx_line),
-        .on_exit = Effects.exitMsg(.fx_exit),
-    });
+pub fn applyPushLine(model: *Model, line: native_sdk.EffectLine) void {
+    if (line.key != model.git_push_key or model.git_push_key == 0) return;
+    if (!pushStillCurrent(model)) return;
+    switch (model.git_push_phase) {
+        .upstream => {
+            if (stdoutHasUpstream(line.line)) model.git_push_has_upstream = true;
+        },
+        .show_current => {
+            if (git_branch.takeBranchName(line.line)) |name| {
+                writeFixed(&model.git_push_branch_storage, &model.git_push_branch_len, name);
+            }
+        },
+        .remotes => {
+            var it = std.mem.splitScalar(u8, line.line, '\n');
+            while (it.next()) |raw| {
+                applyRemoteCandidate(model, std.mem.trim(u8, raw, " \t\r\n"));
+            }
+        },
+        .idle, .push => {},
+    }
 }
 
 pub fn handlePushExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (exit.key != model.git_push_key or model.git_push_key == 0) return;
     const current = pushStillCurrent(model);
+    const phase = model.git_push_phase;
+    const has_upstream = model.git_push_has_upstream;
     model.git_push_key = 0;
-    if (!current) return;
-    if (exit.reason == .exited and exit.code == 0) {
-        refreshWorkspaceProbes(model, fx);
+    if (!current) {
+        resetPushState(model);
         return;
     }
-    model.setAttachStatus(push_failed_status);
+    switch (phase) {
+        .idle => resetPushState(model),
+        .upstream => {
+            if (exit.reason == .exited and exit.code == 0 and has_upstream) {
+                spawnBarePush(model, fx);
+                return;
+            }
+            continueNoUpstream(model, fx);
+        },
+        .show_current => {
+            if (exit.reason == .exited and exit.code == 0 and git_branch.isPlausibleBranchName(gitPushBranch(model))) {
+                spawnRemotes(model, fx);
+                return;
+            }
+            failPush(model);
+        },
+        .remotes => {
+            if (exit.reason == .exited and exit.code == 0 and isPlausibleRemoteName(gitPushRemote(model)) and git_branch.isPlausibleBranchName(gitPushBranch(model))) {
+                spawnSetUpstreamPush(model, fx);
+                return;
+            }
+            failPush(model);
+        },
+        .push => {
+            resetPushState(model);
+            if (exit.reason == .exited and exit.code == 0) {
+                refreshWorkspaceProbes(model, fx);
+                return;
+            }
+            model.setAttachStatus(push_failed_status);
+        },
+    }
 }
 
 test "list argv is chdir script plus for-each-ref refs/heads and refs/remotes" {
@@ -1391,8 +1698,120 @@ test "push argv is git push with no extra flags and is not fetch/checkout/create
         git_push_cmd,
         "--set-upstream",
     }));
+    try std.testing.expect(!isGitSetUpstreamPushArgv(argv));
+    try std.testing.expect(!isGitUpstreamArgv(argv));
+    try std.testing.expect(!isGitRemoteArgv(argv));
     try std.testing.expect(git_push_key_first > git_numstat.git_numstat_key_first);
     try std.testing.expect(file_mention.file_mention_key_first > git_push_key_first);
+}
+
+test "set-upstream push argv keeps flag, remote, and branch as their own slots" {
+    var buf: [set_upstream_push_argv_len][]const u8 = undefined;
+    const argv = setUpstreamPushArgvFor("/tmp/faku-push-u", "origin", "feat/new", &buf).?;
+    try std.testing.expectEqual(@as(usize, 10), argv.len);
+    try std.testing.expectEqualStrings(sh_bin, argv[0]);
+    try std.testing.expectEqualStrings("-c", argv[1]);
+    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings("sh", argv[3]);
+    try std.testing.expectEqualStrings("/tmp/faku-push-u", argv[4]);
+    try std.testing.expectEqualStrings(git_bin, argv[5]);
+    try std.testing.expectEqualStrings(git_push_cmd, argv[6]);
+    try std.testing.expectEqualStrings(git_set_upstream_flag, argv[7]);
+    try std.testing.expectEqualStrings("origin", argv[8]);
+    try std.testing.expectEqualStrings("feat/new", argv[9]);
+    try std.testing.expect(isGitSetUpstreamPushArgv(argv));
+    try std.testing.expect(!isGitPushArgv(argv));
+    try std.testing.expect(!isGitFetchArgv(argv));
+    try std.testing.expect(!isGitUpstreamArgv(argv));
+    try std.testing.expect(!isGitRemoteArgv(argv));
+    try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_push_cmd) == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_set_upstream_flag) == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], "origin") == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], "feat/new") == null);
+
+    try std.testing.expect(setUpstreamPushArgvFor("/tmp/faku-push-u", "origin", "not a branch", &buf) == null);
+    try std.testing.expect(setUpstreamPushArgvFor("/tmp/faku-push-u", "../escape", "main", &buf) == null);
+    try std.testing.expect(setUpstreamPushArgvFor("/tmp/faku-push-u", "", "main", &buf) == null);
+    try std.testing.expect(setUpstreamPushArgvFor("/tmp/faku-push-u", "origin", "", &buf) == null);
+    try std.testing.expect(!isGitSetUpstreamPushArgv(&.{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-push-u",
+        git_bin,
+        git_push_cmd,
+        "-u",
+        "origin",
+        "feat/new",
+    }));
+    try std.testing.expect(!isGitSetUpstreamPushArgv(&.{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-push-u",
+        git_bin,
+        git_push_cmd,
+    }));
+}
+
+test "upstream argv is rev-parse symbolic-full-name @{upstream}" {
+    var buf: [upstream_argv_len][]const u8 = undefined;
+    const argv = upstreamArgvFor("/tmp/faku-up", &buf);
+    try std.testing.expectEqual(@as(usize, 10), argv.len);
+    try std.testing.expectEqualStrings(sh_bin, argv[0]);
+    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings("/tmp/faku-up", argv[4]);
+    try std.testing.expectEqualStrings(git_bin, argv[5]);
+    try std.testing.expectEqualStrings(git_rev_parse_cmd, argv[6]);
+    try std.testing.expectEqualStrings(git_abbrev_ref, argv[7]);
+    try std.testing.expectEqualStrings(git_symbolic_full_name, argv[8]);
+    try std.testing.expectEqualStrings(git_upstream_rev, argv[9]);
+    try std.testing.expect(isGitUpstreamArgv(argv));
+    try std.testing.expect(!isGitPushArgv(argv));
+    try std.testing.expect(!isGitSetUpstreamPushArgv(argv));
+    try std.testing.expect(!git_branch.isGitRevParseArgv(argv));
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_upstream_rev) == null);
+}
+
+test "remote argv is git remote and is not bare push" {
+    var buf: [remote_argv_len][]const u8 = undefined;
+    const argv = remoteArgvFor("/tmp/faku-remote", &buf);
+    try std.testing.expectEqual(@as(usize, 7), argv.len);
+    try std.testing.expectEqualStrings(git_remote_cmd, argv[6]);
+    try std.testing.expect(isGitRemoteArgv(argv));
+    try std.testing.expect(!isGitPushArgv(argv));
+    try std.testing.expect(!isGitSetUpstreamPushArgv(argv));
+    try std.testing.expect(!isGitUpstreamArgv(argv));
+    try std.testing.expect(!isGitFetchArgv(argv));
+}
+
+test "pickRemoteName prefers origin then first plausible name" {
+    try std.testing.expectEqualStrings("origin", pickRemoteName("upstream\norigin\n"));
+    try std.testing.expectEqualStrings("origin", pickRemoteName("origin\nfoo\n"));
+    try std.testing.expectEqualStrings("origin", pickRemoteName("foo\nbar\norigin\n"));
+    try std.testing.expectEqualStrings("upstream", pickRemoteName("upstream\n"));
+    try std.testing.expectEqualStrings("upstream", pickRemoteName("  upstream \n\n"));
+    try std.testing.expectEqualStrings("", pickRemoteName(""));
+    try std.testing.expectEqualStrings("", pickRemoteName("   \n\n"));
+    try std.testing.expectEqualStrings("", pickRemoteName("not a remote\n../escape\n"));
+}
+
+test "stdoutHasUpstream and pushBranchFromLabel decide the push path" {
+    try std.testing.expect(stdoutHasUpstream("origin/main\n"));
+    try std.testing.expect(stdoutHasUpstream("  origin/feat/foo \n"));
+    try std.testing.expect(!stdoutHasUpstream(""));
+    try std.testing.expect(!stdoutHasUpstream("   \n"));
+    try std.testing.expect(!stdoutHasUpstream("\n"));
+
+    try std.testing.expectEqualStrings("main", pushBranchFromLabel("main").?);
+    try std.testing.expectEqualStrings("feat/foo", pushBranchFromLabel("feat/foo").?);
+    try std.testing.expect(pushBranchFromLabel("") == null);
+    try std.testing.expect(pushBranchFromLabel("not a branch") == null);
+    try std.testing.expect(pushBranchFromLabel("a1b2c3d") == null);
+    try std.testing.expect(pushBranchFromLabel("DEADBEEF") == null);
 }
 
 test "collectStdoutRefs skips remote HEAD, de-dupes local counterparts, and caps remotes" {

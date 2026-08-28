@@ -12830,6 +12830,38 @@ fn findGitPushSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) 
     return null;
 }
 
+fn findGitUpstreamSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_checkout.isGitUpstreamArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn findGitRemoteSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_checkout.isGitRemoteArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn findGitSetUpstreamPushSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_checkout.isGitSetUpstreamPushArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn findGitPushShowCurrentSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_branch.isGitBranchArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
 fn expectGitPushArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(git_checkout.isGitPushArgv(spawn.argv));
     try testing.expectEqual(@as(usize, 7), spawn.argv.len);
@@ -12855,6 +12887,66 @@ fn expectGitPushArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(!git_checkout.isGitDeleteArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitFetchArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitSetUpstreamPushArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitUpstreamArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitRemoteArgv(spawn.argv));
+}
+
+fn expectGitUpstreamArgv(spawn: anytype, cwd: []const u8) !void {
+    try testing.expect(git_checkout.isGitUpstreamArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitPushArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitSetUpstreamPushArgv(spawn.argv));
+    try testing.expectEqual(@as(usize, 10), spawn.argv.len);
+    try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
+    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(cwd, spawn.argv[4]);
+    try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
+    try testing.expectEqualStrings(git_checkout.git_rev_parse_cmd, spawn.argv[6]);
+    try testing.expectEqualStrings(git_checkout.git_abbrev_ref, spawn.argv[7]);
+    try testing.expectEqualStrings(git_checkout.git_symbolic_full_name, spawn.argv[8]);
+    try testing.expectEqualStrings(git_checkout.git_upstream_rev, spawn.argv[9]);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_upstream_rev) == null);
+    try testing.expect(spawn.key >= main.git_push_key_first);
+    try testing.expect(spawn.key < main.file_mention_key_first);
+}
+
+fn expectGitRemoteArgv(spawn: anytype, cwd: []const u8) !void {
+    try testing.expect(git_checkout.isGitRemoteArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitPushArgv(spawn.argv));
+    try testing.expectEqualStrings(cwd, spawn.argv[4]);
+    try testing.expectEqualStrings(git_checkout.git_remote_cmd, spawn.argv[6]);
+    try testing.expect(spawn.key >= main.git_push_key_first);
+    try testing.expect(spawn.key < main.file_mention_key_first);
+}
+
+fn expectGitSetUpstreamPushArgv(spawn: anytype, cwd: []const u8, remote: []const u8, branch: []const u8) !void {
+    try testing.expect(git_checkout.isGitSetUpstreamPushArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitPushArgv(spawn.argv));
+    try testing.expectEqual(@as(usize, 10), spawn.argv.len);
+    try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
+    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(cwd, spawn.argv[4]);
+    try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
+    try testing.expectEqualStrings(git_checkout.git_push_cmd, spawn.argv[6]);
+    try testing.expectEqualStrings(git_checkout.git_set_upstream_flag, spawn.argv[7]);
+    try testing.expectEqualStrings(remote, spawn.argv[8]);
+    try testing.expectEqualStrings(branch, spawn.argv[9]);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_set_upstream_flag) == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], remote) == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], branch) == null);
+    try testing.expect(spawn.key >= main.git_push_key_first);
+    try testing.expect(spawn.key < main.file_mention_key_first);
+}
+
+fn feedUpstreamPresent(model: *Model, fx: *Effects, cwd: []const u8) !@TypeOf(fx.pendingSpawnAt(0).?) {
+    const probe = findGitUpstreamSpawnKey(fx, model.git_push_key) orelse return error.MissingGitUpstreamSpawn;
+    try expectGitUpstreamArgv(probe, cwd);
+    try testing.expect(findGitPushSpawnKey(fx, probe.key) == null);
+    try fx.feedLine(probe.key, "origin/main\n");
+    drainEffects(model, fx);
+    try fx.feedExit(probe.key, 0);
+    drainEffects(model, fx);
+    return findGitPushSpawnKey(fx, model.git_push_key) orelse return error.MissingGitPushSpawn;
 }
 
 test "Push menu item one-shots git push; success refreshes; failure sets status" {
@@ -12907,7 +12999,7 @@ test "Push menu item one-shots git push; success refreshes; failure sets status"
 
     main.update(&model, .toggle_git_branch_picker, &fx);
     main.update(&model, .start_git_push, &fx);
-    const pushed = findGitPushSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitPushSpawn;
+    const pushed = try feedUpstreamPresent(&model, &fx, project);
     try expectGitPushArgv(pushed, project);
     try testing.expect(!model.git_branch_picker_open);
     try testing.expectEqualStrings("main", model.git_branch_label());
@@ -12946,7 +13038,7 @@ test "Push menu item one-shots git push; success refreshes; failure sets status"
     model.clearAttachStatus();
 
     main.update(&model, .start_git_push, &fx);
-    const failed = findGitPushSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitPushFailSpawn;
+    const failed = try feedUpstreamPresent(&model, &fx, project);
     try expectGitPushArgv(failed, project);
     try fx.feedExit(failed.key, 1);
     drainEffects(&model, &fx);
@@ -12957,13 +13049,125 @@ test "Push menu item one-shots git push; success refreshes; failure sets status"
 
     model.clearAttachStatus();
     main.update(&model, .start_git_push, &fx);
-    const cancel_spawn = findGitPushSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitPushCancelSpawn;
+    const cancel_spawn = try feedUpstreamPresent(&model, &fx, project);
     const cancel_key = cancel_spawn.key;
     try expectGitPushArgv(cancel_spawn, project);
     main.update(&model, .{ .select = other }, &fx);
     try testing.expectEqual(other, model.selected);
     try testing.expectEqual(@as(u64, 0), model.git_push_key);
     try testing.expectError(error.EffectNotFound, fx.feedExit(cancel_key, 0));
+}
+
+test "Push without upstream set-upstreams origin; detached and no remotes are no-ops" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-push-u", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("push no upstream", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try fx.feedLine(branch.key, "feat/new\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("feat/new", model.git_branch_label());
+
+    main.update(&model, .start_git_push, &fx);
+    const upstream = findGitUpstreamSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitUpstreamSpawn;
+    try expectGitUpstreamArgv(upstream, project);
+    try testing.expect(findGitPushSpawnKey(&fx, upstream.key) == null);
+    try fx.feedExit(upstream.key, 128);
+    drainEffects(&model, &fx);
+    try testing.expect(findGitPushShowCurrentSpawnKey(&fx, model.git_push_key) == null);
+    const remotes = findGitRemoteSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitRemoteSpawn;
+    try expectGitRemoteArgv(remotes, project);
+    try fx.feedLine(remotes.key, "upstream\norigin\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(remotes.key, 0);
+    drainEffects(&model, &fx);
+    const set_up = findGitSetUpstreamPushSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitSetUpstreamPushSpawn;
+    try expectGitSetUpstreamPushArgv(set_up, project, "origin", "feat/new");
+    try testing.expect(findGitPushSpawnKey(&fx, set_up.key) == null);
+
+    try fx.feedExit(set_up.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try testing.expect(findGitBranchSpawnKey(&fx, model.git_branch_key) != null);
+    try testing.expect(findGitDirtySpawnKey(&fx, model.git_dirty_key) != null);
+    try testing.expect(findGitNumstatSpawnKey(&fx, model.git_numstat_key) != null);
+    try testing.expect(findFileMentionSpawnKey(&fx, model.file_mention_key) != null);
+    try testing.expect(findGitBranchListSpawnKey(&fx, model.git_branch_list_key) != null);
+
+    const refresh = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchRefresh;
+    try fx.feedLine(refresh.key, "feat/new\n");
+    drainEffects(&model, &fx);
+
+    main.update(&model, .start_git_push, &fx);
+    const no_remote_up = findGitUpstreamSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitNoRemoteUpstream;
+    try fx.feedExit(no_remote_up.key, 1);
+    drainEffects(&model, &fx);
+    const empty_remotes = findGitRemoteSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitEmptyRemotes;
+    try fx.feedExit(empty_remotes.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try testing.expectEqualStrings(git_checkout.push_failed_status, model.attach_status());
+    try testing.expect(findGitPushSpawnKey(&fx, model.git_push_key) == null);
+    try testing.expect(findGitSetUpstreamPushSpawnKey(&fx, model.git_push_key) == null);
+
+    model.clearAttachStatus();
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const detached_branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitDetachedBranch;
+    try fx.feedExit(detached_branch.key, 0);
+    drainEffects(&model, &fx);
+    const sha = findGitRevParseSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitDetachedSha;
+    try fx.feedLine(sha.key, "a1b2c3d\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("a1b2c3d", model.git_branch_label());
+
+    main.update(&model, .start_git_push, &fx);
+    const detached_up = findGitUpstreamSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitDetachedUpstream;
+    try fx.feedExit(detached_up.key, 128);
+    drainEffects(&model, &fx);
+    const show = findGitPushShowCurrentSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitPushShowCurrent;
+    try testing.expect(git_branch.isGitBranchArgv(show.argv));
+    try testing.expectEqualStrings(project, show.argv[4]);
+    try testing.expect(show.key >= main.git_push_key_first);
+    try testing.expect(show.key < main.file_mention_key_first);
+    try fx.feedExit(show.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try testing.expectEqualStrings(git_checkout.push_failed_status, model.attach_status());
+    try testing.expect(findGitPushSpawnKey(&fx, model.git_push_key) == null);
+    try testing.expect(findGitRemoteSpawnKey(&fx, model.git_push_key) == null);
+    try testing.expect(findGitSetUpstreamPushSpawnKey(&fx, model.git_push_key) == null);
+
+    model.clearAttachStatus();
+    main.update(&model, .start_git_push, &fx);
+    const show_up = findGitUpstreamSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitShowCurrentUpstream;
+    try fx.feedExit(show_up.key, 128);
+    drainEffects(&model, &fx);
+    const show_ok = findGitPushShowCurrentSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitPushShowCurrentOk;
+    try fx.feedLine(show_ok.key, "hotfix\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(show_ok.key, 0);
+    drainEffects(&model, &fx);
+    const github = findGitRemoteSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitGithubRemote;
+    try fx.feedLine(github.key, "github\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(github.key, 0);
+    drainEffects(&model, &fx);
+    const set_github = findGitSetUpstreamPushSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitSetUpstreamGithub;
+    try expectGitSetUpstreamPushArgv(set_github, project, "github", "hotfix");
+    try testing.expect(!git_checkout.isGitPushArgv(set_github.argv));
 }
 
 fn findGitRevParseSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
