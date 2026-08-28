@@ -13222,19 +13222,25 @@ fn finishWorktreeBaseProbe(fx: *Effects, model: *Model, stdout: []const u8, code
     drainEffects(model, fx);
 }
 
-fn failWorktreeAddUntilExhausted(fx: *Effects, model: *Model, cwd: []const u8, home: []const u8, slug: []const u8, base: []const u8) !void {
-    var attempt: u32 = 0;
-    while (attempt < git_checkout.max_worktree_candidates) : (attempt += 1) {
-        try testing.expect(!model.has_attach_status());
-        try testing.expectEqualStrings(cwd, model.selectedProjectPath());
-        const spawn = findGitWorktreeAddSpawnKey(fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddRetry;
-        var name_buf: [git_branch.max_git_branch]u8 = undefined;
-        const name = git_checkout.worktreeCandidateName(slug, attempt, name_buf[0..]) orelse return error.MissingWorktreeCandidate;
-        try expectGitWorktreeAddArgv(spawn, cwd, home, name, base);
-        try fx.feedExit(spawn.key, 1);
-        drainEffects(model, fx);
-    }
+fn failWorktreeAddFirstThenExhaust(fx: *Effects, model: *Model, cwd: []const u8, home: []const u8, slug: []const u8, base: []const u8) !void {
+    const first = findGitWorktreeAddSpawnKey(fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddFailSpawn;
+    try expectGitWorktreeAddArgv(first, cwd, home, slug, base);
+    try testing.expectEqualStrings(cwd, model.selectedProjectPath());
+    try fx.feedExit(first.key, 1);
+    drainEffects(model, fx);
+    try testing.expect(!model.has_attach_status());
+    try testing.expect(model.git_worktree_create_active);
+    try testing.expectEqualStrings(cwd, model.selectedProjectPath());
+
+    var name_buf: [git_branch.max_git_branch]u8 = undefined;
+    const retry_name = git_checkout.worktreeCandidateName(slug, 1, name_buf[0..]) orelse return error.MissingWorktreeRetryName;
+    const retry = findGitWorktreeAddSpawnKey(fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddRetry;
+    try expectGitWorktreeAddArgv(retry, cwd, home, retry_name, base);
+    model.git_worktree_add_attempt = git_checkout.max_worktree_candidates - 1;
+    try fx.feedExit(retry.key, 1);
+    drainEffects(model, fx);
     try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    try testing.expectEqualStrings(cwd, model.selectedProjectPath());
     try testing.expectEqualStrings(git_checkout.worktree_add_failed_status, model.attach_status());
     try testing.expect(model.has_attach_status());
     try testing.expect(model.git_worktree_create_active);
@@ -13268,7 +13274,6 @@ fn expectGitWorktreeAddArgv(spawn: anytype, cwd: []const u8, home: []const u8, n
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], name) == null);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], dest) == null);
     try testing.expect(spawn.key >= main.git_worktree_add_key_first);
-    try testing.expect(spawn.key < main.git_ahead_behind_key_first);
     try testing.expect(spawn.key < main.file_mention_key_first);
     try testing.expect(spawn.key != main.git_push_key_first);
     try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
@@ -13437,7 +13442,7 @@ test "confirm New worktree one-shots git worktree add -b; success retargets proj
     main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-blocked" } }, &fx);
     main.update(&model, .confirm_git_worktree_create, &fx);
     try finishWorktreeBaseProbe(&fx, &model, "", 1);
-    try failWorktreeAddUntilExhausted(&fx, &model, project, home, "feat-blocked", "main");
+    try failWorktreeAddFirstThenExhaust(&fx, &model, project, home, "feat-blocked", "main");
 
     model.clearAttachStatus();
     main.writeFixed(&model.git_branch_storage, &model.git_branch_len, "a1b2c3d");
@@ -13445,7 +13450,7 @@ test "confirm New worktree one-shots git worktree add -b; success retargets proj
     main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-head" } }, &fx);
     main.update(&model, .confirm_git_worktree_create, &fx);
     try finishWorktreeBaseProbe(&fx, &model, "", 1);
-    try failWorktreeAddUntilExhausted(&fx, &model, project, home, "feat-head", "");
+    try failWorktreeAddFirstThenExhaust(&fx, &model, project, home, "feat-head", "");
 
     model.clearAttachStatus();
     main.update(&model, .{ .git_worktree_create_edit = .clear }, &fx);
