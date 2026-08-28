@@ -1,9 +1,9 @@
 //! Composer chip, access, effort, slash-prefix, file-mention, and attach helpers.
 //!
 //! Access / effort labels, chip option tables, slash command prefix,
-//! caret-at-end `@` mention parse/insert, and image-drop path checks
-//! live here. Model chip cycling and persist stay in `main.zig`.
-//! Behavior is unchanged from the former `main` composer helpers.
+//! caret-at-end `@` mention parse/insert, mention path score / labels,
+//! and image-drop path checks live here. Model chip cycling and persist
+//! stay in `main.zig`.
 
 const std = @import("std");
 
@@ -123,6 +123,96 @@ pub fn replaceMentionToken(draft: []const u8, relpath: []const u8, out: []u8) ?[
     return std.fmt.bufPrint(out, "{s}@{s} ", .{ draft[0..token_start], relpath }) catch null;
 }
 
+/// Basename of a repo-relative `git ls-files` path (`/` separators).
+pub fn fileMentionBasename(path: []const u8) []const u8 {
+    if (std.mem.lastIndexOfScalar(u8, path, '/')) |slash| {
+        if (slash + 1 < path.len) return path[slash + 1 ..];
+    }
+    return path;
+}
+
+/// Parent directory of a repo-relative path, or `""` at the repo root.
+pub fn fileMentionParent(path: []const u8) []const u8 {
+    if (std.mem.lastIndexOfScalar(u8, path, '/')) |slash| {
+        return path[0..slash];
+    }
+    return "";
+}
+
+/// Score a tracked relative path against the active `@` mention query.
+/// `0` means exclude (same match family as `asciiContainsIgnoreCase`).
+/// Empty query: every path scores equally so callers keep a stable
+/// path order. Non-empty tiers, highest first:
+/// basename prefix, basename contains / path-segment prefix, then
+/// full-path ascii-contains. Small earlier-match / shorter-name
+/// bonuses stay inside a tier. Not Waku's fuzzy rank or a 50k index.
+pub fn fileMentionScore(path: []const u8, query: []const u8) u32 {
+    if (query.len == 0) return mention_score_empty;
+    const name = fileMentionBasename(path);
+    if (asciiStartsWithIgnoreCase(name, query)) {
+        return mention_score_basename_prefix + mentionScoreBonus(0, name.len);
+    }
+    if (asciiIndexOfIgnoreCase(name, query)) |idx| {
+        return mention_score_basename_contains + mentionScoreBonus(idx, name.len);
+    }
+    if (pathSegmentHasPrefix(path, query)) |seg_start| {
+        return mention_score_segment_prefix + mentionScoreBonus(seg_start, path.len);
+    }
+    if (asciiIndexOfIgnoreCase(path, query)) |idx| {
+        return mention_score_path_contains + mentionScoreBonus(idx, path.len);
+    }
+    return 0;
+}
+
+const mention_score_empty: u32 = 1;
+const mention_score_path_contains: u32 = 100;
+const mention_score_segment_prefix: u32 = 300;
+const mention_score_basename_contains: u32 = 320;
+const mention_score_basename_prefix: u32 = 400;
+
+fn mentionScoreBonus(match_index: usize, haystack_len: usize) u32 {
+    const index_part: u32 = if (match_index < 48) @intCast(48 - match_index) else 0;
+    const len_part: u32 = if (haystack_len < 24) @intCast(24 - haystack_len) else 0;
+    return index_part + len_part;
+}
+
+fn asciiEqlIgnoreCase(left: []const u8, right: []const u8) bool {
+    if (left.len != right.len) return false;
+    for (left, right) |a, b| {
+        if (std.ascii.toLower(a) != std.ascii.toLower(b)) return false;
+    }
+    return true;
+}
+
+fn asciiStartsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len == 0) return true;
+    if (needle.len > haystack.len) return false;
+    return asciiEqlIgnoreCase(haystack[0..needle.len], needle);
+}
+
+fn asciiIndexOfIgnoreCase(haystack: []const u8, needle: []const u8) ?usize {
+    if (needle.len == 0) return 0;
+    if (needle.len > haystack.len) return null;
+    var i: usize = 0;
+    while (i + needle.len <= haystack.len) : (i += 1) {
+        if (asciiEqlIgnoreCase(haystack[i .. i + needle.len], needle)) return i;
+    }
+    return null;
+}
+
+/// First path-segment start that the query prefixes, or `null`.
+fn pathSegmentHasPrefix(path: []const u8, query: []const u8) ?usize {
+    var start: usize = 0;
+    var i: usize = 0;
+    while (i <= path.len) : (i += 1) {
+        if (i == path.len or path[i] == '/') {
+            if (asciiStartsWithIgnoreCase(path[start..i], query)) return start;
+            start = i + 1;
+        }
+    }
+    return null;
+}
+
 /// First dropped path that is a local image Faku already understands
 /// for `fx ask --image` / attach preview. Existing extensions only:
 /// png, jpg, jpeg, webp, gif. Directories (trailing separator) and
@@ -171,4 +261,19 @@ test "replaceMentionToken rewrites only the last @query token and appends a spac
     try std.testing.expect(replaceMentionToken("see @src more", "src/main.zig", &buf) == null);
     try std.testing.expect(replaceMentionToken("/commit", "src/main.zig", &buf) == null);
     try std.testing.expect(replaceMentionToken("@src", "", &buf) == null);
+}
+
+test "fileMentionScore prefers basename prefix over contains" {
+    try std.testing.expect(fileMentionScore("src/main.zig", "mai") > fileMentionScore("notes/email.md", "mai"));
+    try std.testing.expect(fileMentionScore("src/main.zig", "MAI") > fileMentionScore("notes/email.md", "mai"));
+    try std.testing.expect(fileMentionScore("main.zig", "mai") > fileMentionScore("lib/email.md", "mai"));
+    try std.testing.expect(fileMentionScore("src/lib/util.zig", "lib") > fileMentionScore("vendor/jslib/index.js", "lib"));
+    try std.testing.expectEqual(fileMentionScore("src/main.zig", ""), fileMentionScore("notes/email.md", ""));
+    try std.testing.expect(fileMentionScore("src/main.zig", "") > 0);
+    try std.testing.expectEqual(@as(u32, 0), fileMentionScore("src/foo.zig", "bar"));
+    try std.testing.expectEqual(@as(u32, 0), fileMentionScore("README.md", "mai"));
+    try std.testing.expectEqualStrings("main.zig", fileMentionBasename("src/main.zig"));
+    try std.testing.expectEqualStrings("src", fileMentionParent("src/main.zig"));
+    try std.testing.expectEqualStrings("README.md", fileMentionBasename("README.md"));
+    try std.testing.expectEqualStrings("", fileMentionParent("README.md"));
 }

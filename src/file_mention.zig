@@ -6,7 +6,9 @@
 //! `fx ask` uses (`fx_ask_chdir_script`). First-N stdout paths stay in
 //! a bounded runtime cache on the Model — not `sessions.json`.
 //!
-//! Not Waku's 50k-file index, fuzzy rank, or caret-aware trigger.
+//! Not Waku's 50k-file index, caret-aware trigger, or untracked files.
+//! Visible `@` rows are scored over this bounded cache in
+//! `composer.fileMentionScore` — not first-N contains in cache order.
 //! Tracked files only. Untracked / ignored / non-git / Windows stay
 //! empty this cut. Not Open-in, not copy path, not a daemon catalog.
 //!

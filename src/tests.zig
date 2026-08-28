@@ -11877,14 +11877,18 @@ test "composer @ mention card filters tracked files; insert replaces last token;
         const rows = model.mention_rows(arena);
         try testing.expectEqual(@as(usize, 3), rows.len);
         try testing.expectEqualStrings("src/main.zig", rows[0].path);
+        try testing.expectEqualStrings("main.zig", rows[0].name);
+        try testing.expectEqualStrings("src", rows[0].parent);
+        try testing.expect(rows[0].has_parent);
         try testing.expectEqual(@as(u32, 1), rows[0].id);
         try testing.expectEqualStrings("src/composer.zig", rows[1].path);
         try testing.expectEqualStrings("src/file_mention.zig", rows[2].path);
     }
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "src/main.zig");
-    _ = try expectByText(tree.root, .text, "src/composer.zig");
-    _ = try expectByText(tree.root, .text, "src/file_mention.zig");
+    _ = try expectByText(tree.root, .text, "main.zig");
+    _ = try expectByText(tree.root, .text, "composer.zig");
+    _ = try expectByText(tree.root, .text, "file_mention.zig");
+    _ = try expectByText(tree.root, .text, "src");
     try testing.expect(findByText(tree.root, .text, "README.md") == null);
     try testing.expect(findByText(tree.root, .text, "/commit") == null);
     const main_row = try expectButton(tree.root, "src/main.zig");
@@ -11964,6 +11968,65 @@ test "composer @ mention visible rows cap at 12; empty cache hides the list" {
     try testing.expect(!model.mentions_list_open());
     const tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "src/f00.zig") == null);
+    try testing.expect(findByText(tree.root, .text, "f00.zig") == null);
+}
+
+test "composer @ mention rows rank basename prefix above path contains" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    const id = model.addSession("rank", .fx);
+    model.selected = id;
+    file_mention.applyStdoutPaths(&model,
+        \\notes/email.md
+        \\src/lib/util.zig
+        \\README.md
+        \\src/main.zig
+    );
+
+    model.draft_buffer.set("@mai");
+    try testing.expect(model.mentions_list_open());
+    {
+        const rows = model.mention_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expectEqualStrings("src/main.zig", rows[0].path);
+        try testing.expectEqualStrings("main.zig", rows[0].name);
+        try testing.expectEqual(@as(u32, 4), rows[0].id);
+        try testing.expectEqualStrings("notes/email.md", rows[1].path);
+        try testing.expectEqualStrings("email.md", rows[1].name);
+        try testing.expectEqual(@as(u32, 1), rows[1].id);
+        try testing.expect(!std.mem.eql(u8, rows[0].path, "notes/email.md"));
+    }
+
+    model.draft_buffer.set("@lib");
+    {
+        const rows = model.mention_rows(arena);
+        try testing.expectEqual(@as(usize, 1), rows.len);
+        try testing.expectEqualStrings("src/lib/util.zig", rows[0].path);
+        try testing.expectEqual(@as(u32, 2), rows[0].id);
+    }
+
+    model.draft_buffer.set("@");
+    {
+        const rows = model.mention_rows(arena);
+        try testing.expectEqual(@as(usize, 4), rows.len);
+        try testing.expectEqualStrings("README.md", rows[0].path);
+        try testing.expectEqualStrings("README.md", rows[0].name);
+        try testing.expect(!rows[0].has_parent);
+        try testing.expectEqual(@as(u32, 3), rows[0].id);
+        try testing.expectEqualStrings("notes/email.md", rows[1].path);
+        try testing.expectEqualStrings("src/lib/util.zig", rows[2].path);
+        try testing.expectEqualStrings("src/main.zig", rows[3].path);
+    }
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "README.md");
+    _ = try expectByText(tree.root, .text, "email.md");
+    _ = try expectByText(tree.root, .text, "notes");
+    const main_row = try expectButton(tree.root, "src/main.zig");
+    try testing.expectEqual(Msg{ .insert_mention = 4 }, tree.msgForPointer(main_row.id, .up).?);
 }
 
 test "git ls-files sidecar argv and first-N stdout; empty missing rejected skip" {
