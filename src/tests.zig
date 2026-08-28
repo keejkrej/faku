@@ -13248,9 +13248,9 @@ fn failWorktreeAddFirstThenExhaust(fx: *Effects, model: *Model, cwd: []const u8,
 
 fn expectGitWorktreeAddArgv(spawn: anytype, cwd: []const u8, home: []const u8, name: []const u8, base: []const u8) !void {
     var parent_buf: [main.max_project_path]u8 = undefined;
-    const parent = git_checkout.worktreeParentPath(home, parent_buf[0..]) orelse return error.MissingWorktreeParent;
+    const parent = git_checkout.worktreeParentPath(home, cwd, parent_buf[0..]) orelse return error.MissingWorktreeParent;
     var dest_buf: [main.max_project_path]u8 = undefined;
-    const dest = git_checkout.worktreeDestPath(home, name, dest_buf[0..]) orelse return error.MissingWorktreeDest;
+    const dest = git_checkout.worktreeDestPath(home, cwd, name, dest_buf[0..]) orelse return error.MissingWorktreeDest;
     var branch_buf: [git_branch.max_git_branch]u8 = undefined;
     const branch = git_checkout.worktreeBranchName(name, branch_buf[0..]) orelse return error.MissingWorktreeBranch;
     try testing.expect(git_checkout.isGitWorktreeAddArgv(spawn.argv));
@@ -13417,7 +13417,7 @@ test "confirm New worktree one-shots git worktree add -b; success retargets proj
     try testing.expectEqual(@as(u64, 0), model.git_push_key);
 
     var dest_buf: [main.max_project_path]u8 = undefined;
-    const dest = git_checkout.worktreeDestPath(home, "feat-new", dest_buf[0..]) orelse return error.MissingDest;
+    const dest = git_checkout.worktreeDestPath(home, project, "feat-new", dest_buf[0..]) orelse return error.MissingDest;
     try std.Io.Dir.cwd().createDirPath(testing.io, dest);
     try fx.feedExit(created.key, 0);
     drainEffects(&model, &fx);
@@ -13493,7 +13493,7 @@ test "New worktree dest collision uses slug-2 and retargets that path" {
     try testing.expectEqualStrings(project, model.selectedProjectPath());
 
     var taken_buf: [main.max_project_path]u8 = undefined;
-    const taken = git_checkout.worktreeDestPath(home, "feat-dup", taken_buf[0..]) orelse return error.MissingTakenDest;
+    const taken = git_checkout.worktreeDestPath(home, project, "feat-dup", taken_buf[0..]) orelse return error.MissingTakenDest;
     try std.Io.Dir.cwd().createDirPath(testing.io, taken);
 
     main.update(&model, .start_git_worktree_create, &fx);
@@ -13506,7 +13506,7 @@ test "New worktree dest collision uses slug-2 and retargets that path" {
     try testing.expectEqualStrings(project, model.selectedProjectPath());
 
     var dest_buf: [main.max_project_path]u8 = undefined;
-    const dest = git_checkout.worktreeDestPath(home, "feat-dup-2", dest_buf[0..]) orelse return error.MissingDupDest;
+    const dest = git_checkout.worktreeDestPath(home, project, "feat-dup-2", dest_buf[0..]) orelse return error.MissingDupDest;
     try std.Io.Dir.cwd().createDirPath(testing.io, dest);
     try fx.feedExit(created.key, 0);
     drainEffects(&model, &fx);
@@ -13514,6 +13514,82 @@ test "New worktree dest collision uses slug-2 and retargets that path" {
     try testing.expect(!model.git_worktree_create_active);
     try testing.expectEqualStrings(dest, model.selectedProjectPath());
     try testing.expect(!std.mem.eql(u8, dest, taken));
+}
+
+test "same New worktree slug under two project_paths uses different dests" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_a_buf: [256]u8 = undefined;
+    const project_a = try std.fmt.bufPrint(&project_a_buf, ".zig-cache/tmp/{s}/git-wt-nest-a", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project_a);
+    var project_b_buf: [256]u8 = undefined;
+    const project_b = try std.fmt.bufPrint(&project_b_buf, ".zig-cache/tmp/{s}/git-wt-nest-b", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project_b);
+    var home_buf: [256]u8 = undefined;
+    const home = try std.fmt.bufPrint(&home_buf, "/tmp/faku-wt-nest-{s}", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, home);
+
+    var dest_a_buf: [main.max_project_path]u8 = undefined;
+    const dest_a = git_checkout.worktreeDestPath(home, project_a, "shared", dest_a_buf[0..]) orelse return error.MissingDestA;
+    var dest_b_buf: [main.max_project_path]u8 = undefined;
+    const dest_b = git_checkout.worktreeDestPath(home, project_b, "shared", dest_b_buf[0..]) orelse return error.MissingDestB;
+    try testing.expect(!std.mem.eql(u8, dest_a, dest_b));
+    var nest_a_buf: [git_checkout.worktree_nest_key_len]u8 = undefined;
+    const nest_a = git_checkout.worktreeNestKey(project_a, nest_a_buf[0..]) orelse return error.MissingNestA;
+    var nest_b_buf: [git_checkout.worktree_nest_key_len]u8 = undefined;
+    const nest_b = git_checkout.worktreeNestKey(project_b, nest_b_buf[0..]) orelse return error.MissingNestB;
+    try testing.expect(!std.mem.eql(u8, nest_a, nest_b));
+    try testing.expect(std.mem.indexOf(u8, dest_a, nest_a) != null);
+    try testing.expect(std.mem.indexOf(u8, dest_b, nest_b) != null);
+    try testing.expect(std.mem.endsWith(u8, dest_a, "/shared"));
+    try testing.expect(std.mem.endsWith(u8, dest_b, "/shared"));
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setHome(home);
+    const id = model.addSession("worktree nest", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project_a } }, &fx);
+    const branch_a = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchA;
+    try fx.feedLine(branch_a.key, "main\n");
+    drainEffects(&model, &fx);
+
+    main.update(&model, .start_git_worktree_create, &fx);
+    main.update(&model, .{ .git_worktree_create_edit = .clear }, &fx);
+    main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "shared" } }, &fx);
+    main.update(&model, .confirm_git_worktree_create, &fx);
+    try finishWorktreeBaseProbe(&fx, &model, "origin/main\n", 0);
+    const created_a = findGitWorktreeAddSpawnKey(&fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddA;
+    try expectGitWorktreeAddArgv(created_a, project_a, home, "shared", "main");
+    try testing.expectEqualStrings(dest_a, created_a.argv[11]);
+    model.git_worktree_add_attempt = git_checkout.max_worktree_candidates - 1;
+    try fx.feedExit(created_a.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    try testing.expectEqualStrings(project_a, model.selectedProjectPath());
+    main.update(&model, .cancel_git_worktree_create, &fx);
+    model.clearAttachStatus();
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project_b } }, &fx);
+    const branch_b = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchB;
+    try fx.feedLine(branch_b.key, "main\n");
+    drainEffects(&model, &fx);
+
+    main.update(&model, .start_git_worktree_create, &fx);
+    main.update(&model, .{ .git_worktree_create_edit = .clear }, &fx);
+    main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "shared" } }, &fx);
+    main.update(&model, .confirm_git_worktree_create, &fx);
+    try finishWorktreeBaseProbe(&fx, &model, "origin/main\n", 0);
+    const created_b = findGitWorktreeAddSpawnKey(&fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddB;
+    try expectGitWorktreeAddArgv(created_b, project_b, home, "shared", "main");
+    try testing.expectEqualStrings(dest_b, created_b.argv[11]);
+    try testing.expect(!std.mem.eql(u8, dest_a, created_b.argv[11]));
 }
 
 fn findGitRevParseSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {

@@ -39,14 +39,17 @@
 //! `git worktree add -b faku/<name> <path>` with that default base
 //! as its own trailing argv slot when one resolves (`-b`, the
 //! branch, the path, and the optional base each their own slot;
-//! `mkdir -p` of `~/.faku/worktrees` via a fixed script and the
-//! parent as an argv slot). `origin/<name>` prefers `<name>` when
-//! that is a plausible branch; otherwise the whole `origin/<name>`
-//! string when it is a safe argv. Failed / empty / exit 1 falls
-//! back to the cached composer branch label (`pushBranchFromLabel`,
-//! not a detached short SHA) and otherwise omits the base (today's
-//! HEAD). Dest stays flat `~/.faku/worktrees/<name>` (no
-//! `{project_id}` nest). A taken dest directory or listed local
+//! `mkdir -p` of `~/.faku/worktrees/<nest>` via a fixed script and
+//! the parent as an argv slot). `origin/<name>` prefers `<name>`
+//! when that is a plausible branch; otherwise the whole
+//! `origin/<name>` string when it is a safe argv. Failed / empty /
+//! exit 1 falls back to the cached composer branch label
+//! (`pushBranchFromLabel`, not a detached short SHA) and otherwise
+//! omits the base (today's HEAD). Dest is
+//! `~/.faku/worktrees/<16-hex of source project_path>/<name>`
+//! (FNV-1a 64 of the probe cwd used for `git worktree add`; not a
+//! daemon UUID / `{project_id}`, not canonicalize(show-toplevel),
+//! not `git-common-dir`). A taken dest directory or listed local
 //! `faku/<name>` skips to the next Waku candidate (`slug`,
 //! `slug-2`, … `slug-8`; cap 8 because Native is one-shot, not
 //! Waku's 100 + session-id hex). A failed `worktree add` retries
@@ -58,7 +61,7 @@
 //! remote-tracking names that have no local counterpart (skip
 //! symbolic `*/HEAD`), sorted lexicographically. Not Waku's daemon
 //! `InspectBranches` picker, live watch, `waku/` prefix /
-//! `~/.waku/worktrees/{project_id}` nesting, defer-until-Send
+//! `~/.waku/worktrees/{project_id}` UUID nest, defer-until-Send
 //! workspace mode, base-ref picker UI, prune-alone, stash, merge,
 //! force delete, canonicalize(show-toplevel), or Environment
 //! Summary.
@@ -202,6 +205,9 @@ pub const max_worktree_slug_words: usize = 6;
 /// Native one-shot cap: `slug`, `slug-2`, … `slug-8`. Not Waku's
 /// 100-candidate loop or `{slug}-{8 hex of session_id}` fallback.
 pub const max_worktree_candidates: u32 = 8;
+/// 16 lowercase hex chars of FNV-1a 64 of the source `project_path`.
+/// Not a daemon UUID / `{project_id}`.
+pub const worktree_nest_key_len: usize = 16;
 /// `mkdir -p` the parent (`$1`), then chdir to the repo (`$2`) and
 /// exec the remaining argv. Parent, cwd, branch, and path stay
 /// argv slots — never interpolated into this script.
@@ -650,7 +656,7 @@ pub fn isGitWorktreeBaseArgv(argv: []const []const u8) bool {
 }
 
 /// Trim + `isPlausibleBranchName`, and refuse `/` so the dest is one
-/// directory under `~/.faku/worktrees`. Empty / unsafe names stay
+/// directory under the per-project nest. Empty / unsafe names stay
 /// refused — this is not a rewrite sanitizer.
 pub fn sanitizeWorktreeName(raw: []const u8) ?[]const u8 {
     const name = std.mem.trim(u8, raw, " \t\r\n");
@@ -665,16 +671,35 @@ pub fn worktreeBranchName(name: []const u8, buf: []u8) ?[]const u8 {
     return std.fmt.bufPrint(buf, "{s}{s}", .{ worktree_branch_prefix, sanitized }) catch null;
 }
 
-pub fn worktreeParentPath(home: []const u8, buf: []u8) ?[]const u8 {
+/// 16 lowercase hex chars of FNV-1a 64 of the trimmed source
+/// `project_path` (the cwd used for `git worktree add`). Empty /
+/// `..` / NUL after trim → null. Relative paths are allowed; this
+/// is not canonicalize(show-toplevel) and not `git-common-dir`.
+pub fn worktreeNestKey(project_path: []const u8, buf: []u8) ?[]const u8 {
+    const trimmed = std.mem.trim(u8, project_path, " \t\r\n");
+    if (trimmed.len == 0) return null;
+    if (std.mem.indexOf(u8, trimmed, "..") != null) return null;
+    if (std.mem.indexOfScalar(u8, trimmed, 0) != null) return null;
+    if (buf.len < worktree_nest_key_len) return null;
+    const digest = std.hash.Fnv1a_64.hash(trimmed);
+    return std.fmt.bufPrint(buf, "{x:0>16}", .{digest}) catch null;
+}
+
+/// `{home}/.faku/worktrees/<nest>` — the mkdir -p parent. Nest is
+/// `worktreeNestKey(project_path)`. Root suffix stays
+/// `worktree_parent_suffix`.
+pub fn worktreeParentPath(home: []const u8, project_path: []const u8, buf: []u8) ?[]const u8 {
     const trimmed = std.mem.trim(u8, home, " \t\r\n");
     if (trimmed.len == 0) return null;
     if (trimmed[0] != '/') return null;
-    return std.fmt.bufPrint(buf, "{s}/{s}", .{ trimmed, worktree_parent_suffix }) catch null;
+    var nest_buf: [worktree_nest_key_len]u8 = undefined;
+    const nest = worktreeNestKey(project_path, nest_buf[0..]) orelse return null;
+    return std.fmt.bufPrint(buf, "{s}/{s}/{s}", .{ trimmed, worktree_parent_suffix, nest }) catch null;
 }
 
-pub fn worktreeDestPath(home: []const u8, name: []const u8, buf: []u8) ?[]const u8 {
+pub fn worktreeDestPath(home: []const u8, project_path: []const u8, name: []const u8, buf: []u8) ?[]const u8 {
     const sanitized = sanitizeWorktreeName(name) orelse return null;
-    const parent = worktreeParentPath(home, buf) orelse return null;
+    const parent = worktreeParentPath(home, project_path, buf) orelse return null;
     if (parent.len + 1 + sanitized.len > buf.len) return null;
     buf[parent.len] = '/';
     @memcpy(buf[parent.len + 1 ..][0..sanitized.len], sanitized);
@@ -1737,11 +1762,11 @@ fn worktreeDestExists(model: *const Model, dest: []const u8) bool {
     return main.directoryExists(io, dest);
 }
 
-fn assignWorktreeCandidate(model: *Model, home: []const u8, slug: []const u8, index: u32) bool {
+fn assignWorktreeCandidate(model: *Model, home: []const u8, project_path: []const u8, slug: []const u8, index: u32) bool {
     var name_buf: [git_branch.max_git_branch]u8 = undefined;
     const name = worktreeCandidateName(slug, index, name_buf[0..]) orelse return false;
     var dest_buf: [main.max_project_path]u8 = undefined;
-    const dest = worktreeDestPath(home, name, dest_buf[0..]) orelse return false;
+    const dest = worktreeDestPath(home, project_path, name, dest_buf[0..]) orelse return false;
     var branch_buf: [git_branch.max_git_branch]u8 = undefined;
     const branch = worktreeBranchName(name, branch_buf[0..]) orelse return false;
     writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, dest);
@@ -1754,10 +1779,10 @@ fn worktreeCandidateIsTaken(model: *const Model, dest: []const u8, branch: []con
     return worktreeCandidateOccupied(worktreeDestExists(model, dest), hasListedLocalName(model, branch));
 }
 
-fn pickWorktreeCandidate(model: *Model, home: []const u8, slug: []const u8, start: u32) bool {
+fn pickWorktreeCandidate(model: *Model, home: []const u8, project_path: []const u8, slug: []const u8, start: u32) bool {
     var index = start;
     while (index < max_worktree_candidates) : (index += 1) {
-        if (!assignWorktreeCandidate(model, home, slug, index)) continue;
+        if (!assignWorktreeCandidate(model, home, project_path, slug, index)) continue;
         const dest = model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len];
         const branch = model.git_worktree_add_branch_storage[0..model.git_worktree_add_branch_len];
         if (worktreeCandidateIsTaken(model, dest, branch)) continue;
@@ -1769,7 +1794,8 @@ fn pickWorktreeCandidate(model: *Model, home: []const u8, slug: []const u8, star
 fn retryWorktreeAdd(model: *Model, fx: *Effects) bool {
     const slug = gitWorktreeAddSlug(model);
     if (slug.len == 0) return false;
-    if (!pickWorktreeCandidate(model, model.homeDir(), slug, model.git_worktree_add_attempt + 1)) return false;
+    const stored_cwd = model.git_worktree_add_probe_path_storage[0..model.git_worktree_add_probe_path_len];
+    if (!pickWorktreeCandidate(model, model.homeDir(), stored_cwd, slug, model.git_worktree_add_attempt + 1)) return false;
     spawnWorktreeAdd(model, fx);
     return model.git_worktree_add_key != 0;
 }
@@ -1796,7 +1822,7 @@ fn spawnWorktreeAdd(model: *Model, fx: *Effects) void {
 
 /// Confirm the New worktree… card: a safe name probes
 /// `refs/remotes/origin/HEAD` then one-shots
-/// `mkdir -p ~/.faku/worktrees` plus
+/// `mkdir -p ~/.faku/worktrees/<nest>` plus
 /// `git worktree add -b faku/<name> <path> [base]`. Occupied dest
 /// or listed `faku/<name>` walks Waku candidates (`slug` …
 /// `slug-8`) and keeps the original slug. Empty / unsafe names do
@@ -1815,9 +1841,9 @@ pub fn confirmWorktreeAdd(model: *Model, fx: *Effects) void {
     const home = model.homeDir();
 
     var parent_buf: [main.max_project_path]u8 = undefined;
-    const parent = worktreeParentPath(home, parent_buf[0..]) orelse return;
+    const parent = worktreeParentPath(home, cwd, parent_buf[0..]) orelse return;
     writeFixed(&model.git_worktree_add_slug_storage, &model.git_worktree_add_slug_len, name);
-    if (!pickWorktreeCandidate(model, home, name, 0)) {
+    if (!pickWorktreeCandidate(model, home, cwd, name, 0)) {
         resetWorktreeAddState(model);
         model.setAttachStatus(worktree_add_failed_status);
         return;
@@ -1828,9 +1854,8 @@ pub fn confirmWorktreeAdd(model: *Model, fx: *Effects) void {
     model.git_worktree_base_len = 0;
 
     const stored_dest = model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len];
-    const slash = std.mem.lastIndexOfScalar(u8, stored_dest, '/') orelse return;
-    const stored_parent = stored_dest[0..slash];
-    if (!std.mem.eql(u8, stored_parent, parent)) return;
+    if (!std.mem.startsWith(u8, stored_dest, parent)) return;
+    if (stored_dest.len <= parent.len or stored_dest[parent.len] != '/') return;
 
     const key = model.next_git_worktree_base_key;
     model.next_git_worktree_base_key = key + 1;
@@ -2253,15 +2278,50 @@ test "worktree name sanitization refuses empty, slash, and implausible names" {
     try std.testing.expectEqualStrings("faku/feat", worktreeBranchName("feat", branch_buf[0..]).?);
     try std.testing.expect(worktreeBranchName("feat/foo", branch_buf[0..]) == null);
     try std.testing.expect(worktreeBranchName("", branch_buf[0..]) == null);
+}
+
+test "worktreeNestKey is stable FNV-1a and dest nests under it" {
+    var nest_buf: [worktree_nest_key_len]u8 = undefined;
+    var nest_other_buf: [worktree_nest_key_len]u8 = undefined;
+    try std.testing.expectEqualStrings("2599eb06cf360587", worktreeNestKey("/tmp/proj", nest_buf[0..]).?);
+    try std.testing.expectEqualStrings("2599eb06cf360587", worktreeNestKey("  /tmp/proj  \n", nest_buf[0..]).?);
+    try std.testing.expectEqualStrings("4793ca890685cfee", worktreeNestKey("/tmp/other", nest_other_buf[0..]).?);
+    try std.testing.expect(!std.mem.eql(u8, worktreeNestKey("/tmp/proj", nest_buf[0..]).?, worktreeNestKey("/tmp/other", nest_other_buf[0..]).?));
+    try std.testing.expect(worktreeNestKey("", nest_buf[0..]) == null);
+    try std.testing.expect(worktreeNestKey("   \t", nest_buf[0..]) == null);
+    try std.testing.expect(worktreeNestKey("..", nest_buf[0..]) == null);
+    try std.testing.expect(worktreeNestKey("../escape", nest_buf[0..]) == null);
+    try std.testing.expect(worktreeNestKey("/tmp/proj/../other", nest_buf[0..]) == null);
+    const with_nul = "/tmp/proj\x00x";
+    try std.testing.expect(worktreeNestKey(with_nul, nest_buf[0..]) == null);
+    const relative = worktreeNestKey(".zig-cache/tmp/x", nest_buf[0..]).?;
+    try std.testing.expectEqual(@as(usize, 16), relative.len);
+    try std.testing.expectEqualStrings("884e24b2b0483c33", relative);
 
     var path_buf: [main.max_project_path]u8 = undefined;
-    try std.testing.expectEqualStrings("/home/u/.faku/worktrees", worktreeParentPath("/home/u", path_buf[0..]).?);
-    try std.testing.expect(worktreeParentPath("", path_buf[0..]) == null);
-    try std.testing.expect(worktreeParentPath("relative", path_buf[0..]) == null);
-    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat", worktreeDestPath("/home/u", "feat", path_buf[0..]).?);
-    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat-2", worktreeDestPath("/home/u", "feat-2", path_buf[0..]).?);
-    try std.testing.expect(worktreeDestPath("/home/u", "feat/foo", path_buf[0..]) == null);
-    try std.testing.expect(worktreeDestPath("", "feat", path_buf[0..]) == null);
+    try std.testing.expectEqualStrings(
+        "/home/u/.faku/worktrees/2599eb06cf360587",
+        worktreeParentPath("/home/u", "/tmp/proj", path_buf[0..]).?,
+    );
+    try std.testing.expect(worktreeParentPath("", "/tmp/proj", path_buf[0..]) == null);
+    try std.testing.expect(worktreeParentPath("relative", "/tmp/proj", path_buf[0..]) == null);
+    try std.testing.expect(worktreeParentPath("/home/u", "", path_buf[0..]) == null);
+    try std.testing.expect(worktreeParentPath("/home/u", "..", path_buf[0..]) == null);
+    try std.testing.expectEqualStrings(
+        "/home/u/.faku/worktrees/2599eb06cf360587/feat",
+        worktreeDestPath("/home/u", "/tmp/proj", "feat", path_buf[0..]).?,
+    );
+    try std.testing.expectEqualStrings(
+        "/home/u/.faku/worktrees/2599eb06cf360587/feat-2",
+        worktreeDestPath("/home/u", "/tmp/proj", "feat-2", path_buf[0..]).?,
+    );
+    try std.testing.expectEqualStrings(
+        "/home/u/.faku/worktrees/4793ca890685cfee/feat",
+        worktreeDestPath("/home/u", "/tmp/other", "feat", path_buf[0..]).?,
+    );
+    try std.testing.expect(worktreeDestPath("/home/u", "/tmp/proj", "feat/foo", path_buf[0..]) == null);
+    try std.testing.expect(worktreeDestPath("", "/tmp/proj", "feat", path_buf[0..]) == null);
+    try std.testing.expect(worktreeDestPath("/home/u", "", "feat", path_buf[0..]) == null);
 }
 
 test "worktreeCandidateName matches Waku slug, slug-2, … slug-8" {
@@ -2338,11 +2398,18 @@ test "worktree base argv is symbolic-ref --quiet --short origin/HEAD" {
 
 test "worktree add argv is mkdir+chdir plus worktree add -b with and without base" {
     var buf: [worktree_add_argv_len][]const u8 = undefined;
+    var parent_buf: [main.max_project_path]u8 = undefined;
+    const parent = worktreeParentPath("/home/u", "/tmp/faku-repo", parent_buf[0..]).?;
+    var dest_buf: [main.max_project_path]u8 = undefined;
+    const dest = worktreeDestPath("/home/u", "/tmp/faku-repo", "feat", dest_buf[0..]).?;
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/7d4ac9355fd03f74", parent);
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/7d4ac9355fd03f74/feat", dest);
+
     const argv = worktreeAddArgvFor(
         "/tmp/faku-repo",
-        "/home/u/.faku/worktrees",
+        parent,
         "faku/feat",
-        "/home/u/.faku/worktrees/feat",
+        dest,
         "",
         &buf,
     ).?;
@@ -2351,14 +2418,14 @@ test "worktree add argv is mkdir+chdir plus worktree add -b with and without bas
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(git_worktree_mkdir_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
-    try std.testing.expectEqualStrings("/home/u/.faku/worktrees", argv[4]);
+    try std.testing.expectEqualStrings(parent, argv[4]);
     try std.testing.expectEqualStrings("/tmp/faku-repo", argv[5]);
     try std.testing.expectEqualStrings(git_bin, argv[6]);
     try std.testing.expectEqualStrings(git_worktree_cmd, argv[7]);
     try std.testing.expectEqualStrings(git_worktree_add_cmd, argv[8]);
     try std.testing.expectEqualStrings(git_create_b_flag, argv[9]);
     try std.testing.expectEqualStrings("faku/feat", argv[10]);
-    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat", argv[11]);
+    try std.testing.expectEqualStrings(dest, argv[11]);
     try std.testing.expect(isGitWorktreeAddArgv(argv));
     try std.testing.expect(!isGitWorktreeBaseArgv(argv));
     try std.testing.expect(!isGitCreateArgv(argv));
@@ -2370,41 +2437,42 @@ test "worktree add argv is mkdir+chdir plus worktree add -b with and without bas
     try std.testing.expect(!isGitBranchListArgv(argv));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "faku/feat") == null);
-    try std.testing.expect(std.mem.indexOf(u8, argv[2], "/home/u/.faku/worktrees/feat") == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], dest) == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "feat") == null);
 
     const with_base = worktreeAddArgvFor(
         "/tmp/faku-repo",
-        "/home/u/.faku/worktrees",
+        parent,
         "faku/feat",
-        "/home/u/.faku/worktrees/feat",
+        dest,
         "main",
         &buf,
     ).?;
     try std.testing.expectEqual(@as(usize, 13), with_base.len);
     try std.testing.expectEqualStrings("faku/feat", with_base[10]);
-    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat", with_base[11]);
+    try std.testing.expectEqualStrings(dest, with_base[11]);
     try std.testing.expectEqualStrings("main", with_base[12]);
     try std.testing.expect(isGitWorktreeAddArgv(with_base));
     try std.testing.expect(std.mem.indexOf(u8, with_base[2], "main") == null);
 
     const origin_base = worktreeAddArgvFor(
         "/tmp/faku-repo",
-        "/home/u/.faku/worktrees",
+        parent,
         "faku/feat",
-        "/home/u/.faku/worktrees/feat",
+        dest,
         "origin/main",
         &buf,
     ).?;
     try std.testing.expectEqualStrings("origin/main", origin_base[12]);
     try std.testing.expect(isGitWorktreeAddArgv(origin_base));
 
-    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "/home/u/.faku/worktrees", "feat", "/home/u/.faku/worktrees/feat", "", &buf) == null);
-    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "/home/u/.faku/worktrees", "faku/feat/foo", "/home/u/.faku/worktrees/feat/foo", "", &buf) == null);
-    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "relative", "faku/feat", "/home/u/.faku/worktrees/feat", "", &buf) == null);
-    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "/home/u/.faku/worktrees", "faku/feat", "/tmp/other/feat", "", &buf) == null);
-    try std.testing.expect(worktreeAddArgvFor("", "/home/u/.faku/worktrees", "faku/feat", "/home/u/.faku/worktrees/feat", "", &buf) == null);
-    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "/home/u/.faku/worktrees", "faku/feat", "/home/u/.faku/worktrees/feat", "not a branch", &buf) == null);
+    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", parent, "feat", dest, "", &buf) == null);
+    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", parent, "faku/feat/foo", dest, "", &buf) == null);
+    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "relative", "faku/feat", dest, "", &buf) == null);
+    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", parent, "faku/feat", "/tmp/other/feat", "", &buf) == null);
+    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", parent, "faku/feat", "/home/u/.faku/worktrees/feat", "", &buf) == null);
+    try std.testing.expect(worktreeAddArgvFor("", parent, "faku/feat", dest, "", &buf) == null);
+    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", parent, "faku/feat", dest, "not a branch", &buf) == null);
     try std.testing.expect(!isGitWorktreeAddArgv(&.{
         sh_bin,
         "-c",
@@ -2436,7 +2504,7 @@ test "handleWorktreeAddExit success retargets project_path; failure leaves it" {
     model.git_worktree_add_key = git_worktree_add_key_first;
     model.git_worktree_add_probe_session = id;
     writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, "/tmp/proj");
-    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/feat");
+    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/2599eb06cf360587/feat");
     model.git_worktree_create_active = true;
 
     const failed = handleWorktreeAddExit(&model, &fx, .{ .key = git_worktree_add_key_first, .reason = .exited, .code = 1 });
@@ -2451,10 +2519,10 @@ test "handleWorktreeAddExit success retargets project_path; failure leaves it" {
     model.git_worktree_add_key = git_worktree_add_key_first + 1;
     model.git_worktree_add_probe_session = id;
     writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, "/tmp/proj");
-    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/feat");
+    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/2599eb06cf360587/feat");
     const ok = handleWorktreeAddExit(&model, &fx, .{ .key = git_worktree_add_key_first + 1, .reason = .exited, .code = 0 });
     try std.testing.expect(ok);
-    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat", model.selectedProjectPath());
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/2599eb06cf360587/feat", model.selectedProjectPath());
     try std.testing.expect(!model.git_worktree_create_active);
     try std.testing.expect(!model.has_attach_status());
     try std.testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
@@ -2475,7 +2543,7 @@ test "handleWorktreeAddExit retries slug-2 and success retargets that dest" {
     model.next_git_worktree_add_key = git_worktree_add_key_first + 1;
     model.git_worktree_add_probe_session = id;
     writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, "/tmp/proj");
-    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/feat");
+    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/2599eb06cf360587/feat");
     writeFixed(&model.git_worktree_add_branch_storage, &model.git_worktree_add_branch_len, "faku/feat");
     writeFixed(&model.git_worktree_add_slug_storage, &model.git_worktree_add_slug_len, "feat");
     model.git_worktree_add_attempt = 0;
@@ -2488,21 +2556,22 @@ test "handleWorktreeAddExit retries slug-2 and success retargets that dest" {
     try std.testing.expect(model.git_worktree_create_active);
     try std.testing.expectEqual(git_worktree_add_key_first + 1, model.git_worktree_add_key);
     try std.testing.expectEqual(@as(u32, 1), model.git_worktree_add_attempt);
-    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat-2", model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len]);
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/2599eb06cf360587/feat-2", model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len]);
     try std.testing.expectEqualStrings("faku/feat-2", model.git_worktree_add_branch_storage[0..model.git_worktree_add_branch_len]);
     try std.testing.expectEqualStrings("feat", model.git_worktree_add_slug_storage[0..model.git_worktree_add_slug_len]);
     try std.testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const spawn = fx.pendingSpawnAt(0).?;
     try std.testing.expect(isGitWorktreeAddArgv(spawn.argv));
     try std.testing.expectEqual(git_worktree_add_key_first + 1, spawn.key);
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/2599eb06cf360587", spawn.argv[4]);
     try std.testing.expectEqualStrings("faku/feat-2", spawn.argv[10]);
-    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat-2", spawn.argv[11]);
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/2599eb06cf360587/feat-2", spawn.argv[11]);
 
     const dest_two = model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len];
     const ok = handleWorktreeAddExit(&model, &fx, .{ .key = git_worktree_add_key_first + 1, .reason = .exited, .code = 0 });
     try std.testing.expect(ok);
     try std.testing.expectEqualStrings(dest_two, model.selectedProjectPath());
-    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat-2", model.selectedProjectPath());
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/2599eb06cf360587/feat-2", model.selectedProjectPath());
     try std.testing.expect(!model.git_worktree_create_active);
     try std.testing.expect(!model.has_attach_status());
     try std.testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
@@ -2523,7 +2592,7 @@ test "handleWorktreeAddExit sets status after the last candidate fails" {
     model.next_git_worktree_add_key = git_worktree_add_key_first + 1;
     model.git_worktree_add_probe_session = id;
     writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, "/tmp/proj");
-    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/feat-8");
+    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/2599eb06cf360587/feat-8");
     writeFixed(&model.git_worktree_add_branch_storage, &model.git_worktree_add_branch_len, "faku/feat-8");
     writeFixed(&model.git_worktree_add_slug_storage, &model.git_worktree_add_slug_len, "feat");
     model.git_worktree_add_attempt = max_worktree_candidates - 1;
@@ -2543,9 +2612,9 @@ test "pickWorktreeCandidate skips listed faku/name then fails when all are taken
     model.setHome("/home/u");
     model.git_branch_list_store[0].set("faku/feat", false, false);
     model.git_branch_list_count = 1;
-    try std.testing.expect(pickWorktreeCandidate(&model, "/home/u", "feat", 0));
+    try std.testing.expect(pickWorktreeCandidate(&model, "/home/u", "/tmp/proj", "feat", 0));
     try std.testing.expectEqual(@as(u32, 1), model.git_worktree_add_attempt);
-    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat-2", model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len]);
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/2599eb06cf360587/feat-2", model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len]);
     try std.testing.expectEqualStrings("faku/feat-2", model.git_worktree_add_branch_storage[0..model.git_worktree_add_branch_len]);
 
     var i: usize = 0;
@@ -2557,7 +2626,7 @@ test "pickWorktreeCandidate skips listed faku/name then fails when all are taken
         model.git_branch_list_store[i].set(branch, false, false);
     }
     model.git_branch_list_count = max_worktree_candidates;
-    try std.testing.expect(!pickWorktreeCandidate(&model, "/home/u", "feat", 0));
+    try std.testing.expect(!pickWorktreeCandidate(&model, "/home/u", "/tmp/proj", "feat", 0));
 }
 
 test "startWorktreeCreate prefills a prompt slug from the session title" {
