@@ -11710,6 +11710,7 @@ fn expectGitBranchArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitDeleteArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitFetchArgv(spawn.argv));
 }
 
 test "composer project row shows one-shot git branch --show-current" {
@@ -11934,6 +11935,7 @@ fn expectGitBranchListArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(!git_checkout.isGitTrackCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitDeleteArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitFetchArgv(spawn.argv));
 }
 
 fn expectGitCheckoutArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void {
@@ -11953,6 +11955,7 @@ fn expectGitCheckoutArgv(spawn: anytype, cwd: []const u8, name: []const u8) !voi
     try testing.expect(!git_checkout.isGitTrackCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitDeleteArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitFetchArgv(spawn.argv));
 }
 
 fn findGitTrackCheckoutSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
@@ -11982,6 +11985,7 @@ fn expectGitTrackCheckoutArgv(spawn: anytype, cwd: []const u8, name: []const u8)
     try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitDeleteArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitFetchArgv(spawn.argv));
 }
 
 fn findGitCreateSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
@@ -12011,6 +12015,7 @@ fn expectGitCreateArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void 
     try testing.expect(!git_checkout.isGitTrackCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitDeleteArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitFetchArgv(spawn.argv));
 }
 
 test "composer project row lists local heads and checks out another branch" {
@@ -12069,6 +12074,7 @@ test "composer project row lists local heads and checks out another branch" {
     try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
     _ = try expectByText(tree.root, .menu_item, "New branch…");
     _ = try expectByText(tree.root, .menu_item, "Delete branch…");
+    _ = try expectByText(tree.root, .menu_item, "Fetch…");
     _ = try expectByText(tree.root, .menu_item, "feat/a");
     _ = try expectByText(tree.root, .menu_item, "zeta");
 
@@ -12148,6 +12154,7 @@ test "composer project row lists remote-tracking refs and checks them out with -
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .menu_item, "New branch…");
     _ = try expectByText(tree.root, .menu_item, "Delete branch…");
+    _ = try expectByText(tree.root, .menu_item, "Fetch…");
     _ = try expectByText(tree.root, .menu_item, "feat/old");
     _ = try expectByText(tree.root, .menu_item, "origin/feat");
     try testing.expect(findByText(tree.root, .menu_item, "origin/main") == null);
@@ -12378,6 +12385,7 @@ test "New branch opens create UI; Esc and cancel close it" {
     var tree = try buildTree(arena, &model);
     const new_item = try expectByText(tree.root, .menu_item, "New branch…");
     try testing.expectEqual(Msg.start_git_branch_create, tree.msgForPointer(new_item.id, .up).?);
+    _ = try expectByText(tree.root, .menu_item, "Fetch…");
     try testing.expect(findByText(tree.root, .menu_item, "Delete branch…") == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "New branch name") == null);
 
@@ -12500,7 +12508,7 @@ fn expectGitDeleteArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void 
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], name) == null);
     try testing.expect(!std.mem.eql(u8, spawn.argv[7], "-D"));
     try testing.expect(spawn.key >= main.git_delete_key_first);
-    try testing.expect(spawn.key < main.git_numstat_key_first);
+    try testing.expect(spawn.key < main.git_fetch_key_first);
     try testing.expect(spawn.key != main.git_dirty_key_first);
     try testing.expect(spawn.key != main.git_create_key_first);
     try testing.expect(spawn.key != main.git_checkout_key_first);
@@ -12510,6 +12518,7 @@ fn expectGitDeleteArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void 
     try testing.expect(!git_checkout.isGitTrackCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitFetchArgv(spawn.argv));
 }
 
 test "Delete branch opens delete UI; Esc and cancel close it; current is omitted" {
@@ -12551,6 +12560,7 @@ test "Delete branch opens delete UI; Esc and cancel close it; current is omitted
     var tree = try buildTree(arena, &model);
     const delete_item = try expectByText(tree.root, .menu_item, "Delete branch…");
     try testing.expectEqual(Msg.start_git_branch_delete, tree.msgForPointer(delete_item.id, .up).?);
+    _ = try expectByText(tree.root, .menu_item, "Fetch…");
     try testing.expect(findByText(tree.root, .button, "Delete") == null);
 
     main.update(&model, tree.msgForPointer(delete_item.id, .up).?, &fx);
@@ -12684,6 +12694,120 @@ test "confirm delete spawns branch -d; success refreshes; failure sets status" {
     try testing.expectEqualStrings(git_checkout.delete_failed_status, model.attach_status());
     try testing.expect(model.has_attach_status());
     try testing.expect(model.git_branch_delete_active);
+}
+
+fn findGitFetchSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_checkout.isGitFetchArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn expectGitFetchArgv(spawn: anytype, cwd: []const u8) !void {
+    try testing.expect(git_checkout.isGitFetchArgv(spawn.argv));
+    try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
+    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(cwd, spawn.argv[4]);
+    try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
+    try testing.expectEqualStrings(git_checkout.git_fetch_cmd, spawn.argv[6]);
+    try testing.expectEqualStrings(git_checkout.git_prune_flag, spawn.argv[7]);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_fetch_cmd) == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_prune_flag) == null);
+    try testing.expect(spawn.key >= main.git_fetch_key_first);
+    try testing.expect(spawn.key < main.git_numstat_key_first);
+    try testing.expect(spawn.key != main.git_delete_key_first);
+    try testing.expect(spawn.key != main.git_dirty_key_first);
+    try testing.expect(spawn.key != main.git_create_key_first);
+    try testing.expect(spawn.key != main.git_checkout_key_first);
+    try testing.expect(spawn.key != main.git_branch_list_key_first);
+    try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitTrackCheckoutArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitDeleteArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
+}
+
+test "Fetch menu item one-shots git fetch --prune; success refreshes; failure sets status" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-fetch", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("fetch remotes", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try fx.feedLine(branch.key, "main\n");
+    drainEffects(&model, &fx);
+    const list = findGitBranchListSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingGitBranchListSpawn;
+    try fx.feedLine(list.key, "refs/heads/main\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(list.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(model.can_pick_git_branch());
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    try testing.expect(model.git_branch_picker_open);
+    var tree = try buildTree(arena, &model);
+    const fetch_item = try expectByText(tree.root, .menu_item, "Fetch…");
+    try testing.expectEqual(Msg.start_git_fetch, tree.msgForPointer(fetch_item.id, .up).?);
+
+    model.phase = .streaming;
+    main.update(&model, tree.msgForPointer(fetch_item.id, .up).?, &fx);
+    try testing.expect(!model.git_branch_picker_open);
+    try testing.expectEqual(@as(u64, 0), model.git_fetch_key);
+    model.phase = .idle;
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    main.update(&model, .start_git_fetch, &fx);
+    const fetched = findGitFetchSpawnKey(&fx, model.git_fetch_key) orelse return error.MissingGitFetchSpawn;
+    try expectGitFetchArgv(fetched, project);
+    try testing.expect(!model.git_branch_picker_open);
+    try testing.expectEqualStrings("main", model.git_branch_label());
+
+    const fetch_key = model.git_fetch_key;
+    main.update(&model, .start_git_fetch, &fx);
+    try testing.expectEqual(fetch_key, model.git_fetch_key);
+    main.update(&model, .{ .pick_git_branch = "main" }, &fx);
+    try testing.expectEqual(fetch_key, model.git_fetch_key);
+    try testing.expectEqual(@as(u64, 0), model.git_checkout_key);
+
+    try fx.feedExit(fetched.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_fetch_key);
+    const refreshed = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchRefresh;
+    try testing.expect(findGitDirtySpawnKey(&fx, model.git_dirty_key) != null);
+    try testing.expect(findGitNumstatSpawnKey(&fx, model.git_numstat_key) != null);
+    try testing.expect(findFileMentionSpawnKey(&fx, model.file_mention_key) != null);
+    try testing.expect(findGitBranchListSpawnKey(&fx, model.git_branch_list_key) != null);
+    try testing.expectEqualStrings("", model.git_branch_label());
+    try fx.feedLine(refreshed.key, "main\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("main", model.git_branch_label());
+
+    main.update(&model, .start_git_fetch, &fx);
+    const failed = findGitFetchSpawnKey(&fx, model.git_fetch_key) orelse return error.MissingGitFetchFailSpawn;
+    try expectGitFetchArgv(failed, project);
+    try fx.feedExit(failed.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("main", model.git_branch_label());
+    try testing.expectEqualStrings(git_checkout.fetch_failed_status, model.attach_status());
+    try testing.expect(model.has_attach_status());
+    try testing.expectEqual(@as(u64, 0), model.git_fetch_key);
 }
 
 fn findGitRevParseSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
