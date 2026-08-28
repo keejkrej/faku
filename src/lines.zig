@@ -22,6 +22,7 @@ const git_checkout = @import("git_checkout.zig");
 const persist = @import("persist.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
+const git_ahead_behind = @import("git_ahead_behind.zig");
 const file_mention = @import("file_mention.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
@@ -61,6 +62,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
     }
     if (model.git_numstat_key != 0 and line.key == model.git_numstat_key) {
         git_numstat.applyLine(model, line);
+        return;
+    }
+    if (model.git_ahead_behind_key != 0 and line.key == model.git_ahead_behind_key) {
+        git_ahead_behind.applyLine(model, line);
         return;
     }
     if (model.file_mention_key != 0 and line.key == model.file_mention_key) {
@@ -386,6 +391,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.git_numstat_key != 0 and exit.key == model.git_numstat_key) {
         git_numstat.handleExit(model, exit);
+        return;
+    }
+    if (model.git_ahead_behind_key != 0 and exit.key == model.git_ahead_behind_key) {
+        git_ahead_behind.handleExit(model, exit);
         return;
     }
     if (model.file_mention_key != 0 and exit.key == model.file_mention_key) {

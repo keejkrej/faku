@@ -49,6 +49,7 @@ const git_branch = @import("git_branch.zig");
 const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
+const git_ahead_behind = @import("git_ahead_behind.zig");
 const file_mention = @import("file_mention.zig");
 const util = @import("util.zig");
 const pick_folder = @import("pick_folder.zig");
@@ -228,12 +229,13 @@ pub const open_editor_key = open_editor.open_editor_key;
 pub const git_branch_key_first = git_branch.git_branch_key_first;
 /// One-shot `refs/heads` + `refs/remotes` list. Distinct from
 /// git_branch (200+), git_checkout (275+; also `--track`), git_dirty
-/// (300+), git_numstat (350+), git_push (360+), and file_mention
-/// (400+).
+/// (300+), git_numstat (350+), git_push (360+), git_ahead_behind
+/// (380+), and file_mention (400+).
 pub const git_branch_list_key_first = git_checkout.git_branch_list_key_first;
 /// One-shot `git checkout <name>`. Distinct from git_branch (200+),
 /// git_branch_list (250+), git_create (290+), git_dirty (300+),
-/// git_numstat (350+), git_push (360+), and file_mention (400+).
+/// git_numstat (350+), git_push (360+), git_ahead_behind (380+),
+/// and file_mention (400+).
 pub const git_checkout_key_first = git_checkout.git_checkout_key_first;
 /// One-shot `git checkout -b <name>`. Distinct from list (250+),
 /// checkout (275+), git_dirty (300+). Band is 290+.
@@ -247,28 +249,34 @@ pub const git_delete_key_first = git_checkout.git_delete_key_first;
 pub const git_fetch_key_first = git_checkout.git_fetch_key_first;
 /// One-shot `git push` (bare or `--set-upstream`) plus the probes
 /// that choose the path. Distinct from fetch (340+), git_numstat
-/// (350+), git_worktree_add (370+), and file_mention (400+).
-/// Band is 360+.
+/// (350+), git_worktree_add (370+), git_ahead_behind (380+), and
+/// file_mention (400+). Band is 360+.
 pub const git_push_key_first = git_checkout.git_push_key_first;
-/// One-shot `git worktree add -b`. Distinct from push (360+) and
-/// file_mention (400+). Band is 370+.
+/// One-shot `git worktree add -b`. Distinct from push (360+),
+/// git_ahead_behind (380+), and file_mention (400+). Band is 370+.
 pub const git_worktree_add_key_first = git_checkout.git_worktree_add_key_first;
+/// One-shot `git rev-list --left-right --count @{upstream}...HEAD`.
+/// Distinct from git_worktree_add (370+) and file_mention (400+).
+/// Band is 380+. Incremented per refresh from
+/// `git_ahead_behind_key_first`.
+pub const git_ahead_behind_key_first = git_ahead_behind.git_ahead_behind_key_first;
 /// One-shot `git status --porcelain` dirty count. Distinct from
 /// git_branch (200+), git_branch_list (250+), git_checkout (275+),
 /// git_create (290+), git_delete (320+), git_fetch (340+),
-/// git_numstat (350+), git_push (360+), and file_mention (400+).
-/// Incremented per refresh from `git_dirty_key_first`.
+/// git_numstat (350+), git_push (360+), git_ahead_behind (380+),
+/// and file_mention (400+). Incremented per refresh from
+/// `git_dirty_key_first`.
 pub const git_dirty_key_first = git_dirty.git_dirty_key_first;
 /// One-shot `git diff --numstat HEAD --` +/- plus untracked text-line
 /// additions. Distinct from git_branch (200+), git_dirty (300+),
-/// git_push (360+), and file_mention (400+). Incremented per refresh
-/// from `git_numstat_key_first`.
+/// git_push (360+), git_ahead_behind (380+), and file_mention (400+).
+/// Incremented per refresh from `git_numstat_key_first`.
 pub const git_numstat_key_first = git_numstat.git_numstat_key_first;
 /// One-shot file-mention probe (git ls-files, then a bounded walk
 /// when git cannot list) for composer `@` mentions. Distinct from
-/// git_branch (200+), git_dirty (300+), git_numstat (350+), and
-/// git_push (360+). Incremented per spawn from
-/// `file_mention_key_first` (400).
+/// git_branch (200+), git_dirty (300+), git_numstat (350+),
+/// git_push (360+), git_worktree_add (370+), and git_ahead_behind
+/// (380+). Incremented per spawn from `file_mention_key_first` (400).
 pub const file_mention_key_first = file_mention.file_mention_key_first;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
@@ -556,6 +564,7 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     git_branch.refresh(model, fx);
     git_dirty.refresh(model, fx);
     git_numstat.refresh(model, fx);
+    git_ahead_behind.refresh(model, fx);
     file_mention.refresh(model, fx);
     git_checkout.refresh(model, fx);
     fx_probe.startFxProbe(model, fx);
@@ -677,6 +686,7 @@ test {
     _ = @import("git_checkout.zig");
     _ = @import("git_dirty.zig");
     _ = @import("git_numstat.zig");
+    _ = @import("git_ahead_behind.zig");
     _ = @import("file_mention.zig");
     _ = @import("util.zig");
 }

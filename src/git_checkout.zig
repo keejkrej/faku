@@ -57,6 +57,7 @@ const main = @import("main.zig");
 const git_branch = @import("git_branch.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
+const git_ahead_behind = @import("git_ahead_behind.zig");
 const file_mention = @import("file_mention.zig");
 
 const Model = main.Model;
@@ -67,44 +68,48 @@ const writeFixed = main.writeFixed;
 /// git_branch (200+), git_checkout (275+; also `--track`),
 /// git_create (290+), git_dirty (300+), git_delete (320+),
 /// git_fetch (340+), git_numstat (350+), git_push (360+),
-/// git_worktree_add (370+), and file_mention (400+). Incremented
-/// per refresh so a cancelled spawn cannot paint a later session.
+/// git_worktree_add (370+), git_ahead_behind (380+), and
+/// file_mention (400+). Incremented per refresh so a cancelled
+/// spawn cannot paint a later session.
 pub const git_branch_list_key_first: u64 = 250;
 
 /// One-shot `git checkout <name>` or `git checkout --track <name>`.
 /// Distinct from the list family (250+), git_create (290+),
 /// git_branch (200+), git_dirty (300+), git_delete (320+),
-/// git_fetch (340+), git_numstat (350+), git_push (360+), and
+/// git_fetch (340+), git_numstat (350+), git_push (360+),
+/// git_worktree_add (370+), git_ahead_behind (380+), and
 /// file_mention (400+).
 pub const git_checkout_key_first: u64 = 275;
 
 /// One-shot `git checkout -b <name>`. Distinct from list (250+),
 /// checkout (275+), git_dirty (300+), git_delete (320+),
-/// git_fetch (340+), git_numstat (350+), git_push (360+), and
-/// file_mention (400+). Band is 290+ (below dirty 300+).
+/// git_fetch (340+), git_numstat (350+), git_push (360+),
+/// git_ahead_behind (380+), and file_mention (400+). Band is
+/// 290+ (below dirty 300+).
 pub const git_create_key_first: u64 = 290;
 
 /// One-shot `git branch -d <name>`. Distinct from list (250+),
 /// checkout (275+), create (290+), git_dirty (300+), git_fetch
-/// (340+), git_numstat (350+), git_push (360+), and
-/// file_mention (400+). Band is 320+ (between dirty 300+ and
-/// fetch 340+).
+/// (340+), git_numstat (350+), git_push (360+),
+/// git_ahead_behind (380+), and file_mention (400+). Band is
+/// 320+ (between dirty 300+ and fetch 340+).
 pub const git_delete_key_first: u64 = 320;
 
 /// One-shot `git fetch --prune`. Distinct from list (250+),
 /// checkout (275+), create (290+), git_dirty (300+), git_delete
-/// (320+), git_numstat (350+), git_push (360+), and
-/// file_mention (400+). Band is 340+ (between delete 320+ and
-/// numstat 350+).
+/// (320+), git_numstat (350+), git_push (360+),
+/// git_ahead_behind (380+), and file_mention (400+). Band is
+/// 340+ (between delete 320+ and numstat 350+).
 pub const git_fetch_key_first: u64 = 340;
 
 /// One-shot `git push` (bare or `--set-upstream`) plus the upstream /
 /// show-current / remotes probes that choose the path. Distinct from
 /// list (250+), checkout (275+), create (290+), git_dirty (300+),
 /// git_delete (320+), git_fetch (340+), git_numstat (350+),
-/// git_worktree_add (370+), and file_mention (400+). Band is 360+
-/// (between numstat 350+ and worktree-add 370+). Incremented per
-/// spawn so a cancelled push cannot paint a later session.
+/// git_worktree_add (370+), git_ahead_behind (380+), and
+/// file_mention (400+). Band is 360+ (between numstat 350+ and
+/// worktree-add 370+). Incremented per spawn so a cancelled
+/// push cannot paint a later session.
 pub const git_push_key_first: u64 = 360;
 
 /// Push… probe / push stages that share `git_push_key` (360+).
@@ -119,9 +124,10 @@ pub const GitPushPhase = enum(u8) {
 /// One-shot `git worktree add -b`. Distinct from list (250+),
 /// checkout (275+), create (290+), git_dirty (300+), git_delete
 /// (320+), git_fetch (340+), git_numstat (350+), git_push (360+),
-/// and file_mention (400+). Band is 370+ (between push 360+ and
-/// file_mention 400+). Incremented per spawn so a cancelled
-/// worktree-add cannot paint a later session.
+/// git_ahead_behind (380+), and file_mention (400+). Band is
+/// 370+ (between push 360+ and ahead-behind 380+). Incremented
+/// per spawn so a cancelled worktree-add cannot paint a later
+/// session.
 pub const git_worktree_add_key_first: u64 = 370;
 
 pub const max_local_branches: usize = 64;
@@ -1250,6 +1256,7 @@ fn refreshWorkspaceProbes(model: *Model, fx: *Effects) void {
     git_branch.refresh(model, fx);
     git_dirty.refresh(model, fx);
     git_numstat.refresh(model, fx);
+    git_ahead_behind.refresh(model, fx);
     file_mention.refresh(model, fx);
     refresh(model, fx);
 }
@@ -1697,7 +1704,8 @@ test "checkout argv keeps the name as its own slot and rejects implausible names
     try std.testing.expect(git_numstat.git_numstat_key_first > git_fetch_key_first);
     try std.testing.expect(git_push_key_first > git_numstat.git_numstat_key_first);
     try std.testing.expect(git_worktree_add_key_first > git_push_key_first);
-    try std.testing.expect(file_mention.file_mention_key_first > git_worktree_add_key_first);
+    try std.testing.expect(git_ahead_behind.git_ahead_behind_key_first > git_worktree_add_key_first);
+    try std.testing.expect(file_mention.file_mention_key_first > git_ahead_behind.git_ahead_behind_key_first);
 }
 
 test "track checkout argv is checkout --track with the name as its own slot and rejects implausible names" {
@@ -1866,7 +1874,8 @@ test "fetch argv is fetch --prune as its own slot and is not fetch-without-prune
     try std.testing.expect(git_numstat.git_numstat_key_first > git_fetch_key_first);
     try std.testing.expect(git_push_key_first > git_numstat.git_numstat_key_first);
     try std.testing.expect(git_worktree_add_key_first > git_push_key_first);
-    try std.testing.expect(file_mention.file_mention_key_first > git_worktree_add_key_first);
+    try std.testing.expect(git_ahead_behind.git_ahead_behind_key_first > git_worktree_add_key_first);
+    try std.testing.expect(file_mention.file_mention_key_first > git_ahead_behind.git_ahead_behind_key_first);
 }
 
 test "push argv is git push with no extra flags and is not fetch/checkout/create/delete" {
@@ -1947,7 +1956,8 @@ test "push argv is git push with no extra flags and is not fetch/checkout/create
     try std.testing.expect(!isGitRemoteArgv(argv));
     try std.testing.expect(git_push_key_first > git_numstat.git_numstat_key_first);
     try std.testing.expect(git_worktree_add_key_first > git_push_key_first);
-    try std.testing.expect(file_mention.file_mention_key_first > git_worktree_add_key_first);
+    try std.testing.expect(git_ahead_behind.git_ahead_behind_key_first > git_worktree_add_key_first);
+    try std.testing.expect(file_mention.file_mention_key_first > git_ahead_behind.git_ahead_behind_key_first);
 }
 
 test "worktree name sanitization refuses empty, slash, and implausible names" {
@@ -2030,7 +2040,8 @@ test "worktree add argv is mkdir+chdir plus worktree add -b with branch and path
         "faku/feat",
     }));
     try std.testing.expect(git_worktree_add_key_first > git_push_key_first);
-    try std.testing.expect(file_mention.file_mention_key_first > git_worktree_add_key_first);
+    try std.testing.expect(git_ahead_behind.git_ahead_behind_key_first > git_worktree_add_key_first);
+    try std.testing.expect(file_mention.file_mention_key_first > git_ahead_behind.git_ahead_behind_key_first);
 }
 
 test "handleWorktreeAddExit success retargets project_path; failure leaves it" {
