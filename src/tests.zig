@@ -8007,6 +8007,7 @@ test "cmd-f and ctrl-f open transcript find via onKey" {
     main.update(&model, .stop, &fx);
     try testing.expect(!model.find_active);
     try testing.expectEqualStrings("", model.find_query());
+    try testing.expectEqual(@as(u32, 0), model.find_match_index);
 
     const ctrl_f = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
@@ -8078,20 +8079,22 @@ test "transcript find filters the selected session's visible turns" {
     try testing.expectEqualStrings("Find", find_field.placeholder);
     try testing.expect(findAnyText(tree.root, "alpha hello"));
     try testing.expect(findAnyText(tree.root, "beta world"));
-    try testing.expect(findByText(tree.root, .text, "1 match") == null);
+    try testing.expect(findByText(tree.root, .text, "1 of 1") == null);
     try testing.expect(findByText(tree.root, .text, "No matches") == null);
 
     main.update(&model, .{ .find_edit = .{ .insert_text = "hello" } }, &fx);
     try testing.expectEqualStrings("hello", model.find_query());
     try expectTurnTexts(model.visible_turns(arena), &.{"alpha hello"});
-    try testing.expectEqualStrings("1 match", model.find_match_label(arena));
+    try testing.expectEqualStrings("1 of 1", model.find_match_label(arena));
+    try testing.expectEqual(@as(u32, 0), model.find_match_index);
+    try testing.expect(model.visible_turns(arena)[0].is_find_current);
     try testing.expect(model.has_find_match_label());
 
     tree = try buildTree(arena, &model);
     try testing.expect(findAnyText(tree.root, "alpha hello"));
     try testing.expect(!findAnyText(tree.root, "beta world"));
     _ = try expectByText(tree.root, .search_field, "Find in transcript");
-    _ = try expectByText(tree.root, .text, "1 match");
+    _ = try expectByText(tree.root, .text, "1 of 1");
 
     main.update(&model, .{ .find_edit = .clear }, &fx);
     try testing.expectEqualStrings("", model.find_query());
@@ -8099,14 +8102,19 @@ test "transcript find filters the selected session's visible turns" {
     try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "beta world" });
     try testing.expectEqualStrings("", model.find_match_label(arena));
     try testing.expect(!model.has_find_match_label());
+    try testing.expect(!model.visible_turns(arena)[0].is_find_current);
+    try testing.expect(!model.visible_turns(arena)[1].is_find_current);
 
     main.update(&model, .{ .find_edit = .{ .insert_text = "a" } }, &fx);
     try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "beta world" });
-    try testing.expectEqualStrings("2 matches", model.find_match_label(arena));
+    try testing.expectEqualStrings("1 of 2", model.find_match_label(arena));
+    try testing.expectEqual(@as(u32, 0), model.find_match_index);
     try testing.expect(model.has_find_match_label());
+    try testing.expect(model.visible_turns(arena)[0].is_find_current);
+    try testing.expect(!model.visible_turns(arena)[1].is_find_current);
 
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "2 matches");
+    _ = try expectByText(tree.root, .text, "1 of 2");
     try testing.expect(findAnyText(tree.root, "alpha hello"));
     try testing.expect(findAnyText(tree.root, "beta world"));
 
@@ -8115,6 +8123,7 @@ test "transcript find filters the selected session's visible turns" {
     try expectTurnTexts(model.visible_turns(arena), &.{});
     try testing.expect(model.find_active);
     try testing.expectEqualStrings("No matches", model.find_match_label(arena));
+    try testing.expectEqual(@as(u32, 0), model.find_match_index);
     try testing.expect(model.has_find_match_label());
 
     tree = try buildTree(arena, &model);
@@ -8128,7 +8137,8 @@ test "transcript find filters the selected session's visible turns" {
     try testing.expect(model.find_active);
     try testing.expectEqualStrings("zzz", model.find_query());
     try expectTurnTexts(model.visible_turns(arena), &.{"zzz only here"});
-    try testing.expectEqualStrings("1 match", model.find_match_label(arena));
+    try testing.expectEqualStrings("1 of 1", model.find_match_label(arena));
+    try testing.expect(model.visible_turns(arena)[0].is_find_current);
 
     main.update(&model, .{ .select = id }, &fx);
     try expectTurnTexts(model.visible_turns(arena), &.{});
@@ -8175,6 +8185,7 @@ test "close find button clears the query and restores all turns" {
     main.update(&model, tree.msgForPointer(close.id, .up).?, &fx);
     try testing.expect(!model.find_active);
     try testing.expectEqualStrings("", model.find_query());
+    try testing.expectEqual(@as(u32, 0), model.find_match_index);
     try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "beta world" });
 
     tree = try buildTree(arena, &model);
@@ -8182,6 +8193,139 @@ test "close find button clears the query and restores all turns" {
     try testing.expect(findByText(tree.root, .search_field, "Find in transcript") == null);
     try testing.expect(findAnyText(tree.root, "alpha hello"));
     try testing.expect(findAnyText(tree.root, "beta world"));
+}
+
+test "cmd-g and cmd-shift-g cycle the current matching turn" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("find nav", .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .user, "alpha hello");
+    _ = model.appendTurn(id, .assistant, "beta world");
+    _ = model.appendTurn(id, .user, "gamma hello again");
+
+    const plain_g = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "g" };
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_g));
+
+    const cmd_g = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "g",
+        .modifiers = .{ .super = true },
+    };
+    const cmd_shift_g = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "G",
+        .modifiers = .{ .super = true, .shift = true },
+    };
+    const ctrl_g = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "g",
+        .modifiers = .{ .control = true },
+    };
+    const ctrl_shift_g = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "g",
+        .modifiers = .{ .control = true, .shift = true },
+    };
+    try testing.expectEqual(Msg.find_next, keys.onKey(cmd_g).?);
+    try testing.expectEqual(Msg.find_prev, keys.onKey(cmd_shift_g).?);
+    try testing.expectEqual(Msg.find_next, keys.onKey(ctrl_g).?);
+    try testing.expectEqual(Msg.find_prev, keys.onKey(ctrl_shift_g).?);
+
+    main.update(&model, keys.onKey(cmd_g).?, &fx);
+    try testing.expect(!model.find_active);
+    try testing.expectEqual(@as(u32, 0), model.find_match_index);
+    try testing.expectEqualStrings("", model.find_match_label(arena));
+
+    main.update(&model, .open_find, &fx);
+    try testing.expectEqual(@as(u32, 0), model.find_match_index);
+    try testing.expectEqualStrings("", model.find_match_label(arena));
+
+    var tree = try buildTree(arena, &model);
+    const prev_btn = try expectButton(tree.root, "Previous match");
+    const next_btn = try expectButton(tree.root, "Next match");
+    try testing.expectEqual(Msg.find_prev, tree.msgForPointer(prev_btn.id, .up).?);
+    try testing.expectEqual(Msg.find_next, tree.msgForPointer(next_btn.id, .up).?);
+
+    main.update(&model, .{ .find_edit = .{ .insert_text = "zzz" } }, &fx);
+    try testing.expectEqualStrings("No matches", model.find_match_label(arena));
+    try testing.expectEqual(@as(u32, 0), model.find_match_index);
+    main.update(&model, keys.onKey(cmd_g).?, &fx);
+    main.update(&model, keys.onKey(cmd_shift_g).?, &fx);
+    try testing.expectEqual(@as(u32, 0), model.find_match_index);
+    try testing.expectEqualStrings("No matches", model.find_match_label(arena));
+
+    main.update(&model, .{ .find_edit = .clear }, &fx);
+    main.update(&model, .{ .find_edit = .{ .insert_text = "hello" } }, &fx);
+    try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "gamma hello again" });
+    try testing.expectEqualStrings("1 of 2", model.find_match_label(arena));
+    try testing.expectEqual(@as(u32, 0), model.find_match_index);
+    try testing.expect(model.visible_turns(arena)[0].is_find_current);
+    try testing.expect(!model.visible_turns(arena)[1].is_find_current);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "1 of 2");
+    const first = try expectByText(tree.root, .list_item, "alpha hello");
+    const second = try expectByText(tree.root, .list_item, "gamma hello again");
+    try testing.expect(first.state.selected);
+    try testing.expect(!second.state.selected);
+
+    main.update(&model, keys.onKey(cmd_g).?, &fx);
+    try testing.expectEqual(@as(u32, 1), model.find_match_index);
+    try testing.expectEqualStrings("2 of 2", model.find_match_label(arena));
+    try testing.expect(!model.visible_turns(arena)[0].is_find_current);
+    try testing.expect(model.visible_turns(arena)[1].is_find_current);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "2 of 2");
+    try testing.expect(!(try expectByText(tree.root, .list_item, "alpha hello")).state.selected);
+    try testing.expect((try expectByText(tree.root, .list_item, "gamma hello again")).state.selected);
+
+    main.update(&model, keys.onKey(cmd_g).?, &fx);
+    try testing.expectEqual(@as(u32, 0), model.find_match_index);
+    try testing.expectEqualStrings("1 of 2", model.find_match_label(arena));
+    try testing.expect(model.visible_turns(arena)[0].is_find_current);
+
+    main.update(&model, keys.onKey(cmd_shift_g).?, &fx);
+    try testing.expectEqual(@as(u32, 1), model.find_match_index);
+    try testing.expectEqualStrings("2 of 2", model.find_match_label(arena));
+
+    main.update(&model, keys.onKey(cmd_shift_g).?, &fx);
+    try testing.expectEqual(@as(u32, 0), model.find_match_index);
+    try testing.expectEqualStrings("1 of 2", model.find_match_label(arena));
+
+    tree = try buildTree(arena, &model);
+    const next_again = try expectButton(tree.root, "Next match");
+    const prev_again = try expectButton(tree.root, "Previous match");
+    main.update(&model, tree.msgForPointer(next_again.id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 1), model.find_match_index);
+    main.update(&model, tree.msgForPointer(prev_again.id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 0), model.find_match_index);
+
+    main.update(&model, .{ .find_edit = .{ .insert_text = " again" } }, &fx);
+    try expectTurnTexts(model.visible_turns(arena), &.{"gamma hello again"});
+    try testing.expectEqual(@as(u32, 0), model.find_match_index);
+    try testing.expectEqualStrings("1 of 1", model.find_match_label(arena));
+    try testing.expect(model.visible_turns(arena)[0].is_find_current);
+
+    main.update(&model, keys.onKey(ctrl_g).?, &fx);
+    try testing.expectEqual(@as(u32, 0), model.find_match_index);
+    try testing.expectEqualStrings("1 of 1", model.find_match_label(arena));
+
+    main.update(&model, .close_find, &fx);
+    try testing.expect(!model.find_active);
+    try testing.expectEqualStrings("", model.find_query());
+    try testing.expectEqual(@as(u32, 0), model.find_match_index);
+    try testing.expectEqualStrings("", model.find_match_label(arena));
+    try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "beta world", "gamma hello again" });
+    try testing.expect(!model.visible_turns(arena)[0].is_find_current);
 }
 
 test "cmd-l and ctrl-l focus the composer via onKey" {

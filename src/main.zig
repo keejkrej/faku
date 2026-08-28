@@ -341,15 +341,21 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .open_find => {
             model.find_active = true;
             model.composer_active = false;
+            model.resetFindMatchIndex();
         },
         .close_find => model.exitFind(),
+        .find_next => model.stepFindMatch(false),
+        .find_prev => model.stepFindMatch(true),
         .focus_composer => model.composer_active = true,
         .search_edit => |edit| {
             model.search_buffer.apply(edit);
             model.palette_highlight = 0;
             if (model.palette_open) palette_run.clampPaletteHighlight(model);
         },
-        .find_edit => |edit| model.find_buffer.apply(edit),
+        .find_edit => |edit| {
+            model.find_buffer.apply(edit);
+            model.resetFindMatchIndex();
+        },
         .draft_edit => |edit| {
             model.draft_buffer.apply(edit);
             store.persistDraftIfPossible(model);

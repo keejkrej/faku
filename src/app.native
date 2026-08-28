@@ -223,6 +223,8 @@
           <if test="{has_find_match_label}">
             <text wrap="false" overflow="ellipsis" foreground="text_muted">{find_match_label}</text>
           </if>
+          <button variant="ghost" size="icon" icon="chevron-up" label="Previous match" on-press="find_prev"></button>
+          <button variant="ghost" size="icon" icon="chevron-down" label="Next match" on-press="find_next"></button>
           <button variant="ghost" size="icon" icon="x" label="Close find" on-press="close_find"></button>
         </row>
       </if>
@@ -230,6 +232,7 @@
         <row grow="1" main="center">
           <column grow="1" max-width="720" gap="8">
             <for each="visible_turns" key="id" as="t">
+              <list-item selected="{t.is_find_current}" label="{t.text}">
               <if test="{t.is_user}">
                 <column gap="2" cross="end">
                     <row gap="4" cross="center">
@@ -276,6 +279,7 @@
                   </else>
                 </else>
               </else>
+              </list-item>
             </for>
             <else>
               <column grow="1" gap="8" main="center" cross="center">
