@@ -221,9 +221,9 @@ pub const open_editor_key = open_editor.open_editor_key;
 /// pick-image / fx-ask / daemon / clipboard / probe keys. Incremented
 /// per refresh from `git_branch_key_first`.
 pub const git_branch_key_first = git_branch.git_branch_key_first;
-/// One-shot `git ls-files` probe for composer `@` mentions. Distinct
-/// from git_branch (200+). Incremented per refresh from
-/// `file_mention_key_first` (400).
+/// One-shot `git ls-files --cached --others --exclude-standard` probe
+/// for composer `@` mentions. Distinct from git_branch (200+).
+/// Incremented per refresh from `file_mention_key_first` (400).
 pub const file_mention_key_first = file_mention.file_mention_key_first;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.

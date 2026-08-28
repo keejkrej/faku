@@ -41,11 +41,12 @@ the composer project row sets the selected session cwd and, when that
 path exists, shows a muted one-shot `git branch --show-current` label
 (not Waku's daemon branch picker; Native still has no git effect);
 typing `@` in the composer (last whitespace token; caret assumed at
-the end — Native has no caret API) opens a small card of tracked
-files from a one-shot `git ls-files` of that same workspace when the
-cache has matches (`user@host` does not trigger; slash prefix stays
-authoritative; visible rows are scored over that bounded cache, not
-Waku's 50k-file index / caret-aware trigger / untracked files);
+the end — Native has no caret API) opens a small card of files from
+a one-shot `git ls-files --cached --others --exclude-standard` of
+that same workspace when the cache has matches (`user@host` does not
+trigger; slash prefix stays authoritative; visible rows are scored
+over that bounded cache, not Waku's 50k-file index or caret-aware
+trigger);
 the usage control stays empty unless ACP reports `usage_update`; user and
 assistant turns render Native markdown; the transcript stays pinned
 to the latest turn via Native `scroll` `value` / `on-scroll`
@@ -150,13 +151,14 @@ on the session. Composer Commands inserts `/name ` into the draft; typing
 `/` in the composer opens that same stored list. It does not run the command.
 Typing `@` (last whitespace-separated token; `user@host` does not
 trigger; mid-prompt `@foo` with more text after it is not a mention
-under the caret-at-end assumption) opens a tracked-file mention list
-from the runtime `git ls-files` cache when that cache has matches.
+under the caret-at-end assumption) opens a mention list from the
+runtime `git ls-files --cached --others --exclude-standard` cache
+when that cache has matches.
 A non-empty `@query` ranks visible rows by match quality (basename
 prefix, then basename contains / path-segment prefix, then full-path
 contains) rather than first-N contains in cache order. Empty `@`
 keeps a stable path order. Cap remains 12. Not Waku's 50k-file
-index, caret-aware trigger, or untracked files.
+index or caret-aware trigger.
 Slash prefix stays authoritative; the two lists never show together.
 Clicking a row replaces only that last `@query` token with `@relpath`
 plus a trailing space. Paths stay repo-relative as `git ls-files`
@@ -236,14 +238,15 @@ Waku's daemon `InspectBranches` / checkout picker, not a live watch,
 and not a `git status` dirty count. Native still has no git effect.
 The branch is runtime-only (like the busy spinner) and is not stored
 on `sessions.json`. There is no worktree materialization.
-The same refresh also one-shots `git ls-files` (same chdir
-workaround) and keeps a bounded runtime list of tracked relative
-paths for composer `@` mentions. That cache is not stored on
-`sessions.json`. The visible mention card is scored/fuzzy-ranked
-over this cache (`composer.fileMentionScore`); it is still not
-Waku's 50k-file index, caret-aware trigger, untracked files, a
-daemon catalog, or a live watch. Untracked / ignored / non-git
-workspaces / Windows stay empty this cut.
+The same refresh also one-shots
+`git ls-files --cached --others --exclude-standard` (same chdir
+workaround) and keeps a bounded runtime list of tracked and
+untracked, non-ignored relative paths for composer `@` mentions.
+That cache is not stored on `sessions.json`. The visible mention
+card is scored/fuzzy-ranked over this cache
+(`composer.fileMentionScore`); it is still not Waku's 50k-file
+index, caret-aware trigger, a daemon catalog, or a live watch.
+Ignored / non-git workspaces / Windows stay empty this cut.
 
 A stdout ACP `session/new` result with `sessionId` updates the stored
 id and is not appended to the assistant turn. `fx ask --json` lines

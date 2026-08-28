@@ -220,8 +220,9 @@ pub const CommandRow = struct {
     has_description: bool,
 };
 
-/// Tracked-file mention row. `id` is a 1-based index into the runtime
-/// `git ls-files` cache (stable across the visible ranked filter) so
+/// File-mention row. `id` is a 1-based index into the runtime
+/// `git ls-files --cached --others --exclude-standard` cache (stable
+/// across the visible ranked filter) so
 /// Native `insert_mention:{m.id}` never binds 0 and a filtered click
 /// still inserts that path, not a neighbor. `name` / `parent` are
 /// slices of `path` for scanable labels.
@@ -494,8 +495,9 @@ pub const Model = struct {
     git_branch_probe_session: u32 = 0,
     git_branch_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_branch_probe_path_len: usize = 0,
-    /// Runtime-only tracked-file cache for composer `@` mentions.
-    /// One-shot `git ls-files`; not persisted to sessions.json.
+    /// Runtime-only file cache for composer `@` mentions.
+    /// One-shot `git ls-files --cached --others --exclude-standard`;
+    /// not persisted to sessions.json.
     file_mention_store: [file_mention.max_file_mentions]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** file_mention.max_file_mentions,
     file_mention_count: u32 = 0,
     file_mention_key: u64 = 0,
@@ -2109,8 +2111,9 @@ pub const Model = struct {
     }
 
     /// Replace the last `@query` token with `@relpath ` from the
-    /// runtime `git ls-files` cache. Writes the composer draft only —
-    /// no spawn, no ACP method. Focuses the composer.
+    /// runtime `git ls-files --cached --others --exclude-standard`
+    /// cache. Writes the composer draft only — no spawn, no ACP
+    /// method. Focuses the composer.
     pub fn insertAvailableMention(model: *Model, id: u32) void {
         if (id == 0 or id > model.file_mention_count) return;
         const relpath = model.file_mention_store[id - 1].text();
