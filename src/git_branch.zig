@@ -22,8 +22,9 @@ const writeFixed = main.writeFixed;
 
 /// One-shot `git branch --show-current` probe. Distinct from maximize /
 /// pick-image / fx-ask / daemon / clipboard / probe keys, from
-/// git_dirty (300+), and from file_mention (400+). Incremented per
-/// refresh so a cancelled spawn cannot paint a later session.
+/// git_dirty (300+), git_numstat (350+), and from file_mention
+/// (400+). Incremented per refresh so a cancelled spawn cannot
+/// paint a later session.
 pub const git_branch_key_first: u64 = 200;
 
 pub const max_git_branch: usize = 255;

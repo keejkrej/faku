@@ -16,6 +16,7 @@ const store = @import("store.zig");
 const session_mod = @import("session.zig");
 const git_branch = @import("git_branch.zig");
 const git_dirty = @import("git_dirty.zig");
+const git_numstat = @import("git_numstat.zig");
 const file_mention = @import("file_mention.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
@@ -519,6 +520,17 @@ pub const Model = struct {
     git_dirty_probe_session: u32 = 0,
     git_dirty_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_dirty_probe_path_len: usize = 0,
+    /// Runtime-only composer tracked +/-. One-shot `git diff
+    /// --numstat HEAD --`; not persisted to sessions.json.
+    git_numstat_additions: u64 = 0,
+    git_numstat_deletions: u64 = 0,
+    git_numstat_label_storage: [git_numstat.max_git_numstat_label]u8 = [_]u8{0} ** git_numstat.max_git_numstat_label,
+    git_numstat_label_len: usize = 0,
+    git_numstat_key: u64 = 0,
+    next_git_numstat_key: u64 = git_numstat.git_numstat_key_first,
+    git_numstat_probe_session: u32 = 0,
+    git_numstat_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    git_numstat_probe_path_len: usize = 0,
     /// Runtime-only file cache for composer `@` mentions.
     /// Git ls-files first; bounded walk only when that spawn fails.
     /// Not persisted to sessions.json.
@@ -727,6 +739,15 @@ pub const Model = struct {
         "git_dirty_probe_session",
         "git_dirty_probe_path_storage",
         "git_dirty_probe_path_len",
+        "git_numstat_additions",
+        "git_numstat_deletions",
+        "git_numstat_label_storage",
+        "git_numstat_label_len",
+        "git_numstat_key",
+        "next_git_numstat_key",
+        "git_numstat_probe_session",
+        "git_numstat_probe_path_storage",
+        "git_numstat_probe_path_len",
         "file_mention_store",
         "file_mention_count",
         "file_mention_key",
@@ -1804,6 +1825,15 @@ pub const Model = struct {
 
     pub fn has_git_dirty(model: *const Model) bool {
         return git_dirty.hasGitDirty(model);
+    }
+
+    /// Runtime-only muted tracked +/- on the composer project row.
+    pub fn git_numstat_label(model: *const Model) []const u8 {
+        return git_numstat.gitNumstatLabel(model);
+    }
+
+    pub fn has_git_numstat(model: *const Model) bool {
+        return git_numstat.hasGitNumstat(model);
     }
 
     /// Composer usage control. 0 when the live path has not reported usage.

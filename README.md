@@ -39,7 +39,10 @@ static from last `wallMs`, not a live ticker);
 sidebar folder rows have a Native context menu (Rename / Delete);
 the composer project row sets the selected session cwd and, when that
 path exists, shows a muted one-shot `git branch --show-current` label
-(not Waku's daemon branch picker; Native still has no git effect);
+plus a one-shot `git status --porcelain` dirty file count and a
+one-shot `git diff --numstat HEAD` tracked +/- (not Waku's daemon
+branch picker, Environment Summary, or untracked-as-additions;
+Native still has no git effect);
 typing `@` in the composer (last whitespace token; caret assumed at
 the end — Native has no caret API) opens a small card of files and
 derived parent directories (trailing slash) from a one-shot
@@ -78,7 +81,8 @@ stdout / ACP / daemon line handlers and fx-exit routing live in
 `src/open_terminal.zig`. Composer Open in Editor helpers live in
 `src/open_editor.zig`. Composer git-branch probe helpers live in
 `src/git_branch.zig`. Composer git-dirty probe helpers live in
-`src/git_dirty.zig`. Composer `@` file-mention probe helpers live in
+`src/git_dirty.zig`. Composer git-numstat probe helpers live in
+`src/git_numstat.zig`. Composer `@` file-mention probe helpers live in
 `src/file_mention.zig`. Boot fx-probe spawn/exit lives in
 `src/fx_probe.zig`. Folder/chip persist helpers live in
 `src/persist.zig`. Session / folder / title-edit update helpers live
@@ -250,13 +254,19 @@ same `/bin/sh -c 'cd -- "$1" && shift && exec "$@"'` workaround
 HEAD and non-repos print empty; the label is omitted. The same
 refresh also one-shots `git status --porcelain` and, when that
 stdout has non-empty lines, a muted `N change` / `N changes` label
-next to the branch (one line per path; blank lines ignored). Zero,
-failed, or skipped probes omit the label — this cut does not invent
-"clean". This is not Waku's daemon `InspectBranches` / checkout
-picker, not a live watch, not a commit dialog, not a staged/unstaged
-split, and not Waku's Environment Summary. Native still has no git
-effect. The branch and dirty count are runtime-only (like the busy
-spinner) and are not stored on `sessions.json`. There is no worktree
+next to the branch (one line per path; blank lines ignored). The
+same refresh also one-shots `git diff --numstat HEAD --` and, when
+tracked additions or deletions are non-zero, a muted `+N −M` label
+next to the dirty count (binary `-` rows skipped; blank lines
+ignored). Zero, failed, or skipped probes omit those labels — this
+cut does not invent "clean" and does not count untracked files
+(Waku's BranchSnapshot also adds untracked text-line additions;
+that stays a leftover). This is not Waku's daemon `InspectBranches`
+/ checkout picker, not a live watch, not a commit dialog, not a
+staged/unstaged split, not Waku's Environment Summary, and not
+Review. Native still has no git effect. The branch, dirty count,
+and tracked +/- are runtime-only (like the busy spinner) and are
+not stored on `sessions.json`. There is no worktree
 materialization.
 The same refresh also one-shots
 `git ls-files --cached --others --exclude-standard` (same chdir
