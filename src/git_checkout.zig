@@ -31,20 +31,31 @@
 //! (`--set-upstream`, remote, and branch each their own argv slot;
 //! remote prefers `origin` from `git remote`, else the first name).
 //! Detached HEAD or no remotes set a short composer status and do
-//! not spawn a push. New worktree… one-shots
-//! `git worktree add -b faku/<name> <path>` from current HEAD
-//! (`-b`, the branch, and the path each their own argv slot;
+//! not spawn a push. New worktree… prefills the runtime-only card
+//! from a prompt slug of the selected session title (empty /
+//! non-ascii-only → `new-worktree`; user can still edit). Confirm
+//! probes `git symbolic-ref --quiet --short refs/remotes/origin/HEAD`
+//! (chdir script; no interpolation; key band 390+) then one-shots
+//! `git worktree add -b faku/<name> <path>` with that default base
+//! as its own trailing argv slot when one resolves (`-b`, the
+//! branch, the path, and the optional base each their own slot;
 //! `mkdir -p` of `~/.faku/worktrees` via a fixed script and the
-//! parent as an argv slot). Success retargets the selected
-//! session `project_path` to that absolute path. Not force, not
-//! daemon `WorkspaceOperation::Push` / `NewWorktree`, not
+//! parent as an argv slot). `origin/<name>` prefers `<name>` when
+//! that is a plausible branch; otherwise the whole `origin/<name>`
+//! string when it is a safe argv. Failed / empty / exit 1 falls
+//! back to the cached composer branch label (`pushBranchFromLabel`,
+//! not a detached short SHA) and otherwise omits the base (today's
+//! HEAD). Dest stays flat `~/.faku/worktrees/<name>`. Collision
+//! still fails with status. Success retargets the selected session
+//! `project_path` to that absolute path. Not force, not daemon
+//! `WorkspaceOperation::Push` / `NewWorktree`, not
 //! `InspectCommit` / `Commit`. Cap is 64 local heads plus 32
 //! remote-tracking names that have no local counterpart (skip
 //! symbolic `*/HEAD`), sorted lexicographically. Not Waku's daemon
-//! `InspectBranches` picker, live watch, Waku prompt-slug /
-//! `waku/` prefix / `~/.waku/worktrees/{project_id}`, defer-until-
-//! Send workspace mode, base-ref picker, prune-alone, stash,
-//! merge, force delete, canonicalize(show-toplevel), or
+//! `InspectBranches` picker, live watch, `waku/` prefix /
+//! `~/.waku/worktrees/{project_id}` nesting, collision suffixes,
+//! defer-until-Send workspace mode, base-ref picker UI, prune-alone,
+//! stash, merge, force delete, canonicalize(show-toplevel), or
 //! Environment Summary.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
@@ -68,17 +79,17 @@ const writeFixed = main.writeFixed;
 /// git_branch (200+), git_checkout (275+; also `--track`),
 /// git_create (290+), git_dirty (300+), git_delete (320+),
 /// git_fetch (340+), git_numstat (350+), git_push (360+),
-/// git_worktree_add (370+), git_ahead_behind (380+), and
-/// file_mention (400+). Incremented per refresh so a cancelled
-/// spawn cannot paint a later session.
+/// git_worktree_add (370+), git_ahead_behind (380+),
+/// git_worktree_base (390+), and file_mention (400+). Incremented
+/// per refresh so a cancelled spawn cannot paint a later session.
 pub const git_branch_list_key_first: u64 = 250;
 
 /// One-shot `git checkout <name>` or `git checkout --track <name>`.
 /// Distinct from the list family (250+), git_create (290+),
 /// git_branch (200+), git_dirty (300+), git_delete (320+),
 /// git_fetch (340+), git_numstat (350+), git_push (360+),
-/// git_worktree_add (370+), git_ahead_behind (380+), and
-/// file_mention (400+).
+/// git_worktree_add (370+), git_ahead_behind (380+),
+/// git_worktree_base (390+), and file_mention (400+).
 pub const git_checkout_key_first: u64 = 275;
 
 /// One-shot `git checkout -b <name>`. Distinct from list (250+),
@@ -124,11 +135,19 @@ pub const GitPushPhase = enum(u8) {
 /// One-shot `git worktree add -b`. Distinct from list (250+),
 /// checkout (275+), create (290+), git_dirty (300+), git_delete
 /// (320+), git_fetch (340+), git_numstat (350+), git_push (360+),
-/// git_ahead_behind (380+), and file_mention (400+). Band is
-/// 370+ (between push 360+ and ahead-behind 380+). Incremented
-/// per spawn so a cancelled worktree-add cannot paint a later
-/// session.
+/// git_ahead_behind (380+), git_worktree_base (390+), and
+/// file_mention (400+). Band is 370+ (between push 360+ and
+/// ahead-behind 380+). Incremented per spawn so a cancelled
+/// worktree-add cannot paint a later session.
 pub const git_worktree_add_key_first: u64 = 370;
+
+/// One-shot `git symbolic-ref --quiet --short refs/remotes/origin/HEAD`
+/// probe that chooses the New worktree… base ref. Distinct from
+/// git_worktree_add (370+), git_ahead_behind (380+), and
+/// file_mention (400+). Band is 390+ (between ahead-behind 380+
+/// and file_mention 400+). Incremented per probe so a cancelled
+/// spawn cannot drive a later add.
+pub const git_worktree_base_key_first: u64 = 390;
 
 pub const max_local_branches: usize = 64;
 pub const max_remote_branches: usize = 32;
@@ -166,8 +185,15 @@ pub const git_upstream_rev = "@{upstream}";
 pub const git_origin_remote = "origin";
 pub const git_worktree_cmd = "worktree";
 pub const git_worktree_add_cmd = "add";
+pub const git_symbolic_ref_cmd = "symbolic-ref";
+pub const git_quiet_flag = "--quiet";
+pub const git_short_flag = "--short";
+pub const git_origin_head_ref = "refs/remotes/origin/HEAD";
 pub const worktree_branch_prefix = "faku/";
 pub const worktree_parent_suffix = ".faku/worktrees";
+pub const worktree_slug_default = "new-worktree";
+pub const max_worktree_slug_bytes: usize = 48;
+pub const max_worktree_slug_words: usize = 6;
 /// `mkdir -p` the parent (`$1`), then chdir to the repo (`$2`) and
 /// exec the remaining argv. Parent, cwd, branch, and path stay
 /// argv slots — never interpolated into this script.
@@ -185,7 +211,9 @@ const upstream_argv_len: usize = 10;
 const remote_argv_len: usize = 7;
 const show_current_argv_len: usize = 8;
 const set_upstream_push_argv_len: usize = 10;
-const worktree_add_argv_len: usize = 12;
+const worktree_add_no_base_argv_len: usize = 12;
+const worktree_add_argv_len: usize = 13;
+const worktree_base_argv_len: usize = 10;
 
 pub const CachedBranch = struct {
     storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
@@ -533,6 +561,86 @@ pub fn pushBranchFromLabel(label: []const u8) ?[]const u8 {
     return label;
 }
 
+/// Prompt slug for New worktree… (pure, no I/O). Lowercase ASCII,
+/// split on non-ascii-alnum, take six words, join with `-`,
+/// truncate to 48 bytes. Empty → `new-worktree`. Same rules as
+/// Waku's `worktree_slug`; not a collision suffix and not a
+/// `{project_id}` nest.
+pub fn worktreeSlug(prompt: []const u8, buf: []u8) []const u8 {
+    var out_len: usize = 0;
+    var words: usize = 0;
+    var in_word = false;
+    for (prompt) |c| {
+        if (std.ascii.isAlphanumeric(c)) {
+            if (!in_word) {
+                if (words >= max_worktree_slug_words) break;
+                if (words > 0) {
+                    if (out_len >= max_worktree_slug_bytes) break;
+                    if (out_len < buf.len) {
+                        buf[out_len] = '-';
+                        out_len += 1;
+                    } else break;
+                }
+                words += 1;
+                in_word = true;
+            }
+            if (out_len >= max_worktree_slug_bytes) break;
+            if (out_len >= buf.len) break;
+            buf[out_len] = std.ascii.toLower(c);
+            out_len += 1;
+        } else {
+            in_word = false;
+        }
+    }
+    if (out_len == 0) return worktree_slug_default;
+    return buf[0..out_len];
+}
+
+/// First stdout line of `symbolic-ref --quiet --short refs/remotes/origin/HEAD`.
+/// `origin/<name>` prefers `<name>` when that is a plausible branch;
+/// otherwise the whole line when it is a safe argv. Empty / unsafe
+/// is a miss so the caller can fall back to the cached label.
+pub fn worktreeBaseFromSymbolicRef(raw: []const u8) ?[]const u8 {
+    const line = git_branch.firstStdoutBranch(raw);
+    if (line.len == 0) return null;
+    if (std.mem.startsWith(u8, line, "origin/")) {
+        const local = line["origin/".len..];
+        if (git_branch.isPlausibleBranchName(local)) return local;
+    }
+    if (git_branch.isPlausibleBranchName(line)) return line;
+    return null;
+}
+
+/// `git symbolic-ref --quiet --short refs/remotes/origin/HEAD` as
+/// trailing argv slots — never interpolated into the `-c` script.
+pub fn worktreeBaseArgvFor(cwd: []const u8, buf: *[worktree_base_argv_len][]const u8) []const []const u8 {
+    buf.* = .{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        cwd,
+        git_bin,
+        git_symbolic_ref_cmd,
+        git_quiet_flag,
+        git_short_flag,
+        git_origin_head_ref,
+    };
+    return buf;
+}
+
+pub fn isGitWorktreeBaseArgv(argv: []const []const u8) bool {
+    if (argv.len != worktree_base_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], "-c")) return false;
+    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[5], git_bin)) return false;
+    if (!std.mem.eql(u8, argv[6], git_symbolic_ref_cmd)) return false;
+    if (!std.mem.eql(u8, argv[7], git_quiet_flag)) return false;
+    if (!std.mem.eql(u8, argv[8], git_short_flag)) return false;
+    return std.mem.eql(u8, argv[9], git_origin_head_ref);
+}
+
 /// Trim + `isPlausibleBranchName`, and refuse `/` so the dest is one
 /// directory under `~/.faku/worktrees`. Empty / unsafe names stay
 /// refused — this is not a rewrite sanitizer.
@@ -573,14 +681,16 @@ pub fn isSafeWorktreePath(path: []const u8) bool {
     return true;
 }
 
-/// `mkdir -p -- <parent> && cd -- <cwd> && git worktree add -b <branch> <path>`.
-/// Parent, cwd, branch, and path are argv slots. Rejects unsafe names
-/// so a raw string never reaches the shell script.
+/// `mkdir -p -- <parent> && cd -- <cwd> && git worktree add -b <branch> <path> [base]`.
+/// Parent, cwd, branch, path, and optional base are argv slots.
+/// Empty `base` omits the trailing slot (today's HEAD). Rejects
+/// unsafe names so a raw string never reaches the shell script.
 pub fn worktreeAddArgvFor(
     cwd: []const u8,
     parent: []const u8,
     branch: []const u8,
     path: []const u8,
+    base: []const u8,
     buf: *[worktree_add_argv_len][]const u8,
 ) ?[]const []const u8 {
     if (cwd.len == 0 or !isSafeWorktreePath(parent) or !isSafeWorktreePath(path)) return null;
@@ -588,25 +698,26 @@ pub fn worktreeAddArgvFor(
     if (!std.mem.startsWith(u8, branch, worktree_branch_prefix)) return null;
     if (sanitizeWorktreeName(branch[worktree_branch_prefix.len..]) == null) return null;
     if (!std.mem.startsWith(u8, path, parent)) return null;
-    buf.* = .{
-        sh_bin,
-        "-c",
-        git_worktree_mkdir_chdir_script,
-        "sh",
-        parent,
-        cwd,
-        git_bin,
-        git_worktree_cmd,
-        git_worktree_add_cmd,
-        git_create_b_flag,
-        branch,
-        path,
-    };
-    return buf;
+    if (base.len > 0 and !git_branch.isPlausibleBranchName(base)) return null;
+    buf[0] = sh_bin;
+    buf[1] = "-c";
+    buf[2] = git_worktree_mkdir_chdir_script;
+    buf[3] = "sh";
+    buf[4] = parent;
+    buf[5] = cwd;
+    buf[6] = git_bin;
+    buf[7] = git_worktree_cmd;
+    buf[8] = git_worktree_add_cmd;
+    buf[9] = git_create_b_flag;
+    buf[10] = branch;
+    buf[11] = path;
+    if (base.len == 0) return buf[0..worktree_add_no_base_argv_len];
+    buf[12] = base;
+    return buf[0..worktree_add_argv_len];
 }
 
 pub fn isGitWorktreeAddArgv(argv: []const []const u8) bool {
-    if (argv.len != worktree_add_argv_len) return false;
+    if (argv.len != worktree_add_no_base_argv_len and argv.len != worktree_add_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], git_worktree_mkdir_chdir_script)) return false;
@@ -619,7 +730,9 @@ pub fn isGitWorktreeAddArgv(argv: []const []const u8) bool {
     if (!git_branch.isPlausibleBranchName(argv[10])) return false;
     if (!std.mem.startsWith(u8, argv[10], worktree_branch_prefix)) return false;
     if (sanitizeWorktreeName(argv[10][worktree_branch_prefix.len..]) == null) return false;
-    return isSafeWorktreePath(argv[11]);
+    if (!isSafeWorktreePath(argv[11])) return false;
+    if (argv.len == worktree_add_argv_len) return git_branch.isPlausibleBranchName(argv[12]);
+    return true;
 }
 
 fn parsedRefLessThan(_: void, a: ParsedRef, b: ParsedRef) bool {
@@ -862,6 +975,15 @@ pub fn closeWorktreeCreate(model: *Model) void {
     model.git_worktree_create_buffer.clear();
 }
 
+/// Esc / Cancel: close the card and drop an in-flight base probe so a
+/// late exit cannot spawn add. Distinct from `closeWorktreeCreate`,
+/// which only hides the card (Push… / Fetch… still no-op via
+/// `gitMutationInFlight` while the probe or add is live).
+pub fn dismissWorktreeCreate(model: *Model, fx: *Effects) void {
+    cancelWorktreeBase(model, fx);
+    closeWorktreeCreate(model);
+}
+
 pub fn closeDelete(model: *Model) void {
     model.git_branch_delete_active = false;
     model.git_branch_delete_picker_open = false;
@@ -879,13 +1001,20 @@ pub fn startCreate(model: *Model) void {
 }
 
 /// Dismiss the select list and open the runtime-only New worktree…
-/// card. Draft name is not persisted.
+/// card. Prefills a prompt slug from the selected session title
+/// (`new-worktree` when that slugs empty). Draft name is not
+/// persisted; the user can still edit.
 pub fn startWorktreeCreate(model: *Model) void {
     closePicker(model);
     closeCreate(model);
     closeDelete(model);
+    closeWorktreeCreate(model);
     model.closeProjectEdit();
     model.git_worktree_create_active = true;
+    const title = if (model.sessionByIdConst(model.selected)) |session| session.title() else "";
+    var slug_buf: [max_worktree_slug_bytes]u8 = undefined;
+    const slug = worktreeSlug(title, slug_buf[0..]);
+    model.git_worktree_create_buffer.apply(.{ .insert_text = slug });
 }
 
 /// Dismiss the select list and open the runtime-only delete card of
@@ -1125,6 +1254,13 @@ fn cancelWorktreeAdd(model: *Model, fx: *Effects) void {
     model.git_worktree_add_key = 0;
 }
 
+fn cancelWorktreeBase(model: *Model, fx: *Effects) void {
+    if (model.git_worktree_base_key == 0) return;
+    fx.cancel(model.git_worktree_base_key);
+    model.git_worktree_base_key = 0;
+    model.git_worktree_base_len = 0;
+}
+
 fn probeSupported() bool {
     return builtin.os.tag != .windows;
 }
@@ -1150,6 +1286,7 @@ pub fn refresh(model: *Model, fx: *Effects) void {
     cancelFetch(model, fx);
     cancelPush(model, fx);
     cancelWorktreeAdd(model, fx);
+    cancelWorktreeBase(model, fx);
     clearListedBranches(model);
     closePicker(model);
     closeCreate(model);
@@ -1230,8 +1367,16 @@ fn worktreeAddStillCurrent(model: *const Model) bool {
     return std.mem.eql(u8, path, probed);
 }
 
+fn worktreeBaseStillCurrent(model: *const Model) bool {
+    if (model.git_worktree_base_key == 0) return false;
+    if (model.git_worktree_add_probe_session != model.selected) return false;
+    const path = model.selectedProjectPath();
+    const probed = model.git_worktree_add_probe_path_storage[0..model.git_worktree_add_probe_path_len];
+    return std.mem.eql(u8, path, probed);
+}
+
 fn gitMutationInFlight(model: *const Model) bool {
-    return model.git_create_key != 0 or model.git_checkout_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0 or model.git_worktree_add_key != 0;
+    return model.git_create_key != 0 or model.git_checkout_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0 or model.git_worktree_add_key != 0 or model.git_worktree_base_key != 0;
 }
 
 pub fn applyListLine(model: *Model, line: native_sdk.EffectLine) void {
@@ -1270,7 +1415,7 @@ fn refreshWorkspaceProbes(model: *Model, fx: *Effects) void {
 /// the one-shots do not overlap.
 pub fn pickBranch(model: *Model, fx: *Effects, name: []const u8) void {
     closePicker(model);
-    if (model.git_create_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0 or model.git_worktree_add_key != 0) return;
+    if (model.git_create_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0 or model.git_worktree_add_key != 0 or model.git_worktree_base_key != 0) return;
     if (!git_branch.isPlausibleBranchName(name)) return;
     const remote = isListedRemoteName(model, name);
     if (!remote and std.mem.eql(u8, name, git_branch.gitBranchLabel(model))) return;
@@ -1540,11 +1685,37 @@ pub fn handlePushExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) 
     }
 }
 
-/// Confirm the New worktree… card: a safe name one-shots
-/// `mkdir -p ~/.faku/worktrees` then `git worktree add -b faku/<name> <path>`
-/// from current HEAD. Empty / unsafe names do not spawn and keep the
-/// field open. Busy session or in-flight checkout/create/delete/fetch/
-/// push/worktree-add is a no-op.
+fn gitWorktreeBase(model: *const Model) []const u8 {
+    return model.git_worktree_base_storage[0..model.git_worktree_base_len];
+}
+
+fn spawnWorktreeAdd(model: *Model, fx: *Effects) void {
+    const stored_cwd = model.git_worktree_add_probe_path_storage[0..model.git_worktree_add_probe_path_len];
+    const stored_dest = model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len];
+    const stored_branch = model.git_worktree_add_branch_storage[0..model.git_worktree_add_branch_len];
+    const slash = std.mem.lastIndexOfScalar(u8, stored_dest, '/') orelse return;
+    const stored_parent = stored_dest[0..slash];
+    var argv_buf: [worktree_add_argv_len][]const u8 = undefined;
+    const argv = worktreeAddArgvFor(stored_cwd, stored_parent, stored_branch, stored_dest, gitWorktreeBase(model), &argv_buf) orelse return;
+
+    const key = model.next_git_worktree_add_key;
+    model.next_git_worktree_add_key = key + 1;
+    model.git_worktree_add_key = key;
+    fx.spawn(.{
+        .key = key,
+        .argv = argv,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+}
+
+/// Confirm the New worktree… card: a safe name probes
+/// `refs/remotes/origin/HEAD` then one-shots
+/// `mkdir -p ~/.faku/worktrees` plus
+/// `git worktree add -b faku/<name> <path> [base]`. Empty / unsafe
+/// names do not spawn and keep the field open. Busy session or
+/// in-flight checkout/create/delete/fetch/push/worktree-add/base
+/// probe is a no-op.
 pub fn confirmWorktreeAdd(model: *Model, fx: *Effects) void {
     if (gitMutationInFlight(model)) return;
     if (model.is_streaming()) return;
@@ -1562,39 +1733,52 @@ pub fn confirmWorktreeAdd(model: *Model, fx: *Effects) void {
     var branch_buf: [git_branch.max_git_branch]u8 = undefined;
     const branch = worktreeBranchName(name, branch_buf[0..]) orelse return;
 
-    const key = model.next_git_worktree_add_key;
-    model.next_git_worktree_add_key = key + 1;
-    model.git_worktree_add_key = key;
     model.git_worktree_add_probe_session = model.selected;
     writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, cwd);
     writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, dest);
     writeFixed(&model.git_worktree_add_branch_storage, &model.git_worktree_add_branch_len, branch);
+    model.git_worktree_base_len = 0;
 
-    const stored_cwd = model.git_worktree_add_probe_path_storage[0..model.git_worktree_add_probe_path_len];
     const stored_dest = model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len];
-    const slash = std.mem.lastIndexOfScalar(u8, stored_dest, '/') orelse {
-        model.git_worktree_add_key = 0;
-        return;
-    };
+    const slash = std.mem.lastIndexOfScalar(u8, stored_dest, '/') orelse return;
     const stored_parent = stored_dest[0..slash];
-    if (!std.mem.eql(u8, stored_parent, parent)) {
-        model.git_worktree_add_key = 0;
-        return;
-    }
-    const stored_branch = model.git_worktree_add_branch_storage[0..model.git_worktree_add_branch_len];
+    if (!std.mem.eql(u8, stored_parent, parent)) return;
 
-    var argv_buf: [worktree_add_argv_len][]const u8 = undefined;
-    const argv = worktreeAddArgvFor(stored_cwd, stored_parent, stored_branch, stored_dest, &argv_buf) orelse {
-        model.git_worktree_add_key = 0;
-        return;
-    };
+    const key = model.next_git_worktree_base_key;
+    model.next_git_worktree_base_key = key + 1;
+    model.git_worktree_base_key = key;
 
+    var argv_buf: [worktree_base_argv_len][]const u8 = undefined;
     fx.spawn(.{
         .key = key,
-        .argv = argv,
+        .argv = worktreeBaseArgvFor(cwd, &argv_buf),
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
+}
+
+pub fn applyWorktreeBaseLine(model: *Model, line: native_sdk.EffectLine) void {
+    if (line.key != model.git_worktree_base_key or model.git_worktree_base_key == 0) return;
+    if (!worktreeBaseStillCurrent(model)) return;
+    if (worktreeBaseFromSymbolicRef(line.line)) |base| {
+        writeFixed(&model.git_worktree_base_storage, &model.git_worktree_base_len, base);
+    }
+}
+
+pub fn handleWorktreeBaseExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (exit.key != model.git_worktree_base_key or model.git_worktree_base_key == 0) return;
+    const current = worktreeBaseStillCurrent(model);
+    model.git_worktree_base_key = 0;
+    if (!current) {
+        model.git_worktree_base_len = 0;
+        return;
+    }
+    if (gitWorktreeBase(model).len == 0) {
+        if (pushBranchFromLabel(git_branch.gitBranchLabel(model))) |branch| {
+            writeFixed(&model.git_worktree_base_storage, &model.git_worktree_base_len, branch);
+        }
+    }
+    spawnWorktreeAdd(model, fx);
 }
 
 /// On success, retarget the selected session `project_path` to the
@@ -1612,6 +1796,7 @@ pub fn handleWorktreeAddExit(model: *Model, exit: native_sdk.EffectExit) bool {
         closeWorktreeCreate(model);
         model.git_worktree_add_dest_len = 0;
         model.git_worktree_add_branch_len = 0;
+        model.git_worktree_base_len = 0;
         return true;
     }
     model.setAttachStatus(worktree_add_failed_status);
@@ -1988,13 +2173,63 @@ test "worktree name sanitization refuses empty, slash, and implausible names" {
     try std.testing.expect(worktreeDestPath("", "feat", path_buf[0..]) == null);
 }
 
-test "worktree add argv is mkdir+chdir plus worktree add -b with branch and path as own slots" {
+test "worktree slug lowercases, splits, caps words, and truncates" {
+    var buf: [max_worktree_slug_bytes]u8 = undefined;
+    try std.testing.expectEqualStrings("fix-project-worktree-picker", worktreeSlug("Fix Project/Worktree Picker!", buf[0..]));
+    try std.testing.expectEqualStrings(worktree_slug_default, worktreeSlug("你好 👋", buf[0..]));
+    try std.testing.expectEqualStrings(worktree_slug_default, worktreeSlug("", buf[0..]));
+    try std.testing.expectEqualStrings(worktree_slug_default, worktreeSlug("   \t", buf[0..]));
+    try std.testing.expectEqualStrings("worktree-add", worktreeSlug("worktree add", buf[0..]));
+    try std.testing.expectEqualStrings("foo-bar-baz", worktreeSlug("foo-bar baz", buf[0..]));
+    try std.testing.expectEqualStrings("one-two-three-four-five-six", worktreeSlug("one two three four five six seven", buf[0..]));
+    const long = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const truncated = worktreeSlug(long, buf[0..]);
+    try std.testing.expect(truncated.len <= max_worktree_slug_bytes);
+    try std.testing.expectEqual(@as(usize, 48), truncated.len);
+    try std.testing.expect(truncated.len < long.len);
+}
+
+test "worktreeBaseFromSymbolicRef prefers origin local name then whole ref" {
+    try std.testing.expectEqualStrings("main", worktreeBaseFromSymbolicRef("origin/main\n").?);
+    try std.testing.expectEqualStrings("feat/foo", worktreeBaseFromSymbolicRef("  origin/feat/foo \n").?);
+    try std.testing.expectEqualStrings("main", worktreeBaseFromSymbolicRef("main\n").?);
+    try std.testing.expect(worktreeBaseFromSymbolicRef("") == null);
+    try std.testing.expect(worktreeBaseFromSymbolicRef("   \n") == null);
+    try std.testing.expect(worktreeBaseFromSymbolicRef("not a branch\n") == null);
+}
+
+test "worktree base argv is symbolic-ref --quiet --short origin/HEAD" {
+    var buf: [worktree_base_argv_len][]const u8 = undefined;
+    const argv = worktreeBaseArgvFor("/tmp/faku-wt-base", &buf);
+    try std.testing.expectEqual(@as(usize, 10), argv.len);
+    try std.testing.expectEqualStrings(sh_bin, argv[0]);
+    try std.testing.expectEqualStrings("-c", argv[1]);
+    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings("sh", argv[3]);
+    try std.testing.expectEqualStrings("/tmp/faku-wt-base", argv[4]);
+    try std.testing.expectEqualStrings(git_bin, argv[5]);
+    try std.testing.expectEqualStrings(git_symbolic_ref_cmd, argv[6]);
+    try std.testing.expectEqualStrings(git_quiet_flag, argv[7]);
+    try std.testing.expectEqualStrings(git_short_flag, argv[8]);
+    try std.testing.expectEqualStrings(git_origin_head_ref, argv[9]);
+    try std.testing.expect(isGitWorktreeBaseArgv(argv));
+    try std.testing.expect(!isGitWorktreeAddArgv(argv));
+    try std.testing.expect(!isGitUpstreamArgv(argv));
+    try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_origin_head_ref) == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_symbolic_ref_cmd) == null);
+    try std.testing.expect(git_worktree_base_key_first > git_ahead_behind.git_ahead_behind_key_first);
+    try std.testing.expect(file_mention.file_mention_key_first > git_worktree_base_key_first);
+}
+
+test "worktree add argv is mkdir+chdir plus worktree add -b with and without base" {
     var buf: [worktree_add_argv_len][]const u8 = undefined;
     const argv = worktreeAddArgvFor(
         "/tmp/faku-repo",
         "/home/u/.faku/worktrees",
         "faku/feat",
         "/home/u/.faku/worktrees/feat",
+        "",
         &buf,
     ).?;
     try std.testing.expectEqual(@as(usize, 12), argv.len);
@@ -2011,6 +2246,7 @@ test "worktree add argv is mkdir+chdir plus worktree add -b with branch and path
     try std.testing.expectEqualStrings("faku/feat", argv[10]);
     try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat", argv[11]);
     try std.testing.expect(isGitWorktreeAddArgv(argv));
+    try std.testing.expect(!isGitWorktreeBaseArgv(argv));
     try std.testing.expect(!isGitCreateArgv(argv));
     try std.testing.expect(!isGitCheckoutArgv(argv));
     try std.testing.expect(!isGitTrackCheckoutArgv(argv));
@@ -2023,11 +2259,38 @@ test "worktree add argv is mkdir+chdir plus worktree add -b with branch and path
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "/home/u/.faku/worktrees/feat") == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "feat") == null);
 
-    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "/home/u/.faku/worktrees", "feat", "/home/u/.faku/worktrees/feat", &buf) == null);
-    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "/home/u/.faku/worktrees", "faku/feat/foo", "/home/u/.faku/worktrees/feat/foo", &buf) == null);
-    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "relative", "faku/feat", "/home/u/.faku/worktrees/feat", &buf) == null);
-    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "/home/u/.faku/worktrees", "faku/feat", "/tmp/other/feat", &buf) == null);
-    try std.testing.expect(worktreeAddArgvFor("", "/home/u/.faku/worktrees", "faku/feat", "/home/u/.faku/worktrees/feat", &buf) == null);
+    const with_base = worktreeAddArgvFor(
+        "/tmp/faku-repo",
+        "/home/u/.faku/worktrees",
+        "faku/feat",
+        "/home/u/.faku/worktrees/feat",
+        "main",
+        &buf,
+    ).?;
+    try std.testing.expectEqual(@as(usize, 13), with_base.len);
+    try std.testing.expectEqualStrings("faku/feat", with_base[10]);
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat", with_base[11]);
+    try std.testing.expectEqualStrings("main", with_base[12]);
+    try std.testing.expect(isGitWorktreeAddArgv(with_base));
+    try std.testing.expect(std.mem.indexOf(u8, with_base[2], "main") == null);
+
+    const origin_base = worktreeAddArgvFor(
+        "/tmp/faku-repo",
+        "/home/u/.faku/worktrees",
+        "faku/feat",
+        "/home/u/.faku/worktrees/feat",
+        "origin/main",
+        &buf,
+    ).?;
+    try std.testing.expectEqualStrings("origin/main", origin_base[12]);
+    try std.testing.expect(isGitWorktreeAddArgv(origin_base));
+
+    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "/home/u/.faku/worktrees", "feat", "/home/u/.faku/worktrees/feat", "", &buf) == null);
+    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "/home/u/.faku/worktrees", "faku/feat/foo", "/home/u/.faku/worktrees/feat/foo", "", &buf) == null);
+    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "relative", "faku/feat", "/home/u/.faku/worktrees/feat", "", &buf) == null);
+    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "/home/u/.faku/worktrees", "faku/feat", "/tmp/other/feat", "", &buf) == null);
+    try std.testing.expect(worktreeAddArgvFor("", "/home/u/.faku/worktrees", "faku/feat", "/home/u/.faku/worktrees/feat", "", &buf) == null);
+    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "/home/u/.faku/worktrees", "faku/feat", "/home/u/.faku/worktrees/feat", "not a branch", &buf) == null);
     try std.testing.expect(!isGitWorktreeAddArgv(&.{
         sh_bin,
         "-c",
@@ -2041,7 +2304,8 @@ test "worktree add argv is mkdir+chdir plus worktree add -b with branch and path
     }));
     try std.testing.expect(git_worktree_add_key_first > git_push_key_first);
     try std.testing.expect(git_ahead_behind.git_ahead_behind_key_first > git_worktree_add_key_first);
-    try std.testing.expect(file_mention.file_mention_key_first > git_ahead_behind.git_ahead_behind_key_first);
+    try std.testing.expect(git_worktree_base_key_first > git_ahead_behind.git_ahead_behind_key_first);
+    try std.testing.expect(file_mention.file_mention_key_first > git_worktree_base_key_first);
 }
 
 test "handleWorktreeAddExit success retargets project_path; failure leaves it" {
@@ -2075,6 +2339,25 @@ test "handleWorktreeAddExit success retargets project_path; failure leaves it" {
     try std.testing.expect(!model.git_worktree_create_active);
     try std.testing.expect(!model.has_attach_status());
     try std.testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+}
+
+test "startWorktreeCreate prefills a prompt slug from the session title" {
+    var model = Model{};
+    const id = model.addSession("worktree add", .fx);
+    model.selected = id;
+    startWorktreeCreate(&model);
+    try std.testing.expect(model.git_worktree_create_active);
+    try std.testing.expectEqualStrings("worktree-add", model.git_worktree_create());
+
+    const empty = model.addSession("", .fx);
+    model.selected = empty;
+    startWorktreeCreate(&model);
+    try std.testing.expectEqualStrings("new-worktree", model.git_worktree_create());
+
+    const non_ascii = model.addSession("你好 👋", .fx);
+    model.selected = non_ascii;
+    startWorktreeCreate(&model);
+    try std.testing.expectEqualStrings("new-worktree", model.git_worktree_create());
 }
 
 test "set-upstream push argv keeps flag, remote, and branch as their own slots" {

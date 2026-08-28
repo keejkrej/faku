@@ -32,9 +32,10 @@ const writeFixed = main.writeFixed;
 /// One-shot file-mention probe (git ls-files, then a bounded walk
 /// when git cannot list). Distinct from git_branch (200+), git_dirty
 /// (300+), git_numstat (350+), git_push (360+), git_worktree_add
-/// (370+), git_ahead_behind (380+), maximize / pick-image / fx-ask /
-/// daemon / clipboard / probe keys. Incremented per spawn so a
-/// cancelled probe cannot paint a later session.
+/// (370+), git_ahead_behind (380+), git_worktree_base (390+),
+/// maximize / pick-image / fx-ask / daemon / clipboard / probe
+/// keys. Incremented per spawn so a cancelled probe cannot paint
+/// a later session.
 pub const file_mention_key_first: u64 = 400;
 
 pub const max_file_mentions: usize = 256;

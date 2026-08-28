@@ -76,6 +76,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         git_checkout.applyPushLine(model, line);
         return;
     }
+    if (model.git_worktree_base_key != 0 and line.key == model.git_worktree_base_key) {
+        git_checkout.applyWorktreeBaseLine(model, line);
+        return;
+    }
     if (line.key == pick_image_key) {
         attach_helpers.applyPickImageLine(model, fx, line);
         return;
@@ -377,6 +381,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.git_push_key != 0 and exit.key == model.git_push_key) {
         git_checkout.handlePushExit(model, fx, exit);
+        return;
+    }
+    if (model.git_worktree_base_key != 0 and exit.key == model.git_worktree_base_key) {
+        git_checkout.handleWorktreeBaseExit(model, fx, exit);
         return;
     }
     if (model.git_worktree_add_key != 0 and exit.key == model.git_worktree_add_key) {
