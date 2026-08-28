@@ -432,6 +432,9 @@
                 <if test="{can_open_editor}">
                   <button variant="ghost" size="sm" on-press="open_editor">Open in Editor</button>
                 </if>
+                <if test="{can_copy_project_path}">
+                  <button variant="ghost" size="sm" on-press="copy_project_path">Copy path</button>
+                </if>
                 <spacer grow="1" />
                 <progress value="{context_usage}" width="16" height="16" label="Context usage" />
               </row>
@@ -448,6 +451,9 @@
                 </if>
                 <if test="{can_open_editor}">
                   <button variant="ghost" size="sm" on-press="open_editor">Open in Editor</button>
+                </if>
+                <if test="{can_copy_project_path}">
+                  <button variant="ghost" size="sm" on-press="copy_project_path">Copy path</button>
                 </if>
                 <if test="{project_is_local}">
                   <button variant="ghost" size="sm" icon="terminal" on-press="start_project_edit">Local</button>

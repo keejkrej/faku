@@ -203,6 +203,9 @@ via an OS sidecar (`open -a Cursor` / `open -a "Visual Studio Code"`
 on macOS when those bins are missing; Linux stays `cursor` then `code`).
 This is not Waku's full Open-in app picker, not a persisted
 `open_in_app`, and not an embedded editor panel.
+Copy path writes that same absolute workspace path through Native
+`fx.writeClipboard`, gated like Reveal (hidden for Local / empty /
+missing / relative / file paths), and is not Waku's Open-in picker.
 When that path exists, the same row shows
 a muted current-branch label from a
 one-shot `fx.spawn` of `git branch --show-current` (chdir via the

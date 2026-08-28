@@ -55,6 +55,8 @@ pub const PaletteAction = enum(u32) {
     open_terminal = 12,
     /// Selected session workspace in Cursor / VS Code. Not an embedded editor.
     open_editor = 13,
+    /// Selected session workspace path via `fx.writeClipboard`. Not Open-in.
+    copy_project_path = 14,
 };
 
 pub const PaletteActionSpec = struct {
@@ -78,6 +80,7 @@ pub const palette_action_specs = [_]PaletteActionSpec{
     .{ .action = .reveal_folder, .label = "Reveal project folder", .keywords = &.{ "reveal", "finder", "files", "folder", "open", "project" }, .suggested = false },
     .{ .action = .open_terminal, .label = "Open project in Terminal", .keywords = &.{ "terminal", "shell", "iterm", "console", "project", "open" }, .suggested = false },
     .{ .action = .open_editor, .label = "Open project in Editor", .keywords = &.{ "editor", "vscode", "cursor", "code", "project", "open" }, .suggested = false },
+    .{ .action = .copy_project_path, .label = "Copy project path", .keywords = &.{ "copy", "path", "folder", "project", "cwd" }, .suggested = false },
 };
 
 pub fn paletteActionId(action: PaletteAction) u32 {
@@ -229,6 +232,7 @@ fn paletteActionAvailable(model: *const Model, spec: PaletteActionSpec) bool {
         .collapse_folders => model.can_collapse_folders(),
         .open_terminal => model.can_open_terminal(),
         .open_editor => model.can_open_editor(),
+        .copy_project_path => model.can_copy_project_path(),
         else => true,
     };
 }

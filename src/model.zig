@@ -17,6 +17,7 @@ const session_mod = @import("session.zig");
 const git_branch = @import("git_branch.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
+const copy_helpers = @import("copy.zig");
 const open_editor = @import("open_editor.zig");
 
 const canvas = native_sdk.canvas;
@@ -323,6 +324,8 @@ pub const Msg = union(enum) {
     open_terminal,
     /// Composer Open in Editor: one-shot OS editor sidecar. Not a Native effect.
     open_editor,
+    /// Composer Copy path: selected-session workspace via `fx.writeClipboard`.
+    copy_project_path,
     start_image_attach,
     /// Composer Pick image: one-shot OS file-dialog sidecar. Not `fx.pickFile`.
     pick_image,
@@ -1556,6 +1559,11 @@ pub const Model = struct {
     /// Composer Open in Editor. Absolute existing selected-session directory.
     pub fn can_open_editor(model: *const Model) bool {
         return open_editor.canOpenEditor(model);
+    }
+
+    /// Composer Copy path. Absolute existing selected-session directory.
+    pub fn can_copy_project_path(model: *const Model) bool {
+        return copy_helpers.canCopyProjectPath(model);
     }
 
     /// Runtime-only muted branch on the composer project row.

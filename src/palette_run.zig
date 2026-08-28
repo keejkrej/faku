@@ -47,6 +47,7 @@ fn runPaletteAction(model: *Model, fx: *Effects, action: PaletteAction) void {
         .reveal_folder => main.update(model, .reveal_folder, fx),
         .open_terminal => main.update(model, .open_terminal, fx),
         .open_editor => main.update(model, .open_editor, fx),
+        .copy_project_path => main.update(model, .copy_project_path, fx),
     }
 }
 

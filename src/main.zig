@@ -397,6 +397,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .reveal_folder => reveal_folder.startRevealFolder(model, fx),
         .open_terminal => open_terminal.startOpenTerminal(model, fx),
         .open_editor => open_editor.startOpenEditor(model, fx),
+        .copy_project_path => copy_helpers.copyProjectPath(model, fx),
         .start_image_attach => model.startImageAttach(),
         .pick_image => attach_helpers.startPickImage(model, fx),
         .image_path_edit => |edit| {
