@@ -1,21 +1,22 @@
 //! Clipboard copy and turn-complete desktop notification helpers.
 //!
-//! Transcript / session clipboard writes and successful-stream
-//! notify title/body live here. Msg routing and Model fields stay
-//! in `main.zig`. Behavior is unchanged from the former `main`
-//! copy and notify helpers.
+//! Transcript / session / project-path clipboard writes and
+//! successful-stream notify title/body live here. Msg routing and
+//! Model fields stay in `main.zig`. Behavior is unchanged from the
+//! former `main` copy and notify helpers, plus composer Copy path.
 
 const std = @import("std");
 const main = @import("main.zig");
+const reveal_folder = @import("reveal_folder.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
 
 /// Caller-chosen identity for `fx.writeClipboard` on a transcript
-/// turn or a joined session. Shares the effects key space with spawn /
-/// fetch / file; sits in the gap between daemon keys and
-/// `fx_spawn_overlap`. Verified: Native Effects `WriteClipboardOptions`
-/// + notes example.
+/// turn, a joined session, or the selected workspace path. Shares the
+/// effects key space with spawn / fetch / file; sits in the gap
+/// between daemon keys and `fx_spawn_overlap`. Verified: Native
+/// Effects `WriteClipboardOptions` + notes example.
 pub const copy_turn_key: u64 = 32;
 /// Worst-case join of every in-memory turn with a blank line between.
 const max_copy_session = main.max_turns * main.max_body + (main.max_turns - 1) * 2;
@@ -154,4 +155,20 @@ fn latestNonEmptyTurnId(model: *const Model) ?u32 {
 pub fn copyLastTurn(model: *Model, fx: *Effects) void {
     const id = latestNonEmptyTurnId(model) orelse return;
     copyTurn(model, fx, id);
+}
+
+/// Absolute existing selected-session directory. Hidden for Local /
+/// empty / missing / relative / file paths. Same `resolveRevealPath`
+/// gate as Open in Terminal / Open in Editor.
+pub fn canCopyProjectPath(model: *const Model) bool {
+    return reveal_folder.resolveRevealPath(model) != null;
+}
+
+/// Selected session workspace path through Native `fx.writeClipboard`.
+/// Empty / relative / missing is a no-op — does not overwrite the
+/// clipboard. Reuses `copy_turn_key` (Native has one writeClipboard
+/// effect). Not Waku's Open-in app picker.
+pub fn copyProjectPath(model: *Model, fx: *Effects) void {
+    const path = reveal_folder.resolveRevealPath(model) orelse return;
+    writeVisibleClipboard(fx, path);
 }

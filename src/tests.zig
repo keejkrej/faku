@@ -4040,6 +4040,218 @@ test "in-flight second Open in Editor is a no-op; missing tool surfaces status" 
     try testing.expectEqualStrings(project, model.selectedProjectPath());
 }
 
+fn absCopyProjectDir(tmp: testing.TmpDir, name: []const u8, buf: []u8) ![]const u8 {
+    const path = try std.fmt.bufPrint(buf, "/tmp/faku-copy-path-{s}-{s}", .{ tmp.sub_path, name });
+    try std.Io.Dir.cwd().createDirPath(testing.io, path);
+    return path;
+}
+
+test "copy_project_path existing directory writes fx.writeClipboard and leaves project_path" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try absCopyProjectDir(tmp, "ok", &project_buf);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("copy project path session", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    try testing.expect(model.can_copy_project_path());
+    try testing.expect(model.can_reveal_folder());
+    try testing.expect(model.can_open_terminal());
+    try testing.expect(model.can_open_editor());
+    try testing.expect(!model.project_is_local());
+
+    var tree = try buildTree(arena, &model);
+    const copy_path = try expectButtonMsg(tree, "Copy path", .copy_project_path);
+    try testing.expect(pressableAppearsBefore(tree.root, "Open in Editor", "Copy path"));
+    _ = try expectButtonMsg(tree, "Pick folder", .pick_folder);
+    _ = try expectButtonMsg(tree, "Reveal folder", .reveal_folder);
+    _ = try expectButtonMsg(tree, "Open in Terminal", .open_terminal);
+    _ = try expectButtonMsg(tree, "Open in Editor", .open_editor);
+
+    const before = model.selectedProjectPath();
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    main.update(&model, tree.msgForPointer(copy_path.id, .up).?, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    const first = fx.pendingClipboardAt(0).?;
+    try testing.expectEqual(main.copy_turn_key, first.key);
+    try testing.expectEqual(native_sdk.EffectClipboardOp.write, first.op);
+    try testing.expectEqualStrings(project, first.text);
+    try testing.expectEqualStrings(before, model.selectedProjectPath());
+    try testing.expectEqualStrings(project, model.lastProjectPath());
+    try testing.expect(!model.has_window_status());
+    try testing.expect(!model.reveal_folder_live);
+    try testing.expect(!model.open_terminal_live);
+    try testing.expect(!model.open_editor_live);
+}
+
+test "copy_project_path empty missing file Local and relative are no-ops" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var file_buf: [256]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "/tmp/faku-copy-path-file-{s}.txt", .{tmp.sub_path});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = file_path, .data = "nope" });
+    var rel_buf: [256]u8 = undefined;
+    const rel = try std.fmt.bufPrint(&rel_buf, ".zig-cache/tmp/{s}/rel-copy-path", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(testing.io, rel);
+    var missing_buf: [256]u8 = undefined;
+    const missing = try std.fmt.bufPrint(&missing_buf, "/tmp/faku-copy-path-missing-{s}", .{tmp.sub_path});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("no copy path", .fx);
+    model.selected = id;
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Copy path") == null);
+    try testing.expect(model.project_is_local());
+    try testing.expect(!model.can_copy_project_path());
+    main.update(&model, .copy_project_path, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expectEqual(@as(usize, 0), model.selectedProjectPath().len);
+
+    model.setSelectedProjectPath(missing);
+    try testing.expect(!model.can_copy_project_path());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Copy path") == null);
+    main.update(&model, .copy_project_path, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    try testing.expectEqualStrings(missing, model.selectedProjectPath());
+
+    model.setSelectedProjectPath(file_path);
+    try testing.expect(!model.can_copy_project_path());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Copy path") == null);
+    main.update(&model, .copy_project_path, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    try testing.expectEqualStrings(file_path, model.selectedProjectPath());
+
+    model.setSelectedProjectPath(rel);
+    try testing.expect(!model.can_copy_project_path());
+    try testing.expect(model.can_reveal_folder());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Copy path") == null);
+    _ = try expectButtonMsg(tree, "Reveal folder", .reveal_folder);
+    main.update(&model, .copy_project_path, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expectEqualStrings(rel, model.selectedProjectPath());
+}
+
+test "copy_project_path sits on idle and project-edit rows only when the path is openable" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try absCopyProjectDir(tmp, "row", &project_buf);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("copy path row", .fx);
+    model.selected = id;
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Copy path") == null);
+    _ = try expectButtonMsg(tree, "Pick folder", .pick_folder);
+    _ = try expectByText(tree.root, .button, "Local");
+
+    model.setSelectedProjectPath(project);
+    try testing.expect(model.can_copy_project_path());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Copy path", .copy_project_path);
+    try testing.expect(pressableAppearsBefore(tree.root, "Open in Editor", "Copy path"));
+    try testing.expect(findByText(tree.root, .button, "Local") == null);
+
+    main.update(&model, .start_project_edit, &fx);
+    try testing.expect(model.project_edit_active);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Copy path", .copy_project_path);
+    _ = try expectButtonMsg(tree, "Open in Editor", .open_editor);
+    _ = try expectButtonMsg(tree, "Open in Terminal", .open_terminal);
+    _ = try expectButtonMsg(tree, "Reveal folder", .reveal_folder);
+    _ = try expectButtonMsg(tree, "Pick folder", .pick_folder);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Workspace path") != null);
+}
+
+test "palette Copy project path runs the same handler" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try absCopyProjectDir(tmp, "palette", &project_buf);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("copy path palette", .fx);
+    model.selected = id;
+
+    main.update(&model, .start_search, &fx);
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "Copy project path"));
+
+    model.setSelectedProjectPath(project);
+    const empty = model.palette_rows(arena);
+    try testing.expect(paletteHasLabel(empty, "Copy project path"));
+    try testing.expect(paletteRowIsAction(empty, "Copy project path"));
+    try testing.expectEqual(main.paletteActionId(.copy_project_path), paletteRowId(empty, "Copy project path"));
+
+    main.update(&model, .{ .search_edit = .{ .insert_text = "cwd" } }, &fx);
+    try testing.expect(paletteHasLabel(model.palette_rows(arena), "Copy project path"));
+    try testing.expect(!paletteHasLabel(model.palette_rows(arena), "New Task"));
+
+    main.update(&model, .{ .search_edit = .clear }, &fx);
+    var tree = try buildTree(arena, &model);
+    const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    const pick = try expectButton(dialog, "Copy project path");
+    try testing.expectEqual(
+        Msg{ .palette_pick = main.paletteActionId(.copy_project_path) },
+        tree.msgForPointer(pick.id, .up).?,
+    );
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    main.update(&model, tree.msgForPointer(pick.id, .up).?, &fx);
+    try testing.expect(!model.palette_open);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    const written = fx.pendingClipboardAt(0).?;
+    try testing.expectEqual(main.copy_turn_key, written.key);
+    try testing.expectEqual(native_sdk.EffectClipboardOp.write, written.op);
+    try testing.expectEqualStrings(project, written.text);
+}
+
 test "Waku access_mode maps to verified FX_PERMISSION_MODE values" {
     try testing.expectEqualStrings("ask", main.fxPermissionMode("ask"));
     try testing.expectEqualStrings("auto", main.fxPermissionMode("auto"));
@@ -7464,6 +7676,7 @@ test "empty palette lists New Task; query new t still includes it" {
     try testing.expect(paletteHasLabel(empty, "Reveal project folder"));
     try testing.expect(!paletteHasLabel(empty, "Open project in Terminal"));
     try testing.expect(!paletteHasLabel(empty, "Open project in Editor"));
+    try testing.expect(!paletteHasLabel(empty, "Copy project path"));
     try testing.expectEqual(main.paletteActionId(.copy_session_id), paletteRowId(empty, "Copy session id"));
     try testing.expectEqual(main.paletteActionId(.copy_fx_session_id), paletteRowId(empty, "Copy provider session id"));
     try testing.expectEqual(main.paletteActionId(.reveal_folder), paletteRowId(empty, "Reveal project folder"));
