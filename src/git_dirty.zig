@@ -23,9 +23,10 @@ const Effects = main.Effects;
 const writeFixed = main.writeFixed;
 
 /// One-shot `git status --porcelain` probe. Distinct from git_branch
-/// (200+), maximize / pick-image / fx-ask / daemon / clipboard /
-/// probe keys, and from file_mention (400+). Incremented per refresh
-/// so a cancelled spawn cannot paint a later session.
+/// (200+), git_numstat (350+), maximize / pick-image / fx-ask /
+/// daemon / clipboard / probe keys, and from file_mention (400+).
+/// Incremented per refresh so a cancelled spawn cannot paint a later
+/// session.
 pub const git_dirty_key_first: u64 = 300;
 
 /// `4294967295 changes` is 19 bytes. Keep headroom.
@@ -178,6 +179,7 @@ pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
 
 test "argv is chdir script plus git status --porcelain" {
     const git_branch = @import("git_branch.zig");
+    const git_numstat = @import("git_numstat.zig");
     const file_mention = @import("file_mention.zig");
     var buf: [chdir_argv_len][]const u8 = undefined;
     const argv = argvFor("/tmp/faku-dirty", &buf);
@@ -195,9 +197,14 @@ test "argv is chdir script plus git status --porcelain" {
     const branch = git_branch.argvFor("/tmp/faku-dirty", &branch_buf);
     try std.testing.expect(!isGitDirtyArgv(branch));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    var numstat_buf: [10][]const u8 = undefined;
+    const numstat = git_numstat.argvFor("/tmp/faku-dirty", &numstat_buf);
+    try std.testing.expect(!isGitDirtyArgv(numstat));
+    try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
     try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
     try std.testing.expect(git_dirty_key_first > git_branch.git_branch_key_first);
-    try std.testing.expect(file_mention.file_mention_key_first > git_dirty_key_first);
+    try std.testing.expect(git_numstat.git_numstat_key_first > git_dirty_key_first);
+    try std.testing.expect(file_mention.file_mention_key_first > git_numstat.git_numstat_key_first);
 }
 
 test "countNonEmptyLines ignores blanks; dirtyLabel is change/changes" {

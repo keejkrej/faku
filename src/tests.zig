@@ -14,6 +14,7 @@ const open_editor = @import("open_editor.zig");
 const maximize_window = @import("maximize_window.zig");
 const git_branch = @import("git_branch.zig");
 const git_dirty = @import("git_dirty.zig");
+const git_numstat = @import("git_numstat.zig");
 const file_mention = @import("file_mention.zig");
 const keys = @import("keys.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
@@ -3117,7 +3118,9 @@ test "pick_folder stdout directory sets project_path the same way typing does" {
 
     try testing.expect(findGitBranchSpawnKey(&fx, model.git_branch_key) != null);
     try testing.expect(findGitDirtySpawnKey(&fx, model.git_dirty_key) != null);
+    try testing.expect(findGitNumstatSpawnKey(&fx, model.git_numstat_key) != null);
     try testing.expect(!loaded.has_git_dirty());
+    try testing.expect(!loaded.has_git_numstat());
 }
 
 test "pick_folder cancel empty and file path leave project_path unchanged" {
@@ -11694,10 +11697,12 @@ fn expectGitBranchArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.copy_turn_key);
     try testing.expect(spawn.key != main.file_mention_key_first);
     try testing.expect(spawn.key != main.git_dirty_key_first);
+    try testing.expect(spawn.key != main.git_numstat_key_first);
     try testing.expect(spawn.key >= main.git_branch_key_first);
     try testing.expect(spawn.key < main.git_dirty_key_first);
     try testing.expect(!file_mention.isGitLsFilesArgv(spawn.argv));
     try testing.expect(!git_dirty.isGitDirtyArgv(spawn.argv));
+    try testing.expect(!git_numstat.isGitNumstatArgv(spawn.argv));
 }
 
 test "composer project row shows one-shot git branch --show-current" {
@@ -11909,10 +11914,12 @@ fn expectGitDirtyArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.pick_folder_key);
     try testing.expect(spawn.key != main.copy_turn_key);
     try testing.expect(spawn.key != main.git_branch_key_first);
+    try testing.expect(spawn.key != main.git_numstat_key_first);
     try testing.expect(spawn.key != main.file_mention_key_first);
     try testing.expect(spawn.key >= main.git_dirty_key_first);
-    try testing.expect(spawn.key < main.file_mention_key_first);
+    try testing.expect(spawn.key < main.git_numstat_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
+    try testing.expect(!git_numstat.isGitNumstatArgv(spawn.argv));
     try testing.expect(!file_mention.isGitLsFilesArgv(spawn.argv));
 }
 
@@ -12113,6 +12120,250 @@ test "changing session or project_path cancels the previous dirty probe" {
     try testing.expect(findByText(tree.root, .text, "2 changes") == null);
 }
 
+fn findGitNumstatSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_numstat.isGitNumstatArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn expectGitNumstatArgv(spawn: anytype, cwd: []const u8) !void {
+    try testing.expect(git_numstat.isGitNumstatArgv(spawn.argv));
+    try testing.expectEqualStrings(git_numstat.sh_bin, spawn.argv[0]);
+    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(cwd, spawn.argv[4]);
+    try testing.expectEqualStrings(git_numstat.git_bin, spawn.argv[5]);
+    try testing.expectEqualStrings(git_numstat.git_diff_cmd, spawn.argv[6]);
+    try testing.expectEqualStrings(git_numstat.git_numstat, spawn.argv[7]);
+    try testing.expectEqualStrings(git_numstat.git_head, spawn.argv[8]);
+    try testing.expectEqualStrings(git_numstat.git_pathspec_end, spawn.argv[9]);
+    try testing.expect(spawn.key != main.fx_ask_key);
+    try testing.expect(spawn.key != main.fx_probe_key);
+    try testing.expect(spawn.key != main.maximize_window_key);
+    try testing.expect(spawn.key != main.pick_image_key);
+    try testing.expect(spawn.key != main.pick_folder_key);
+    try testing.expect(spawn.key != main.copy_turn_key);
+    try testing.expect(spawn.key != main.git_branch_key_first);
+    try testing.expect(spawn.key != main.git_dirty_key_first);
+    try testing.expect(spawn.key != main.file_mention_key_first);
+    try testing.expect(spawn.key >= main.git_numstat_key_first);
+    try testing.expect(spawn.key < main.file_mention_key_first);
+    try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
+    try testing.expect(!git_dirty.isGitDirtyArgv(spawn.argv));
+    try testing.expect(!file_mention.isGitLsFilesArgv(spawn.argv));
+}
+
+test "composer project row shows one-shot git diff --numstat HEAD +/-" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/numstat-proj", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("numstat row", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const spawn = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try testing.expectEqual(model.git_numstat_key, spawn.key);
+    try expectGitNumstatArgv(spawn, project);
+    try testing.expect(!model.has_git_numstat());
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try expectGitBranchArgv(branch, project);
+    try testing.expect(spawn.key != branch.key);
+    const dirty = findGitDirtySpawnKey(&fx, model.git_dirty_key) orelse return error.MissingGitDirtySpawn;
+    try expectGitDirtyArgv(dirty, project);
+    try testing.expect(spawn.key != dirty.key);
+
+    try fx.feedLine(spawn.key, "3\t1\tsrc/a.zig\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("+3 −1", model.git_numstat_label());
+    try fx.feedLine(spawn.key, "-\t-\tpic.png\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(spawn.key, "9\t0\tsrc/b.zig\n");
+    drainEffects(&model, &fx);
+    try testing.expect(model.has_git_numstat());
+    try testing.expectEqualStrings("+12 −1", model.git_numstat_label());
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("+12 −1", model.git_numstat_label());
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, project);
+    _ = try expectByText(tree.root, .text, "+12 −1");
+    try testing.expect(findByText(tree.root, .text, "clean") == null);
+    try testing.expect(findByText(tree.root, .button, "Local") == null);
+}
+
+test "git numstat label is omitted for empty missing rejected zero and nonzero" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/numstat-omit", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("omit numstat", .fx);
+    model.selected = id;
+
+    try testing.expect(model.project_is_local());
+    git_numstat.refresh(&model, &fx);
+    try testing.expect(findGitNumstatSpawnKey(&fx, model.git_numstat_key) == null);
+    try testing.expect(!model.has_git_numstat());
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = ".zig-cache/tmp/faku-numstat-missing" } }, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_numstat_key);
+    try testing.expect(!model.has_git_numstat());
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    var spawn = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try expectGitNumstatArgv(spawn, project);
+    try fx.feedLine(spawn.key, "   \n");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_numstat());
+
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_numstat());
+
+    git_numstat.refresh(&model, &fx);
+    spawn = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try fx.feedLine(spawn.key, "0\t0\tsrc/a.zig\n");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_numstat());
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_numstat());
+
+    git_numstat.refresh(&model, &fx);
+    spawn = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try fx.feedLine(spawn.key, "3\t1\tsrc/a.zig\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("+3 −1", model.git_numstat_label());
+    try fx.feedExit(spawn.key, 128);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_numstat());
+
+    git_numstat.refresh(&model, &fx);
+    spawn = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try fx.feedExit(spawn.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_numstat());
+
+    git_numstat.refresh(&model, &fx);
+    spawn = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try fx.feedLine(spawn.key, "0\t4\tdel.txt\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("+0 −4", model.git_numstat_label());
+    try fx.feedExitReason(spawn.key, 0, .rejected);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_numstat());
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, project);
+    try testing.expect(findByText(tree.root, .text, "+3 −1") == null);
+    try testing.expect(findByText(tree.root, .text, "+0 −4") == null);
+    try testing.expect(findByText(tree.root, .text, "clean") == null);
+    try testing.expect(findByText(tree.root, .text, "+0 −0") == null);
+}
+
+test "changing session or project_path cancels the previous numstat probe" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var a_buf: [256]u8 = undefined;
+    var b_buf: [256]u8 = undefined;
+    const project_a = try std.fmt.bufPrint(&a_buf, ".zig-cache/tmp/{s}/numstat-a", .{tmp.sub_path[0..]});
+    const project_b = try std.fmt.bufPrint(&b_buf, ".zig-cache/tmp/{s}/numstat-b", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project_a);
+    try std.Io.Dir.cwd().createDirPath(testing.io, project_b);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const first = model.addSession("first numstat", .fx);
+    const second = model.addSession("second numstat", .fx);
+    model.selected = first;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project_a } }, &fx);
+    const first_spawn = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    const first_key = first_spawn.key;
+    try fx.feedLine(first_key, "3\t1\ta.zig\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("+3 −1", model.git_numstat_label());
+
+    main.update(&model, .{ .select = second }, &fx);
+    try testing.expectEqual(second, model.selected);
+    try testing.expect(!model.has_git_numstat());
+    try testing.expectEqual(@as(u64, 0), model.git_numstat_key);
+    try testing.expectError(error.EffectNotFound, fx.feedLine(first_key, "1\t0\tstale.zig\n"));
+    git_numstat.applyLine(&model, .{ .key = first_key, .line = "1\t0\tstale.zig" });
+    try testing.expect(!model.has_git_numstat());
+
+    main.update(&model, .{ .select = first }, &fx);
+    const again = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try testing.expect(again.key != first_key);
+    try expectGitNumstatArgv(again, project_a);
+    try testing.expect(!model.has_git_numstat());
+    try fx.feedLine(again.key, "3\t1\ta.zig\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("+3 −1", model.git_numstat_label());
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project_b } }, &fx);
+    try testing.expect(!model.has_git_numstat());
+    const second_spawn = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try testing.expect(second_spawn.key != again.key);
+    try expectGitNumstatArgv(second_spawn, project_b);
+
+    try testing.expectError(error.EffectNotFound, fx.feedLine(again.key, "1\t0\tstale.zig\n"));
+    git_numstat.applyLine(&model, .{ .key = again.key, .line = "1\t0\tstale.zig" });
+    try testing.expect(!model.has_git_numstat());
+
+    try fx.feedLine(second_spawn.key, "12\t0\tb.zig\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(second_spawn.key, "0\t4\tc.zig\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("+12 −4", model.git_numstat_label());
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    try testing.expect(!model.has_git_numstat());
+    try testing.expect(model.project_is_local());
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "choose a project");
+    _ = try expectByText(tree.root, .button, "Local");
+    try testing.expect(findByText(tree.root, .text, "+3 −1") == null);
+    try testing.expect(findByText(tree.root, .text, "+12 −4") == null);
+}
+
 fn findFileMentionSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
@@ -12159,8 +12410,10 @@ fn expectFileMentionArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.copy_turn_key);
     try testing.expect(spawn.key >= main.file_mention_key_first);
     try testing.expect(spawn.key != main.git_dirty_key_first);
+    try testing.expect(spawn.key != main.git_numstat_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_dirty.isGitDirtyArgv(spawn.argv));
+    try testing.expect(!git_numstat.isGitNumstatArgv(spawn.argv));
     try testing.expect(!file_mention.isWalkArgv(spawn.argv));
 }
 
@@ -12169,6 +12422,7 @@ fn expectFileMentionWalkArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(!file_mention.isGitLsFilesArgv(spawn.argv));
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_dirty.isGitDirtyArgv(spawn.argv));
+    try testing.expect(!git_numstat.isGitNumstatArgv(spawn.argv));
     try testing.expectEqualStrings(file_mention.sh_bin, spawn.argv[0]);
     try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
@@ -12588,6 +12842,11 @@ test "git ls-files sidecar argv and first-N stdout; empty missing rejected skip"
     try expectGitDirtyArgv(dirty, project);
     try testing.expect(mention.key != dirty.key);
     try testing.expect(branch.key != dirty.key);
+    const numstat = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try expectGitNumstatArgv(numstat, project);
+    try testing.expect(mention.key != numstat.key);
+    try testing.expect(branch.key != numstat.key);
+    try testing.expect(dirty.key != numstat.key);
 
     try fx.feedLine(mention.key, "src/a.zig\n");
     drainEffects(&model, &fx);
@@ -12610,6 +12869,7 @@ test "git ls-files sidecar argv and first-N stdout; empty missing rejected skip"
     try testing.expect(walk.key != mention.key);
     try testing.expect(walk.key != branch.key);
     try testing.expect(walk.key != dirty.key);
+    try testing.expect(walk.key != numstat.key);
 
     try fx.feedLine(walk.key, "./src/a.zig\n");
     drainEffects(&model, &fx);
