@@ -753,6 +753,7 @@ pub const Model = struct {
         "git_branch_probe_path_storage",
         "git_branch_probe_path_len",
         "git_branch_probe_is_rev_parse",
+        "has_git_branch",
         "git_branch_list_store",
         "git_branch_list_count",
         "git_branch_list_key",
