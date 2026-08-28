@@ -12,6 +12,7 @@ const store = @import("store.zig");
 const persist = @import("persist.zig");
 const attach_helpers = @import("attach.zig");
 const git_branch = @import("git_branch.zig");
+const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const file_mention = @import("file_mention.zig");
@@ -45,6 +46,7 @@ pub fn handleNewSession(model: *Model, fx: *Effects) void {
     git_dirty.refresh(model, fx);
     git_numstat.refresh(model, fx);
     file_mention.refresh(model, fx);
+    git_checkout.refresh(model, fx);
     model.composer_active = true;
 }
 
@@ -127,6 +129,7 @@ pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
     git_dirty.refresh(model, fx);
     git_numstat.refresh(model, fx);
     file_mention.refresh(model, fx);
+    git_checkout.refresh(model, fx);
 }
 
 pub fn handleEditQueued(model: *Model, fx: *Effects, id: u32) void {

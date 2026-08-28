@@ -15,6 +15,7 @@ const sidebar_row_helpers = @import("sidebar_rows.zig");
 const store = @import("store.zig");
 const session_mod = @import("session.zig");
 const git_branch = @import("git_branch.zig");
+const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const file_mention = @import("file_mention.zig");
@@ -345,6 +346,9 @@ pub const Msg = union(enum) {
     toggle_effort_picker,
     close_effort_picker,
     pick_effort: []const u8,
+    toggle_git_branch_picker,
+    close_git_branch_picker,
+    pick_git_branch: []const u8,
     start_project_edit,
     project_path_edit: canvas.TextInputEvent,
     /// Composer Pick folder: one-shot OS directory-dialog sidecar. Not `fx.pickFile`.
@@ -443,6 +447,8 @@ pub const Model = struct {
     settings_effort_picker_open: bool = false,
     /// Runtime-only composer `/goal` status picker. Not persisted.
     goal_status_picker_open: bool = false,
+    /// Runtime-only composer project-row branch checkout picker. Not persisted.
+    git_branch_picker_open: bool = false,
     palette_highlight: u32 = 0,
     /// Runtime-only first-visible-row highlight for the composer `@` /
     /// slash card. Not persisted to sessions.json. This cut does not
@@ -510,6 +516,21 @@ pub const Model = struct {
     git_branch_probe_session: u32 = 0,
     git_branch_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_branch_probe_path_len: usize = 0,
+    git_branch_probe_is_rev_parse: bool = false,
+    /// Runtime-only local `refs/heads` names for the checkout picker.
+    /// One-shot `git for-each-ref`; not persisted to sessions.json.
+    git_branch_list_store: [git_checkout.max_local_branches]git_checkout.CachedBranch = [_]git_checkout.CachedBranch{.{}} ** git_checkout.max_local_branches,
+    git_branch_list_count: u32 = 0,
+    git_branch_list_key: u64 = 0,
+    next_git_branch_list_key: u64 = git_checkout.git_branch_list_key_first,
+    git_branch_list_probe_session: u32 = 0,
+    git_branch_list_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    git_branch_list_probe_path_len: usize = 0,
+    git_checkout_key: u64 = 0,
+    next_git_checkout_key: u64 = git_checkout.git_checkout_key_first,
+    git_checkout_probe_session: u32 = 0,
+    git_checkout_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    git_checkout_probe_path_len: usize = 0,
     /// Runtime-only composer dirty count. One-shot `git status
     /// --porcelain` line count; not persisted to sessions.json.
     git_dirty_count: u32 = 0,
@@ -731,6 +752,20 @@ pub const Model = struct {
         "git_branch_probe_session",
         "git_branch_probe_path_storage",
         "git_branch_probe_path_len",
+        "git_branch_probe_is_rev_parse",
+        "has_git_branch",
+        "git_branch_list_store",
+        "git_branch_list_count",
+        "git_branch_list_key",
+        "next_git_branch_list_key",
+        "git_branch_list_probe_session",
+        "git_branch_list_probe_path_storage",
+        "git_branch_list_probe_path_len",
+        "git_checkout_key",
+        "next_git_checkout_key",
+        "git_checkout_probe_session",
+        "git_checkout_probe_path_storage",
+        "git_checkout_probe_path_len",
         "git_dirty_count",
         "git_dirty_label_storage",
         "git_dirty_label_len",
@@ -794,6 +829,8 @@ pub const Model = struct {
         "closeSettingsEffortPicker",
         "toggleGoalStatusPicker",
         "closeGoalStatusPicker",
+        "toggleGitBranchPicker",
+        "closeGitBranchPicker",
         "closeComposerPickers",
         "access_selected_ask",
         "access_selected_auto",
@@ -942,6 +979,7 @@ pub const Model = struct {
         model.access_picker_open = false;
         model.effort_picker_open = false;
         model.goal_status_picker_open = false;
+        model.git_branch_picker_open = false;
     }
 
     pub fn closeModelPicker(model: *Model) void {
@@ -985,6 +1023,18 @@ pub const Model = struct {
 
     pub fn toggleGoalStatusPicker(model: *Model) void {
         model.goal_status_picker_open = !model.goal_status_picker_open;
+    }
+
+    pub fn closeGitBranchPicker(model: *Model) void {
+        model.git_branch_picker_open = false;
+    }
+
+    pub fn toggleGitBranchPicker(model: *Model) void {
+        if (!can_pick_git_branch(model)) {
+            model.git_branch_picker_open = false;
+            return;
+        }
+        model.git_branch_picker_open = !model.git_branch_picker_open;
     }
 
     pub fn find_query(model: *const Model) []const u8 {
@@ -1818,6 +1868,31 @@ pub const Model = struct {
         return git_branch.hasGitBranch(model);
     }
 
+    /// Ghost select on the project row: current branch and/or a listed
+    /// local head. Detached HEAD can still open the picker when
+    /// `for-each-ref` returned ≥1 name.
+    pub fn can_pick_git_branch(model: *const Model) bool {
+        return git_checkout.canPickGitBranch(model);
+    }
+
+    pub fn git_branch_picker_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
+        const current = git_branch.gitBranchLabel(model);
+        const n = model.git_branch_list_count;
+        if (n == 0) return &.{};
+        const out = arena.alloc(ChipPickerRow, n) catch return &.{};
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            const name = git_checkout.listedBranch(model, i);
+            out[i] = .{
+                .row_id = @intCast(i + 1),
+                .id = name,
+                .label = name,
+                .selected = std.mem.eql(u8, current, name),
+            };
+        }
+        return out;
+    }
+
     /// Runtime-only muted dirty count on the composer project row.
     pub fn git_dirty_label(model: *const Model) []const u8 {
         return git_dirty.gitDirtyLabel(model);
@@ -1949,6 +2024,7 @@ pub const Model = struct {
     }
 
     pub fn startProjectEdit(model: *Model) void {
+        model.closeGitBranchPicker();
         model.project_edit_active = true;
         model.project_edit_buffer.set(model.selectedProjectPath());
     }

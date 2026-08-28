@@ -11,6 +11,7 @@ const store = @import("store.zig");
 const persist = @import("persist.zig");
 const session_switcher = @import("switcher.zig");
 const turn_stream = @import("stream.zig");
+const git_checkout = @import("git_checkout.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -19,6 +20,10 @@ const canvas = native_sdk.canvas;
 pub fn handleStop(model: *Model, fx: *Effects) void {
     if (model.switcher_open) {
         session_switcher.closeSwitcher(model);
+        return;
+    }
+    if (model.git_branch_picker_open) {
+        model.closeGitBranchPicker();
         return;
     }
     if (model.access_picker_open) {
@@ -88,6 +93,7 @@ pub fn handleToggleGoalStatusPicker(model: *Model) void {
         model.access_picker_open = false;
         model.effort_picker_open = false;
         model.settings_effort_picker_open = false;
+        model.git_branch_picker_open = false;
     }
     model.toggleGoalStatusPicker();
 }
@@ -173,6 +179,7 @@ pub fn handleToggleModelPicker(model: *Model) void {
         model.effort_picker_open = false;
         model.settings_effort_picker_open = false;
         model.goal_status_picker_open = false;
+        model.git_branch_picker_open = false;
     }
     model.toggleModelPicker();
 }
@@ -190,6 +197,7 @@ pub fn handleToggleAccessPicker(model: *Model) void {
         model.effort_picker_open = false;
         model.settings_effort_picker_open = false;
         model.goal_status_picker_open = false;
+        model.git_branch_picker_open = false;
     }
     model.toggleAccessPicker();
 }
@@ -207,8 +215,26 @@ pub fn handleToggleEffortPicker(model: *Model) void {
         model.access_picker_open = false;
         model.settings_effort_picker_open = false;
         model.goal_status_picker_open = false;
+        model.git_branch_picker_open = false;
     }
     model.toggleEffortPicker();
+}
+
+pub fn handleToggleGitBranchPicker(model: *Model) void {
+    if (!model.git_branch_picker_open) {
+        session_switcher.closeSwitcher(model);
+        if (model.palette_open) model.closePalette();
+        model.model_picker_open = false;
+        model.access_picker_open = false;
+        model.effort_picker_open = false;
+        model.settings_effort_picker_open = false;
+        model.goal_status_picker_open = false;
+    }
+    model.toggleGitBranchPicker();
+}
+
+pub fn handlePickGitBranch(model: *Model, fx: *Effects, name: []const u8) void {
+    git_checkout.pickBranch(model, fx, name);
 }
 
 pub fn handlePickEffort(model: *Model, fx: *Effects, id: []const u8) void {
