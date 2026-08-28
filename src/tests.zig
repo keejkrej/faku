@@ -11708,6 +11708,8 @@ fn expectGitBranchArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(!git_numstat.isGitNumstatArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitDeleteArgv(spawn.argv));
 }
 
 test "composer project row shows one-shot git branch --show-current" {
@@ -11928,6 +11930,7 @@ fn expectGitBranchListArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitDeleteArgv(spawn.argv));
 }
 
 fn expectGitCheckoutArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void {
@@ -11945,6 +11948,7 @@ fn expectGitCheckoutArgv(spawn: anytype, cwd: []const u8, name: []const u8) !voi
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitDeleteArgv(spawn.argv));
 }
 
 fn findGitCreateSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
@@ -11972,6 +11976,7 @@ fn expectGitCreateArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void 
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitDeleteArgv(spawn.argv));
 }
 
 test "composer project row lists local heads and checks out another branch" {
@@ -12029,6 +12034,7 @@ test "composer project row lists local heads and checks out another branch" {
     tree = try buildTree(arena, &model);
     try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
     _ = try expectByText(tree.root, .menu_item, "New branch…");
+    _ = try expectByText(tree.root, .menu_item, "Delete branch…");
     _ = try expectByText(tree.root, .menu_item, "feat/a");
     _ = try expectByText(tree.root, .menu_item, "zeta");
 
@@ -12175,6 +12181,7 @@ test "New branch opens create UI; Esc and cancel close it" {
     var tree = try buildTree(arena, &model);
     const new_item = try expectByText(tree.root, .menu_item, "New branch…");
     try testing.expectEqual(Msg.start_git_branch_create, tree.msgForPointer(new_item.id, .up).?);
+    try testing.expect(findByText(tree.root, .menu_item, "Delete branch…") == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "New branch name") == null);
 
     main.update(&model, tree.msgForPointer(new_item.id, .up).?, &fx);
@@ -12276,6 +12283,211 @@ test "confirm create-and-checkout spawns checkout -b; success refreshes; failure
     try testing.expect(model.git_branch_create_active);
 }
 
+fn findGitDeleteSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_checkout.isGitDeleteArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn expectGitDeleteArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void {
+    try testing.expect(git_checkout.isGitDeleteArgv(spawn.argv));
+    try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
+    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(cwd, spawn.argv[4]);
+    try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
+    try testing.expectEqualStrings(git_checkout.git_branch_cmd, spawn.argv[6]);
+    try testing.expectEqualStrings(git_checkout.git_delete_d_flag, spawn.argv[7]);
+    try testing.expectEqualStrings(name, spawn.argv[8]);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], name) == null);
+    try testing.expect(!std.mem.eql(u8, spawn.argv[7], "-D"));
+    try testing.expect(spawn.key >= main.git_delete_key_first);
+    try testing.expect(spawn.key < main.git_numstat_key_first);
+    try testing.expect(spawn.key != main.git_dirty_key_first);
+    try testing.expect(spawn.key != main.git_create_key_first);
+    try testing.expect(spawn.key != main.git_checkout_key_first);
+    try testing.expect(spawn.key != main.git_branch_list_key_first);
+    try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
+}
+
+test "Delete branch opens delete UI; Esc and cancel close it; current is omitted" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-del-ui", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("delete ui", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try fx.feedLine(branch.key, "main\n");
+    drainEffects(&model, &fx);
+    const list = findGitBranchListSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingGitBranchListSpawn;
+    try fx.feedLine(list.key, "main\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(list.key, "feat/old\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(list.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(model.can_pick_git_branch());
+    try testing.expect(model.can_delete_git_branch());
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    try testing.expect(model.git_branch_picker_open);
+    var tree = try buildTree(arena, &model);
+    const delete_item = try expectByText(tree.root, .menu_item, "Delete branch…");
+    try testing.expectEqual(Msg.start_git_branch_delete, tree.msgForPointer(delete_item.id, .up).?);
+    try testing.expect(findByText(tree.root, .button, "Delete") == null);
+
+    main.update(&model, tree.msgForPointer(delete_item.id, .up).?, &fx);
+    try testing.expect(!model.git_branch_picker_open);
+    try testing.expect(model.git_branch_delete_active);
+    try testing.expect(!model.git_branch_create_active);
+    try testing.expectEqualStrings("", model.git_branch_delete());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+    _ = try expectButtonMsg(tree, "Delete", .confirm_git_branch_delete);
+    _ = try expectButtonMsg(tree, "Cancel", .cancel_git_branch_delete);
+
+    main.update(&model, .toggle_git_branch_delete_picker, &fx);
+    try testing.expect(model.git_branch_delete_picker_open);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "feat/old");
+    try testing.expect(findByText(tree.root, .menu_item, "main") == null);
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expect(!model.git_branch_delete_picker_open);
+    try testing.expect(model.git_branch_delete_active);
+
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expect(!model.git_branch_delete_active);
+    try testing.expectEqual(@as(u64, 0), model.git_delete_key);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Delete") == null);
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    main.update(&model, .start_git_branch_delete, &fx);
+    main.update(&model, .{ .pick_git_branch_delete = "feat/old" }, &fx);
+    try testing.expectEqualStrings("feat/old", model.git_branch_delete());
+    main.update(&model, .cancel_git_branch_delete, &fx);
+    try testing.expect(!model.git_branch_delete_active);
+    try testing.expectEqualStrings("", model.git_branch_delete());
+    try testing.expectEqual(@as(u64, 0), model.git_delete_key);
+}
+
+test "confirm delete spawns branch -d; success refreshes; failure sets status" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-del-co", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("delete branch", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try fx.feedLine(branch.key, "main\n");
+    drainEffects(&model, &fx);
+    const list = findGitBranchListSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingGitBranchListSpawn;
+    try fx.feedLine(list.key, "main\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(list.key, "feat/old\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(list.key, 0);
+    drainEffects(&model, &fx);
+
+    main.update(&model, .start_git_branch_delete, &fx);
+    try testing.expect(model.git_branch_delete_active);
+    main.update(&model, .{ .pick_git_branch_delete = "main" }, &fx);
+    try testing.expectEqualStrings("", model.git_branch_delete());
+    main.update(&model, .confirm_git_branch_delete, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_delete_key);
+    try testing.expect(model.git_branch_delete_active);
+
+    main.update(&model, .{ .pick_git_branch_delete = "../escape" }, &fx);
+    main.update(&model, .confirm_git_branch_delete, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_delete_key);
+
+    main.update(&model, .{ .pick_git_branch_delete = "feat/old" }, &fx);
+    try testing.expectEqualStrings("feat/old", model.git_branch_delete());
+    model.phase = .streaming;
+    main.update(&model, .confirm_git_branch_delete, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_delete_key);
+    model.phase = .idle;
+    main.update(&model, .confirm_git_branch_delete, &fx);
+    const deleted = findGitDeleteSpawnKey(&fx, model.git_delete_key) orelse return error.MissingGitDeleteSpawn;
+    try expectGitDeleteArgv(deleted, project, "feat/old");
+    try testing.expect(model.git_branch_delete_active);
+    try testing.expectEqualStrings("main", model.git_branch_label());
+
+    const delete_key = model.git_delete_key;
+    main.update(&model, .confirm_git_branch_delete, &fx);
+    try testing.expectEqual(delete_key, model.git_delete_key);
+    main.update(&model, .{ .pick_git_branch = "feat/old" }, &fx);
+    try testing.expectEqual(delete_key, model.git_delete_key);
+    try testing.expectEqual(@as(u64, 0), model.git_checkout_key);
+
+    try fx.feedExit(deleted.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_delete_key);
+    try testing.expect(!model.git_branch_delete_active);
+    try testing.expectEqualStrings("", model.git_branch_delete());
+    const refreshed = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchRefresh;
+    try testing.expect(findGitDirtySpawnKey(&fx, model.git_dirty_key) != null);
+    try testing.expect(findGitNumstatSpawnKey(&fx, model.git_numstat_key) != null);
+    try testing.expect(findFileMentionSpawnKey(&fx, model.file_mention_key) != null);
+    try testing.expect(findGitBranchListSpawnKey(&fx, model.git_branch_list_key) != null);
+    try testing.expectEqualStrings("", model.git_branch_label());
+    try fx.feedLine(refreshed.key, "main\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("main", model.git_branch_label());
+
+    const list2 = findGitBranchListSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingGitBranchListRefresh;
+    try fx.feedLine(list2.key, "main\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(list2.key, "feat/blocked\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(list2.key, 0);
+    drainEffects(&model, &fx);
+
+    main.update(&model, .start_git_branch_delete, &fx);
+    main.update(&model, .{ .pick_git_branch_delete = "feat/blocked" }, &fx);
+    main.update(&model, .confirm_git_branch_delete, &fx);
+    const failed = findGitDeleteSpawnKey(&fx, model.git_delete_key) orelse return error.MissingGitDeleteFailSpawn;
+    try expectGitDeleteArgv(failed, project, "feat/blocked");
+    try fx.feedExit(failed.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("main", model.git_branch_label());
+    try testing.expectEqualStrings(git_checkout.delete_failed_status, model.attach_status());
+    try testing.expect(model.has_attach_status());
+    try testing.expect(model.git_branch_delete_active);
+}
+
 fn findGitRevParseSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
@@ -12308,6 +12520,7 @@ fn expectGitDirtyArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.copy_turn_key);
     try testing.expect(spawn.key != main.git_branch_key_first);
     try testing.expect(spawn.key != main.git_numstat_key_first);
+    try testing.expect(spawn.key != main.git_delete_key_first);
     try testing.expect(spawn.key != main.file_mention_key_first);
     try testing.expect(spawn.key >= main.git_dirty_key_first);
     try testing.expect(spawn.key < main.git_numstat_key_first);

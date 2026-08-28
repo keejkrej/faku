@@ -41,10 +41,11 @@ the composer project row sets the selected session cwd and, when that
 path exists, shows a muted one-shot `git branch --show-current` label
 that can open a local checkout picker (`for-each-ref` + `git checkout`)
 or create-and-checkout a new local branch from HEAD (`git checkout -b`)
+or safe-delete a non-current local head (`git branch -d`)
 plus a one-shot `git status --porcelain` dirty file count and a
 one-shot `git diff --numstat HEAD` +/- that also adds untracked
 text-line counts on the + side (not Waku's daemon InspectBranches /
-worktrees / remotes / delete / live watch / Environment Summary;
+worktrees / remotes / live watch / Environment Summary / force delete;
 Native still has no git effect);
 typing `@` in the composer (last whitespace token; caret assumed at
 the end — Native has no caret API) opens a small card of files and
@@ -263,8 +264,12 @@ lexicographic) so that select can check out another local head
 via one-shot `git checkout <name>` (name is its own argv slot).
 New branch… on that picker opens a runtime-only create card and
 one-shots `git checkout -b <name>` from current HEAD the same way.
-Selecting the current branch is a no-op; a failed checkout or create
-sets a short composer status and leaves the previous label until refresh.
+Delete branch… opens a runtime-only delete card of non-current
+listed local heads and one-shots `git branch -d <name>` (safe
+delete only; never `-D` / force). The current branch is never
+offered. Selecting the current branch is a no-op; a failed checkout,
+create, or delete sets a short composer status and leaves the
+previous label until refresh.
 The same refresh also one-shots `git status --porcelain` and, when that
 stdout has non-empty lines, a muted `N change` / `N changes` label
 next to the branch (one line per path; blank lines ignored). The
@@ -276,12 +281,12 @@ are non-zero, a muted `+N −M` label next to the dirty count
 (tracked binary `-` rows skipped; blank lines ignored; deletions
 stay tracked-only). Zero, failed, or skipped probes omit those
 labels — this cut does not invent "clean". This is not Waku's
-daemon `InspectBranches` / worktrees / remotes / delete / live watch,
+daemon `InspectBranches` / worktrees / remotes / live watch,
 not a commit dialog, not a staged/unstaged split, not Waku's
-Environment Summary, and not Review. Native still has no git
-effect. The branch, dirty count, and +/- are runtime-only (like
-the busy spinner) and are not stored on `sessions.json`. There is
-no worktree materialization.
+Environment Summary, not force delete (`git branch -D`), and not
+Review. Native still has no git effect. The branch, dirty count,
+and +/- are runtime-only (like the busy spinner) and are not stored
+on `sessions.json`. There is no worktree materialization.
 The same refresh also one-shots
 `git ls-files --cached --others --exclude-standard` (same chdir
 workaround) and keeps a bounded runtime list of relative paths for
