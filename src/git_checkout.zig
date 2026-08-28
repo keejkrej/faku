@@ -915,7 +915,10 @@ fn spawnPushCmd(model: *Model, fx: *Effects, cwd: []const u8, argv: []const []co
     model.git_push_key = key;
     model.git_push_phase = phase;
     model.git_push_probe_session = model.selected;
-    writeFixed(&model.git_push_probe_path_storage, &model.git_push_probe_path_len, cwd);
+    const probed = model.git_push_probe_path_storage[0..model.git_push_probe_path_len];
+    if (cwd.ptr != probed.ptr) {
+        writeFixed(&model.git_push_probe_path_storage, &model.git_push_probe_path_len, cwd);
+    }
     fx.spawn(.{
         .key = key,
         .argv = argv,
