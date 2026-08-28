@@ -3,22 +3,30 @@
 //!
 //! Native has no git/workspace effect. When the selected session has a
 //! non-empty `project_path` that exists, Faku `fx.spawn`s
-//! `git for-each-ref --format=%(refname) refs/heads refs/remotes`
+//! `git for-each-ref --format=%(refname)%00%(worktreepath) refs/heads refs/remotes`
 //! through the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`). `%(refname)` (not `:short`) is required
-//! so `refs/heads/feat/foo` is not confused with a remote. Checking
-//! out a listed local name one-shots `git checkout <name>` with that
-//! name as its own argv slot — never interpolated into the `-c`
-//! script. A listed remote-tracking name one-shots
+//! so `refs/heads/feat/foo` is not confused with a remote.
+//! `%(worktreepath)` marks a local head checked out in another
+//! worktree: non-empty path that is not this session's `project_path`
+//! / list-probe cwd (`project_path` may be a subdirectory of that
+//! worktree). Occupied locals stay in the picker with a short label
+//! marker and are refused for checkout and safe-delete. Remotes are
+//! never occupied. Empty `%(worktreepath)` is not occupied. This is a
+//! path-prefix heuristic, not Waku's canonicalize(show-toplevel).
+//! Checking out a listed local name one-shots `git checkout <name>`
+//! with that name as its own argv slot — never interpolated into the
+//! `-c` script. A listed remote-tracking name one-shots
 //! `git checkout --track <name>` the same way (`--track` and the name
 //! each their own slot; same checkout key band). New branch…
 //! one-shots `git checkout -b <name>` from current HEAD. Delete
 //! branch… one-shots `git branch -d <name>` for listed local heads
-//! only (safe delete; never `-D`; never `origin/…`). Cap is 64 local
-//! heads plus 32 remote-tracking names that have no local counterpart
-//! (skip symbolic `*/HEAD`), sorted lexicographically. Not Waku's
-//! daemon `InspectBranches` picker, worktrees, fetch/push/prune,
-//! stash, merge, force delete, live watch, or Environment Summary.
+//! that are not occupied (safe delete; never `-D`; never `origin/…`).
+//! Cap is 64 local heads plus 32 remote-tracking names that have no
+//! local counterpart (skip symbolic `*/HEAD`), sorted
+//! lexicographically. Not Waku's daemon `InspectBranches` picker,
+//! live watch, worktree add / New Worktree, fetch/push/prune, stash,
+//! merge, force delete, or Environment Summary.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -65,12 +73,14 @@ pub const max_local_branches: usize = 64;
 pub const max_remote_branches: usize = 32;
 pub const max_listed_branches: usize = max_local_branches + max_remote_branches;
 pub const checkout_failed_status = "Could not check out branch.";
+pub const occupied_checkout_status = "Already checked out in another worktree.";
+pub const occupied_picker_suffix = " (worktree)";
 pub const create_failed_status = "Could not create branch.";
 pub const delete_failed_status = "Could not delete branch.";
 
 pub const git_bin = git_branch.git_bin;
 pub const git_for_each_ref_cmd = "for-each-ref";
-pub const git_refname_format = "--format=%(refname)";
+pub const git_refname_format = "--format=%(refname)%00%(worktreepath)";
 pub const git_heads_ref = "refs/heads";
 pub const git_remotes_ref = "refs/remotes";
 pub const git_heads_prefix = "refs/heads/";
@@ -92,20 +102,23 @@ pub const CachedBranch = struct {
     storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     len: usize = 0,
     remote: bool = false,
+    occupied: bool = false,
 
     pub fn text(self: *const CachedBranch) []const u8 {
         return self.storage[0..self.len];
     }
 
-    pub fn set(self: *CachedBranch, name: []const u8, remote: bool) void {
+    pub fn set(self: *CachedBranch, name: []const u8, remote: bool, occupied: bool) void {
         writeFixed(&self.storage, &self.len, name);
         self.remote = remote;
+        self.occupied = occupied and !remote;
     }
 };
 
 pub const ParsedRef = struct {
     name: []const u8,
     remote: bool,
+    occupied: bool = false,
 };
 
 pub fn listArgvFor(cwd: []const u8, buf: *[list_argv_len][]const u8) []const []const u8 {
@@ -268,8 +281,39 @@ pub fn remoteLocalCounterpart(name: []const u8) []const u8 {
     return name[slash + 1 ..];
 }
 
-/// Classify one `%(refname)` line. Locals are `refs/heads/<name>`;
-/// remotes are `refs/remotes/<name>` minus symbolic `*/HEAD`.
+/// Split one `for-each-ref` stdout line into `refname` and
+/// `worktreepath`. A missing NUL (older git / missing field) is a
+/// valid refname with empty worktreepath.
+pub fn splitRefWorktreeLine(line: []const u8) struct { refname: []const u8, worktreepath: []const u8 } {
+    if (std.mem.indexOfScalar(u8, line, 0)) |nul| {
+        return .{ .refname = line[0..nul], .worktreepath = line[nul + 1 ..] };
+    }
+    return .{ .refname = line, .worktreepath = "" };
+}
+
+/// This-worktree heuristic: `worktreepath` equals `project_path`, or
+/// `project_path` starts with `worktreepath` + "/". Not Waku's
+/// canonicalize(show-toplevel); no extra rev-parse spawn.
+pub fn isThisWorktreePath(worktreepath: []const u8, project_path: []const u8) bool {
+    const wt = std.mem.trim(u8, worktreepath, " \t\r\n");
+    const proj = std.mem.trim(u8, project_path, " \t\r\n");
+    if (wt.len == 0 or proj.len == 0) return false;
+    if (std.mem.eql(u8, wt, proj)) return true;
+    return proj.len > wt.len and std.mem.startsWith(u8, proj, wt) and proj[wt.len] == '/';
+}
+
+/// Local heads only. Non-empty trimmed worktreepath that is not this
+/// worktree. Remotes and empty paths are never occupied.
+pub fn localHeadOccupied(remote: bool, worktreepath: []const u8, project_path: []const u8) bool {
+    if (remote) return false;
+    const wt = std.mem.trim(u8, worktreepath, " \t\r\n");
+    if (wt.len == 0) return false;
+    return !isThisWorktreePath(wt, project_path);
+}
+
+/// Classify one `%(refname)` (NUL field already split off). Locals
+/// are `refs/heads/<name>`; remotes are `refs/remotes/<name>` minus
+/// symbolic `*/HEAD`.
 pub fn classifyRefname(raw: []const u8) ?ParsedRef {
     const trimmed = std.mem.trim(u8, raw, " \t\r\n");
     if (std.mem.startsWith(u8, trimmed, git_heads_prefix)) {
@@ -293,17 +337,31 @@ fn parsedRefNameEquals(refs: []const ParsedRef, name: []const u8) bool {
     return false;
 }
 
-/// Parse `%(refname)` lines. Locals first (cap 64), then remotes that
-/// are not `*/HEAD` and whose local counterpart is not already in this
-/// batch (cap 32). Skip empty / implausible names. Then sort by
-/// display name. Slices alias `raw`.
-pub fn collectStdoutRefs(raw: []const u8, out: []ParsedRef) usize {
+fn parseRefLine(line: []const u8, project_path: []const u8) ?ParsedRef {
+    const split = splitRefWorktreeLine(line);
+    var parsed = classifyRefname(split.refname) orelse return null;
+    parsed.occupied = localHeadOccupied(parsed.remote, split.worktreepath, project_path);
+    return parsed;
+}
+
+fn occupancyCwd(model: *const Model) []const u8 {
+    const probed = model.git_branch_list_probe_path_storage[0..model.git_branch_list_probe_path_len];
+    if (probed.len > 0) return probed;
+    return model.selectedProjectPath();
+}
+
+/// Parse `%(refname)%00%(worktreepath)` lines. Locals first (cap 64),
+/// then remotes that are not `*/HEAD` and whose local counterpart is
+/// not already in this batch (cap 32). Occupancy is local-only via
+/// the `project_path` / probe-cwd heuristic. Skip empty / implausible
+/// names. Then sort by display name. Slices alias `raw`.
+pub fn collectStdoutRefs(raw: []const u8, project_path: []const u8, out: []ParsedRef) usize {
     var n: usize = 0;
     var local_n: usize = 0;
     var it = std.mem.splitScalar(u8, raw, '\n');
     while (it.next()) |line| {
         if (n >= out.len or local_n >= max_local_branches) break;
-        const parsed = classifyRefname(line) orelse continue;
+        const parsed = parseRefLine(line, project_path) orelse continue;
         if (parsed.remote) continue;
         if (parsedRefNameEquals(out[0..n], parsed.name)) continue;
         out[n] = parsed;
@@ -314,7 +372,7 @@ pub fn collectStdoutRefs(raw: []const u8, out: []ParsedRef) usize {
     it = std.mem.splitScalar(u8, raw, '\n');
     while (it.next()) |line| {
         if (n >= out.len or remote_n >= max_remote_branches) break;
-        const parsed = classifyRefname(line) orelse continue;
+        const parsed = parseRefLine(line, project_path) orelse continue;
         if (!parsed.remote) continue;
         const counterpart = remoteLocalCounterpart(parsed.name);
         if (counterpart.len > 0 and parsedRefNameEquals(out[0..local_n], counterpart)) continue;
@@ -345,6 +403,21 @@ pub fn listedBranch(model: *const Model, index: usize) []const u8 {
 pub fn listedBranchIsRemote(model: *const Model, index: usize) bool {
     if (index >= model.git_branch_list_count) return false;
     return model.git_branch_list_store[index].remote;
+}
+
+pub fn listedBranchIsOccupied(model: *const Model, index: usize) bool {
+    if (index >= model.git_branch_list_count) return false;
+    const item = model.git_branch_list_store[index];
+    return item.occupied and !item.remote;
+}
+
+pub fn listedLocalNameIsOccupied(model: *const Model, name: []const u8) bool {
+    var i: usize = 0;
+    while (i < model.git_branch_list_count) : (i += 1) {
+        if (listedBranchIsRemote(model, i)) continue;
+        if (std.mem.eql(u8, listedBranch(model, i), name)) return listedBranchIsOccupied(model, i);
+    }
+    return false;
 }
 
 pub fn hasListedBranches(model: *const Model) bool {
@@ -382,14 +455,16 @@ pub fn isListedRemoteName(model: *const Model, name: []const u8) bool {
     return false;
 }
 
-/// True when at least one listed local head is not the current branch.
-/// Remote-tracking rows are never deletable. Detached HEAD (sha label)
-/// treats every listed local head as deletable.
+/// True when at least one listed local head is not the current branch
+/// and is not occupied in another worktree. Remote-tracking rows are
+/// never deletable. Detached HEAD (sha label) treats every unoccupied
+/// listed local head as deletable.
 pub fn canDeleteGitBranch(model: *const Model) bool {
     const current = git_branch.gitBranchLabel(model);
     var i: usize = 0;
     while (i < model.git_branch_list_count) : (i += 1) {
         if (listedBranchIsRemote(model, i)) continue;
+        if (listedBranchIsOccupied(model, i)) continue;
         const name = listedBranch(model, i);
         if (!git_branch.isPlausibleBranchName(name)) continue;
         if (std.mem.eql(u8, name, current)) continue;
@@ -408,6 +483,7 @@ fn isListedNonCurrent(model: *const Model, name: []const u8) bool {
     var i: usize = 0;
     while (i < model.git_branch_list_count) : (i += 1) {
         if (listedBranchIsRemote(model, i)) continue;
+        if (listedBranchIsOccupied(model, i)) continue;
         if (std.mem.eql(u8, listedBranch(model, i), name)) return true;
     }
     return false;
@@ -442,7 +518,8 @@ pub fn startCreate(model: *Model) void {
 }
 
 /// Dismiss the select list and open the runtime-only delete card of
-/// non-current listed local heads. Selected name is not persisted.
+/// non-current, unoccupied listed local heads. Selected name is not
+/// persisted.
 pub fn startDelete(model: *Model) void {
     closePicker(model);
     closeCreate(model);
@@ -471,7 +548,7 @@ pub fn pickDeleteName(model: *Model, name: []const u8) void {
     writeFixed(&model.git_branch_delete_storage, &model.git_branch_delete_len, name);
 }
 
-fn appendListedBranch(model: *Model, name: []const u8, remote: bool) void {
+fn appendListedBranch(model: *Model, name: []const u8, remote: bool, occupied: bool) void {
     if (model.git_branch_list_count >= max_listed_branches) return;
     if (!git_branch.isPlausibleBranchName(name)) return;
     if (remote) {
@@ -483,20 +560,20 @@ fn appendListedBranch(model: *Model, name: []const u8, remote: bool) void {
     while (i < model.git_branch_list_count) : (i += 1) {
         if (std.mem.eql(u8, listedBranch(model, i), name)) return;
     }
-    model.git_branch_list_store[model.git_branch_list_count].set(name, remote);
+    model.git_branch_list_store[model.git_branch_list_count].set(name, remote, occupied);
     model.git_branch_list_count += 1;
 }
 
 pub fn applyStdoutBranches(model: *Model, raw: []const u8) void {
     var refs: [max_listed_branches]ParsedRef = undefined;
-    const n = collectStdoutRefs(raw, refs[0..]);
+    const n = collectStdoutRefs(raw, occupancyCwd(model), refs[0..]);
     var i: usize = 0;
     while (i < n) : (i += 1) {
-        if (!refs[i].remote) appendListedBranch(model, refs[i].name, false);
+        if (!refs[i].remote) appendListedBranch(model, refs[i].name, false, refs[i].occupied);
     }
     i = 0;
     while (i < n) : (i += 1) {
-        if (refs[i].remote) appendListedBranch(model, refs[i].name, true);
+        if (refs[i].remote) appendListedBranch(model, refs[i].name, true, refs[i].occupied);
     }
 }
 
@@ -651,14 +728,20 @@ fn refreshWorkspaceProbes(model: *Model, fx: *Effects) void {
 /// Selecting the current branch closes the picker. A listed
 /// remote-tracking name one-shots `git checkout --track` even when
 /// its local counterpart is the current branch. Another plausible
-/// local name one-shots `git checkout`. Implausible names are ignored.
-/// In-flight create or delete is a no-op so the one-shots do not overlap.
+/// local name one-shots `git checkout` unless that local is occupied
+/// in another worktree (status, no spawn). Implausible names are
+/// ignored. In-flight create or delete is a no-op so the one-shots
+/// do not overlap.
 pub fn pickBranch(model: *Model, fx: *Effects, name: []const u8) void {
     closePicker(model);
     if (model.git_create_key != 0 or model.git_delete_key != 0) return;
     if (!git_branch.isPlausibleBranchName(name)) return;
     const remote = isListedRemoteName(model, name);
     if (!remote and std.mem.eql(u8, name, git_branch.gitBranchLabel(model))) return;
+    if (!remote and listedLocalNameIsOccupied(model, name)) {
+        model.setAttachStatus(occupied_checkout_status);
+        return;
+    }
     if (!probeSupported()) return;
     const cwd = probePath(model);
     if (cwd.len == 0) return;
@@ -745,10 +828,10 @@ pub fn handleCreateExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
     model.setAttachStatus(create_failed_status);
 }
 
-/// Confirm the delete card: a listed non-current name one-shots
-/// `git branch -d`. Empty / current / implausible names do not spawn
-/// and keep the card open. Busy session or in-flight checkout/create/
-/// delete is a no-op.
+/// Confirm the delete card: a listed non-current, unoccupied name
+/// one-shots `git branch -d`. Empty / current / occupied /
+/// implausible names do not spawn and keep the card open. Busy
+/// session or in-flight checkout/create/delete is a no-op.
 pub fn confirmDelete(model: *Model, fx: *Effects) void {
     if (model.git_delete_key != 0 or model.git_checkout_key != 0 or model.git_create_key != 0) return;
     if (model.is_streaming()) return;
@@ -799,9 +882,22 @@ test "list argv is chdir script plus for-each-ref refs/heads and refs/remotes" {
     try std.testing.expectEqualStrings(git_bin, argv[5]);
     try std.testing.expectEqualStrings(git_for_each_ref_cmd, argv[6]);
     try std.testing.expectEqualStrings(git_refname_format, argv[7]);
+    try std.testing.expectEqualStrings("--format=%(refname)%00%(worktreepath)", argv[7]);
     try std.testing.expectEqualStrings(git_heads_ref, argv[8]);
     try std.testing.expectEqualStrings(git_remotes_ref, argv[9]);
     try std.testing.expect(isGitBranchListArgv(argv));
+    try std.testing.expect(!isGitBranchListArgv(&.{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-heads",
+        git_bin,
+        git_for_each_ref_cmd,
+        "--format=%(refname)",
+        git_heads_ref,
+        git_remotes_ref,
+    }));
     try std.testing.expect(!isGitBranchListArgv(&.{ git_bin, git_for_each_ref_cmd, git_refname_format, git_heads_ref }));
     try std.testing.expect(!isGitBranchListArgv(&.{
         sh_bin,
@@ -976,31 +1072,37 @@ test "collectStdoutRefs skips remote HEAD, de-dupes local counterparts, and caps
         \\refs/remotes/upstream/other
         \\
     ;
-    const n = collectStdoutRefs(raw, refs[0..]);
+    const n = collectStdoutRefs(raw, "", refs[0..]);
     try std.testing.expectEqual(@as(usize, 6), n);
     try std.testing.expectEqualStrings("feat/a", refs[0].name);
     try std.testing.expect(!refs[0].remote);
+    try std.testing.expect(!refs[0].occupied);
     try std.testing.expectEqualStrings("feat/foo", refs[1].name);
     try std.testing.expect(!refs[1].remote);
+    try std.testing.expect(!refs[1].occupied);
     try std.testing.expectEqualStrings("main", refs[2].name);
     try std.testing.expect(!refs[2].remote);
+    try std.testing.expect(!refs[2].occupied);
     try std.testing.expectEqualStrings("origin/only", refs[3].name);
     try std.testing.expect(refs[3].remote);
+    try std.testing.expect(!refs[3].occupied);
     try std.testing.expectEqualStrings("upstream/other", refs[4].name);
     try std.testing.expect(refs[4].remote);
+    try std.testing.expect(!refs[4].occupied);
     try std.testing.expectEqualStrings("zeta", refs[5].name);
     try std.testing.expect(!refs[5].remote);
+    try std.testing.expect(!refs[5].occupied);
 
-    try std.testing.expectEqual(@as(usize, 0), collectStdoutRefs("   \n\n", refs[0..]));
-    try std.testing.expectEqual(@as(usize, 0), collectStdoutRefs("", refs[0..]));
-    try std.testing.expectEqual(@as(usize, 0), collectStdoutRefs("main\nfeat/a\norigin/feat\n", refs[0..]));
+    try std.testing.expectEqual(@as(usize, 0), collectStdoutRefs("   \n\n", "", refs[0..]));
+    try std.testing.expectEqual(@as(usize, 0), collectStdoutRefs("", "", refs[0..]));
+    try std.testing.expectEqual(@as(usize, 0), collectStdoutRefs("main\nfeat/a\norigin/feat\n", "", refs[0..]));
     try std.testing.expect(classifyRefname("refs/remotes/origin/HEAD") == null);
     try std.testing.expect(classifyRefname("refs/remotes/HEAD") == null);
     try std.testing.expectEqualStrings("feat", remoteLocalCounterpart("origin/feat"));
     try std.testing.expectEqualStrings("feat/foo", remoteLocalCounterpart("origin/feat/foo"));
 
     var tiny: [1]ParsedRef = undefined;
-    const capped = collectStdoutRefs("refs/heads/c\nrefs/heads/b\nrefs/heads/a\n", tiny[0..]);
+    const capped = collectStdoutRefs("refs/heads/c\nrefs/heads/b\nrefs/heads/a\n", "", tiny[0..]);
     try std.testing.expectEqual(@as(usize, 1), capped);
     try std.testing.expectEqualStrings("c", tiny[0].name);
 
@@ -1026,5 +1128,149 @@ test "finalizeListedBranches drops remotes after a later local counterpart arriv
     try std.testing.expectEqual(@as(u32, 1), model.git_branch_list_count);
     try std.testing.expectEqualStrings("feat", listedBranch(&model, 0));
     try std.testing.expect(!listedBranchIsRemote(&model, 0));
+    try std.testing.expect(!listedBranchIsOccupied(&model, 0));
     try std.testing.expect(!isListedRemoteName(&model, "origin/feat"));
+}
+
+const OccupancyCase = struct {
+    raw: []const u8,
+    project_path: []const u8,
+    name: []const u8,
+    remote: bool,
+    occupied: bool,
+};
+
+test "collectStdoutRefs occupancy is local-only via project_path heuristic" {
+    const cases = [_]OccupancyCase{
+        .{ .raw = "refs/heads/main\x00\n", .project_path = "/tmp/proj", .name = "main", .remote = false, .occupied = false },
+        .{ .raw = "refs/heads/main\n", .project_path = "/tmp/proj", .name = "main", .remote = false, .occupied = false },
+        .{ .raw = "refs/heads/occupied\x00/tmp/other-worktree\n", .project_path = "/tmp/proj", .name = "occupied", .remote = false, .occupied = true },
+        .{ .raw = "refs/heads/feat\x00/tmp/proj\n", .project_path = "/tmp/proj", .name = "feat", .remote = false, .occupied = false },
+        .{ .raw = "refs/heads/feat\x00/tmp/proj\n", .project_path = "/tmp/proj/src", .name = "feat", .remote = false, .occupied = false },
+        .{ .raw = "refs/remotes/origin/occupied\x00/whatever\n", .project_path = "/tmp/proj", .name = "origin/occupied", .remote = true, .occupied = false },
+    };
+    var refs: [max_listed_branches]ParsedRef = undefined;
+    for (cases) |case| {
+        const n = collectStdoutRefs(case.raw, case.project_path, refs[0..]);
+        try std.testing.expectEqual(@as(usize, 1), n);
+        try std.testing.expectEqualStrings(case.name, refs[0].name);
+        try std.testing.expectEqual(case.remote, refs[0].remote);
+        try std.testing.expectEqual(case.occupied, refs[0].occupied);
+    }
+
+    const mixed =
+        "refs/heads/main\x00\n" ++
+        "refs/heads/occupied\x00/tmp/other-worktree\n" ++
+        "refs/heads/feat\x00/tmp/proj\n" ++
+        "refs/remotes/origin/HEAD\x00/tmp/proj\n" ++
+        "refs/remotes/origin/main\x00/tmp/proj\n" ++
+        "refs/remotes/origin/occupied\x00/whatever\n" ++
+        "refs/remotes/origin/only\x00/whatever\n";
+    const n = collectStdoutRefs(mixed, "/tmp/proj", refs[0..]);
+    try std.testing.expectEqual(@as(usize, 4), n);
+    try std.testing.expectEqualStrings("feat", refs[0].name);
+    try std.testing.expect(!refs[0].remote);
+    try std.testing.expect(!refs[0].occupied);
+    try std.testing.expectEqualStrings("main", refs[1].name);
+    try std.testing.expect(!refs[1].remote);
+    try std.testing.expect(!refs[1].occupied);
+    try std.testing.expectEqualStrings("occupied", refs[2].name);
+    try std.testing.expect(!refs[2].remote);
+    try std.testing.expect(refs[2].occupied);
+    try std.testing.expectEqualStrings("origin/only", refs[3].name);
+    try std.testing.expect(refs[3].remote);
+    try std.testing.expect(!refs[3].occupied);
+
+    const sub = collectStdoutRefs("refs/heads/feat\x00/tmp/proj\n", "/tmp/proj/src", refs[0..]);
+    try std.testing.expectEqual(@as(usize, 1), sub);
+    try std.testing.expect(!refs[0].occupied);
+
+    var model = Model{};
+    const id = model.addSession("occupancy", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath("/tmp/proj");
+    applyStdoutBranches(&model, mixed);
+    try std.testing.expectEqual(@as(u32, 4), model.git_branch_list_count);
+    try std.testing.expectEqualStrings("feat", listedBranch(&model, 0));
+    try std.testing.expect(!listedBranchIsOccupied(&model, 0));
+    try std.testing.expectEqualStrings("main", listedBranch(&model, 1));
+    try std.testing.expect(!listedBranchIsOccupied(&model, 1));
+    try std.testing.expectEqualStrings("occupied", listedBranch(&model, 2));
+    try std.testing.expect(listedBranchIsOccupied(&model, 2));
+    try std.testing.expectEqualStrings("origin/only", listedBranch(&model, 3));
+    try std.testing.expect(listedBranchIsRemote(&model, 3));
+    try std.testing.expect(!listedBranchIsOccupied(&model, 3));
+    try std.testing.expect(listedLocalNameIsOccupied(&model, "occupied"));
+    try std.testing.expect(!listedLocalNameIsOccupied(&model, "feat"));
+}
+
+test "pickBranch refuses occupied locals and no-ops the current name" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.git_branch_list_store[0].set("feat", false, false);
+    model.git_branch_list_store[1].set("main", false, false);
+    model.git_branch_list_store[2].set("occupied", false, true);
+    model.git_branch_list_count = 3;
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+
+    pickBranch(&model, &fx, "occupied");
+    try std.testing.expectEqual(@as(u64, 0), model.git_checkout_key);
+    try std.testing.expectEqualStrings(occupied_checkout_status, model.attach_status());
+    try std.testing.expect(model.has_attach_status());
+
+    model.clearAttachStatus();
+    pickBranch(&model, &fx, "main");
+    try std.testing.expectEqual(@as(u64, 0), model.git_checkout_key);
+    try std.testing.expect(!model.has_attach_status());
+
+    model.git_branch_list_store[1].set("main", false, true);
+    pickBranch(&model, &fx, "main");
+    try std.testing.expectEqual(@as(u64, 0), model.git_checkout_key);
+    try std.testing.expect(!model.has_attach_status());
+}
+
+test "delete rows omit occupied locals" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    model.git_branch_list_store[0].set("feat", false, false);
+    model.git_branch_list_store[1].set("main", false, false);
+    model.git_branch_list_store[2].set("occupied", false, true);
+    model.git_branch_list_store[3].set("origin/only", true, false);
+    model.git_branch_list_count = 4;
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+
+    try std.testing.expect(canDeleteGitBranch(&model));
+    const rows = model.git_branch_delete_rows(arena);
+    try std.testing.expectEqual(@as(usize, 1), rows.len);
+    try std.testing.expectEqualStrings("feat", rows[0].id);
+    try std.testing.expectEqualStrings("feat", rows[0].label);
+
+    pickDeleteName(&model, "occupied");
+    try std.testing.expectEqualStrings("", gitBranchDeleteLabel(&model));
+    pickDeleteName(&model, "origin/only");
+    try std.testing.expectEqualStrings("", gitBranchDeleteLabel(&model));
+    pickDeleteName(&model, "feat");
+    try std.testing.expectEqualStrings("feat", gitBranchDeleteLabel(&model));
+
+    const picker = model.git_branch_picker_rows(arena);
+    try std.testing.expectEqual(@as(usize, 4), picker.len);
+    try std.testing.expectEqualStrings("feat", picker[0].id);
+    try std.testing.expectEqualStrings("feat", picker[0].label);
+    try std.testing.expectEqualStrings("occupied", picker[2].id);
+    try std.testing.expectEqualStrings("occupied (worktree)", picker[2].label);
+    try std.testing.expectEqualStrings("origin/only", picker[3].id);
+    try std.testing.expectEqualStrings("origin/only", picker[3].label);
+
+    model.git_branch_list_store[0].set("occupied", false, true);
+    model.git_branch_list_store[1].set("main", false, false);
+    model.git_branch_list_count = 2;
+    try std.testing.expect(!canDeleteGitBranch(&model));
+    const none = model.git_branch_delete_rows(arena);
+    try std.testing.expectEqual(@as(usize, 0), none.len);
 }

@@ -39,15 +39,17 @@ static from last `wallMs`, not a live ticker);
 sidebar folder rows have a Native context menu (Rename / Delete);
 the composer project row sets the selected session cwd and, when that
 path exists, shows a muted one-shot `git branch --show-current` label
-that can open a checkout picker (`for-each-ref` + `git checkout`, or
-`git checkout --track` for a remote-tracking ref with no local counterpart)
+that can open a checkout picker (`for-each-ref` `%(refname)%00%(worktreepath)` +
+`git checkout`, or `git checkout --track` for a remote-tracking ref with no
+local counterpart; local heads checked out in another worktree stay listed
+and are refused for checkout/delete)
 or create-and-checkout a new local branch from HEAD (`git checkout -b`)
-or safe-delete a non-current local head (`git branch -d`)
+or safe-delete a non-current, unoccupied local head (`git branch -d`)
 plus a one-shot `git status --porcelain` dirty file count and a
 one-shot `git diff --numstat HEAD` +/- that also adds untracked
-text-line counts on the + side (not Waku's daemon InspectBranches /
-worktrees / remotes / live watch / Environment Summary / force delete;
-Native still has no git effect);
+text-line counts on the + side (not Waku's daemon InspectBranches
+live watch / worktree add / New Worktree / canonicalize(show-toplevel) /
+Environment Summary / force delete; Native still has no git effect);
 typing `@` in the composer (last whitespace token; caret assumed at
 the end — Native has no caret API) opens a small card of files and
 derived parent directories (trailing slash) from a one-shot
@@ -261,22 +263,28 @@ same `/bin/sh -c 'cd -- "$1" && shift && exec "$@"'` workaround
 HEAD prints empty; a follow-up `git rev-parse --short HEAD` may
 show a conservative short hex as the select label. Non-repos omit
 the control. The same refresh also one-shots
-`git for-each-ref --format=%(refname) refs/heads refs/remotes`
+`git for-each-ref --format=%(refname)%00%(worktreepath) refs/heads refs/remotes`
 (64 local heads plus 32 remote-tracking names, lexicographic) so
 that select can check out another local head via one-shot
 `git checkout <name>` or a remote-tracking ref with no local
 counterpart via `git checkout --track <name>` (`--track` and the
-name each their own argv slot). Symbolic `*/HEAD` is omitted;
-`origin/feat` is omitted when local `feat` exists. New branch… on
-that picker opens a runtime-only create card and one-shots
-`git checkout -b <name>` from current HEAD the same way.
-Delete branch… opens a runtime-only delete card of non-current
-listed local heads and one-shots `git branch -d <name>` (safe
-delete only; never `-D` / force; never `origin/…`). The current
-branch is never offered. Selecting the current local branch is a
-no-op; picking a remote-tracking name is not. A failed checkout,
-create, or delete sets a short composer status and leaves the
-previous label until refresh.
+name each their own argv slot). A local head with a non-empty
+`%(worktreepath)` that is not this session's `project_path` / list
+probe cwd (or a parent of that path) stays listed with a short
+`(worktree)` marker; picking it refuses checkout and sets
+`Already checked out in another worktree.` Symbolic `*/HEAD` is
+omitted; `origin/feat` is omitted when local `feat` exists.
+Remotes are never occupied. New branch… on that picker opens a
+runtime-only create card and one-shots `git checkout -b <name>`
+from current HEAD the same way.
+Delete branch… opens a runtime-only delete card of non-current,
+unoccupied listed local heads and one-shots `git branch -d <name>`
+(safe delete only; never `-D` / force; never `origin/…`; occupied
+locals are omitted because `-d` of a worktree checkout fails). The
+current branch is never offered. Selecting the current local
+branch is a no-op; picking a remote-tracking name is not. A failed
+checkout, create, or delete sets a short composer status and
+leaves the previous label until refresh.
 The same refresh also one-shots `git status --porcelain` and, when that
 stdout has non-empty lines, a muted `N change` / `N changes` label
 next to the branch (one line per path; blank lines ignored). The
@@ -288,13 +296,15 @@ are non-zero, a muted `+N −M` label next to the dirty count
 (tracked binary `-` rows skipped; blank lines ignored; deletions
 stay tracked-only). Zero, failed, or skipped probes omit those
 labels — this cut does not invent "clean". This is not Waku's
-daemon `InspectBranches` remotes / worktrees / live watch,
-not a commit dialog, not a staged/unstaged split, not Waku's
+daemon `InspectBranches` live watch, not worktree add / New
+Worktree, not canonicalize(`git rev-parse --show-toplevel`), not a
+commit dialog, not a staged/unstaged split, not Waku's
 Environment Summary, not force delete (`git branch -D`), not
 fetch / push / prune, and not Review. Native still has no git
 effect. The branch, dirty count,
 and +/- are runtime-only (like the busy spinner) and are not stored
-on `sessions.json`. There is no worktree materialization.
+on `sessions.json`. Occupancy uses the session `project_path` /
+probe cwd heuristic. There is no worktree materialization.
 The same refresh also one-shots
 `git ls-files --cached --others --exclude-standard` (same chdir
 workaround) and keeps a bounded runtime list of relative paths for

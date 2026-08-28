@@ -11922,6 +11922,7 @@ fn expectGitBranchListArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(git_checkout.git_for_each_ref_cmd, spawn.argv[6]);
     try testing.expectEqualStrings(git_checkout.git_refname_format, spawn.argv[7]);
+    try testing.expectEqualStrings("--format=%(refname)%00%(worktreepath)", spawn.argv[7]);
     try testing.expectEqualStrings(git_checkout.git_heads_ref, spawn.argv[8]);
     try testing.expectEqualStrings(git_checkout.git_remotes_ref, spawn.argv[9]);
     try testing.expect(spawn.key >= main.git_branch_list_key_first);
@@ -12193,6 +12194,66 @@ test "composer project row lists remote-tracking refs and checks them out with -
     _ = try expectByText(tree.root, .menu_item, "feat/old");
     try testing.expect(findByText(tree.root, .menu_item, "origin/feat") == null);
     main.update(&model, .{ .pick_git_branch_delete = "origin/feat" }, &fx);
+    try testing.expectEqualStrings("", model.git_branch_delete());
+    main.update(&model, .cancel_git_branch_delete, &fx);
+}
+
+test "composer picker marks occupied locals and refuses checkout and delete" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("occupied worktree", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath("/tmp/proj");
+    main.writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    git_checkout.applyStdoutBranches(&model,
+        "refs/heads/main\x00/tmp/proj\n" ++
+            "refs/heads/feat\x00\n" ++
+            "refs/heads/occupied\x00/tmp/other-worktree\n" ++
+            "refs/remotes/origin/only\x00/whatever\n");
+    try testing.expectEqual(@as(u32, 4), model.git_branch_list_count);
+    try testing.expect(git_checkout.listedLocalNameIsOccupied(&model, "occupied"));
+    try testing.expect(model.can_pick_git_branch());
+    try testing.expect(model.can_delete_git_branch());
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    try testing.expect(model.git_branch_picker_open);
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "feat");
+    _ = try expectByText(tree.root, .menu_item, "occupied (worktree)");
+    _ = try expectByText(tree.root, .menu_item, "origin/only");
+    try testing.expect(findByText(tree.root, .menu_item, "occupied") == null);
+
+    const before_checkout = model.git_checkout_key;
+    main.update(&model, .{ .pick_git_branch = "occupied" }, &fx);
+    try testing.expect(!model.git_branch_picker_open);
+    try testing.expectEqual(before_checkout, model.git_checkout_key);
+    try testing.expectEqual(@as(u64, 0), model.git_checkout_key);
+    try testing.expect(findGitCheckoutSpawnKey(&fx, model.git_checkout_key) == null);
+    try testing.expectEqualStrings(git_checkout.occupied_checkout_status, model.attach_status());
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    const current_key = model.git_checkout_key;
+    main.update(&model, .{ .pick_git_branch = "main" }, &fx);
+    try testing.expectEqual(current_key, model.git_checkout_key);
+    try testing.expectEqualStrings(git_checkout.occupied_checkout_status, model.attach_status());
+
+    main.update(&model, .start_git_branch_delete, &fx);
+    try testing.expect(model.git_branch_delete_active);
+    main.update(&model, .toggle_git_branch_delete_picker, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "feat");
+    try testing.expect(findByText(tree.root, .menu_item, "occupied") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "occupied (worktree)") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "main") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "origin/only") == null);
+    main.update(&model, .{ .pick_git_branch_delete = "occupied" }, &fx);
     try testing.expectEqualStrings("", model.git_branch_delete());
     main.update(&model, .cancel_git_branch_delete, &fx);
 }
