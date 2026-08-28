@@ -228,9 +228,10 @@ pub const git_branch_key_first = git_branch.git_branch_key_first;
 /// git_branch (200+), git_numstat (350+), and file_mention (400+).
 /// Incremented per refresh from `git_dirty_key_first`.
 pub const git_dirty_key_first = git_dirty.git_dirty_key_first;
-/// One-shot `git diff --numstat HEAD --` tracked +/-. Distinct from
-/// git_branch (200+), git_dirty (300+), and file_mention (400+).
-/// Incremented per refresh from `git_numstat_key_first`.
+/// One-shot `git diff --numstat HEAD --` +/- plus untracked text-line
+/// additions. Distinct from git_branch (200+), git_dirty (300+), and
+/// file_mention (400+). Incremented per refresh from
+/// `git_numstat_key_first`.
 pub const git_numstat_key_first = git_numstat.git_numstat_key_first;
 /// One-shot file-mention probe (git ls-files, then a bounded walk
 /// when git cannot list) for composer `@` mentions. Distinct from

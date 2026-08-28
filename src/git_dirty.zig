@@ -197,7 +197,7 @@ test "argv is chdir script plus git status --porcelain" {
     const branch = git_branch.argvFor("/tmp/faku-dirty", &branch_buf);
     try std.testing.expect(!isGitDirtyArgv(branch));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
-    var numstat_buf: [10][]const u8 = undefined;
+    var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
     const numstat = git_numstat.argvFor("/tmp/faku-dirty", &numstat_buf);
     try std.testing.expect(!isGitDirtyArgv(numstat));
     try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
