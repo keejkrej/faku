@@ -11854,15 +11854,16 @@ fn expectFileMentionWalkArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(file_mention.sh_bin, spawn.argv[0]);
     try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
-    try testing.expectEqualStrings(file_mention.find_bin, spawn.argv[5]);
-    try testing.expectEqualStrings(file_mention.find_start, spawn.argv[6]);
-    try testing.expectEqualStrings(file_mention.find_maxdepth_flag, spawn.argv[7]);
-    try testing.expectEqualStrings(file_mention.find_maxdepth, spawn.argv[8]);
-    try testing.expect(argvHas(spawn.argv, file_mention.find_dot_star));
-    try testing.expect(argvHas(spawn.argv, file_mention.find_prune));
-    try testing.expect(argvHas(spawn.argv, file_mention.find_type_file));
+    try testing.expectEqualStrings(file_mention.sh_bin, spawn.argv[5]);
+    try testing.expectEqualStrings("-c", spawn.argv[6]);
+    try testing.expectEqualStrings(file_mention.find_walk_script, spawn.argv[7]);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[7], file_mention.find_maxdepth_flag) != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[7], file_mention.find_maxdepth) != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[7], file_mention.find_dot_star) != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[7], file_mention.find_prune) != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[7], file_mention.find_type_file) != null);
     inline for (file_mention.walk_skip_names) |name| {
-        try testing.expect(argvHas(spawn.argv, name));
+        try testing.expect(std.mem.indexOf(u8, spawn.argv[7], name) != null);
     }
     try testing.expect(spawn.key >= main.file_mention_key_first);
 }

@@ -52,18 +52,10 @@ pub const git_ls_files_exclude_standard = "--exclude-standard";
 pub const sh_bin = "/bin/sh";
 
 pub const find_bin = "find";
-pub const find_start = ".";
 pub const find_maxdepth_flag = "-maxdepth";
 pub const find_maxdepth = "8";
-pub const find_not = "!";
-pub const find_name_flag = "-name";
-pub const find_paren_open = "(";
-pub const find_paren_close = ")";
-pub const find_or = "-o";
 pub const find_prune = "-prune";
-pub const find_type_flag = "-type";
 pub const find_type_file = "f";
-pub const find_print = "-print";
 pub const find_dot_star = ".*";
 pub const walk_skip_node_modules = "node_modules";
 pub const walk_skip_target = "target";
@@ -81,11 +73,15 @@ pub const walk_skip_names = [_][]const u8{
     walk_skip_vendor,
     walk_skip_pycache,
 };
+/// Packed into one `-c` string so the spawn stays under Native
+/// `max_effect_argv` (16). `! -name .` keeps the start point from
+/// matching `-name '.*'` and pruning the tree after chdir.
+pub const find_walk_script =
+    "find . -maxdepth 8 ! -name . \\( -name node_modules -o -name target -o -name dist -o -name build -o -name out -o -name vendor -o -name __pycache__ -o -name '.*' \\) -prune -o -type f -print";
 
 const git_argv_len: usize = 10;
-/// `/bin/sh -c` chdir + `find . -maxdepth 8 ! -name . ( skips ) -prune -o -type f -print`.
-/// `! -name .` keeps the start point from matching `-name .*` and pruning the tree.
-const walk_argv_len: usize = 42;
+/// `/bin/sh -c` chdir + `/bin/sh -c` + `find_walk_script`.
+const walk_argv_len: usize = 8;
 
 pub const CachedPath = struct {
     storage: [max_file_mention_path]u8 = [_]u8{0} ** max_file_mention_path,
@@ -135,52 +131,15 @@ pub fn walkArgvFor(cwd: []const u8, buf: *[walk_argv_len][]const u8) []const []c
         main.fx_ask_chdir_script,
         "sh",
         cwd,
-        find_bin,
-        find_start,
-        find_maxdepth_flag,
-        find_maxdepth,
-        find_not,
-        find_name_flag,
-        find_start,
-        find_paren_open,
-        find_name_flag,
-        walk_skip_node_modules,
-        find_or,
-        find_name_flag,
-        walk_skip_target,
-        find_or,
-        find_name_flag,
-        walk_skip_dist,
-        find_or,
-        find_name_flag,
-        walk_skip_build,
-        find_or,
-        find_name_flag,
-        walk_skip_out,
-        find_or,
-        find_name_flag,
-        walk_skip_vendor,
-        find_or,
-        find_name_flag,
-        walk_skip_pycache,
-        find_or,
-        find_name_flag,
-        find_dot_star,
-        find_paren_close,
-        find_prune,
-        find_or,
-        find_type_flag,
-        find_type_file,
-        find_print,
+        sh_bin,
+        "-c",
+        find_walk_script,
     };
     return buf;
 }
 
-fn argvHas(argv: []const []const u8, needle: []const u8) bool {
-    for (argv) |arg| {
-        if (std.mem.eql(u8, arg, needle)) return true;
-    }
-    return false;
+fn scriptHas(script: []const u8, needle: []const u8) bool {
+    return std.mem.indexOf(u8, script, needle) != null;
 }
 
 pub fn isWalkArgv(argv: []const []const u8) bool {
@@ -188,16 +147,16 @@ pub fn isWalkArgv(argv: []const []const u8) bool {
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
-    if (!std.mem.eql(u8, argv[5], find_bin)) return false;
-    if (!std.mem.eql(u8, argv[6], find_start)) return false;
-    if (!argvHas(argv, find_maxdepth_flag)) return false;
-    if (!argvHas(argv, find_maxdepth)) return false;
-    if (!argvHas(argv, find_prune)) return false;
-    if (!argvHas(argv, find_type_file)) return false;
-    if (!argvHas(argv, find_print)) return false;
-    if (!argvHas(argv, find_dot_star)) return false;
+    if (!std.mem.eql(u8, argv[5], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[6], "-c")) return false;
+    if (!std.mem.eql(u8, argv[7], find_walk_script)) return false;
+    if (!scriptHas(argv[7], find_maxdepth_flag)) return false;
+    if (!scriptHas(argv[7], find_maxdepth)) return false;
+    if (!scriptHas(argv[7], find_prune)) return false;
+    if (!scriptHas(argv[7], find_type_file)) return false;
+    if (!scriptHas(argv[7], find_dot_star)) return false;
     inline for (walk_skip_names) |name| {
-        if (!argvHas(argv, name)) return false;
+        if (!scriptHas(argv[7], name)) return false;
     }
     return true;
 }
@@ -440,23 +399,21 @@ test "walk argv is chdir script plus find maxdepth 8 skips; not git" {
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-walk", argv[4]);
-    try std.testing.expectEqualStrings(find_bin, argv[5]);
-    try std.testing.expectEqualStrings(find_start, argv[6]);
-    try std.testing.expectEqualStrings(find_maxdepth_flag, argv[7]);
-    try std.testing.expectEqualStrings(find_maxdepth, argv[8]);
-    try std.testing.expectEqualStrings(find_not, argv[9]);
-    try std.testing.expectEqualStrings(find_name_flag, argv[10]);
-    try std.testing.expectEqualStrings(find_start, argv[11]);
+    try std.testing.expectEqualStrings(sh_bin, argv[5]);
+    try std.testing.expectEqualStrings("-c", argv[6]);
+    try std.testing.expectEqualStrings(find_walk_script, argv[7]);
     try std.testing.expect(isWalkArgv(argv));
     try std.testing.expect(!isGitLsFilesArgv(argv));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    try std.testing.expect(scriptHas(argv[7], find_maxdepth_flag));
+    try std.testing.expect(scriptHas(argv[7], find_maxdepth));
+    try std.testing.expect(scriptHas(argv[7], find_prune));
+    try std.testing.expect(scriptHas(argv[7], find_type_file));
+    try std.testing.expect(scriptHas(argv[7], find_dot_star));
     inline for (walk_skip_names) |name| {
-        try std.testing.expect(argvHas(argv, name));
+        try std.testing.expect(scriptHas(argv[7], name));
     }
-    try std.testing.expect(argvHas(argv, find_dot_star));
-    try std.testing.expect(argvHas(argv, find_prune));
-    try std.testing.expect(argvHas(argv, find_type_file));
-    try std.testing.expect(!isWalkArgv(&.{ find_bin, find_start }));
+    try std.testing.expect(!isWalkArgv(&.{ find_bin, find_walk_script }));
     var git_buf: [git_argv_len][]const u8 = undefined;
     try std.testing.expect(!isWalkArgv(argvFor("/tmp/faku-walk", &git_buf)));
 }
