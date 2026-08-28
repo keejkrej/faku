@@ -12233,7 +12233,7 @@ test "composer Enter confirms first @ mention; Esc dismisses; Send button still 
 
     var tree = try buildTree(arena, &model);
     if (findByKind(tree.root, .textarea)) |composer| {
-        try testing.expectEqual(Msg.composer_enter, tree.msgForPointer(composer.id, .up).?);
+        try testing.expectEqualStrings("@mai", composer.text);
     } else return error.WidgetNotFound;
     const first_row = try expectButton(tree.root, "src/main.zig");
     if (@hasField(canvas.Widget, "selected")) {
