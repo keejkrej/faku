@@ -28,10 +28,10 @@ const Effects = main.Effects;
 const writeFixed = main.writeFixed;
 
 /// One-shot numstat + untracked-text probe. Distinct from
-/// git_branch (200+), git_dirty (300+), maximize / pick-image /
-/// fx-ask / daemon / clipboard / probe keys, and from file_mention
-/// (400+). Incremented per refresh so a cancelled spawn cannot paint
-/// a later session.
+/// git_branch (200+), git_dirty (300+), git_push (360+), maximize /
+/// pick-image / fx-ask / daemon / clipboard / probe keys, and from
+/// file_mention (400+). Incremented per refresh so a cancelled spawn
+/// cannot paint a later session.
 pub const git_numstat_key_first: u64 = 350;
 
 /// `+18446744073709551615 −18446744073709551615` is 45 bytes.

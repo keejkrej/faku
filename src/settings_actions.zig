@@ -290,6 +290,10 @@ pub fn handleStartGitFetch(model: *Model, fx: *Effects) void {
     git_checkout.startFetch(model, fx);
 }
 
+pub fn handleStartGitPush(model: *Model, fx: *Effects) void {
+    git_checkout.startPush(model, fx);
+}
+
 pub fn handlePickEffort(model: *Model, fx: *Effects, id: []const u8) void {
     model.pickSelectedEffort(id);
     persist.persistComposerChips(model, fx);

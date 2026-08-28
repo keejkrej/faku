@@ -228,37 +228,42 @@ pub const open_editor_key = open_editor.open_editor_key;
 pub const git_branch_key_first = git_branch.git_branch_key_first;
 /// One-shot `refs/heads` + `refs/remotes` list. Distinct from
 /// git_branch (200+), git_checkout (275+; also `--track`), git_dirty
-/// (300+), git_numstat (350+), and file_mention (400+).
+/// (300+), git_numstat (350+), git_push (360+), and file_mention
+/// (400+).
 pub const git_branch_list_key_first = git_checkout.git_branch_list_key_first;
 /// One-shot `git checkout <name>`. Distinct from git_branch (200+),
 /// git_branch_list (250+), git_create (290+), git_dirty (300+),
-/// git_numstat (350+), and file_mention (400+).
+/// git_numstat (350+), git_push (360+), and file_mention (400+).
 pub const git_checkout_key_first = git_checkout.git_checkout_key_first;
 /// One-shot `git checkout -b <name>`. Distinct from list (250+),
 /// checkout (275+), git_dirty (300+). Band is 290+.
 pub const git_create_key_first = git_checkout.git_create_key_first;
 /// One-shot `git branch -d <name>`. Distinct from create (290+),
-/// git_dirty (300+), git_fetch (340+), and git_numstat (350+).
-/// Band is 320+.
+/// git_dirty (300+), git_fetch (340+), git_numstat (350+), and
+/// git_push (360+). Band is 320+.
 pub const git_delete_key_first = git_checkout.git_delete_key_first;
 /// One-shot `git fetch --prune`. Distinct from delete (320+) and
 /// git_numstat (350+). Band is 340+.
 pub const git_fetch_key_first = git_checkout.git_fetch_key_first;
+/// One-shot `git push` (no extra flags). Distinct from fetch (340+),
+/// git_numstat (350+), and file_mention (400+). Band is 360+.
+pub const git_push_key_first = git_checkout.git_push_key_first;
 /// One-shot `git status --porcelain` dirty count. Distinct from
 /// git_branch (200+), git_branch_list (250+), git_checkout (275+),
 /// git_create (290+), git_delete (320+), git_fetch (340+),
-/// git_numstat (350+), and file_mention (400+). Incremented per
-/// refresh from `git_dirty_key_first`.
+/// git_numstat (350+), git_push (360+), and file_mention (400+).
+/// Incremented per refresh from `git_dirty_key_first`.
 pub const git_dirty_key_first = git_dirty.git_dirty_key_first;
 /// One-shot `git diff --numstat HEAD --` +/- plus untracked text-line
-/// additions. Distinct from git_branch (200+), git_dirty (300+), and
-/// file_mention (400+). Incremented per refresh from
-/// `git_numstat_key_first`.
+/// additions. Distinct from git_branch (200+), git_dirty (300+),
+/// git_push (360+), and file_mention (400+). Incremented per refresh
+/// from `git_numstat_key_first`.
 pub const git_numstat_key_first = git_numstat.git_numstat_key_first;
 /// One-shot file-mention probe (git ls-files, then a bounded walk
 /// when git cannot list) for composer `@` mentions. Distinct from
-/// git_branch (200+), git_dirty (300+), and git_numstat (350+).
-/// Incremented per spawn from `file_mention_key_first` (400).
+/// git_branch (200+), git_dirty (300+), git_numstat (350+), and
+/// git_push (360+). Incremented per spawn from
+/// `file_mention_key_first` (400).
 pub const file_mention_key_first = file_mention.file_mention_key_first;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
@@ -459,6 +464,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .confirm_git_branch_delete => settings_actions.handleConfirmGitBranchDelete(model, fx),
         .cancel_git_branch_delete => settings_actions.handleCancelGitBranchDelete(model),
         .start_git_fetch => settings_actions.handleStartGitFetch(model, fx),
+        .start_git_push => settings_actions.handleStartGitPush(model, fx),
         .start_project_edit => model.startProjectEdit(),
         .project_path_edit => |edit| {
             model.applySelectedProjectPath(edit);
