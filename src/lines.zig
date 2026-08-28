@@ -388,7 +388,7 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
         return;
     }
     if (model.git_worktree_add_key != 0 and exit.key == model.git_worktree_add_key) {
-        if (git_checkout.handleWorktreeAddExit(model, exit)) {
+        if (git_checkout.handleWorktreeAddExit(model, fx, exit)) {
             persist.persistComposerProject(model, fx);
         }
         return;

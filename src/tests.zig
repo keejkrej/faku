@@ -13222,6 +13222,24 @@ fn finishWorktreeBaseProbe(fx: *Effects, model: *Model, stdout: []const u8, code
     drainEffects(model, fx);
 }
 
+fn failWorktreeAddUntilExhausted(fx: *Effects, model: *Model, cwd: []const u8, home: []const u8, slug: []const u8, base: []const u8) !void {
+    var attempt: u32 = 0;
+    while (attempt < git_checkout.max_worktree_candidates) : (attempt += 1) {
+        try testing.expect(!model.has_attach_status());
+        try testing.expectEqualStrings(cwd, model.selectedProjectPath());
+        const spawn = findGitWorktreeAddSpawnKey(fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddRetry;
+        var name_buf: [git_branch.max_git_branch]u8 = undefined;
+        const name = git_checkout.worktreeCandidateName(slug, attempt, name_buf[0..]) orelse return error.MissingWorktreeCandidate;
+        try expectGitWorktreeAddArgv(spawn, cwd, home, name, base);
+        try fx.feedExit(spawn.key, 1);
+        drainEffects(model, fx);
+    }
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    try testing.expectEqualStrings(git_checkout.worktree_add_failed_status, model.attach_status());
+    try testing.expect(model.has_attach_status());
+    try testing.expect(model.git_worktree_create_active);
+}
+
 fn expectGitWorktreeAddArgv(spawn: anytype, cwd: []const u8, home: []const u8, name: []const u8, base: []const u8) !void {
     var parent_buf: [main.max_project_path]u8 = undefined;
     const parent = git_checkout.worktreeParentPath(home, parent_buf[0..]) orelse return error.MissingWorktreeParent;
@@ -13419,14 +13437,7 @@ test "confirm New worktree one-shots git worktree add -b; success retargets proj
     main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-blocked" } }, &fx);
     main.update(&model, .confirm_git_worktree_create, &fx);
     try finishWorktreeBaseProbe(&fx, &model, "", 1);
-    const failed = findGitWorktreeAddSpawnKey(&fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddFailSpawn;
-    try expectGitWorktreeAddArgv(failed, project, home, "feat-blocked", "main");
-    try fx.feedExit(failed.key, 1);
-    drainEffects(&model, &fx);
-    try testing.expectEqualStrings(project, model.selectedProjectPath());
-    try testing.expectEqualStrings(git_checkout.worktree_add_failed_status, model.attach_status());
-    try testing.expect(model.has_attach_status());
-    try testing.expect(model.git_worktree_create_active);
+    try failWorktreeAddUntilExhausted(&fx, &model, project, home, "feat-blocked", "main");
 
     model.clearAttachStatus();
     main.writeFixed(&model.git_branch_storage, &model.git_branch_len, "a1b2c3d");
@@ -13434,12 +13445,7 @@ test "confirm New worktree one-shots git worktree add -b; success retargets proj
     main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-head" } }, &fx);
     main.update(&model, .confirm_git_worktree_create, &fx);
     try finishWorktreeBaseProbe(&fx, &model, "", 1);
-    const no_base = findGitWorktreeAddSpawnKey(&fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddNoBase;
-    try expectGitWorktreeAddArgv(no_base, project, home, "feat-head", "");
-    try fx.feedExit(no_base.key, 1);
-    drainEffects(&model, &fx);
-    try testing.expectEqualStrings(project, model.selectedProjectPath());
-    try testing.expectEqualStrings(git_checkout.worktree_add_failed_status, model.attach_status());
+    try failWorktreeAddUntilExhausted(&fx, &model, project, home, "feat-head", "");
 
     model.clearAttachStatus();
     main.update(&model, .{ .git_worktree_create_edit = .clear }, &fx);
@@ -13453,6 +13459,56 @@ test "confirm New worktree one-shots git worktree add -b; success retargets proj
     try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
     try testing.expectEqualStrings(project, model.selectedProjectPath());
     try testing.expect(findGitWorktreeAddSpawnKey(&fx, model.git_worktree_add_key) == null);
+}
+
+test "New worktree dest collision uses slug-2 and retargets that path" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-wt-dup", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+    var home_buf: [256]u8 = undefined;
+    const home = try std.fmt.bufPrint(&home_buf, "/tmp/faku-wt-dup-{s}", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, home);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setHome(home);
+    const id = model.addSession("worktree dup", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try fx.feedLine(branch.key, "main\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+
+    var taken_buf: [main.max_project_path]u8 = undefined;
+    const taken = git_checkout.worktreeDestPath(home, "feat-dup", taken_buf[0..]) orelse return error.MissingTakenDest;
+    try std.Io.Dir.cwd().createDirPath(testing.io, taken);
+
+    main.update(&model, .start_git_worktree_create, &fx);
+    main.update(&model, .{ .git_worktree_create_edit = .clear }, &fx);
+    main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-dup" } }, &fx);
+    main.update(&model, .confirm_git_worktree_create, &fx);
+    try finishWorktreeBaseProbe(&fx, &model, "origin/main\n", 0);
+    const created = findGitWorktreeAddSpawnKey(&fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddDup;
+    try expectGitWorktreeAddArgv(created, project, home, "feat-dup-2", "main");
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+
+    var dest_buf: [main.max_project_path]u8 = undefined;
+    const dest = git_checkout.worktreeDestPath(home, "feat-dup-2", dest_buf[0..]) orelse return error.MissingDupDest;
+    try std.Io.Dir.cwd().createDirPath(testing.io, dest);
+    try fx.feedExit(created.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    try testing.expect(!model.git_worktree_create_active);
+    try testing.expectEqualStrings(dest, model.selectedProjectPath());
+    try testing.expect(!std.mem.eql(u8, dest, taken));
 }
 
 fn findGitRevParseSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
