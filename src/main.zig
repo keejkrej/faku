@@ -46,6 +46,7 @@ const settings_actions = @import("settings_actions.zig");
 const session_mod = @import("session.zig");
 const model_mod = @import("model.zig");
 const git_branch = @import("git_branch.zig");
+const file_mention = @import("file_mention.zig");
 const util = @import("util.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
@@ -220,6 +221,10 @@ pub const open_editor_key = open_editor.open_editor_key;
 /// pick-image / fx-ask / daemon / clipboard / probe keys. Incremented
 /// per refresh from `git_branch_key_first`.
 pub const git_branch_key_first = git_branch.git_branch_key_first;
+/// One-shot `git ls-files` probe for composer `@` mentions. Distinct
+/// from git_branch (200+). Incremented per refresh from
+/// `file_mention_key_first` (400).
+pub const file_mention_key_first = file_mention.file_mention_key_first;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
 pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_status;
@@ -416,6 +421,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.insertAvailableCommand(id);
             store.persistDraftIfPossible(model);
         },
+        .insert_mention => |id| {
+            model.insertAvailableMention(id);
+            store.persistDraftIfPossible(model);
+        },
         .rewind => session_fork.applyRewindIfPossible(model, fx),
         .fork => session_fork.forkSelectedSession(model, fx),
         .fork_turn => |id| session_fork.forkSelectedThroughTurn(model, fx, id),
@@ -464,6 +473,7 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     store.maybeHydrateDaemonSession(model, fx, model.selected);
     attach_helpers.refreshAttachPreview(model, fx);
     git_branch.refresh(model, fx);
+    file_mention.refresh(model, fx);
     fx_probe.startFxProbe(model, fx);
 }
 
@@ -580,5 +590,6 @@ test {
     _ = @import("session.zig");
     _ = @import("model.zig");
     _ = @import("git_branch.zig");
+    _ = @import("file_mention.zig");
     _ = @import("util.zig");
 }

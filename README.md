@@ -40,6 +40,12 @@ sidebar folder rows have a Native context menu (Rename / Delete);
 the composer project row sets the selected session cwd and, when that
 path exists, shows a muted one-shot `git branch --show-current` label
 (not Waku's daemon branch picker; Native still has no git effect);
+typing `@` in the composer (last whitespace token; caret assumed at
+the end — Native has no caret API) opens a small card of tracked
+files from a one-shot `git ls-files` of that same workspace when the
+cache has matches (`user@host` does not trigger; slash prefix stays
+authoritative; not Waku's 50k-file index, fuzzy rank, or caret-aware
+trigger);
 the usage control stays empty unless ACP reports `usage_update`; user and
 assistant turns render Native markdown; the transcript stays pinned
 to the latest turn via Native `scroll` `value` / `on-scroll`
@@ -69,7 +75,8 @@ stdout / ACP / daemon line handlers and fx-exit routing live in
 `src/reveal_folder.zig`. Composer Open in Terminal helpers live in
 `src/open_terminal.zig`. Composer Open in Editor helpers live in
 `src/open_editor.zig`. Composer git-branch probe helpers live in
-`src/git_branch.zig`. Boot fx-probe spawn/exit lives in
+`src/git_branch.zig`. Composer `@` file-mention probe helpers live in
+`src/file_mention.zig`. Boot fx-probe spawn/exit lives in
 `src/fx_probe.zig`. Folder/chip persist helpers live in
 `src/persist.zig`. Session / folder / title-edit update helpers live
 in `src/session_actions.zig`. Settings / Esc-stop / composer-picker
@@ -141,6 +148,14 @@ and last-used when one exists.
 ACP `available_commands_update` stores command names (and descriptions)
 on the session. Composer Commands inserts `/name ` into the draft; typing
 `/` in the composer opens that same stored list. It does not run the command.
+Typing `@` (last whitespace-separated token; `user@host` does not
+trigger; mid-prompt `@foo` with more text after it is not a mention
+under the caret-at-end assumption) opens a tracked-file mention list
+from the runtime `git ls-files` cache when that cache has matches.
+Slash prefix stays authoritative; the two lists never show together.
+Clicking a row replaces only that last `@query` token with `@relpath`
+plus a trailing space. Paths stay repo-relative as `git ls-files`
+printed them. Not a provider/ACP method, not Open-in, and not copy path.
 ACP `session_info_update` applies a non-empty `title` to the session
 (header / sidebar); official `cwd` is not on this notification.
 The `session/prompt` result `stopReason`
@@ -216,6 +231,12 @@ Waku's daemon `InspectBranches` / checkout picker, not a live watch,
 and not a `git status` dirty count. Native still has no git effect.
 The branch is runtime-only (like the busy spinner) and is not stored
 on `sessions.json`. There is no worktree materialization.
+The same refresh also one-shots `git ls-files` (same chdir
+workaround) and keeps a bounded runtime list of tracked relative
+paths for composer `@` mentions. That cache is not stored on
+`sessions.json`. Untracked / ignored / non-git workspaces / Windows
+stay empty this cut. Not Waku's 50k-file index, not a daemon
+catalog, and not a live watch.
 
 A stdout ACP `session/new` result with `sessionId` updates the stored
 id and is not appended to the assistant turn. `fx ask --json` lines
@@ -332,7 +353,7 @@ fx's documented effort values (auto / none / minimal / low / medium /
 high / xhigh / max), persists on the session / `last_reasoning_effort`,
 and rides daemon `StartOptions.reasoningEffort`. One-shot `fx acp` does
 not get an invented env/flag.
-Composer chip, access, effort, slash-prefix, and attach helpers live
+Composer chip, access, effort, slash-prefix, file-mention, and attach helpers live
 in `src/composer.zig`.
 The composer project row edits the selected session cwd and persists
 it as `last_project_path`. The under-composer usage control is Native

@@ -15,6 +15,7 @@ const sidebar_row_helpers = @import("sidebar_rows.zig");
 const store = @import("store.zig");
 const session_mod = @import("session.zig");
 const git_branch = @import("git_branch.zig");
+const file_mention = @import("file_mention.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
 const copy_helpers = @import("copy.zig");
@@ -36,6 +37,8 @@ const max_command_name = session_mod.max_command_name;
 
 const PaletteRow = palette.PaletteRow;
 const slashCommandPrefix = composer.slashCommandPrefix;
+const fileMentionQuery = composer.fileMentionQuery;
+const replaceMentionToken = composer.replaceMentionToken;
 const accessLabel = composer.accessLabel;
 const effortLabel = composer.effortLabel;
 const nextAccessMode = composer.nextAccessMode;
@@ -215,6 +218,15 @@ pub const CommandRow = struct {
     has_description: bool,
 };
 
+/// Tracked-file mention row. `id` is a 1-based index into the runtime
+/// `git ls-files` cache (stable across the visible filter) so Native
+/// `insert_mention:{m.id}` never binds 0 and a filtered click still
+/// inserts that path, not a neighbor.
+pub const MentionRow = struct {
+    id: u32,
+    path: []const u8,
+};
+
 /// Composer model picker row. `row_id` is a 1-based Native `for` key.
 /// `id` is the ACP wire value (empty clears `session.model`).
 pub const ModelPickerRow = struct {
@@ -336,6 +348,8 @@ pub const Msg = union(enum) {
     clear_image_attach,
     toggle_commands,
     insert_command: u32,
+    /// Composer `@` mention: replace the last `@query` token. Not ACP.
+    insert_mention: u32,
     rewind,
     fork,
     fork_turn: u32,
@@ -468,6 +482,15 @@ pub const Model = struct {
     git_branch_probe_session: u32 = 0,
     git_branch_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_branch_probe_path_len: usize = 0,
+    /// Runtime-only tracked-file cache for composer `@` mentions.
+    /// One-shot `git ls-files`; not persisted to sessions.json.
+    file_mention_store: [file_mention.max_file_mentions]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** file_mention.max_file_mentions,
+    file_mention_count: u32 = 0,
+    file_mention_key: u64 = 0,
+    next_file_mention_key: u64 = file_mention.file_mention_key_first,
+    file_mention_probe_session: u32 = 0,
+    file_mention_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    file_mention_probe_path_len: usize = 0,
     /// Runtime ImageId bound by the composer `<image>`. 0 until
     /// `fx.loadImage` reports `.loaded`. Same draft `image_path` as
     /// the chip — not a second persist field.
@@ -647,6 +670,14 @@ pub const Model = struct {
         "git_branch_probe_session",
         "git_branch_probe_path_storage",
         "git_branch_probe_path_len",
+        "file_mention_store",
+        "file_mention_count",
+        "file_mention_key",
+        "next_file_mention_key",
+        "file_mention_probe_session",
+        "file_mention_probe_path_storage",
+        "file_mention_probe_path_len",
+        "insertAvailableMention",
         "attach_preview_load_id",
         "next_attach_preview_id",
         "startImageAttach",
@@ -963,6 +994,24 @@ pub const Model = struct {
         return out[0..i];
     }
 
+    pub fn mention_rows(model: *const Model, arena: std.mem.Allocator) []const MentionRow {
+        if (model.commands_list_open()) return &.{};
+        const query = fileMentionQuery(model.draft()) orelse return &.{};
+        if (model.file_mention_count == 0) return &.{};
+        const out = arena.alloc(MentionRow, file_mention.file_mention_visible_cap) catch return &.{};
+        var i: usize = 0;
+        for (model.file_mention_store[0..model.file_mention_count], 0..) |*item, index| {
+            if (!main.asciiContainsIgnoreCase(item.text(), query)) continue;
+            out[i] = .{
+                .id = @intCast(index + 1),
+                .path = item.text(),
+            };
+            i += 1;
+            if (i == file_mention.file_mention_visible_cap) break;
+        }
+        return out[0..i];
+    }
+
     pub fn model_picker_rows(model: *const Model, arena: std.mem.Allocator) []const ModelPickerRow {
         const session = model.sessionByIdConst(model.selected);
         const current = if (session) |s| s.model() else "";
@@ -1209,6 +1258,15 @@ pub const Model = struct {
             if (filter.len > 0 and !hasCommandNamePrefix(model, filter)) return false;
         }
         return true;
+    }
+
+    /// `@` mention card. Hidden when slash commands are open, the
+    /// caret-at-end parser sees no mention, the cache is empty, or
+    /// the filter has no matches. No placeholders.
+    pub fn mentions_list_open(model: *const Model) bool {
+        if (model.commands_list_open()) return false;
+        const query = fileMentionQuery(model.draft()) orelse return false;
+        return hasFileMentionMatch(model, query);
     }
 
     pub fn queued_text(model: *const Model) []const u8 {
@@ -1965,6 +2023,19 @@ pub const Model = struct {
         model.commands_open = false;
     }
 
+    /// Replace the last `@query` token with `@relpath ` from the
+    /// runtime `git ls-files` cache. Writes the composer draft only —
+    /// no spawn, no ACP method. Focuses the composer.
+    pub fn insertAvailableMention(model: *Model, id: u32) void {
+        if (id == 0 or id > model.file_mention_count) return;
+        const relpath = model.file_mention_store[id - 1].text();
+        if (relpath.len == 0) return;
+        var buf: [max_draft]u8 = undefined;
+        const text = replaceMentionToken(model.draft(), relpath, &buf) orelse return;
+        model.draft_buffer.set(text);
+        model.composer_active = true;
+    }
+
     pub fn lastSpawnImagePath(model: *const Model) []const u8 {
         return model.last_spawn_image_path_storage[0..model.last_spawn_image_path_len];
     }
@@ -2432,6 +2503,14 @@ fn hasCommandNamePrefix(model: *const Model, prefix: []const u8) bool {
     const session = model.sessionByIdConst(model.selected) orelse return false;
     for (session.availableCommands()) |*cmd| {
         if (commandNameStartsWith(cmd.name(), prefix)) return true;
+    }
+    return false;
+}
+
+fn hasFileMentionMatch(model: *const Model, query: []const u8) bool {
+    if (model.file_mention_count == 0) return false;
+    for (model.file_mention_store[0..model.file_mention_count]) |*item| {
+        if (main.asciiContainsIgnoreCase(item.text(), query)) return true;
     }
     return false;
 }

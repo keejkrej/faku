@@ -8,6 +8,7 @@
 const main = @import("main.zig");
 const store = @import("store.zig");
 const git_branch = @import("git_branch.zig");
+const file_mention = @import("file_mention.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -46,4 +47,5 @@ pub fn persistComposerProject(model: *Model, fx: *Effects) void {
     store.persistSettingsIfPossible(model);
     store.persistIfPossible(model, model.selected, fx);
     git_branch.refresh(model, fx);
+    file_mention.refresh(model, fx);
 }
