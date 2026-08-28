@@ -28,7 +28,8 @@ const Effects = main.Effects;
 const writeFixed = main.writeFixed;
 
 /// One-shot numstat + untracked-text probe. Distinct from
-/// git_branch (200+), git_dirty (300+), git_push (360+), maximize /
+/// git_branch (200+), git_dirty (300+), git_push (360+),
+/// git_worktree_add (370+), git_ahead_behind (380+), maximize /
 /// pick-image / fx-ask / daemon / clipboard / probe keys, and from
 /// file_mention (400+). Incremented per refresh so a cancelled spawn
 /// cannot paint a later session.
@@ -244,6 +245,7 @@ pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
 test "argv is chdir script plus numstat then untracked text rows" {
     const git_branch = @import("git_branch.zig");
     const git_dirty = @import("git_dirty.zig");
+    const git_ahead_behind = @import("git_ahead_behind.zig");
     const file_mention = @import("file_mention.zig");
     var buf: [argv_len][]const u8 = undefined;
     const argv = argvFor("/tmp/faku-numstat", &buf);
@@ -287,6 +289,10 @@ test "argv is chdir script plus numstat then untracked text rows" {
     const dirty = git_dirty.argvFor("/tmp/faku-numstat", &dirty_buf);
     try std.testing.expect(!isGitNumstatArgv(dirty));
     try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
+    var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;
+    const ahead = git_ahead_behind.argvFor("/tmp/faku-numstat", &ahead_buf);
+    try std.testing.expect(!isGitNumstatArgv(ahead));
+    try std.testing.expect(!git_ahead_behind.isGitAheadBehindArgv(argv));
     var mention_buf: [10][]const u8 = undefined;
     const mention = file_mention.argvFor("/tmp/faku-numstat", &mention_buf);
     try std.testing.expect(!isGitNumstatArgv(mention));
@@ -297,7 +303,8 @@ test "argv is chdir script plus numstat then untracked text rows" {
     try std.testing.expect(!file_mention.isWalkArgv(argv));
     try std.testing.expect(git_numstat_key_first > git_dirty.git_dirty_key_first);
     try std.testing.expect(git_dirty.git_dirty_key_first > git_branch.git_branch_key_first);
-    try std.testing.expect(file_mention.file_mention_key_first > git_numstat_key_first);
+    try std.testing.expect(git_ahead_behind.git_ahead_behind_key_first > git_numstat_key_first);
+    try std.testing.expect(file_mention.file_mention_key_first > git_ahead_behind.git_ahead_behind_key_first);
 }
 
 test "sumNumstat skips binary and blanks; untracked rows add to +; numstatLabel omits zero" {

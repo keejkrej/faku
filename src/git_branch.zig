@@ -27,8 +27,9 @@ const writeFixed = main.writeFixed;
 /// fx-ask / daemon / clipboard / probe keys, from git_branch_list
 /// (250+), git_checkout (275+), git_create (290+), git_dirty (300+),
 /// git_delete (320+), git_fetch (340+), git_numstat (350+),
-/// git_push (360+), and from file_mention (400+). Incremented
-/// per refresh so a cancelled spawn cannot paint a later session.
+/// git_push (360+), git_worktree_add (370+), git_ahead_behind
+/// (380+), and from file_mention (400+). Incremented per refresh
+/// so a cancelled spawn cannot paint a later session.
 pub const git_branch_key_first: u64 = 200;
 
 pub const max_git_branch: usize = 255;

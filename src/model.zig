@@ -18,6 +18,7 @@ const git_branch = @import("git_branch.zig");
 const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
+const git_ahead_behind = @import("git_ahead_behind.zig");
 const file_mention = @import("file_mention.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
@@ -616,6 +617,17 @@ pub const Model = struct {
     git_numstat_probe_session: u32 = 0,
     git_numstat_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_numstat_probe_path_len: usize = 0,
+    /// Runtime-only composer ahead/behind vs `@{upstream}`. One-shot
+    /// `git rev-list --left-right --count`; not persisted to sessions.json.
+    git_ahead_behind_ahead: u64 = 0,
+    git_ahead_behind_behind: u64 = 0,
+    git_ahead_behind_label_storage: [git_ahead_behind.max_git_ahead_behind_label]u8 = [_]u8{0} ** git_ahead_behind.max_git_ahead_behind_label,
+    git_ahead_behind_label_len: usize = 0,
+    git_ahead_behind_key: u64 = 0,
+    next_git_ahead_behind_key: u64 = git_ahead_behind.git_ahead_behind_key_first,
+    git_ahead_behind_probe_session: u32 = 0,
+    git_ahead_behind_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    git_ahead_behind_probe_path_len: usize = 0,
     /// Runtime-only file cache for composer `@` mentions.
     /// Git ls-files first; bounded walk only when that spawn fails.
     /// Not persisted to sessions.json.
@@ -886,6 +898,15 @@ pub const Model = struct {
         "git_numstat_probe_session",
         "git_numstat_probe_path_storage",
         "git_numstat_probe_path_len",
+        "git_ahead_behind_ahead",
+        "git_ahead_behind_behind",
+        "git_ahead_behind_label_storage",
+        "git_ahead_behind_label_len",
+        "git_ahead_behind_key",
+        "next_git_ahead_behind_key",
+        "git_ahead_behind_probe_session",
+        "git_ahead_behind_probe_path_storage",
+        "git_ahead_behind_probe_path_len",
         "file_mention_store",
         "file_mention_count",
         "file_mention_key",
@@ -2066,6 +2087,16 @@ pub const Model = struct {
 
     pub fn has_git_numstat(model: *const Model) bool {
         return git_numstat.hasGitNumstat(model);
+    }
+
+    /// Runtime-only muted ahead/behind vs `@{upstream}` on the composer
+    /// project row.
+    pub fn git_ahead_behind_label(model: *const Model) []const u8 {
+        return git_ahead_behind.gitAheadBehindLabel(model);
+    }
+
+    pub fn has_git_ahead_behind(model: *const Model) bool {
+        return git_ahead_behind.hasGitAheadBehind(model);
     }
 
     /// Composer usage control. 0 when the live path has not reported usage.

@@ -16,6 +16,7 @@ const git_branch = @import("git_branch.zig");
 const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
+const git_ahead_behind = @import("git_ahead_behind.zig");
 const file_mention = @import("file_mention.zig");
 const keys = @import("keys.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
@@ -3120,8 +3121,10 @@ test "pick_folder stdout directory sets project_path the same way typing does" {
     try testing.expect(findGitBranchSpawnKey(&fx, model.git_branch_key) != null);
     try testing.expect(findGitDirtySpawnKey(&fx, model.git_dirty_key) != null);
     try testing.expect(findGitNumstatSpawnKey(&fx, model.git_numstat_key) != null);
+    try testing.expect(findGitAheadBehindSpawnKey(&fx, model.git_ahead_behind_key) != null);
     try testing.expect(!loaded.has_git_dirty());
     try testing.expect(!loaded.has_git_numstat());
+    try testing.expect(!loaded.has_git_ahead_behind());
 }
 
 test "pick_folder cancel empty and file path leave project_path unchanged" {
@@ -13205,6 +13208,7 @@ fn expectGitWorktreeAddArgv(spawn: anytype, cwd: []const u8, home: []const u8, n
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], name) == null);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], dest) == null);
     try testing.expect(spawn.key >= main.git_worktree_add_key_first);
+    try testing.expect(spawn.key < main.git_ahead_behind_key_first);
     try testing.expect(spawn.key < main.file_mention_key_first);
     try testing.expect(spawn.key != main.git_push_key_first);
     try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
@@ -13400,6 +13404,7 @@ fn expectGitDirtyArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.git_numstat_key_first);
     try testing.expect(spawn.key != main.git_delete_key_first);
     try testing.expect(spawn.key != main.git_push_key_first);
+    try testing.expect(spawn.key != main.git_ahead_behind_key_first);
     try testing.expect(spawn.key != main.file_mention_key_first);
     try testing.expect(spawn.key >= main.git_dirty_key_first);
     try testing.expect(spawn.key < main.git_numstat_key_first);
@@ -13633,6 +13638,7 @@ fn expectGitNumstatArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.copy_turn_key);
     try testing.expect(spawn.key != main.git_branch_key_first);
     try testing.expect(spawn.key != main.git_dirty_key_first);
+    try testing.expect(spawn.key != main.git_ahead_behind_key_first);
     try testing.expect(spawn.key != main.file_mention_key_first);
     try testing.expect(spawn.key >= main.git_numstat_key_first);
     try testing.expect(spawn.key < main.git_push_key_first);
@@ -13933,6 +13939,288 @@ test "changing session or project_path cancels the previous numstat probe" {
     _ = try expectByText(tree.root, .button, "Local");
     try testing.expect(findByText(tree.root, .text, "+3 −1") == null);
     try testing.expect(findByText(tree.root, .text, "+12 −4") == null);
+}
+
+fn findGitAheadBehindSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_ahead_behind.isGitAheadBehindArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn expectGitAheadBehindArgv(spawn: anytype, cwd: []const u8) !void {
+    try testing.expect(git_ahead_behind.isGitAheadBehindArgv(spawn.argv));
+    try testing.expectEqual(@as(usize, 10), spawn.argv.len);
+    try testing.expectEqualStrings(git_ahead_behind.sh_bin, spawn.argv[0]);
+    try testing.expectEqualStrings("-c", spawn.argv[1]);
+    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings("sh", spawn.argv[3]);
+    try testing.expectEqualStrings(cwd, spawn.argv[4]);
+    try testing.expectEqualStrings(git_ahead_behind.git_bin, spawn.argv[5]);
+    try testing.expectEqualStrings(git_ahead_behind.git_rev_list_cmd, spawn.argv[6]);
+    try testing.expectEqualStrings(git_ahead_behind.git_left_right, spawn.argv[7]);
+    try testing.expectEqualStrings(git_ahead_behind.git_count, spawn.argv[8]);
+    try testing.expectEqualStrings(git_ahead_behind.git_upstream_range, spawn.argv[9]);
+    try testing.expectEqualStrings("@{upstream}...HEAD", spawn.argv[9]);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_ahead_behind.git_upstream_range) == null);
+    try testing.expect(spawn.key != main.fx_ask_key);
+    try testing.expect(spawn.key != main.fx_probe_key);
+    try testing.expect(spawn.key != main.maximize_window_key);
+    try testing.expect(spawn.key != main.pick_image_key);
+    try testing.expect(spawn.key != main.pick_folder_key);
+    try testing.expect(spawn.key != main.copy_turn_key);
+    try testing.expect(spawn.key != main.git_branch_key_first);
+    try testing.expect(spawn.key != main.git_dirty_key_first);
+    try testing.expect(spawn.key != main.git_numstat_key_first);
+    try testing.expect(spawn.key != main.git_push_key_first);
+    try testing.expect(spawn.key != main.git_worktree_add_key_first);
+    try testing.expect(spawn.key != main.file_mention_key_first);
+    try testing.expect(spawn.key >= main.git_ahead_behind_key_first);
+    try testing.expect(spawn.key < main.file_mention_key_first);
+    try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
+    try testing.expect(!git_dirty.isGitDirtyArgv(spawn.argv));
+    try testing.expect(!git_numstat.isGitNumstatArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitUpstreamArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitWorktreeAddArgv(spawn.argv));
+    try testing.expect(!file_mention.isGitLsFilesArgv(spawn.argv));
+}
+
+test "composer project row shows one-shot @{upstream}...HEAD ahead/behind" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/ahead-proj", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("ahead row", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    var spawn = findGitAheadBehindSpawnKey(&fx, model.git_ahead_behind_key) orelse return error.MissingGitAheadBehindSpawn;
+    try testing.expectEqual(model.git_ahead_behind_key, spawn.key);
+    try expectGitAheadBehindArgv(spawn, project);
+    try testing.expect(!model.has_git_ahead_behind());
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try expectGitBranchArgv(branch, project);
+    try testing.expect(spawn.key != branch.key);
+    const dirty = findGitDirtySpawnKey(&fx, model.git_dirty_key) orelse return error.MissingGitDirtySpawn;
+    try expectGitDirtyArgv(dirty, project);
+    try testing.expect(spawn.key != dirty.key);
+    const numstat = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try expectGitNumstatArgv(numstat, project);
+    try testing.expect(spawn.key != numstat.key);
+
+    try fx.feedLine(spawn.key, "0\t2\n");
+    drainEffects(&model, &fx);
+    try testing.expect(model.has_git_ahead_behind());
+    try testing.expectEqualStrings("↑2", model.git_ahead_behind_label());
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("↑2", model.git_ahead_behind_label());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, project);
+    _ = try expectByText(tree.root, .text, "↑2");
+    try testing.expect(findByText(tree.root, .text, "synced") == null);
+    try testing.expect(findByText(tree.root, .text, "0 ahead") == null);
+    try testing.expect(findByText(tree.root, .button, "Local") == null);
+
+    git_ahead_behind.refresh(&model, &fx);
+    spawn = findGitAheadBehindSpawnKey(&fx, model.git_ahead_behind_key) orelse return error.MissingGitAheadBehindBehind;
+    try expectGitAheadBehindArgv(spawn, project);
+    try testing.expect(!model.has_git_ahead_behind());
+    try fx.feedLine(spawn.key, "3\t0\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("↓3", model.git_ahead_behind_label());
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("↓3", model.git_ahead_behind_label());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "↓3");
+    try testing.expect(findByText(tree.root, .text, "↑2") == null);
+
+    git_ahead_behind.refresh(&model, &fx);
+    spawn = findGitAheadBehindSpawnKey(&fx, model.git_ahead_behind_key) orelse return error.MissingGitAheadBehindBoth;
+    try fx.feedLine(spawn.key, "1\t2\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("↑2 ↓1", model.git_ahead_behind_label());
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("↑2 ↓1", model.git_ahead_behind_label());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "↑2 ↓1");
+    try testing.expect(findByText(tree.root, .text, "synced") == null);
+}
+
+test "git ahead/behind label is omitted for empty missing rejected zero and no-upstream" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/ahead-omit", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("omit ahead", .fx);
+    model.selected = id;
+
+    try testing.expect(model.project_is_local());
+    git_ahead_behind.refresh(&model, &fx);
+    try testing.expect(findGitAheadBehindSpawnKey(&fx, model.git_ahead_behind_key) == null);
+    try testing.expect(!model.has_git_ahead_behind());
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = ".zig-cache/tmp/faku-ahead-missing" } }, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_ahead_behind_key);
+    try testing.expect(!model.has_git_ahead_behind());
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    var spawn = findGitAheadBehindSpawnKey(&fx, model.git_ahead_behind_key) orelse return error.MissingGitAheadBehindSpawn;
+    try expectGitAheadBehindArgv(spawn, project);
+    try fx.feedLine(spawn.key, "   \n");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_ahead_behind());
+
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_ahead_behind());
+
+    git_ahead_behind.refresh(&model, &fx);
+    spawn = findGitAheadBehindSpawnKey(&fx, model.git_ahead_behind_key) orelse return error.MissingGitAheadBehindZero;
+    try fx.feedLine(spawn.key, "0\t0\n");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_ahead_behind());
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_ahead_behind());
+
+    git_ahead_behind.refresh(&model, &fx);
+    spawn = findGitAheadBehindSpawnKey(&fx, model.git_ahead_behind_key) orelse return error.MissingGitAheadBehindFail;
+    try fx.feedLine(spawn.key, "2\t1\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("↑1 ↓2", model.git_ahead_behind_label());
+    try fx.feedExit(spawn.key, 128);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_ahead_behind());
+
+    git_ahead_behind.refresh(&model, &fx);
+    spawn = findGitAheadBehindSpawnKey(&fx, model.git_ahead_behind_key) orelse return error.MissingGitAheadBehindNoUpstream;
+    try fx.feedExit(spawn.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_ahead_behind());
+
+    git_ahead_behind.refresh(&model, &fx);
+    spawn = findGitAheadBehindSpawnKey(&fx, model.git_ahead_behind_key) orelse return error.MissingGitAheadBehindRejected;
+    try fx.feedLine(spawn.key, "0\t2\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("↑2", model.git_ahead_behind_label());
+    try fx.feedExitReason(spawn.key, 0, .rejected);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_ahead_behind());
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, project);
+    try testing.expect(findByText(tree.root, .text, "↑2") == null);
+    try testing.expect(findByText(tree.root, .text, "↑1 ↓2") == null);
+    try testing.expect(findByText(tree.root, .text, "synced") == null);
+    try testing.expect(findByText(tree.root, .text, "0 ahead") == null);
+}
+
+test "changing session or project_path cancels the previous ahead/behind probe" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var a_buf: [256]u8 = undefined;
+    var b_buf: [256]u8 = undefined;
+    const project_a = try std.fmt.bufPrint(&a_buf, ".zig-cache/tmp/{s}/ahead-a", .{tmp.sub_path[0..]});
+    const project_b = try std.fmt.bufPrint(&b_buf, ".zig-cache/tmp/{s}/ahead-b", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project_a);
+    try std.Io.Dir.cwd().createDirPath(testing.io, project_b);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const first = model.addSession("first ahead", .fx);
+    const second = model.addSession("second ahead", .fx);
+    model.selected = first;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project_a } }, &fx);
+    const first_spawn = findGitAheadBehindSpawnKey(&fx, model.git_ahead_behind_key) orelse return error.MissingGitAheadBehindSpawn;
+    const first_key = first_spawn.key;
+    try expectGitAheadBehindArgv(first_spawn, project_a);
+    try fx.feedLine(first_key, "0\t2\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("↑2", model.git_ahead_behind_label());
+
+    main.update(&model, .{ .select = second }, &fx);
+    try testing.expectEqual(second, model.selected);
+    try testing.expect(!model.has_git_ahead_behind());
+    try testing.expectEqual(@as(u64, 0), model.git_ahead_behind_key);
+    try testing.expectError(error.EffectNotFound, fx.feedLine(first_key, "1\t0\n"));
+    git_ahead_behind.applyLine(&model, .{ .key = first_key, .line = "1\t0" });
+    try testing.expect(!model.has_git_ahead_behind());
+
+    main.update(&model, .{ .select = first }, &fx);
+    const again = findGitAheadBehindSpawnKey(&fx, model.git_ahead_behind_key) orelse return error.MissingGitAheadBehindAgain;
+    try testing.expect(again.key != first_key);
+    try expectGitAheadBehindArgv(again, project_a);
+    try testing.expect(!model.has_git_ahead_behind());
+    try fx.feedLine(again.key, "0\t2\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("↑2", model.git_ahead_behind_label());
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project_b } }, &fx);
+    try testing.expect(!model.has_git_ahead_behind());
+    const second_spawn = findGitAheadBehindSpawnKey(&fx, model.git_ahead_behind_key) orelse return error.MissingGitAheadBehindSecond;
+    try testing.expect(second_spawn.key != again.key);
+    try expectGitAheadBehindArgv(second_spawn, project_b);
+
+    try testing.expectError(error.EffectNotFound, fx.feedLine(again.key, "3\t0\n"));
+    git_ahead_behind.applyLine(&model, .{ .key = again.key, .line = "3\t0" });
+    try testing.expect(!model.has_git_ahead_behind());
+
+    try fx.feedLine(second_spawn.key, "1\t2\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("↑2 ↓1", model.git_ahead_behind_label());
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    try testing.expect(!model.has_git_ahead_behind());
+    try testing.expect(model.project_is_local());
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .button, "choose a project");
+    _ = try expectByText(tree.root, .button, "Local");
+    try testing.expect(findByText(tree.root, .text, "↑2") == null);
+    try testing.expect(findByText(tree.root, .text, "↑2 ↓1") == null);
+    try testing.expect(findByText(tree.root, .text, "synced") == null);
 }
 
 fn findFileMentionSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {

@@ -50,12 +50,14 @@ or safe-delete a non-current, unoccupied local head (`git branch -d`)
 or fetch remotes via `git fetch --prune`
 or push the current branch via `git push` when it has an upstream,
 or `git push --set-upstream <remote> <branch>` when it does not
-plus a one-shot `git status --porcelain` dirty file count and a
+plus a one-shot `git status --porcelain` dirty file count, a
 one-shot `git diff --numstat HEAD` +/- that also adds untracked
-text-line counts on the + side (not Waku's daemon InspectBranches
-live watch / Waku prompt-slug worktrees / canonicalize(show-toplevel) /
-Environment Summary / force delete / prune-alone;
-Native still has no git effect);
+text-line counts on the + side, and muted ahead/behind vs
+`@{upstream}` (`↑A ↓B`) when that name exists (not Waku's daemon
+InspectBranches live watch / Waku prompt-slug worktrees /
+canonicalize(show-toplevel) / Environment Summary / force delete /
+prune-alone / base-ref picker / Commit; Native still has no git
+effect);
 typing `@` in the composer (last whitespace token; caret assumed at
 the end — Native has no caret API) opens a small card of files and
 derived parent directories (trailing slash) from a one-shot
@@ -97,7 +99,8 @@ stdout / ACP / daemon line handlers and fx-exit routing live in
 `src/git_checkout.zig` (list, local checkout, remote-tracking `--track`,
 create-and-checkout, and safe delete). Composer git-dirty probe helpers live in
 `src/git_dirty.zig`. Composer git-numstat probe helpers live in
-`src/git_numstat.zig`. Composer `@` file-mention probe helpers live in
+`src/git_numstat.zig`. Composer git ahead/behind probe helpers live in
+`src/git_ahead_behind.zig`. Composer `@` file-mention probe helpers live in
 `src/file_mention.zig`. Boot fx-probe spawn/exit lives in
 `src/fx_probe.zig`. Folder/chip persist helpers live in
 `src/persist.zig`. Session / folder / title-edit update helpers live
@@ -321,19 +324,28 @@ untracked text-line additions (`git ls-files --others
 are skipped) and, when the combined additions or tracked deletions
 are non-zero, a muted `+N −M` label next to the dirty count
 (tracked binary `-` rows skipped; blank lines ignored; deletions
-stay tracked-only). Zero, failed, or skipped probes omit those
-labels — this cut does not invent "clean". This is not Waku's
-daemon `InspectBranches` live watch, not Waku prompt-slug /
-`waku/` prefix / `~/.waku/worktrees/{project_id}`, not defer-until-
-Send workspace mode, not a worktree base-ref picker, not
+stay tracked-only). The same refresh also one-shots
+`git rev-list --left-right --count @{upstream}...HEAD`
+(`@{upstream}...HEAD` its own argv slot, same chdir workaround)
+and, when either count is non-zero, a muted `↑A ↓B` label next to
+dirty / +/- (omit a side when that count is 0; left = behind
+upstream, right = ahead of upstream). No upstream, both-zero,
+failed, rejected, Local, empty/missing path, or Windows omits that
+label — this cut does not invent "synced" or "0 ahead". Zero,
+failed, or skipped dirty / +/- probes omit those labels — this cut
+does not invent "clean". This is not Waku's daemon
+`InspectBranches` live watch, not Waku prompt-slug / `waku/`
+prefix / `~/.waku/worktrees/{project_id}`, not defer-until-Send
+workspace mode, not a worktree base-ref picker, not
 canonicalize(`git rev-parse --show-toplevel`), not a
 commit dialog, not a staged/unstaged split, not Waku's
 Environment Summary, not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
-Review.
+Review. Push… still does not gate on ahead-count.
 Native still has no git effect. The branch, dirty count,
-and +/- are runtime-only (like the busy spinner) and are not stored
-on `sessions.json`. Occupancy uses the session `project_path` /
++/-, and ahead/behind are runtime-only (like the busy spinner) and
+are not stored on `sessions.json`. Occupancy uses the session
+`project_path` /
 probe cwd heuristic. New worktree… materializes one-shot under
 `~/.faku/worktrees/<name>` and retargets that session path.
 The same refresh also one-shots
