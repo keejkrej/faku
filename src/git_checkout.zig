@@ -1,5 +1,6 @@
 //! First-cut local + remote-tracking branch list, checkout, create,
-//! safe delete, fetch, and push for the composer project row.
+//! safe delete, fetch, push, and New worktree… for the composer
+//! project row.
 //!
 //! Native has no git/workspace effect. When the selected session has a
 //! non-empty `project_path` that exists, Faku `fx.spawn`s
@@ -30,13 +31,20 @@
 //! (`--set-upstream`, remote, and branch each their own argv slot;
 //! remote prefers `origin` from `git remote`, else the first name).
 //! Detached HEAD or no remotes set a short composer status and do
-//! not spawn a push. Not force, not daemon
-//! `WorkspaceOperation::Push`, not `InspectCommit` / `Commit`. Cap
-//! is 64 local heads plus 32
+//! not spawn a push. New worktree… one-shots
+//! `git worktree add -b faku/<name> <path>` from current HEAD
+//! (`-b`, the branch, and the path each their own argv slot;
+//! `mkdir -p` of `~/.faku/worktrees` via a fixed script and the
+//! parent as an argv slot). Success retargets the selected
+//! session `project_path` to that absolute path. Not force, not
+//! daemon `WorkspaceOperation::Push` / `NewWorktree`, not
+//! `InspectCommit` / `Commit`. Cap is 64 local heads plus 32
 //! remote-tracking names that have no local counterpart (skip
 //! symbolic `*/HEAD`), sorted lexicographically. Not Waku's daemon
-//! `InspectBranches` picker, live watch, worktree add / New
-//! Worktree, prune-alone, stash, merge, force delete, or
+//! `InspectBranches` picker, live watch, Waku prompt-slug /
+//! `waku/` prefix / `~/.waku/worktrees/{project_id}`, defer-until-
+//! Send workspace mode, base-ref picker, prune-alone, stash,
+//! merge, force delete, canonicalize(show-toplevel), or
 //! Environment Summary.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
@@ -58,9 +66,9 @@ const writeFixed = main.writeFixed;
 /// One-shot `refs/heads` + `refs/remotes` list. Distinct from
 /// git_branch (200+), git_checkout (275+; also `--track`),
 /// git_create (290+), git_dirty (300+), git_delete (320+),
-/// git_fetch (340+), git_numstat (350+), git_push (360+), and
-/// file_mention (400+). Incremented per refresh so a cancelled
-/// spawn cannot paint a later session.
+/// git_fetch (340+), git_numstat (350+), git_push (360+),
+/// git_worktree_add (370+), and file_mention (400+). Incremented
+/// per refresh so a cancelled spawn cannot paint a later session.
 pub const git_branch_list_key_first: u64 = 250;
 
 /// One-shot `git checkout <name>` or `git checkout --track <name>`.
@@ -93,10 +101,10 @@ pub const git_fetch_key_first: u64 = 340;
 /// One-shot `git push` (bare or `--set-upstream`) plus the upstream /
 /// show-current / remotes probes that choose the path. Distinct from
 /// list (250+), checkout (275+), create (290+), git_dirty (300+),
-/// git_delete (320+), git_fetch (340+), git_numstat (350+), and
-/// file_mention (400+). Band is 360+ (between numstat 350+ and
-/// file_mention 400+). Incremented per spawn so a cancelled
-/// push cannot paint a later session.
+/// git_delete (320+), git_fetch (340+), git_numstat (350+),
+/// git_worktree_add (370+), and file_mention (400+). Band is 360+
+/// (between numstat 350+ and worktree-add 370+). Incremented per
+/// spawn so a cancelled push cannot paint a later session.
 pub const git_push_key_first: u64 = 360;
 
 /// Push… probe / push stages that share `git_push_key` (360+).
@@ -108,6 +116,14 @@ pub const GitPushPhase = enum(u8) {
     push,
 };
 
+/// One-shot `git worktree add -b`. Distinct from list (250+),
+/// checkout (275+), create (290+), git_dirty (300+), git_delete
+/// (320+), git_fetch (340+), git_numstat (350+), git_push (360+),
+/// and file_mention (400+). Band is 370+ (between push 360+ and
+/// file_mention 400+). Incremented per spawn so a cancelled
+/// worktree-add cannot paint a later session.
+pub const git_worktree_add_key_first: u64 = 370;
+
 pub const max_local_branches: usize = 64;
 pub const max_remote_branches: usize = 32;
 pub const max_listed_branches: usize = max_local_branches + max_remote_branches;
@@ -118,6 +134,7 @@ pub const create_failed_status = "Could not create branch.";
 pub const delete_failed_status = "Could not delete branch.";
 pub const fetch_failed_status = "Could not fetch.";
 pub const push_failed_status = "Could not push.";
+pub const worktree_add_failed_status = "Could not create worktree.";
 
 pub const git_bin = git_branch.git_bin;
 pub const git_for_each_ref_cmd = "for-each-ref";
@@ -141,6 +158,14 @@ pub const git_abbrev_ref = "--abbrev-ref";
 pub const git_symbolic_full_name = "--symbolic-full-name";
 pub const git_upstream_rev = "@{upstream}";
 pub const git_origin_remote = "origin";
+pub const git_worktree_cmd = "worktree";
+pub const git_worktree_add_cmd = "add";
+pub const worktree_branch_prefix = "faku/";
+pub const worktree_parent_suffix = ".faku/worktrees";
+/// `mkdir -p` the parent (`$1`), then chdir to the repo (`$2`) and
+/// exec the remaining argv. Parent, cwd, branch, and path stay
+/// argv slots — never interpolated into this script.
+pub const git_worktree_mkdir_chdir_script = "mkdir -p -- \"$1\" && cd -- \"$2\" && shift 2 && exec \"$@\"";
 pub const sh_bin = git_branch.sh_bin;
 
 const list_argv_len: usize = 10;
@@ -154,6 +179,7 @@ const upstream_argv_len: usize = 10;
 const remote_argv_len: usize = 7;
 const show_current_argv_len: usize = 8;
 const set_upstream_push_argv_len: usize = 10;
+const worktree_add_argv_len: usize = 12;
 
 pub const CachedBranch = struct {
     storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
@@ -501,6 +527,95 @@ pub fn pushBranchFromLabel(label: []const u8) ?[]const u8 {
     return label;
 }
 
+/// Trim + `isPlausibleBranchName`, and refuse `/` so the dest is one
+/// directory under `~/.faku/worktrees`. Empty / unsafe names stay
+/// refused — this is not a rewrite sanitizer.
+pub fn sanitizeWorktreeName(raw: []const u8) ?[]const u8 {
+    const name = std.mem.trim(u8, raw, " \t\r\n");
+    if (!git_branch.isPlausibleBranchName(name)) return null;
+    if (std.mem.indexOfScalar(u8, name, '/') != null) return null;
+    if (worktree_branch_prefix.len + name.len > git_branch.max_git_branch) return null;
+    return name;
+}
+
+pub fn worktreeBranchName(name: []const u8, buf: []u8) ?[]const u8 {
+    const sanitized = sanitizeWorktreeName(name) orelse return null;
+    return std.fmt.bufPrint(buf, "{s}{s}", .{ worktree_branch_prefix, sanitized }) catch null;
+}
+
+pub fn worktreeParentPath(home: []const u8, buf: []u8) ?[]const u8 {
+    const trimmed = std.mem.trim(u8, home, " \t\r\n");
+    if (trimmed.len == 0) return null;
+    if (trimmed[0] != '/') return null;
+    return std.fmt.bufPrint(buf, "{s}/{s}", .{ trimmed, worktree_parent_suffix }) catch null;
+}
+
+pub fn worktreeDestPath(home: []const u8, name: []const u8, buf: []u8) ?[]const u8 {
+    const sanitized = sanitizeWorktreeName(name) orelse return null;
+    const parent = worktreeParentPath(home, buf) orelse return null;
+    if (parent.len + 1 + sanitized.len > buf.len) return null;
+    buf[parent.len] = '/';
+    @memcpy(buf[parent.len + 1 ..][0..sanitized.len], sanitized);
+    return buf[0 .. parent.len + 1 + sanitized.len];
+}
+
+pub fn isSafeWorktreePath(path: []const u8) bool {
+    if (path.len == 0 or path.len > main.max_project_path) return false;
+    if (path[0] != '/') return false;
+    if (std.mem.indexOf(u8, path, "..") != null) return false;
+    if (std.mem.indexOfScalar(u8, path, 0) != null) return false;
+    return true;
+}
+
+/// `mkdir -p -- <parent> && cd -- <cwd> && git worktree add -b <branch> <path>`.
+/// Parent, cwd, branch, and path are argv slots. Rejects unsafe names
+/// so a raw string never reaches the shell script.
+pub fn worktreeAddArgvFor(
+    cwd: []const u8,
+    parent: []const u8,
+    branch: []const u8,
+    path: []const u8,
+    buf: *[worktree_add_argv_len][]const u8,
+) ?[]const []const u8 {
+    if (cwd.len == 0 or !isSafeWorktreePath(parent) or !isSafeWorktreePath(path)) return null;
+    if (!git_branch.isPlausibleBranchName(branch)) return null;
+    if (!std.mem.startsWith(u8, branch, worktree_branch_prefix)) return null;
+    if (sanitizeWorktreeName(branch[worktree_branch_prefix.len..]) == null) return null;
+    if (!std.mem.startsWith(u8, path, parent)) return null;
+    buf.* = .{
+        sh_bin,
+        "-c",
+        git_worktree_mkdir_chdir_script,
+        "sh",
+        parent,
+        cwd,
+        git_bin,
+        git_worktree_cmd,
+        git_worktree_add_cmd,
+        git_create_b_flag,
+        branch,
+        path,
+    };
+    return buf;
+}
+
+pub fn isGitWorktreeAddArgv(argv: []const []const u8) bool {
+    if (argv.len != worktree_add_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], "-c")) return false;
+    if (!std.mem.eql(u8, argv[2], git_worktree_mkdir_chdir_script)) return false;
+    if (!isSafeWorktreePath(argv[4])) return false;
+    if (argv[5].len == 0) return false;
+    if (!std.mem.eql(u8, argv[6], git_bin)) return false;
+    if (!std.mem.eql(u8, argv[7], git_worktree_cmd)) return false;
+    if (!std.mem.eql(u8, argv[8], git_worktree_add_cmd)) return false;
+    if (!std.mem.eql(u8, argv[9], git_create_b_flag)) return false;
+    if (!git_branch.isPlausibleBranchName(argv[10])) return false;
+    if (!std.mem.startsWith(u8, argv[10], worktree_branch_prefix)) return false;
+    if (sanitizeWorktreeName(argv[10][worktree_branch_prefix.len..]) == null) return false;
+    return isSafeWorktreePath(argv[11]);
+}
+
 fn parsedRefLessThan(_: void, a: ParsedRef, b: ParsedRef) bool {
     return std.mem.lessThan(u8, a.name, b.name);
 }
@@ -736,6 +851,11 @@ pub fn closeCreate(model: *Model) void {
     model.git_branch_create_buffer.clear();
 }
 
+pub fn closeWorktreeCreate(model: *Model) void {
+    model.git_worktree_create_active = false;
+    model.git_worktree_create_buffer.clear();
+}
+
 pub fn closeDelete(model: *Model) void {
     model.git_branch_delete_active = false;
     model.git_branch_delete_picker_open = false;
@@ -747,8 +867,19 @@ pub fn closeDelete(model: *Model) void {
 pub fn startCreate(model: *Model) void {
     closePicker(model);
     closeDelete(model);
+    closeWorktreeCreate(model);
     model.closeProjectEdit();
     model.git_branch_create_active = true;
+}
+
+/// Dismiss the select list and open the runtime-only New worktree…
+/// card. Draft name is not persisted.
+pub fn startWorktreeCreate(model: *Model) void {
+    closePicker(model);
+    closeCreate(model);
+    closeDelete(model);
+    model.closeProjectEdit();
+    model.git_worktree_create_active = true;
 }
 
 /// Dismiss the select list and open the runtime-only delete card of
@@ -757,6 +888,7 @@ pub fn startCreate(model: *Model) void {
 pub fn startDelete(model: *Model) void {
     closePicker(model);
     closeCreate(model);
+    closeWorktreeCreate(model);
     model.closeProjectEdit();
     model.git_branch_delete_active = true;
     model.git_branch_delete_picker_open = false;
@@ -981,6 +1113,12 @@ fn continueNoUpstream(model: *Model, fx: *Effects) void {
     spawnShowCurrent(model, fx);
 }
 
+fn cancelWorktreeAdd(model: *Model, fx: *Effects) void {
+    if (model.git_worktree_add_key == 0) return;
+    fx.cancel(model.git_worktree_add_key);
+    model.git_worktree_add_key = 0;
+}
+
 fn probeSupported() bool {
     return builtin.os.tag != .windows;
 }
@@ -994,10 +1132,10 @@ fn probePath(model: *const Model) []const u8 {
 }
 
 /// Cancel any in-flight list / checkout / create / delete / fetch /
-/// push, drop the cached heads and remotes, and spawn `for-each-ref`
-/// when the selected session has an existing `project_path`. Empty /
-/// missing / Windows skips the spawn so the picker stays omitted
-/// unless `has_git_branch` is already true.
+/// push / worktree-add, drop the cached heads and remotes, and spawn
+/// `for-each-ref` when the selected session has an existing
+/// `project_path`. Empty / missing / Windows skips the spawn so the
+/// picker stays omitted unless `has_git_branch` is already true.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelList(model, fx);
     cancelCheckout(model, fx);
@@ -1005,9 +1143,11 @@ pub fn refresh(model: *Model, fx: *Effects) void {
     cancelDelete(model, fx);
     cancelFetch(model, fx);
     cancelPush(model, fx);
+    cancelWorktreeAdd(model, fx);
     clearListedBranches(model);
     closePicker(model);
     closeCreate(model);
+    closeWorktreeCreate(model);
     closeDelete(model);
     if (!probeSupported()) return;
     const cwd = probePath(model);
@@ -1076,6 +1216,18 @@ fn pushStillCurrent(model: *const Model) bool {
     return std.mem.eql(u8, path, probed);
 }
 
+fn worktreeAddStillCurrent(model: *const Model) bool {
+    if (model.git_worktree_add_key == 0) return false;
+    if (model.git_worktree_add_probe_session != model.selected) return false;
+    const path = model.selectedProjectPath();
+    const probed = model.git_worktree_add_probe_path_storage[0..model.git_worktree_add_probe_path_len];
+    return std.mem.eql(u8, path, probed);
+}
+
+fn gitMutationInFlight(model: *const Model) bool {
+    return model.git_create_key != 0 or model.git_checkout_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0 or model.git_worktree_add_key != 0;
+}
+
 pub fn applyListLine(model: *Model, line: native_sdk.EffectLine) void {
     if (line.key != model.git_branch_list_key or model.git_branch_list_key == 0) return;
     if (!listStillCurrent(model)) return;
@@ -1111,7 +1263,7 @@ fn refreshWorkspaceProbes(model: *Model, fx: *Effects) void {
 /// the one-shots do not overlap.
 pub fn pickBranch(model: *Model, fx: *Effects, name: []const u8) void {
     closePicker(model);
-    if (model.git_create_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0) return;
+    if (model.git_create_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0 or model.git_worktree_add_key != 0) return;
     if (!git_branch.isPlausibleBranchName(name)) return;
     const remote = isListedRemoteName(model, name);
     if (!remote and std.mem.eql(u8, name, git_branch.gitBranchLabel(model))) return;
@@ -1167,7 +1319,7 @@ pub fn handleCheckoutExit(model: *Model, fx: *Effects, exit: native_sdk.EffectEx
 /// Empty / implausible names do not spawn and keep the field open.
 /// Busy session or in-flight create/checkout/delete/fetch/push is a no-op.
 pub fn confirmCreate(model: *Model, fx: *Effects) void {
-    if (model.git_create_key != 0 or model.git_checkout_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0) return;
+    if (gitMutationInFlight(model)) return;
     if (model.is_streaming()) return;
     const name = std.mem.trim(u8, model.git_branch_create_buffer.text(), " \t\r\n");
     if (!git_branch.isPlausibleBranchName(name)) return;
@@ -1210,7 +1362,7 @@ pub fn handleCreateExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
 /// implausible names do not spawn and keep the card open. Busy
 /// session or in-flight checkout/create/delete/fetch/push is a no-op.
 pub fn confirmDelete(model: *Model, fx: *Effects) void {
-    if (model.git_delete_key != 0 or model.git_checkout_key != 0 or model.git_create_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0) return;
+    if (gitMutationInFlight(model)) return;
     if (model.is_streaming()) return;
     const name = std.mem.trim(u8, gitBranchDeleteLabel(model), " \t\r\n");
     if (!isListedNonCurrent(model, name)) return;
@@ -1253,8 +1405,9 @@ pub fn handleDeleteExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
 pub fn startFetch(model: *Model, fx: *Effects) void {
     closePicker(model);
     closeCreate(model);
+    closeWorktreeCreate(model);
     closeDelete(model);
-    if (model.git_fetch_key != 0 or model.git_checkout_key != 0 or model.git_create_key != 0 or model.git_delete_key != 0 or model.git_push_key != 0) return;
+    if (gitMutationInFlight(model)) return;
     if (model.is_streaming()) return;
     if (!probeSupported()) return;
     const cwd = probePath(model);
@@ -1301,8 +1454,9 @@ pub fn handleFetchExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit)
 pub fn startPush(model: *Model, fx: *Effects) void {
     closePicker(model);
     closeCreate(model);
+    closeWorktreeCreate(model);
     closeDelete(model);
-    if (model.git_push_key != 0 or model.git_checkout_key != 0 or model.git_create_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0) return;
+    if (gitMutationInFlight(model)) return;
     if (model.is_streaming()) return;
     if (!probeSupported()) return;
     const cwd = probePath(model);
@@ -1379,6 +1533,84 @@ pub fn handlePushExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) 
     }
 }
 
+/// Confirm the New worktree… card: a safe name one-shots
+/// `mkdir -p ~/.faku/worktrees` then `git worktree add -b faku/<name> <path>`
+/// from current HEAD. Empty / unsafe names do not spawn and keep the
+/// field open. Busy session or in-flight checkout/create/delete/fetch/
+/// push/worktree-add is a no-op.
+pub fn confirmWorktreeAdd(model: *Model, fx: *Effects) void {
+    if (gitMutationInFlight(model)) return;
+    if (model.is_streaming()) return;
+    const raw = std.mem.trim(u8, model.git_worktree_create_buffer.text(), " \t\r\n");
+    const name = sanitizeWorktreeName(raw) orelse return;
+    if (!probeSupported()) return;
+    const cwd = probePath(model);
+    if (cwd.len == 0) return;
+    const home = model.homeDir();
+
+    var parent_buf: [main.max_project_path]u8 = undefined;
+    const parent = worktreeParentPath(home, parent_buf[0..]) orelse return;
+    var dest_buf: [main.max_project_path]u8 = undefined;
+    const dest = worktreeDestPath(home, name, dest_buf[0..]) orelse return;
+    var branch_buf: [git_branch.max_git_branch]u8 = undefined;
+    const branch = worktreeBranchName(name, branch_buf[0..]) orelse return;
+
+    const key = model.next_git_worktree_add_key;
+    model.next_git_worktree_add_key = key + 1;
+    model.git_worktree_add_key = key;
+    model.git_worktree_add_probe_session = model.selected;
+    writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, cwd);
+    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, dest);
+    writeFixed(&model.git_worktree_add_branch_storage, &model.git_worktree_add_branch_len, branch);
+
+    const stored_cwd = model.git_worktree_add_probe_path_storage[0..model.git_worktree_add_probe_path_len];
+    const stored_dest = model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len];
+    const slash = std.mem.lastIndexOfScalar(u8, stored_dest, '/') orelse {
+        model.git_worktree_add_key = 0;
+        return;
+    };
+    const stored_parent = stored_dest[0..slash];
+    if (!std.mem.eql(u8, stored_parent, parent)) {
+        model.git_worktree_add_key = 0;
+        return;
+    }
+    const stored_branch = model.git_worktree_add_branch_storage[0..model.git_worktree_add_branch_len];
+
+    var argv_buf: [worktree_add_argv_len][]const u8 = undefined;
+    const argv = worktreeAddArgvFor(stored_cwd, stored_parent, stored_branch, stored_dest, &argv_buf) orelse {
+        model.git_worktree_add_key = 0;
+        return;
+    };
+
+    fx.spawn(.{
+        .key = key,
+        .argv = argv,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+}
+
+/// On success, retarget the selected session `project_path` to the
+/// new worktree (absolute) and return true so the caller can persist
+/// + refresh via `persistComposerProject`. Failure sets a short
+/// status and leaves `project_path` unchanged.
+pub fn handleWorktreeAddExit(model: *Model, exit: native_sdk.EffectExit) bool {
+    if (exit.key != model.git_worktree_add_key or model.git_worktree_add_key == 0) return false;
+    const current = worktreeAddStillCurrent(model);
+    model.git_worktree_add_key = 0;
+    if (!current) return false;
+    if (exit.reason == .exited and exit.code == 0) {
+        const dest = model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len];
+        if (dest.len > 0) model.setSelectedProjectPath(dest);
+        closeWorktreeCreate(model);
+        model.git_worktree_add_dest_len = 0;
+        model.git_worktree_add_branch_len = 0;
+        return true;
+    }
+    model.setAttachStatus(worktree_add_failed_status);
+    return false;
+}
+
 test "list argv is chdir script plus for-each-ref refs/heads and refs/remotes" {
     var buf: [list_argv_len][]const u8 = undefined;
     const argv = listArgvFor("/tmp/faku-heads", &buf);
@@ -1425,6 +1657,7 @@ test "list argv is chdir script plus for-each-ref refs/heads and refs/remotes" {
     try std.testing.expect(!isGitDeleteArgv(argv));
     try std.testing.expect(!isGitFetchArgv(argv));
     try std.testing.expect(!isGitPushArgv(argv));
+    try std.testing.expect(!isGitWorktreeAddArgv(argv));
 }
 
 test "checkout argv keeps the name as its own slot and rejects implausible names" {
@@ -1443,6 +1676,7 @@ test "checkout argv keeps the name as its own slot and rejects implausible names
     try std.testing.expect(!isGitDeleteArgv(argv));
     try std.testing.expect(!isGitFetchArgv(argv));
     try std.testing.expect(!isGitPushArgv(argv));
+    try std.testing.expect(!isGitWorktreeAddArgv(argv));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "feat/composer") == null);
 
@@ -1462,7 +1696,8 @@ test "checkout argv keeps the name as its own slot and rejects implausible names
     try std.testing.expect(git_fetch_key_first > git_delete_key_first);
     try std.testing.expect(git_numstat.git_numstat_key_first > git_fetch_key_first);
     try std.testing.expect(git_push_key_first > git_numstat.git_numstat_key_first);
-    try std.testing.expect(file_mention.file_mention_key_first > git_push_key_first);
+    try std.testing.expect(git_worktree_add_key_first > git_push_key_first);
+    try std.testing.expect(file_mention.file_mention_key_first > git_worktree_add_key_first);
 }
 
 test "track checkout argv is checkout --track with the name as its own slot and rejects implausible names" {
@@ -1484,6 +1719,7 @@ test "track checkout argv is checkout --track with the name as its own slot and 
     try std.testing.expect(!isGitDeleteArgv(argv));
     try std.testing.expect(!isGitFetchArgv(argv));
     try std.testing.expect(!isGitPushArgv(argv));
+    try std.testing.expect(!isGitWorktreeAddArgv(argv));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "origin/feat") == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "--track") == null);
@@ -1517,6 +1753,7 @@ test "create argv is checkout -b with the name as its own slot and rejects impla
     try std.testing.expect(!isGitDeleteArgv(argv));
     try std.testing.expect(!isGitFetchArgv(argv));
     try std.testing.expect(!isGitPushArgv(argv));
+    try std.testing.expect(!isGitWorktreeAddArgv(argv));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "feat/new-branch") == null);
 
@@ -1549,6 +1786,7 @@ test "delete argv is branch -d with the name as its own slot and rejects implaus
     try std.testing.expect(!isGitBranchListArgv(argv));
     try std.testing.expect(!isGitFetchArgv(argv));
     try std.testing.expect(!isGitPushArgv(argv));
+    try std.testing.expect(!isGitWorktreeAddArgv(argv));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "feat/old-branch") == null);
     try std.testing.expect(!std.mem.eql(u8, argv[7], "-D"));
@@ -1592,6 +1830,7 @@ test "fetch argv is fetch --prune as its own slot and is not fetch-without-prune
     try std.testing.expect(!isGitCheckoutArgv(argv));
     try std.testing.expect(!isGitTrackCheckoutArgv(argv));
     try std.testing.expect(!isGitBranchListArgv(argv));
+    try std.testing.expect(!isGitWorktreeAddArgv(argv));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_fetch_cmd) == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_prune_flag) == null);
@@ -1626,7 +1865,8 @@ test "fetch argv is fetch --prune as its own slot and is not fetch-without-prune
     try std.testing.expect(git_fetch_key_first > git_delete_key_first);
     try std.testing.expect(git_numstat.git_numstat_key_first > git_fetch_key_first);
     try std.testing.expect(git_push_key_first > git_numstat.git_numstat_key_first);
-    try std.testing.expect(file_mention.file_mention_key_first > git_push_key_first);
+    try std.testing.expect(git_worktree_add_key_first > git_push_key_first);
+    try std.testing.expect(file_mention.file_mention_key_first > git_worktree_add_key_first);
 }
 
 test "push argv is git push with no extra flags and is not fetch/checkout/create/delete" {
@@ -1647,6 +1887,7 @@ test "push argv is git push with no extra flags and is not fetch/checkout/create
     try std.testing.expect(!isGitCheckoutArgv(argv));
     try std.testing.expect(!isGitTrackCheckoutArgv(argv));
     try std.testing.expect(!isGitBranchListArgv(argv));
+    try std.testing.expect(!isGitWorktreeAddArgv(argv));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_push_cmd) == null);
     try std.testing.expect(!isGitPushArgv(&.{
@@ -1705,7 +1946,124 @@ test "push argv is git push with no extra flags and is not fetch/checkout/create
     try std.testing.expect(!isGitUpstreamArgv(argv));
     try std.testing.expect(!isGitRemoteArgv(argv));
     try std.testing.expect(git_push_key_first > git_numstat.git_numstat_key_first);
-    try std.testing.expect(file_mention.file_mention_key_first > git_push_key_first);
+    try std.testing.expect(git_worktree_add_key_first > git_push_key_first);
+    try std.testing.expect(file_mention.file_mention_key_first > git_worktree_add_key_first);
+}
+
+test "worktree name sanitization refuses empty, slash, and implausible names" {
+    try std.testing.expectEqualStrings("feat", sanitizeWorktreeName("feat").?);
+    try std.testing.expectEqualStrings("feat-foo", sanitizeWorktreeName("  feat-foo  ").?);
+    try std.testing.expect(sanitizeWorktreeName("") == null);
+    try std.testing.expect(sanitizeWorktreeName("   ") == null);
+    try std.testing.expect(sanitizeWorktreeName("feat/foo") == null);
+    try std.testing.expect(sanitizeWorktreeName("not a branch") == null);
+    try std.testing.expect(sanitizeWorktreeName("../escape") == null);
+    try std.testing.expect(sanitizeWorktreeName("/abs") == null);
+    try std.testing.expect(sanitizeWorktreeName(".hidden") == null);
+    try std.testing.expect(sanitizeWorktreeName("trailing.") == null);
+    try std.testing.expect(sanitizeWorktreeName("@") == null);
+    try std.testing.expect(sanitizeWorktreeName("foo@{bar") == null);
+
+    var branch_buf: [git_branch.max_git_branch]u8 = undefined;
+    try std.testing.expectEqualStrings("faku/feat", worktreeBranchName("feat", branch_buf[0..]).?);
+    try std.testing.expect(worktreeBranchName("feat/foo", branch_buf[0..]) == null);
+    try std.testing.expect(worktreeBranchName("", branch_buf[0..]) == null);
+
+    var path_buf: [main.max_project_path]u8 = undefined;
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees", worktreeParentPath("/home/u", path_buf[0..]).?);
+    try std.testing.expect(worktreeParentPath("", path_buf[0..]) == null);
+    try std.testing.expect(worktreeParentPath("relative", path_buf[0..]) == null);
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat", worktreeDestPath("/home/u", "feat", path_buf[0..]).?);
+    try std.testing.expect(worktreeDestPath("/home/u", "feat/foo", path_buf[0..]) == null);
+    try std.testing.expect(worktreeDestPath("", "feat", path_buf[0..]) == null);
+}
+
+test "worktree add argv is mkdir+chdir plus worktree add -b with branch and path as own slots" {
+    var buf: [worktree_add_argv_len][]const u8 = undefined;
+    const argv = worktreeAddArgvFor(
+        "/tmp/faku-repo",
+        "/home/u/.faku/worktrees",
+        "faku/feat",
+        "/home/u/.faku/worktrees/feat",
+        &buf,
+    ).?;
+    try std.testing.expectEqual(@as(usize, 12), argv.len);
+    try std.testing.expectEqualStrings(sh_bin, argv[0]);
+    try std.testing.expectEqualStrings("-c", argv[1]);
+    try std.testing.expectEqualStrings(git_worktree_mkdir_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings("sh", argv[3]);
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees", argv[4]);
+    try std.testing.expectEqualStrings("/tmp/faku-repo", argv[5]);
+    try std.testing.expectEqualStrings(git_bin, argv[6]);
+    try std.testing.expectEqualStrings(git_worktree_cmd, argv[7]);
+    try std.testing.expectEqualStrings(git_worktree_add_cmd, argv[8]);
+    try std.testing.expectEqualStrings(git_create_b_flag, argv[9]);
+    try std.testing.expectEqualStrings("faku/feat", argv[10]);
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat", argv[11]);
+    try std.testing.expect(isGitWorktreeAddArgv(argv));
+    try std.testing.expect(!isGitCreateArgv(argv));
+    try std.testing.expect(!isGitCheckoutArgv(argv));
+    try std.testing.expect(!isGitTrackCheckoutArgv(argv));
+    try std.testing.expect(!isGitPushArgv(argv));
+    try std.testing.expect(!isGitFetchArgv(argv));
+    try std.testing.expect(!isGitDeleteArgv(argv));
+    try std.testing.expect(!isGitBranchListArgv(argv));
+    try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], "faku/feat") == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], "/home/u/.faku/worktrees/feat") == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], "feat") == null);
+
+    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "/home/u/.faku/worktrees", "feat", "/home/u/.faku/worktrees/feat", &buf) == null);
+    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "/home/u/.faku/worktrees", "faku/feat/foo", "/home/u/.faku/worktrees/feat/foo", &buf) == null);
+    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "relative", "faku/feat", "/home/u/.faku/worktrees/feat", &buf) == null);
+    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "/home/u/.faku/worktrees", "faku/feat", "/tmp/other/feat", &buf) == null);
+    try std.testing.expect(worktreeAddArgvFor("", "/home/u/.faku/worktrees", "faku/feat", "/home/u/.faku/worktrees/feat", &buf) == null);
+    try std.testing.expect(!isGitWorktreeAddArgv(&.{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/repo",
+        git_bin,
+        git_checkout_cmd,
+        git_create_b_flag,
+        "faku/feat",
+    }));
+    try std.testing.expect(git_worktree_add_key_first > git_push_key_first);
+    try std.testing.expect(file_mention.file_mention_key_first > git_worktree_add_key_first);
+}
+
+test "handleWorktreeAddExit success retargets project_path; failure leaves it" {
+    var model = Model{};
+    const id = model.addSession("worktree dest", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath("/tmp/proj");
+    try std.testing.expectEqualStrings("/tmp/proj", model.selectedProjectPath());
+
+    model.git_worktree_add_key = git_worktree_add_key_first;
+    model.git_worktree_add_probe_session = id;
+    writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, "/tmp/proj");
+    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/feat");
+    model.git_worktree_create_active = true;
+
+    const failed = handleWorktreeAddExit(&model, .{ .key = git_worktree_add_key_first, .reason = .exited, .code = 1 });
+    try std.testing.expect(!failed);
+    try std.testing.expectEqualStrings("/tmp/proj", model.selectedProjectPath());
+    try std.testing.expectEqualStrings(worktree_add_failed_status, model.attach_status());
+    try std.testing.expect(model.git_worktree_create_active);
+    try std.testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+
+    model.clearAttachStatus();
+    model.git_worktree_add_key = git_worktree_add_key_first + 1;
+    model.git_worktree_add_probe_session = id;
+    writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, "/tmp/proj");
+    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/feat");
+    const ok = handleWorktreeAddExit(&model, .{ .key = git_worktree_add_key_first + 1, .reason = .exited, .code = 0 });
+    try std.testing.expect(ok);
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/feat", model.selectedProjectPath());
+    try std.testing.expect(!model.git_worktree_create_active);
+    try std.testing.expect(!model.has_attach_status());
+    try std.testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
 }
 
 test "set-upstream push argv keeps flag, remote, and branch as their own slots" {

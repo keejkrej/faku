@@ -66,6 +66,10 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
         git_checkout.closeCreate(model);
         return;
     }
+    if (model.git_worktree_create_active) {
+        git_checkout.closeWorktreeCreate(model);
+        return;
+    }
     if (model.git_branch_delete_active) {
         git_checkout.closeDelete(model);
         return;
@@ -292,6 +296,22 @@ pub fn handleStartGitFetch(model: *Model, fx: *Effects) void {
 
 pub fn handleStartGitPush(model: *Model, fx: *Effects) void {
     git_checkout.startPush(model, fx);
+}
+
+pub fn handleStartGitWorktreeCreate(model: *Model) void {
+    git_checkout.startWorktreeCreate(model);
+}
+
+pub fn handleGitWorktreeCreateEdit(model: *Model, edit: canvas.TextInputEvent) void {
+    model.git_worktree_create_buffer.apply(edit);
+}
+
+pub fn handleConfirmGitWorktreeCreate(model: *Model, fx: *Effects) void {
+    git_checkout.confirmWorktreeAdd(model, fx);
+}
+
+pub fn handleCancelGitWorktreeCreate(model: *Model) void {
+    git_checkout.closeWorktreeCreate(model);
 }
 
 pub fn handlePickEffort(model: *Model, fx: *Effects, id: []const u8) void {

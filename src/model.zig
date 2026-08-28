@@ -361,6 +361,10 @@ pub const Msg = union(enum) {
     cancel_git_branch_delete,
     start_git_fetch,
     start_git_push,
+    start_git_worktree_create,
+    git_worktree_create_edit: canvas.TextInputEvent,
+    confirm_git_worktree_create,
+    cancel_git_worktree_create,
     start_project_edit,
     project_path_edit: canvas.TextInputEvent,
     /// Composer Pick folder: one-shot OS directory-dialog sidecar. Not `fx.pickFile`.
@@ -463,6 +467,8 @@ pub const Model = struct {
     git_branch_picker_open: bool = false,
     /// Runtime-only New branch… create card. Draft name is not persisted.
     git_branch_create_active: bool = false,
+    /// Runtime-only New worktree… create card. Draft name is not persisted.
+    git_worktree_create_active: bool = false,
     /// Runtime-only Delete branch… card. Selected name is not persisted.
     git_branch_delete_active: bool = false,
     /// Runtime-only select on the delete card. Not persisted.
@@ -503,6 +509,7 @@ pub const Model = struct {
     project_edit_active: bool = false,
     project_edit_buffer: canvas.TextBuffer(max_project_path) = .{},
     git_branch_create_buffer: canvas.TextBuffer(git_branch.max_git_branch) = .{},
+    git_worktree_create_buffer: canvas.TextBuffer(git_branch.max_git_branch) = .{},
     image_attach_active: bool = false,
     image_path_buffer: canvas.TextBuffer(max_project_path) = .{},
     /// Runtime-only composer status for picker cancel / missing-tool.
@@ -577,6 +584,15 @@ pub const Model = struct {
     git_push_branch_len: usize = 0,
     git_push_remote_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     git_push_remote_len: usize = 0,
+    git_worktree_add_key: u64 = 0,
+    next_git_worktree_add_key: u64 = git_checkout.git_worktree_add_key_first,
+    git_worktree_add_probe_session: u32 = 0,
+    git_worktree_add_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    git_worktree_add_probe_path_len: usize = 0,
+    git_worktree_add_dest_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    git_worktree_add_dest_len: usize = 0,
+    git_worktree_add_branch_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
+    git_worktree_add_branch_len: usize = 0,
     git_branch_delete_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     git_branch_delete_len: usize = 0,
     /// Runtime-only composer dirty count. One-shot `git status
@@ -770,6 +786,7 @@ pub const Model = struct {
         "settings_daemon_buffer",
         "project_edit_buffer",
         "git_branch_create_buffer",
+        "git_worktree_create_buffer",
         "image_path_buffer",
         "attach_status_storage",
         "attach_status_len",
@@ -841,6 +858,15 @@ pub const Model = struct {
         "git_push_branch_len",
         "git_push_remote_storage",
         "git_push_remote_len",
+        "git_worktree_add_key",
+        "next_git_worktree_add_key",
+        "git_worktree_add_probe_session",
+        "git_worktree_add_probe_path_storage",
+        "git_worktree_add_probe_path_len",
+        "git_worktree_add_dest_storage",
+        "git_worktree_add_dest_len",
+        "git_worktree_add_branch_storage",
+        "git_worktree_add_branch_len",
         "git_branch_delete_storage",
         "git_branch_delete_len",
         "git_dirty_count",
@@ -2157,9 +2183,14 @@ pub const Model = struct {
         return model.git_branch_create_buffer.text();
     }
 
+    pub fn git_worktree_create(model: *const Model) []const u8 {
+        return model.git_worktree_create_buffer.text();
+    }
+
     pub fn startProjectEdit(model: *Model) void {
         model.closeGitBranchPicker();
         git_checkout.closeCreate(model);
+        git_checkout.closeWorktreeCreate(model);
         git_checkout.closeDelete(model);
         model.project_edit_active = true;
         model.project_edit_buffer.set(model.selectedProjectPath());

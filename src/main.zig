@@ -247,8 +247,12 @@ pub const git_delete_key_first = git_checkout.git_delete_key_first;
 pub const git_fetch_key_first = git_checkout.git_fetch_key_first;
 /// One-shot `git push` (bare or `--set-upstream`) plus the probes
 /// that choose the path. Distinct from fetch (340+), git_numstat
-/// (350+), and file_mention (400+). Band is 360+.
+/// (350+), git_worktree_add (370+), and file_mention (400+).
+/// Band is 360+.
 pub const git_push_key_first = git_checkout.git_push_key_first;
+/// One-shot `git worktree add -b`. Distinct from push (360+) and
+/// file_mention (400+). Band is 370+.
+pub const git_worktree_add_key_first = git_checkout.git_worktree_add_key_first;
 /// One-shot `git status --porcelain` dirty count. Distinct from
 /// git_branch (200+), git_branch_list (250+), git_checkout (275+),
 /// git_create (290+), git_delete (320+), git_fetch (340+),
@@ -466,6 +470,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .cancel_git_branch_delete => settings_actions.handleCancelGitBranchDelete(model),
         .start_git_fetch => settings_actions.handleStartGitFetch(model, fx),
         .start_git_push => settings_actions.handleStartGitPush(model, fx),
+        .start_git_worktree_create => settings_actions.handleStartGitWorktreeCreate(model),
+        .git_worktree_create_edit => |edit| settings_actions.handleGitWorktreeCreateEdit(model, edit),
+        .confirm_git_worktree_create => settings_actions.handleConfirmGitWorktreeCreate(model, fx),
+        .cancel_git_worktree_create => settings_actions.handleCancelGitWorktreeCreate(model),
         .start_project_edit => model.startProjectEdit(),
         .project_path_edit => |edit| {
             model.applySelectedProjectPath(edit);

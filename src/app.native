@@ -446,6 +446,13 @@
                 <button variant="ghost" size="sm" on-press="cancel_git_branch_create">Cancel</button>
               </row>
             </if>
+            <if test="{git_worktree_create_active}">
+              <row gap="8" cross="center">
+                <text-field grow="1" placeholder="New worktree name" text="{git_worktree_create}" on-input="git_worktree_create_edit" autofocus="true" />
+                <button variant="ghost" size="sm" on-press="confirm_git_worktree_create">Create</button>
+                <button variant="ghost" size="sm" on-press="cancel_git_worktree_create">Cancel</button>
+              </row>
+            </if>
             <if test="{git_branch_delete_active}">
               <row gap="8" cross="center">
                 <stack>
@@ -507,6 +514,7 @@
                     <if test="{git_branch_picker_open}">
                       <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_git_branch_picker">
                         <menu-item on-press="start_git_branch_create">New branch…</menu-item>
+                        <menu-item on-press="start_git_worktree_create">New worktree…</menu-item>
                         <if test="{can_delete_git_branch}">
                           <menu-item on-press="start_git_branch_delete">Delete branch…</menu-item>
                         </if>

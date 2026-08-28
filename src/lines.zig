@@ -19,6 +19,7 @@ const turn_stream = @import("stream.zig");
 const maximize_window = @import("maximize_window.zig");
 const git_branch = @import("git_branch.zig");
 const git_checkout = @import("git_checkout.zig");
+const persist = @import("persist.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const file_mention = @import("file_mention.zig");
@@ -371,6 +372,12 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.git_push_key != 0 and exit.key == model.git_push_key) {
         git_checkout.handlePushExit(model, fx, exit);
+        return;
+    }
+    if (model.git_worktree_add_key != 0 and exit.key == model.git_worktree_add_key) {
+        if (git_checkout.handleWorktreeAddExit(model, exit)) {
+            persist.persistComposerProject(model, fx);
+        }
         return;
     }
     if (model.git_dirty_key != 0 and exit.key == model.git_dirty_key) {
