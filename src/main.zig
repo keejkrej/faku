@@ -237,10 +237,14 @@ pub const git_checkout_key_first = git_checkout.git_checkout_key_first;
 /// One-shot `git checkout -b <name>`. Distinct from list (250+),
 /// checkout (275+), git_dirty (300+). Band is 290+.
 pub const git_create_key_first = git_checkout.git_create_key_first;
+/// One-shot `git branch -d <name>`. Distinct from create (290+),
+/// git_dirty (300+), and git_numstat (350+). Band is 320+.
+pub const git_delete_key_first = git_checkout.git_delete_key_first;
 /// One-shot `git status --porcelain` dirty count. Distinct from
 /// git_branch (200+), git_branch_list (250+), git_checkout (275+),
-/// git_create (290+), git_numstat (350+), and file_mention (400+).
-/// Incremented per refresh from `git_dirty_key_first`.
+/// git_create (290+), git_delete (320+), git_numstat (350+), and
+/// file_mention (400+). Incremented per refresh from
+/// `git_dirty_key_first`.
 pub const git_dirty_key_first = git_dirty.git_dirty_key_first;
 /// One-shot `git diff --numstat HEAD --` +/- plus untracked text-line
 /// additions. Distinct from git_branch (200+), git_dirty (300+), and
@@ -444,6 +448,12 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .git_branch_create_edit => |edit| settings_actions.handleGitBranchCreateEdit(model, edit),
         .confirm_git_branch_create => settings_actions.handleConfirmGitBranchCreate(model, fx),
         .cancel_git_branch_create => settings_actions.handleCancelGitBranchCreate(model),
+        .start_git_branch_delete => settings_actions.handleStartGitBranchDelete(model),
+        .toggle_git_branch_delete_picker => settings_actions.handleToggleGitBranchDeletePicker(model),
+        .close_git_branch_delete_picker => model.closeGitBranchDeletePicker(),
+        .pick_git_branch_delete => |name| settings_actions.handlePickGitBranchDelete(model, name),
+        .confirm_git_branch_delete => settings_actions.handleConfirmGitBranchDelete(model, fx),
+        .cancel_git_branch_delete => settings_actions.handleCancelGitBranchDelete(model),
         .start_project_edit => model.startProjectEdit(),
         .project_path_edit => |edit| {
             model.applySelectedProjectPath(edit);

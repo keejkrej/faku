@@ -58,8 +58,16 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
         model.closeProjectEdit();
         return;
     }
+    if (model.git_branch_delete_picker_open) {
+        git_checkout.closeDeletePicker(model);
+        return;
+    }
     if (model.git_branch_create_active) {
         git_checkout.closeCreate(model);
+        return;
+    }
+    if (model.git_branch_delete_active) {
+        git_checkout.closeDelete(model);
         return;
     }
     if (model.image_attach_active) {
@@ -233,6 +241,7 @@ pub fn handleToggleGitBranchPicker(model: *Model) void {
         model.effort_picker_open = false;
         model.settings_effort_picker_open = false;
         model.goal_status_picker_open = false;
+        git_checkout.closeDelete(model);
     }
     model.toggleGitBranchPicker();
 }
@@ -255,6 +264,26 @@ pub fn handleConfirmGitBranchCreate(model: *Model, fx: *Effects) void {
 
 pub fn handleCancelGitBranchCreate(model: *Model) void {
     git_checkout.closeCreate(model);
+}
+
+pub fn handleStartGitBranchDelete(model: *Model) void {
+    git_checkout.startDelete(model);
+}
+
+pub fn handleToggleGitBranchDeletePicker(model: *Model) void {
+    git_checkout.toggleDeletePicker(model);
+}
+
+pub fn handlePickGitBranchDelete(model: *Model, name: []const u8) void {
+    git_checkout.pickDeleteName(model, name);
+}
+
+pub fn handleConfirmGitBranchDelete(model: *Model, fx: *Effects) void {
+    git_checkout.confirmDelete(model, fx);
+}
+
+pub fn handleCancelGitBranchDelete(model: *Model) void {
+    git_checkout.closeDelete(model);
 }
 
 pub fn handlePickEffort(model: *Model, fx: *Effects, id: []const u8) void {

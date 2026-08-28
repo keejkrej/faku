@@ -446,6 +446,22 @@
                 <button variant="ghost" size="sm" on-press="cancel_git_branch_create">Cancel</button>
               </row>
             </if>
+            <if test="{git_branch_delete_active}">
+              <row gap="8" cross="center">
+                <stack>
+                  <select placeholder="Branch" on-press="toggle_git_branch_delete_picker">{git_branch_delete}</select>
+                  <if test="{git_branch_delete_picker_open}">
+                    <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_git_branch_delete_picker">
+                      <for each="git_branch_delete_rows" key="row_id" as="d">
+                        <menu-item selected="{d.selected}" on-press="pick_git_branch_delete:{d.id}">{d.label}</menu-item>
+                      </for>
+                    </dropdown-menu>
+                  </if>
+                </stack>
+                <button variant="ghost" size="sm" on-press="confirm_git_branch_delete">Delete</button>
+                <button variant="ghost" size="sm" on-press="cancel_git_branch_delete">Cancel</button>
+              </row>
+            </if>
             <if test="{project_edit_active}">
               <row gap="8" cross="center">
                 <text-field grow="1" placeholder="Workspace path" text="{project_edit}" on-input="project_path_edit" autofocus="true" />
@@ -491,6 +507,9 @@
                     <if test="{git_branch_picker_open}">
                       <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_git_branch_picker">
                         <menu-item on-press="start_git_branch_create">New branch…</menu-item>
+                        <if test="{can_delete_git_branch}">
+                          <menu-item on-press="start_git_branch_delete">Delete branch…</menu-item>
+                        </if>
                         <for each="git_branch_picker_rows" key="row_id" as="b">
                           <menu-item selected="{b.selected}" on-press="pick_git_branch:{b.id}">{b.label}</menu-item>
                         </for>

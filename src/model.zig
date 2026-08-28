@@ -353,6 +353,12 @@ pub const Msg = union(enum) {
     git_branch_create_edit: canvas.TextInputEvent,
     confirm_git_branch_create,
     cancel_git_branch_create,
+    start_git_branch_delete,
+    toggle_git_branch_delete_picker,
+    close_git_branch_delete_picker,
+    pick_git_branch_delete: []const u8,
+    confirm_git_branch_delete,
+    cancel_git_branch_delete,
     start_project_edit,
     project_path_edit: canvas.TextInputEvent,
     /// Composer Pick folder: one-shot OS directory-dialog sidecar. Not `fx.pickFile`.
@@ -455,6 +461,10 @@ pub const Model = struct {
     git_branch_picker_open: bool = false,
     /// Runtime-only New branch… create card. Draft name is not persisted.
     git_branch_create_active: bool = false,
+    /// Runtime-only Delete branch… card. Selected name is not persisted.
+    git_branch_delete_active: bool = false,
+    /// Runtime-only select on the delete card. Not persisted.
+    git_branch_delete_picker_open: bool = false,
     palette_highlight: u32 = 0,
     /// Runtime-only first-visible-row highlight for the composer `@` /
     /// slash card. Not persisted to sessions.json. This cut does not
@@ -543,6 +553,13 @@ pub const Model = struct {
     git_create_probe_session: u32 = 0,
     git_create_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_create_probe_path_len: usize = 0,
+    git_delete_key: u64 = 0,
+    next_git_delete_key: u64 = git_checkout.git_delete_key_first,
+    git_delete_probe_session: u32 = 0,
+    git_delete_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    git_delete_probe_path_len: usize = 0,
+    git_branch_delete_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
+    git_branch_delete_len: usize = 0,
     /// Runtime-only composer dirty count. One-shot `git status
     /// --porcelain` line count; not persisted to sessions.json.
     git_dirty_count: u32 = 0,
@@ -784,6 +801,13 @@ pub const Model = struct {
         "git_create_probe_session",
         "git_create_probe_path_storage",
         "git_create_probe_path_len",
+        "git_delete_key",
+        "next_git_delete_key",
+        "git_delete_probe_session",
+        "git_delete_probe_path_storage",
+        "git_delete_probe_path_len",
+        "git_branch_delete_storage",
+        "git_branch_delete_len",
         "git_dirty_count",
         "git_dirty_label_storage",
         "git_dirty_label_len",
@@ -849,6 +873,8 @@ pub const Model = struct {
         "closeGoalStatusPicker",
         "toggleGitBranchPicker",
         "closeGitBranchPicker",
+        "toggleGitBranchDeletePicker",
+        "closeGitBranchDeletePicker",
         "closeComposerPickers",
         "access_selected_ask",
         "access_selected_auto",
@@ -998,6 +1024,7 @@ pub const Model = struct {
         model.effort_picker_open = false;
         model.goal_status_picker_open = false;
         model.git_branch_picker_open = false;
+        model.git_branch_delete_picker_open = false;
     }
 
     pub fn closeModelPicker(model: *Model) void {
@@ -1045,6 +1072,14 @@ pub const Model = struct {
 
     pub fn closeGitBranchPicker(model: *Model) void {
         model.git_branch_picker_open = false;
+    }
+
+    pub fn closeGitBranchDeletePicker(model: *Model) void {
+        git_checkout.closeDeletePicker(model);
+    }
+
+    pub fn toggleGitBranchDeletePicker(model: *Model) void {
+        git_checkout.toggleDeletePicker(model);
     }
 
     pub fn toggleGitBranchPicker(model: *Model) void {
@@ -1911,6 +1946,39 @@ pub const Model = struct {
         return out;
     }
 
+    pub fn can_delete_git_branch(model: *const Model) bool {
+        return git_checkout.canDeleteGitBranch(model);
+    }
+
+    pub fn git_branch_delete(model: *const Model) []const u8 {
+        return git_checkout.gitBranchDeleteLabel(model);
+    }
+
+    /// Non-current listed local heads for the delete card. Never includes
+    /// the current branch; empty when only HEAD is listed.
+    pub fn git_branch_delete_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
+        const current = git_branch.gitBranchLabel(model);
+        const selected = git_checkout.gitBranchDeleteLabel(model);
+        const n = model.git_branch_list_count;
+        if (n == 0) return &.{};
+        const out = arena.alloc(ChipPickerRow, n) catch return &.{};
+        var written: usize = 0;
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            const name = git_checkout.listedBranch(model, i);
+            if (name.len == 0) continue;
+            if (std.mem.eql(u8, current, name)) continue;
+            out[written] = .{
+                .row_id = @intCast(written + 1),
+                .id = name,
+                .label = name,
+                .selected = std.mem.eql(u8, selected, name),
+            };
+            written += 1;
+        }
+        return out[0..written];
+    }
+
     /// Runtime-only muted dirty count on the composer project row.
     pub fn git_dirty_label(model: *const Model) []const u8 {
         return git_dirty.gitDirtyLabel(model);
@@ -2048,6 +2116,7 @@ pub const Model = struct {
     pub fn startProjectEdit(model: *Model) void {
         model.closeGitBranchPicker();
         git_checkout.closeCreate(model);
+        git_checkout.closeDelete(model);
         model.project_edit_active = true;
         model.project_edit_buffer.set(model.selectedProjectPath());
     }
