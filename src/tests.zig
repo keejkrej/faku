@@ -13,6 +13,7 @@ const open_terminal = @import("open_terminal.zig");
 const open_editor = @import("open_editor.zig");
 const maximize_window = @import("maximize_window.zig");
 const git_branch = @import("git_branch.zig");
+const file_mention = @import("file_mention.zig");
 const keys = @import("keys.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 const goal = @import("goal.zig");
@@ -11461,7 +11462,10 @@ fn expectGitBranchArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.pick_image_key);
     try testing.expect(spawn.key != main.pick_folder_key);
     try testing.expect(spawn.key != main.copy_turn_key);
+    try testing.expect(spawn.key != main.file_mention_key_first);
     try testing.expect(spawn.key >= main.git_branch_key_first);
+    try testing.expect(spawn.key < main.file_mention_key_first);
+    try testing.expect(!file_mention.isGitLsFilesArgv(spawn.argv));
 }
 
 test "composer project row shows one-shot git branch --show-current" {
@@ -11648,6 +11652,252 @@ test "changing session or project_path does not keep the previous branch" {
     _ = try expectByText(tree.root, .button, "Local");
     try testing.expect(findByText(tree.root, .text, "branch-a") == null);
     try testing.expect(findByText(tree.root, .text, "branch-b") == null);
+}
+
+fn findFileMentionSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and file_mention.isGitLsFilesArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn expectFileMentionArgv(spawn: anytype, cwd: []const u8) !void {
+    try testing.expect(file_mention.isGitLsFilesArgv(spawn.argv));
+    try testing.expectEqualStrings(file_mention.sh_bin, spawn.argv[0]);
+    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(cwd, spawn.argv[4]);
+    try testing.expectEqualStrings(file_mention.git_bin, spawn.argv[5]);
+    try testing.expectEqualStrings(file_mention.git_ls_files_cmd, spawn.argv[6]);
+    try testing.expect(spawn.key != main.fx_ask_key);
+    try testing.expect(spawn.key != main.fx_probe_key);
+    try testing.expect(spawn.key != main.maximize_window_key);
+    try testing.expect(spawn.key != main.pick_image_key);
+    try testing.expect(spawn.key != main.pick_folder_key);
+    try testing.expect(spawn.key != main.reveal_folder_key);
+    try testing.expect(spawn.key != main.open_terminal_key);
+    try testing.expect(spawn.key != main.open_editor_key);
+    try testing.expect(spawn.key != main.copy_turn_key);
+    try testing.expect(spawn.key >= main.file_mention_key_first);
+    try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
+}
+
+test "composer @ mention card filters tracked files; insert replaces last token; slash stays authoritative" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-file-mention", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("file mention", .fx);
+    _ = model.appendTurn(id, .user, "already started");
+    model.selected = id;
+    if (model.sessionById(id)) |session| {
+        session.appendAvailableCommand("commit", "Create a commit");
+        session.appendAvailableCommand("compact", "Compact the conversation");
+    }
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+
+    try testing.expect(!model.mentions_list_open());
+    try testing.expectEqual(@as(usize, 0), model.mention_rows(arena).len);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "see @src" } }, &fx);
+    try testing.expectEqualStrings("see @src", model.draft());
+    try testing.expect(!model.mentions_list_open());
+    try testing.expectEqual(@as(usize, 0), model.mention_rows(arena).len);
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "src/main.zig") == null);
+
+    file_mention.applyStdoutPaths(&model,
+        \\src/main.zig
+        \\src/composer.zig
+        \\src/file_mention.zig
+        \\README.md
+    );
+    try testing.expect(model.mentions_list_open());
+    {
+        const rows = model.mention_rows(arena);
+        try testing.expectEqual(@as(usize, 3), rows.len);
+        try testing.expectEqualStrings("src/main.zig", rows[0].path);
+        try testing.expectEqual(@as(u32, 1), rows[0].id);
+        try testing.expectEqualStrings("src/composer.zig", rows[1].path);
+        try testing.expectEqualStrings("src/file_mention.zig", rows[2].path);
+    }
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "src/main.zig");
+    _ = try expectByText(tree.root, .text, "src/composer.zig");
+    _ = try expectByText(tree.root, .text, "src/file_mention.zig");
+    try testing.expect(findByText(tree.root, .text, "README.md") == null);
+    try testing.expect(findByText(tree.root, .text, "/commit") == null);
+    const main_row = try expectButton(tree.root, "src/main.zig");
+    try testing.expectEqual(Msg{ .insert_mention = 1 }, tree.msgForPointer(main_row.id, .up).?);
+
+    main.update(&model, tree.msgForPointer(main_row.id, .up).?, &fx);
+    try testing.expectEqualStrings("see @src/main.zig ", model.draft());
+    try testing.expect(model.composer_active);
+    try testing.expect(!model.mentions_list_open());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expect(!model.fx_spawn_live);
+    try testing.expect(!model.is_streaming());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "src/main.zig") == null);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("see @src/main.zig ", composer.text);
+        try testing.expect(composer.autofocus);
+    }
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqualStrings("see @src/main.zig ", loaded.draft());
+    try testing.expectEqual(@as(u32, 0), loaded.file_mention_count);
+
+    model.draft_buffer.clear();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "user@host" } }, &fx);
+    try testing.expect(!model.mentions_list_open());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "src/composer.zig") == null);
+
+    model.draft_buffer.clear();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "/" } }, &fx);
+    try testing.expect(model.commands_list_open());
+    try testing.expect(!model.mentions_list_open());
+    try testing.expectEqual(@as(usize, 0), model.mention_rows(arena).len);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "/commit");
+    _ = try expectByText(tree.root, .text, "/compact");
+    try testing.expect(findByText(tree.root, .text, "src/main.zig") == null);
+    try testing.expect(findByText(tree.root, .text, "src/composer.zig") == null);
+}
+
+test "composer @ mention visible rows cap at 12; empty cache hides the list" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    const id = model.addSession("cap", .fx);
+    model.selected = id;
+    model.draft_buffer.set("@");
+    try testing.expect(!model.mentions_list_open());
+    try testing.expectEqual(@as(usize, 0), model.mention_rows(arena).len);
+
+    var blob: [512]u8 = undefined;
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < 20) : (i += 1) {
+        const piece = std.fmt.bufPrint(blob[n..], "src/f{d:0>2}.zig\n", .{i}) catch unreachable;
+        n += piece.len;
+    }
+    file_mention.applyStdoutPaths(&model, blob[0..n]);
+    try testing.expectEqual(@as(u32, 20), model.file_mention_count);
+    try testing.expect(model.mentions_list_open());
+    try testing.expectEqual(@as(usize, file_mention.file_mention_visible_cap), model.mention_rows(arena).len);
+    try testing.expectEqualStrings("src/f00.zig", model.mention_rows(arena)[0].path);
+    try testing.expectEqualStrings("src/f11.zig", model.mention_rows(arena)[11].path);
+
+    model.draft_buffer.set("@zz");
+    try testing.expect(!model.mentions_list_open());
+    try testing.expectEqual(@as(usize, 0), model.mention_rows(arena).len);
+
+    file_mention.clearCache(&model);
+    model.draft_buffer.set("@src");
+    try testing.expect(!model.mentions_list_open());
+    const tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "src/f00.zig") == null);
+}
+
+test "git ls-files sidecar argv and first-N stdout; empty missing rejected skip" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/ls-proj", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("ls files", .fx);
+    model.selected = id;
+
+    file_mention.refresh(&model, &fx);
+    try testing.expect(findFileMentionSpawnKey(&fx, model.file_mention_key) == null);
+    try testing.expectEqual(@as(u32, 0), model.file_mention_count);
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = ".zig-cache/tmp/faku-ls-missing" } }, &fx);
+    try testing.expectEqual(@as(u64, 0), model.file_mention_key);
+    try testing.expectEqual(@as(u32, 0), model.file_mention_count);
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    var mention = findFileMentionSpawnKey(&fx, model.file_mention_key) orelse return error.MissingFileMentionSpawn;
+    try expectFileMentionArgv(mention, project);
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try expectGitBranchArgv(branch, project);
+    try testing.expect(mention.key != branch.key);
+
+    try fx.feedLine(mention.key, "src/a.zig\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(mention.key, "src/b.zig\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, 2), model.file_mention_count);
+    try testing.expectEqualStrings("src/a.zig", file_mention.cachedPath(&model, 0));
+    try testing.expectEqualStrings("src/b.zig", file_mention.cachedPath(&model, 1));
+
+    try fx.feedLine(branch.key, "main\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("main", model.git_branch_label());
+
+    try fx.feedExit(mention.key, 128);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, 0), model.file_mention_count);
+    try testing.expectEqualStrings("main", model.git_branch_label());
+
+    file_mention.refresh(&model, &fx);
+    mention = findFileMentionSpawnKey(&fx, model.file_mention_key) orelse return error.MissingFileMentionSpawn;
+    try fx.feedExitReason(mention.key, 0, .rejected);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, 0), model.file_mention_count);
+
+    file_mention.refresh(&model, &fx);
+    mention = findFileMentionSpawnKey(&fx, model.file_mention_key) orelse return error.MissingFileMentionSpawn;
+    var overflow: [file_mention.max_file_mentions * 2 + 16]u8 = undefined;
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < file_mention.max_file_mentions + 2) : (i += 1) {
+        overflow[n] = 'p';
+        n += 1;
+        overflow[n] = '\n';
+        n += 1;
+    }
+    try fx.feedLine(mention.key, overflow[0..n]);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, file_mention.max_file_mentions), model.file_mention_count);
+    try fx.feedExit(mention.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, file_mention.max_file_mentions), model.file_mention_count);
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    try testing.expectEqual(@as(u32, 0), model.file_mention_count);
+    try testing.expectEqual(@as(u64, 0), model.file_mention_key);
 }
 
 fn expectContextProgress(widget: canvas.Widget, expected: f32) !canvas.Widget {

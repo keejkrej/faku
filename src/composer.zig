@@ -1,9 +1,9 @@
-//! Composer chip, access, effort, slash-prefix, and attach helpers.
+//! Composer chip, access, effort, slash-prefix, file-mention, and attach helpers.
 //!
 //! Access / effort labels, chip option tables, slash command prefix,
-//! and image-drop path checks live here. Model chip cycling and
-//! persist stay in `main.zig`. Behavior is unchanged from the former
-//! `main` composer helpers.
+//! caret-at-end `@` mention parse/insert, and image-drop path checks
+//! live here. Model chip cycling and persist stay in `main.zig`.
+//! Behavior is unchanged from the former `main` composer helpers.
 
 const std = @import("std");
 
@@ -96,6 +96,33 @@ pub fn slashCommandPrefix(draft: []const u8) ?[]const u8 {
     return rest;
 }
 
+/// Active `@` mention assuming the caret is at the end (Native has no
+/// caret API). Last whitespace-separated token must start with `@`.
+/// `see @src` → `src`; `@` alone → `""`; `user@host` does not trigger.
+/// Mid-prompt `@foo` with more text after it is not a mention — this
+/// cut does not fake a caret. Slash prefix stays authoritative.
+pub fn fileMentionQuery(draft: []const u8) ?[]const u8 {
+    if (slashCommandPrefix(draft) != null) return null;
+    if (draft.len == 0) return null;
+    var start = draft.len;
+    while (start > 0 and !std.ascii.isWhitespace(draft[start - 1])) {
+        start -= 1;
+    }
+    const token = draft[start..];
+    if (token.len == 0 or token[0] != '@') return null;
+    return token[1..];
+}
+
+/// Replace only the last `@query` token with `@relpath` plus a trailing
+/// space. Keeps the rest of the draft. `null` when there is no active
+/// mention, `relpath` is empty, or the result does not fit `out`.
+pub fn replaceMentionToken(draft: []const u8, relpath: []const u8, out: []u8) ?[]const u8 {
+    const query = fileMentionQuery(draft) orelse return null;
+    if (relpath.len == 0) return null;
+    const token_start = draft.len - query.len - 1;
+    return std.fmt.bufPrint(out, "{s}@{s} ", .{ draft[0..token_start], relpath }) catch null;
+}
+
 /// First dropped path that is a local image Faku already understands
 /// for `fx ask --image` / attach preview. Existing extensions only:
 /// png, jpg, jpeg, webp, gif. Directories (trailing separator) and
@@ -119,4 +146,29 @@ pub fn isAttachImagePath(path: []const u8) bool {
         std.ascii.eqlIgnoreCase(ext, ".jpeg") or
         std.ascii.eqlIgnoreCase(ext, ".webp") or
         std.ascii.eqlIgnoreCase(ext, ".gif");
+}
+
+test "fileMentionQuery is caret-at-end; slash prefix wins" {
+    try std.testing.expectEqualStrings("src", fileMentionQuery("see @src").?);
+    try std.testing.expectEqualStrings("", fileMentionQuery("@").?);
+    try std.testing.expectEqualStrings("", fileMentionQuery("see @").?);
+    try std.testing.expectEqualStrings("src/foo", fileMentionQuery("look @src/foo").?);
+    try std.testing.expect(fileMentionQuery("user@host") == null);
+    try std.testing.expect(fileMentionQuery("see @src more") == null);
+    try std.testing.expect(fileMentionQuery("see @src ") == null);
+    try std.testing.expect(fileMentionQuery("") == null);
+    try std.testing.expect(fileMentionQuery("/commit") == null);
+    try std.testing.expect(fileMentionQuery("/") == null);
+    try std.testing.expect(fileMentionQuery("/@src") == null);
+}
+
+test "replaceMentionToken rewrites only the last @query token and appends a space" {
+    var buf: [64]u8 = undefined;
+    try std.testing.expectEqualStrings("see @src/main.zig ", replaceMentionToken("see @src", "src/main.zig", &buf).?);
+    try std.testing.expectEqualStrings("@src/composer.zig ", replaceMentionToken("@", "src/composer.zig", &buf).?);
+    try std.testing.expectEqualStrings("look @src/foo.zig ", replaceMentionToken("look @src", "src/foo.zig", &buf).?);
+    try std.testing.expect(replaceMentionToken("user@host", "src/main.zig", &buf) == null);
+    try std.testing.expect(replaceMentionToken("see @src more", "src/main.zig", &buf) == null);
+    try std.testing.expect(replaceMentionToken("/commit", "src/main.zig", &buf) == null);
+    try std.testing.expect(replaceMentionToken("@src", "", &buf) == null);
 }
