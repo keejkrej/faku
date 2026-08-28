@@ -12211,6 +12211,7 @@ test "composer Enter confirms first @ mention; Esc dismisses; Send button still 
     const id = model.addSession("mention enter", .fx);
     _ = model.appendTurn(id, .user, "already started");
     model.selected = id;
+    try store.saveSession(&model, id, testing.allocator, testing.io);
     file_mention.applyStdoutPaths(&model,
         \\notes/email.md
         \\src/lib/util.zig
