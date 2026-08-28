@@ -77,7 +77,8 @@ stdout / ACP / daemon line handlers and fx-exit routing live in
 `src/reveal_folder.zig`. Composer Open in Terminal helpers live in
 `src/open_terminal.zig`. Composer Open in Editor helpers live in
 `src/open_editor.zig`. Composer git-branch probe helpers live in
-`src/git_branch.zig`. Composer `@` file-mention probe helpers live in
+`src/git_branch.zig`. Composer git-dirty probe helpers live in
+`src/git_dirty.zig`. Composer `@` file-mention probe helpers live in
 `src/file_mention.zig`. Boot fx-probe spawn/exit lives in
 `src/fx_probe.zig`. Folder/chip persist helpers live in
 `src/persist.zig`. Session / folder / title-edit update helpers live
@@ -246,11 +247,17 @@ a muted current-branch label from a
 one-shot `fx.spawn` of `git branch --show-current` (chdir via the
 same `/bin/sh -c 'cd -- "$1" && shift && exec "$@"'` workaround
 `fx ask` uses, because Native `SpawnOptions` has no `cwd`). Detached
-HEAD and non-repos print empty; the label is omitted. This is not
-Waku's daemon `InspectBranches` / checkout picker, not a live watch,
-and not a `git status` dirty count. Native still has no git effect.
-The branch is runtime-only (like the busy spinner) and is not stored
-on `sessions.json`. There is no worktree materialization.
+HEAD and non-repos print empty; the label is omitted. The same
+refresh also one-shots `git status --porcelain` and, when that
+stdout has non-empty lines, a muted `N change` / `N changes` label
+next to the branch (one line per path; blank lines ignored). Zero,
+failed, or skipped probes omit the label — this cut does not invent
+"clean". This is not Waku's daemon `InspectBranches` / checkout
+picker, not a live watch, not a commit dialog, not a staged/unstaged
+split, and not Waku's Environment Summary. Native still has no git
+effect. The branch and dirty count are runtime-only (like the busy
+spinner) and are not stored on `sessions.json`. There is no worktree
+materialization.
 The same refresh also one-shots
 `git ls-files --cached --others --exclude-standard` (same chdir
 workaround) and keeps a bounded runtime list of relative paths for

@@ -481,6 +481,9 @@
                 <if test="{has_git_branch}">
                   <text wrap="false" overflow="ellipsis" foreground="text_muted">{git_branch_label}</text>
                 </if>
+                <if test="{has_git_dirty}">
+                  <text wrap="false" overflow="ellipsis" foreground="text_muted">{git_dirty_label}</text>
+                </if>
                 <spacer grow="1" />
                 <progress value="{context_usage}" width="16" height="16" label="Context usage" />
               </row>
