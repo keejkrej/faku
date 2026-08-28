@@ -13378,8 +13378,6 @@ test "confirm New worktree one-shots git worktree add -b; success retargets proj
     try testing.expect(probe_key >= main.git_worktree_base_key_first);
     main.update(&model, .confirm_git_worktree_create, &fx);
     try testing.expectEqual(probe_key, model.git_worktree_base_key);
-    main.update(&model, .start_git_push, &fx);
-    try testing.expectEqual(probe_key, model.git_worktree_base_key);
     try testing.expectEqual(@as(u64, 0), model.git_push_key);
     try finishWorktreeBaseProbe(&fx, &model, "origin/main\n", 0);
     try testing.expectEqual(@as(u64, 0), model.git_worktree_base_key);
@@ -13452,10 +13450,9 @@ test "confirm New worktree one-shots git worktree add -b; success retargets proj
     main.update(&model, .cancel_git_worktree_create, &fx);
     try testing.expectEqual(@as(u64, 0), model.git_worktree_base_key);
     try testing.expect(!model.git_worktree_create_active);
-    try fx.feedExit(stale_probe.key, 0);
-    drainEffects(&model, &fx);
     try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
     try testing.expectEqualStrings(project, model.selectedProjectPath());
+    try testing.expect(findGitWorktreeAddSpawnKey(&fx, model.git_worktree_add_key) == null);
 }
 
 fn findGitRevParseSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {

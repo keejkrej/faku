@@ -67,7 +67,7 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
         return;
     }
     if (model.git_worktree_create_active) {
-        git_checkout.closeWorktreeCreate(model);
+        git_checkout.dismissWorktreeCreate(model, fx);
         return;
     }
     if (model.git_branch_delete_active) {
@@ -310,8 +310,8 @@ pub fn handleConfirmGitWorktreeCreate(model: *Model, fx: *Effects) void {
     git_checkout.confirmWorktreeAdd(model, fx);
 }
 
-pub fn handleCancelGitWorktreeCreate(model: *Model) void {
-    git_checkout.closeWorktreeCreate(model);
+pub fn handleCancelGitWorktreeCreate(model: *Model, fx: *Effects) void {
+    git_checkout.dismissWorktreeCreate(model, fx);
 }
 
 pub fn handlePickEffort(model: *Model, fx: *Effects, id: []const u8) void {

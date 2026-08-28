@@ -487,7 +487,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .start_git_worktree_create => settings_actions.handleStartGitWorktreeCreate(model),
         .git_worktree_create_edit => |edit| settings_actions.handleGitWorktreeCreateEdit(model, edit),
         .confirm_git_worktree_create => settings_actions.handleConfirmGitWorktreeCreate(model, fx),
-        .cancel_git_worktree_create => settings_actions.handleCancelGitWorktreeCreate(model),
+        .cancel_git_worktree_create => settings_actions.handleCancelGitWorktreeCreate(model, fx),
         .start_project_edit => model.startProjectEdit(),
         .project_path_edit => |edit| {
             model.applySelectedProjectPath(edit);

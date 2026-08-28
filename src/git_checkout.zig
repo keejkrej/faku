@@ -973,9 +973,15 @@ pub fn closeCreate(model: *Model) void {
 pub fn closeWorktreeCreate(model: *Model) void {
     model.git_worktree_create_active = false;
     model.git_worktree_create_buffer.clear();
-    // A late symbolic-ref exit must not spawn add after dismiss.
-    model.git_worktree_base_key = 0;
-    model.git_worktree_base_len = 0;
+}
+
+/// Esc / Cancel: close the card and drop an in-flight base probe so a
+/// late exit cannot spawn add. Distinct from `closeWorktreeCreate`,
+/// which only hides the card (Push… / Fetch… still no-op via
+/// `gitMutationInFlight` while the probe or add is live).
+pub fn dismissWorktreeCreate(model: *Model, fx: *Effects) void {
+    cancelWorktreeBase(model, fx);
+    closeWorktreeCreate(model);
 }
 
 pub fn closeDelete(model: *Model) void {
