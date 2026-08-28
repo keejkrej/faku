@@ -44,10 +44,10 @@ typing `@` in the composer (last whitespace token; caret assumed at
 the end — Native has no caret API) opens a small card of files and
 derived parent directories (trailing slash) from a one-shot
 `git ls-files --cached --others --exclude-standard` of that same
-workspace when the cache has matches (`user@host` does not trigger;
-slash prefix stays authoritative; visible rows are scored over that
-bounded cache, not Waku's 50k-file index, caret-aware trigger, or a
-non-git directory walk);
+workspace, or a bounded directory walk when git cannot list, when
+the cache has matches (`user@host` does not trigger; slash prefix
+stays authoritative; visible rows are scored over that bounded
+cache, not Waku's 50k-file index or caret-aware trigger);
 the usage control stays empty unless ACP reports `usage_update`; user and
 assistant turns render Native markdown; the transcript stays pinned
 to the latest turn via Native `scroll` `value` / `on-scroll`
@@ -153,21 +153,24 @@ on the session. Composer Commands inserts `/name ` into the draft; typing
 Typing `@` (last whitespace-separated token; `user@host` does not
 trigger; mid-prompt `@foo` with more text after it is not a mention
 under the caret-at-end assumption) opens a mention list from the
-runtime `git ls-files --cached --others --exclude-standard` cache
-when that cache has matches. Derived parent directories of those
-cached files join the ranked list as `path/` (trailing slash).
+runtime file-mention cache when that cache has matches. Git
+`ls-files --cached --others --exclude-standard` is first; a bounded
+`find` walk (depth 8, skip hidden / `node_modules` / build output)
+fills the same cache only when that spawn fails. Git success with
+zero files stays empty. Derived parent directories of those cached
+files join the ranked list as `path/` (trailing slash).
 A non-empty `@query` ranks visible rows by match quality (basename
 prefix, then basename contains / path-segment prefix, then full-path
 contains) rather than first-N contains in cache order. Empty `@`
 matches every file and derived dir; ties prefer shallower paths,
 then path, then id, so the card opens on the project's top level.
-Cap remains 12. Still not Waku's 50k-file index, caret-aware
-trigger, or a non-git directory walk (git-less workspaces stay empty).
-Slash prefix stays authoritative; the two lists never show together.
+Cap remains 12. Still not Waku's 50k-file index or caret-aware
+trigger, and still not persisted. Slash prefix stays authoritative;
+the two lists never show together.
 Clicking a row replaces only that last `@query` token with `@relpath`
 plus a trailing space (`@src/` for a directory). File paths stay
-repo-relative as `git ls-files` printed them. Not a provider/ACP
-method, not Open-in, and not copy path.
+relative as git or the walk printed them (`find`'s leading `./` is
+stripped). Not a provider/ACP method, not Open-in, and not copy path.
 ACP `session_info_update` applies a non-empty `title` to the session
 (header / sidebar); official `cwd` is not on this notification.
 The `session/prompt` result `stopReason`
@@ -245,14 +248,17 @@ The branch is runtime-only (like the busy spinner) and is not stored
 on `sessions.json`. There is no worktree materialization.
 The same refresh also one-shots
 `git ls-files --cached --others --exclude-standard` (same chdir
-workaround) and keeps a bounded runtime list of tracked and
-untracked, non-ignored relative paths for composer `@` mentions.
-That cache is files-only and is not stored on `sessions.json`.
+workaround) and keeps a bounded runtime list of relative paths for
+composer `@` mentions. When that git spawn cannot run or exits
+non-zero, a bounded `find` walk (max depth 8; prune names starting
+with `.` and `node_modules` / `target` / `dist` / `build` / `out` /
+`vendor` / `__pycache__`) fills the same files-only cache. Git
+success with zero files is an empty repo and does not walk.
+The cache is not stored on `sessions.json`.
 The visible mention card scores those files plus unique parent
 directories derived at row time (`composer.fileMentionScore`);
 it is still not Waku's 50k-file index, caret-aware trigger, a
-non-git directory walk, a daemon catalog, or a live watch.
-Ignored / non-git workspaces / Windows stay empty this cut.
+daemon catalog, or a live watch. Windows stays empty this cut.
 
 A stdout ACP `session/new` result with `sessionId` updates the stored
 id and is not appended to the assistant turn. `fx ask --json` lines

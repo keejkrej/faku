@@ -221,13 +221,13 @@ pub const CommandRow = struct {
 };
 
 /// File-mention row. `id` is a 1-based index into the runtime
-/// `git ls-files --cached --others --exclude-standard` cache, or
-/// `file_mention_dir_id_base + dir_index` for a derived parent
-/// directory (stable across the visible ranked filter) so
-/// Native `insert_mention:{m.id}` never binds 0 and a filtered click
-/// still inserts that path, not a neighbor. `name` / `parent` are
-/// slices of `path` for scanable labels. Dir paths keep a trailing
-/// slash (`src/`).
+/// file-mention cache (git ls-files, or a bounded walk when git
+/// cannot list), or `file_mention_dir_id_base + dir_index` for a
+/// derived parent directory (stable across the visible ranked
+/// filter) so Native `insert_mention:{m.id}` never binds 0 and a
+/// filtered click still inserts that path, not a neighbor.
+/// `name` / `parent` are slices of `path` for scanable labels. Dir
+/// paths keep a trailing slash (`src/`).
 pub const MentionRow = struct {
     id: u32,
     path: []const u8,
@@ -498,8 +498,8 @@ pub const Model = struct {
     git_branch_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_branch_probe_path_len: usize = 0,
     /// Runtime-only file cache for composer `@` mentions.
-    /// One-shot `git ls-files --cached --others --exclude-standard`;
-    /// not persisted to sessions.json.
+    /// Git ls-files first; bounded walk only when that spawn fails.
+    /// Not persisted to sessions.json.
     file_mention_store: [file_mention.max_file_mentions]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** file_mention.max_file_mentions,
     file_mention_count: u32 = 0,
     file_mention_key: u64 = 0,
@@ -507,6 +507,7 @@ pub const Model = struct {
     file_mention_probe_session: u32 = 0,
     file_mention_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     file_mention_probe_path_len: usize = 0,
+    file_mention_probe_is_walk: bool = false,
     /// Runtime ImageId bound by the composer `<image>`. 0 until
     /// `fx.loadImage` reports `.loaded`. Same draft `image_path` as
     /// the chip — not a second persist field.
@@ -698,6 +699,7 @@ pub const Model = struct {
         "file_mention_probe_session",
         "file_mention_probe_path_storage",
         "file_mention_probe_path_len",
+        "file_mention_probe_is_walk",
         "insertAvailableMention",
         "attach_preview_load_id",
         "next_attach_preview_id",
@@ -2134,10 +2136,9 @@ pub const Model = struct {
     }
 
     /// Replace the last `@query` token with `@relpath ` from the
-    /// runtime `git ls-files --cached --others --exclude-standard`
-    /// cache, or a derived parent directory (`src/`). Writes the
-    /// composer draft only — no spawn, no ACP method. Focuses the
-    /// composer.
+    /// runtime file-mention cache, or a derived parent directory
+    /// (`src/`). Writes the composer draft only — no spawn, no ACP
+    /// method. Focuses the composer.
     pub fn insertAvailableMention(model: *Model, id: u32) void {
         var dir_buf: [file_mention.max_file_mention_path + 1]u8 = undefined;
         const relpath = file_mention.mentionRelpath(model, id, &dir_buf) orelse return;

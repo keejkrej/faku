@@ -11806,6 +11806,23 @@ fn findFileMentionSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0)
     return null;
 }
 
+fn findFileMentionWalkSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and file_mention.isWalkArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn countFileMentionWalkSpawns(fx: *Effects) usize {
+    var n: usize = 0;
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (file_mention.isWalkArgv(spawn.argv)) n += 1;
+    }
+    return n;
+}
+
 fn expectFileMentionArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(file_mention.isGitLsFilesArgv(spawn.argv));
     try testing.expectEqualStrings(file_mention.sh_bin, spawn.argv[0]);
@@ -11827,6 +11844,27 @@ fn expectFileMentionArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.copy_turn_key);
     try testing.expect(spawn.key >= main.file_mention_key_first);
     try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
+    try testing.expect(!file_mention.isWalkArgv(spawn.argv));
+}
+
+fn expectFileMentionWalkArgv(spawn: anytype, cwd: []const u8) !void {
+    try testing.expect(file_mention.isWalkArgv(spawn.argv));
+    try testing.expect(!file_mention.isGitLsFilesArgv(spawn.argv));
+    try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
+    try testing.expectEqualStrings(file_mention.sh_bin, spawn.argv[0]);
+    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(cwd, spawn.argv[4]);
+    try testing.expectEqualStrings(file_mention.find_bin, spawn.argv[5]);
+    try testing.expectEqualStrings(file_mention.find_start, spawn.argv[6]);
+    try testing.expectEqualStrings(file_mention.find_maxdepth_flag, spawn.argv[7]);
+    try testing.expectEqualStrings(file_mention.find_maxdepth, spawn.argv[8]);
+    try testing.expect(argvHas(spawn.argv, file_mention.find_dot_star));
+    try testing.expect(argvHas(spawn.argv, file_mention.find_prune));
+    try testing.expect(argvHas(spawn.argv, file_mention.find_type_file));
+    inline for (file_mention.walk_skip_names) |name| {
+        try testing.expect(argvHas(spawn.argv, name));
+    }
+    try testing.expect(spawn.key >= main.file_mention_key_first);
 }
 
 test "composer @ mention card filters tracked files; insert replaces last token; slash stays authoritative" {
@@ -12081,16 +12119,19 @@ test "git ls-files sidecar argv and first-N stdout; empty missing rejected skip"
 
     file_mention.refresh(&model, &fx);
     try testing.expect(findFileMentionSpawnKey(&fx, model.file_mention_key) == null);
+    try testing.expect(findFileMentionWalkSpawnKey(&fx, model.file_mention_key) == null);
     try testing.expectEqual(@as(u32, 0), model.file_mention_count);
 
     main.update(&model, .{ .project_path_edit = .{ .insert_text = ".zig-cache/tmp/faku-ls-missing" } }, &fx);
     try testing.expectEqual(@as(u64, 0), model.file_mention_key);
     try testing.expectEqual(@as(u32, 0), model.file_mention_count);
+    try testing.expectEqual(@as(usize, 0), countFileMentionWalkSpawns(&fx));
 
     main.update(&model, .{ .project_path_edit = .clear }, &fx);
     main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
     var mention = findFileMentionSpawnKey(&fx, model.file_mention_key) orelse return error.MissingFileMentionSpawn;
     try expectFileMentionArgv(mention, project);
+    try testing.expect(findFileMentionWalkSpawnKey(&fx, model.file_mention_key) == null);
     const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
     try expectGitBranchArgv(branch, project);
     try testing.expect(mention.key != branch.key);
@@ -12111,12 +12152,50 @@ test "git ls-files sidecar argv and first-N stdout; empty missing rejected skip"
     drainEffects(&model, &fx);
     try testing.expectEqual(@as(u32, 0), model.file_mention_count);
     try testing.expectEqualStrings("main", model.git_branch_label());
+    var walk = findFileMentionWalkSpawnKey(&fx, model.file_mention_key) orelse return error.MissingFileMentionWalkSpawn;
+    try expectFileMentionWalkArgv(walk, project);
+    try testing.expect(walk.key != mention.key);
+    try testing.expect(walk.key != branch.key);
+
+    try fx.feedLine(walk.key, "./src/a.zig\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(walk.key, "./src/b.zig\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, 2), model.file_mention_count);
+    try testing.expectEqualStrings("src/a.zig", file_mention.cachedPath(&model, 0));
+    try testing.expectEqualStrings("src/b.zig", file_mention.cachedPath(&model, 1));
+    {
+        var parents: [file_mention.max_file_mention_dirs][]const u8 = undefined;
+        try testing.expectEqual(@as(usize, 1), file_mention.derivedDirParents(&model, &parents));
+        try testing.expectEqualStrings("src", parents[0]);
+    }
+    try fx.feedExit(walk.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, 2), model.file_mention_count);
+    try testing.expectEqualStrings("src/a.zig", file_mention.cachedPath(&model, 0));
+    try testing.expectEqual(@as(usize, 0), countFileMentionWalkSpawns(&fx));
+    try testing.expectEqual(@as(u64, 0), model.file_mention_key);
 
     file_mention.refresh(&model, &fx);
     mention = findFileMentionSpawnKey(&fx, model.file_mention_key) orelse return error.MissingFileMentionSpawn;
     try fx.feedExitReason(mention.key, 0, .rejected);
     drainEffects(&model, &fx);
     try testing.expectEqual(@as(u32, 0), model.file_mention_count);
+    walk = findFileMentionWalkSpawnKey(&fx, model.file_mention_key) orelse return error.MissingFileMentionWalkSpawn;
+    try expectFileMentionWalkArgv(walk, project);
+    try fx.feedExit(walk.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, 0), model.file_mention_count);
+    try testing.expectEqual(@as(u64, 0), model.file_mention_key);
+    try testing.expectEqual(@as(usize, 0), countFileMentionWalkSpawns(&fx));
+
+    file_mention.refresh(&model, &fx);
+    mention = findFileMentionSpawnKey(&fx, model.file_mention_key) orelse return error.MissingFileMentionSpawn;
+    try fx.feedExit(mention.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, 0), model.file_mention_count);
+    try testing.expectEqual(@as(u64, 0), model.file_mention_key);
+    try testing.expectEqual(@as(usize, 0), countFileMentionWalkSpawns(&fx));
 
     file_mention.refresh(&model, &fx);
     mention = findFileMentionSpawnKey(&fx, model.file_mention_key) orelse return error.MissingFileMentionSpawn;
@@ -12135,10 +12214,12 @@ test "git ls-files sidecar argv and first-N stdout; empty missing rejected skip"
     try fx.feedExit(mention.key, 0);
     drainEffects(&model, &fx);
     try testing.expectEqual(@as(u32, file_mention.max_file_mentions), model.file_mention_count);
+    try testing.expectEqual(@as(usize, 0), countFileMentionWalkSpawns(&fx));
 
     main.update(&model, .{ .project_path_edit = .clear }, &fx);
     try testing.expectEqual(@as(u32, 0), model.file_mention_count);
     try testing.expectEqual(@as(u64, 0), model.file_mention_key);
+    try testing.expectEqual(@as(usize, 0), countFileMentionWalkSpawns(&fx));
 }
 
 fn expectContextProgress(widget: canvas.Widget, expected: f32) !canvas.Widget {

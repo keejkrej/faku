@@ -4,15 +4,18 @@
 //! session has a non-empty `project_path` that exists, Faku `fx.spawn`s
 //! `git ls-files --cached --others --exclude-standard` through the
 //! same `/bin/sh -c` chdir workaround `fx ask` uses
-//! (`fx_ask_chdir_script`). First-N stdout paths stay in a bounded
-//! runtime cache on the Model — not `sessions.json`.
+//! (`fx_ask_chdir_script`). Git is authoritative for a repo: success
+//! with zero files stays empty (do not walk — that would dump
+//! `node_modules`). Only when that spawn cannot run or exits
+//! non-zero does a bounded `find` walk fill the same runtime cache.
+//! First-N stdout paths stay on the Model — not `sessions.json`.
 //!
 //! Not Waku's 50k-file index or caret-aware trigger. Visible `@`
 //! rows are scored over this bounded file cache (plus derived parent
 //! directories at row time) in `composer.fileMentionScore` — not
 //! first-N contains in cache order. The sidecar stdout and this
-//! cache stay files-only. Ignored / non-git / Windows stay empty
-//! this cut. Not Open-in, not copy path, not a daemon catalog.
+//! cache stay files-only. Windows stays empty this cut. Not
+//! Open-in, not copy path, not a daemon catalog.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -26,10 +29,10 @@ const Model = main.Model;
 const Effects = main.Effects;
 const writeFixed = main.writeFixed;
 
-/// One-shot `git ls-files --cached --others --exclude-standard` probe.
-/// Distinct from git_branch (200+), maximize / pick-image / fx-ask /
-/// daemon / clipboard / probe keys. Incremented per refresh so a
-/// cancelled spawn cannot paint a later session.
+/// One-shot file-mention probe (git ls-files, then a bounded walk
+/// when git cannot list). Distinct from git_branch (200+), maximize /
+/// pick-image / fx-ask / daemon / clipboard / probe keys. Incremented
+/// per spawn so a cancelled probe cannot paint a later session.
 pub const file_mention_key_first: u64 = 400;
 
 pub const max_file_mentions: usize = 256;
@@ -48,7 +51,41 @@ pub const git_ls_files_others = "--others";
 pub const git_ls_files_exclude_standard = "--exclude-standard";
 pub const sh_bin = "/bin/sh";
 
-const chdir_argv_len: usize = 10;
+pub const find_bin = "find";
+pub const find_start = ".";
+pub const find_maxdepth_flag = "-maxdepth";
+pub const find_maxdepth = "8";
+pub const find_not = "!";
+pub const find_name_flag = "-name";
+pub const find_paren_open = "(";
+pub const find_paren_close = ")";
+pub const find_or = "-o";
+pub const find_prune = "-prune";
+pub const find_type_flag = "-type";
+pub const find_type_file = "f";
+pub const find_print = "-print";
+pub const find_dot_star = ".*";
+pub const walk_skip_node_modules = "node_modules";
+pub const walk_skip_target = "target";
+pub const walk_skip_dist = "dist";
+pub const walk_skip_build = "build";
+pub const walk_skip_out = "out";
+pub const walk_skip_vendor = "vendor";
+pub const walk_skip_pycache = "__pycache__";
+pub const walk_skip_names = [_][]const u8{
+    walk_skip_node_modules,
+    walk_skip_target,
+    walk_skip_dist,
+    walk_skip_build,
+    walk_skip_out,
+    walk_skip_vendor,
+    walk_skip_pycache,
+};
+
+const git_argv_len: usize = 10;
+/// `/bin/sh -c` chdir + `find . -maxdepth 8 ! -name . ( skips ) -prune -o -type f -print`.
+/// `! -name .` keeps the start point from matching `-name .*` and pruning the tree.
+const walk_argv_len: usize = 42;
 
 pub const CachedPath = struct {
     storage: [max_file_mention_path]u8 = [_]u8{0} ** max_file_mention_path,
@@ -63,7 +100,7 @@ pub const CachedPath = struct {
     }
 };
 
-pub fn argvFor(cwd: []const u8, buf: *[chdir_argv_len][]const u8) []const []const u8 {
+pub fn argvFor(cwd: []const u8, buf: *[git_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -80,7 +117,7 @@ pub fn argvFor(cwd: []const u8, buf: *[chdir_argv_len][]const u8) []const []cons
 }
 
 pub fn isGitLsFilesArgv(argv: []const []const u8) bool {
-    if (argv.len != chdir_argv_len) return false;
+    if (argv.len != git_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -89,6 +126,80 @@ pub fn isGitLsFilesArgv(argv: []const []const u8) bool {
     if (!std.mem.eql(u8, argv[7], git_ls_files_cached)) return false;
     if (!std.mem.eql(u8, argv[8], git_ls_files_others)) return false;
     return std.mem.eql(u8, argv[9], git_ls_files_exclude_standard);
+}
+
+pub fn walkArgvFor(cwd: []const u8, buf: *[walk_argv_len][]const u8) []const []const u8 {
+    buf.* = .{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        cwd,
+        find_bin,
+        find_start,
+        find_maxdepth_flag,
+        find_maxdepth,
+        find_not,
+        find_name_flag,
+        find_start,
+        find_paren_open,
+        find_name_flag,
+        walk_skip_node_modules,
+        find_or,
+        find_name_flag,
+        walk_skip_target,
+        find_or,
+        find_name_flag,
+        walk_skip_dist,
+        find_or,
+        find_name_flag,
+        walk_skip_build,
+        find_or,
+        find_name_flag,
+        walk_skip_out,
+        find_or,
+        find_name_flag,
+        walk_skip_vendor,
+        find_or,
+        find_name_flag,
+        walk_skip_pycache,
+        find_or,
+        find_name_flag,
+        find_dot_star,
+        find_paren_close,
+        find_prune,
+        find_or,
+        find_type_flag,
+        find_type_file,
+        find_print,
+    };
+    return buf;
+}
+
+fn argvHas(argv: []const []const u8, needle: []const u8) bool {
+    for (argv) |arg| {
+        if (std.mem.eql(u8, arg, needle)) return true;
+    }
+    return false;
+}
+
+pub fn isWalkArgv(argv: []const []const u8) bool {
+    if (argv.len != walk_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], "-c")) return false;
+    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[5], find_bin)) return false;
+    if (!std.mem.eql(u8, argv[6], find_start)) return false;
+    if (!argvHas(argv, find_maxdepth_flag)) return false;
+    if (!argvHas(argv, find_maxdepth)) return false;
+    if (!argvHas(argv, find_prune)) return false;
+    if (!argvHas(argv, find_type_file)) return false;
+    if (!argvHas(argv, find_print)) return false;
+    if (!argvHas(argv, find_dot_star)) return false;
+    inline for (walk_skip_names) |name| {
+        if (!argvHas(argv, name)) return false;
+    }
+    return true;
 }
 
 pub fn probeSupported() bool {
@@ -193,9 +304,11 @@ fn probePath(model: *const Model) []const u8 {
     return path;
 }
 
-/// Cancel any in-flight probe, drop the cache, and spawn again when the
-/// selected session has an existing `project_path`. Empty / missing /
-/// Windows skips the spawn so the mention list stays hidden.
+/// Cancel any in-flight probe, drop the cache, and spawn git ls-files
+/// when the selected session has an existing `project_path`. Empty /
+/// missing / Windows skips both git and the walk so the mention list
+/// stays hidden. A failed git spawn falls back to the walk in
+/// `handleExit`.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     clearCache(model);
@@ -203,16 +316,34 @@ pub fn refresh(model: *Model, fx: *Effects) void {
     const cwd = probePath(model);
     if (cwd.len == 0) return;
 
+    model.file_mention_probe_session = model.selected;
+    writeFixed(&model.file_mention_probe_path_storage, &model.file_mention_probe_path_len, cwd);
+    spawnGit(model, fx, cwd);
+}
+
+fn spawnGit(model: *Model, fx: *Effects, cwd: []const u8) void {
     const key = model.next_file_mention_key;
     model.next_file_mention_key = key + 1;
     model.file_mention_key = key;
-    model.file_mention_probe_session = model.selected;
-    writeFixed(&model.file_mention_probe_path_storage, &model.file_mention_probe_path_len, cwd);
-
-    var argv_buf: [chdir_argv_len][]const u8 = undefined;
+    model.file_mention_probe_is_walk = false;
+    var argv_buf: [git_argv_len][]const u8 = undefined;
     fx.spawn(.{
         .key = key,
         .argv = argvFor(cwd, &argv_buf),
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+}
+
+fn spawnWalk(model: *Model, fx: *Effects, cwd: []const u8) void {
+    const key = model.next_file_mention_key;
+    model.next_file_mention_key = key + 1;
+    model.file_mention_key = key;
+    model.file_mention_probe_is_walk = true;
+    var argv_buf: [walk_argv_len][]const u8 = undefined;
+    fx.spawn(.{
+        .key = key,
+        .argv = walkArgvFor(cwd, &argv_buf),
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
@@ -226,13 +357,22 @@ fn probeStillCurrent(model: *const Model) bool {
     return std.mem.eql(u8, path, probed);
 }
 
+/// Strip a leading `./` (`find -print` emits `./src/a.zig`; git does
+/// not). `.` and empty are not files.
+pub fn normalizeStdoutPath(raw: []const u8) []const u8 {
+    const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+    const path = if (std.mem.startsWith(u8, trimmed, "./")) trimmed[2..] else trimmed;
+    if (path.len == 0 or std.mem.eql(u8, path, ".")) return "";
+    return path;
+}
+
 /// Append trimmed non-empty stdout paths until `max_file_mentions`.
 /// Later lines are dropped — this is not Waku's 50k-file index.
 pub fn applyStdoutPaths(model: *Model, raw: []const u8) void {
     var it = std.mem.splitScalar(u8, raw, '\n');
     while (it.next()) |line| {
         if (model.file_mention_count >= max_file_mentions) return;
-        const path = std.mem.trim(u8, line, " \t\r\n");
+        const path = normalizeStdoutPath(line);
         if (path.len == 0) continue;
         model.file_mention_store[model.file_mention_count].set(path);
         model.file_mention_count += 1;
@@ -245,18 +385,23 @@ pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
     applyStdoutPaths(model, line.line);
 }
 
-pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
+pub fn handleExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (exit.key != model.file_mention_key or model.file_mention_key == 0) return;
     const current = probeStillCurrent(model);
+    const was_walk = model.file_mention_probe_is_walk;
     model.file_mention_key = 0;
-    if (!current or exit.reason != .exited or exit.code != 0) {
-        clearCache(model);
-    }
+    const succeeded = exit.reason == .exited and exit.code == 0;
+    if (succeeded and current) return;
+    clearCache(model);
+    if (!current or was_walk or !probeSupported()) return;
+    const cwd = model.file_mention_probe_path_storage[0..model.file_mention_probe_path_len];
+    if (cwd.len == 0) return;
+    spawnWalk(model, fx, cwd);
 }
 
 test "argv is chdir script plus git ls-files cached/others; not git branch" {
     const git_branch = @import("git_branch.zig");
-    var buf: [chdir_argv_len][]const u8 = undefined;
+    var buf: [git_argv_len][]const u8 = undefined;
     const argv = argvFor("/tmp/faku-ls", &buf);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
@@ -286,12 +431,52 @@ test "argv is chdir script plus git ls-files cached/others; not git branch" {
     try std.testing.expect(file_mention_key_first > git_branch.git_branch_key_first);
 }
 
+test "walk argv is chdir script plus find maxdepth 8 skips; not git" {
+    const git_branch = @import("git_branch.zig");
+    var buf: [walk_argv_len][]const u8 = undefined;
+    const argv = walkArgvFor("/tmp/faku-walk", &buf);
+    try std.testing.expectEqualStrings(sh_bin, argv[0]);
+    try std.testing.expectEqualStrings("-c", argv[1]);
+    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings("sh", argv[3]);
+    try std.testing.expectEqualStrings("/tmp/faku-walk", argv[4]);
+    try std.testing.expectEqualStrings(find_bin, argv[5]);
+    try std.testing.expectEqualStrings(find_start, argv[6]);
+    try std.testing.expectEqualStrings(find_maxdepth_flag, argv[7]);
+    try std.testing.expectEqualStrings(find_maxdepth, argv[8]);
+    try std.testing.expectEqualStrings(find_not, argv[9]);
+    try std.testing.expectEqualStrings(find_name_flag, argv[10]);
+    try std.testing.expectEqualStrings(find_start, argv[11]);
+    try std.testing.expect(isWalkArgv(argv));
+    try std.testing.expect(!isGitLsFilesArgv(argv));
+    try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    inline for (walk_skip_names) |name| {
+        try std.testing.expect(argvHas(argv, name));
+    }
+    try std.testing.expect(argvHas(argv, find_dot_star));
+    try std.testing.expect(argvHas(argv, find_prune));
+    try std.testing.expect(argvHas(argv, find_type_file));
+    try std.testing.expect(!isWalkArgv(&.{ find_bin, find_start }));
+    var git_buf: [git_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isWalkArgv(argvFor("/tmp/faku-walk", &git_buf)));
+}
+
 test "applyStdoutPaths keeps first N; empty lines skipped" {
     var model = Model{};
     applyStdoutPaths(&model, "src/main.zig\n\n  src/composer.zig  \n");
     try std.testing.expectEqual(@as(u32, 2), cachedCount(&model));
     try std.testing.expectEqualStrings("src/main.zig", cachedPath(&model, 0));
     try std.testing.expectEqualStrings("src/composer.zig", cachedPath(&model, 1));
+
+    clearCache(&model);
+    applyStdoutPaths(&model, "./src/a.zig\n.\n./\n./.\n  ./src/b.zig  \n");
+    try std.testing.expectEqual(@as(u32, 2), cachedCount(&model));
+    try std.testing.expectEqualStrings("src/a.zig", cachedPath(&model, 0));
+    try std.testing.expectEqualStrings("src/b.zig", cachedPath(&model, 1));
+    try std.testing.expectEqualStrings("", normalizeStdoutPath("."));
+    try std.testing.expectEqualStrings("", normalizeStdoutPath("./"));
+    try std.testing.expectEqualStrings("", normalizeStdoutPath("./."));
+    try std.testing.expectEqualStrings("src/a.zig", normalizeStdoutPath("./src/a.zig"));
 
     var overflow: [max_file_mentions * 2 + 16]u8 = undefined;
     var n: usize = 0;
