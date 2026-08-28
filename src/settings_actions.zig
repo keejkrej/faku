@@ -58,6 +58,10 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
         model.closeProjectEdit();
         return;
     }
+    if (model.git_branch_create_active) {
+        git_checkout.closeCreate(model);
+        return;
+    }
     if (model.image_attach_active) {
         model.closeImageAttach();
         return;
@@ -235,6 +239,22 @@ pub fn handleToggleGitBranchPicker(model: *Model) void {
 
 pub fn handlePickGitBranch(model: *Model, fx: *Effects, name: []const u8) void {
     git_checkout.pickBranch(model, fx, name);
+}
+
+pub fn handleStartGitBranchCreate(model: *Model) void {
+    git_checkout.startCreate(model);
+}
+
+pub fn handleGitBranchCreateEdit(model: *Model, edit: canvas.TextInputEvent) void {
+    model.git_branch_create_buffer.apply(edit);
+}
+
+pub fn handleConfirmGitBranchCreate(model: *Model, fx: *Effects) void {
+    git_checkout.confirmCreate(model, fx);
+}
+
+pub fn handleCancelGitBranchCreate(model: *Model) void {
+    git_checkout.closeCreate(model);
 }
 
 pub fn handlePickEffort(model: *Model, fx: *Effects, id: []const u8) void {

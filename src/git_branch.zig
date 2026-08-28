@@ -6,8 +6,9 @@
 //! workaround `fx ask` uses (`fx_ask_chdir_script`). Detached HEAD
 //! prints empty; a follow-up `git rev-parse --short HEAD` may fill
 //! the select label with a conservative short hex. Non-repos stay
-//! omitted. Local heads + checkout live in `git_checkout.zig`. Not
-//! Waku's daemon `InspectBranches` picker and not a live watch.
+//! omitted. Local heads, checkout, and create-and-checkout live in
+//! `git_checkout.zig`. Not Waku's daemon `InspectBranches` picker
+//! and not a live watch.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -24,9 +25,9 @@ const writeFixed = main.writeFixed;
 /// One-shot `git branch --show-current` (and detached `rev-parse
 /// --short HEAD`) probe. Distinct from maximize / pick-image /
 /// fx-ask / daemon / clipboard / probe keys, from git_branch_list
-/// (250+), git_checkout (275+), git_dirty (300+), git_numstat
-/// (350+), and from file_mention (400+). Incremented per refresh
-/// so a cancelled spawn cannot paint a later session.
+/// (250+), git_checkout (275+), git_create (290+), git_dirty (300+),
+/// git_numstat (350+), and from file_mention (400+). Incremented
+/// per refresh so a cancelled spawn cannot paint a later session.
 pub const git_branch_key_first: u64 = 200;
 
 pub const max_git_branch: usize = 255;

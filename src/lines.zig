@@ -353,6 +353,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
         git_checkout.handleCheckoutExit(model, fx, exit);
         return;
     }
+    if (model.git_create_key != 0 and exit.key == model.git_create_key) {
+        git_checkout.handleCreateExit(model, fx, exit);
+        return;
+    }
     if (model.git_dirty_key != 0 and exit.key == model.git_dirty_key) {
         git_dirty.handleExit(model, exit);
         return;
