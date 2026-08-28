@@ -32,6 +32,9 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "f")) {
         return .open_find;
     }
+    if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "g")) {
+        return if (keyboard.modifiers.shift) .find_prev else .find_next;
+    }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "l")) {
         return .focus_composer;
     }

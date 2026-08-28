@@ -205,6 +205,8 @@ pub const TurnRow = struct {
     is_user: bool,
     is_tool: bool,
     is_reasoning: bool,
+    /// True for the current Cmd-G match among filtered turns.
+    is_find_current: bool = false,
 };
 
 /// Stored ACP command for the composer Commands list. `id` is a 1-based
@@ -279,6 +281,10 @@ pub const Msg = union(enum) {
     /// Cmd/Ctrl-F: open transcript find (keep query if already open).
     open_find,
     close_find,
+    /// Cmd/Ctrl-G: next matching turn (wrap). No-op without matches.
+    find_next,
+    /// Cmd/Ctrl-Shift-G: previous matching turn (wrap). No-op without matches.
+    find_prev,
     search_edit: canvas.TextInputEvent,
     find_edit: canvas.TextInputEvent,
     draft_edit: canvas.TextInputEvent,
@@ -427,6 +433,8 @@ pub const Model = struct {
     palette_highlight: u32 = 0,
     find_buffer: canvas.TextBuffer(max_search) = .{},
     find_active: bool = false,
+    /// 0-based index among matching turns for the selected session.
+    find_match_index: u32 = 0,
     composer_active: bool = false,
     mode: Mode = .demo,
     phase: Phase = .idle,
@@ -618,6 +626,11 @@ pub const Model = struct {
         "search_buffer",
         "palette_highlight",
         "find_buffer",
+        "find_match_index",
+        "findMatchCount",
+        "clampedFindMatchIndex",
+        "resetFindMatchIndex",
+        "stepFindMatch",
         "mode",
         "phase",
         "stream_cursor",
@@ -915,6 +928,48 @@ pub const Model = struct {
     pub fn exitFind(model: *Model) void {
         model.find_buffer.clear();
         model.find_active = false;
+        model.find_match_index = 0;
+    }
+
+    /// Selected-session turns whose body contains the trimmed find query.
+    /// 0 when find is inactive or the query is blank.
+    pub fn findMatchCount(model: *const Model) u32 {
+        if (!model.find_active) return 0;
+        const query = std.mem.trim(u8, model.find_query(), " \t\r\n");
+        if (query.len == 0) return 0;
+        var count: u32 = 0;
+        for (model.turn_store[0..model.turn_count]) |turn| {
+            if (turn.session_id != model.selected) continue;
+            if (!main.asciiContainsIgnoreCase(turn.text(), query)) continue;
+            count += 1;
+        }
+        return count;
+    }
+
+    pub fn clampedFindMatchIndex(model: *const Model) u32 {
+        const n = model.findMatchCount();
+        if (n == 0 or model.find_match_index >= n) return 0;
+        return model.find_match_index;
+    }
+
+    /// First match when N > 0; clear when N == 0.
+    pub fn resetFindMatchIndex(model: *Model) void {
+        model.find_match_index = 0;
+    }
+
+    pub fn stepFindMatch(model: *Model, backward: bool) void {
+        const n = model.findMatchCount();
+        if (n == 0) {
+            model.find_match_index = 0;
+            return;
+        }
+        var cur = model.find_match_index;
+        if (cur >= n) cur = 0;
+        if (backward) {
+            model.find_match_index = if (cur == 0) n - 1 else cur - 1;
+        } else {
+            model.find_match_index = if (cur + 1 >= n) 0 else cur + 1;
+        }
     }
 
     pub fn is_streaming(model: *const Model) bool {
@@ -1126,6 +1181,7 @@ pub const Model = struct {
             if (query.len > 0 and !main.asciiContainsIgnoreCase(turn.text(), query)) continue;
             count += 1;
         }
+        const current = model.clampedFindMatchIndex();
         const out = arena.alloc(TurnRow, count) catch return &.{};
         var i: usize = 0;
         for (model.turn_store[0..model.turn_count]) |*turn| {
@@ -1138,30 +1194,26 @@ pub const Model = struct {
                 .is_user = turn.role == .user,
                 .is_tool = turn.role == .tool,
                 .is_reasoning = turn.role == .reasoning,
+                .is_find_current = query.len > 0 and i == current,
             };
             i += 1;
         }
         return out[0..i];
     }
 
-    /// Find-bar muted count (`1 match` / `N matches` / `No matches`). Empty
-    /// when find is inactive or the trimmed query is blank so the row can hide it.
+    /// Find-bar muted position (`k of N` / `No matches`). Empty when find is
+    /// inactive or the trimmed query is blank so the row can hide it.
     /// Same selected-session ascii-contains predicate as `visible_turns`.
     pub fn find_match_label(model: *const Model, arena: std.mem.Allocator) []const u8 {
         if (!model.find_active) return "";
         const query = std.mem.trim(u8, model.find_query(), " \t\r\n");
         if (query.len == 0) return "";
-        var count: usize = 0;
-        for (model.turn_store[0..model.turn_count]) |turn| {
-            if (turn.session_id != model.selected) continue;
-            if (!main.asciiContainsIgnoreCase(turn.text(), query)) continue;
-            count += 1;
-        }
-        return switch (count) {
-            0 => "No matches",
-            1 => "1 match",
-            else => std.fmt.allocPrint(arena, "{d} matches", .{count}) catch "matches",
-        };
+        const count = model.findMatchCount();
+        if (count == 0) return "No matches";
+        return std.fmt.allocPrint(arena, "{d} of {d}", .{
+            model.clampedFindMatchIndex() + 1,
+            count,
+        }) catch "match";
     }
 
     /// True when the find bar should show `find_match_label`.
