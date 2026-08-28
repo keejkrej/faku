@@ -1,16 +1,17 @@
-//! One-shot tracked-file probe for composer `@` mentions.
+//! One-shot file probe for composer `@` mentions.
 //!
 //! Native has no git/workspace/file-index effect. When the selected
 //! session has a non-empty `project_path` that exists, Faku `fx.spawn`s
-//! `git ls-files` through the same `/bin/sh -c` chdir workaround
-//! `fx ask` uses (`fx_ask_chdir_script`). First-N stdout paths stay in
-//! a bounded runtime cache on the Model — not `sessions.json`.
+//! `git ls-files --cached --others --exclude-standard` through the
+//! same `/bin/sh -c` chdir workaround `fx ask` uses
+//! (`fx_ask_chdir_script`). First-N stdout paths stay in a bounded
+//! runtime cache on the Model — not `sessions.json`.
 //!
-//! Not Waku's 50k-file index, caret-aware trigger, or untracked files.
-//! Visible `@` rows are scored over this bounded cache in
+//! Not Waku's 50k-file index or caret-aware trigger. Visible `@`
+//! rows are scored over this bounded cache in
 //! `composer.fileMentionScore` — not first-N contains in cache order.
-//! Tracked files only. Untracked / ignored / non-git / Windows stay
-//! empty this cut. Not Open-in, not copy path, not a daemon catalog.
+//! Ignored / non-git / Windows stay empty this cut. Not Open-in,
+//! not copy path, not a daemon catalog.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -24,10 +25,10 @@ const Model = main.Model;
 const Effects = main.Effects;
 const writeFixed = main.writeFixed;
 
-/// One-shot `git ls-files` probe. Distinct from git_branch (200+),
-/// maximize / pick-image / fx-ask / daemon / clipboard / probe keys.
-/// Incremented per refresh so a cancelled spawn cannot paint a later
-/// session.
+/// One-shot `git ls-files --cached --others --exclude-standard` probe.
+/// Distinct from git_branch (200+), maximize / pick-image / fx-ask /
+/// daemon / clipboard / probe keys. Incremented per refresh so a
+/// cancelled spawn cannot paint a later session.
 pub const file_mention_key_first: u64 = 400;
 
 pub const max_file_mentions: usize = 256;
@@ -37,9 +38,12 @@ pub const file_mention_visible_cap: usize = 12;
 
 pub const git_bin = "git";
 pub const git_ls_files_cmd = "ls-files";
+pub const git_ls_files_cached = "--cached";
+pub const git_ls_files_others = "--others";
+pub const git_ls_files_exclude_standard = "--exclude-standard";
 pub const sh_bin = "/bin/sh";
 
-const chdir_argv_len: usize = 7;
+const chdir_argv_len: usize = 10;
 
 pub const CachedPath = struct {
     storage: [max_file_mention_path]u8 = [_]u8{0} ** max_file_mention_path,
@@ -63,6 +67,9 @@ pub fn argvFor(cwd: []const u8, buf: *[chdir_argv_len][]const u8) []const []cons
         cwd,
         git_bin,
         git_ls_files_cmd,
+        git_ls_files_cached,
+        git_ls_files_others,
+        git_ls_files_exclude_standard,
     };
     return buf;
 }
@@ -73,7 +80,10 @@ pub fn isGitLsFilesArgv(argv: []const []const u8) bool {
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
-    return std.mem.eql(u8, argv[6], git_ls_files_cmd);
+    if (!std.mem.eql(u8, argv[6], git_ls_files_cmd)) return false;
+    if (!std.mem.eql(u8, argv[7], git_ls_files_cached)) return false;
+    if (!std.mem.eql(u8, argv[8], git_ls_files_others)) return false;
+    return std.mem.eql(u8, argv[9], git_ls_files_exclude_standard);
 }
 
 pub fn probeSupported() bool {
@@ -168,7 +178,7 @@ pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
     }
 }
 
-test "argv is chdir script plus git ls-files; not git branch" {
+test "argv is chdir script plus git ls-files cached/others; not git branch" {
     const git_branch = @import("git_branch.zig");
     var buf: [chdir_argv_len][]const u8 = undefined;
     const argv = argvFor("/tmp/faku-ls", &buf);
@@ -179,8 +189,20 @@ test "argv is chdir script plus git ls-files; not git branch" {
     try std.testing.expectEqualStrings("/tmp/faku-ls", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
     try std.testing.expectEqualStrings(git_ls_files_cmd, argv[6]);
+    try std.testing.expectEqualStrings(git_ls_files_cached, argv[7]);
+    try std.testing.expectEqualStrings(git_ls_files_others, argv[8]);
+    try std.testing.expectEqualStrings(git_ls_files_exclude_standard, argv[9]);
     try std.testing.expect(isGitLsFilesArgv(argv));
     try std.testing.expect(!isGitLsFilesArgv(&.{ git_bin, git_ls_files_cmd }));
+    try std.testing.expect(!isGitLsFilesArgv(&.{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-ls",
+        git_bin,
+        git_ls_files_cmd,
+    }));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     var branch_buf: [8][]const u8 = undefined;
     const branch = git_branch.argvFor("/tmp/faku-ls", &branch_buf);

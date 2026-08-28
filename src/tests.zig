@@ -11813,6 +11813,9 @@ fn expectFileMentionArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(cwd, spawn.argv[4]);
     try testing.expectEqualStrings(file_mention.git_bin, spawn.argv[5]);
     try testing.expectEqualStrings(file_mention.git_ls_files_cmd, spawn.argv[6]);
+    try testing.expectEqualStrings(file_mention.git_ls_files_cached, spawn.argv[7]);
+    try testing.expectEqualStrings(file_mention.git_ls_files_others, spawn.argv[8]);
+    try testing.expectEqualStrings(file_mention.git_ls_files_exclude_standard, spawn.argv[9]);
     try testing.expect(spawn.key != main.fx_ask_key);
     try testing.expect(spawn.key != main.fx_probe_key);
     try testing.expect(spawn.key != main.maximize_window_key);
