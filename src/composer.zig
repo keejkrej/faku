@@ -123,29 +123,58 @@ pub fn replaceMentionToken(draft: []const u8, relpath: []const u8, out: []u8) ?[
     return std.fmt.bufPrint(out, "{s}@{s} ", .{ draft[0..token_start], relpath }) catch null;
 }
 
-/// Basename of a repo-relative `git ls-files` path (`/` separators).
+/// Basename of a repo-relative mention path (`/` separators). A trailing
+/// slash is a derived directory: `src/` → `src`, `src/lib/` → `lib`.
+/// File paths keep today's labels (`src/main.zig` → `main.zig`).
 pub fn fileMentionBasename(path: []const u8) []const u8 {
-    if (std.mem.lastIndexOfScalar(u8, path, '/')) |slash| {
-        if (slash + 1 < path.len) return path[slash + 1 ..];
+    const trimmed = withoutTrailingSlash(path);
+    if (trimmed.len == 0) return "";
+    if (std.mem.lastIndexOfScalar(u8, trimmed, '/')) |slash| {
+        if (slash + 1 < trimmed.len) return trimmed[slash + 1 ..];
+        return "";
     }
-    return path;
+    return trimmed;
 }
 
-/// Parent directory of a repo-relative path, or `""` at the repo root.
+/// Parent directory of a repo-relative mention path, or `""` at the repo
+/// root. Trailing-slash dirs drop the last segment (`src/lib/` → `src`;
+/// `src/` → `""`). File paths keep today's labels.
 pub fn fileMentionParent(path: []const u8) []const u8 {
-    if (std.mem.lastIndexOfScalar(u8, path, '/')) |slash| {
-        return path[0..slash];
+    const trimmed = withoutTrailingSlash(path);
+    if (std.mem.lastIndexOfScalar(u8, trimmed, '/')) |slash| {
+        return trimmed[0..slash];
     }
     return "";
 }
 
+fn withoutTrailingSlash(path: []const u8) []const u8 {
+    var end = path.len;
+    while (end > 0 and path[end - 1] == '/') end -= 1;
+    return path[0..end];
+}
+
+/// Waku-style mention depth: slash count, minus one for a trailing-slash
+/// directory so `src/` and `README.md` are both top-level.
+pub fn fileMentionDepth(path: []const u8) u32 {
+    var slashes: u32 = 0;
+    for (path) |c| {
+        if (c == '/') slashes += 1;
+    }
+    if (slashes > 0 and path.len > 0 and path[path.len - 1] == '/') {
+        return slashes - 1;
+    }
+    return slashes;
+}
+
 /// Score a tracked relative path against the active `@` mention query.
 /// `0` means exclude (same match family as `asciiContainsIgnoreCase`).
-/// Empty query: every path scores equally so callers keep a stable
-/// path order. Non-empty tiers, highest first:
+/// Empty query: every path scores equally so callers can tie-break by
+/// Waku depth, then path, then id. Non-empty tiers, highest first:
 /// basename prefix, basename contains / path-segment prefix, then
 /// full-path ascii-contains. Small earlier-match / shorter-name
 /// bonuses stay inside a tier. Not Waku's fuzzy rank or a 50k index.
+/// A trailing-slash dir uses the same basename as its label, so
+/// query `src` ranks `src/` as a basename prefix above `src/main.zig`.
 pub fn fileMentionScore(path: []const u8, query: []const u8) u32 {
     if (query.len == 0) return mention_score_empty;
     const name = fileMentionBasename(path);
@@ -255,6 +284,7 @@ test "fileMentionQuery is caret-at-end; slash prefix wins" {
 test "replaceMentionToken rewrites only the last @query token and appends a space" {
     var buf: [64]u8 = undefined;
     try std.testing.expectEqualStrings("see @src/main.zig ", replaceMentionToken("see @src", "src/main.zig", &buf).?);
+    try std.testing.expectEqualStrings("see @src/ ", replaceMentionToken("see @src", "src/", &buf).?);
     try std.testing.expectEqualStrings("@src/composer.zig ", replaceMentionToken("@", "src/composer.zig", &buf).?);
     try std.testing.expectEqualStrings("look @src/foo.zig ", replaceMentionToken("look @src", "src/foo.zig", &buf).?);
     try std.testing.expect(replaceMentionToken("user@host", "src/main.zig", &buf) == null);
@@ -276,4 +306,14 @@ test "fileMentionScore prefers basename prefix over contains" {
     try std.testing.expectEqualStrings("src", fileMentionParent("src/main.zig"));
     try std.testing.expectEqualStrings("README.md", fileMentionBasename("README.md"));
     try std.testing.expectEqualStrings("", fileMentionParent("README.md"));
+    try std.testing.expectEqualStrings("src", fileMentionBasename("src/"));
+    try std.testing.expectEqualStrings("", fileMentionParent("src/"));
+    try std.testing.expectEqualStrings("lib", fileMentionBasename("src/lib/"));
+    try std.testing.expectEqualStrings("src", fileMentionParent("src/lib/"));
+    try std.testing.expect(fileMentionScore("src/", "src") > fileMentionScore("src/main.zig", "src"));
+    try std.testing.expectEqual(@as(u32, 0), fileMentionDepth("README.md"));
+    try std.testing.expectEqual(@as(u32, 0), fileMentionDepth("src/"));
+    try std.testing.expectEqual(@as(u32, 1), fileMentionDepth("src/main.zig"));
+    try std.testing.expectEqual(@as(u32, 1), fileMentionDepth("src/lib/"));
+    try std.testing.expectEqual(@as(u32, 2), fileMentionDepth("src/lib/util.zig"));
 }

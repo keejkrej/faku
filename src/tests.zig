@@ -11878,14 +11878,19 @@ test "composer @ mention card filters tracked files; insert replaces last token;
     try testing.expect(model.mentions_list_open());
     {
         const rows = model.mention_rows(arena);
-        try testing.expectEqual(@as(usize, 3), rows.len);
-        try testing.expectEqualStrings("src/main.zig", rows[0].path);
-        try testing.expectEqualStrings("main.zig", rows[0].name);
-        try testing.expectEqualStrings("src", rows[0].parent);
-        try testing.expect(rows[0].has_parent);
-        try testing.expectEqual(@as(u32, 1), rows[0].id);
-        try testing.expectEqualStrings("src/composer.zig", rows[1].path);
-        try testing.expectEqualStrings("src/file_mention.zig", rows[2].path);
+        try testing.expectEqual(@as(usize, 4), rows.len);
+        try testing.expectEqualStrings("src/", rows[0].path);
+        try testing.expectEqualStrings("src", rows[0].name);
+        try testing.expectEqualStrings("", rows[0].parent);
+        try testing.expect(!rows[0].has_parent);
+        try testing.expectEqual(@as(u32, file_mention.file_mention_dir_id_base), rows[0].id);
+        try testing.expectEqualStrings("src/main.zig", rows[1].path);
+        try testing.expectEqualStrings("main.zig", rows[1].name);
+        try testing.expectEqualStrings("src", rows[1].parent);
+        try testing.expect(rows[1].has_parent);
+        try testing.expectEqual(@as(u32, 1), rows[1].id);
+        try testing.expectEqualStrings("src/composer.zig", rows[2].path);
+        try testing.expectEqualStrings("src/file_mention.zig", rows[3].path);
     }
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "main.zig");
@@ -11896,6 +11901,8 @@ test "composer @ mention card filters tracked files; insert replaces last token;
     try testing.expect(findByText(tree.root, .text, "/commit") == null);
     const main_row = try expectButton(tree.root, "src/main.zig");
     try testing.expectEqual(Msg{ .insert_mention = 1 }, tree.msgForPointer(main_row.id, .up).?);
+    const src_row = try expectButton(tree.root, "src/");
+    try testing.expectEqual(Msg{ .insert_mention = file_mention.file_mention_dir_id_base }, tree.msgForPointer(src_row.id, .up).?);
 
     main.update(&model, tree.msgForPointer(main_row.id, .up).?, &fx);
     try testing.expectEqualStrings("see @src/main.zig ", model.draft());
@@ -11917,6 +11924,22 @@ test "composer @ mention card filters tracked files; insert replaces last token;
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
     try testing.expectEqualStrings("see @src/main.zig ", loaded.draft());
     try testing.expectEqual(@as(u32, 0), loaded.file_mention_count);
+
+    model.draft_buffer.set("see @src");
+    tree = try buildTree(arena, &model);
+    const dir_row = try expectButton(tree.root, "src/");
+    main.update(&model, tree.msgForPointer(dir_row.id, .up).?, &fx);
+    try testing.expectEqualStrings("see @src/ ", model.draft());
+    try testing.expect(model.composer_active);
+    try testing.expect(!model.mentions_list_open());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expect(!model.fx_spawn_live);
+    try testing.expect(!model.is_streaming());
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("see @src/ ", composer.text);
+        try testing.expect(composer.autofocus);
+    }
 
     model.draft_buffer.clear();
     main.update(&model, .{ .draft_edit = .{ .insert_text = "user@host" } }, &fx);
@@ -11959,8 +11982,9 @@ test "composer @ mention visible rows cap at 12; empty cache hides the list" {
     try testing.expectEqual(@as(u32, 20), model.file_mention_count);
     try testing.expect(model.mentions_list_open());
     try testing.expectEqual(@as(usize, file_mention.file_mention_visible_cap), model.mention_rows(arena).len);
-    try testing.expectEqualStrings("src/f00.zig", model.mention_rows(arena)[0].path);
-    try testing.expectEqualStrings("src/f11.zig", model.mention_rows(arena)[11].path);
+    try testing.expectEqualStrings("src/", model.mention_rows(arena)[0].path);
+    try testing.expectEqualStrings("src/f00.zig", model.mention_rows(arena)[1].path);
+    try testing.expectEqualStrings("src/f10.zig", model.mention_rows(arena)[11].path);
 
     model.draft_buffer.set("@zz");
     try testing.expect(!model.mentions_list_open());
@@ -12006,22 +12030,29 @@ test "composer @ mention rows rank basename prefix above path contains" {
     model.draft_buffer.set("@lib");
     {
         const rows = model.mention_rows(arena);
-        try testing.expectEqual(@as(usize, 1), rows.len);
-        try testing.expectEqualStrings("src/lib/util.zig", rows[0].path);
-        try testing.expectEqual(@as(u32, 2), rows[0].id);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expectEqualStrings("src/lib/", rows[0].path);
+        try testing.expectEqualStrings("lib", rows[0].name);
+        try testing.expectEqualStrings("src", rows[0].parent);
+        try testing.expectEqual(@as(u32, file_mention.dirMentionId(1)), rows[0].id);
+        try testing.expectEqualStrings("src/lib/util.zig", rows[1].path);
+        try testing.expectEqual(@as(u32, 2), rows[1].id);
     }
 
     model.draft_buffer.set("@");
     {
         const rows = model.mention_rows(arena);
-        try testing.expectEqual(@as(usize, 4), rows.len);
+        try testing.expectEqual(@as(usize, 7), rows.len);
         try testing.expectEqualStrings("README.md", rows[0].path);
         try testing.expectEqualStrings("README.md", rows[0].name);
         try testing.expect(!rows[0].has_parent);
         try testing.expectEqual(@as(u32, 3), rows[0].id);
-        try testing.expectEqualStrings("notes/email.md", rows[1].path);
-        try testing.expectEqualStrings("src/lib/util.zig", rows[2].path);
-        try testing.expectEqualStrings("src/main.zig", rows[3].path);
+        try testing.expectEqualStrings("notes/", rows[1].path);
+        try testing.expectEqualStrings("src/", rows[2].path);
+        try testing.expectEqualStrings("notes/email.md", rows[3].path);
+        try testing.expectEqualStrings("src/lib/", rows[4].path);
+        try testing.expectEqualStrings("src/main.zig", rows[5].path);
+        try testing.expectEqualStrings("src/lib/util.zig", rows[6].path);
     }
 
     const tree = try buildTree(arena, &model);

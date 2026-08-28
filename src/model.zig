@@ -221,11 +221,13 @@ pub const CommandRow = struct {
 };
 
 /// File-mention row. `id` is a 1-based index into the runtime
-/// `git ls-files --cached --others --exclude-standard` cache (stable
-/// across the visible ranked filter) so
+/// `git ls-files --cached --others --exclude-standard` cache, or
+/// `file_mention_dir_id_base + dir_index` for a derived parent
+/// directory (stable across the visible ranked filter) so
 /// Native `insert_mention:{m.id}` never binds 0 and a filtered click
 /// still inserts that path, not a neighbor. `name` / `parent` are
-/// slices of `path` for scanable labels.
+/// slices of `path` for scanable labels. Dir paths keep a trailing
+/// slash (`src/`).
 pub const MentionRow = struct {
     id: u32,
     path: []const u8,
@@ -1062,16 +1064,36 @@ pub const Model = struct {
 
         const Scored = struct {
             score: u32,
-            index: usize,
+            depth: u32,
+            id: u32,
             path: []const u8,
         };
-        var scored_buf: [file_mention.max_file_mentions]Scored = undefined;
+        var scored_buf: [file_mention.max_file_mentions + file_mention.max_file_mention_dirs]Scored = undefined;
         var n: usize = 0;
         for (model.file_mention_store[0..model.file_mention_count], 0..) |*item, index| {
             const path = item.text();
             const score = composer.fileMentionScore(path, query);
             if (score == 0) continue;
-            scored_buf[n] = .{ .score = score, .index = index, .path = path };
+            scored_buf[n] = .{
+                .score = score,
+                .depth = composer.fileMentionDepth(path),
+                .id = file_mention.fileMentionId(index),
+                .path = path,
+            };
+            n += 1;
+        }
+        var parents: [file_mention.max_file_mention_dirs][]const u8 = undefined;
+        const dir_n = file_mention.derivedDirParents(model, &parents);
+        for (parents[0..dir_n], 0..) |parent, dir_index| {
+            const path = std.fmt.allocPrint(arena, "{s}/", .{parent}) catch continue;
+            const score = composer.fileMentionScore(path, query);
+            if (score == 0) continue;
+            scored_buf[n] = .{
+                .score = score,
+                .depth = composer.fileMentionDepth(path),
+                .id = file_mention.dirMentionId(dir_index),
+                .path = path,
+            };
             n += 1;
         }
         if (n == 0) return &.{};
@@ -1079,9 +1101,10 @@ pub const Model = struct {
         const lessThan = struct {
             fn lessThan(_: void, a: Scored, b: Scored) bool {
                 if (a.score != b.score) return a.score > b.score;
+                if (a.depth != b.depth) return a.depth < b.depth;
                 const path_order = std.mem.order(u8, a.path, b.path);
                 if (path_order != .eq) return path_order == .lt;
-                return a.index < b.index;
+                return a.id < b.id;
             }
         }.lessThan;
         std.mem.sort(Scored, scored_buf[0..n], {}, lessThan);
@@ -1092,7 +1115,7 @@ pub const Model = struct {
             const name = composer.fileMentionBasename(item.path);
             const parent = composer.fileMentionParent(item.path);
             out[i] = .{
-                .id = @intCast(item.index + 1),
+                .id = item.id,
                 .path = item.path,
                 .name = name,
                 .parent = parent,
@@ -2112,12 +2135,12 @@ pub const Model = struct {
 
     /// Replace the last `@query` token with `@relpath ` from the
     /// runtime `git ls-files --cached --others --exclude-standard`
-    /// cache. Writes the composer draft only — no spawn, no ACP
-    /// method. Focuses the composer.
+    /// cache, or a derived parent directory (`src/`). Writes the
+    /// composer draft only — no spawn, no ACP method. Focuses the
+    /// composer.
     pub fn insertAvailableMention(model: *Model, id: u32) void {
-        if (id == 0 or id > model.file_mention_count) return;
-        const relpath = model.file_mention_store[id - 1].text();
-        if (relpath.len == 0) return;
+        var dir_buf: [file_mention.max_file_mention_path + 1]u8 = undefined;
+        const relpath = file_mention.mentionRelpath(model, id, &dir_buf) orelse return;
         var buf: [max_draft]u8 = undefined;
         const text = replaceMentionToken(model.draft(), relpath, &buf) orelse return;
         model.draft_buffer.set(text);

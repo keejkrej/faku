@@ -8,10 +8,11 @@
 //! runtime cache on the Model — not `sessions.json`.
 //!
 //! Not Waku's 50k-file index or caret-aware trigger. Visible `@`
-//! rows are scored over this bounded cache in
-//! `composer.fileMentionScore` — not first-N contains in cache order.
-//! Ignored / non-git / Windows stay empty this cut. Not Open-in,
-//! not copy path, not a daemon catalog.
+//! rows are scored over this bounded file cache (plus derived parent
+//! directories at row time) in `composer.fileMentionScore` — not
+//! first-N contains in cache order. The sidecar stdout and this
+//! cache stay files-only. Ignored / non-git / Windows stay empty
+//! this cut. Not Open-in, not copy path, not a daemon catalog.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -35,6 +36,10 @@ pub const max_file_mentions: usize = 256;
 pub const max_file_mention_path: usize = 255;
 /// Same visible-row cap as the command palette task section.
 pub const file_mention_visible_cap: usize = 12;
+/// 1-based file-cache ids are `1..=max_file_mentions`. Derived dir
+/// ids start here so `insert_mention:{m.id}` cannot collide.
+pub const file_mention_dir_id_base: u32 = 1000;
+pub const max_file_mention_dirs: usize = 256;
 
 pub const git_bin = "git";
 pub const git_ls_files_cmd = "ls-files";
@@ -97,6 +102,77 @@ pub fn cachedCount(model: *const Model) u32 {
 pub fn cachedPath(model: *const Model, index: usize) []const u8 {
     if (index >= model.file_mention_count) return "";
     return model.file_mention_store[index].text();
+}
+
+pub fn fileMentionId(index: usize) u32 {
+    return @intCast(index + 1);
+}
+
+pub fn dirMentionId(index: usize) u32 {
+    return file_mention_dir_id_base + @as(u32, @intCast(index));
+}
+
+/// Unique ancestor directories of cached file paths, without a trailing
+/// slash. First-seen order (cache order, leaf-to-root). Skips `""` and
+/// `.` so a file at the repo root does not yield a `.` / empty dir.
+pub fn collectDerivedDirParents(paths: []const []const u8, out: [][]const u8) usize {
+    var n: usize = 0;
+    for (paths) |file| {
+        var path = file;
+        while (std.mem.lastIndexOfScalar(u8, path, '/')) |index| {
+            path = path[0..index];
+            if (skipDerivedDir(path)) continue;
+            if (containsPath(out[0..n], path)) break;
+            if (n == out.len) return n;
+            out[n] = path;
+            n += 1;
+        }
+    }
+    return n;
+}
+
+fn skipDerivedDir(path: []const u8) bool {
+    if (path.len == 0) return true;
+    const name = if (std.mem.lastIndexOfScalar(u8, path, '/')) |slash|
+        path[slash + 1 ..]
+    else
+        path;
+    return name.len == 0 or std.mem.eql(u8, name, ".");
+}
+
+fn containsPath(haystack: []const []const u8, needle: []const u8) bool {
+    for (haystack) |item| {
+        if (std.mem.eql(u8, item, needle)) return true;
+    }
+    return false;
+}
+
+pub fn derivedDirParents(model: *const Model, out: [][]const u8) usize {
+    var file_paths: [max_file_mentions][]const u8 = undefined;
+    const n = model.file_mention_count;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        file_paths[i] = cachedPath(model, i);
+    }
+    return collectDerivedDirParents(file_paths[0..n], out);
+}
+
+/// Resolve a mention-row id to the insert path. File ids are 1-based
+/// cache indexes. Dir ids are `file_mention_dir_id_base + index` and
+/// write `parent/` into `dir_out`.
+pub fn mentionRelpath(model: *const Model, id: u32, dir_out: []u8) ?[]const u8 {
+    if (id == 0) return null;
+    if (id >= file_mention_dir_id_base) {
+        const dir_index = id - file_mention_dir_id_base;
+        var parents: [max_file_mention_dirs][]const u8 = undefined;
+        const n = derivedDirParents(model, &parents);
+        if (dir_index >= n) return null;
+        return std.fmt.bufPrint(dir_out, "{s}/", .{parents[dir_index]}) catch null;
+    }
+    if (id > model.file_mention_count) return null;
+    const path = cachedPath(model, id - 1);
+    if (path.len == 0) return null;
+    return path;
 }
 
 pub fn clearCache(model: *Model) void {
@@ -237,4 +313,39 @@ test "probeSupported is false only on Windows" {
     } else {
         try std.testing.expect(probeSupported());
     }
+}
+
+test "collectDerivedDirParents unique ancestors; skip empty and dot" {
+    var out: [8][]const u8 = undefined;
+    const n = collectDerivedDirParents(&.{
+        "src/lib/util.zig",
+        "src/main.zig",
+        "README.md",
+        "./hidden.txt",
+        "/abs.zig",
+        "foo/./x",
+    }, &out);
+    try std.testing.expectEqual(@as(usize, 3), n);
+    try std.testing.expectEqualStrings("src/lib", out[0]);
+    try std.testing.expectEqualStrings("src", out[1]);
+    try std.testing.expectEqualStrings("foo", out[2]);
+
+    var tiny: [1][]const u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 1), collectDerivedDirParents(&.{ "a/b/c.zig", "d/e.zig" }, &tiny));
+    try std.testing.expectEqualStrings("a/b", tiny[0]);
+
+    var model = Model{};
+    applyStdoutPaths(&model, "src/lib/util.zig\nsrc/main.zig\nREADME.md\n");
+    var parents: [max_file_mention_dirs][]const u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 2), derivedDirParents(&model, &parents));
+    try std.testing.expectEqualStrings("src/lib", parents[0]);
+    try std.testing.expectEqualStrings("src", parents[1]);
+
+    var dir_buf: [max_file_mention_path + 1]u8 = undefined;
+    try std.testing.expectEqualStrings("src/lib/util.zig", mentionRelpath(&model, 1, &dir_buf).?);
+    try std.testing.expectEqualStrings("src/lib/", mentionRelpath(&model, dirMentionId(0), &dir_buf).?);
+    try std.testing.expectEqualStrings("src/", mentionRelpath(&model, dirMentionId(1), &dir_buf).?);
+    try std.testing.expect(mentionRelpath(&model, 0, &dir_buf) == null);
+    try std.testing.expect(mentionRelpath(&model, 4, &dir_buf) == null);
+    try std.testing.expect(mentionRelpath(&model, dirMentionId(2), &dir_buf) == null);
 }
