@@ -44,6 +44,8 @@ that can open a checkout picker (`for-each-ref` `%(refname)%00%(worktreepath)` +
 local counterpart; local heads checked out in another worktree stay listed
 and are refused for checkout/delete)
 or create-and-checkout a new local branch from HEAD (`git checkout -b`)
+or create a new worktree from HEAD (`git worktree add -b faku/…`
+under `~/.faku/worktrees/…`, then retarget the session `project_path`)
 or safe-delete a non-current, unoccupied local head (`git branch -d`)
 or fetch remotes via `git fetch --prune`
 or push the current branch via `git push` when it has an upstream,
@@ -51,7 +53,7 @@ or `git push --set-upstream <remote> <branch>` when it does not
 plus a one-shot `git status --porcelain` dirty file count and a
 one-shot `git diff --numstat HEAD` +/- that also adds untracked
 text-line counts on the + side (not Waku's daemon InspectBranches
-live watch / worktree add / New Worktree / canonicalize(show-toplevel) /
+live watch / Waku prompt-slug worktrees / canonicalize(show-toplevel) /
 Environment Summary / force delete / prune-alone;
 Native still has no git effect);
 typing `@` in the composer (last whitespace token; caret assumed at
@@ -281,6 +283,16 @@ omitted; `origin/feat` is omitted when local `feat` exists.
 Remotes are never occupied. New branch… on that picker opens a
 runtime-only create card and one-shots `git checkout -b <name>`
 from current HEAD the same way.
+New worktree… opens a runtime-only create card and one-shots
+`git worktree add -b faku/<name> <path>` from current HEAD (`-b`,
+the branch, and the path each their own argv slot; `mkdir -p` of
+`~/.faku/worktrees` via a fixed script). The dest path is
+`~/.faku/worktrees/<name>` (absolute from `$HOME`). Unsafe / empty
+names are refused. On success the selected session's `project_path`
+is set to that dest and persisted; probes refresh against the new
+path. This is not Waku's `waku/` prefix, prompt-slug, or
+`~/.waku/worktrees/{project_id}` layout, not a base-ref picker, and
+not daemon `WorkspaceOperation::NewWorktree` / defer-until-Send.
 Delete branch… opens a runtime-only delete card of non-current,
 unoccupied listed local heads and one-shots `git branch -d <name>`
 (safe delete only; never `-D` / force; never `origin/…`; occupied
@@ -298,8 +310,8 @@ is always offered when the branch picker is offered — this cut does
 not gate on ahead-count / can_push. The current branch is never
 offered. Selecting the current local branch is a no-op; picking a
 remote-tracking name is not. A failed checkout, create, delete,
-fetch, or push sets a short composer status and leaves the previous
-label until refresh.
+fetch, push, or worktree-add sets a short composer status and leaves
+the previous label until refresh.
 The same refresh also one-shots `git status --porcelain` and, when that
 stdout has non-empty lines, a muted `N change` / `N changes` label
 next to the branch (one line per path; blank lines ignored). The
@@ -311,8 +323,10 @@ are non-zero, a muted `+N −M` label next to the dirty count
 (tracked binary `-` rows skipped; blank lines ignored; deletions
 stay tracked-only). Zero, failed, or skipped probes omit those
 labels — this cut does not invent "clean". This is not Waku's
-daemon `InspectBranches` live watch, not worktree add / New
-Worktree, not canonicalize(`git rev-parse --show-toplevel`), not a
+daemon `InspectBranches` live watch, not Waku prompt-slug /
+`waku/` prefix / `~/.waku/worktrees/{project_id}`, not defer-until-
+Send workspace mode, not a worktree base-ref picker, not
+canonicalize(`git rev-parse --show-toplevel`), not a
 commit dialog, not a staged/unstaged split, not Waku's
 Environment Summary, not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
@@ -320,7 +334,8 @@ Review.
 Native still has no git effect. The branch, dirty count,
 and +/- are runtime-only (like the busy spinner) and are not stored
 on `sessions.json`. Occupancy uses the session `project_path` /
-probe cwd heuristic. There is no worktree materialization.
+probe cwd heuristic. New worktree… materializes one-shot under
+`~/.faku/worktrees/<name>` and retargets that session path.
 The same refresh also one-shots
 `git ls-files --cached --others --exclude-standard` (same chdir
 workaround) and keeps a bounded runtime list of relative paths for

@@ -12078,6 +12078,7 @@ test "composer project row lists local heads and checks out another branch" {
     tree = try buildTree(arena, &model);
     try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
     _ = try expectByText(tree.root, .menu_item, "New branch…");
+    _ = try expectByText(tree.root, .menu_item, "New worktree…");
     _ = try expectByText(tree.root, .menu_item, "Delete branch…");
     _ = try expectByText(tree.root, .menu_item, "Fetch…");
     _ = try expectByText(tree.root, .menu_item, "Push…");
@@ -12159,6 +12160,7 @@ test "composer project row lists remote-tracking refs and checks them out with -
     try testing.expect(model.git_branch_picker_open);
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .menu_item, "New branch…");
+    _ = try expectByText(tree.root, .menu_item, "New worktree…");
     _ = try expectByText(tree.root, .menu_item, "Delete branch…");
     _ = try expectByText(tree.root, .menu_item, "Fetch…");
     _ = try expectByText(tree.root, .menu_item, "Push…");
@@ -12392,6 +12394,7 @@ test "New branch opens create UI; Esc and cancel close it" {
     var tree = try buildTree(arena, &model);
     const new_item = try expectByText(tree.root, .menu_item, "New branch…");
     try testing.expectEqual(Msg.start_git_branch_create, tree.msgForPointer(new_item.id, .up).?);
+    _ = try expectByText(tree.root, .menu_item, "New worktree…");
     _ = try expectByText(tree.root, .menu_item, "Fetch…");
     _ = try expectByText(tree.root, .menu_item, "Push…");
     try testing.expect(findByText(tree.root, .menu_item, "Delete branch…") == null);
@@ -12872,6 +12875,7 @@ fn expectGitPushArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expectEqualStrings(git_checkout.git_push_cmd, spawn.argv[6]);
     try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_push_cmd) == null);
     try testing.expect(spawn.key >= main.git_push_key_first);
+    try testing.expect(spawn.key < main.git_worktree_add_key_first);
     try testing.expect(spawn.key < main.file_mention_key_first);
     try testing.expect(spawn.key != main.git_numstat_key_first);
     try testing.expect(spawn.key != main.git_fetch_key_first);
@@ -12890,6 +12894,7 @@ fn expectGitPushArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(!git_checkout.isGitSetUpstreamPushArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitUpstreamArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitRemoteArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitWorktreeAddArgv(spawn.argv));
 }
 
 fn expectGitUpstreamArgv(spawn: anytype, cwd: []const u8) !void {
@@ -13168,6 +13173,197 @@ test "Push without upstream set-upstreams origin; detached and no remotes are no
     const set_github = findGitSetUpstreamPushSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitSetUpstreamGithub;
     try expectGitSetUpstreamPushArgv(set_github, project, "github", "hotfix");
     try testing.expect(!git_checkout.isGitPushArgv(set_github.argv));
+}
+
+fn findGitWorktreeAddSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_checkout.isGitWorktreeAddArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn expectGitWorktreeAddArgv(spawn: anytype, cwd: []const u8, home: []const u8, name: []const u8) !void {
+    var parent_buf: [main.max_project_path]u8 = undefined;
+    const parent = git_checkout.worktreeParentPath(home, parent_buf[0..]) orelse return error.MissingWorktreeParent;
+    var dest_buf: [main.max_project_path]u8 = undefined;
+    const dest = git_checkout.worktreeDestPath(home, name, dest_buf[0..]) orelse return error.MissingWorktreeDest;
+    var branch_buf: [git_branch.max_git_branch]u8 = undefined;
+    const branch = git_checkout.worktreeBranchName(name, branch_buf[0..]) orelse return error.MissingWorktreeBranch;
+    try testing.expect(git_checkout.isGitWorktreeAddArgv(spawn.argv));
+    try testing.expectEqual(@as(usize, 12), spawn.argv.len);
+    try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
+    try testing.expectEqualStrings(git_checkout.git_worktree_mkdir_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(parent, spawn.argv[4]);
+    try testing.expectEqualStrings(cwd, spawn.argv[5]);
+    try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[6]);
+    try testing.expectEqualStrings(git_checkout.git_worktree_cmd, spawn.argv[7]);
+    try testing.expectEqualStrings(git_checkout.git_worktree_add_cmd, spawn.argv[8]);
+    try testing.expectEqualStrings(git_checkout.git_create_b_flag, spawn.argv[9]);
+    try testing.expectEqualStrings(branch, spawn.argv[10]);
+    try testing.expectEqualStrings(dest, spawn.argv[11]);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], name) == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], dest) == null);
+    try testing.expect(spawn.key >= main.git_worktree_add_key_first);
+    try testing.expect(spawn.key < main.file_mention_key_first);
+    try testing.expect(spawn.key != main.git_push_key_first);
+    try testing.expect(!git_checkout.isGitCreateArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitPushArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
+}
+
+test "New worktree opens create UI; Esc and cancel close it" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-wt-ui", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("worktree ui", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try fx.feedLine(branch.key, "main\n");
+    drainEffects(&model, &fx);
+    try testing.expect(model.can_pick_git_branch());
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    try testing.expect(model.git_branch_picker_open);
+    var tree = try buildTree(arena, &model);
+    const new_item = try expectByText(tree.root, .menu_item, "New worktree…");
+    try testing.expectEqual(Msg.start_git_worktree_create, tree.msgForPointer(new_item.id, .up).?);
+    _ = try expectByText(tree.root, .menu_item, "New branch…");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "New worktree name") == null);
+
+    main.update(&model, tree.msgForPointer(new_item.id, .up).?, &fx);
+    try testing.expect(!model.git_branch_picker_open);
+    try testing.expect(model.git_worktree_create_active);
+    try testing.expect(!model.git_branch_create_active);
+    try testing.expectEqualStrings("", model.git_worktree_create());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "New worktree name") != null);
+    _ = try expectButtonMsg(tree, "Create", .confirm_git_worktree_create);
+    _ = try expectButtonMsg(tree, "Cancel", .cancel_git_worktree_create);
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expect(!model.git_worktree_create_active);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "New worktree name") == null);
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    main.update(&model, .start_git_worktree_create, &fx);
+    main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-tmp" } }, &fx);
+    try testing.expectEqualStrings("feat-tmp", model.git_worktree_create());
+    main.update(&model, .cancel_git_worktree_create, &fx);
+    try testing.expect(!model.git_worktree_create_active);
+    try testing.expectEqualStrings("", model.git_worktree_create());
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+}
+
+test "confirm New worktree one-shots git worktree add -b; success retargets project_path; failure sets status" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-wt-add", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+    var home_buf: [256]u8 = undefined;
+    const home = try std.fmt.bufPrint(&home_buf, "/tmp/faku-wt-home-{s}", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, home);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setHome(home);
+    const id = model.addSession("worktree add", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try fx.feedLine(branch.key, "main\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+
+    main.update(&model, .start_git_worktree_create, &fx);
+    try testing.expect(model.git_worktree_create_active);
+    main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "not a branch" } }, &fx);
+    main.update(&model, .confirm_git_worktree_create, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    try testing.expect(model.git_worktree_create_active);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+
+    main.update(&model, .{ .git_worktree_create_edit = .clear }, &fx);
+    main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat/foo" } }, &fx);
+    main.update(&model, .confirm_git_worktree_create, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+
+    main.update(&model, .{ .git_worktree_create_edit = .clear }, &fx);
+    main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-new" } }, &fx);
+    model.phase = .streaming;
+    main.update(&model, .confirm_git_worktree_create, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    model.phase = .idle;
+    main.update(&model, .confirm_git_worktree_create, &fx);
+    const created = findGitWorktreeAddSpawnKey(&fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddSpawn;
+    try expectGitWorktreeAddArgv(created, project, home, "feat-new");
+    try testing.expect(model.git_worktree_create_active);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+
+    const add_key = model.git_worktree_add_key;
+    main.update(&model, .confirm_git_worktree_create, &fx);
+    try testing.expectEqual(add_key, model.git_worktree_add_key);
+    main.update(&model, .start_git_push, &fx);
+    try testing.expectEqual(add_key, model.git_worktree_add_key);
+    try testing.expectEqual(@as(u64, 0), model.git_push_key);
+
+    var dest_buf: [main.max_project_path]u8 = undefined;
+    const dest = git_checkout.worktreeDestPath(home, "feat-new", dest_buf[0..]) orelse return error.MissingDest;
+    try std.Io.Dir.cwd().createDirPath(testing.io, dest);
+    try fx.feedExit(created.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    try testing.expect(!model.git_worktree_create_active);
+    try testing.expectEqualStrings(dest, model.selectedProjectPath());
+    try testing.expect(findGitBranchSpawnKey(&fx, model.git_branch_key) != null);
+    try testing.expect(findGitDirtySpawnKey(&fx, model.git_dirty_key) != null);
+    try testing.expect(findGitNumstatSpawnKey(&fx, model.git_numstat_key) != null);
+    try testing.expect(findFileMentionSpawnKey(&fx, model.file_mention_key) != null);
+    try testing.expect(findGitBranchListSpawnKey(&fx, model.git_branch_list_key) != null);
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const reset_branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchReset;
+    try fx.feedLine(reset_branch.key, "main\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+
+    main.update(&model, .start_git_worktree_create, &fx);
+    main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-blocked" } }, &fx);
+    main.update(&model, .confirm_git_worktree_create, &fx);
+    const failed = findGitWorktreeAddSpawnKey(&fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddFailSpawn;
+    try expectGitWorktreeAddArgv(failed, project, home, "feat-blocked");
+    try fx.feedExit(failed.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+    try testing.expectEqualStrings(git_checkout.worktree_add_failed_status, model.attach_status());
+    try testing.expect(model.has_attach_status());
+    try testing.expect(model.git_worktree_create_active);
 }
 
 fn findGitRevParseSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
