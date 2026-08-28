@@ -245,8 +245,9 @@ pub const git_delete_key_first = git_checkout.git_delete_key_first;
 /// One-shot `git fetch --prune`. Distinct from delete (320+) and
 /// git_numstat (350+). Band is 340+.
 pub const git_fetch_key_first = git_checkout.git_fetch_key_first;
-/// One-shot `git push` (no extra flags). Distinct from fetch (340+),
-/// git_numstat (350+), and file_mention (400+). Band is 360+.
+/// One-shot `git push` (bare or `--set-upstream`) plus the probes
+/// that choose the path. Distinct from fetch (340+), git_numstat
+/// (350+), and file_mention (400+). Band is 360+.
 pub const git_push_key_first = git_checkout.git_push_key_first;
 /// One-shot `git status --porcelain` dirty count. Distinct from
 /// git_branch (200+), git_branch_list (250+), git_checkout (275+),
