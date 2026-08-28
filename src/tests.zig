@@ -12231,7 +12231,7 @@ test "composer Enter confirms first @ mention; Esc dismisses; Send button still 
         try testing.expectEqual(@as(u32, 4), rows[0].id);
     }
 
-    var tree = try buildTree(arena, &model);
+    const tree = try buildTree(arena, &model);
     if (findByKind(tree.root, .textarea)) |composer| {
         try testing.expectEqualStrings("@mai", composer.text);
     } else return error.WidgetNotFound;
