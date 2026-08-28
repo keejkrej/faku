@@ -13,6 +13,7 @@ const open_terminal = @import("open_terminal.zig");
 const open_editor = @import("open_editor.zig");
 const maximize_window = @import("maximize_window.zig");
 const git_branch = @import("git_branch.zig");
+const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const file_mention = @import("file_mention.zig");
@@ -11698,11 +11699,15 @@ fn expectGitBranchArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(spawn.key != main.file_mention_key_first);
     try testing.expect(spawn.key != main.git_dirty_key_first);
     try testing.expect(spawn.key != main.git_numstat_key_first);
+    try testing.expect(spawn.key != main.git_branch_list_key_first);
+    try testing.expect(spawn.key != main.git_checkout_key_first);
     try testing.expect(spawn.key >= main.git_branch_key_first);
     try testing.expect(spawn.key < main.git_dirty_key_first);
     try testing.expect(!file_mention.isGitLsFilesArgv(spawn.argv));
     try testing.expect(!git_dirty.isGitDirtyArgv(spawn.argv));
     try testing.expect(!git_numstat.isGitNumstatArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
 }
 
 test "composer project row shows one-shot git branch --show-current" {
@@ -11738,7 +11743,7 @@ test "composer project row shows one-shot git branch --show-current" {
 
     const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .button, project);
-    _ = try expectByText(tree.root, .text, "feat/composer-row");
+    _ = try expectByText(tree.root, .select, "feat/composer-row");
     try testing.expect(findByText(tree.root, .button, "Local") == null);
 }
 
@@ -11889,6 +11894,232 @@ test "changing session or project_path does not keep the previous branch" {
     _ = try expectByText(tree.root, .button, "Local");
     try testing.expect(findByText(tree.root, .text, "branch-a") == null);
     try testing.expect(findByText(tree.root, .text, "branch-b") == null);
+}
+
+fn findGitBranchListSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_checkout.isGitBranchListArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn findGitCheckoutSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_checkout.isGitCheckoutArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn expectGitBranchListArgv(spawn: anytype, cwd: []const u8) !void {
+    try testing.expect(git_checkout.isGitBranchListArgv(spawn.argv));
+    try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
+    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(cwd, spawn.argv[4]);
+    try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
+    try testing.expectEqualStrings(git_checkout.git_for_each_ref_cmd, spawn.argv[6]);
+    try testing.expectEqualStrings(git_checkout.git_refname_short_format, spawn.argv[7]);
+    try testing.expectEqualStrings(git_checkout.git_heads_ref, spawn.argv[8]);
+    try testing.expect(spawn.key >= main.git_branch_list_key_first);
+    try testing.expect(spawn.key < main.git_dirty_key_first);
+    try testing.expect(spawn.key != main.git_branch_key_first);
+    try testing.expect(spawn.key != main.git_checkout_key_first);
+    try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitCheckoutArgv(spawn.argv));
+}
+
+fn expectGitCheckoutArgv(spawn: anytype, cwd: []const u8, name: []const u8) !void {
+    try testing.expect(git_checkout.isGitCheckoutArgv(spawn.argv));
+    try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
+    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+    try testing.expectEqualStrings(cwd, spawn.argv[4]);
+    try testing.expectEqualStrings(git_checkout.git_bin, spawn.argv[5]);
+    try testing.expectEqualStrings(git_checkout.git_checkout_cmd, spawn.argv[6]);
+    try testing.expectEqualStrings(name, spawn.argv[7]);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], name) == null);
+    try testing.expect(spawn.key >= main.git_checkout_key_first);
+    try testing.expect(spawn.key < main.git_dirty_key_first);
+    try testing.expect(spawn.key != main.git_branch_list_key_first);
+    try testing.expect(!git_branch.isGitBranchArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitBranchListArgv(spawn.argv));
+}
+
+test "composer project row lists local heads and checks out another branch" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-co", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("checkout row", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try expectGitBranchArgv(branch, project);
+    const list = findGitBranchListSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingGitBranchListSpawn;
+    try expectGitBranchListArgv(list, project);
+    try testing.expect(list.key != branch.key);
+    try testing.expect(!model.can_pick_git_branch());
+
+    try fx.feedLine(branch.key, "main\n");
+    drainEffects(&model, &fx);
+    try testing.expect(model.has_git_branch());
+    try testing.expect(model.can_pick_git_branch());
+
+    try fx.feedLine(list.key, "zeta\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(list.key, "main\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(list.key, "feat/a\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(list.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u32, 3), model.git_branch_list_count);
+    try testing.expectEqualStrings("feat/a", git_checkout.listedBranch(&model, 0));
+    try testing.expectEqualStrings("main", git_checkout.listedBranch(&model, 1));
+    try testing.expectEqualStrings("zeta", git_checkout.listedBranch(&model, 2));
+
+    var tree = try buildTree(arena, &model);
+    const chip = try expectByText(tree.root, .select, "main");
+    try testing.expectEqual(Msg.toggle_git_branch_picker, tree.msgForPointer(chip.id, .up).?);
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    try testing.expect(model.git_branch_picker_open);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
+    _ = try expectByText(tree.root, .menu_item, "feat/a");
+    _ = try expectByText(tree.root, .menu_item, "zeta");
+
+    const before_checkout = model.git_checkout_key;
+    main.update(&model, .{ .pick_git_branch = "main" }, &fx);
+    try testing.expect(!model.git_branch_picker_open);
+    try testing.expectEqual(before_checkout, model.git_checkout_key);
+    try testing.expectEqualStrings("main", model.git_branch_label());
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    main.update(&model, .{ .pick_git_branch = "feat/a" }, &fx);
+    try testing.expect(!model.git_branch_picker_open);
+    const checkout = findGitCheckoutSpawnKey(&fx, model.git_checkout_key) orelse return error.MissingGitCheckoutSpawn;
+    try expectGitCheckoutArgv(checkout, project, "feat/a");
+    try testing.expectEqualStrings("main", model.git_branch_label());
+
+    try fx.feedExit(checkout.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_checkout_key);
+    try testing.expect(findGitBranchSpawnKey(&fx, model.git_branch_key) != null);
+    try testing.expect(findGitDirtySpawnKey(&fx, model.git_dirty_key) != null);
+    try testing.expect(findGitNumstatSpawnKey(&fx, model.git_numstat_key) != null);
+    try testing.expect(findFileMentionSpawnKey(&fx, model.file_mention_key) != null);
+    try testing.expect(findGitBranchListSpawnKey(&fx, model.git_branch_list_key) != null);
+}
+
+test "git checkout failure sets composer status and keeps the previous branch" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-co-fail", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("checkout fail", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try fx.feedLine(branch.key, "main\n");
+    drainEffects(&model, &fx);
+
+    main.update(&model, .{ .pick_git_branch = "../escape" }, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_checkout_key);
+    try testing.expectEqualStrings("main", model.git_branch_label());
+
+    main.update(&model, .{ .pick_git_branch = "feat/blocked" }, &fx);
+    const checkout = findGitCheckoutSpawnKey(&fx, model.git_checkout_key) orelse return error.MissingGitCheckoutSpawn;
+    try expectGitCheckoutArgv(checkout, project, "feat/blocked");
+    try fx.feedExit(checkout.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("main", model.git_branch_label());
+    try testing.expectEqualStrings(git_checkout.checkout_failed_status, model.attach_status());
+    try testing.expect(model.has_attach_status());
+}
+
+test "detached HEAD still opens the local branch picker when heads exist" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-detach", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("detached", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try fx.feedExit(branch.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_branch());
+    try testing.expect(model.git_branch_probe_is_rev_parse);
+    const sha = findGitRevParseSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitRevParseSpawn;
+    try testing.expect(git_branch.isGitRevParseArgv(sha.argv));
+    try fx.feedLine(sha.key, "a1b2c3d\n");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("a1b2c3d", model.git_branch_label());
+
+    const list = findGitBranchListSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingGitBranchListSpawn;
+    try fx.feedLine(list.key, "main\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(list.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(model.can_pick_git_branch());
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .select, "a1b2c3d");
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    try testing.expect(model.git_branch_picker_open);
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expect(!model.git_branch_picker_open);
+
+    main.update(&model, .{ .project_path_edit = .clear }, &fx);
+    try testing.expect(!model.can_pick_git_branch());
+    try testing.expect(!model.git_branch_picker_open);
+}
+
+fn findGitRevParseSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_branch.isGitRevParseArgv(spawn.argv)) return spawn;
+    }
+    return null;
 }
 
 fn findGitDirtySpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {

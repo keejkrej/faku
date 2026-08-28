@@ -18,6 +18,7 @@ const attach_helpers = @import("attach.zig");
 const turn_stream = @import("stream.zig");
 const maximize_window = @import("maximize_window.zig");
 const git_branch = @import("git_branch.zig");
+const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const file_mention = @import("file_mention.zig");
@@ -47,6 +48,10 @@ const handleMaximizeWindowExit = maximize_window.handleMaximizeWindowExit;
 pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
     if (model.git_branch_key != 0 and line.key == model.git_branch_key) {
         git_branch.applyLine(model, line);
+        return;
+    }
+    if (model.git_branch_list_key != 0 and line.key == model.git_branch_list_key) {
+        git_checkout.applyListLine(model, line);
         return;
     }
     if (model.git_dirty_key != 0 and line.key == model.git_dirty_key) {
@@ -337,7 +342,15 @@ fn persistDaemonRuntimeId(model: *Model, fx: *Effects, parsed: protocol.ParsedSe
 
 pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (model.git_branch_key != 0 and exit.key == model.git_branch_key) {
-        git_branch.handleExit(model, exit);
+        git_branch.handleExit(model, fx, exit);
+        return;
+    }
+    if (model.git_branch_list_key != 0 and exit.key == model.git_branch_list_key) {
+        git_checkout.handleListExit(model, exit);
+        return;
+    }
+    if (model.git_checkout_key != 0 and exit.key == model.git_checkout_key) {
+        git_checkout.handleCheckoutExit(model, fx, exit);
         return;
     }
     if (model.git_dirty_key != 0 and exit.key == model.git_dirty_key) {

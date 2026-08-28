@@ -46,6 +46,7 @@ const settings_actions = @import("settings_actions.zig");
 const session_mod = @import("session.zig");
 const model_mod = @import("model.zig");
 const git_branch = @import("git_branch.zig");
+const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const file_mention = @import("file_mention.zig");
@@ -220,12 +221,22 @@ pub const open_terminal_key = open_terminal.open_terminal_key;
 /// open-editor effect on this Effects revision.
 pub const open_editor_key = open_editor.open_editor_key;
 /// One-shot `git branch --show-current` probe. Distinct from maximize /
-/// pick-image / fx-ask / daemon / clipboard / probe keys and from
+/// pick-image / fx-ask / daemon / clipboard / probe keys, from
+/// git_branch_list (250+), git_checkout (275+), and from
 /// git_dirty (300+). Incremented per refresh from
 /// `git_branch_key_first`.
 pub const git_branch_key_first = git_branch.git_branch_key_first;
+/// One-shot local `refs/heads` list. Distinct from git_branch (200+),
+/// git_checkout (275+), git_dirty (300+), git_numstat (350+), and
+/// file_mention (400+).
+pub const git_branch_list_key_first = git_checkout.git_branch_list_key_first;
+/// One-shot `git checkout <name>`. Distinct from git_branch (200+),
+/// git_branch_list (250+), git_dirty (300+), git_numstat (350+), and
+/// file_mention (400+).
+pub const git_checkout_key_first = git_checkout.git_checkout_key_first;
 /// One-shot `git status --porcelain` dirty count. Distinct from
-/// git_branch (200+), git_numstat (350+), and file_mention (400+).
+/// git_branch (200+), git_branch_list (250+), git_checkout (275+),
+/// git_numstat (350+), and file_mention (400+).
 /// Incremented per refresh from `git_dirty_key_first`.
 pub const git_dirty_key_first = git_dirty.git_dirty_key_first;
 /// One-shot `git diff --numstat HEAD --` +/- plus untracked text-line
@@ -423,6 +434,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .toggle_effort_picker => settings_actions.handleToggleEffortPicker(model),
         .close_effort_picker => model.closeEffortPicker(),
         .pick_effort => |id| settings_actions.handlePickEffort(model, fx, id),
+        .toggle_git_branch_picker => settings_actions.handleToggleGitBranchPicker(model),
+        .close_git_branch_picker => model.closeGitBranchPicker(),
+        .pick_git_branch => |name| settings_actions.handlePickGitBranch(model, fx, name),
         .start_project_edit => model.startProjectEdit(),
         .project_path_edit => |edit| {
             model.applySelectedProjectPath(edit);
@@ -506,6 +520,7 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     git_dirty.refresh(model, fx);
     git_numstat.refresh(model, fx);
     file_mention.refresh(model, fx);
+    git_checkout.refresh(model, fx);
     fx_probe.startFxProbe(model, fx);
 }
 
@@ -622,6 +637,7 @@ test {
     _ = @import("session.zig");
     _ = @import("model.zig");
     _ = @import("git_branch.zig");
+    _ = @import("git_checkout.zig");
     _ = @import("git_dirty.zig");
     _ = @import("git_numstat.zig");
     _ = @import("file_mention.zig");
