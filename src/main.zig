@@ -238,13 +238,17 @@ pub const git_checkout_key_first = git_checkout.git_checkout_key_first;
 /// checkout (275+), git_dirty (300+). Band is 290+.
 pub const git_create_key_first = git_checkout.git_create_key_first;
 /// One-shot `git branch -d <name>`. Distinct from create (290+),
-/// git_dirty (300+), and git_numstat (350+). Band is 320+.
+/// git_dirty (300+), git_fetch (340+), and git_numstat (350+).
+/// Band is 320+.
 pub const git_delete_key_first = git_checkout.git_delete_key_first;
+/// One-shot `git fetch --prune`. Distinct from delete (320+) and
+/// git_numstat (350+). Band is 340+.
+pub const git_fetch_key_first = git_checkout.git_fetch_key_first;
 /// One-shot `git status --porcelain` dirty count. Distinct from
 /// git_branch (200+), git_branch_list (250+), git_checkout (275+),
-/// git_create (290+), git_delete (320+), git_numstat (350+), and
-/// file_mention (400+). Incremented per refresh from
-/// `git_dirty_key_first`.
+/// git_create (290+), git_delete (320+), git_fetch (340+),
+/// git_numstat (350+), and file_mention (400+). Incremented per
+/// refresh from `git_dirty_key_first`.
 pub const git_dirty_key_first = git_dirty.git_dirty_key_first;
 /// One-shot `git diff --numstat HEAD --` +/- plus untracked text-line
 /// additions. Distinct from git_branch (200+), git_dirty (300+), and
@@ -454,6 +458,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .pick_git_branch_delete => |name| settings_actions.handlePickGitBranchDelete(model, name),
         .confirm_git_branch_delete => settings_actions.handleConfirmGitBranchDelete(model, fx),
         .cancel_git_branch_delete => settings_actions.handleCancelGitBranchDelete(model),
+        .start_git_fetch => settings_actions.handleStartGitFetch(model, fx),
         .start_project_edit => model.startProjectEdit(),
         .project_path_edit => |edit| {
             model.applySelectedProjectPath(edit);

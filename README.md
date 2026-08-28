@@ -45,11 +45,13 @@ local counterpart; local heads checked out in another worktree stay listed
 and are refused for checkout/delete)
 or create-and-checkout a new local branch from HEAD (`git checkout -b`)
 or safe-delete a non-current, unoccupied local head (`git branch -d`)
+or fetch remotes via `git fetch --prune`
 plus a one-shot `git status --porcelain` dirty file count and a
 one-shot `git diff --numstat HEAD` +/- that also adds untracked
 text-line counts on the + side (not Waku's daemon InspectBranches
 live watch / worktree add / New Worktree / canonicalize(show-toplevel) /
-Environment Summary / force delete; Native still has no git effect);
+Environment Summary / force delete / push / prune-alone; Native still
+has no git effect);
 typing `@` in the composer (last whitespace token; caret assumed at
 the end — Native has no caret API) opens a small card of files and
 derived parent directories (trailing slash) from a one-shot
@@ -280,11 +282,12 @@ from current HEAD the same way.
 Delete branch… opens a runtime-only delete card of non-current,
 unoccupied listed local heads and one-shots `git branch -d <name>`
 (safe delete only; never `-D` / force; never `origin/…`; occupied
-locals are omitted because `-d` of a worktree checkout fails). The
-current branch is never offered. Selecting the current local
-branch is a no-op; picking a remote-tracking name is not. A failed
-checkout, create, or delete sets a short composer status and
-leaves the previous label until refresh.
+locals are omitted because `-d` of a worktree checkout fails).
+Fetch… on that picker one-shots `git fetch --prune` (`--prune` its
+own argv slot). The current branch is never offered. Selecting the
+current local branch is a no-op; picking a remote-tracking name is
+not. A failed checkout, create, delete, or fetch sets a short
+composer status and leaves the previous label until refresh.
 The same refresh also one-shots `git status --porcelain` and, when that
 stdout has non-empty lines, a muted `N change` / `N changes` label
 next to the branch (one line per path; blank lines ignored). The
@@ -300,8 +303,8 @@ daemon `InspectBranches` live watch, not worktree add / New
 Worktree, not canonicalize(`git rev-parse --show-toplevel`), not a
 commit dialog, not a staged/unstaged split, not Waku's
 Environment Summary, not force delete (`git branch -D`), not
-fetch / push / prune, and not Review. Native still has no git
-effect. The branch, dirty count,
+push or prune-alone (`git prune` without fetch), and not Review.
+Native still has no git effect. The branch, dirty count,
 and +/- are runtime-only (like the busy spinner) and are not stored
 on `sessions.json`. Occupancy uses the session `project_path` /
 probe cwd heuristic. There is no worktree materialization.

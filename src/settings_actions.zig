@@ -286,6 +286,10 @@ pub fn handleCancelGitBranchDelete(model: *Model) void {
     git_checkout.closeDelete(model);
 }
 
+pub fn handleStartGitFetch(model: *Model, fx: *Effects) void {
+    git_checkout.startFetch(model, fx);
+}
+
 pub fn handlePickEffort(model: *Model, fx: *Effects, id: []const u8) void {
     model.pickSelectedEffort(id);
     persist.persistComposerChips(model, fx);
