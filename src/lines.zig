@@ -331,7 +331,7 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
         return;
     }
     if (model.file_mention_key != 0 and exit.key == model.file_mention_key) {
-        file_mention.handleExit(model, exit);
+        file_mention.handleExit(model, fx, exit);
         return;
     }
     if (exit.key == maximize_window_key) {
