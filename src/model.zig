@@ -377,6 +377,7 @@ pub const Msg = union(enum) {
     confirm_git_commit_push,
     cancel_git_commit,
     toggle_git_commit_include_unstaged,
+    toggle_git_commit_amend,
     start_project_edit,
     project_path_edit: canvas.TextInputEvent,
     /// Composer Pick folder: one-shot OS directory-dialog sidecar. Not `fx.pickFile`.
@@ -635,6 +636,10 @@ pub const Model = struct {
     /// Runtime-only Commit… include-unstaged toggle. Default true
     /// (Waku dialog). Reset when the card opens. Not persisted.
     git_commit_include_unstaged: bool = true,
+    /// Runtime-only Commit… Amend toggle. Default off. Reset when
+    /// the card opens. Not persisted. Amend is commit-only: hides
+    /// Commit and Push and Push-only.
+    git_commit_amend: bool = false,
     /// Runtime-only Commit… CommitSnapshot +/-. Include-unstaged on
     /// reuses the project-row numstat + untracked script; off is
     /// `git diff --cached --numstat --`. Distinct keys from
@@ -2278,9 +2283,15 @@ pub const Model = struct {
 
     /// Commit and Push on the Commit… card. `can_commit` plus
     /// first-push remotes: known upstream is enough; no-upstream
-    /// requires at least one remote.
+    /// requires at least one remote. Hidden while Amend is on.
     pub fn can_commit_and_push_git(model: *const Model) bool {
         return git_commit_mod.canCommitAndPushGit(model);
+    }
+
+    /// Push-only on the Commit… card. Same `can_push` as composer
+    /// Push…, hidden while Amend is on.
+    pub fn can_git_commit_push_only(model: *const Model) bool {
+        return git_commit_mod.canPushOnlyGit(model);
     }
 
     /// Runtime-only muted +/- on the Commit… card (CommitSnapshot
@@ -2297,10 +2308,17 @@ pub const Model = struct {
         return git_commit_mod.hasGitCommitGenerate(model);
     }
 
+    /// In-dialog Amending… on the Commit… card. True while Amend
+    /// is on and add/preflight/amend is in flight. Hidden while
+    /// generate is live. Mutually exclusive with Committing….
+    pub fn has_git_commit_amending(model: *const Model) bool {
+        return git_commit_mod.hasGitCommitAmending(model);
+    }
+
     /// In-dialog Committing… on the Commit… card. True while
     /// that card is open and commit-only add/preflight/commit is
-    /// in flight. Hidden for Commit and Push and while generate
-    /// is live.
+    /// in flight. Hidden for Commit and Push, Amend, and while
+    /// generate is live.
     pub fn has_git_commit_committing(model: *const Model) bool {
         return git_commit_mod.hasGitCommitCommitting(model);
     }

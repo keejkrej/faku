@@ -1,32 +1,35 @@
 //! First-cut InspectCommit flags + include-unstaged Commit… / Commit
-//! and Push / Push-only, plus a one-shot CommitSnapshot numstat
-//! label and an fx-first empty-message `generate_message`, for the
-//! composer project row.
+//! and Push / Push-only / first-cut Amend, plus a one-shot
+//! CommitSnapshot numstat label and an fx-first empty-message
+//! `generate_message`, for the composer project row.
 //!
 //! Native has no git effect. `canCommitGit` follows Waku `can_commit`:
 //! dirty probe idle, and staged or (include_unstaged and unstaged).
 //! Confirm with include_unstaged one-shots `git add -A -- .` then
 //! always `git diff --cached --quiet --` (Waku's commit gate). Exit
 //! `1` means there are staged changes and proceeds to
-//! `git commit -m <message>`; exit `0` is
+//! `git commit -m <message>` (or `git commit --amend -m <message>`
+//! when Amend is on); exit `0` is
 //! `Nothing staged to commit.` and does not run commit; any other
 //! exit or spawn failure is `Could not commit.`. With the toggle
 //! off it skips add and one-shots the same cached-quiet preflight
-//! then commit. Every flag and operand is its own argv slot —
+//! then commit / amend. Every flag and operand is its own argv slot —
 //! never interpolated into the `-c` script
-//! (`fx_ask_chdir_script`). Message is trimmed, taken as a single
+//! (`fx_ask_chdir_script`). `--amend`, `-m`, and the message are
+//! each their own slot. Message is trimmed, taken as a single
 //! line, and capped at 200 chars (Waku `chars().take(200)`). Empty
-//! / whitespace on Commit / Commit and Push one-shots documented
-//! `fx ask --no-save --auto --json` when `fx_available` and
-//! `fxPath` are set, fills the normalized subject, then
-//! auto-proceeds into the same add/preflight/commit path. If fx is
-//! unavailable or the path is empty, it sets
-//! `Enter a commit message.` and does not spawn. Generate fail
+//! / whitespace on Commit / Commit and Push / Amend Confirm
+//! one-shots documented `fx ask --no-save --auto --json` when
+//! `fx_available` and `fxPath` are set, fills the normalized
+//! subject, then auto-proceeds into the same add/preflight/commit
+//! (or amend) path. If fx is unavailable or the path is empty, it
+//! sets `Enter a commit message.` and does not spawn. Generate fail
 //! / empty output keeps the card open with
 //! `Could not generate a commit message.` In-dialog pending
 //! labels stay muted extra lines on the card (not on the action
 //! row), mutually exclusive: Generating… while `fx ask` is live;
-//! Committing… (Waku `commit.committing`) while commit-only
+//! Amending… while Amend is on and add/preflight/amend is in
+//! flight; Committing… (Waku `commit.committing`) while commit-only
 //! add/preflight/commit is in flight; Committing and pushing…
 //! (Waku `commit.committing_and_pushing`) for the whole Commit
 //! and Push flow; Pushing… for Push-only. Commit and Push uses
@@ -36,7 +39,9 @@
 //! and keeps the card open with Committing and pushing… through
 //! that follow-on push (`git_commit_then_push` stays set so the
 //! user does not see a silent commit then a sudden Pushing…).
-//! Commit stays commit-only. Push-only
+//! Amend is commit-only: no follow-on push. Commit and Push and
+//! Push-only are hidden while Amend is on. Commit stays
+//! commit-only. Push-only
 //! (Waku `CommitAction::Push`) does not commit, generate, or run
 //! this preflight; it is gated by `canPushGitBranch` (same as
 //! composer Push…) and starts the gated push probe without
@@ -47,14 +52,17 @@
 //! numstat (include-unstaged on reuses the project-row
 //! `git_numstat` script: tracked `git diff --numstat HEAD --` plus
 //! untracked text-line additions; index vs HEAD `--cached` when
-//! off). The toggle cancels and re-probes. Cancel / Esc /
+//! off). The include-unstaged toggle cancels and re-probes. Amend
+//! is a runtime-only ghost toggle (default off; reset when the
+//! card opens; not persisted) and does not re-probe. Cancel / Esc /
 //! session-switch drop an in-flight generate/add/preflight/commit,
 //! a card-originated push, and the snapshot probe, and do not
 //! start a push. Commit and
-//! Push is offered only when `canCommitGit` and first-push remotes
-//! are OK (known upstream, or remotes ready with at least one
-//! remote). Push-only is offered only when `canPushGitBranch`.
-//! Not force / amend, and not daemon `WorkspaceOperation`.
+//! Push is offered only when Amend is off, `canCommitGit`, and
+//! first-push remotes are OK (known upstream, or remotes ready
+//! with at least one remote). Push-only is offered only when
+//! Amend is off and `canPushGitBranch`.
+//! Not force, and not daemon `WorkspaceOperation`.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -135,6 +143,7 @@ pub const git_add_all_flag = "-A";
 pub const git_pathspec_dash = "--";
 pub const git_pathspec_dot = ".";
 pub const git_commit_cmd = "commit";
+pub const git_amend_flag = "--amend";
 pub const git_message_flag = "-m";
 pub const git_diff_cmd = git_numstat.git_diff_cmd;
 pub const git_numstat_flag = git_numstat.git_numstat;
@@ -145,6 +154,7 @@ pub const sh_bin = git_branch.sh_bin;
 pub const add_argv_len: usize = 10;
 pub const cached_quiet_argv_len: usize = 10;
 pub const commit_argv_len: usize = 9;
+pub const amend_argv_len: usize = 10;
 /// Max CommitSnapshot argv slots. Cached is 10; include-unstaged
 /// reuses `git_numstat.argv_len` (8) inside this buffer.
 pub const commit_numstat_argv_len: usize = 10;
@@ -201,10 +211,19 @@ pub fn canCommitGit(model: *const Model) bool {
 /// upstream allows (post-commit push can work when ahead was 0).
 /// No-upstream / unknown requires remotes ready and at least one
 /// remote. Hide while remotes are still needed or in-flight on that
-/// path (no flash).
+/// path (no flash). Hidden while Amend is on (amend is
+/// commit-only; no follow-on push on this cut).
 pub fn canCommitAndPushGit(model: *const Model) bool {
+    if (model.git_commit_amend) return false;
     if (!canCommitGit(model)) return false;
     return git_remotes.firstPushRemotesOk(model);
+}
+
+/// Push-only on the Commit… card. Same `can_push` as composer
+/// Push…, hidden while Amend is on.
+pub fn canPushOnlyGit(model: *const Model) bool {
+    if (model.git_commit_amend) return false;
+    return git_ahead_behind.canPushGitBranch(model);
 }
 
 /// Trim ends, take the first line, then at most 200 UTF-8 scalars
@@ -280,6 +299,35 @@ pub fn isGitCommitArgv(argv: []const []const u8) bool {
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_commit_cmd)) return false;
     return std.mem.eql(u8, argv[7], git_message_flag);
+}
+
+/// `git commit --amend -m <message>`. `--amend`, `-m`, and the
+/// message each their own argv slot — never glued onto `-m`.
+pub fn amendArgvFor(cwd: []const u8, message: []const u8, buf: *[amend_argv_len][]const u8) []const []const u8 {
+    buf.* = .{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        cwd,
+        git_bin,
+        git_commit_cmd,
+        git_amend_flag,
+        git_message_flag,
+        message,
+    };
+    return buf;
+}
+
+pub fn isGitCommitAmendArgv(argv: []const []const u8) bool {
+    if (argv.len != amend_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], "-c")) return false;
+    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[5], git_bin)) return false;
+    if (!std.mem.eql(u8, argv[6], git_commit_cmd)) return false;
+    if (!std.mem.eql(u8, argv[7], git_amend_flag)) return false;
+    return std.mem.eql(u8, argv[8], git_message_flag);
 }
 
 /// `git diff --cached --quiet --`. Same chdir script as add/commit;
@@ -426,21 +474,29 @@ pub fn hasGitCommitGenerate(model: *const Model) bool {
     return model.git_commit_generate_key != 0;
 }
 
+/// In-dialog Amending… on the Commit… card. True while Amend is
+/// on and add / cached-quiet / amend is in flight. Hidden while
+/// generate is live, for Commit and Push, when idle, or when the
+/// card is closed. Mutually exclusive with Committing….
+pub fn hasGitCommitAmending(model: *const Model) bool {
+    return model.git_commit_active and model.git_commit_amend and model.git_commit_key != 0 and !model.git_commit_then_push and !hasGitCommitGenerate(model);
+}
+
 /// In-dialog Committing… (Waku `commit.committing`). Card open,
 /// add / cached-quiet / commit in flight, and this is not Commit
-/// and Push. Hidden while generate is live, when idle, or when
-/// the card is closed.
+/// and Push or Amend. Hidden while generate is live, when idle,
+/// or when the card is closed.
 pub fn hasGitCommitCommitting(model: *const Model) bool {
-    return model.git_commit_active and model.git_commit_key != 0 and !model.git_commit_then_push and !hasGitCommitGenerate(model);
+    return model.git_commit_active and model.git_commit_key != 0 and !model.git_commit_then_push and !model.git_commit_amend and !hasGitCommitGenerate(model);
 }
 
 /// In-dialog Committing and pushing… (Waku
 /// `commit.committing_and_pushing`). Card open and Commit and
 /// Push is live through add/preflight/commit or the follow-on
-/// card-originated push. Hidden while generate is live.
-/// Mutually exclusive with Pushing….
+/// card-originated push. Hidden while generate is live or Amend
+/// is on. Mutually exclusive with Pushing….
 pub fn hasGitCommitCommittingAndPushing(model: *const Model) bool {
-    if (!model.git_commit_active or hasGitCommitGenerate(model) or !model.git_commit_then_push) return false;
+    if (!model.git_commit_active or hasGitCommitGenerate(model) or model.git_commit_amend or !model.git_commit_then_push) return false;
     return model.git_commit_key != 0 or model.git_push_key != 0;
 }
 
@@ -560,6 +616,7 @@ pub fn closeCommit(model: *Model) void {
     model.git_commit_generate_key = 0;
     model.git_commit_generate_stdout_len = 0;
     model.git_commit_then_push = false;
+    model.git_commit_amend = false;
     clearCommitNumstat(model);
 }
 
@@ -618,7 +675,8 @@ pub fn dismissCommit(model: *Model, fx: *Effects) void {
 /// Dismiss the select list and other git cards, then open the
 /// runtime-only Commit… card and one-shot CommitSnapshot numstat
 /// for the default include-unstaged mode. Draft message is not
-/// persisted. No-op when gated, a git mutation is in flight, the
+/// persisted. Resets include-unstaged to on and Amend to off.
+/// No-op when gated, a git mutation is in flight, the
 /// session is streaming, or cwd is missing.
 pub fn startCommit(model: *Model, fx: *Effects) void {
     git_checkout.closePicker(model);
@@ -634,6 +692,7 @@ pub fn startCommit(model: *Model, fx: *Effects) void {
     if (!probeSupported()) return;
     if (probePath(model).len == 0) return;
     model.git_commit_include_unstaged = true;
+    model.git_commit_amend = false;
     model.git_commit_active = true;
     refreshCommitNumstat(model, fx);
 }
@@ -646,6 +705,17 @@ pub fn toggleIncludeUnstaged(model: *Model, fx: *Effects) void {
     model.git_commit_include_unstaged = !model.git_commit_include_unstaged;
     if (!model.git_commit_active) return;
     refreshCommitNumstat(model, fx);
+}
+
+/// Runtime-only Commit… Amend toggle. Default off. Not persisted.
+/// Does not re-probe CommitSnapshot. No-op while generate,
+/// add/preflight/commit, or a card-originated push is in flight.
+pub fn toggleAmend(model: *Model, fx: *Effects) void {
+    _ = fx;
+    if (hasGitCommitPushing(model)) return;
+    if (hasGitCommitGenerate(model)) return;
+    if (model.git_commit_key != 0) return;
+    model.git_commit_amend = !model.git_commit_amend;
 }
 
 fn spawnCommitCmd(model: *Model, fx: *Effects, cwd: []const u8, argv: []const []const u8, phase: GitCommitPhase) void {
@@ -681,6 +751,11 @@ fn spawnCommit(model: *Model, fx: *Effects) void {
     const message = model.git_commit_message_storage[0..model.git_commit_message_len];
     if (cwd.len == 0 or message.len == 0) {
         failCommit(model);
+        return;
+    }
+    if (model.git_commit_amend) {
+        var argv_buf: [amend_argv_len][]const u8 = undefined;
+        spawnCommitCmd(model, fx, cwd, amendArgvFor(cwd, message, &argv_buf), .commit);
         return;
     }
     var argv_buf: [commit_argv_len][]const u8 = undefined;
@@ -773,6 +848,9 @@ fn confirmCommitWith(model: *Model, fx: *Effects, then_push: bool) void {
     const cwd = probePath(model);
     if (cwd.len == 0) return;
 
+    // Amend is commit-only: never start a follow-on push.
+    const push_after = then_push and !model.git_commit_amend;
+
     var msg_buf: [max_commit_message]u8 = undefined;
     const message = normalizeMessage(model.git_commit_buffer.text(), &msg_buf) orelse {
         if (!generateAvailable(model)) {
@@ -781,14 +859,14 @@ fn confirmCommitWith(model: *Model, fx: *Effects, then_push: bool) void {
             return;
         }
         writeFixed(&model.git_commit_probe_path_storage, &model.git_commit_probe_path_len, cwd);
-        model.git_commit_then_push = then_push;
+        model.git_commit_then_push = push_after;
         model.clearAttachStatus();
         spawnGenerate(model, fx);
         return;
     };
     writeFixed(&model.git_commit_message_storage, &model.git_commit_message_len, message);
     writeFixed(&model.git_commit_probe_path_storage, &model.git_commit_probe_path_len, cwd);
-    model.git_commit_then_push = then_push;
+    model.git_commit_then_push = push_after;
     spawnAddOrCommit(model, fx);
 }
 
@@ -827,6 +905,7 @@ pub fn confirmCommitAndPush(model: *Model, fx: *Effects) void {
 /// post-commit when ahead is stale) and not composer `startPush`
 /// (that path still closes any open commit card).
 pub fn confirmPushOnly(model: *Model, fx: *Effects) void {
+    if (model.git_commit_amend) return;
     if (!git_ahead_behind.canPushGitBranch(model)) return;
     if (model.git_commit_generate_key != 0) return;
     if (model.git_commit_key != 0 or model.git_commit_phase != .idle) return;
@@ -1012,6 +1091,7 @@ test "commit argv is chdir script plus git commit -m and its own message slot" {
     try std.testing.expectEqualStrings(git_message_flag, argv[7]);
     try std.testing.expectEqualStrings("fix dirty count", argv[8]);
     try std.testing.expect(isGitCommitArgv(argv));
+    try std.testing.expect(!isGitCommitAmendArgv(argv));
     try std.testing.expect(!isGitCommitAddArgv(argv));
     try std.testing.expect(!isGitCommitCachedQuietArgv(argv));
     try std.testing.expect(!git_checkout.isGitPushArgv(argv));
@@ -1029,6 +1109,38 @@ test "commit argv is chdir script plus git commit -m and its own message slot" {
     try std.testing.expect(!isGitCommitArgv(fetch));
     try std.testing.expect(!isGitCommitAddArgv(fetch));
     try std.testing.expect(!isGitCommitCachedQuietArgv(fetch));
+}
+
+test "amend argv is chdir script plus git commit --amend -m and its own message slot" {
+    var buf: [amend_argv_len][]const u8 = undefined;
+    const argv = amendArgvFor("/tmp/faku-amend", "fix dirty count", &buf);
+    try std.testing.expectEqual(@as(usize, 10), argv.len);
+    try std.testing.expectEqualStrings(sh_bin, argv[0]);
+    try std.testing.expectEqualStrings("-c", argv[1]);
+    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings("sh", argv[3]);
+    try std.testing.expectEqualStrings("/tmp/faku-amend", argv[4]);
+    try std.testing.expectEqualStrings(git_bin, argv[5]);
+    try std.testing.expectEqualStrings(git_commit_cmd, argv[6]);
+    try std.testing.expectEqualStrings(git_amend_flag, argv[7]);
+    try std.testing.expectEqualStrings(git_message_flag, argv[8]);
+    try std.testing.expectEqualStrings("fix dirty count", argv[9]);
+    try std.testing.expect(isGitCommitAmendArgv(argv));
+    try std.testing.expect(!isGitCommitArgv(argv));
+    try std.testing.expect(!isGitCommitAddArgv(argv));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(argv));
+    try std.testing.expect(!git_checkout.isGitPushArgv(argv));
+    try std.testing.expect(!git_checkout.isGitFetchArgv(argv));
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_commit_cmd) == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_amend_flag) == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_message_flag) == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], "fix dirty count") == null);
+    try std.testing.expect(!std.mem.eql(u8, argv[7], git_message_flag));
+
+    var commit_buf: [commit_argv_len][]const u8 = undefined;
+    const commit = commitArgvFor("/tmp/faku-amend", "fix dirty count", &commit_buf);
+    try std.testing.expect(isGitCommitArgv(commit));
+    try std.testing.expect(!isGitCommitAmendArgv(commit));
 }
 
 test "cached-quiet argv is chdir script plus git diff --cached --quiet --" {
@@ -1390,6 +1502,19 @@ fn advanceCachedQuietToCommit(model: *Model, fx: *Effects) !@TypeOf(fx.pendingSp
     return findPending(fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
 }
 
+fn advanceCachedQuietToAmend(model: *Model, fx: *Effects) !@TypeOf(fx.pendingSpawnAt(0).?) {
+    try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
+    const preflight = findPending(fx, model.git_commit_key, &isGitCommitCachedQuietArgv) orelse return error.MissingGitCachedQuietSpawn;
+    try std.testing.expect(!isGitCommitArgv(preflight.argv));
+    try std.testing.expect(!isGitCommitAmendArgv(preflight.argv));
+    try std.testing.expect(!isGitCommitAddArgv(preflight.argv));
+    handleCommitExit(model, fx, .{ .key = preflight.key, .reason = .exited, .code = 1 });
+    try std.testing.expectEqual(GitCommitPhase.commit, model.git_commit_phase);
+    const amend = findPending(fx, model.git_commit_key, &isGitCommitAmendArgv) orelse return error.MissingGitAmendSpawn;
+    try std.testing.expect(!isGitCommitArgv(amend.argv));
+    return amend;
+}
+
 fn markDirtyUnstaged(model: *Model, count: u32) void {
     model.git_dirty_count = count;
     model.git_dirty_key = 0;
@@ -1424,6 +1549,17 @@ fn expectCommitPending(
     committing_and_pushing: bool,
     pushing_only: bool,
 ) !void {
+    try expectCommitPendingEx(model, generate, committing, committing_and_pushing, pushing_only, false);
+}
+
+fn expectCommitPendingEx(
+    model: *const Model,
+    generate: bool,
+    committing: bool,
+    committing_and_pushing: bool,
+    pushing_only: bool,
+    amending: bool,
+) !void {
     try std.testing.expectEqual(generate, hasGitCommitGenerate(model));
     try std.testing.expectEqual(generate, model.has_git_commit_generate());
     try std.testing.expectEqual(committing, hasGitCommitCommitting(model));
@@ -1432,7 +1568,9 @@ fn expectCommitPending(
     try std.testing.expectEqual(committing_and_pushing, model.has_git_commit_committing_and_pushing());
     try std.testing.expectEqual(pushing_only, hasGitCommitPushOnly(model));
     try std.testing.expectEqual(pushing_only, model.has_git_commit_push_only());
-    const live = @intFromBool(generate) + @intFromBool(committing) + @intFromBool(committing_and_pushing) + @intFromBool(pushing_only);
+    try std.testing.expectEqual(amending, hasGitCommitAmending(model));
+    try std.testing.expectEqual(amending, model.has_git_commit_amending());
+    const live = @intFromBool(generate) + @intFromBool(committing) + @intFromBool(committing_and_pushing) + @intFromBool(pushing_only) + @intFromBool(amending);
     try std.testing.expect(live <= 1);
 }
 
@@ -2085,7 +2223,7 @@ test "cached-quiet other exit or spawn failure is Could not commit" {
     try std.testing.expect(model.git_commit_active);
 }
 
-test "startCommit resets include_unstaged to true" {
+test "startCommit resets include_unstaged to true and amend to false" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -2102,9 +2240,11 @@ test "startCommit resets include_unstaged to true" {
     if (model.sessionById(id)) |session| session.setProjectPath(project);
     markDirtyStaged(&model, 1);
     model.git_commit_include_unstaged = false;
+    model.git_commit_amend = true;
     startCommit(&model, &fx);
     try std.testing.expect(model.git_commit_active);
     try std.testing.expect(model.git_commit_include_unstaged);
+    try std.testing.expect(!model.git_commit_amend);
 }
 
 test "commit snapshot argv is numstat untracked script when include-unstaged and --cached when off" {
@@ -3022,6 +3162,209 @@ test "dismiss and cancel clear pending commit labels" {
     confirmPushOnly(&model, &fx);
     try expectCommitPending(&model, false, false, false, true);
     dismissCommit(&model, &fx);
+    try std.testing.expect(!model.git_commit_active);
+    try expectCommitPending(&model, false, false, false, false);
+}
+
+test "amend hides Commit and Push and Push-only" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-amend-gate", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("amend gate", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+    markFirstPushRemotesOk(&model);
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_has_upstream = true;
+    model.git_ahead_behind_ahead = 1;
+    try std.testing.expect(canCommitAndPushGit(&model));
+    try std.testing.expect(canPushOnlyGit(&model));
+    try std.testing.expect(git_ahead_behind.canPushGitBranch(&model));
+
+    startCommit(&model, &fx);
+    try std.testing.expect(!model.git_commit_amend);
+    try std.testing.expect(canCommitAndPushGit(&model));
+    try std.testing.expect(canPushOnlyGit(&model));
+    try std.testing.expect(model.can_commit_and_push_git());
+    try std.testing.expect(model.can_git_commit_push_only());
+
+    toggleAmend(&model, &fx);
+    try std.testing.expect(model.git_commit_amend);
+    try std.testing.expect(canCommitGit(&model));
+    try std.testing.expect(!canCommitAndPushGit(&model));
+    try std.testing.expect(!canPushOnlyGit(&model));
+    try std.testing.expect(!model.can_commit_and_push_git());
+    try std.testing.expect(!model.can_git_commit_push_only());
+    try std.testing.expect(git_ahead_behind.canPushGitBranch(&model));
+    try std.testing.expect(model.can_push_git_branch());
+
+    confirmCommit(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_generate_key);
+    try std.testing.expectEqualStrings(empty_message_status, model.attach_status());
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitAmendArgv) == null);
+
+    model.clearAttachStatus();
+    model.git_commit_buffer.apply(.{ .insert_text = "do not push" });
+    confirmCommitAndPush(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitAmendArgv) == null);
+
+    confirmPushOnly(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!hasGitCommitPushing(&model));
+    try std.testing.expect(model.git_commit_active);
+
+    toggleAmend(&model, &fx);
+    try std.testing.expect(!model.git_commit_amend);
+    try std.testing.expect(canCommitAndPushGit(&model));
+    try std.testing.expect(canPushOnlyGit(&model));
+}
+
+test "confirm amend add-then-preflight then git commit --amend -m" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-amend-path", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("amend path", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 2);
+    markFirstPushRemotesOk(&model);
+
+    startCommit(&model, &fx);
+    toggleAmend(&model, &fx);
+    try std.testing.expect(model.git_commit_amend);
+    model.git_commit_buffer.apply(.{ .insert_text = "  wrap the dirty probe  " });
+    confirmCommit(&model, &fx);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expectEqual(GitCommitPhase.add, model.git_commit_phase);
+    try expectCommitPendingEx(&model, false, false, false, false, true);
+    const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
+    try std.testing.expect(!isGitCommitArgv(add.argv));
+    try std.testing.expect(!isGitCommitAmendArgv(add.argv));
+
+    handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
+    try expectCommitPendingEx(&model, false, false, false, false, true);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    const amend = try advanceCachedQuietToAmend(&model, &fx);
+    try std.testing.expectEqualStrings(git_amend_flag, amend.argv[7]);
+    try std.testing.expectEqualStrings(git_message_flag, amend.argv[8]);
+    try std.testing.expectEqualStrings("wrap the dirty probe", amend.argv[9]);
+    try std.testing.expect(std.mem.indexOf(u8, amend.argv[2], git_amend_flag) == null);
+    try std.testing.expect(std.mem.indexOf(u8, amend.argv[2], "wrap the dirty probe") == null);
+    try std.testing.expect(amend.key != add.key);
+    try expectCommitPendingEx(&model, false, false, false, false, true);
+    try std.testing.expect(!hasGitCommitCommitting(&model));
+
+    handleCommitExit(&model, &fx, .{ .key = amend.key, .reason = .exited, .code = 0 });
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try expectCommitPending(&model, false, false, false, false);
+}
+
+test "amend empty plus fx available generates then amends" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-amend-generate", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    enableFx(&model);
+    const id = model.addSession("amend generate", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+
+    startCommit(&model, &fx);
+    toggleAmend(&model, &fx);
+    confirmCommit(&model, &fx);
+    try std.testing.expect(hasGitCommitGenerate(&model));
+    try expectCommitPending(&model, true, false, false, false);
+    try std.testing.expect(!hasGitCommitAmending(&model));
+
+    const gen = findPending(&fx, model.git_commit_generate_key, &isGitCommitGenerateArgv) orelse return error.MissingGenerateSpawn;
+    applyGenerateLine(&model, .{ .key = gen.key, .line = "{\"output\":\"wrap the dirty probe\"}\n" });
+    handleGenerateExit(&model, &fx, .{ .key = gen.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqualStrings("wrap the dirty probe", model.git_commit());
+    try std.testing.expectEqual(GitCommitPhase.add, model.git_commit_phase);
+    try expectCommitPendingEx(&model, false, false, false, false, true);
+    try std.testing.expect(!hasGitCommitCommitting(&model));
+    const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
+    handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
+    const amend = try advanceCachedQuietToAmend(&model, &fx);
+    try std.testing.expectEqualStrings("wrap the dirty probe", amend.argv[9]);
+    try std.testing.expect(isGitCommitAmendArgv(amend.argv));
+    try std.testing.expect(!isGitCommitArgv(amend.argv));
+}
+
+test "Amend shows Amending not Committing Generating or Pushing" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-pending-amend", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit pending amend", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+    markFirstPushRemotesOk(&model);
+    model.git_ahead_behind_ready = true;
+
+    startCommit(&model, &fx);
+    try expectCommitPending(&model, false, false, false, false);
+    toggleAmend(&model, &fx);
+    try std.testing.expect(model.git_commit_amend);
+    try expectCommitPending(&model, false, false, false, false);
+
+    model.git_commit_buffer.apply(.{ .insert_text = "wrap the dirty probe" });
+    confirmCommit(&model, &fx);
+    try expectCommitPendingEx(&model, false, false, false, false, true);
+    try std.testing.expect(!hasGitCommitPushing(&model));
+
+    const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
+    handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
+    try expectCommitPendingEx(&model, false, false, false, false, true);
+
+    const amend = try advanceCachedQuietToAmend(&model, &fx);
+    try expectCommitPendingEx(&model, false, false, false, false, true);
+
+    handleCommitExit(&model, &fx, .{ .key = amend.key, .reason = .exited, .code = 0 });
     try std.testing.expect(!model.git_commit_active);
     try expectCommitPending(&model, false, false, false, false);
 }

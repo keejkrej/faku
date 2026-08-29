@@ -528,6 +528,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .confirm_git_commit_push => settings_actions.handleConfirmGitCommitPush(model, fx),
         .cancel_git_commit => settings_actions.handleCancelGitCommit(model, fx),
         .toggle_git_commit_include_unstaged => settings_actions.handleToggleGitCommitIncludeUnstaged(model, fx),
+        .toggle_git_commit_amend => settings_actions.handleToggleGitCommitAmend(model, fx),
         .start_project_edit => {
             git_commit.dropCommitNumstat(model, fx);
             model.startProjectEdit();

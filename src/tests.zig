@@ -13509,11 +13509,15 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     try testing.expect(findByText(tree.root, .text, "+8 −1") == null);
     try testing.expect(findByText(tree.root, .text, "clean") == null);
     try testing.expect(findByText(tree.root, .text, "Generating…") == null);
+    try testing.expect(findByText(tree.root, .text, "Amending…") == null);
     try testing.expect(findByText(tree.root, .text, "Committing…") == null);
     try testing.expect(findByText(tree.root, .text, "Committing and pushing…") == null);
     try testing.expect(findByText(tree.root, .text, "Pushing…") == null);
     const include = try expectButtonMsg(tree, "Include unstaged", .toggle_git_commit_include_unstaged);
     try testing.expect(include.state.selected);
+    const amend = try expectButtonMsg(tree, "Amend", .toggle_git_commit_amend);
+    try testing.expect(!amend.state.selected);
+    try testing.expect(!model.git_commit_amend);
     _ = try expectButtonMsg(tree, "Commit", .confirm_git_commit);
     _ = try expectButtonMsg(tree, "Commit and Push", .confirm_git_commit_and_push);
     _ = try expectButtonMsg(tree, "Push", .confirm_git_commit_push);
@@ -13570,13 +13574,16 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     try testing.expectEqual(@as(u64, 0), model.git_commit_numstat_key);
     try testing.expect(!model.has_git_commit_numstat());
     try testing.expect(findByText(tree.root, .text, "Generating…") == null);
+    try testing.expect(findByText(tree.root, .text, "Amending…") == null);
     try testing.expect(findByText(tree.root, .text, "Committing…") == null);
     try testing.expect(findByText(tree.root, .text, "Committing and pushing…") == null);
     try testing.expect(findByText(tree.root, .text, "Pushing…") == null);
 
     main.update(&model, .start_git_commit, &fx);
     try testing.expect(model.git_commit_active);
+    try testing.expect(!model.git_commit_amend);
     try testing.expect(model.can_push_git_branch());
+    try testing.expect(model.can_git_commit_push_only());
     main.update(&model, .confirm_git_commit_push, &fx);
     try testing.expect(model.git_commit_active);
     try testing.expect(model.has_git_commit_pushing());
@@ -13592,6 +13599,7 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Pushing…");
     try testing.expect(findByText(tree.root, .text, "Generating…") == null);
+    try testing.expect(findByText(tree.root, .text, "Amending…") == null);
     try testing.expect(findByText(tree.root, .text, "Committing…") == null);
     try testing.expect(findByText(tree.root, .text, "Committing and pushing…") == null);
     var i: usize = 0;
@@ -13599,6 +13607,7 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
         try testing.expect(!git_commit.isGitCommitCachedQuietArgv(spawn.argv));
         try testing.expect(!git_commit.isGitCommitAddArgv(spawn.argv));
         try testing.expect(!git_commit.isGitCommitArgv(spawn.argv));
+        try testing.expect(!git_commit.isGitCommitAmendArgv(spawn.argv));
     }
 }
 
@@ -13637,6 +13646,7 @@ test "Commit empty plus fx available shows Generating then auto-adds the subject
     try testing.expect(git_checkout.gitMutationInFlight(&model));
     const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Generating…");
+    try testing.expect(findByText(tree.root, .text, "Amending…") == null);
     try testing.expect(findByText(tree.root, .text, "Committing…") == null);
     try testing.expect(findByText(tree.root, .text, "Committing and pushing…") == null);
     try testing.expect(findByText(tree.root, .text, "Pushing…") == null);
@@ -13663,6 +13673,7 @@ test "Commit empty plus fx available shows Generating then auto-adds the subject
     const after_gen = try buildTree(arena, &model);
     _ = try expectByText(after_gen.root, .text, "Committing…");
     try testing.expect(findByText(after_gen.root, .text, "Generating…") == null);
+    try testing.expect(findByText(after_gen.root, .text, "Amending…") == null);
     try testing.expect(findByText(after_gen.root, .text, "Committing and pushing…") == null);
     try testing.expect(findByText(after_gen.root, .text, "Pushing…") == null);
 }
@@ -13705,6 +13716,7 @@ test "Commit card shows Committing and Committing and pushing pending labels" {
     try testing.expect(!model.has_git_commit_generate());
     var tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "Generating…") == null);
+    try testing.expect(findByText(tree.root, .text, "Amending…") == null);
     try testing.expect(findByText(tree.root, .text, "Committing…") == null);
     try testing.expect(findByText(tree.root, .text, "Committing and pushing…") == null);
     try testing.expect(findByText(tree.root, .text, "Pushing…") == null);
@@ -13718,6 +13730,7 @@ test "Commit card shows Committing and Committing and pushing pending labels" {
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Committing…");
     try testing.expect(findByText(tree.root, .text, "Generating…") == null);
+    try testing.expect(findByText(tree.root, .text, "Amending…") == null);
     try testing.expect(findByText(tree.root, .text, "Committing and pushing…") == null);
     try testing.expect(findByText(tree.root, .text, "Pushing…") == null);
 
@@ -13736,6 +13749,7 @@ test "Commit card shows Committing and Committing and pushing pending labels" {
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Committing and pushing…");
     try testing.expect(findByText(tree.root, .text, "Committing…") == null);
+    try testing.expect(findByText(tree.root, .text, "Amending…") == null);
     try testing.expect(findByText(tree.root, .text, "Pushing…") == null);
     try testing.expect(findByText(tree.root, .text, "Generating…") == null);
 
@@ -13757,12 +13771,102 @@ test "Commit card shows Committing and Committing and pushing pending labels" {
     _ = try expectByText(tree.root, .text, "Committing and pushing…");
     try testing.expect(findByText(tree.root, .text, "Pushing…") == null);
     try testing.expect(findByText(tree.root, .text, "Committing…") == null);
+    try testing.expect(findByText(tree.root, .text, "Amending…") == null);
     try testing.expect(findByText(tree.root, .text, "Generating…") == null);
 
     main.update(&model, .cancel_git_commit, &fx);
     try testing.expect(!model.git_commit_active);
     try testing.expect(!model.has_git_commit_committing_and_pushing());
     try testing.expect(!model.has_git_commit_pushing());
+}
+
+test "Commit card Amend hides Commit and Push and Push and paints Amending" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-amend-ui", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("commit amend ui", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_dirty_count = 1;
+    model.git_dirty_key = 0;
+    model.git_has_staged = false;
+    model.git_has_unstaged = true;
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_has_upstream = true;
+    model.git_ahead_behind_ahead = 1;
+    model.git_remotes_ready = true;
+    model.git_has_remote = true;
+
+    main.update(&model, .start_git_commit, &fx);
+    try testing.expect(model.git_commit_active);
+    try testing.expect(!model.git_commit_amend);
+    try testing.expect(model.can_commit_and_push_git());
+    try testing.expect(model.can_git_commit_push_only());
+    var tree = try buildTree(arena, &model);
+    const amend_off = try expectButtonMsg(tree, "Amend", .toggle_git_commit_amend);
+    try testing.expect(!amend_off.state.selected);
+    _ = try expectButtonMsg(tree, "Commit and Push", .confirm_git_commit_and_push);
+    _ = try expectButtonMsg(tree, "Push", .confirm_git_commit_push);
+    try testing.expect(findByText(tree.root, .text, "Amending…") == null);
+
+    main.update(&model, tree.msgForPointer(amend_off.id, .up).?, &fx);
+    try testing.expect(model.git_commit_amend);
+    try testing.expect(!model.can_commit_and_push_git());
+    try testing.expect(!model.can_git_commit_push_only());
+    try testing.expect(model.can_push_git_branch());
+    tree = try buildTree(arena, &model);
+    const amend_on = try expectButtonMsg(tree, "Amend", .toggle_git_commit_amend);
+    try testing.expect(amend_on.state.selected);
+    try testing.expect(findByText(tree.root, .button, "Commit and Push") == null);
+    try testing.expect(findByText(tree.root, .button, "Push") == null);
+    _ = try expectButtonMsg(tree, "Commit", .confirm_git_commit);
+
+    main.update(&model, .{ .git_commit_edit = .{ .insert_text = "wrap the dirty probe" } }, &fx);
+    main.update(&model, .confirm_git_commit, &fx);
+    try testing.expect(model.has_git_commit_amending());
+    try testing.expect(!model.has_git_commit_committing());
+    try testing.expect(!model.has_git_commit_committing_and_pushing());
+    try testing.expect(!model.has_git_commit_push_only());
+    try testing.expect(!model.has_git_commit_generate());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Amending…");
+    try testing.expect(findByText(tree.root, .text, "Generating…") == null);
+    try testing.expect(findByText(tree.root, .text, "Committing…") == null);
+    try testing.expect(findByText(tree.root, .text, "Committing and pushing…") == null);
+    try testing.expect(findByText(tree.root, .text, "Pushing…") == null);
+
+    const add = findPendingGitCommitAdd(&fx, model.git_commit_key) orelse return error.MissingGitAddSpawn;
+    git_commit.handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
+    try testing.expect(model.has_git_commit_amending());
+    const preflight = findPendingGitCommitCachedQuiet(&fx, model.git_commit_key) orelse return error.MissingGitCachedQuietSpawn;
+    git_commit.handleCommitExit(&model, &fx, .{ .key = preflight.key, .reason = .exited, .code = 1 });
+    try testing.expect(model.has_git_commit_amending());
+    const amend_spawn = findPendingGitCommitAmend(&fx, model.git_commit_key) orelse return error.MissingGitAmendSpawn;
+    try testing.expect(git_commit.isGitCommitAmendArgv(amend_spawn.argv));
+    try testing.expect(!git_commit.isGitCommitArgv(amend_spawn.argv));
+    try testing.expectEqualStrings(git_commit.git_amend_flag, amend_spawn.argv[7]);
+    try testing.expectEqualStrings("wrap the dirty probe", amend_spawn.argv[9]);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Amending…");
+    try testing.expect(findByText(tree.root, .text, "Committing…") == null);
+
+    git_commit.handleCommitExit(&model, &fx, .{ .key = amend_spawn.key, .reason = .exited, .code = 0 });
+    try testing.expect(!model.git_commit_active);
+    try testing.expect(!model.has_git_commit_amending());
+    try testing.expectEqual(@as(u64, 0), model.git_push_key);
 }
 
 test "confirm New worktree one-shots git worktree add -b; success retargets project_path; failure sets status" {
@@ -14307,6 +14411,14 @@ fn findPendingGitCommitCmd(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0)
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (spawn.key == key and git_commit.isGitCommitArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn findPendingGitCommitAmend(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_commit.isGitCommitAmendArgv(spawn.argv)) return spawn;
     }
     return null;
 }
