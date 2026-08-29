@@ -5,9 +5,9 @@
 //! Commit… card), Compare (Branch name-status Review file list),
 //! and Copy task ID (local session id via `fx.writeClipboard`).
 //! Header +N −M reuses the composer project-row numstat probe
-//! (omit a zero side; muted; display-only). Not full Review
-//! hunks, not header click-to-Review, not background work, and
-//! not daemon WorkspaceOperation.
+//! (omit a zero side; muted ghost; click opens Compare Review).
+//! Not full Review hunks, not Uncommitted/Staged/Unstaged, not
+//! force, not background work, and not daemon WorkspaceOperation.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -197,6 +197,31 @@ test "compare closes Environment Summary and opens the Review card" {
     compare(&model, &fx);
     try std.testing.expect(!model.environment_summary_open);
     try std.testing.expect(!model.git_commit_active);
+    try std.testing.expect(model.review_diff_active);
+    try std.testing.expect(model.review_diff_key >= review_diff.review_diff_key_first);
+    try std.testing.expectEqualStrings(review_diff.comparing_status, review_diff.reviewDiffStatus(&model));
+}
+
+test "compare opens Review when Environment Summary is already closed" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/env-compare-header", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("env compare header", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    try std.testing.expect(!model.environment_summary_open);
+
+    compare(&model, &fx);
+    try std.testing.expect(!model.environment_summary_open);
     try std.testing.expect(model.review_diff_active);
     try std.testing.expect(model.review_diff_key >= review_diff.review_diff_key_first);
     try std.testing.expectEqualStrings(review_diff.comparing_status, review_diff.reviewDiffStatus(&model));

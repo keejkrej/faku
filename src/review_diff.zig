@@ -9,9 +9,9 @@
 //! spawn-key band 510+ (after git-common-dir 500+). Cap 64 rows.
 //! Empty / clean is `No changes to compare`. Failed / no upstream
 //! / missing workspace is a short muted status — no invented
-//! files. Not hunk rendering, not header click-to-Review, not
-//! Uncommitted / Staged / Unstaged sources, not background work,
-//! and not daemon WorkspaceOperation.
+//! files. Header +/- and Compare both open this card. Not hunk
+//! rendering, not Uncommitted / Staged / Unstaged sources, not
+//! background work, and not daemon WorkspaceOperation.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).

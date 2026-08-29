@@ -2296,7 +2296,8 @@ pub const Model = struct {
     }
 
     /// Header Environment +/-. Same counts as the composer probe;
-    /// omits a zero side. Muted display-only. Not click-to-Review.
+    /// omits a zero side. Muted ghost; click opens Compare Review
+    /// (file list, not hunks).
     pub fn header_git_numstat_label(model: *const Model) []const u8 {
         return environment_summary.headerGitNumstatLabel(model);
     }

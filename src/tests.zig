@@ -16881,12 +16881,12 @@ test "header Environment +/- reuses composer numstat and omits a zero side" {
     toolbar = try expectByText(tree.root, .row, "Toolbar");
     env_controls = try expectByText(toolbar, .row, "header-environment-controls");
     const header_status = try expectByText(env_controls, .row, "header-git-status");
-    _ = try expectByText(header_status, .text, "+3 −1");
-    try testing.expect(tree.msgForPointer(header_status.id, .up) == null);
-    try testing.expect(findPressableContaining(header_status, "+3 −1") == null);
-    try testing.expect(findByText(env_controls, .button, "+3 −1") == null);
+    const header_plus = try expectByText(header_status, .button, "+3 −1");
+    try testing.expectEqual(Msg.environment_compare, tree.msgForPointer(header_plus.id, .up).?);
+    try testing.expect(findPressableContaining(header_status, "+3 −1") != null);
+    _ = try expectButtonMsg(tree, "+3 −1", .environment_compare);
     _ = try expectByText(env_controls, .button, "Environment");
-    try testing.expectEqual(@as(usize, 2), countByText(tree.root, .text, "+3 −1"));
+    _ = try expectByText(tree.root, .text, "+3 −1");
     try testing.expect(!model.git_commit_active);
 
     git_numstat.refresh(&model, &fx);
@@ -16902,9 +16902,10 @@ test "header Environment +/- reuses composer numstat and omits a zero side" {
     toolbar = try expectByText(tree.root, .row, "Toolbar");
     env_controls = try expectByText(toolbar, .row, "header-environment-controls");
     const header_add = try expectByText(env_controls, .row, "header-git-status");
-    _ = try expectByText(header_add, .text, "+5");
+    const header_add_btn = try expectByText(header_add, .button, "+5");
+    try testing.expectEqual(Msg.environment_compare, tree.msgForPointer(header_add_btn.id, .up).?);
+    try testing.expect(findByText(header_add, .button, "+5 −0") == null);
     try testing.expect(findByText(header_add, .text, "+5 −0") == null);
-    try testing.expect(tree.msgForPointer(header_add.id, .up) == null);
     _ = try expectByText(tree.root, .text, "+5 −0");
     _ = try expectByText(env_controls, .button, "Environment");
 
@@ -16921,10 +16922,11 @@ test "header Environment +/- reuses composer numstat and omits a zero side" {
     toolbar = try expectByText(tree.root, .row, "Toolbar");
     env_controls = try expectByText(toolbar, .row, "header-environment-controls");
     const header_del = try expectByText(env_controls, .row, "header-git-status");
-    _ = try expectByText(header_del, .text, "−4");
+    const header_del_btn = try expectByText(header_del, .button, "−4");
+    try testing.expectEqual(Msg.environment_compare, tree.msgForPointer(header_del_btn.id, .up).?);
+    try testing.expect(findByText(header_del, .button, "+0 −4") == null);
     try testing.expect(findByText(header_del, .text, "+0 −4") == null);
     _ = try expectByText(tree.root, .text, "+0 −4");
-    try testing.expect(findByText(env_controls, .button, "−4") == null);
     _ = try expectByText(env_controls, .button, "Environment");
     try testing.expect(!model.git_commit_active);
 
@@ -16944,4 +16946,103 @@ test "header Environment +/- reuses composer numstat and omits a zero side" {
     try testing.expect(findByText(tree.root, .text, "+5") == null);
     try testing.expect(findByText(tree.root, .text, "−4") == null);
     _ = try expectByText(env_controls, .button, "Environment");
+}
+
+test "header Environment +/- opens the same Review card as Compare" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/header-compare", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("header compare", .fx);
+    model.selected = id;
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const numstat = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try fx.feedLine(numstat.key, "3\t1\tsrc/a.zig\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(numstat.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(model.has_git_numstat());
+    try testing.expectEqualStrings("+3 −1", model.header_git_numstat_label());
+    try testing.expect(!model.environment_summary_open);
+    try testing.expect(!model.review_diff_active);
+
+    var tree = try buildTree(arena, &model);
+    var toolbar = try expectByText(tree.root, .row, "Toolbar");
+    var env_controls = try expectByText(toolbar, .row, "header-environment-controls");
+    const header_status = try expectByText(env_controls, .row, "header-git-status");
+    const header_plus = try expectByText(header_status, .button, "+3 −1");
+    try testing.expectEqual(Msg.environment_compare, tree.msgForPointer(header_plus.id, .up).?);
+    const pending_before_click = fx.pendingSpawnCount();
+    main.update(&model, tree.msgForPointer(header_plus.id, .up).?, &fx);
+    try testing.expect(!model.environment_summary_open);
+    try testing.expect(model.review_diff_active);
+    try testing.expect(model.review_diff_key >= main.review_diff_key_first);
+    try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
+    try testing.expect(fx.pendingSpawnCount() > pending_before_click);
+
+    const spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffSpawn;
+    try testing.expect(review_diff.isGitReviewDiffArgv(spawn.argv));
+    try testing.expectEqualStrings("@{upstream}...HEAD", spawn.argv[8]);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], "@{upstream}...HEAD") == null);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Review");
+    _ = try expectByText(tree.root, .text, review_diff.comparing_status);
+    _ = try expectButtonMsg(tree, "Cancel", .close_review_diff);
+    toolbar = try expectByText(tree.root, .row, "Toolbar");
+    env_controls = try expectByText(toolbar, .row, "header-environment-controls");
+    _ = try expectByText(env_controls, .button, "+3 −1");
+    _ = try expectByText(env_controls, .button, "Environment");
+
+    try fx.feedLine(spawn.key, "M\tsrc/a.zig\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(model.has_review_diff_files());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "M src/a.zig");
+
+    main.update(&model, .close_review_diff, &fx);
+    try testing.expect(!model.review_diff_active);
+
+    main.update(&model, .toggle_environment_summary, &fx);
+    try testing.expect(model.environment_summary_open);
+    tree = try buildTree(arena, &model);
+    const compare = try expectByText(tree.root, .menu_item, "Compare");
+    try testing.expectEqual(Msg.environment_compare, tree.msgForPointer(compare.id, .up).?);
+    main.update(&model, tree.msgForPointer(compare.id, .up).?, &fx);
+    try testing.expect(!model.environment_summary_open);
+    try testing.expect(model.review_diff_active);
+    const menu_spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffMenu;
+    try testing.expect(review_diff.isGitReviewDiffArgv(menu_spawn.argv));
+    try fx.feedExit(menu_spawn.key, 0);
+    drainEffects(&model, &fx);
+    main.update(&model, .close_review_diff, &fx);
+    try testing.expect(!model.review_diff_active);
+
+    tree = try buildTree(arena, &model);
+    toolbar = try expectByText(tree.root, .row, "Toolbar");
+    env_controls = try expectByText(toolbar, .row, "header-environment-controls");
+    const gated = try expectByText(env_controls, .button, "+3 −1");
+    model.phase = .streaming;
+    main.update(&model, tree.msgForPointer(gated.id, .up).?, &fx);
+    try testing.expect(!model.review_diff_active);
+    model.phase = .idle;
+
+    model.git_push_key = main.git_push_key_first;
+    main.update(&model, tree.msgForPointer(gated.id, .up).?, &fx);
+    try testing.expect(!model.review_diff_active);
+    try testing.expect(git_checkout.gitMutationInFlight(&model));
 }
