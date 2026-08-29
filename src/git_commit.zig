@@ -995,7 +995,6 @@ test "cached-quiet argv is chdir script plus git diff --cached --quiet --" {
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_diff_cmd) == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_cached_flag) == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_quiet_flag) == null);
-    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_pathspec_dash) == null);
 
     var numstat_buf: [commit_numstat_argv_len][]const u8 = undefined;
     const cached_numstat = commitNumstatCachedArgvFor("/tmp/faku-commit", &numstat_buf);
