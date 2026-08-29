@@ -386,7 +386,9 @@ Commit and Push one-shots documented `fx ask --no-save --auto
 own argv slot; include-unstaged on vs off changes the prompt;
 fx inspects the repo itself), fills the normalized subject, then
 auto-proceeds into add/preflight/commit. A muted `Generating…` shows while
-that spawn is live. If fx is unavailable or the path is empty,
+that spawn is live. Commit-only add/preflight/commit paints muted
+`Committing…`; Commit and Push keeps muted `Committing and pushing…`
+through add/commit and the follow-on push. If fx is unavailable or the path is empty,
 empty confirm sets `Enter a commit message.` and does not spawn.
 Generate fail / empty output keeps the card open with
 `Could not generate a commit message.` Offered only

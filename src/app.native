@@ -457,7 +457,13 @@
                 <if test="{has_git_commit_generate}">
                   <text wrap="false" overflow="ellipsis" foreground="text_muted">Generating…</text>
                 </if>
-                <if test="{has_git_commit_pushing}">
+                <if test="{has_git_commit_committing_and_pushing}">
+                  <text wrap="false" overflow="ellipsis" foreground="text_muted">Committing and pushing…</text>
+                </if>
+                <if test="{has_git_commit_committing}">
+                  <text wrap="false" overflow="ellipsis" foreground="text_muted">Committing…</text>
+                </if>
+                <if test="{has_git_commit_push_only}">
                   <text wrap="false" overflow="ellipsis" foreground="text_muted">Pushing…</text>
                 </if>
                 <button variant="ghost" size="sm" on-press="confirm_git_commit">Commit</button>

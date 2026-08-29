@@ -627,8 +627,10 @@ pub const Model = struct {
     git_commit_phase: git_commit_mod.GitCommitPhase = .idle,
     git_commit_message_storage: [git_commit_mod.max_commit_message]u8 = [_]u8{0} ** git_commit_mod.max_commit_message,
     git_commit_message_len: usize = 0,
-    /// Runtime-only: Commit and Push confirmed. Cleared on cancel /
-    /// fail / session-switch. Not a view binding; not persisted.
+    /// Runtime-only: Commit and Push confirmed. Kept through the
+    /// follow-on card-originated push so Native can show
+    /// Committing and pushing…. Cleared on cancel / fail /
+    /// session-switch / card close. Not a view binding; not persisted.
     git_commit_then_push: bool = false,
     /// Runtime-only Commit… include-unstaged toggle. Default true
     /// (Waku dialog). Reset when the card opens. Not persisted.
@@ -2295,12 +2297,36 @@ pub const Model = struct {
         return git_commit_mod.hasGitCommitGenerate(model);
     }
 
+    /// In-dialog Committing… on the Commit… card. True while
+    /// that card is open and commit-only add/preflight/commit is
+    /// in flight. Hidden for Commit and Push and while generate
+    /// is live.
+    pub fn has_git_commit_committing(model: *const Model) bool {
+        return git_commit_mod.hasGitCommitCommitting(model);
+    }
+
+    /// In-dialog Committing and pushing… on the Commit… card.
+    /// True for the whole Commit and Push flow (add/commit and
+    /// the follow-on card-originated push). Hidden while generate
+    /// is live. Mutually exclusive with Pushing….
+    pub fn has_git_commit_committing_and_pushing(model: *const Model) bool {
+        return git_commit_mod.hasGitCommitCommittingAndPushing(model);
+    }
+
     /// In-dialog Pushing… on the Commit… card. True only while
     /// that card is open and a push it started is in flight
     /// (`git_push_key != 0`). Composer menu Push… closes the card
-    /// first, so this stays false for that path.
+    /// first, so this stays false for that path. Also true during
+    /// Commit and Push's follow-on push; Native uses
+    /// `has_git_commit_push_only` for the Pushing… line.
     pub fn has_git_commit_pushing(model: *const Model) bool {
         return git_commit_mod.hasGitCommitPushing(model);
+    }
+
+    /// In-dialog Pushing… for Push-only (and any card-originated
+    /// push that is not Commit and Push).
+    pub fn has_git_commit_push_only(model: *const Model) bool {
+        return git_commit_mod.hasGitCommitPushOnly(model);
     }
 
     /// Composer usage control. 0 when the live path has not reported usage.

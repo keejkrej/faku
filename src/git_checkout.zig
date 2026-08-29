@@ -1100,6 +1100,7 @@ fn closeCommitCard(model: *Model) void {
     model.git_commit_numstat_label_len = 0;
     model.git_commit_generate_key = 0;
     model.git_commit_generate_stdout_len = 0;
+    model.git_commit_then_push = false;
 }
 
 fn dropCommitSnapshot(model: *Model, fx: *Effects) void {
