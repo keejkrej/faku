@@ -17,6 +17,7 @@ const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
+const git_remotes = @import("git_remotes.zig");
 const git_commit = @import("git_commit.zig");
 const file_mention = @import("file_mention.zig");
 const keys = @import("keys.zig");
@@ -3236,9 +3237,12 @@ test "pick_folder stdout directory sets project_path the same way typing does" {
     try testing.expect(findGitDirtySpawnKey(&fx, model.git_dirty_key) != null);
     try testing.expect(findGitNumstatSpawnKey(&fx, model.git_numstat_key) != null);
     try testing.expect(findGitAheadBehindSpawnKey(&fx, model.git_ahead_behind_key) != null);
+    try testing.expect(findGitRemotesSpawnKey(&fx, model.git_remotes_key) != null);
     try testing.expect(!loaded.has_git_dirty());
     try testing.expect(!loaded.has_git_numstat());
     try testing.expect(!loaded.has_git_ahead_behind());
+    try testing.expect(!loaded.git_has_remote);
+    try testing.expect(!loaded.git_remotes_ready);
     try testing.expect(!loaded.has_git_commit_numstat());
 }
 
@@ -14463,10 +14467,33 @@ fn findGitAheadBehindSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt
     return null;
 }
 
+fn findGitRemotesSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_remotes.isGitRemotesArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn finishGitRemotesIfInFlight(fx: *Effects, model: *Model, line: []const u8) !void {
+    if (model.git_remotes_key == 0) return;
+    const spawn = findGitRemotesSpawnKey(fx, model.git_remotes_key) orelse return error.MissingGitRemotesSpawn;
+    try testing.expect(spawn.key >= main.git_remotes_key_first);
+    try testing.expect(spawn.key != model.git_push_key);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_checkout.git_remote_cmd) == null);
+    if (line.len > 0) {
+        try fx.feedLine(spawn.key, line);
+        drainEffects(model, fx);
+    }
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(model, fx);
+}
+
 fn finishAheadBehindNoUpstream(fx: *Effects, model: *Model) !void {
     const spawn = findGitAheadBehindSpawnKey(fx, model.git_ahead_behind_key) orelse return error.MissingGitAheadBehindSpawn;
     try fx.feedExit(spawn.key, 128);
     drainEffects(model, fx);
+    try finishGitRemotesIfInFlight(fx, model, "origin\n");
     try testing.expect(model.can_push_git_branch());
 }
 
@@ -14704,6 +14731,9 @@ test "changing session or project_path cancels the previous ahead/behind probe" 
     const first_spawn = findGitAheadBehindSpawnKey(&fx, model.git_ahead_behind_key) orelse return error.MissingGitAheadBehindSpawn;
     const first_key = first_spawn.key;
     try expectGitAheadBehindArgv(first_spawn, project_a);
+    const first_remotes = findGitRemotesSpawnKey(&fx, model.git_remotes_key) orelse return error.MissingGitRemotesSpawn;
+    const first_remotes_key = first_remotes.key;
+    try testing.expect(first_remotes_key >= main.git_remotes_key_first);
     try fx.feedLine(first_key, "0\t2\n");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("↑2", model.git_ahead_behind_label());
@@ -14712,6 +14742,9 @@ test "changing session or project_path cancels the previous ahead/behind probe" 
     try testing.expectEqual(second, model.selected);
     try testing.expect(!model.has_git_ahead_behind());
     try testing.expectEqual(@as(u64, 0), model.git_ahead_behind_key);
+    try testing.expectEqual(@as(u64, 0), model.git_remotes_key);
+    try testing.expect(!model.git_has_remote);
+    try testing.expect(!model.git_remotes_ready);
     try testing.expectError(error.EffectNotFound, fx.feedLine(first_key, "1\t0\n"));
     git_ahead_behind.applyLine(&model, .{ .key = first_key, .line = "1\t0" });
     try testing.expect(!model.has_git_ahead_behind());
@@ -14752,7 +14785,7 @@ test "changing session or project_path cancels the previous ahead/behind probe" 
     try testing.expect(findByText(tree.root, .text, "synced") == null);
 }
 
-test "Push… follows Waku can_push: ahead or no-upstream; hides in-flight and ahead 0" {
+test "Push… follows Waku can_push: ahead or no-upstream with remotes; hides in-flight and ahead 0" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();

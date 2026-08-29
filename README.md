@@ -62,13 +62,16 @@ chars; offered when the dirty probe is not in flight and
 there is staged work, or unstaged work while include-unstaged
 is on; Commit and Push on that card runs the same commit
 path then the existing Push… probe/spawn, even when the stale
-ahead/behind gate would hide Push…)
+ahead/behind gate would hide Push…, and is offered only when
+first-push remotes are OK — known upstream, or a `git remote`
+probe found at least one remote)
 or safe-delete a non-current, unoccupied local head (`git branch -d`)
 or fetch remotes via `git fetch --prune`
 or push the current branch via `git push` when it has an upstream,
 or `git push --set-upstream <remote> <branch>` when it does not
 (Push… only when Waku `can_push` would be true: ahead of
-`@{upstream}`, or that name does not resolve)
+`@{upstream}`, or that name does not resolve and at least one
+remote exists)
 plus a one-shot `git status --porcelain` dirty file count, a
 one-shot `git diff --numstat HEAD` +/- that also adds untracked
 text-line counts on the + side, and muted ahead/behind vs
@@ -376,7 +379,10 @@ when the dirty probe is not in flight and porcelain XY has staged
 changes, or unstaged changes while include-unstaged is on (Waku
 `can_commit`). Commit and Push on that card uses the same commit
 path, then the existing Push… probe/spawn without re-checking
-`can_push`. Not
+`can_push`. Offered only when `can_commit` and first-push remotes
+are OK: known upstream, or a remotes probe ready with at least one
+remote (hide while that probe is still needed or in-flight on the
+no-upstream path). Not
 `git diff --cached --quiet` preflight, not
 canonicalize(show-toplevel). Push… probes `@{upstream}` and one-shots `git push`
 when that name exists (`push` its own argv slot). When there is no
@@ -388,12 +394,12 @@ a push. Not force, not daemon `WorkspaceOperation::Push`, not
 `InspectCommit`. Push… is offered only when Waku
 `can_push` would be true: the ahead/behind probe resolved
 `@{upstream}` and `git_ahead_behind_ahead > 0`, or that probe
-failed / `@{upstream}` does not exist so the first-push
-`--set-upstream` path still has a row. Hidden while the probe is
-in flight (no flash) and when it resolved an upstream with ahead 0
-(synced or behind-only). This cut does not probe remotes for the
-gate — first-push with no remotes still fails at `startPush` with
-`Could not push.` The current branch is never
+failed / `@{upstream}` does not exist and a one-shot `git remote`
+found at least one remote (prefer `origin`, else the first name).
+Hidden while those probes are in flight (no flash), when remotes
+are empty or failed on the no-upstream path, and when it resolved
+an upstream with ahead 0 (synced or behind-only). The current
+branch is never
 offered. Selecting the current local branch is a no-op; picking a
 remote-tracking name is not. A failed checkout, create, delete,
 fetch, push, worktree-add, or commit sets a short composer status and leaves
@@ -414,7 +420,10 @@ and, when either count is non-zero, a muted `↑A ↓B` label next to
 dirty / +/- (omit a side when that count is 0; left = behind
 upstream, right = ahead of upstream). No upstream, both-zero,
 failed, rejected, Local, empty/missing path, or Windows omits that
-label — this cut does not invent "synced" or "0 ahead". Zero,
+label — this cut does not invent "synced" or "0 ahead". The same
+refresh also one-shots `git remote` (`remote` its own argv slot;
+prefer `origin`, else the first name) so first-push remotes can
+gate Push… and Commit and Push. Zero,
 failed, or skipped dirty / +/- probes omit those labels — this cut
 does not invent "clean". This is not Waku's daemon
 `InspectBranches` live watch, not Waku `{project_id}` UUID
@@ -428,11 +437,10 @@ force push, not prune-alone (`git prune` without fetch), and not
 Review. Leftovers: canonicalize(`git rev-parse --show-toplevel`) /
 git-common-dir worktree nest identity /
 untracked-as-additions on the commit card /
-`git diff --cached --quiet` preflight / remotes-required-for-first-push as a
-Commit-and-Push gate (no remotes probe
-on the Push… gate).
+`git diff --cached --quiet` preflight.
 Native still has no git effect. The branch, dirty count,
-+/-, and ahead/behind are runtime-only (like the busy spinner) and
++/-, ahead/behind, and remotes-ready bit are runtime-only (like the
+busy spinner) and
 are not stored on `sessions.json`. Occupancy uses the session
 `project_path` /
 probe cwd heuristic. New worktree… materializes one-shot under

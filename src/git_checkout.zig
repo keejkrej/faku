@@ -27,9 +27,11 @@
 //! slot; never interpolated into the `-c` script). Push… is offered
 //! only when Waku `can_push` would be true: ahead of `@{upstream}`,
 //! or the ahead/behind probe failed / that name does not exist
-//! (first-push `--set-upstream` path). Hidden while that probe is
-//! in flight and when it resolved an upstream with ahead 0. No
-//! remotes probe for the gate. Push… probes `@{upstream}` and
+//! and a remotes probe found at least one remote (first-push
+//! `--set-upstream` path). Hidden while those probes are in flight
+//! and when it resolved an upstream with ahead 0. Failed / empty
+//! remotes on the no-upstream path hide Push…. Push… probes
+//! `@{upstream}` and
 //! one-shots `git push` when that name exists (`push` its own argv
 //! slot). When there is no upstream it one-shots
 //! `git push --set-upstream <remote> <branch>`
@@ -82,6 +84,7 @@ const git_branch = @import("git_branch.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
+const git_remotes = @import("git_remotes.zig");
 const file_mention = @import("file_mention.zig");
 
 const Model = main.Model;
@@ -227,7 +230,7 @@ const delete_argv_len: usize = 9;
 const fetch_argv_len: usize = 8;
 const push_argv_len: usize = 7;
 const upstream_argv_len: usize = 10;
-const remote_argv_len: usize = 7;
+pub const remote_argv_len: usize = 7;
 const show_current_argv_len: usize = 8;
 const set_upstream_push_argv_len: usize = 10;
 const worktree_add_no_base_argv_len: usize = 12;
@@ -1511,6 +1514,7 @@ pub fn refreshWorkspaceProbes(model: *Model, fx: *Effects) void {
     git_dirty.refresh(model, fx);
     git_numstat.refresh(model, fx);
     git_ahead_behind.refresh(model, fx);
+    git_remotes.refresh(model, fx);
     file_mention.refresh(model, fx);
     refresh(model, fx);
 }
@@ -1717,8 +1721,8 @@ fn spawnUpstreamProbe(model: *Model, fx: *Effects, cwd: []const u8) void {
 /// resolving the current branch and a remote (`origin` preferred).
 /// Detached HEAD or no remotes set `Could not push.` and do not
 /// spawn a push. Not force, not daemon `WorkspaceOperation::Push`.
-/// Offered only when `canPushGitBranch` (Waku `can_push` without a
-/// remotes probe). Busy session or in-flight
+/// Offered only when `canPushGitBranch` (Waku `can_push` with
+/// remotes-required-for-first-push). Busy session or in-flight
 /// checkout/create/delete/fetch/push is a no-op.
 pub fn startPush(model: *Model, fx: *Effects) void {
     closePicker(model);
@@ -1743,8 +1747,9 @@ pub fn startPush(model: *Model, fx: *Effects) void {
 /// `CommitAndPush` does not re-check `can_push`. Sets `Could not
 /// push.` when the probe cannot start (missing cwd, streaming,
 /// another git mutation, Windows). Detached HEAD / no remotes still
-/// fail later in `handlePushExit` the same way as Push…. Not a
-/// remotes-required-for-first-push gate.
+/// fail later in `handlePushExit` the same way as Push…. Does not
+/// re-check remotes-required-for-first-push vs ahead: the Commit
+/// and Push UI gate is what hides no-remotes first-push.
 pub fn beginPushAfterCommit(model: *Model, fx: *Effects) void {
     closePicker(model);
     closeCreate(model);

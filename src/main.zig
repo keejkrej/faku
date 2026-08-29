@@ -50,6 +50,7 @@ const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
+const git_remotes = @import("git_remotes.zig");
 const git_commit = @import("git_commit.zig");
 const file_mention = @import("file_mention.zig");
 const util = @import("util.zig");
@@ -298,6 +299,10 @@ pub const git_commit_numstat_key_first = git_commit.git_commit_numstat_key_first
 /// Band is 470+. Incremented per spawn from
 /// `git_commit_generate_key_first`.
 pub const git_commit_generate_key_first = git_commit.git_commit_generate_key_first;
+/// One-shot `git remote` for first-push remotes. Distinct from
+/// generate (470+) and git_push remotes (360+). Band is 480+.
+/// Incremented per refresh from `git_remotes_key_first`.
+pub const git_remotes_key_first = git_remotes.git_remotes_key_first;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
 pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_status;
@@ -596,6 +601,7 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     git_dirty.refresh(model, fx);
     git_numstat.refresh(model, fx);
     git_ahead_behind.refresh(model, fx);
+    git_remotes.refresh(model, fx);
     file_mention.refresh(model, fx);
     git_checkout.refresh(model, fx);
     fx_probe.startFxProbe(model, fx);
@@ -745,6 +751,7 @@ test {
     _ = @import("git_dirty.zig");
     _ = @import("git_numstat.zig");
     _ = @import("git_ahead_behind.zig");
+    _ = @import("git_remotes.zig");
     _ = @import("file_mention.zig");
     _ = @import("util.zig");
 }

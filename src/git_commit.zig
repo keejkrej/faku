@@ -26,10 +26,11 @@
 //! numstat (working tree vs HEAD when include-unstaged is on; index
 //! vs HEAD when off). The toggle cancels and re-probes. Cancel / Esc
 //! / session-switch drop an in-flight generate/add/commit and the
-//! snapshot probe, and do not start a push. Not
-//! untracked-as-additions on this card, not
+//! snapshot probe, and do not start a push. Commit and Push is
+//! offered only when `canCommitGit` and first-push remotes are OK
+//! (known upstream, or remotes ready with at least one remote).
+//! Not untracked-as-additions on this card, not
 //! `git diff --cached --quiet` preflight, not
-//! remotes-required-for-first-push as a Commit-and-Push gate, not
 //! canonicalize(`git rev-parse --show-toplevel`), not
 //! git-common-dir nest identity, not force / amend, and not daemon
 //! `WorkspaceOperation`.
@@ -46,6 +47,7 @@ const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
+const git_remotes = @import("git_remotes.zig");
 const file_mention = @import("file_mention.zig");
 
 const Model = main.Model;
@@ -167,6 +169,16 @@ pub fn canCommitGit(model: *const Model) bool {
     if (model.git_dirty_key != 0) return false;
     if (model.git_has_staged) return true;
     return model.git_commit_include_unstaged and model.git_has_unstaged;
+}
+
+/// Commit and Push: `can_commit` plus first-push remotes. Known
+/// upstream allows (post-commit push can work when ahead was 0).
+/// No-upstream / unknown requires remotes ready and at least one
+/// remote. Hide while remotes are still needed or in-flight on that
+/// path (no flash).
+pub fn canCommitAndPushGit(model: *const Model) bool {
+    if (!canCommitGit(model)) return false;
+    return git_remotes.firstPushRemotesOk(model);
 }
 
 /// Trim ends, take the first line, then at most 200 UTF-8 scalars
@@ -676,12 +688,14 @@ pub fn confirmCommit(model: *Model, fx: *Effects) void {
     confirmCommitWith(model, fx, false);
 }
 
-/// Same gates and commit path as `confirmCommit`. On successful
-/// commit, close the card and start the existing Push… path without
+/// Same commit path as `confirmCommit`, gated by
+/// `canCommitAndPushGit` (first-push remotes). On successful commit,
+/// close the card and start the existing Push… path without
 /// re-checking `canPushGitBranch`. Empty message generates then
 /// commits when fx is available; it does not wait for a second
-/// Confirm.
+/// Confirm. No-op when the remotes gate fails.
 pub fn confirmCommitAndPush(model: *Model, fx: *Effects) void {
+    if (!canCommitAndPushGit(model)) return;
     confirmCommitWith(model, fx, true);
 }
 
@@ -824,6 +838,7 @@ test "add argv is chdir script plus git add -A -- ." {
     try std.testing.expect(git_commit_numstat_key_first > git_numstat.git_numstat_key_first);
     try std.testing.expect(git_commit_generate_key_first >= 470);
     try std.testing.expect(git_commit_generate_key_first > git_commit_numstat_key_first);
+    try std.testing.expect(git_remotes.git_remotes_key_first > git_commit_generate_key_first);
 }
 
 test "commit argv is chdir script plus git commit -m and its own message slot" {
@@ -932,6 +947,83 @@ test "canCommitGit follows staged / include_unstaged / unstaged" {
     try std.testing.expect(!canCommitGit(&model));
 }
 
+test "canCommitAndPushGit requires remotes on no-upstream and allows known upstream" {
+    var model = Model{};
+    try std.testing.expect(!canCommitAndPushGit(&model));
+    try std.testing.expect(!model.can_commit_and_push_git());
+
+    markDirtyUnstaged(&model, 1);
+    try std.testing.expect(canCommitGit(&model));
+    try std.testing.expect(!canCommitAndPushGit(&model));
+
+    markFirstPushRemotesOk(&model);
+    try std.testing.expect(canCommitAndPushGit(&model));
+    try std.testing.expect(model.can_commit_and_push_git());
+
+    model.git_has_remote = false;
+    try std.testing.expect(!canCommitAndPushGit(&model));
+
+    model.git_remotes_key = git_remotes.git_remotes_key_first;
+    model.git_has_remote = true;
+    try std.testing.expect(!canCommitAndPushGit(&model));
+
+    model.git_remotes_key = 0;
+    model.git_remotes_ready = false;
+    try std.testing.expect(!canCommitAndPushGit(&model));
+
+    markStaleCanPush(&model);
+    model.git_remotes_ready = false;
+    model.git_has_remote = false;
+    try std.testing.expect(canCommitAndPushGit(&model));
+
+    model.git_dirty_key = git_dirty.git_dirty_key_first;
+    try std.testing.expect(!canCommitAndPushGit(&model));
+}
+
+test "confirmCommitAndPush no-ops when remotes gate fails" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-and-push-noremote", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit and push no remote", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+    model.git_ahead_behind_key = 0;
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_has_upstream = false;
+    model.git_remotes_key = 0;
+    model.git_remotes_ready = true;
+    model.git_has_remote = false;
+    try std.testing.expect(!canCommitAndPushGit(&model));
+    try std.testing.expect(!model.can_commit_and_push_git());
+
+    startCommit(&model, &fx);
+    model.git_commit_buffer.apply(.{ .insert_text = "should not commit" });
+    confirmCommitAndPush(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_generate_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    try std.testing.expect(model.git_commit_active);
+
+    model.git_remotes_key = git_remotes.git_remotes_key_first;
+    model.git_has_remote = true;
+    confirmCommitAndPush(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expect(!model.git_commit_then_push);
+}
+
 test "add failure sets Could not commit and does not spawn commit" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
@@ -1024,6 +1116,7 @@ test "commit success refreshes the same workspace probes as other git mutations"
     try std.testing.expect(model.git_dirty_key != 0);
     try std.testing.expect(model.git_numstat_key != 0);
     try std.testing.expect(model.git_ahead_behind_key != 0);
+    try std.testing.expect(model.git_remotes_key != 0);
     try std.testing.expect(model.file_mention_key != 0);
     try std.testing.expect(model.git_branch_list_key != 0);
 }
@@ -1121,6 +1214,12 @@ fn markStaleCanPush(model: *Model) void {
     model.git_ahead_behind_ahead = 0;
 }
 
+fn markFirstPushRemotesOk(model: *Model) void {
+    model.git_remotes_key = 0;
+    model.git_remotes_ready = true;
+    model.git_has_remote = true;
+}
+
 test "confirm and push with a message add-then-commit then starts the push probe" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
@@ -1196,6 +1295,7 @@ test "confirm and push empty message does not spawn and does not start a push" {
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
     markDirtyUnstaged(&model, 1);
+    markFirstPushRemotesOk(&model);
 
     startCommit(&model, &fx);
     confirmCommitAndPush(&model, &fx);
@@ -1238,6 +1338,7 @@ test "confirm and push add failure sets Could not commit and does not start a pu
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
     markDirtyUnstaged(&model, 1);
+    markFirstPushRemotesOk(&model);
 
     startCommit(&model, &fx);
     model.git_commit_buffer.apply(.{ .insert_text = "save work" });
@@ -1272,6 +1373,7 @@ test "confirm and push commit failure sets Could not commit and does not start a
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
     markDirtyUnstaged(&model, 1);
+    markFirstPushRemotesOk(&model);
 
     startCommit(&model, &fx);
     model.git_commit_buffer.apply(.{ .insert_text = "broken commit" });
@@ -1439,6 +1541,7 @@ test "staged-only commit failure sets Nothing staged to commit" {
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
     markDirtyStaged(&model, 1);
+    markFirstPushRemotesOk(&model);
 
     startCommit(&model, &fx);
     toggleIncludeUnstaged(&model, &fx);
@@ -1894,6 +1997,7 @@ test "generate fail or empty stdout keeps the card open and does not commit" {
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
     markDirtyUnstaged(&model, 1);
+    markFirstPushRemotesOk(&model);
 
     startCommit(&model, &fx);
     confirmCommitAndPush(&model, &fx);
@@ -1946,6 +2050,7 @@ test "cancel or session-switch drops generate and does not commit" {
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
     markDirtyUnstaged(&model, 2);
+    markFirstPushRemotesOk(&model);
 
     startCommit(&model, &fx);
     confirmCommitAndPush(&model, &fx);
