@@ -16599,8 +16599,9 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     const copy_task = try expectByText(tree.root, .menu_item, "Copy task ID");
     try testing.expectEqual(Msg.environment_copy_task_id, tree.msgForPointer(copy_task.id, .up).?);
     try testing.expect(findByText(tree.root, .menu_item, "Compare branch") == null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_commit_or_push").? < std.mem.indexOf(u8, main.app_markup, "environment_compare").?);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_compare").? < std.mem.indexOf(u8, main.app_markup, "environment_copy_task_id").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_commit_or_push").? < std.mem.indexOf(u8, main.app_markup, "menu-item on-press=\"environment_compare\"").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "menu-item on-press=\"environment_compare\"").? < std.mem.indexOf(u8, main.app_markup, "environment_copy_task_id").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"environment_compare\">{header_git_numstat_label}").? < std.mem.indexOf(u8, main.app_markup, "menu-item on-press=\"environment_compare\"").?);
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
     try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
