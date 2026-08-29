@@ -9,12 +9,14 @@
 //! (`fx_ask_chdir_script`). `%(refname)` (not `:short`) is required
 //! so `refs/heads/feat/foo` is not confused with a remote.
 //! `%(worktreepath)` marks a local head checked out in another
-//! worktree: non-empty path that is not this session's `project_path`
-//! / list-probe cwd (`project_path` may be a subdirectory of that
-//! worktree). Occupied locals stay in the picker with a short label
-//! marker and are refused for checkout and safe-delete. Remotes are
-//! never occupied. Empty `%(worktreepath)` is not occupied. This is a
-//! path-prefix heuristic, not Waku's canonicalize(show-toplevel).
+//! worktree: non-empty path that is not this session's ready
+//! `git rev-parse --show-toplevel` (or, while that probe is empty,
+//! the session `project_path` / list-probe cwd — `project_path` may
+//! be a subdirectory of that worktree). Occupied locals stay in the
+//! picker with a short label marker and are refused for checkout and
+//! safe-delete. Remotes are never occupied. Empty `%(worktreepath)`
+//! is not occupied. Ready toplevel compares `worktreepath` equal to
+//! that root; otherwise today's path-prefix heuristic.
 //! Checking out a listed local name one-shots `git checkout <name>`
 //! with that name as its own argv slot — never interpolated into the
 //! `-c` script. A listed remote-tracking name one-shots
@@ -53,10 +55,11 @@
 //! exit 1 falls back to the cached composer branch label
 //! (`pushBranchFromLabel`, not a detached short SHA) and otherwise
 //! omits the base (today's HEAD). Dest is
-//! `~/.faku/worktrees/<16-hex of source project_path>/<name>`
-//! (FNV-1a 64 of the probe cwd used for `git worktree add`; not a
-//! daemon UUID / `{project_id}`, not canonicalize(show-toplevel),
-//! not `git-common-dir`). A taken dest directory or listed local
+//! `~/.faku/worktrees/<16-hex of source toplevel or project_path>/<name>`
+//! (FNV-1a 64 of the ready `show-toplevel` root when the probe
+//! finished, else the probe cwd used for `git worktree add`; not a
+//! daemon UUID / `{project_id}`, not `git-common-dir`). A taken dest
+//! directory or listed local
 //! `faku/<name>` skips to the next Waku candidate (`slug`,
 //! `slug-2`, … `slug-8`; cap 8 because Native is one-shot, not
 //! Waku's 100 + session-id hex). A failed `worktree add` retries
@@ -70,8 +73,9 @@
 //! `InspectBranches` picker, live watch, `waku/` prefix /
 //! `~/.waku/worktrees/{project_id}` UUID nest, defer-until-Send
 //! workspace mode, base-ref picker UI, prune-alone, stash, merge,
-//! force delete, canonicalize(show-toplevel), or Environment
-//! Summary.
+//! force delete, or Environment Summary. Leftovers:
+//! `git-common-dir` nest identity, in-dialog Pushing spinner,
+//! force / amend, daemon `WorkspaceOperation`.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -85,6 +89,7 @@ const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
 const git_remotes = @import("git_remotes.zig");
+const git_toplevel = @import("git_toplevel.zig");
 const file_mention = @import("file_mention.zig");
 
 const Model = main.Model;
@@ -680,11 +685,20 @@ pub fn worktreeBranchName(name: []const u8, buf: []u8) ?[]const u8 {
 }
 
 /// 16 lowercase hex chars of FNV-1a 64 of the trimmed source
-/// `project_path` (the cwd used for `git worktree add`). Empty /
+/// `project_path` (the cwd used for `git worktree add`). When
+/// `model` has a ready `show-toplevel` path, that root is hashed
+/// instead so subdirs of the same repo share a nest. Empty /
 /// `..` / NUL after trim → null. Relative paths are allowed; this
-/// is not canonicalize(show-toplevel) and not `git-common-dir`.
-pub fn worktreeNestKey(project_path: []const u8, buf: []u8) ?[]const u8 {
-    const trimmed = std.mem.trim(u8, project_path, " \t\r\n");
+/// is not `git-common-dir`.
+pub fn worktreeNestKey(project_path: []const u8, buf: []u8, model: ?*const Model = null) ?[]const u8 {
+    const source = blk: {
+        if (model) |m| {
+            const top = git_toplevel.readyPath(m);
+            if (top.len > 0) break :blk top;
+        }
+        break :blk project_path;
+    };
+    const trimmed = std.mem.trim(u8, source, " \t\r\n");
     if (trimmed.len == 0) return null;
     if (std.mem.indexOf(u8, trimmed, "..") != null) return null;
     if (std.mem.indexOfScalar(u8, trimmed, 0) != null) return null;
@@ -694,20 +708,20 @@ pub fn worktreeNestKey(project_path: []const u8, buf: []u8) ?[]const u8 {
 }
 
 /// `{home}/.faku/worktrees/<nest>` — the mkdir -p parent. Nest is
-/// `worktreeNestKey(project_path)`. Root suffix stays
+/// `worktreeNestKey(project_path, …, model)`. Root suffix stays
 /// `worktree_parent_suffix`.
-pub fn worktreeParentPath(home: []const u8, project_path: []const u8, buf: []u8) ?[]const u8 {
+pub fn worktreeParentPath(home: []const u8, project_path: []const u8, buf: []u8, model: ?*const Model = null) ?[]const u8 {
     const trimmed = std.mem.trim(u8, home, " \t\r\n");
     if (trimmed.len == 0) return null;
     if (trimmed[0] != '/') return null;
     var nest_buf: [worktree_nest_key_len]u8 = undefined;
-    const nest = worktreeNestKey(project_path, nest_buf[0..]) orelse return null;
+    const nest = worktreeNestKey(project_path, nest_buf[0..], model) orelse return null;
     return std.fmt.bufPrint(buf, "{s}/{s}/{s}", .{ trimmed, worktree_parent_suffix, nest }) catch null;
 }
 
-pub fn worktreeDestPath(home: []const u8, project_path: []const u8, name: []const u8, buf: []u8) ?[]const u8 {
+pub fn worktreeDestPath(home: []const u8, project_path: []const u8, name: []const u8, buf: []u8, model: ?*const Model = null) ?[]const u8 {
     const sanitized = sanitizeWorktreeName(name) orelse return null;
-    const parent = worktreeParentPath(home, project_path, buf) orelse return null;
+    const parent = worktreeParentPath(home, project_path, buf, model) orelse return null;
     if (parent.len + 1 + sanitized.len > buf.len) return null;
     buf[parent.len] = '/';
     @memcpy(buf[parent.len + 1 ..][0..sanitized.len], sanitized);
@@ -822,11 +836,16 @@ pub fn splitRefWorktreeLine(line: []const u8) struct { refname: []const u8, work
     return .{ .refname = line, .worktreepath = "" };
 }
 
-/// This-worktree heuristic: `worktreepath` equals `project_path`, or
-/// `project_path` starts with `worktreepath` + "/". Not Waku's
-/// canonicalize(show-toplevel); no extra rev-parse spawn.
-pub fn isThisWorktreePath(worktreepath: []const u8, project_path: []const u8) bool {
+/// This-worktree match: when `model` has a ready `show-toplevel`
+/// path, `worktreepath` must equal that root (trim both). Otherwise
+/// today's path-prefix heuristic: `worktreepath` equals
+/// `project_path`, or `project_path` starts with `worktreepath` + "/".
+pub fn isThisWorktreePath(worktreepath: []const u8, project_path: []const u8, model: ?*const Model = null) bool {
     const wt = std.mem.trim(u8, worktreepath, " \t\r\n");
+    if (model) |m| {
+        const top = std.mem.trim(u8, git_toplevel.readyPath(m), " \t\r\n");
+        if (top.len > 0) return wt.len > 0 and std.mem.eql(u8, wt, top);
+    }
     const proj = std.mem.trim(u8, project_path, " \t\r\n");
     if (wt.len == 0 or proj.len == 0) return false;
     if (std.mem.eql(u8, wt, proj)) return true;
@@ -835,11 +854,11 @@ pub fn isThisWorktreePath(worktreepath: []const u8, project_path: []const u8) bo
 
 /// Local heads only. Non-empty trimmed worktreepath that is not this
 /// worktree. Remotes and empty paths are never occupied.
-pub fn localHeadOccupied(remote: bool, worktreepath: []const u8, project_path: []const u8) bool {
+pub fn localHeadOccupied(remote: bool, worktreepath: []const u8, project_path: []const u8, model: ?*const Model = null) bool {
     if (remote) return false;
     const wt = std.mem.trim(u8, worktreepath, " \t\r\n");
     if (wt.len == 0) return false;
-    return !isThisWorktreePath(wt, project_path);
+    return !isThisWorktreePath(wt, project_path, model);
 }
 
 /// Classify one `%(refname)` (NUL field already split off). Locals
@@ -868,10 +887,10 @@ fn parsedRefNameEquals(refs: []const ParsedRef, name: []const u8) bool {
     return false;
 }
 
-fn parseRefLine(line: []const u8, project_path: []const u8) ?ParsedRef {
+fn parseRefLine(line: []const u8, project_path: []const u8, model: ?*const Model) ?ParsedRef {
     const split = splitRefWorktreeLine(line);
     var parsed = classifyRefname(split.refname) orelse return null;
-    parsed.occupied = localHeadOccupied(parsed.remote, split.worktreepath, project_path);
+    parsed.occupied = localHeadOccupied(parsed.remote, split.worktreepath, project_path, model);
     return parsed;
 }
 
@@ -884,15 +903,16 @@ fn occupancyCwd(model: *const Model) []const u8 {
 /// Parse `%(refname)%00%(worktreepath)` lines. Locals first (cap 64),
 /// then remotes that are not `*/HEAD` and whose local counterpart is
 /// not already in this batch (cap 32). Occupancy is local-only via
-/// the `project_path` / probe-cwd heuristic. Skip empty / implausible
+/// the ready toplevel when that probe finished, else the
+/// `project_path` / probe-cwd heuristic. Skip empty / implausible
 /// names. Then sort by display name. Slices alias `raw`.
-pub fn collectStdoutRefs(raw: []const u8, project_path: []const u8, out: []ParsedRef) usize {
+pub fn collectStdoutRefs(raw: []const u8, project_path: []const u8, out: []ParsedRef, model: ?*const Model = null) usize {
     var n: usize = 0;
     var local_n: usize = 0;
     var it = std.mem.splitScalar(u8, raw, '\n');
     while (it.next()) |line| {
         if (n >= out.len or local_n >= max_local_branches) break;
-        const parsed = parseRefLine(line, project_path) orelse continue;
+        const parsed = parseRefLine(line, project_path, model) orelse continue;
         if (parsed.remote) continue;
         if (parsedRefNameEquals(out[0..n], parsed.name)) continue;
         out[n] = parsed;
@@ -903,7 +923,7 @@ pub fn collectStdoutRefs(raw: []const u8, project_path: []const u8, out: []Parse
     it = std.mem.splitScalar(u8, raw, '\n');
     while (it.next()) |line| {
         if (n >= out.len or remote_n >= max_remote_branches) break;
-        const parsed = parseRefLine(line, project_path) orelse continue;
+        const parsed = parseRefLine(line, project_path, model) orelse continue;
         if (!parsed.remote) continue;
         const counterpart = remoteLocalCounterpart(parsed.name);
         if (counterpart.len > 0 and parsedRefNameEquals(out[0..local_n], counterpart)) continue;
@@ -1154,7 +1174,7 @@ fn appendListedBranch(model: *Model, name: []const u8, remote: bool, occupied: b
 
 pub fn applyStdoutBranches(model: *Model, raw: []const u8) void {
     var refs: [max_listed_branches]ParsedRef = undefined;
-    const n = collectStdoutRefs(raw, occupancyCwd(model), refs[0..]);
+    const n = collectStdoutRefs(raw, occupancyCwd(model), refs[0..], model);
     var i: usize = 0;
     while (i < n) : (i += 1) {
         if (!refs[i].remote) appendListedBranch(model, refs[i].name, false, refs[i].occupied);
@@ -1515,6 +1535,7 @@ pub fn refreshWorkspaceProbes(model: *Model, fx: *Effects) void {
     git_numstat.refresh(model, fx);
     git_ahead_behind.refresh(model, fx);
     git_remotes.refresh(model, fx);
+    git_toplevel.refresh(model, fx);
     file_mention.refresh(model, fx);
     refresh(model, fx);
 }
@@ -1852,7 +1873,7 @@ fn assignWorktreeCandidate(model: *Model, home: []const u8, project_path: []cons
     var name_buf: [git_branch.max_git_branch]u8 = undefined;
     const name = worktreeCandidateName(slug, index, name_buf[0..]) orelse return false;
     var dest_buf: [main.max_project_path]u8 = undefined;
-    const dest = worktreeDestPath(home, project_path, name, dest_buf[0..]) orelse return false;
+    const dest = worktreeDestPath(home, project_path, name, dest_buf[0..], model) orelse return false;
     var branch_buf: [git_branch.max_git_branch]u8 = undefined;
     const branch = worktreeBranchName(name, branch_buf[0..]) orelse return false;
     writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, dest);
@@ -1927,7 +1948,7 @@ pub fn confirmWorktreeAdd(model: *Model, fx: *Effects) void {
     const home = model.homeDir();
 
     var parent_buf: [main.max_project_path]u8 = undefined;
-    const parent = worktreeParentPath(home, cwd, parent_buf[0..]) orelse return;
+    const parent = worktreeParentPath(home, cwd, parent_buf[0..], model) orelse return;
     writeFixed(&model.git_worktree_add_slug_storage, &model.git_worktree_add_slug_len, name);
     if (!pickWorktreeCandidate(model, home, cwd, name, 0)) {
         resetWorktreeAddState(model);
