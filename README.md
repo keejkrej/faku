@@ -57,8 +57,11 @@ off; empty / whitespace on Commit
 or Commit and Push one-shots `fx ask --no-save --auto --json`
 when fx is available, fills a normalized subject, then
 auto-proceeds; `git add -A -- .` then
-`git commit -m` when the toggle is on, or `git commit -m`
-only when it is off; message trimmed to one line, max 200
+`git diff --cached --quiet --` then `git commit -m`
+when the toggle is on, or the same preflight then
+`git commit -m` only when it is off (exit 1 proceeds;
+exit 0 is `Nothing staged to commit.`); message trimmed
+to one line, max 200
 chars; offered when the dirty probe is not in flight and
 there is staged work, or unstaged work while include-unstaged
 is on; Commit and Push on that card runs the same commit
@@ -356,10 +359,14 @@ locals are omitted because `-d` of a worktree checkout fails).
 Fetch… on that picker one-shots `git fetch --prune` (`--prune` its
 own argv slot). Commit… opens a runtime-only message card with an
 Include unstaged ghost toggle (default on; not persisted) and
-one-shots `git add -A -- .` then `git commit -m <message>` when
-that toggle is on, or `git commit -m` only when it is off
-(`-A`, `--`, `.`, `-m`, and the message each their own argv slot;
-message trimmed to one line, max 200 chars). Opening the card
+one-shots `git add -A -- .` then `git diff --cached --quiet --`
+then `git commit -m <message>` when that toggle is on, or the
+same cached-quiet preflight then `git commit -m` only when it
+is off (exit 1 means staged changes and proceeds; exit 0 is
+`Nothing staged to commit.` and does not run commit; any other
+exit fails). (`-A`, `--`, `.`, `--cached`, `--quiet`, `-m`,
+and the message each their own argv slot; message trimmed to
+one line, max 200 chars). Opening the card
 (and toggling Include unstaged) one-shots CommitSnapshot
 numstat: the project-row `git_numstat` script (`git diff
 --numstat HEAD --` plus untracked text-line additions) when the
@@ -373,7 +380,7 @@ Commit and Push one-shots documented `fx ask --no-save --auto
 --json` when `fx_available` and `fxPath` are set (prompt is its
 own argv slot; include-unstaged on vs off changes the prompt;
 fx inspects the repo itself), fills the normalized subject, then
-auto-proceeds into add/commit. A muted `Generating…` shows while
+auto-proceeds into add/preflight/commit. A muted `Generating…` shows while
 that spawn is live. If fx is unavailable or the path is empty,
 empty confirm sets `Enter a commit message.` and does not spawn.
 Generate fail / empty output keeps the card open with
@@ -389,8 +396,9 @@ no-upstream path). Push on that card is a first-cut Waku
 `CommitAction::Push`: no commit, no message, no generate; offered
 only when `can_push` (same binding as composer Push…); on start it
 closes the card then reuses Push… (`startPush`, gated). This is
-not Waku's in-dialog pending spinner. Not
-`git diff --cached --quiet` preflight, not
+not Waku's in-dialog pending spinner. Commit / Commit and
+Push now run the `git diff --cached --quiet` preflight; Push
+on that card does not. Not
 canonicalize(show-toplevel). Push… probes `@{upstream}` and one-shots `git push`
 when that name exists (`push` its own argv slot). When there is no
 upstream it one-shots `git push --set-upstream <remote> <branch>`
@@ -442,7 +450,6 @@ Environment Summary, not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
 Review. Leftovers: canonicalize(`git rev-parse --show-toplevel`) /
 git-common-dir worktree nest identity /
-`git diff --cached --quiet` preflight /
 Waku's in-dialog Pushing spinner (this cut closes the card then
 starts Push…).
 Native still has no git effect. The branch, dirty count,
