@@ -17,6 +17,7 @@ const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
+const git_commit = @import("git_commit.zig");
 const file_mention = @import("file_mention.zig");
 const keys = @import("keys.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
@@ -13430,6 +13431,75 @@ test "New worktree opens create UI; Esc and cancel close it" {
     try testing.expect(!model.git_worktree_create_active);
     try testing.expectEqualStrings("", model.git_worktree_create());
     try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+}
+
+test "Commit menu item opens a message card before Push; empty confirm does not spawn" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-ui", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("commit ui", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try fx.feedLine(branch.key, "main\n");
+    drainEffects(&model, &fx);
+    try testing.expect(model.can_pick_git_branch());
+    try finishAheadBehindNoUpstream(&fx, &model);
+
+    const dirty = findGitDirtySpawnKey(&fx, model.git_dirty_key) orelse return error.MissingGitDirtySpawn;
+    try testing.expect(!model.can_commit_git());
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .menu_item, "Commit…") == null);
+
+    try fx.feedLine(dirty.key, " M src/a.zig\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(dirty.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(model.can_commit_git());
+    try testing.expect(git_commit.canCommitGit(&model));
+    try testing.expect(model.git_branch_picker_open);
+    tree = try buildTree(arena, &model);
+    const commit_item = try expectByText(tree.root, .menu_item, "Commit…");
+    try testing.expectEqual(Msg.start_git_commit, tree.msgForPointer(commit_item.id, .up).?);
+    _ = try expectByText(tree.root, .menu_item, "Push…");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Commit message") == null);
+
+    main.update(&model, tree.msgForPointer(commit_item.id, .up).?, &fx);
+    try testing.expect(!model.git_branch_picker_open);
+    try testing.expect(model.git_commit_active);
+    try testing.expect(!model.git_worktree_create_active);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Commit message") != null);
+    _ = try expectButtonMsg(tree, "Commit", .confirm_git_commit);
+    _ = try expectButtonMsg(tree, "Cancel", .cancel_git_commit);
+
+    main.update(&model, .confirm_git_commit, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try testing.expectEqualStrings(git_commit.empty_message_status, model.attach_status());
+    try testing.expect(model.git_commit_active);
+
+    main.update(&model, .{ .git_commit_edit = .{ .insert_text = "fix dirty count" } }, &fx);
+    try testing.expectEqualStrings("fix dirty count", model.git_commit());
+    main.update(&model, .cancel_git_commit, &fx);
+    try testing.expect(!model.git_commit_active);
+    try testing.expectEqualStrings("", model.git_commit());
+    try testing.expectEqual(@as(u64, 0), model.git_commit_key);
 }
 
 test "confirm New worktree one-shots git worktree add -b; success retargets project_path; failure sets status" {

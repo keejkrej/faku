@@ -447,6 +447,13 @@
                 <button variant="ghost" size="sm" on-press="cancel_git_worktree_create">Cancel</button>
               </row>
             </if>
+            <if test="{git_commit_active}">
+              <row gap="8" cross="center">
+                <text-field grow="1" placeholder="Commit message" text="{git_commit}" on-input="git_commit_edit" autofocus="true" />
+                <button variant="ghost" size="sm" on-press="confirm_git_commit">Commit</button>
+                <button variant="ghost" size="sm" on-press="cancel_git_commit">Cancel</button>
+              </row>
+            </if>
             <if test="{git_branch_delete_active}">
               <row gap="8" cross="center">
                 <stack>
@@ -514,6 +521,9 @@
                           <menu-item on-press="start_git_branch_delete">Delete branch…</menu-item>
                         </if>
                         <menu-item on-press="start_git_fetch">Fetch…</menu-item>
+                        <if test="{can_commit_git}">
+                          <menu-item on-press="start_git_commit">Commit…</menu-item>
+                        </if>
                         <if test="{can_push_git_branch}">
                           <menu-item on-press="start_git_push">Push…</menu-item>
                         </if>

@@ -19,6 +19,7 @@ const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
+const git_commit_mod = @import("git_commit.zig");
 const file_mention = @import("file_mention.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
@@ -366,6 +367,10 @@ pub const Msg = union(enum) {
     git_worktree_create_edit: canvas.TextInputEvent,
     confirm_git_worktree_create,
     cancel_git_worktree_create,
+    start_git_commit,
+    git_commit_edit: canvas.TextInputEvent,
+    confirm_git_commit,
+    cancel_git_commit,
     start_project_edit,
     project_path_edit: canvas.TextInputEvent,
     /// Composer Pick folder: one-shot OS directory-dialog sidecar. Not `fx.pickFile`.
@@ -472,6 +477,8 @@ pub const Model = struct {
     git_branch_create_active: bool = false,
     /// Runtime-only New worktree… create card. Draft name is not persisted.
     git_worktree_create_active: bool = false,
+    /// Runtime-only Commit… card. Draft message is not persisted.
+    git_commit_active: bool = false,
     /// Runtime-only Delete branch… card. Selected name is not persisted.
     git_branch_delete_active: bool = false,
     /// Runtime-only select on the delete card. Not persisted.
@@ -513,6 +520,7 @@ pub const Model = struct {
     project_edit_buffer: canvas.TextBuffer(max_project_path) = .{},
     git_branch_create_buffer: canvas.TextBuffer(git_branch.max_git_branch) = .{},
     git_worktree_create_buffer: canvas.TextBuffer(git_branch.max_git_branch) = .{},
+    git_commit_buffer: canvas.TextBuffer(git_commit_mod.max_commit_message) = .{},
     image_attach_active: bool = false,
     image_path_buffer: canvas.TextBuffer(max_project_path) = .{},
     /// Runtime-only composer status for picker cancel / missing-tool.
@@ -605,6 +613,14 @@ pub const Model = struct {
     next_git_worktree_base_key: u64 = git_checkout.git_worktree_base_key_first,
     git_worktree_base_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     git_worktree_base_len: usize = 0,
+    git_commit_key: u64 = 0,
+    next_git_commit_key: u64 = git_commit_mod.git_commit_key_first,
+    git_commit_probe_session: u32 = 0,
+    git_commit_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    git_commit_probe_path_len: usize = 0,
+    git_commit_phase: git_commit_mod.GitCommitPhase = .idle,
+    git_commit_message_storage: [git_commit_mod.max_commit_message]u8 = [_]u8{0} ** git_commit_mod.max_commit_message,
+    git_commit_message_len: usize = 0,
     git_branch_delete_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     git_branch_delete_len: usize = 0,
     /// Runtime-only composer dirty count. One-shot `git status
@@ -819,6 +835,7 @@ pub const Model = struct {
         "project_edit_buffer",
         "git_branch_create_buffer",
         "git_worktree_create_buffer",
+        "git_commit_buffer",
         "image_path_buffer",
         "attach_status_storage",
         "attach_status_len",
@@ -906,6 +923,14 @@ pub const Model = struct {
         "next_git_worktree_base_key",
         "git_worktree_base_storage",
         "git_worktree_base_len",
+        "git_commit_key",
+        "next_git_commit_key",
+        "git_commit_probe_session",
+        "git_commit_probe_path_storage",
+        "git_commit_probe_path_len",
+        "git_commit_phase",
+        "git_commit_message_storage",
+        "git_commit_message_len",
         "git_branch_delete_storage",
         "git_branch_delete_len",
         "git_dirty_count",
@@ -2135,6 +2160,12 @@ pub const Model = struct {
         return git_ahead_behind.canPushGitBranch(model);
     }
 
+    /// Composer branch-picker Commit…. Hide while the dirty probe is
+    /// in flight; show only when porcelain dirty count is > 0.
+    pub fn can_commit_git(model: *const Model) bool {
+        return git_commit_mod.canCommitGit(model);
+    }
+
     /// Composer usage control. 0 when the live path has not reported usage.
     pub fn context_usage(model: *const Model) f32 {
         const session = model.sessionByIdConst(model.selected) orelse return 0;
@@ -2267,11 +2298,16 @@ pub const Model = struct {
         return model.git_worktree_create_buffer.text();
     }
 
+    pub fn git_commit(model: *const Model) []const u8 {
+        return model.git_commit_buffer.text();
+    }
+
     pub fn startProjectEdit(model: *Model) void {
         model.closeGitBranchPicker();
         git_checkout.closeCreate(model);
         git_checkout.closeWorktreeCreate(model);
         git_checkout.closeDelete(model);
+        git_commit_mod.closeCommit(model);
         model.project_edit_active = true;
         model.project_edit_buffer.set(model.selectedProjectPath());
     }

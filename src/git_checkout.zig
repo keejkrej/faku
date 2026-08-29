@@ -1035,6 +1035,11 @@ pub fn closeWorktreeCreate(model: *Model) void {
     model.git_worktree_create_buffer.clear();
 }
 
+fn closeCommitCard(model: *Model) void {
+    model.git_commit_active = false;
+    model.git_commit_buffer.clear();
+}
+
 /// Esc / Cancel: close the card and drop an in-flight base probe so a
 /// late exit cannot spawn add. Distinct from `closeWorktreeCreate`,
 /// which only hides the card (Push… / Fetch… still no-op via
@@ -1056,6 +1061,7 @@ pub fn startCreate(model: *Model) void {
     closePicker(model);
     closeDelete(model);
     closeWorktreeCreate(model);
+    closeCommitCard(model);
     model.closeProjectEdit();
     model.git_branch_create_active = true;
 }
@@ -1069,6 +1075,7 @@ pub fn startWorktreeCreate(model: *Model) void {
     closeCreate(model);
     closeDelete(model);
     closeWorktreeCreate(model);
+    closeCommitCard(model);
     model.closeProjectEdit();
     model.git_worktree_create_active = true;
     const title = if (model.sessionByIdConst(model.selected)) |session| session.title() else "";
@@ -1084,6 +1091,7 @@ pub fn startDelete(model: *Model) void {
     closePicker(model);
     closeCreate(model);
     closeWorktreeCreate(model);
+    closeCommitCard(model);
     model.closeProjectEdit();
     model.git_branch_delete_active = true;
     model.git_branch_delete_picker_open = false;
@@ -1361,6 +1369,14 @@ pub fn refresh(model: *Model, fx: *Effects) void {
     closeCreate(model);
     closeWorktreeCreate(model);
     closeDelete(model);
+    if (model.git_commit_key != 0) {
+        fx.cancel(model.git_commit_key);
+        model.git_commit_key = 0;
+        model.git_commit_phase = .idle;
+        model.git_commit_message_len = 0;
+        model.setAttachStatus("Could not commit.");
+    }
+    closeCommitCard(model);
     if (!probeSupported()) return;
     const cwd = probePath(model);
     if (cwd.len == 0) return;
@@ -1444,8 +1460,8 @@ fn worktreeBaseStillCurrent(model: *const Model) bool {
     return std.mem.eql(u8, path, probed);
 }
 
-fn gitMutationInFlight(model: *const Model) bool {
-    return model.git_create_key != 0 or model.git_checkout_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0 or model.git_worktree_add_key != 0 or model.git_worktree_base_key != 0;
+pub fn gitMutationInFlight(model: *const Model) bool {
+    return model.git_create_key != 0 or model.git_checkout_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0 or model.git_worktree_add_key != 0 or model.git_worktree_base_key != 0 or model.git_commit_key != 0;
 }
 
 pub fn applyListLine(model: *Model, line: native_sdk.EffectLine) void {
@@ -1466,7 +1482,7 @@ pub fn handleListExit(model: *Model, exit: native_sdk.EffectExit) void {
     finalizeListedBranches(model);
 }
 
-fn refreshWorkspaceProbes(model: *Model, fx: *Effects) void {
+pub fn refreshWorkspaceProbes(model: *Model, fx: *Effects) void {
     git_branch.refresh(model, fx);
     git_dirty.refresh(model, fx);
     git_numstat.refresh(model, fx);
@@ -1484,7 +1500,7 @@ fn refreshWorkspaceProbes(model: *Model, fx: *Effects) void {
 /// the one-shots do not overlap.
 pub fn pickBranch(model: *Model, fx: *Effects, name: []const u8) void {
     closePicker(model);
-    if (model.git_create_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0 or model.git_worktree_add_key != 0 or model.git_worktree_base_key != 0) return;
+    if (model.git_create_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0 or model.git_worktree_add_key != 0 or model.git_worktree_base_key != 0 or model.git_commit_key != 0) return;
     if (!git_branch.isPlausibleBranchName(name)) return;
     const remote = isListedRemoteName(model, name);
     if (!remote and std.mem.eql(u8, name, git_branch.gitBranchLabel(model))) return;
@@ -1628,6 +1644,7 @@ pub fn startFetch(model: *Model, fx: *Effects) void {
     closeCreate(model);
     closeWorktreeCreate(model);
     closeDelete(model);
+    closeCommitCard(model);
     if (gitMutationInFlight(model)) return;
     if (model.is_streaming()) return;
     if (!probeSupported()) return;
@@ -1677,6 +1694,7 @@ pub fn startPush(model: *Model, fx: *Effects) void {
     closeCreate(model);
     closeWorktreeCreate(model);
     closeDelete(model);
+    closeCommitCard(model);
     if (!git_ahead_behind.canPushGitBranch(model)) return;
     if (gitMutationInFlight(model)) return;
     if (model.is_streaming()) return;
