@@ -19,6 +19,7 @@ const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
 const git_remotes = @import("git_remotes.zig");
 const git_toplevel = @import("git_toplevel.zig");
+const git_common_dir = @import("git_common_dir.zig");
 const git_commit = @import("git_commit.zig");
 const file_mention = @import("file_mention.zig");
 const keys = @import("keys.zig");
@@ -3240,6 +3241,7 @@ test "pick_folder stdout directory sets project_path the same way typing does" {
     try testing.expect(findGitAheadBehindSpawnKey(&fx, model.git_ahead_behind_key) != null);
     try testing.expect(findGitRemotesSpawnKey(&fx, model.git_remotes_key) != null);
     try testing.expect(findGitToplevelSpawnKey(&fx, model.git_toplevel_key) != null);
+    try testing.expect(findGitCommonDirSpawnKey(&fx, model.git_common_dir_key) != null);
     try testing.expect(!loaded.has_git_dirty());
     try testing.expect(!loaded.has_git_numstat());
     try testing.expect(!loaded.has_git_ahead_behind());
@@ -3247,6 +3249,8 @@ test "pick_folder stdout directory sets project_path the same way typing does" {
     try testing.expect(!loaded.git_remotes_ready);
     try testing.expect(!loaded.git_toplevel_ready);
     try testing.expectEqual(@as(usize, 0), loaded.git_toplevel_path_len);
+    try testing.expect(!loaded.git_common_dir_ready);
+    try testing.expectEqual(@as(usize, 0), loaded.git_common_dir_path_len);
     try testing.expect(!loaded.has_git_commit_numstat());
 }
 
@@ -14516,6 +14520,14 @@ fn findGitToplevelSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0)
     return null;
 }
 
+fn findGitCommonDirSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_common_dir.isGitCommonDirArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
 fn finishGitRemotesIfInFlight(fx: *Effects, model: *Model, line: []const u8) !void {
     if (model.git_remotes_key == 0) return;
     const spawn = findGitRemotesSpawnKey(fx, model.git_remotes_key) orelse return error.MissingGitRemotesSpawn;
@@ -14778,6 +14790,11 @@ test "changing session or project_path cancels the previous ahead/behind probe" 
     const first_toplevel = findGitToplevelSpawnKey(&fx, model.git_toplevel_key) orelse return error.MissingGitToplevelSpawn;
     try testing.expect(first_toplevel.key >= main.git_toplevel_key_first);
     try testing.expect(first_toplevel.key > first_remotes_key);
+    const first_common = findGitCommonDirSpawnKey(&fx, model.git_common_dir_key) orelse return error.MissingGitCommonDirSpawn;
+    try testing.expect(first_common.key >= main.git_common_dir_key_first);
+    try testing.expect(first_common.key > first_toplevel.key);
+    try testing.expectEqualStrings(git_common_dir.git_common_dir_flag, first_common.argv[7]);
+    try testing.expect(std.mem.indexOf(u8, first_common.argv[2], git_common_dir.git_common_dir_flag) == null);
     try fx.feedLine(first_key, "0\t2\n");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("↑2", model.git_ahead_behind_label());
@@ -14792,6 +14809,9 @@ test "changing session or project_path cancels the previous ahead/behind probe" 
     try testing.expectEqual(@as(u64, 0), model.git_toplevel_key);
     try testing.expect(!model.git_toplevel_ready);
     try testing.expectEqual(@as(usize, 0), model.git_toplevel_path_len);
+    try testing.expectEqual(@as(u64, 0), model.git_common_dir_key);
+    try testing.expect(!model.git_common_dir_ready);
+    try testing.expectEqual(@as(usize, 0), model.git_common_dir_path_len);
     try testing.expectError(error.EffectNotFound, fx.feedLine(first_key, "1\t0\n"));
     git_ahead_behind.applyLine(&model, .{ .key = first_key, .line = "1\t0" });
     try testing.expect(!model.has_git_ahead_behind());

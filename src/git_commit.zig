@@ -45,8 +45,7 @@
 //! Push is offered only when `canCommitGit` and first-push remotes
 //! are OK (known upstream, or remotes ready with at least one
 //! remote). Push-only is offered only when `canPushGitBranch`.
-//! Not git-common-dir nest identity, not force / amend, and not
-//! daemon `WorkspaceOperation`.
+//! Not force / amend, and not daemon `WorkspaceOperation`.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
