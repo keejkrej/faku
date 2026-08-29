@@ -13581,7 +13581,7 @@ test "Commit empty plus fx available shows Generating then auto-adds the subject
     try testing.expect(model.git_commit_generate_key >= git_commit.git_commit_generate_key_first);
     try testing.expect(model.has_git_commit_generate());
     try testing.expect(git_checkout.gitMutationInFlight(&model));
-    var tree = try buildTree(arena, &model);
+    const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Generating…");
     _ = try expectButtonMsg(tree, "Commit", .confirm_git_commit);
 
