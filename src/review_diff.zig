@@ -11,19 +11,25 @@
 //! untracked cannot appear unless already staged). Unstaged is a
 //! switchable first-cut: one-shot `git diff --name-status`
 //! (worktree vs index, tracked only; no `--cached`, no `HEAD`
-//! range). Faku has no checkpoint `capture_worktree_commit`;
-//! untracked-in-Uncommitted stays leftover. All four use the
-//! `/bin/sh -c` `fx_ask_chdir_script` chdir workaround.
-//! Last-slot operands (`@{upstream}...HEAD` / `HEAD` /
-//! `--cached`) are their own argv slots — never interpolated
-//! into `-c`. Unstaged has no trailing operand, so its argv is
-//! 8 slots (the 9-slot detector still accepts the others).
-//! Distinct spawn-key band 510+ (after git-common-dir 500+).
-//! Cap 64 rows. Empty / clean is `No changes to compare`.
+//! range). Committed is a switchable first-cut: one-shot
+//! `git diff --name-status origin/HEAD...HEAD` (merge-base of
+//! the default remote branch and HEAD → HEAD; distinct from
+//! Branch `@{upstream}...HEAD`). Missing `origin/HEAD` is a
+//! non-zero git exit and stays `Could not compare.` Faku has
+//! no checkpoint `capture_worktree_commit`; LastTurn, local
+//! main-or-master fallback, hunks, and untracked-in-Uncommitted
+//! stay leftover. All five use the `/bin/sh -c`
+//! `fx_ask_chdir_script` chdir workaround. Last-slot operands
+//! (`@{upstream}...HEAD` / `HEAD` / `--cached` /
+//! `origin/HEAD...HEAD`) are their own argv slots — never
+//! interpolated into `-c`. Unstaged has no trailing operand, so
+//! its argv is 8 slots (the 9-slot detector still accepts the
+//! others). Distinct spawn-key band 510+ (after git-common-dir
+//! 500+). Cap 64 rows. Empty / clean is `No changes to compare`.
 //! Failed / no upstream / missing workspace is a short muted
-//! status — no invented files. Not hunk rendering, not
-//! Committed / LastTurn sources, not background work, and not
-//! daemon WorkspaceOperation.
+//! status — no invented files. Not hunk rendering, not LastTurn
+//! / local main-or-master fallback, not background work, and
+//! not daemon WorkspaceOperation.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -41,7 +47,7 @@ const Effects = main.Effects;
 const writeFixed = main.writeFixed;
 
 /// One-shot Review `git diff --name-status` (Branch,
-/// Uncommitted, Staged, or Unstaged). Distinct from git_branch
+/// Uncommitted, Staged, Unstaged, or Committed). Distinct from git_branch
 /// (200+), git_dirty (300+), git_numstat (350+), git_push
 /// (360+), git_worktree_add (370+), git_ahead_behind (380+),
 /// git_worktree_base (390+), file_mention (400+), git_commit
@@ -55,12 +61,16 @@ pub const review_diff_key_first: u64 = 510;
 /// tracked `git diff --name-status HEAD` (not untracked). Staged
 /// is first-cut index vs HEAD `git diff --name-status --cached`.
 /// Unstaged is first-cut worktree vs index `git diff
-/// --name-status` (tracked only). Committed / LastTurn stay leftover.
+/// --name-status` (tracked only). Committed is first-cut
+/// `git diff --name-status origin/HEAD...HEAD`. LastTurn /
+/// local main-or-master fallback / hunks /
+/// untracked-in-Uncommitted stay leftover.
 pub const Source = enum {
     branch,
     uncommitted,
     staged,
     unstaged,
+    committed,
 };
 
 pub const max_review_diff_files: usize = 64;
@@ -77,10 +87,13 @@ pub const git_head = "HEAD";
 /// Same `--cached` as `git_commit.git_cached_flag`. Local to avoid
 /// a review_diff ↔ git_commit import cycle. Own argv slot.
 pub const git_cached_flag = "--cached";
+/// Symmetric range vs the default remote branch. Own argv slot,
+/// parallel to Branch `git_upstream_range` (`@{upstream}...HEAD`).
+pub const git_committed_range = "origin/HEAD...HEAD";
 pub const sh_bin = "/bin/sh";
 
 /// `/bin/sh -c` chdir + `git diff --name-status` + last-slot operand
-/// (Branch / Uncommitted / Staged). Unstaged omits the operand.
+/// (Branch / Uncommitted / Staged / Committed). Unstaged omits the operand.
 pub const argv_len: usize = 9;
 /// Unstaged: same chdir prefix, no trailing operand.
 pub const argv_len_unstaged: usize = 8;
@@ -130,6 +143,7 @@ pub fn lastOperand(source: Source) ?[]const u8 {
         .uncommitted => git_head,
         .staged => git_cached_flag,
         .unstaged => null,
+        .committed => git_committed_range,
     };
 }
 
@@ -166,7 +180,8 @@ pub fn isGitReviewDiffArgv(argv: []const []const u8) bool {
     const last = argv[8];
     return std.mem.eql(u8, last, git_upstream_range) or
         std.mem.eql(u8, last, git_head) or
-        std.mem.eql(u8, last, git_cached_flag);
+        std.mem.eql(u8, last, git_cached_flag) or
+        std.mem.eql(u8, last, git_committed_range);
 }
 
 /// One `XY\tpath` or `R100\told\tnew` name-status row. Blank /
@@ -348,7 +363,8 @@ pub fn open(model: *Model, fx: *Effects) void {
 
 /// Switch the Review name-status source, cancel any in-flight
 /// 510+ spawn, clear rows / status, and re-probe. No-op when the
-/// card is closed. Does not invent Committed / LastTurn sources.
+/// card is closed. Does not invent LastTurn / local
+/// main-or-master fallback.
 pub fn setSource(model: *Model, fx: *Effects, source: Source) void {
     if (!model.review_diff_active) return;
     model.review_diff_source = source;
@@ -460,6 +476,27 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expect(std.mem.indexOf(u8, unstaged[2], git_diff_cmd) == null);
     try std.testing.expect(std.mem.indexOf(u8, unstaged[2], "/tmp/faku-review") == null);
     try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status }));
+    var committed_buf: [argv_len][]const u8 = undefined;
+    const committed = argvForSource(.committed, "/tmp/faku-review", &committed_buf);
+    try std.testing.expectEqual(@as(usize, 9), committed.len);
+    try std.testing.expectEqual(argv_len, committed.len);
+    try std.testing.expectEqualStrings(sh_bin, committed[0]);
+    try std.testing.expectEqualStrings("-c", committed[1]);
+    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, committed[2]);
+    try std.testing.expectEqualStrings("sh", committed[3]);
+    try std.testing.expectEqualStrings("/tmp/faku-review", committed[4]);
+    try std.testing.expectEqualStrings(git_bin, committed[5]);
+    try std.testing.expectEqualStrings(git_diff_cmd, committed[6]);
+    try std.testing.expectEqualStrings(git_name_status, committed[7]);
+    try std.testing.expectEqualStrings(git_committed_range, committed[8]);
+    try std.testing.expectEqualStrings("origin/HEAD...HEAD", committed[8]);
+    try std.testing.expect(lastOperand(.committed) != null);
+    try std.testing.expectEqualStrings(git_committed_range, lastOperand(.committed).?);
+    try std.testing.expect(isGitReviewDiffArgv(committed));
+    try std.testing.expect(std.mem.indexOf(u8, committed[2], git_committed_range) == null);
+    try std.testing.expect(std.mem.indexOf(u8, committed[2], git_name_status) == null);
+    try std.testing.expect(std.mem.indexOf(u8, committed[2], git_upstream_range) == null);
+    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_committed_range }));
     var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;
     const ahead = git_ahead_behind.argvFor("/tmp/faku-review", &ahead_buf);
     try std.testing.expect(!isGitReviewDiffArgv(ahead));
@@ -596,7 +633,7 @@ test "name-status lines fill capped rows; empty and fail stay honest" {
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
 }
 
-test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Unstaged" {
+test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Unstaged Committed" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -714,27 +751,67 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     try std.testing.expectEqualStrings("M unstaged.zig", model.review_diff_file_store[0].label());
     try std.testing.expect(!hasReviewDiffStatus(&model));
 
-    setSource(&model, &fx, .branch);
-    try std.testing.expectEqual(Source.branch, model.review_diff_source);
+    setSource(&model, &fx, .committed);
+    try std.testing.expect(model.review_diff_active);
+    try std.testing.expectEqual(Source.committed, model.review_diff_source);
     try std.testing.expect(model.review_diff_key != unstaged_key);
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
 
-    const empty_key = model.review_diff_key;
-    handleExit(&model, .{ .key = empty_key, .reason = .exited, .code = 0 });
+    applyLine(&model, .{ .key = unstaged_key, .line = "M\tshould-ignore-unstaged.zig\n" });
+    try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+    handleExit(&model, .{ .key = unstaged_key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(Source.committed, model.review_diff_source);
+    try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
+
+    const committed_key = model.review_diff_key;
+    i = 0;
+    var committed_argv: ?[]const []const u8 = null;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == committed_key) committed_argv = spawn.argv;
+    }
+    try std.testing.expect(isGitReviewDiffArgv(committed_argv orelse return error.MissingCommittedArgv));
+    try std.testing.expectEqual(argv_len, committed_argv.?.len);
+    try std.testing.expectEqualStrings(git_committed_range, committed_argv.?[8]);
+    try std.testing.expectEqualStrings("origin/HEAD...HEAD", committed_argv.?[8]);
+    try std.testing.expect(std.mem.indexOf(u8, committed_argv.?[2], git_committed_range) == null);
+    try std.testing.expect(std.mem.indexOf(u8, committed_argv.?[2], git_upstream_range) == null);
+    applyLine(&model, .{ .key = committed_key, .line = "M\tcommitted.zig\n" });
+    handleExit(&model, .{ .key = committed_key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
+    try std.testing.expectEqualStrings("M committed.zig", model.review_diff_file_store[0].label());
+    try std.testing.expect(!hasReviewDiffStatus(&model));
+
+    setSource(&model, &fx, .branch);
+    try std.testing.expectEqual(Source.branch, model.review_diff_source);
+    try std.testing.expect(model.review_diff_key != committed_key);
+    try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+    try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
+
+    const back_key = model.review_diff_key;
+    i = 0;
+    var back_argv: ?[]const []const u8 = null;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == back_key) back_argv = spawn.argv;
+    }
+    try std.testing.expect(isGitReviewDiffArgv(back_argv orelse return error.MissingBranchBackArgv));
+    try std.testing.expectEqualStrings(git_upstream_range, back_argv.?[8]);
+    try std.testing.expectEqualStrings("@{upstream}...HEAD", back_argv.?[8]);
+
+    handleExit(&model, .{ .key = back_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqualStrings(empty_status, reviewDiffStatus(&model));
 
-    setSource(&model, &fx, .unstaged);
+    setSource(&model, &fx, .committed);
     const fail_key = model.review_diff_key;
     handleExit(&model, .{ .key = fail_key, .reason = .exited, .code = 128 });
     try std.testing.expectEqualStrings(failed_status, reviewDiffStatus(&model));
-    try std.testing.expectEqual(Source.unstaged, model.review_diff_source);
+    try std.testing.expectEqual(Source.committed, model.review_diff_source);
 
     dismiss(&model, &fx);
     try std.testing.expect(!model.review_diff_active);
     try std.testing.expectEqual(Source.branch, model.review_diff_source);
 
-    setSource(&model, &fx, .unstaged);
+    setSource(&model, &fx, .committed);
     try std.testing.expect(!model.review_diff_active);
     try std.testing.expectEqual(Source.branch, model.review_diff_source);
 }

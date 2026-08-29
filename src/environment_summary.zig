@@ -3,14 +3,14 @@
 //! Header info trigger plus a runtime-only dropdown titled
 //! Environment: Commit or Push (ungated open of the existing
 //! Commit… card), Compare (Review name-status file list; opens
-//! on Branch, Uncommitted / Staged / Unstaged are switchable on
-//! the card), and Copy task ID (local session id via
-//! `fx.writeClipboard`). Header +N −M reuses the composer
+//! on Branch, Uncommitted / Staged / Unstaged / Committed are
+//! switchable on the card), and Copy task ID (local session id
+//! via `fx.writeClipboard`). Header +N −M reuses the composer
 //! project-row numstat probe (omit a zero side; muted ghost;
 //! click opens Compare Review on Branch). Not full Review
-//! hunks, not Committed/LastTurn, not untracked-in-Uncommitted,
-//! not force, not background work, and not daemon
-//! WorkspaceOperation.
+//! hunks, not LastTurn / local main-or-master fallback, not
+//! untracked-in-Uncommitted, not force, not background work,
+//! and not daemon WorkspaceOperation.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -73,8 +73,8 @@ pub fn copyTaskId(model: *Model, fx: *Effects) void {
 
 /// Close the popover and any Commit… card, then open the first-cut
 /// Review file-list card on Branch (`git diff --name-status
-/// @{upstream}...HEAD`). Uncommitted, Staged, and Unstaged are
-/// selected on the card.
+/// @{upstream}...HEAD`). Uncommitted, Staged, Unstaged, and
+/// Committed are selected on the card.
 pub fn compare(model: *Model, fx: *Effects) void {
     close(model);
     git_commit.dropCommitNumstat(model, fx);
