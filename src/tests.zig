@@ -16891,14 +16891,7 @@ test "Review source row switches Uncommitted and re-probes HEAD name-status" {
     try testing.expect(model.review_diff_key != branch_key);
     try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
     try testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
-
-    try fx.feedLine(branch_key, "M\tshould-ignore.zig\n");
-    drainEffects(&model, &fx);
-    try fx.feedExit(branch_key, 0);
-    drainEffects(&model, &fx);
-    try testing.expectEqual(review_diff.Source.uncommitted, model.review_diff_source);
-    try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
-    try testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+    try testing.expect(findGitReviewDiffSpawnKey(&fx, branch_key) == null);
 
     const uncommitted_spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffUncommitted;
     try testing.expect(review_diff.isGitReviewDiffArgv(uncommitted_spawn.argv));
