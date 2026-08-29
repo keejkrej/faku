@@ -19,6 +19,7 @@ const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
+const git_remotes = @import("git_remotes.zig");
 const git_commit_mod = @import("git_commit.zig");
 const file_mention = @import("file_mention.zig");
 const reveal_folder = @import("reveal_folder.zig");
@@ -692,6 +693,15 @@ pub const Model = struct {
     /// True when that probe resolved `@{upstream}` (exit 0 or a
     /// parsed count pair). Failed / no-upstream stays false.
     git_ahead_behind_has_upstream: bool = false,
+    /// Runtime-only one-shot `git remote` for first-push remotes.
+    /// Not persisted to sessions.json. Distinct from Push… remotes.
+    git_remotes_key: u64 = 0,
+    next_git_remotes_key: u64 = git_remotes.git_remotes_key_first,
+    git_remotes_probe_session: u32 = 0,
+    git_remotes_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    git_remotes_probe_path_len: usize = 0,
+    git_remotes_ready: bool = false,
+    git_has_remote: bool = false,
     /// Runtime-only file cache for composer `@` mentions.
     /// Git ls-files first; bounded walk only when that spawn fails.
     /// Not persisted to sessions.json.
@@ -1008,6 +1018,13 @@ pub const Model = struct {
         "git_ahead_behind_probe_path_len",
         "git_ahead_behind_ready",
         "git_ahead_behind_has_upstream",
+        "git_remotes_key",
+        "next_git_remotes_key",
+        "git_remotes_probe_session",
+        "git_remotes_probe_path_storage",
+        "git_remotes_probe_path_len",
+        "git_remotes_ready",
+        "git_has_remote",
         "file_mention_store",
         "file_mention_count",
         "file_mention_key",
@@ -2201,8 +2218,9 @@ pub const Model = struct {
         return git_ahead_behind.hasGitAheadBehind(model);
     }
 
-    /// Composer branch-picker Push…. Waku `can_push` without a remotes
-    /// probe: ahead of `@{upstream}`, or no resolved upstream.
+    /// Composer branch-picker Push…. Waku `can_push` with
+    /// remotes-required-for-first-push: ahead of `@{upstream}`, or no
+    /// resolved upstream and at least one remote.
     pub fn can_push_git_branch(model: *const Model) bool {
         return git_ahead_behind.canPushGitBranch(model);
     }
@@ -2212,6 +2230,13 @@ pub const Model = struct {
     /// is on (Waku `can_commit`).
     pub fn can_commit_git(model: *const Model) bool {
         return git_commit_mod.canCommitGit(model);
+    }
+
+    /// Commit and Push on the Commit… card. `can_commit` plus
+    /// first-push remotes: known upstream is enough; no-upstream
+    /// requires at least one remote.
+    pub fn can_commit_and_push_git(model: *const Model) bool {
+        return git_commit_mod.canCommitAndPushGit(model);
     }
 
     /// Runtime-only muted +/- on the Commit… card (CommitSnapshot
