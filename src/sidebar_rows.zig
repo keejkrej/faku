@@ -165,12 +165,18 @@ fn appendDateBucket(
     return i;
 }
 
+fn sessionProjectSubtitle(session: *const Session) []const u8 {
+    const path = session.projectPath();
+    if (path.len == 0) return "No project";
+    return std.fs.path.basename(path);
+}
+
 fn sessionSidebarRow(model: *const Model, session: *const Session, arena: std.mem.Allocator) SidebarRow {
     const relative = allocRelativeTime(arena, session.updated_at, model.now_ms);
     return .{
         .id = session.id,
         .title = main.sessionDisplayTitle(session),
-        .provider = session.provider_label(),
+        .provider = sessionProjectSubtitle(session),
         .selected = session.id == model.selected,
         .is_header = false,
         .editing = model.editing_session_id == session.id,

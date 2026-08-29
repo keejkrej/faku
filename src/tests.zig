@@ -80,7 +80,12 @@ fn expectByText(widget: canvas.Widget, kind: canvas.WidgetKind, text: []const u8
 }
 
 fn expectModelChip(widget: canvas.Widget, text: []const u8) !canvas.Widget {
+    if (findByText(widget, .button, text)) |hit| return hit;
     return expectByText(widget, .select, text);
+}
+
+fn expectChip(widget: canvas.Widget, text: []const u8) !canvas.Widget {
+    return expectModelChip(widget, text);
 }
 
 fn dumpTexts(widget: canvas.Widget, depth: usize) void {
@@ -150,7 +155,13 @@ fn expectSelectMsg(tree: AppUi.Tree, text: []const u8, expected: Msg) !canvas.Wi
             if (std.meta.eql(msg, expected)) return widget;
         }
     }
-    std.debug.print("no select \"{s}\" dispatching that msg\n", .{text});
+    n = 0;
+    while (findNthByText(tree.root, .button, text, n)) |widget| : (n += 1) {
+        if (tree.msgForPointer(widget.id, .up)) |msg| {
+            if (std.meta.eql(msg, expected)) return widget;
+        }
+    }
+    std.debug.print("no select/button \"{s}\" dispatching that msg\n", .{text});
     dumpTexts(tree.root, 0);
     return error.WidgetNotFound;
 }
@@ -325,8 +336,8 @@ test "boot is fx-first and New / send / ticks / stop drive the demo" {
     _ = try expectButton(tree.root, "fix auth listener");
     _ = try expectButton(tree.root, "Remove session");
     _ = try expectByText(tree.root, .button, "Send");
-    _ = try expectByText(tree.root, .text, "fx");
-    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectByText(tree.root, .text, "No project");
+    _ = try expectChip(tree.root, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
     _ = try expectByText(tree.root, .button, "Local");
     try testing.expect(findByKind(tree.root, .status_bar) == null);
@@ -397,7 +408,7 @@ test "selecting the claude session shows its transcript" {
     try testing.expectEqual(@as(usize, 1), countRole(&model, .tool));
 
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "You");
+    _ = try expectByText(tree.root, .column, "You said");
     _ = try expectByText(tree.root, .text, "Tool");
     try testing.expect(findByKind(tree.root, .status_bar) == null);
 }
@@ -798,7 +809,7 @@ test "fork at turn 1 copies two turns; source unchanged; empty fx_session_id; he
     try testing.expectEqual(@as(u32, 3), model.turnCount(id));
 }
 
-test "user and assistant **bold** bind to markdown source" {
+test "user and assistant turns wrap as plain text" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -810,22 +821,45 @@ test "user and assistant **bold** bind to markdown source" {
     _ = model.appendTurn(id, .assistant, "**also**");
 
     const tree = try buildTree(arena, &model);
-    try testing.expect(findByText(tree.root, .text, "**bold**") == null);
-    try testing.expect(findByText(tree.root, .text, "**also**") == null);
-    const user_rendered = findBoldSpanText(tree.root, "bold") orelse {
-        std.debug.print("no bold markdown span for user \"bold\"\n", .{});
-        dumpTexts(tree.root, 0);
-        return error.WidgetNotFound;
-    };
-    try testing.expectEqual(canvas.WidgetKind.text, user_rendered.kind);
-    try testing.expectEqualStrings("bold", user_rendered.text);
-    const assistant_rendered = findBoldSpanText(tree.root, "also") orelse {
-        std.debug.print("no bold markdown span for assistant \"also\"\n", .{});
-        dumpTexts(tree.root, 0);
-        return error.WidgetNotFound;
-    };
-    try testing.expectEqual(canvas.WidgetKind.text, assistant_rendered.kind);
-    try testing.expectEqualStrings("also", assistant_rendered.text);
+    const user_text = try expectByText(tree.root, .text, "**bold**");
+    const assistant_text = try expectByText(tree.root, .text, "**also**");
+    try testing.expect(!user_text.text_no_wrap);
+    try testing.expect(!assistant_text.text_no_wrap);
+}
+
+test "user turns hug the right in a bubble; assistant turns stay left" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    const id = model.addSession("align turns", .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .user, "hello there");
+    _ = model.appendTurn(id, .assistant, "a wrapped assistant reply that should stay on the left");
+    _ = model.appendTurn(id, .tool, "read src/align.ts");
+
+    const tree = try buildTree(arena, &model);
+    const transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+    const user_row = try expectByText(transcript, .row, "hello there");
+    try testing.expect(findByKind(user_row, .bubble) != null);
+    _ = try expectByText(user_row, .column, "You said");
+    var spacer_grow: f32 = 0;
+    for (user_row.children) |child| {
+        if (child.layout.grow > spacer_grow) spacer_grow = child.layout.grow;
+    }
+    try testing.expect(spacer_grow >= 1);
+
+    const assistant_row = try expectByText(transcript, .column, "a wrapped assistant reply that should stay on the left");
+    try testing.expect(findByKind(assistant_row, .bubble) == null);
+    _ = try expectByText(assistant_row, .row, "Assistant said");
+    const assistant_text = try expectByText(assistant_row, .text, "a wrapped assistant reply that should stay on the left");
+    try testing.expect(!assistant_text.text_no_wrap);
+    try testing.expect(assistant_text.layout.grow >= 1);
+
+    const tool_row = try expectByText(transcript, .column, "read src/align.ts");
+    try testing.expect(findByKind(tool_row, .bubble) == null);
+    _ = try expectByText(tool_row, .text, "Tool");
 }
 
 const NotifySink = struct {
@@ -1051,6 +1085,25 @@ test "send while streaming still queues a follow-up" {
     try testing.expectEqual(@as(u32, 1), model.queuedCount(id));
     try testing.expect(model.is_streaming());
     try testing.expectEqualStrings("", model.draft());
+}
+
+test "idle send is muted and usage chrome stays hidden until ACP reports a window" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    try testing.expect(!model.has_draft());
+    try testing.expect(!model.has_context_usage());
+    const tokens = main.designTokens(&model);
+    try testing.expect(!tokens.pixel_snap.geometry);
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Send", .send);
+    try expectNoContextProgress(tree.root);
+    try testing.expect(findByText(tree.root, .button, "Pick folder") == null);
+    _ = try expectButtonMsg(tree, "Attach image", .pick_image);
+    _ = try expectChip(tree.root, "Full access");
 }
 
 test "composer placeholder is Queue a follow-up while streaming" {
@@ -1495,7 +1548,7 @@ test "ACP current_mode_update ask then code updates access chip and persists; un
     try testing.expectEqualStrings("Full access", model.access_label());
 
     var tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectChip(tree.root, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "switch modes" } }, &fx);
@@ -1518,7 +1571,7 @@ test "ACP current_mode_update ask then code updates access chip and persists; un
     try testing.expectEqualStrings("ask", model.lastAccessMode());
     try testing.expectEqualStrings("Ask", model.access_label());
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .select, "Ask");
+    _ = try expectChip(tree.root, "Ask");
     try testing.expect(findByText(tree.root, .button, "Full access") == null);
 
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-mode-1\",\"update\":{\"sessionUpdate\":\"agent_thought_chunk\",\"content\":{\"type\":\"text\",\"text\":\"stay on the reasoning row\"}}}}");
@@ -1538,7 +1591,7 @@ test "ACP current_mode_update ask then code updates access chip and persists; un
     try testing.expectEqualStrings("stay on the reasoning row", lastReasoning(&model));
     try testing.expectEqualStrings("Reading file · read · pending", lastTool(&model));
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectChip(tree.root, "Full access");
     try testing.expect(findByText(tree.root, .button, "Ask") == null);
 
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"acp-mode-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"mode switched\"}}}}");
@@ -1562,7 +1615,7 @@ test "ACP current_mode_update ask then code updates access chip and persists; un
     try testing.expectEqualStrings("fullAccess", loaded.lastAccessMode());
     try testing.expectEqualStrings("Full access", loaded.access_label());
     tree = try buildTree(arena, &loaded);
-    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectChip(tree.root, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
 }
 
@@ -1595,7 +1648,7 @@ test "ACP config_option_update sets model chip and persists; unknown is ignored"
 
     var tree = try buildTree(arena, &model);
     _ = try expectModelChip(tree.root, "FX_MODEL");
-    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectChip(tree.root, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "switch models" } }, &fx);
@@ -1630,7 +1683,7 @@ test "ACP config_option_update sets model chip and persists; unknown is ignored"
     try testing.expectEqualStrings("Claude", model.sessionById(id).?.modelOptions()[1].label());
     tree = try buildTree(arena, &model);
     _ = try expectModelChip(tree.root, "openai/gpt-5.4");
-    try testing.expect(findByText(tree.root, .select, "FX_MODEL") == null);
+    try testing.expect(findByText(tree.root, .button, "FX_MODEL") == null);
     try testing.expect(findByText(tree.root, .button, "anthropic/claude-sonnet-4") == null);
     try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
     try testing.expect(findByText(tree.root, .menu_item, "GPT") == null);
@@ -1677,7 +1730,7 @@ test "ACP config_option_update sets model chip and persists; unknown is ignored"
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.modelOptions().len);
     tree = try buildTree(arena, &model);
     _ = try expectModelChip(tree.root, "FX_MODEL");
-    try testing.expect(findByText(tree.root, .select, "openai/gpt-5.4") == null);
+    try testing.expect(findByText(tree.root, .button, "openai/gpt-5.4") == null);
     try testing.expect(findByText(tree.root, .menu_item, "GPT") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Claude") == null);
 
@@ -1723,7 +1776,7 @@ test "ACP config_option_update sets model chip and persists; unknown is ignored"
     try testing.expectEqual(@as(usize, 0), loaded.session_store[0].modelOptions().len);
     tree = try buildTree(arena, &loaded);
     _ = try expectModelChip(tree.root, "openai/gpt-5.4");
-    _ = try expectByText(tree.root, .select, "Ask");
+    _ = try expectChip(tree.root, "Ask");
     _ = try expectByText(tree.root, .button, "Build");
 }
 
@@ -1755,7 +1808,7 @@ test "ACP available_commands_update stores names; empty clears; unknown is ignor
 
     var tree = try buildTree(arena, &model);
     _ = try expectModelChip(tree.root, "FX_MODEL");
-    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectChip(tree.root, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "list commands" } }, &fx);
@@ -1844,7 +1897,7 @@ test "ACP available_commands_update stores names; empty clears; unknown is ignor
     try testing.expectEqualStrings("ask", loaded.session_store[0].accessMode());
     tree = try buildTree(arena, &loaded);
     _ = try expectModelChip(tree.root, "FX_MODEL");
-    _ = try expectByText(tree.root, .select, "Ask");
+    _ = try expectChip(tree.root, "Ask");
     _ = try expectByText(tree.root, .button, "Build");
     try testing.expect(findByText(tree.root, .button, "plan") == null);
     try testing.expect(findByText(tree.root, .button, "Commands") == null);
@@ -1882,7 +1935,7 @@ test "ACP session_info_update sets title and persists; empty cwd unknown ignored
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "info title");
     _ = try expectModelChip(tree.root, "FX_MODEL");
-    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectChip(tree.root, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
 
     main.update(&model, .{ .draft_edit = .{ .insert_text = "name the session" } }, &fx);
@@ -1974,7 +2027,7 @@ test "ACP session_info_update sets title and persists; empty cwd unknown ignored
     tree = try buildTree(arena, &loaded);
     _ = try expectByText(tree.root, .text, "Implement user authentication");
     _ = try expectModelChip(tree.root, "openai/gpt-5.4");
-    _ = try expectByText(tree.root, .select, "Ask");
+    _ = try expectChip(tree.root, "Ask");
     _ = try expectByText(tree.root, .button, "Build");
 }
 
@@ -2517,6 +2570,62 @@ test "fx ask --image when draft image_path exists" {
     try testing.expectEqual(@as(f32, 0), model.context_usage());
 }
 
+test "stripFxDiagnostics drops skill warnings and keeps the glued reply" {
+    try testing.expectEqualStrings("Hi! How can I help?", main.stripFxDiagnostics(
+        "skill discovery warning: candidate \"/home/jack/.codex/skills/omarchy\" was skipped because its linked skill directory could not be resolved to an authorized readable directory; repair or remove the link, or authorize its external location, then reload skills; 2 additional diagnostics omitted; relaunch with FX_TRACE=1 to write a trace logHi! How can I help?\n",
+    ));
+    try testing.expectEqualStrings("", main.stripFxDiagnostics(
+        "skill discovery warning: candidate \"/tmp/x\" was skipped because its linked skill directory could not be resolved to an authorized readable directory",
+    ));
+    try testing.expectEqualStrings("plain reply", main.stripFxDiagnostics("plain reply"));
+}
+
+test "fx ask stdout skill warning is not turn text" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("warn ask", .fx);
+    model.selected = id;
+    model.phase = .streaming;
+    model.reply_path = .fx;
+    model.fx_spawn_acp = false;
+    model.fx_spawn_key = main.fx_ask_key;
+    model.streaming_session = id;
+    const assistant = model.appendTurn(id, .assistant, "");
+    model.stream_turn_id = assistant;
+
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "skill discovery warning: candidate \"/home/jack/.claude/skills/omarchy\" was skipped because its linked skill directory could not be resolved to an authorized readable directory; relaunch with FX_TRACE=1 to write a trace logHi! How can I help?",
+    } }, &fx);
+    try testing.expectEqualStrings("Hi! How can I help?", lastAssistant(&model));
+}
+
+test "fx acp agent chunk strips skill discovery warnings" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("warn acp", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "hello" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.fx_spawn_acp);
+
+    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"fx-test-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"skill discovery warning: candidate \\\"/home/jack/.codex/skills/omarchy\\\" was skipped because its linked skill directory could not be resolved to an authorized readable directory; relaunch with FX_TRACE=1 to write a trace logHi! How can I help?\"}}}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("Hi! How can I help?", lastAssistant(&model));
+}
+
 test "fx ask omits --image when the draft file is missing" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
@@ -2569,11 +2678,11 @@ test "composer attach pastes image_path, persists, and clears" {
     try store.saveSession(&model, id, testing.allocator, testing.io);
 
     var tree = try buildTree(arena, &model);
-    const attach = try expectButton(tree.root, "Attach image");
+    _ = try expectButtonMsg(tree, "Attach image", .pick_image);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Image path") == null);
     try testing.expect(findByText(tree.root, .button, "shot.png") == null);
 
-    main.update(&model, tree.msgForPointer(attach.id, .up).?, &fx);
+    main.update(&model, .start_image_attach, &fx);
     try testing.expect(model.image_attach_active);
 
     tree = try buildTree(arena, &model);
@@ -2849,13 +2958,13 @@ test "pick_image button dispatches and fake executor captures OS dialog argv" {
 
     var model = Model{};
     var tree = try buildTree(arena, &model);
-    const pick = try expectButtonMsg(tree, "Pick image", .pick_image);
-    try testing.expect(pressableAppearsBefore(tree.root, "Attach image", "Pick image"));
+    const pick = try expectButtonMsg(tree, "Attach image", .pick_image);
 
     main.update(&model, tree.msgForPointer(pick.id, .up).?, &fx);
     if (pick_image.hostArgv(.first) == null) {
         try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
         try testing.expect(model.has_attach_status());
+        try testing.expect(model.image_attach_active);
         return;
     }
     try testing.expect(model.pick_image_live);
@@ -2992,10 +3101,12 @@ test "picker missing tools surfaces composer status; typed path and drop still w
     try testing.expect(model.has_attach_status());
     try testing.expectEqualStrings(pick_image.hostMissingStatus(), model.attach_status());
     try testing.expect(!model.pick_image_live);
+    try testing.expect(model.image_attach_active);
 
     const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, pick_image.hostMissingStatus());
     _ = try expectButton(tree.root, "Attach image");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Image path") != null);
 
     main.update(&model, .start_image_attach, &fx);
     main.update(&model, .{ .image_path_edit = .clear }, &fx);
@@ -3026,7 +3137,7 @@ fn findFolderPickerSpawnNamed(fx: *Effects, bin: []const u8) ?@TypeOf(fx.pending
     return null;
 }
 
-test "pick_folder button sits on idle and project-edit rows and captures OS dialog argv" {
+test "pick_folder button sits on the project-edit row and captures OS dialog argv" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -3037,16 +3148,18 @@ test "pick_folder button sits on idle and project-edit rows and captures OS dial
 
     var model = Model{};
     var tree = try buildTree(arena, &model);
-    const pick = try expectButtonMsg(tree, "Pick folder", .pick_folder);
-    try testing.expect(pressableAppearsBefore(tree.root, "choose a project", "Pick folder"));
-    try testing.expect(pressableAppearsBefore(tree.root, "Pick folder", "Local"));
     _ = try expectByText(tree.root, .button, "Local");
+    try testing.expect(findByText(tree.root, .button, "Pick folder") == null);
+    main.update(&model, .start_project_edit, &fx);
+    tree = try buildTree(arena, &model);
+    const pick = try expectButtonMsg(tree, "Pick folder", .pick_folder);
 
     main.update(&model, tree.msgForPointer(pick.id, .up).?, &fx);
     if (pick_folder.hostArgv(.first) == null) {
         try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
         try testing.expect(model.has_window_status());
         try testing.expectEqualStrings(pick_folder.hostMissingStatus(), model.window_status());
+        try testing.expect(model.project_edit_active);
         return;
     }
     try testing.expect(model.pick_folder_live);
@@ -3210,10 +3323,11 @@ test "pick_folder missing tools surfaces window status; typed path stays" {
     try testing.expectEqualStrings(pick_folder.hostMissingStatus(), model.window_status());
     try testing.expect(!model.pick_folder_live);
     try testing.expect(model.project_is_local() == false);
+    try testing.expect(model.project_edit_active);
 
     const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, pick_folder.hostMissingStatus());
-    _ = try expectByText(tree.root, .button, project);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Workspace path") != null);
     _ = try expectButton(tree.root, "Pick folder");
     try testing.expect(findByText(tree.root, .button, "Local") == null);
 
@@ -3315,8 +3429,7 @@ test "reveal_folder existing directory captures open/xdg-open argv and leaves pr
 
     var tree = try buildTree(arena, &model);
     const reveal = try expectButtonMsg(tree, "Reveal folder", .reveal_folder);
-    try testing.expect(pressableAppearsBefore(tree.root, "Pick folder", "Reveal folder"));
-    _ = try expectButtonMsg(tree, "Pick folder", .pick_folder);
+    try testing.expect(findByText(tree.root, .button, "Pick folder") == null);
 
     const before = model.selectedProjectPath();
     main.update(&model, tree.msgForPointer(reveal.id, .up).?, &fx);
@@ -3425,14 +3538,14 @@ test "reveal_folder sits on idle and project-edit rows only when the path exists
 
     var tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .button, "Reveal folder") == null);
-    _ = try expectButtonMsg(tree, "Pick folder", .pick_folder);
+    try testing.expect(findByText(tree.root, .button, "Pick folder") == null);
     _ = try expectByText(tree.root, .button, "Local");
 
     model.setSelectedProjectPath(project);
     try testing.expect(model.can_reveal_folder());
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "Reveal folder", .reveal_folder);
-    try testing.expect(pressableAppearsBefore(tree.root, "Pick folder", "Reveal folder"));
+    try testing.expect(findByText(tree.root, .button, "Pick folder") == null);
     try testing.expect(findByText(tree.root, .button, "Local") == null);
 
     main.update(&model, .start_project_edit, &fx);
@@ -3581,7 +3694,7 @@ test "open_terminal existing directory captures host terminal argv and leaves pr
     var tree = try buildTree(arena, &model);
     const terminal = try expectButtonMsg(tree, "Open in Terminal", .open_terminal);
     try testing.expect(pressableAppearsBefore(tree.root, "Reveal folder", "Open in Terminal"));
-    _ = try expectButtonMsg(tree, "Pick folder", .pick_folder);
+    try testing.expect(findByText(tree.root, .button, "Pick folder") == null);
     _ = try expectButtonMsg(tree, "Reveal folder", .reveal_folder);
 
     const before = model.selectedProjectPath();
@@ -3703,7 +3816,7 @@ test "open_terminal sits on idle and project-edit rows only when the path is ope
 
     var tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .button, "Open in Terminal") == null);
-    _ = try expectButtonMsg(tree, "Pick folder", .pick_folder);
+    try testing.expect(findByText(tree.root, .button, "Pick folder") == null);
     _ = try expectByText(tree.root, .button, "Local");
 
     model.setSelectedProjectPath(project);
@@ -3874,7 +3987,7 @@ test "open_editor existing directory captures host editor argv and leaves projec
     var tree = try buildTree(arena, &model);
     const editor = try expectButtonMsg(tree, "Open in Editor", .open_editor);
     try testing.expect(pressableAppearsBefore(tree.root, "Open in Terminal", "Open in Editor"));
-    _ = try expectButtonMsg(tree, "Pick folder", .pick_folder);
+    try testing.expect(findByText(tree.root, .button, "Pick folder") == null);
     _ = try expectButtonMsg(tree, "Reveal folder", .reveal_folder);
     _ = try expectButtonMsg(tree, "Open in Terminal", .open_terminal);
 
@@ -3993,7 +4106,7 @@ test "open_editor sits on idle and project-edit rows only when the path is opena
 
     var tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .button, "Open in Editor") == null);
-    _ = try expectButtonMsg(tree, "Pick folder", .pick_folder);
+    try testing.expect(findByText(tree.root, .button, "Pick folder") == null);
     _ = try expectByText(tree.root, .button, "Local");
 
     model.setSelectedProjectPath(project);
@@ -4168,7 +4281,7 @@ test "copy_project_path existing directory writes fx.writeClipboard and leaves p
     var tree = try buildTree(arena, &model);
     const copy_path = try expectButtonMsg(tree, "Copy path", .copy_project_path);
     try testing.expect(pressableAppearsBefore(tree.root, "Open in Editor", "Copy path"));
-    _ = try expectButtonMsg(tree, "Pick folder", .pick_folder);
+    try testing.expect(findByText(tree.root, .button, "Pick folder") == null);
     _ = try expectButtonMsg(tree, "Reveal folder", .reveal_folder);
     _ = try expectButtonMsg(tree, "Open in Terminal", .open_terminal);
     _ = try expectButtonMsg(tree, "Open in Editor", .open_editor);
@@ -4273,7 +4386,7 @@ test "copy_project_path sits on idle and project-edit rows only when the path is
 
     var tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .button, "Copy path") == null);
-    _ = try expectButtonMsg(tree, "Pick folder", .pick_folder);
+    try testing.expect(findByText(tree.root, .button, "Pick folder") == null);
     _ = try expectByText(tree.root, .button, "Local");
 
     model.setSelectedProjectPath(project);
@@ -8365,10 +8478,8 @@ test "cmd-g and cmd-shift-g cycle the current matching turn" {
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "1 of 2");
-    const first = try expectByText(tree.root, .list_item, "alpha hello");
-    const second = try expectByText(tree.root, .list_item, "gamma hello again");
-    try testing.expect(first.state.selected);
-    try testing.expect(!second.state.selected);
+    _ = try expectByText(tree.root, .row, "alpha hello");
+    _ = try expectByText(tree.root, .row, "gamma hello again");
 
     main.update(&model, keys.onKey(cmd_g).?, &fx);
     try testing.expectEqual(@as(u32, 1), model.find_match_index);
@@ -8378,8 +8489,8 @@ test "cmd-g and cmd-shift-g cycle the current matching turn" {
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "2 of 2");
-    try testing.expect(!(try expectByText(tree.root, .list_item, "alpha hello")).state.selected);
-    try testing.expect((try expectByText(tree.root, .list_item, "gamma hello again")).state.selected);
+    _ = try expectByText(tree.root, .row, "alpha hello");
+    _ = try expectByText(tree.root, .row, "gamma hello again");
 
     main.update(&model, keys.onKey(cmd_g).?, &fx);
     try testing.expectEqual(@as(u32, 0), model.find_match_index);
@@ -8942,7 +9053,7 @@ test "settings edits persist model access and daemon address and reload" {
     try testing.expectEqualStrings("auto", cleared.lastAccessMode());
 }
 
-test "composer access and effort chips are Native selects; interaction still cycles" {
+test "composer access and effort chips open pickers; interaction still cycles" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -8970,7 +9081,6 @@ test "composer access and effort chips are Native selects; interaction still cyc
     try testing.expectEqual(Msg.toggle_access_picker, tree.msgForPointer(access.id, .up).?);
     const effort = try expectSelectMsg(tree, "Auto", .toggle_effort_picker);
     try testing.expectEqual(Msg.toggle_effort_picker, tree.msgForPointer(effort.id, .up).?);
-    try testing.expect(findByText(tree.root, .button, "Full access") == null);
     try testing.expectError(error.WidgetNotFound, expectButtonMsg(tree, "Auto", .cycle_access));
     try testing.expectError(error.WidgetNotFound, expectButtonMsg(tree, "Auto", .cycle_effort));
     const build = try expectButtonMsg(tree, "Build", .cycle_interaction);
@@ -8987,7 +9097,7 @@ test "composer access and effort chips are Native selects; interaction still cyc
     try testing.expectEqualStrings("Build", model.interaction_label());
 
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectChip(tree.root, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
     _ = try expectSelectMsg(tree, "Auto", .toggle_effort_picker);
 }
@@ -9661,7 +9771,7 @@ test "sidebar back and forward walk session selection history" {
     var tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "Search");
     _ = try expectButton(tree.root, "Settings");
-    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectChip(tree.root, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
     _ = try expectSelectMsg(tree, "Auto", .toggle_effort_picker);
     const back_start = try expectButton(tree.root, "Back");
@@ -9755,7 +9865,7 @@ test "sidebar back and forward walk session selection history" {
     _ = try expectButton(tree.root, "Search");
     _ = try expectButton(tree.root, "Collapse sidebar");
     _ = try expectButton(tree.root, "Settings");
-    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectChip(tree.root, "Full access");
     _ = try expectSelectMsg(tree, "Auto", .toggle_effort_picker);
 }
 
@@ -9880,7 +9990,7 @@ test "sidebar New folder creates a persisted catalog folder" {
     _ = try expectButton(tree.root, "Search");
     _ = try expectButton(tree.root, "Collapse sidebar");
     _ = try expectButton(tree.root, "Settings");
-    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectChip(tree.root, "Full access");
     main.update(&model, tree.msgForPointer((try expectButton(tree.root, "New folder")).id, .up).?, &fx);
     try testing.expectEqual(@as(u32, 1), model.folder_count);
     try testing.expectEqualStrings("New folder", model.folder_store[0].title());
@@ -10550,8 +10660,7 @@ test "deleting a folder unassigns its sessions; they stay in Today" {
     _ = try expectButton(tree.root, "Remove session");
     _ = try expectByText(tree.root, .text, "Today");
     _ = try expectButton(tree.root, "New folder");
-    _ = try expectButton(tree.root, "Close");
-
+   
     var loaded = Model{};
     loaded.setStoreDir(dir);
     loaded.store_io = testing.io;
@@ -10599,8 +10708,7 @@ test "deleting a folder unassigns its sessions; they stay in Today" {
     _ = try expectByText(tree.root, .list_item, "Work");
     _ = try expectButton(tree.root, "Expand folder");
     _ = try expectButton(tree.root, "Delete folder");
-    _ = try expectButton(tree.root, "Close");
-}
+   }
 
 test "sidebar trash removes a session and it stays gone after reload" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
@@ -10661,8 +10769,7 @@ test "sidebar trash removes a session and it stays gone after reload" {
     _ = try expectButton(tree.root, "Remove session");
     _ = try expectButton(tree.root, "New folder");
     _ = try expectButton(tree.root, "Delete folder");
-    _ = try expectButton(tree.root, "Close");
-
+   
     var loaded = Model{};
     loaded.setStoreDir(dir);
     loaded.store_io = testing.io;
@@ -10780,8 +10887,7 @@ test "sidebar session rows declare a Rename/Remove context menu" {
     try expectNoContextMenu(try expectByText(tree.root, .list_item, "Today"));
     try expectNoContextMenu(try expectByText(tree.root, .list_item, "New Task"));
     _ = try expectButton(today_row, "Remove session");
-    _ = try expectButton(tree.root, "Close");
-
+   
     main.update(&model, .{ .rename_session = auth_id }, &fx);
     try testing.expectEqual(auth_id, model.editing_session_id);
     try testing.expectEqual(port_id, model.selected);
@@ -10988,8 +11094,7 @@ test "click the selected session title edits it; empty name becomes untitled" {
 
     tree = try buildTree(arena, &model);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "untitled") != null);
-    _ = try expectButton(tree.root, "Close");
-
+   
     main.update(&model, .{ .session_title_edit = .clear }, &fx);
     main.update(&model, .{ .session_title_edit = .{ .insert_text = "Review auth" } }, &fx);
     try testing.expectEqualStrings("Review auth", model.session_store[0].title());
@@ -11037,8 +11142,7 @@ test "click the selected session title edits it; empty name becomes untitled" {
     const empty_toolbar = try expectByText(tree.root, .row, "Toolbar");
     _ = try expectByText(empty_toolbar, .text, "untitled");
     _ = try expectButton(tree.root, "New task");
-    _ = try expectButton(tree.root, "Close");
-
+   
     tree = try buildTree(arena, &model);
     main.update(&model, tree.msgForPointer((try expectButton(tree.root, "fix auth listener")).id, .up).?, &fx);
     try testing.expectEqual(auth_id, model.selected);
@@ -11064,10 +11168,6 @@ test "click the selected session title edits it; empty name becomes untitled" {
     try testing.expect(!model.sessionById(model.selected).?.untitled);
     try testing.expectEqualStrings("first send titles me", model.selected_title());
     try testing.expectEqualStrings("first send titles me", model.header_title());
-
-    tree = try buildTree(arena, &model);
-    const close = try expectButton(tree.root, "Close");
-    try testing.expectEqual(Msg.close_window, tree.msgForPointer(close.id, .up).?);
 
     tree = try buildTree(arena, &model);
     main.update(&model, tree.msgForPointer((try expectButton(tree.root, "New folder")).id, .up).?, &fx);
@@ -11122,14 +11222,13 @@ test "long session and folder titles stay one line with Native ellipsis" {
     try testing.expectEqual(Msg.edit_session_title, tree.msgForPointer(header.id, .up).?);
     _ = try expectByText(toolbar, .button, "Copy session");
     _ = try expectByText(toolbar, .button, "Fork");
-    _ = try expectButton(tree.root, "Close");
     try expectLaidOutHeight(tree.root, toolbar.id, 48);
 
     const session_row = try expectByText(tree.root, .list_item, long_session);
     try testing.expectEqualStrings(long_session, widgetName(session_row));
     const session_title = try expectByText(session_row, .text, long_session);
     try expectOneLineEllipsis(session_title, null);
-    const provider = try expectByText(session_row, .text, "fx");
+    const provider = try expectByText(session_row, .text, "No project");
     try expectOneLineEllipsis(provider, null);
     try expectLaidOutHeight(tree.root, session_row.id, 52);
 
@@ -11167,7 +11266,7 @@ test "long session and folder titles stay one line with Native ellipsis" {
     _ = try expectByText(dialog, .button, "Switch");
 }
 
-test "header Minimize sits before Close and requests fx.minimizeWindow" {
+test "OS titlebar is hidden_inset_tall; canvas does not draw window buttons" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -11177,39 +11276,21 @@ test "header Minimize sits before Close and requests fx.minimizeWindow" {
     fx.executor = .fake;
 
     var model = main.initialModel();
-    try testing.expect(main.shell_scene.windows[0].titlebar == .chromeless);
+    try testing.expect(main.shell_scene.windows[0].titlebar == .hidden_inset_tall);
     try testing.expectEqualStrings(main.main_window_label, main.shell_scene.windows[0].label);
 
     var tree = try buildTree(arena, &model);
     const toolbar = try expectByText(tree.root, .row, "Toolbar");
-    const maximize = try expectButton(toolbar, "Maximize");
-    const minimize = try expectButton(toolbar, "Minimize");
-    const close = try expectButton(toolbar, "Close");
-    try testing.expectEqualStrings("Maximize", widgetName(maximize));
-    try testing.expectEqualStrings("Minimize", widgetName(minimize));
-    try testing.expectEqual(Msg.maximize_window, tree.msgForPointer(maximize.id, .up).?);
-    try testing.expectEqual(Msg.minimize_window, tree.msgForPointer(minimize.id, .up).?);
-    try testing.expectEqual(Msg.close_window, tree.msgForPointer(close.id, .up).?);
-    try testing.expect(pressableAppearsBefore(toolbar, "Maximize", "Minimize"));
-    try testing.expect(pressableAppearsBefore(toolbar, "Minimize", "Close"));
+    try testing.expect(findPressableContaining(toolbar, "Close") == null);
+    try testing.expect(findPressableContaining(toolbar, "Minimize") == null);
+    try testing.expect(findPressableContaining(toolbar, "Maximize") == null);
 
     var actions = fx.windowActionState();
     try testing.expectEqual(@as(u32, 0), actions.minimize_count);
-    try testing.expectEqual(@as(u32, 0), actions.close_count);
-    try testing.expectEqual(@as(u32, 0), actions.quit_count);
-
-    main.update(&model, tree.msgForPointer(minimize.id, .up).?, &fx);
-    actions = fx.windowActionState();
-    try testing.expectEqual(@as(u32, 1), actions.minimize_count);
-    try testing.expectEqual(@as(u32, 0), actions.close_count);
-    try testing.expectEqual(@as(u32, 0), actions.quit_count);
-    try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
-
     main.update(&model, .minimize_window, &fx);
     actions = fx.windowActionState();
-    try testing.expectEqual(@as(u32, 2), actions.minimize_count);
+    try testing.expectEqual(@as(u32, 1), actions.minimize_count);
     try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
-    try testing.expect(main.shell_scene.windows[0].titlebar == .chromeless);
 
     const gear = try expectButton(tree.root, "Settings");
     main.update(&model, tree.msgForPointer(gear.id, .up).?, &fx);
@@ -11301,7 +11382,7 @@ fn findMaximizeSpawnNamed(fx: *Effects, bin: []const u8) ?@TypeOf(fx.pendingSpaw
     return null;
 }
 
-test "header Maximize sits before Minimize and requests maximize_window" {
+test "maximize_window sidecar still runs without in-canvas window buttons" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -11311,15 +11392,12 @@ test "header Maximize sits before Minimize and requests maximize_window" {
     fx.executor = .fake;
 
     var model = main.initialModel();
-    var tree = try buildTree(arena, &model);
-    const toolbar = try expectByText(tree.root, .row, "Toolbar");
-    const maximize = try expectButtonMsg(tree, "Maximize", .maximize_window);
-    try testing.expectEqualStrings("Maximize", widgetName(maximize));
-    try testing.expect(pressableAppearsBefore(toolbar, "Maximize", "Minimize"));
-    try testing.expect(pressableAppearsBefore(toolbar, "Minimize", "Close"));
+    const tree = try buildTree(arena, &model);
+    try testing.expect(findPressableContaining(tree.root, "Maximize") == null);
+    try testing.expect(findPressableContaining(tree.root, "Close") == null);
 
     const before = fx.pendingSpawnCount();
-    main.update(&model, tree.msgForPointer(maximize.id, .up).?, &fx);
+    main.update(&model, .maximize_window, &fx);
     if (maximize_window.hostArgv(.first) == null) {
         try testing.expectEqual(before, fx.pendingSpawnCount());
         try testing.expect(model.has_window_status());
@@ -11539,25 +11617,24 @@ test "header Close requests the real window close; Esc stays with settings" {
     fx.executor = .fake;
 
     var model = main.initialModel();
-    try testing.expect(main.shell_scene.windows[0].titlebar == .chromeless);
+    try testing.expect(main.shell_scene.windows[0].titlebar == .hidden_inset_tall);
     try testing.expectEqualStrings(main.main_window_label, main.shell_scene.windows[0].label);
 
     var tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "New folder");
     _ = try expectByText(tree.root, .text, "Today");
-    const close = try expectButton(tree.root, "Close");
-    try testing.expectEqual(Msg.close_window, tree.msgForPointer(close.id, .up).?);
+    try testing.expect(findPressableContaining(tree.root, "Close") == null);
 
     var actions = fx.windowActionState();
     try testing.expectEqual(@as(u32, 0), actions.close_count);
     try testing.expectEqual(@as(u32, 0), actions.quit_count);
 
-    main.update(&model, tree.msgForPointer(close.id, .up).?, &fx);
+    main.update(&model, .close_window, &fx);
     actions = fx.windowActionState();
     try testing.expectEqual(@as(u32, 1), actions.close_count);
     try testing.expectEqual(@as(u32, 0), actions.quit_count);
     try testing.expectEqualStrings(main.main_window_label, actions.lastLabel());
-    try testing.expect(main.shell_scene.windows[0].titlebar == .chromeless);
+    try testing.expect(main.shell_scene.windows[0].titlebar == .hidden_inset_tall);
 
     tree = try buildTree(arena, &model);
     _ = try expectButton(tree.root, "New folder");
@@ -11575,7 +11652,6 @@ test "header Close requests the real window close; Esc stays with settings" {
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .button, "Send");
-    _ = try expectButton(tree.root, "Close");
     _ = try expectButton(tree.root, "New folder");
 }
 
@@ -11602,7 +11678,7 @@ test "composer project row sets selected session project_path and reloads" {
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .button, "choose a project");
     _ = try expectByText(tree.root, .button, "Local");
-    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectChip(tree.root, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
     _ = try expectButton(tree.root, "Search");
     _ = try expectButton(tree.root, "New folder");
@@ -11632,7 +11708,7 @@ test "composer project row sets selected session project_path and reloads" {
     _ = try expectByText(tree.root, .button, "/tmp/faku-project");
     try testing.expect(findByText(tree.root, .button, "Local") == null);
     try testing.expect(findByText(tree.root, .button, "choose a project") == null);
-    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectChip(tree.root, "Full access");
     _ = try expectSelectMsg(tree, "Auto", .toggle_effort_picker);
 
     var loaded = Model{};
@@ -15028,6 +15104,13 @@ fn expectContextProgress(widget: canvas.Widget, expected: f32) !canvas.Widget {
     return progress;
 }
 
+fn expectNoContextProgress(widget: canvas.Widget) !void {
+    if (findByText(widget, .progress, "Context usage")) |_| {
+        std.debug.print("idle composer still paints the empty usage blob\n", .{});
+        return error.UnexpectedProgress;
+    }
+}
+
 test "ACP usage_update fills the composer progress; missing usage stays empty" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -15054,9 +15137,9 @@ test "ACP usage_update fills the composer progress; missing usage stays empty" {
     try store.saveSession(&model, id, testing.allocator, testing.io);
 
     var tree = try buildTree(arena, &model);
-    _ = try expectContextProgress(tree.root, 0);
+    try expectNoContextProgress(tree.root);
     _ = try expectByText(tree.root, .button, "choose a project");
-    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectChip(tree.root, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
     _ = try expectButton(tree.root, "New folder");
 
@@ -15073,7 +15156,7 @@ test "ACP usage_update fills the composer progress; missing usage stays empty" {
     try testing.expectEqual(@as(u64, 0), model.sessionById(id).?.context_size);
     try testing.expectEqual(@as(f32, 0), model.context_usage());
     tree = try buildTree(arena, &model);
-    _ = try expectContextProgress(tree.root, 0);
+    try expectNoContextProgress(tree.root);
 
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"fx-usage-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"plain reply\"}}}}");
     drainEffects(&model, &fx);
@@ -15091,7 +15174,7 @@ test "ACP usage_update fills the composer progress; missing usage stays empty" {
     tree = try buildTree(arena, &model);
     _ = try expectContextProgress(tree.root, 0.265);
     _ = try expectByText(tree.root, .button, "choose a project");
-    _ = try expectByText(tree.root, .select, "Full access");
+    _ = try expectChip(tree.root, "Full access");
 
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
     drainEffects(&model, &fx);
@@ -15153,7 +15236,7 @@ test "idle sidebar has no spinner; Send shows one on the busy session only" {
     try testing.expect(findByKind(idle_row, .spinner) == null);
     try testing.expectEqual(@as(usize, 1), countByKind(tree.root, .spinner));
     _ = try expectByText(busy_row, .text, "port waku to zig");
-    _ = try expectByText(busy_row, .text, "fx");
+    _ = try expectByText(busy_row, .text, "No project");
 }
 
 test "Stop and Esc clear the sidebar spinner and session.busy" {

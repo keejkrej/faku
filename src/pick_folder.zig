@@ -109,6 +109,7 @@ pub fn startPickFolder(model: *Model, fx: *Effects) void {
     if (model.pick_folder_live) return;
     const argv = hostArgv(.first) orelse {
         model.setWindowStatus(hostMissingStatus());
+        model.startProjectEdit();
         return;
     };
     model.pick_folder_live = true;
@@ -166,6 +167,7 @@ pub fn handlePickFolderExit(model: *Model, fx: *Effects, exit: native_sdk.Effect
         if (!model.has_window_status()) {
             model.setWindowStatus(hostMissingStatus());
         }
+        model.startProjectEdit();
         return;
     }
     model.pick_folder_live = false;

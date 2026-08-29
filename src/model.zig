@@ -421,6 +421,8 @@ pub const Msg = union(enum) {
     copy_session_id,
     /// Palette: `fx_session_id` / ACP sessionId. Empty is a status, not a write.
     copy_fx_session_id,
+    /// Live OS appearance so custom Geist tokens still follow light/dark.
+    appearance_changed: native_sdk.platform.Appearance,
     switcher_forward,
     switcher_backward,
     switcher_confirm,
@@ -433,7 +435,7 @@ pub const Msg = union(enum) {
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "focus_composer", "open_find", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "open_find", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach" };
 };
 
 pub const Model = struct {
@@ -727,6 +729,9 @@ pub const Model = struct {
     /// grouping treats missing `updated_at` as Today and relative-time
     /// labels stay omitted.
     now_ms: i64 = 0,
+    /// Last OS appearance. Default dark so the coding-agent chrome matches
+    /// Waku until the first `appearance_changed` lands.
+    appearance: native_sdk.platform.Appearance = .{ .color_scheme = .dark },
 
     pub const view_unbound = .{
         "session_store",
@@ -1007,6 +1012,7 @@ pub const Model = struct {
         "task_state_loaded",
         "store_io",
         "now_ms",
+        "appearance",
         "last_project_path_storage",
         "last_project_path_len",
         "last_spawn_cwd_storage",
@@ -2119,6 +2125,19 @@ pub const Model = struct {
     pub fn context_usage(model: *const Model) f32 {
         const session = model.sessionByIdConst(model.selected) orelse return 0;
         return session.contextUsageFraction();
+    }
+
+    /// Native `progress` is a filled bar, not Waku's ring. Hide the 0-value
+    /// blob until ACP reports a window size.
+    pub fn has_context_usage(model: *const Model) bool {
+        const session = model.sessionByIdConst(model.selected) orelse return false;
+        return session.context_size > 0;
+    }
+
+    /// Send circle is primary only while there is something to send.
+    pub fn has_draft(model: *const Model) bool {
+        const text = std.mem.trim(u8, model.draft(), " \t\r\n");
+        return text.len > 0 or model.has_image_attach();
     }
 
     /// Header Rewind control. Latest Send-time 40-char hex sha only; no picker.

@@ -15,17 +15,13 @@
       </row>
       <if test="{sidebar_expanded}">
         <column padding="10" grow="1">
-          <list-item height="32" on-press="new_session" label="New Task">
-            <row gap="10" cross="center" padding="4">
-              <icon name="edit" />
-              <text>New Task</text>
-            </row>
+          <list-item height="32" padding="8" gap="8" cross="center" on-press="new_session" label="New Task">
+            <icon name="edit" width="14" height="14" />
+            <text>New Task</text>
           </list-item>
-          <list-item height="32" on-press="start_search" label="Search">
-            <row gap="10" cross="center" padding="4">
-              <icon name="search" />
-              <text>Search</text>
-            </row>
+          <list-item height="32" padding="8" gap="8" cross="center" on-press="start_search" label="Search">
+            <icon name="search" width="14" height="14" />
+            <text>Search</text>
           </list-item>
           <spacer height="10" />
           <row height="28" cross="center">
@@ -54,23 +50,21 @@
                 </if>
                 <else>
                 <if test="{s.is_header}">
-                  <list-item height="32" selected="{s.selected}" on-press="assign_selected:{s.folder_id}" label="{s.title}">
-                    <row height="28" cross="center" padding="4">
-                      <if test="{s.collapsed}">
-                        <button variant="ghost" size="icon" icon="chevron-right" label="Expand folder" on-press="toggle_folder:{s.folder_id}"></button>
-                      </if>
-                      <else>
-                        <button variant="ghost" size="icon" icon="chevron-down" label="Collapse folder" on-press="toggle_folder:{s.folder_id}"></button>
-                      </else>
-                      <icon name="folder" />
-                      <if test="{s.editing}">
-                        <text-field grow="1" height="24" placeholder="New folder" text="{folder_title_draft}" on-input="folder_title_edit" autofocus="true" />
-                      </if>
-                      <else>
-                        <text grow="1" wrap="false" overflow="ellipsis" foreground="text_muted">{s.title}</text>
-                      </else>
-                      <button variant="ghost" size="icon" icon="trash" label="Delete folder" on-press="delete_folder:{s.folder_id}"></button>
-                    </row>
+                  <list-item height="32" padding="4" gap="6" cross="center" selected="{s.selected}" on-press="assign_selected:{s.folder_id}" label="{s.title}">
+                    <if test="{s.collapsed}">
+                      <button variant="ghost" size="icon" icon="chevron-right" label="Expand folder" on-press="toggle_folder:{s.folder_id}"></button>
+                    </if>
+                    <else>
+                      <button variant="ghost" size="icon" icon="chevron-down" label="Collapse folder" on-press="toggle_folder:{s.folder_id}"></button>
+                    </else>
+                    <icon name="folder" />
+                    <if test="{s.editing}">
+                      <text-field grow="1" height="24" placeholder="New folder" text="{folder_title_draft}" on-input="folder_title_edit" autofocus="true" />
+                    </if>
+                    <else>
+                      <text grow="1" wrap="false" overflow="ellipsis" foreground="text_muted">{s.title}</text>
+                    </else>
+                    <button variant="ghost" size="icon" icon="trash" label="Delete folder" on-press="delete_folder:{s.folder_id}"></button>
                     <context-menu>
                       <menu-item on-press="rename_folder:{s.folder_id}">Rename</menu-item>
                       <separator />
@@ -85,27 +79,28 @@
                     <row height="52" cross="stretch">
                       <spacer width="15" />
                       <separator width="1" height="52"></separator>
-                      <list-item height="52" grow="1" selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
-                        <row gap="2" cross="center" padding="8">
-                          <column gap="2" grow="1">
-                            <row gap="6" cross="center">
-                              <if test="{s.editing}">
-                                <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
-                              </if>
-                              <else>
-                                <text grow="1" wrap="false" overflow="ellipsis">{s.title}</text>
-                              </else>
-                              <if test="{s.has_relative_time}">
-                                <text wrap="false" overflow="ellipsis" foreground="text_muted">{s.relative_time}</text>
-                              </if>
-                              <if test="{s.busy}">
-                                <spinner width="12" height="12"></spinner>
-                              </if>
-                            </row>
-                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{s.provider}</text>
-                          </column>
-                          <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>
-                        </row>
+                      <list-item height="52" grow="1" padding="8" gap="6" cross="center" selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
+                        <column gap="4" grow="1">
+                          <row gap="6" cross="center">
+                            <if test="{s.editing}">
+                              <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
+                            </if>
+                            <else>
+                              <text grow="1" wrap="false" overflow="ellipsis">{s.title}</text>
+                            </else>
+                            <if test="{s.busy}">
+                              <spinner width="12" height="12"></spinner>
+                            </if>
+                          </row>
+                          <row gap="5" cross="center">
+                            <icon name="folder" />
+                            <text grow="1" wrap="false" overflow="ellipsis" foreground="text_muted">{s.provider}</text>
+                            <if test="{s.has_relative_time}">
+                              <text wrap="false" overflow="ellipsis" foreground="text_muted">{s.relative_time}</text>
+                            </if>
+                          </row>
+                        </column>
+                        <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>
                         <context-menu>
                           <menu-item on-press="rename_session:{s.id}">Rename</menu-item>
                           <separator />
@@ -115,27 +110,28 @@
                     </row>
                   </if>
                   <else>
-                    <list-item height="52" selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
-                      <row gap="2" cross="center" padding="8">
-                        <column gap="2" grow="1">
-                          <row gap="6" cross="center">
-                            <if test="{s.editing}">
-                              <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
-                            </if>
-                            <else>
-                              <text grow="1" wrap="false" overflow="ellipsis">{s.title}</text>
-                            </else>
-                            <if test="{s.has_relative_time}">
-                              <text wrap="false" overflow="ellipsis" foreground="text_muted">{s.relative_time}</text>
-                            </if>
-                            <if test="{s.busy}">
-                              <spinner width="12" height="12"></spinner>
-                            </if>
-                          </row>
-                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{s.provider}</text>
-                        </column>
-                        <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>
-                      </row>
+                    <list-item height="52" padding="8" gap="6" cross="center" selected="{s.selected}" on-press="select:{s.id}" label="{s.title}">
+                      <column gap="4" grow="1">
+                        <row gap="6" cross="center">
+                          <if test="{s.editing}">
+                            <text-field grow="1" height="24" placeholder="untitled" text="{session_title_draft}" on-input="session_title_edit" autofocus="true" />
+                          </if>
+                          <else>
+                            <text grow="1" wrap="false" overflow="ellipsis">{s.title}</text>
+                          </else>
+                          <if test="{s.busy}">
+                            <spinner width="12" height="12"></spinner>
+                          </if>
+                        </row>
+                        <row gap="5" cross="center">
+                          <icon name="folder" />
+                          <text grow="1" wrap="false" overflow="ellipsis" foreground="text_muted">{s.provider}</text>
+                          <if test="{s.has_relative_time}">
+                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{s.relative_time}</text>
+                          </if>
+                        </row>
+                      </column>
+                      <button variant="ghost" size="icon" icon="trash" label="Remove session" on-press="remove_session:{s.id}"></button>
                       <context-menu>
                         <menu-item on-press="rename_session:{s.id}">Rename</menu-item>
                         <separator />
@@ -205,16 +201,13 @@
           <text grow="1" wrap="false" overflow="ellipsis" on-press="edit_session_title">{header_title}</text>
         </else>
         <spacer grow="1" />
-        <button variant="ghost" size="sm" on-press="copy_session">Copy session</button>
+        <button variant="ghost" size="icon" icon="copy" label="Copy session" on-press="copy_session"></button>
         <if test="{can_fork}">
           <button variant="ghost" size="sm" on-press="fork">Fork</button>
         </if>
         <if test="{can_rewind}">
           <button variant="ghost" size="sm" on-press="rewind">Rewind</button>
         </if>
-        <button variant="ghost" size="icon" icon="app:maximize" label="Maximize" on-press="maximize_window"></button>
-        <button variant="ghost" size="icon" icon="app:minimize" label="Minimize" on-press="minimize_window"></button>
-        <button variant="ghost" size="icon" icon="x" label="Close" on-press="close_window"></button>
       </row>
       <separator />
       <if test="{find_active}">
@@ -229,75 +222,72 @@
         </row>
       </if>
       <scroll grow="1" value="{transcript_scroll}" on-scroll="transcript_scrolled" label="Transcript">
-        <row grow="1" main="center">
-          <column grow="1" max-width="720" gap="8">
-            <for each="visible_turns" key="id" as="t">
-              <list-item selected="{t.is_find_current}" label="{t.text}">
-              <if test="{t.is_user}">
-                <column gap="2" cross="end">
-                    <row gap="4" cross="center">
+        <column grow="1" padding="16" gap="12" cross="stretch" label="Conversation history">
+          <for each="visible_turns" key="id" as="t">
+            <if test="{t.is_user}">
+              <row gap="8" label="{t.text}">
+                <spacer grow="1" min-width="64" />
+                <column gap="4" cross="end" label="You said">
+                  <bubble variant="primary">
+                    <text wrap="true">{t.text}</text>
+                  </bubble>
+                  <row gap="4" cross="center">
+                    <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
+                    <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
+                  </row>
+                </column>
+              </row>
+            </if>
+            <else>
+              <if test="{t.is_tool}">
+                <column gap="4" label="{t.text}">
+                  <row gap="4" cross="center">
                     <text foreground="text_muted">{t.role_label}</text>
                     <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
                     <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
                   </row>
-                  <bubble variant="primary">
-                    <markdown source="{t.text}" />
-                  </bubble>
+                  <text wrap="true">{t.text}</text>
                 </column>
               </if>
               <else>
-                <if test="{t.is_tool}">
-                  <column gap="2">
+                <if test="{t.is_reasoning}">
+                  <column gap="4" label="{t.text}">
                     <row gap="4" cross="center">
                       <text foreground="text_muted">{t.role_label}</text>
                       <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
                       <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
                     </row>
-                    <text wrap="true" foreground="text_muted">{t.text}</text>
+                    <text wrap="true">{t.text}</text>
                   </column>
                 </if>
                 <else>
-                  <if test="{t.is_reasoning}">
-                    <column gap="2">
-                      <row gap="4" cross="center">
-                        <text foreground="text_muted">{t.role_label}</text>
-                        <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
-                        <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
-                      </row>
-                      <text wrap="true" foreground="text_muted">{t.text}</text>
-                    </column>
-                  </if>
-                  <else>
-                    <column gap="2">
-                      <row gap="4" cross="center">
-                        <text foreground="text_muted">{t.role_label}</text>
-                        <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
-                        <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
-                      </row>
-                      <markdown source="{t.text}" />
-                    </column>
-                  </else>
+                  <column gap="4" label="{t.text}">
+                    <row gap="8" label="Assistant said">
+                      <text wrap="true" grow="1">{t.text}</text>
+                    </row>
+                    <row gap="4" cross="center">
+                      <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
+                      <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
+                    </row>
+                  </column>
                 </else>
               </else>
-              </list-item>
-            </for>
-            <else>
-              <column grow="1" gap="8" main="center" cross="center">
-                <text size="heading">What should we build?</text>
-              </column>
             </else>
-          </column>
-        </row>
+          </for>
+          <else>
+            <column grow="1" gap="8" padding="24" main="center" cross="center">
+              <text size="display" text-alignment="center"><span weight="bold">What should we build?</span></text>
+              <text foreground="text_muted" text-alignment="center">Pick a project, or just start typing.</text>
+            </column>
+          </else>
+        </column>
       </scroll>
       <if test="{show_jump_latest}">
         <row main="center" padding="4">
           <button variant="ghost" size="sm" on-press="jump_latest">Jump to latest</button>
         </row>
       </if>
-      <column padding="8">
-        <row>
-          <spacer width="12" />
-          <column grow="1" max-width="720" gap="8">
+      <column padding="16" gap="8">
             <if test="{has_queued}">
               <card size="sm" padding="10">
                 <column gap="4">
@@ -317,16 +307,15 @@
                 </column>
               </card>
             </if>
-            <input-group label="Message composer" height="88">
+            <input-group grow="1" label="Message composer" height="88">
               <textarea placeholder="{composer_placeholder}" text="{draft}" submit-on-enter="true" on-input="draft_edit" on-submit="composer_enter" autofocus="{composer_active}" />
               <input-group-actions>
-                <button variant="ghost" size="icon" icon="file-text" label="Attach image" on-press="start_image_attach"></button>
-                <button variant="ghost" size="sm" on-press="pick_image">Pick image</button>
+                <button variant="ghost" size="icon" icon="file-text" label="Attach image" on-press="pick_image"></button>
                 <if test="{has_commands}">
                   <button variant="ghost" size="sm" selected="{commands_open}" on-press="toggle_commands">Commands</button>
                 </if>
                 <stack>
-                  <select placeholder="FX_MODEL" on-press="toggle_model_picker">{model_label}</select>
+                  <button variant="ghost" size="sm" selected="{model_picker_open}" on-press="toggle_model_picker">{model_label}</button>
                   <if test="{model_picker_open}">
                     <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_model_picker">
                       <for each="model_picker_rows" key="row_id" as="m">
@@ -336,7 +325,7 @@
                   </if>
                 </stack>
                 <stack>
-                  <select placeholder="Effort" on-press="toggle_effort_picker">{effort_label}</select>
+                  <button variant="ghost" size="sm" selected="{effort_picker_open}" on-press="toggle_effort_picker">{effort_label}</button>
                   <if test="{effort_picker_open}">
                     <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_effort_picker">
                       <for each="effort_picker_rows" key="row_id" as="e">
@@ -346,7 +335,7 @@
                   </if>
                 </stack>
                 <stack>
-                  <select placeholder="Access" on-press="toggle_access_picker">{access_label}</select>
+                  <button variant="ghost" size="sm" selected="{access_picker_open}" on-press="toggle_access_picker">{access_label}</button>
                   <if test="{access_picker_open}">
                     <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_access_picker">
                       <for each="access_picker_rows" key="row_id" as="a">
@@ -361,7 +350,12 @@
                   <button variant="primary" size="icon" icon="app:stop" label="Stop" on-press="stop_turn" width="26" height="26" radius="xl"></button>
                 </if>
                 <else>
-                  <button variant="primary" size="icon" icon="arrow-up" label="Send" on-press="send" width="26" height="26" radius="xl"></button>
+                  <if test="{has_draft}">
+                    <button variant="primary" size="icon" icon="arrow-up" label="Send" on-press="send" width="26" height="26" radius="xl"></button>
+                  </if>
+                  <else>
+                    <button variant="secondary" size="icon" icon="arrow-up" label="Send" on-press="send" width="26" height="26" radius="xl"></button>
+                  </else>
                 </else>
               </input-group-actions>
             </input-group>
@@ -486,13 +480,14 @@
                   <button variant="ghost" size="sm" on-press="copy_project_path">Copy path</button>
                 </if>
                 <spacer grow="1" />
-                <progress value="{context_usage}" width="16" height="16" label="Context usage" />
+                <if test="{has_context_usage}">
+                  <progress value="{context_usage}" width="48" height="6" label="Context usage" />
+                </if>
               </row>
             </if>
             <else>
               <row gap="8" cross="center">
                 <button variant="ghost" size="sm" icon="folder" on-press="start_project_edit">{project_label}</button>
-                <button variant="ghost" size="sm" on-press="pick_folder">Pick folder</button>
                 <if test="{can_reveal_folder}">
                   <button variant="ghost" size="sm" on-press="reveal_folder">Reveal folder</button>
                 </if>
@@ -506,11 +501,11 @@
                   <button variant="ghost" size="sm" on-press="copy_project_path">Copy path</button>
                 </if>
                 <if test="{project_is_local}">
-                  <button variant="ghost" size="sm" icon="terminal" on-press="start_project_edit">Local</button>
+                  <button variant="ghost" size="sm" on-press="start_project_edit">Local</button>
                 </if>
                 <if test="{can_pick_git_branch}">
                   <stack>
-                    <select placeholder="Branch" on-press="toggle_git_branch_picker">{git_branch_label}</select>
+                    <select size="sm" placeholder="Branch" on-press="toggle_git_branch_picker">{git_branch_label}</select>
                     <if test="{git_branch_picker_open}">
                       <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_git_branch_picker">
                         <menu-item on-press="start_git_branch_create">New branch…</menu-item>
@@ -537,12 +532,11 @@
                   <text wrap="false" overflow="ellipsis" foreground="text_muted">{git_ahead_behind_label}</text>
                 </if>
                 <spacer grow="1" />
-                <progress value="{context_usage}" width="16" height="16" label="Context usage" />
+                <if test="{has_context_usage}">
+                  <progress value="{context_usage}" width="48" height="6" label="Context usage" />
+                </if>
               </row>
             </else>
-          </column>
-          <spacer width="12" />
-        </row>
       </column>
       </else>
     </column>

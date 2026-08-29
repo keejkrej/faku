@@ -144,7 +144,7 @@ const shell_windows = [_]native_sdk.ShellWindow{.{
     .height = window_height,
     .min_width = window_min_width,
     .min_height = window_min_height,
-    .titlebar = .chromeless,
+    .titlebar = .hidden_inset_tall,
     .views = &shell_views,
 }};
 pub const shell_scene: native_sdk.ShellConfig = .{ .windows = &shell_windows };
@@ -332,6 +332,7 @@ pub const ChipPickerRow = model_mod.ChipPickerRow;
 pub const fxPermissionMode = composer.fxPermissionMode;
 pub const startOptionsFromSession = prompt_spawn.startOptionsFromSession;
 pub const takeFxAskSessionId = prompt_spawn.takeFxAskSessionId;
+pub const stripFxDiagnostics = sidecar_lines.stripFxDiagnostics;
 pub const nextAccessMode = composer.nextAccessMode;
 pub const accessLabel = composer.accessLabel;
 pub const nextReasoningEffort = composer.nextReasoningEffort;
@@ -392,6 +393,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .minimize_window => fx.minimizeWindow(main_window_label),
         .maximize_window => maximize_window.startMaximizeWindow(model, fx),
         .quit_app => fx.quitApp(),
+        .appearance_changed => |appearance| model.appearance = appearance,
         .remove_session => |id| session_actions.handleRemoveSession(model, fx, id),
         .start_search => palette_run.openPalette(model),
         .palette_confirm => palette_run.confirmPalette(model, fx),
@@ -581,6 +583,31 @@ pub const startFxProbe = fx_probe.startFxProbe;
 /// Native `UiApp.Options.on_drop` → Msg. Window-level; no OS picker.
 pub const onDrop = attach_helpers.onDrop;
 
+/// Keep custom Geist tokens in lockstep with the OS light/dark flip.
+pub fn onAppearance(appearance: native_sdk.platform.Appearance) ?Msg {
+    return .{ .appearance_changed = appearance };
+}
+
+/// Geist pack with anti-aliased edges. Geometry pixel-snap makes 1x
+/// rounded rects and the send circle stair-step; signed-distance
+/// coverage stays on when snapping is off. Slightly larger radii match
+/// Waku's 13px composer card.
+pub fn designTokens(model: *const Model) canvas.DesignTokens {
+    const contrast: canvas.ColorContrast = if (model.appearance.high_contrast) .high else .standard;
+    const scheme: canvas.ColorScheme = switch (model.appearance.color_scheme) {
+        .light => .light,
+        .dark => .dark,
+    };
+    return canvas.DesignTokens.themeWithOverrides(.{
+        .pack = .house,
+        .color_scheme = scheme,
+        .contrast = contrast,
+        .reduce_motion = model.appearance.reduce_motion,
+    }, .{
+        .pixel_snap = .{ .geometry = false },
+    });
+}
+
 pub const AppUi = canvas.Ui(Msg);
 pub const app_markup = @embedFile("app.native");
 
@@ -626,6 +653,8 @@ pub fn main(init: std.process.Init) !void {
         .init_fx = initFx,
         .on_key = keys.onKey,
         .on_drop = onDrop,
+        .on_appearance = onAppearance,
+        .tokens_fn = designTokens,
         .markup = .{ .source = app_markup, .watch_path = "src/app.native", .io = init.io },
     });
     defer app_state.destroy();

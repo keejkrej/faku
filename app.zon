@@ -6,7 +6,7 @@
     .version = "0.1.0",
     .icons = .{"assets/icon.png"},
     .platforms = .{ "macos", "linux" },
-    .theme = "geist",
+    .theme = "house",
     .permissions = .{ "view", "command" },
     .capabilities = .{ "native_views", "gpu_surfaces" },
     .shell = .{
@@ -18,7 +18,7 @@
                 .height = 880,
                 .min_width = 560,
                 .min_height = 480,
-                .titlebar = "chromeless",
+                .titlebar = "hidden_inset_tall",
                 .views = .{
                     .{
                         .label = "main-canvas",

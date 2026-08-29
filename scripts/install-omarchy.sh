@@ -63,7 +63,7 @@ DESKTOP="${APPLICATIONS}/Faku.desktop"
 BIN="${BIN_DIR}/faku"
 
 uninstall() {
-  rm -f -- "${BIN}" "${DESKTOP}"
+  rm -f -- "${BIN}" "${BIN}.bin" "${DESKTOP}"
   find "${HICOLOR}" -type f -name 'faku.png' -delete 2>/dev/null || true
   rm -f -- "${APP_DATA}/assets/icon.png"
   rmdir --ignore-fail-on-non-empty "${APP_DATA}/assets" 2>/dev/null || true
@@ -111,6 +111,9 @@ if (( ! NO_BUILD )) && command -v native >/dev/null 2>&1; then
 fi
 
 install -d "${BIN_DIR}"
+# GDK_SCALE=2 on Hyprland 1.6 collapses layout and makes the software
+# rasterizer paint 4x pixels. Install the binary directly.
+rm -f -- "${BIN}.bin"
 install -m 755 "${BIN_SRC}" "${BIN}"
 
 install -d "${APP_DATA}/assets"

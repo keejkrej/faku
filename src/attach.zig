@@ -108,6 +108,7 @@ pub fn startPickImage(model: *Model, fx: *Effects) void {
     if (model.pick_image_live) return;
     const argv = pick_image.hostArgv(.first) orelse {
         model.setAttachStatus(pick_image.hostMissingStatus());
+        model.startImageAttach();
         return;
     };
     model.pick_image_live = true;
@@ -160,6 +161,7 @@ pub fn handlePickImageExit(model: *Model, fx: *Effects, exit: native_sdk.EffectE
         if (!model.has_attach_status()) {
             model.setAttachStatus(pick_image.hostMissingStatus());
         }
+        model.startImageAttach();
         return;
     }
     model.pick_image_live = false;

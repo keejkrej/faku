@@ -118,10 +118,12 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         }
         return;
     }
+    const text = stripFxDiagnostics(keep);
+    if (text.len == 0) return;
     if (model.turnById(model.stream_turn_id)) |turn| {
         if (turn.body_len > 0) model.appendToTurn(model.stream_turn_id, "\n");
     }
-    model.appendToTurn(model.stream_turn_id, keep);
+    model.appendToTurn(model.stream_turn_id, text);
 }
 
 fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
@@ -166,7 +168,9 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
         return;
     }
     if (acp.isAgentMessageText(parsed)) {
-        model.appendToTurn(model.stream_turn_id, parsed.text);
+        const text = stripFxDiagnostics(parsed.text);
+        if (text.len == 0) return;
+        model.appendToTurn(model.stream_turn_id, text);
         return;
     }
     if (acp.isPromptResult(parsed) or (parsed.has_error and parsed.id != null)) {
@@ -246,14 +250,34 @@ fn applyAcpToolUpdate(model: *Model, fx: *Effects, tool: acp.ToolUpdate) void {
 /// Thought text stays off the assistant markdown turn. First chunk in
 /// this stream appends a reasoning row; later chunks append to that row.
 fn applyAcpThoughtChunk(model: *Model, fx: *Effects, text: []const u8) void {
+    const cleaned = stripFxDiagnostics(text);
+    if (cleaned.len == 0) return;
     const session_id = model.streaming_session;
     if (session_id == 0) return;
     if (findLiveReasoningTurn(model, session_id)) |turn| {
-        model.appendToTurn(turn.id, text);
+        model.appendToTurn(turn.id, cleaned);
     } else {
-        _ = model.appendTurn(session_id, .reasoning, text);
+        _ = model.appendTurn(session_id, .reasoning, cleaned);
     }
     store.persistIfPossible(model, session_id, fx);
+}
+
+/// fx prints skill-discovery warnings on stdout, sometimes glued to the
+/// first reply (`…trace logHi! How can I help?`). Drop that prefix so
+/// it never becomes turn text. A warning-only chunk is skipped entirely.
+pub fn stripFxDiagnostics(text: []const u8) []const u8 {
+    const prefix = "skill discovery warning:";
+    const has_warning = std.mem.indexOf(u8, text, prefix) != null;
+    const has_trace = std.mem.indexOf(u8, text, "relaunch with FX_TRACE=1") != null;
+    if (!has_warning and !has_trace) return text;
+    var rest = text;
+    if (std.mem.indexOf(u8, rest, prefix)) |start| rest = rest[start..];
+    const tail_mark = "write a trace log";
+    if (std.mem.indexOf(u8, rest, tail_mark)) |idx| {
+        return std.mem.trim(u8, rest[idx + tail_mark.len ..], " \t\r\n");
+    }
+    if (has_warning or has_trace) return "";
+    return text;
 }
 
 /// Only the reasoning row created after this stream's assistant turn.
