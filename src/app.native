@@ -477,6 +477,7 @@
                     <button variant="ghost" size="sm" selected="{review_diff_source_branch}" on-press="set_review_diff_source_branch">Branch</button>
                     <button variant="ghost" size="sm" selected="{review_diff_source_uncommitted}" on-press="set_review_diff_source_uncommitted">Uncommitted</button>
                     <button variant="ghost" size="sm" selected="{review_diff_source_staged}" on-press="set_review_diff_source_staged">Staged</button>
+                    <button variant="ghost" size="sm" selected="{review_diff_source_unstaged}" on-press="set_review_diff_source_unstaged">Unstaged</button>
                   </row>
                   <if test="{has_review_diff_status}">
                     <text wrap="true" foreground="text_muted">{review_diff_status}</text>

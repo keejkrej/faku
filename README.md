@@ -20,14 +20,15 @@ success/danger colors) plus a Native `info` 28px ghost that
 opens a runtime-only dropdown titled Environment with Commit
 or Push (the existing Commit… card, including when the tree is
 clean so Push-only still works), Compare (first-cut Review
-name-status file list with Branch + Uncommitted + Staged
-sources: Branch is `git diff --name-status @{upstream}...HEAD`;
-Uncommitted is tracked-only `git diff --name-status HEAD`, not
-untracked; Staged is index vs HEAD `git diff --name-status
---cached`; cap 64; empty is `No changes to compare`; not hunk
-rendering), and
+name-status file list with Branch + Uncommitted + Staged +
+Unstaged sources: Branch is `git diff --name-status
+@{upstream}...HEAD`; Uncommitted is tracked-only `git diff
+--name-status HEAD`, not untracked; Staged is index vs HEAD
+`git diff --name-status --cached`; Unstaged is worktree vs
+index `git diff --name-status` (tracked only); cap 64; empty is
+`No changes to compare`; not hunk rendering), and
 Copy task ID (local session id via `fx.writeClipboard`); not
-full Review hunks, not Unstaged/Committed/LastTurn
+full Review hunks, not Committed/LastTurn
 sources, not untracked-in-Uncommitted, not background-work rows,
 and not daemon WorkspaceOperation.
 Header, sidebar, and Ctrl-Tab switcher titles stay on one line with
@@ -155,7 +156,7 @@ empty-message `fx ask`
 generate helpers live in
 `src/git_commit.zig`. Header Environment dropdown helpers live in
 `src/environment_summary.zig`. Environment Compare / first-cut
-Review name-status helpers (Branch + Uncommitted + Staged sources) live in
+Review name-status helpers (Branch + Uncommitted + Staged + Unstaged sources) live in
 `src/review_diff.zig`. Composer git-dirty probe helpers (count
 plus porcelain XY `has_staged` / `has_unstaged`) live in
 `src/git_dirty.zig`. Composer git-numstat probe helpers live in
@@ -496,14 +497,15 @@ workspace mode, not a worktree base-ref picker UI, not full
 Review hunks / background-work rows,
 not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
-Unstaged/Committed/LastTurn Review sources. Environment
-Compare Review is a first-cut Branch + Uncommitted + Staged
-name-status file list (Uncommitted = tracked
+Committed/LastTurn Review sources. Environment
+Compare Review is a first-cut Branch + Uncommitted + Staged +
+Unstaged name-status file list (Uncommitted = tracked
 `git diff --name-status HEAD`, not untracked; Staged = index vs
-HEAD `git diff --name-status --cached`; not hunks).
+HEAD `git diff --name-status --cached`; Unstaged = worktree vs
+index `git diff --name-status`, tracked only; not hunks).
 Leftovers: force / daemon `WorkspaceOperation` / Review hunks /
-untracked-in-Uncommitted / Unstaged / Committed /
-LastTurn / background work.
+untracked-in-Uncommitted / Committed / LastTurn / background
+work.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and
 git-common-dir path
