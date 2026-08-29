@@ -23,6 +23,7 @@ const git_remotes = @import("git_remotes.zig");
 const git_toplevel = @import("git_toplevel.zig");
 const git_common_dir = @import("git_common_dir.zig");
 const git_commit_mod = @import("git_commit.zig");
+const environment_summary = @import("environment_summary.zig");
 const file_mention = @import("file_mention.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
@@ -2265,6 +2266,12 @@ pub const Model = struct {
 
     pub fn has_git_numstat(model: *const Model) bool {
         return git_numstat.hasGitNumstat(model);
+    }
+
+    /// Header Environment +/-. Same counts as the composer probe;
+    /// omits a zero side. Muted display-only. Not click-to-Review.
+    pub fn header_git_numstat_label(model: *const Model) []const u8 {
+        return environment_summary.headerGitNumstatLabel(model);
     }
 
     /// Runtime-only muted ahead/behind vs `@{upstream}` on the composer

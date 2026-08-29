@@ -16574,6 +16574,7 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
     try testing.expect(findByText(tree.root, .menu_item, "Commit or Push") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Copy task ID") == null);
+    try testing.expect(findByText(toolbar, .row, "header-git-status") == null);
 
     main.update(&model, tree.msgForPointer(trigger.id, .up).?, &fx);
     try testing.expect(model.environment_summary_open);
@@ -16693,4 +16694,112 @@ test "Environment Copy task ID writes the local session id" {
     const expected_id = try std.fmt.bufPrint(&id_buf, "{d}", .{selected});
     try testing.expectEqualStrings(expected_id, written.text);
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "header Environment +/- reuses composer numstat and omits a zero side" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/header-numstat", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("header numstat", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    var spawn = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try testing.expect(!model.has_git_numstat());
+    var tree = try buildTree(arena, &model);
+    var toolbar = try expectByText(tree.root, .row, "Toolbar");
+    var env_controls = try expectByText(toolbar, .row, "header-environment-controls");
+    try testing.expect(findByText(env_controls, .row, "header-git-status") == null);
+    _ = try expectByText(env_controls, .button, "Environment");
+
+    try fx.feedLine(spawn.key, "3\t1\tsrc/a.zig\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(model.has_git_numstat());
+    try testing.expectEqualStrings("+3 −1", model.git_numstat_label());
+    try testing.expectEqualStrings("+3 −1", model.header_git_numstat_label());
+    const pending_before_header = fx.pendingSpawnCount();
+
+    tree = try buildTree(arena, &model);
+    try testing.expectEqual(pending_before_header, fx.pendingSpawnCount());
+    toolbar = try expectByText(tree.root, .row, "Toolbar");
+    env_controls = try expectByText(toolbar, .row, "header-environment-controls");
+    const header_status = try expectByText(env_controls, .row, "header-git-status");
+    _ = try expectByText(header_status, .text, "+3 −1");
+    try testing.expect(tree.msgForPointer(header_status.id, .up) == null);
+    try testing.expect(findPressableContaining(header_status, "+3 −1") == null);
+    try testing.expect(findByText(env_controls, .button, "+3 −1") == null);
+    _ = try expectByText(env_controls, .button, "Environment");
+    try testing.expectEqual(@as(usize, 2), countByText(tree.root, .text, "+3 −1"));
+    try testing.expect(!model.git_commit_active);
+
+    git_numstat.refresh(&model, &fx);
+    spawn = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try fx.feedLine(spawn.key, "5\t0\tonly-add.txt\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("+5 −0", model.git_numstat_label());
+    try testing.expectEqualStrings("+5", model.header_git_numstat_label());
+
+    tree = try buildTree(arena, &model);
+    toolbar = try expectByText(tree.root, .row, "Toolbar");
+    env_controls = try expectByText(toolbar, .row, "header-environment-controls");
+    const header_add = try expectByText(env_controls, .row, "header-git-status");
+    _ = try expectByText(header_add, .text, "+5");
+    try testing.expect(findByText(header_add, .text, "+5 −0") == null);
+    try testing.expect(tree.msgForPointer(header_add.id, .up) == null);
+    _ = try expectByText(tree.root, .text, "+5 −0");
+    _ = try expectByText(env_controls, .button, "Environment");
+
+    git_numstat.refresh(&model, &fx);
+    spawn = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try fx.feedLine(spawn.key, "0\t4\tdel.txt\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("+0 −4", model.git_numstat_label());
+    try testing.expectEqualStrings("−4", model.header_git_numstat_label());
+
+    tree = try buildTree(arena, &model);
+    toolbar = try expectByText(tree.root, .row, "Toolbar");
+    env_controls = try expectByText(toolbar, .row, "header-environment-controls");
+    const header_del = try expectByText(env_controls, .row, "header-git-status");
+    _ = try expectByText(header_del, .text, "−4");
+    try testing.expect(findByText(header_del, .text, "+0 −4") == null);
+    _ = try expectByText(tree.root, .text, "+0 −4");
+    try testing.expect(findByText(env_controls, .button, "−4") == null);
+    _ = try expectByText(env_controls, .button, "Environment");
+    try testing.expect(!model.git_commit_active);
+
+    git_numstat.refresh(&model, &fx);
+    spawn = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
+    try fx.feedLine(spawn.key, "0\t0\tempty.txt\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_numstat());
+    try testing.expectEqualStrings("", model.header_git_numstat_label());
+
+    tree = try buildTree(arena, &model);
+    toolbar = try expectByText(tree.root, .row, "Toolbar");
+    env_controls = try expectByText(toolbar, .row, "header-environment-controls");
+    try testing.expect(findByText(env_controls, .row, "header-git-status") == null);
+    try testing.expect(findByText(tree.root, .text, "+5") == null);
+    try testing.expect(findByText(tree.root, .text, "−4") == null);
+    _ = try expectByText(env_controls, .button, "Environment");
 }

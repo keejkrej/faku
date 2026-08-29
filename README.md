@@ -13,12 +13,16 @@ This app replaces the GPUI window with Vercel Native SDK markup plus a Zig
 Model / Msg / update loop. waku-daemon can stay the brain. Faku is the window,
 and it is fx-first. Desktop chrome matches the stopped Waku-parity cut
 (chromeless 48px header, measured sidebar, composer send circle).
-The header Environment control (Native `info`, 28px ghost) opens a
-runtime-only dropdown titled Environment with Commit or Push (the
-existing Commit… card, including when the tree is clean so Push-only
-still works) and Copy task ID (local session id via
-`fx.writeClipboard`); not Compare, Review, background-work rows,
-header +N −M, or daemon WorkspaceOperation.
+The header Environment controls show first-cut +N −M when the
+composer numstat probe is non-zero (omit a zero side; muted
+`text_muted`; display-only — not click-to-Review, not Compare,
+not background work, not success/danger colors) plus a Native
+`info` 28px ghost that opens a runtime-only dropdown titled
+Environment with Commit or Push (the existing Commit… card,
+including when the tree is clean so Push-only still works) and
+Copy task ID (local session id via `fx.writeClipboard`); not
+Compare, Review, background-work rows, or daemon
+WorkspaceOperation.
 Header, sidebar, and Ctrl-Tab switcher titles stay on one line with
 Native ellipsis; the full name remains the accessible list-item
 label. That is in-window chrome, not the OS window title. Ctrl-Tab
