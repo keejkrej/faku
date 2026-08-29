@@ -14,6 +14,7 @@ const turn_stream = @import("stream.zig");
 const git_checkout = @import("git_checkout.zig");
 const git_commit = @import("git_commit.zig");
 const environment_summary = @import("environment_summary.zig");
+const review_diff = @import("review_diff.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -80,6 +81,10 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
         git_commit.dismissCommit(model, fx);
         return;
     }
+    if (model.review_diff_active) {
+        review_diff.dismiss(model, fx);
+        return;
+    }
     if (model.git_branch_delete_active) {
         git_checkout.closeDelete(model);
         return;
@@ -124,7 +129,8 @@ pub fn handleToggleGoalStatusPicker(model: *Model) void {
     model.toggleGoalStatusPicker();
 }
 
-pub fn handleToggleSettings(model: *Model) void {
+pub fn handleToggleSettings(model: *Model, fx: *Effects) void {
+    if (!model.settings_open) review_diff.close(model, fx);
     model.toggleSettings();
 }
 

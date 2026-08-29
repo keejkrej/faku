@@ -19,6 +19,7 @@ const file_mention = @import("file_mention.zig");
 const sidebar_row_helpers = @import("sidebar_rows.zig");
 const palette_run = @import("palette_run.zig");
 const environment_summary = @import("environment_summary.zig");
+const review_diff = @import("review_diff.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -29,6 +30,7 @@ const canvas = native_sdk.canvas;
 pub fn handleNewSession(model: *Model, fx: *Effects) void {
     store.persistDraftIfPossible(model);
     environment_summary.close(model);
+    review_diff.close(model, fx);
     model.closeProjectEdit();
     model.closeImageAttach();
     model.closeCommands();

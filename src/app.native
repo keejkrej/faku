@@ -220,6 +220,7 @@
               <dropdown-menu anchor="below" on-dismiss="close_environment_summary">
                 <text foreground="text_muted">Environment</text>
                 <menu-item on-press="environment_commit_or_push">Commit or Push</menu-item>
+                <menu-item on-press="environment_compare">Compare</menu-item>
                 <menu-item on-press="environment_copy_task_id">Copy task ID</menu-item>
               </dropdown-menu>
             </if>
@@ -463,6 +464,29 @@
                 <button variant="ghost" size="sm" on-press="confirm_git_worktree_create">Create</button>
                 <button variant="ghost" size="sm" on-press="cancel_git_worktree_create">Cancel</button>
               </row>
+            </if>
+            <if test="{review_diff_active}">
+              <card size="sm" padding="10" label="Review">
+                <column gap="6">
+                  <row gap="8" cross="center">
+                    <text>Review</text>
+                    <spacer grow="1" />
+                    <button variant="ghost" size="sm" on-press="close_review_diff">Cancel</button>
+                  </row>
+                  <if test="{has_review_diff_status}">
+                    <text wrap="true" foreground="text_muted">{review_diff_status}</text>
+                  </if>
+                  <if test="{has_review_diff_files}">
+                    <scroll height="240" label="Review files">
+                      <column gap="2">
+                        <for each="review_diff_rows" key="id" as="r">
+                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{r.label}</text>
+                        </for>
+                      </column>
+                    </scroll>
+                  </if>
+                </column>
+              </card>
             </if>
             <if test="{git_commit_active}">
               <row gap="8" cross="center">

@@ -78,6 +78,7 @@ const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
 const git_remotes = @import("git_remotes.zig");
 const file_mention = @import("file_mention.zig");
+const review_diff = @import("review_diff.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -679,6 +680,7 @@ fn prepareCommitCard(model: *Model, fx: *Effects) void {
     git_checkout.closeDelete(model);
     dropCommitNumstat(model, fx);
     closeCommit(model);
+    review_diff.close(model, fx);
     model.closeProjectEdit();
     model.environment_summary_open = false;
 }

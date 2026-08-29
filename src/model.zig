@@ -24,6 +24,7 @@ const git_toplevel = @import("git_toplevel.zig");
 const git_common_dir = @import("git_common_dir.zig");
 const git_commit_mod = @import("git_commit.zig");
 const environment_summary = @import("environment_summary.zig");
+const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
@@ -376,7 +377,9 @@ pub const Msg = union(enum) {
     toggle_environment_summary,
     close_environment_summary,
     environment_commit_or_push,
+    environment_compare,
     environment_copy_task_id,
+    close_review_diff,
     git_commit_edit: canvas.TextInputEvent,
     confirm_git_commit,
     confirm_git_commit_and_push,
@@ -494,6 +497,8 @@ pub const Model = struct {
     git_commit_active: bool = false,
     /// Runtime-only header Environment dropdown. Not persisted.
     environment_summary_open: bool = false,
+    /// Runtime-only Environment Compare Review card. Not persisted.
+    review_diff_active: bool = false,
     /// Runtime-only Delete branch… card. Selected name is not persisted.
     git_branch_delete_active: bool = false,
     /// Runtime-only select on the delete card. Not persisted.
@@ -754,6 +759,18 @@ pub const Model = struct {
     file_mention_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     file_mention_probe_path_len: usize = 0,
     file_mention_probe_is_walk: bool = false,
+    /// Runtime-only Branch name-status rows for the Review card.
+    /// One-shot `git diff --name-status @{upstream}...HEAD`. Cap 64.
+    /// Not persisted to sessions.json.
+    review_diff_file_store: [review_diff.max_review_diff_files]review_diff.ChangedFile = [_]review_diff.ChangedFile{.{}} ** review_diff.max_review_diff_files,
+    review_diff_file_count: u32 = 0,
+    review_diff_status_storage: [review_diff.max_review_diff_status]u8 = [_]u8{0} ** review_diff.max_review_diff_status,
+    review_diff_status_len: usize = 0,
+    review_diff_key: u64 = 0,
+    next_review_diff_key: u64 = review_diff.review_diff_key_first,
+    review_diff_probe_session: u32 = 0,
+    review_diff_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    review_diff_probe_path_len: usize = 0,
     /// Runtime ImageId bound by the composer `<image>`. 0 until
     /// `fx.loadImage` reports `.loaded`. Same draft `image_path` as
     /// the chip — not a second persist field.
@@ -1090,6 +1107,15 @@ pub const Model = struct {
         "file_mention_probe_path_storage",
         "file_mention_probe_path_len",
         "file_mention_probe_is_walk",
+        "review_diff_file_store",
+        "review_diff_file_count",
+        "review_diff_status_storage",
+        "review_diff_status_len",
+        "review_diff_key",
+        "next_review_diff_key",
+        "review_diff_probe_session",
+        "review_diff_probe_path_storage",
+        "review_diff_probe_path_len",
         "insertAvailableMention",
         "attach_preview_load_id",
         "next_attach_preview_id",
@@ -2003,6 +2029,7 @@ pub const Model = struct {
         model.closeFolderTitleEdit();
         model.closeSessionTitleEdit();
         model.environment_summary_open = false;
+        model.review_diff_active = false;
         model.settings_open = true;
         model.settings_model_buffer.set(model.lastModel());
         model.settings_project_buffer.set(model.lastProjectPath());
@@ -2364,6 +2391,24 @@ pub const Model = struct {
         return git_commit_mod.hasGitCommitPushOnly(model);
     }
 
+    /// Runtime-only muted status on the Review card (Comparing… /
+    /// empty / fail / no workspace). Hidden when files are listed.
+    pub fn review_diff_status(model: *const Model) []const u8 {
+        return review_diff.reviewDiffStatus(model);
+    }
+
+    pub fn has_review_diff_status(model: *const Model) bool {
+        return review_diff.hasReviewDiffStatus(model);
+    }
+
+    pub fn has_review_diff_files(model: *const Model) bool {
+        return review_diff.hasReviewDiffFiles(model);
+    }
+
+    pub fn review_diff_rows(model: *const Model, arena: std.mem.Allocator) []const review_diff.ReviewDiffRow {
+        return review_diff.reviewDiffRows(model, arena);
+    }
+
     /// Composer usage control. 0 when the live path has not reported usage.
     pub fn context_usage(model: *const Model) f32 {
         const session = model.sessionByIdConst(model.selected) orelse return 0;
@@ -2506,6 +2551,7 @@ pub const Model = struct {
         git_checkout.closeWorktreeCreate(model);
         git_checkout.closeDelete(model);
         git_commit_mod.closeCommit(model);
+        model.review_diff_active = false;
         model.project_edit_active = true;
         model.project_edit_buffer.set(model.selectedProjectPath());
     }

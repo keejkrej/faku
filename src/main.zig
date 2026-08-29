@@ -55,6 +55,7 @@ const git_toplevel = @import("git_toplevel.zig");
 const git_common_dir = @import("git_common_dir.zig");
 const git_commit = @import("git_commit.zig");
 const environment_summary = @import("environment_summary.zig");
+const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const util = @import("util.zig");
 const pick_folder = @import("pick_folder.zig");
@@ -316,6 +317,11 @@ pub const git_toplevel_key_first = git_toplevel.git_toplevel_key_first;
 /// toplevel (490+). Band is 500+. Incremented per refresh from
 /// `git_common_dir_key_first`.
 pub const git_common_dir_key_first = git_common_dir.git_common_dir_key_first;
+/// One-shot Branch `git diff --name-status @{upstream}...HEAD` for
+/// the Environment Compare Review card. Distinct from common-dir
+/// (500+). Band is 510+. Incremented per open from
+/// `review_diff_key_first`.
+pub const review_diff_key_first = review_diff.review_diff_key_first;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
 pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_status;
@@ -418,7 +424,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         // Chromeless titlebar has no OS close. This is the documented
         // window-action effect (`examples/deck`): last-window close
         // follows the host exit path. Esc stays `.stop` so the session
-        // switcher / Environment dropdown / command palette / settings / transcript-find / project-edit /
+        // switcher / Environment dropdown / Review card / command palette / settings / transcript-find / project-edit /
         // image-attach / commands / typing-triggered @ / slash card /
         // folder-title-edit / session-title-edit / a live turn keep it.
         .close_window => fx.closeWindow(main_window_label),
@@ -479,7 +485,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .switcher_cancel => session_switcher.closeSwitcher(model),
         .switcher_pick => |id| session_switcher.pickSwitcher(model, fx, id),
         .stop => settings_actions.handleStop(model, fx),
-        .toggle_settings => settings_actions.handleToggleSettings(model),
+        .toggle_settings => settings_actions.handleToggleSettings(model, fx),
         .settings_model_edit => |edit| settings_actions.handleSettingsModelEdit(model, edit),
         .settings_project_edit => |edit| settings_actions.handleSettingsProjectEdit(model, edit),
         .settings_daemon_edit => |edit| settings_actions.handleSettingsDaemonEdit(model, edit),
@@ -526,7 +532,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .toggle_environment_summary => environment_summary.toggle(model),
         .close_environment_summary => environment_summary.close(model),
         .environment_commit_or_push => environment_summary.commitOrPush(model, fx),
+        .environment_compare => environment_summary.compare(model, fx),
         .environment_copy_task_id => environment_summary.copyTaskId(model, fx),
+        .close_review_diff => review_diff.dismiss(model, fx),
         .git_commit_edit => |edit| settings_actions.handleGitCommitEdit(model, edit),
         .confirm_git_commit => settings_actions.handleConfirmGitCommit(model, fx),
         .confirm_git_commit_and_push => settings_actions.handleConfirmGitCommitAndPush(model, fx),
@@ -536,6 +544,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .toggle_git_commit_amend => settings_actions.handleToggleGitCommitAmend(model, fx),
         .start_project_edit => {
             git_commit.dropCommitNumstat(model, fx);
+            review_diff.close(model, fx);
             model.startProjectEdit();
         },
         .project_path_edit => |edit| {
@@ -777,5 +786,6 @@ test {
     _ = @import("git_common_dir.zig");
     _ = @import("file_mention.zig");
     _ = @import("environment_summary.zig");
+    _ = @import("review_diff.zig");
     _ = @import("util.zig");
 }
