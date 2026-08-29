@@ -50,27 +50,31 @@ from a probed default base, with `slug-2` … `slug-8` on dest/branch
 collision, then retarget the session `project_path` to the dest
 actually used)
 or commit dirty work via Commit… (porcelain XY inspect +
-include-unstaged toggle, default on; first-cut CommitSnapshot
+include-unstaged toggle, default on, plus a first-cut Amend
+ghost toggle, default off; first-cut CommitSnapshot
 `+N −M` of working tree vs HEAD plus untracked text-line
-additions when the toggle is on, or index vs HEAD when it is
+additions when include-unstaged is on, or index vs HEAD when it is
 off; empty / whitespace on Commit
 or Commit and Push one-shots `fx ask --no-save --auto --json`
 when fx is available, fills a normalized subject, then
 auto-proceeds; `git add -A -- .` then
 `git diff --cached --quiet --` then `git commit -m`
-when the toggle is on, or the same preflight then
+when include-unstaged is on, or the same preflight then
 `git commit -m` only when it is off (exit 1 proceeds;
-exit 0 is `Nothing staged to commit.`); message trimmed
+exit 0 is `Nothing staged to commit.`); Amend Confirm uses
+that same add/preflight path then `git commit --amend -m`
+(`--amend`, `-m`, and the message each their own argv slot);
+message trimmed
 to one line, max 200
 chars; offered when the dirty probe is not in flight and
 there is staged work, or unstaged work while include-unstaged
 is on; Commit and Push on that card runs the same commit
 path then the existing Push… probe/spawn, even when the stale
 ahead/behind gate would hide Push…, and is offered only when
-first-push remotes are OK — known upstream, or a `git remote`
+Amend is off and first-push remotes are OK — known upstream, or a `git remote`
 probe found at least one remote; Push on that card is a
 first-cut Waku `CommitAction::Push` that reuses Push… and is
-offered only when `can_push`)
+offered only when Amend is off and `can_push`)
 or safe-delete a non-current, unoccupied local head (`git branch -d`)
 or fetch remotes via `git fetch --prune`
 or push the current branch via `git push` when it has an upstream,
@@ -129,7 +133,8 @@ stdout / ACP / daemon line handlers and fx-exit routing live in
 create-and-checkout, safe delete, fetch, push, and New worktree…
 slug-prefill plus default-base probe, collision suffixes, and
 git-common-dir nest). Composer include-unstaged Commit… / Commit and Push /
-first-cut CommitSnapshot numstat / empty-message `fx ask`
+first-cut Amend / first-cut CommitSnapshot numstat /
+empty-message `fx ask`
 generate helpers live in
 `src/git_commit.zig`. Composer git-dirty probe helpers (count
 plus porcelain XY `has_staged` / `has_unstaged`) live in
@@ -364,12 +369,17 @@ locals are omitted because `-d` of a worktree checkout fails).
 Fetch… on that picker one-shots `git fetch --prune` (`--prune` its
 own argv slot). Commit… opens a runtime-only message card with an
 Include unstaged ghost toggle (default on; not persisted) and
+a first-cut Amend ghost toggle (default off; reset when the
+card opens; not persisted) and
 one-shots `git add -A -- .` then `git diff --cached --quiet --`
-then `git commit -m <message>` when that toggle is on, or the
+then `git commit -m <message>` when include-unstaged is on, or the
 same cached-quiet preflight then `git commit -m` only when it
 is off (exit 1 means staged changes and proceeds; exit 0 is
 `Nothing staged to commit.` and does not run commit; any other
-exit fails). (`-A`, `--`, `.`, `--cached`, `--quiet`, `-m`,
+exit fails). When Amend is on, Confirm uses that same
+add/preflight path then `git commit --amend -m <message>`
+(`--amend`, `-m`, and the message each their own argv slot;
+amend is commit-only — no follow-on push). (`-A`, `--`, `.`, `--cached`, `--quiet`, `-m`,
 and the message each their own argv slot; message trimmed to
 one line, max 200 chars). Opening the card
 (and toggling Include unstaged) one-shots CommitSnapshot
@@ -381,14 +391,16 @@ reuses the shared script on a distinct 460+ key band). A muted
 `+N −M` shows on the card when either count is non-zero; zero /
 failed / empty / in-flight omits the label (no invented
 "clean"). Deletions stay tracked-only. Empty / whitespace on Commit /
-Commit and Push one-shots documented `fx ask --no-save --auto
+Commit and Push / Amend Confirm one-shots documented `fx ask --no-save --auto
 --json` when `fx_available` and `fxPath` are set (prompt is its
 own argv slot; include-unstaged on vs off changes the prompt;
 fx inspects the repo itself), fills the normalized subject, then
-auto-proceeds into add/preflight/commit. A muted `Generating…` shows while
-that spawn is live. Commit-only add/preflight/commit paints muted
+auto-proceeds into add/preflight/commit (or amend). A muted `Generating…` shows while
+that spawn is live. Amend add/preflight/amend paints muted
+`Amending…`; commit-only add/preflight/commit paints muted
 `Committing…`; Commit and Push keeps muted `Committing and pushing…`
-through add/commit and the follow-on push. If fx is unavailable or the path is empty,
+through add/commit and the follow-on push. Those pending labels
+are mutually exclusive. If fx is unavailable or the path is empty,
 empty confirm sets `Enter a commit message.` and does not spawn.
 Generate fail / empty output keeps the card open with
 `Could not generate a commit message.` Offered only
@@ -396,16 +408,16 @@ when the dirty probe is not in flight and porcelain XY has staged
 changes, or unstaged changes while include-unstaged is on (Waku
 `can_commit`). Commit and Push on that card uses the same commit
 path, then the existing Push… probe/spawn without re-checking
-`can_push`. Offered only when `can_commit` and first-push remotes
+`can_push`. Offered only when Amend is off, `can_commit`, and first-push remotes
 are OK: known upstream, or a remotes probe ready with at least one
 remote (hide while that probe is still needed or in-flight on the
 no-upstream path). Push on that card is a first-cut Waku
 `CommitAction::Push`: no commit, no message, no generate; offered
-only when `can_push` (same binding as composer Push…); on start it
+only when Amend is off and `can_push` (same `can_push` as composer Push…); on start it
 keeps the card open and starts the gated push probe so Native can
 show in-dialog Pushing… until the push ends. Composer menu Push…
 still closes any open commit card. Commit / Commit and
-Push now run the `git diff --cached --quiet` preflight; Push
+Push / Amend now run the `git diff --cached --quiet` preflight; Push
 on that card does not. Push… probes `@{upstream}` and one-shots `git push`
 when that name exists (`push` its own argv slot). When there is no
 upstream it one-shots `git push --set-upstream <remote> <branch>`
@@ -463,7 +475,7 @@ nesting / `waku/` prefix, not defer-until-Send
 workspace mode, not a worktree base-ref picker UI, not Waku's
 Environment Summary, not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
-Review. Leftovers: force / amend / daemon `WorkspaceOperation`.
+Review. Leftovers: force / daemon `WorkspaceOperation`.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and
 git-common-dir path

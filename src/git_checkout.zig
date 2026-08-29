@@ -78,7 +78,7 @@
 //! force delete, or Environment Summary. Composer Push… still
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
-//! Leftovers: force / amend, daemon `WorkspaceOperation`.
+//! Leftovers: force / daemon `WorkspaceOperation`.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).

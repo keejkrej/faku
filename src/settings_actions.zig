@@ -350,6 +350,10 @@ pub fn handleToggleGitCommitIncludeUnstaged(model: *Model, fx: *Effects) void {
     git_commit.toggleIncludeUnstaged(model, fx);
 }
 
+pub fn handleToggleGitCommitAmend(model: *Model, fx: *Effects) void {
+    git_commit.toggleAmend(model, fx);
+}
+
 pub fn handlePickEffort(model: *Model, fx: *Effects, id: []const u8) void {
     model.pickSelectedEffort(id);
     persist.persistComposerChips(model, fx);

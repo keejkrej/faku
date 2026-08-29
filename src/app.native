@@ -451,11 +451,15 @@
               <row gap="8" cross="center">
                 <text-field grow="1" placeholder="Commit message" text="{git_commit}" on-input="git_commit_edit" autofocus="true" />
                 <button variant="ghost" size="sm" selected="{git_commit_include_unstaged}" on-press="toggle_git_commit_include_unstaged">Include unstaged</button>
+                <button variant="ghost" size="sm" selected="{git_commit_amend}" on-press="toggle_git_commit_amend">Amend</button>
                 <if test="{has_git_commit_numstat}">
                   <text wrap="false" overflow="ellipsis" foreground="text_muted">{git_commit_numstat_label}</text>
                 </if>
                 <if test="{has_git_commit_generate}">
                   <text wrap="false" overflow="ellipsis" foreground="text_muted">Generating…</text>
+                </if>
+                <if test="{has_git_commit_amending}">
+                  <text wrap="false" overflow="ellipsis" foreground="text_muted">Amending…</text>
                 </if>
                 <if test="{has_git_commit_committing_and_pushing}">
                   <text wrap="false" overflow="ellipsis" foreground="text_muted">Committing and pushing…</text>
@@ -470,7 +474,7 @@
                 <if test="{can_commit_and_push_git}">
                   <button variant="ghost" size="sm" on-press="confirm_git_commit_and_push">Commit and Push</button>
                 </if>
-                <if test="{can_push_git_branch}">
+                <if test="{can_git_commit_push_only}">
                   <button variant="ghost" size="sm" on-press="confirm_git_commit_push">Push</button>
                 </if>
                 <button variant="ghost" size="sm" on-press="cancel_git_commit">Cancel</button>
