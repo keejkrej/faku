@@ -371,6 +371,11 @@ pub const Msg = union(enum) {
     confirm_git_worktree_create,
     cancel_git_worktree_create,
     start_git_commit,
+    /// Header Environment dropdown. Runtime-only; not persisted.
+    toggle_environment_summary,
+    close_environment_summary,
+    environment_commit_or_push,
+    environment_copy_task_id,
     git_commit_edit: canvas.TextInputEvent,
     confirm_git_commit,
     confirm_git_commit_and_push,
@@ -486,6 +491,8 @@ pub const Model = struct {
     git_worktree_create_active: bool = false,
     /// Runtime-only Commit… card. Draft message is not persisted.
     git_commit_active: bool = false,
+    /// Runtime-only header Environment dropdown. Not persisted.
+    environment_summary_open: bool = false,
     /// Runtime-only Delete branch… card. Selected name is not persisted.
     git_branch_delete_active: bool = false,
     /// Runtime-only select on the delete card. Not persisted.
@@ -1266,6 +1273,7 @@ pub const Model = struct {
         model.search_buffer.clear();
         model.palette_open = false;
         model.palette_highlight = 0;
+        model.environment_summary_open = false;
     }
 
     pub fn closeComposerPickers(model: *Model) void {
@@ -1275,6 +1283,7 @@ pub const Model = struct {
         model.goal_status_picker_open = false;
         model.git_branch_picker_open = false;
         model.git_branch_delete_picker_open = false;
+        model.environment_summary_open = false;
     }
 
     pub fn closeModelPicker(model: *Model) void {
@@ -1992,6 +2001,7 @@ pub const Model = struct {
         model.closeSettingsEffortPicker();
         model.closeFolderTitleEdit();
         model.closeSessionTitleEdit();
+        model.environment_summary_open = false;
         model.settings_open = true;
         model.settings_model_buffer.set(model.lastModel());
         model.settings_project_buffer.set(model.lastProjectPath());

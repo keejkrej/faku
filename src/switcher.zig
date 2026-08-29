@@ -76,9 +76,11 @@ pub fn closeSwitcher(model: *Model) void {
     model.switcher_count = 0;
     model.switcher_highlight = 0;
     model.switcher_ids = [_]u32{0} ** switcher_cap;
+    model.environment_summary_open = false;
 }
 
 pub fn cycleSwitcher(model: *Model, reverse: bool) void {
+    model.environment_summary_open = false;
     if (model.palette_open) model.closePalette();
     if (model.model_picker_open or model.access_picker_open or model.effort_picker_open or model.goal_status_picker_open) {
         model.closeModelPicker();

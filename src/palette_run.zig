@@ -20,6 +20,7 @@ const git_remotes = @import("git_remotes.zig");
 const git_toplevel = @import("git_toplevel.zig");
 const git_common_dir = @import("git_common_dir.zig");
 const file_mention = @import("file_mention.zig");
+const environment_summary = @import("environment_summary.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -85,6 +86,7 @@ pub fn confirmPalette(model: *Model, fx: *Effects) void {
 pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     if (model.sessionById(id) == null) return;
     store.persistDraftIfPossible(model);
+    environment_summary.close(model);
     model.closeProjectEdit();
     model.closeImageAttach();
     model.closeCommands();

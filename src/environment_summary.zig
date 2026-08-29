@@ -1,0 +1,194 @@
+//! First-cut Waku Environment Summary chrome.
+//!
+//! Header info trigger plus a runtime-only dropdown titled
+//! Environment: Commit or Push (ungated open of the existing
+//! Commit… card) and Copy task ID (local session id via
+//! `fx.writeClipboard`). Not Compare, Review, background work,
+//! header +N −M, or daemon WorkspaceOperation.
+
+const std = @import("std");
+const main = @import("main.zig");
+const git_commit = @import("git_commit.zig");
+const copy_helpers = @import("copy.zig");
+const session_switcher = @import("switcher.zig");
+
+const Model = main.Model;
+const Effects = main.Effects;
+
+pub fn close(model: *Model) void {
+    model.environment_summary_open = false;
+}
+
+pub fn toggle(model: *Model) void {
+    if (!model.environment_summary_open) {
+        session_switcher.closeSwitcher(model);
+        if (model.palette_open) model.closePalette();
+        model.closeComposerPickers();
+        model.closeSettingsEffortPicker();
+    }
+    model.environment_summary_open = !model.environment_summary_open;
+}
+
+/// Close the popover, then open the existing Commit… card without
+/// `canCommitGit` so Push-only still works on a clean tree.
+pub fn commitOrPush(model: *Model, fx: *Effects) void {
+    close(model);
+    git_commit.openCommitDialog(model, fx);
+}
+
+/// Close the popover, then copy the selected local session id the
+/// same way as palette Copy session id.
+pub fn copyTaskId(model: *Model, fx: *Effects) void {
+    close(model);
+    copy_helpers.copySessionId(model, fx);
+}
+
+test "toggle opens and closes the environment summary" {
+    var model = Model{};
+    try std.testing.expect(!model.environment_summary_open);
+    toggle(&model);
+    try std.testing.expect(model.environment_summary_open);
+    toggle(&model);
+    try std.testing.expect(!model.environment_summary_open);
+}
+
+test "commitOrPush opens the commit card without requiring dirty" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/env-commit", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("env commit", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.environment_summary_open = true;
+    try std.testing.expect(!git_commit.canCommitGit(&model));
+
+    commitOrPush(&model, &fx);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expect(model.git_commit_active);
+    try std.testing.expect(model.git_commit_include_unstaged);
+    try std.testing.expect(!model.git_commit_amend);
+    try std.testing.expect(model.git_commit_numstat_key != 0);
+    try std.testing.expect(!git_commit.canCommitGit(&model));
+}
+
+test "commitOrPush no-ops when cwd is missing, streaming, or a git mutation is in flight" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env gate", .fx);
+    model.selected = id;
+    model.environment_summary_open = true;
+    commitOrPush(&model, &fx);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expect(!model.git_commit_active);
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/env-commit-gate", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    model.store_io = std.testing.io;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    model.environment_summary_open = true;
+    model.phase = .streaming;
+    commitOrPush(&model, &fx);
+    try std.testing.expect(!model.git_commit_active);
+    model.phase = .idle;
+
+    model.environment_summary_open = true;
+    model.git_push_key = @import("git_checkout.zig").git_push_key_first;
+    commitOrPush(&model, &fx);
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expect(@import("git_checkout.zig").gitMutationInFlight(&model));
+}
+
+test "copyTaskId writes the local session id and no-ops without a selection" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env copy", .fx);
+    model.selected = id;
+    model.environment_summary_open = true;
+    copyTaskId(&model, &fx);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    const first = fx.pendingClipboardAt(0).?;
+    try std.testing.expectEqual(main.copy_turn_key, first.key);
+    try std.testing.expectEqual(@import("native_sdk").EffectClipboardOp.write, first.op);
+    var id_buf: [16]u8 = undefined;
+    const expected = try std.fmt.bufPrint(&id_buf, "{d}", .{id});
+    try std.testing.expectEqualStrings(expected, first.text);
+
+    var empty_fx = Effects.init(std.testing.allocator);
+    defer empty_fx.deinit();
+    empty_fx.executor = .fake;
+    model.selected = 0;
+    model.environment_summary_open = true;
+    copyTaskId(&model, &empty_fx);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expectEqual(@as(usize, 0), empty_fx.pendingClipboardCount());
+}
+
+test "Esc, session switch, and palette close the environment summary" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const first = model.addSession("env first", .fx);
+    const second = model.addSession("env second", .fx);
+    model.selected = first;
+    model.environment_summary_open = true;
+    main.update(&model, .stop, &fx);
+    try std.testing.expect(!model.environment_summary_open);
+
+    model.environment_summary_open = true;
+    main.update(&model, .{ .select = second }, &fx);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expectEqual(second, model.selected);
+
+    model.environment_summary_open = true;
+    main.update(&model, .start_search, &fx);
+    try std.testing.expect(model.palette_open);
+    try std.testing.expect(!model.environment_summary_open);
+}
+
+test "composer startCommit still requires canCommitGit" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/env-composer-commit", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("env composer commit", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    try std.testing.expect(!git_commit.canCommitGit(&model));
+
+    main.update(&model, .start_git_commit, &fx);
+    try std.testing.expect(!model.git_commit_active);
+
+    main.update(&model, .environment_commit_or_push, &fx);
+    try std.testing.expect(model.git_commit_active);
+    try std.testing.expect(!git_commit.canCommitGit(&model));
+}
