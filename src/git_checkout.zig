@@ -1038,6 +1038,20 @@ pub fn closeWorktreeCreate(model: *Model) void {
 fn closeCommitCard(model: *Model) void {
     model.git_commit_active = false;
     model.git_commit_buffer.clear();
+    model.git_commit_numstat_key = 0;
+    model.git_commit_numstat_additions = 0;
+    model.git_commit_numstat_deletions = 0;
+    model.git_commit_numstat_label_len = 0;
+}
+
+fn dropCommitSnapshot(model: *Model, fx: *Effects) void {
+    if (model.git_commit_numstat_key != 0) {
+        fx.cancel(model.git_commit_numstat_key);
+        model.git_commit_numstat_key = 0;
+    }
+    model.git_commit_numstat_additions = 0;
+    model.git_commit_numstat_deletions = 0;
+    model.git_commit_numstat_label_len = 0;
 }
 
 /// Esc / Cancel: close the card and drop an in-flight base probe so a
@@ -1377,6 +1391,7 @@ pub fn refresh(model: *Model, fx: *Effects) void {
         model.setAttachStatus("Could not commit.");
     }
     model.git_commit_then_push = false;
+    dropCommitSnapshot(model, fx);
     closeCommitCard(model);
     if (!probeSupported()) return;
     const cwd = probePath(model);
@@ -1645,6 +1660,7 @@ pub fn startFetch(model: *Model, fx: *Effects) void {
     closeCreate(model);
     closeWorktreeCreate(model);
     closeDelete(model);
+    dropCommitSnapshot(model, fx);
     closeCommitCard(model);
     if (gitMutationInFlight(model)) return;
     if (model.is_streaming()) return;
@@ -1701,6 +1717,7 @@ pub fn startPush(model: *Model, fx: *Effects) void {
     closeCreate(model);
     closeWorktreeCreate(model);
     closeDelete(model);
+    dropCommitSnapshot(model, fx);
     closeCommitCard(model);
     if (!git_ahead_behind.canPushGitBranch(model)) return;
     if (gitMutationInFlight(model)) return;
@@ -1725,6 +1742,7 @@ pub fn beginPushAfterCommit(model: *Model, fx: *Effects) void {
     closeCreate(model);
     closeWorktreeCreate(model);
     closeDelete(model);
+    dropCommitSnapshot(model, fx);
     closeCommitCard(model);
     if (gitMutationInFlight(model) or model.is_streaming() or !probeSupported()) {
         model.setAttachStatus(push_failed_status);

@@ -3239,6 +3239,7 @@ test "pick_folder stdout directory sets project_path the same way typing does" {
     try testing.expect(!loaded.has_git_dirty());
     try testing.expect(!loaded.has_git_numstat());
     try testing.expect(!loaded.has_git_ahead_behind());
+    try testing.expect(!loaded.has_git_commit_numstat());
 }
 
 test "pick_folder cancel empty and file path leave project_path unchanged" {
@@ -13486,16 +13487,35 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     try testing.expect(model.git_commit_active);
     try testing.expect(model.git_commit_include_unstaged);
     try testing.expect(!model.git_worktree_create_active);
+    try testing.expect(model.git_commit_numstat_key != 0);
+    try testing.expect(model.git_commit_numstat_key != model.git_numstat_key);
+    try testing.expect(!model.has_git_commit_numstat());
     tree = try buildTree(arena, &model);
     try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Commit message") != null);
+    try testing.expect(findByText(tree.root, .text, "+3 −1") == null);
+    try testing.expect(findByText(tree.root, .text, "clean") == null);
     const include = try expectButtonMsg(tree, "Include unstaged", .toggle_git_commit_include_unstaged);
     try testing.expect(include.state.selected);
     _ = try expectButtonMsg(tree, "Commit", .confirm_git_commit);
     _ = try expectButtonMsg(tree, "Commit and Push", .confirm_git_commit_and_push);
     _ = try expectButtonMsg(tree, "Cancel", .cancel_git_commit);
 
-    main.update(&model, tree.msgForPointer(include.id, .up).?, &fx);
+    const snap = findGitCommitNumstatSpawnKey(&fx, model.git_commit_numstat_key) orelse return error.MissingCommitNumstatSpawn;
+    try testing.expect(git_commit.isGitCommitNumstatWorkingTreeArgv(snap.argv));
+    try testing.expect(!git_numstat.isGitNumstatArgv(snap.argv));
+    try fx.feedLine(snap.key, "3\t1\tsrc/a.zig\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(snap.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(model.has_git_commit_numstat());
+    try testing.expectEqualStrings("+3 −1", model.git_commit_numstat_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "+3 −1");
+    const include_after = try expectButtonMsg(tree, "Include unstaged", .toggle_git_commit_include_unstaged);
+    try testing.expect(include_after.state.selected);
+
+    main.update(&model, tree.msgForPointer(include_after.id, .up).?, &fx);
     try testing.expect(!model.git_commit_include_unstaged);
     try testing.expect(!model.can_commit_git());
     tree = try buildTree(arena, &model);
@@ -13523,6 +13543,8 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     try testing.expect(!model.git_commit_active);
     try testing.expectEqualStrings("", model.git_commit());
     try testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try testing.expectEqual(@as(u64, 0), model.git_commit_numstat_key);
+    try testing.expect(!model.has_git_commit_numstat());
 }
 
 test "confirm New worktree one-shots git worktree add -b; success retargets project_path; failure sets status" {
@@ -14027,6 +14049,14 @@ fn findGitNumstatSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (spawn.key == key and git_numstat.isGitNumstatArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn findGitCommitNumstatSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_commit.isGitCommitNumstatArgv(spawn.argv)) return spawn;
     }
     return null;
 }

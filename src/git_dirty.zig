@@ -11,7 +11,7 @@
 //! X is `?` → unstaged). Zero / failed / empty / cancel / session
 //! switch omits the label and clears both flags — this cut does not
 //! invent "clean". Not Waku's daemon `InspectBranches`, not a live
-//! watch, not CommitSnapshot numstat, and not Waku's Environment
+//! watch, not commit-card snapshot numstat, and not Waku's Environment
 //! Summary.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
