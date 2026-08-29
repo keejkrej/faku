@@ -24,10 +24,15 @@
 //! branch… one-shots `git branch -d <name>` for listed local heads
 //! that are not occupied (safe delete; never `-D`; never `origin/…`).
 //! Fetch… one-shots `git fetch --prune` (`--prune` its own argv
-//! slot; never interpolated into the `-c` script). Push… probes
-//! `@{upstream}` and one-shots `git push` when that name exists
-//! (`push` its own argv slot). When there is no upstream it
-//! one-shots `git push --set-upstream <remote> <branch>`
+//! slot; never interpolated into the `-c` script). Push… is offered
+//! only when Waku `can_push` would be true: ahead of `@{upstream}`,
+//! or the ahead/behind probe failed / that name does not exist
+//! (first-push `--set-upstream` path). Hidden while that probe is
+//! in flight and when it resolved an upstream with ahead 0. No
+//! remotes probe for the gate. Push… probes `@{upstream}` and
+//! one-shots `git push` when that name exists (`push` its own argv
+//! slot). When there is no upstream it one-shots
+//! `git push --set-upstream <remote> <branch>`
 //! (`--set-upstream`, remote, and branch each their own argv slot;
 //! remote prefers `origin` from `git remote`, else the first name).
 //! Detached HEAD or no remotes set a short composer status and do
@@ -1664,14 +1669,15 @@ pub fn handleFetchExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit)
 /// resolving the current branch and a remote (`origin` preferred).
 /// Detached HEAD or no remotes set `Could not push.` and do not
 /// spawn a push. Not force, not daemon `WorkspaceOperation::Push`.
-/// Always offered when the branch picker is offered; no
-/// ahead-count / can_push gate. Busy session or in-flight
+/// Offered only when `canPushGitBranch` (Waku `can_push` without a
+/// remotes probe). Busy session or in-flight
 /// checkout/create/delete/fetch/push is a no-op.
 pub fn startPush(model: *Model, fx: *Effects) void {
     closePicker(model);
     closeCreate(model);
     closeWorktreeCreate(model);
     closeDelete(model);
+    if (!git_ahead_behind.canPushGitBranch(model)) return;
     if (gitMutationInFlight(model)) return;
     if (model.is_streaming()) return;
     if (!probeSupported()) return;

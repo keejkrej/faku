@@ -639,6 +639,12 @@ pub const Model = struct {
     git_ahead_behind_probe_session: u32 = 0,
     git_ahead_behind_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_ahead_behind_probe_path_len: usize = 0,
+    /// True after the one-shot `@{upstream}...HEAD` probe exits.
+    /// Distinct from the ↑A ↓B label (0/0 stays unlabeled).
+    git_ahead_behind_ready: bool = false,
+    /// True when that probe resolved `@{upstream}` (exit 0 or a
+    /// parsed count pair). Failed / no-upstream stays false.
+    git_ahead_behind_has_upstream: bool = false,
     /// Runtime-only file cache for composer `@` mentions.
     /// Git ls-files first; bounded walk only when that spawn fails.
     /// Not persisted to sessions.json.
@@ -928,6 +934,8 @@ pub const Model = struct {
         "git_ahead_behind_probe_session",
         "git_ahead_behind_probe_path_storage",
         "git_ahead_behind_probe_path_len",
+        "git_ahead_behind_ready",
+        "git_ahead_behind_has_upstream",
         "file_mention_store",
         "file_mention_count",
         "file_mention_key",
@@ -2119,6 +2127,12 @@ pub const Model = struct {
 
     pub fn has_git_ahead_behind(model: *const Model) bool {
         return git_ahead_behind.hasGitAheadBehind(model);
+    }
+
+    /// Composer branch-picker Push…. Waku `can_push` without a remotes
+    /// probe: ahead of `@{upstream}`, or no resolved upstream.
+    pub fn can_push_git_branch(model: *const Model) bool {
+        return git_ahead_behind.canPushGitBranch(model);
     }
 
     /// Composer usage control. 0 when the live path has not reported usage.
