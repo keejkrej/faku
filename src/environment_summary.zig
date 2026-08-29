@@ -2,12 +2,14 @@
 //!
 //! Header info trigger plus a runtime-only dropdown titled
 //! Environment: Commit or Push (ungated open of the existing
-//! Commit… card), Compare (Branch name-status Review file list),
+//! Commit… card), Compare (Review name-status file list; opens
+//! on Branch, Uncommitted is switchable on the card),
 //! and Copy task ID (local session id via `fx.writeClipboard`).
 //! Header +N −M reuses the composer project-row numstat probe
-//! (omit a zero side; muted ghost; click opens Compare Review).
-//! Not full Review hunks, not Uncommitted/Staged/Unstaged, not
-//! force, not background work, and not daemon WorkspaceOperation.
+//! (omit a zero side; muted ghost; click opens Compare Review
+//! on Branch). Not full Review hunks, not Staged/Unstaged/
+//! Committed/LastTurn, not untracked-in-Uncommitted, not force,
+//! not background work, and not daemon WorkspaceOperation.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -69,7 +71,8 @@ pub fn copyTaskId(model: *Model, fx: *Effects) void {
 }
 
 /// Close the popover and any Commit… card, then open the first-cut
-/// Review file-list card (Branch `git diff --name-status`).
+/// Review file-list card on Branch (`git diff --name-status
+/// @{upstream}...HEAD`). Uncommitted is selected on the card.
 pub fn compare(model: *Model, fx: *Effects) void {
     close(model);
     git_commit.dropCommitNumstat(model, fx);
@@ -198,6 +201,7 @@ test "compare closes Environment Summary and opens the Review card" {
     try std.testing.expect(!model.environment_summary_open);
     try std.testing.expect(!model.git_commit_active);
     try std.testing.expect(model.review_diff_active);
+    try std.testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
     try std.testing.expect(model.review_diff_key >= review_diff.review_diff_key_first);
     try std.testing.expectEqualStrings(review_diff.comparing_status, review_diff.reviewDiffStatus(&model));
 }
@@ -223,6 +227,7 @@ test "compare opens Review when Environment Summary is already closed" {
     compare(&model, &fx);
     try std.testing.expect(!model.environment_summary_open);
     try std.testing.expect(model.review_diff_active);
+    try std.testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
     try std.testing.expect(model.review_diff_key >= review_diff.review_diff_key_first);
     try std.testing.expectEqualStrings(review_diff.comparing_status, review_diff.reviewDiffStatus(&model));
 }
@@ -338,4 +343,5 @@ test "composer startCommit still requires canCommitGit" {
     main.update(&model, .environment_compare, &fx);
     try std.testing.expect(!model.git_commit_active);
     try std.testing.expect(model.review_diff_active);
+    try std.testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
 }

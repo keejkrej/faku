@@ -1,17 +1,22 @@
 //! First-cut Waku Environment Compare / Review file list.
 //!
-//! Environment Compare closes the Environment Summary popover and
-//! opens a runtime-only Review card. One-shot
-//! `git diff --name-status @{upstream}...HEAD` (symmetric Branch
-//! range, same spirit as ahead/behind) through the `/bin/sh -c`
-//! `fx_ask_chdir_script` chdir workaround. `@{upstream}...HEAD` is
-//! its own argv slot — never interpolated into `-c`. Distinct
-//! spawn-key band 510+ (after git-common-dir 500+). Cap 64 rows.
-//! Empty / clean is `No changes to compare`. Failed / no upstream
-//! / missing workspace is a short muted status — no invented
-//! files. Header +/- and Compare both open this card. Not hunk
-//! rendering, not Uncommitted / Staged / Unstaged sources, not
-//! background work, and not daemon WorkspaceOperation.
+//! Environment Compare and header +/- close the Environment
+//! Summary popover (when open) and open a runtime-only Review
+//! card. Initial source is Branch: one-shot
+//! `git diff --name-status @{upstream}...HEAD` (symmetric range,
+//! same spirit as ahead/behind). Uncommitted is a switchable
+//! first-cut: one-shot `git diff --name-status HEAD` (tracked
+//! staged+unstaged vs HEAD). Faku has no checkpoint
+//! `capture_worktree_commit`; untracked files are leftover.
+//! Both use the `/bin/sh -c` `fx_ask_chdir_script` chdir
+//! workaround. Range operands (`@{upstream}...HEAD` / `HEAD`)
+//! are their own argv slots — never interpolated into `-c`.
+//! Distinct spawn-key band 510+ (after git-common-dir 500+).
+//! Cap 64 rows. Empty / clean is `No changes to compare`.
+//! Failed / no upstream / missing workspace is a short muted
+//! status — no invented files. Not hunk rendering, not Staged /
+//! Unstaged / Committed / LastTurn sources, not background work,
+//! and not daemon WorkspaceOperation.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -28,15 +33,23 @@ const Model = main.Model;
 const Effects = main.Effects;
 const writeFixed = main.writeFixed;
 
-/// One-shot Branch `git diff --name-status @{upstream}...HEAD`.
-/// Distinct from git_branch (200+), git_dirty (300+), git_numstat
-/// (350+), git_push (360+), git_worktree_add (370+),
-/// git_ahead_behind (380+), git_worktree_base (390+), file_mention
-/// (400+), git_commit (450+), git_commit_numstat (460+), generate
-/// (470+), remotes (480+), toplevel (490+), and common-dir (500+).
-/// Band is 510+. Incremented per open so a cancelled spawn cannot
-/// paint a later session.
+/// One-shot Review `git diff --name-status` (Branch or
+/// Uncommitted). Distinct from git_branch (200+), git_dirty
+/// (300+), git_numstat (350+), git_push (360+), git_worktree_add
+/// (370+), git_ahead_behind (380+), git_worktree_base (390+),
+/// file_mention (400+), git_commit (450+), git_commit_numstat
+/// (460+), generate (470+), remotes (480+), toplevel (490+), and
+/// common-dir (500+). Band is 510+. Incremented per open / source
+/// switch so a cancelled spawn cannot paint a later session.
 pub const review_diff_key_first: u64 = 510;
+
+/// Compare / header +/- open Branch. Uncommitted is first-cut
+/// tracked `git diff --name-status HEAD` (not untracked). Staged /
+/// Unstaged / Committed / LastTurn stay leftover.
+pub const Source = enum {
+    branch,
+    uncommitted,
+};
 
 pub const max_review_diff_files: usize = 64;
 pub const max_review_diff_path: usize = 255;
@@ -48,9 +61,10 @@ pub const git_bin = "git";
 pub const git_diff_cmd = "diff";
 pub const git_name_status = "--name-status";
 pub const git_upstream_range = git_ahead_behind.git_upstream_range;
+pub const git_head = "HEAD";
 pub const sh_bin = "/bin/sh";
 
-/// `/bin/sh -c` chdir + `git diff --name-status @{upstream}...HEAD`.
+/// `/bin/sh -c` chdir + `git diff --name-status` + range operand.
 pub const argv_len: usize = 9;
 
 pub const comparing_status = "Comparing…";
@@ -90,7 +104,14 @@ pub const ChangedFile = struct {
     }
 };
 
-pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+pub fn rangeOperand(source: Source) []const u8 {
+    return switch (source) {
+        .branch => git_upstream_range,
+        .uncommitted => git_head,
+    };
+}
+
+pub fn argvForSource(source: Source, cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -100,9 +121,14 @@ pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
         git_bin,
         git_diff_cmd,
         git_name_status,
-        git_upstream_range,
+        rangeOperand(source),
     };
     return buf;
+}
+
+/// Branch argv. Compare / header +/- still use this shape.
+pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    return argvForSource(.branch, cwd, buf);
 }
 
 pub fn isGitReviewDiffArgv(argv: []const []const u8) bool {
@@ -113,7 +139,7 @@ pub fn isGitReviewDiffArgv(argv: []const []const u8) bool {
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_diff_cmd)) return false;
     if (!std.mem.eql(u8, argv[7], git_name_status)) return false;
-    return std.mem.eql(u8, argv[8], git_upstream_range);
+    return std.mem.eql(u8, argv[8], git_upstream_range) or std.mem.eql(u8, argv[8], git_head);
 }
 
 /// One `XY\tpath` or `R100\told\tnew` name-status row. Blank /
@@ -228,6 +254,7 @@ pub fn close(model: *Model, fx: *Effects) void {
     clearStatus(model);
     model.review_diff_probe_session = 0;
     model.review_diff_probe_path_len = 0;
+    model.review_diff_source = .branch;
     model.review_diff_active = false;
 }
 
@@ -245,17 +272,12 @@ fn prepareCard(model: *Model, fx: *Effects) void {
     close(model, fx);
 }
 
-/// Close other composer git cards, open the Review card, and
-/// one-shot Branch name-status when cwd exists. Missing / Local
-/// path still opens the card with `No workspace.` Streaming and
-/// in-flight git mutations are a no-op (popover already closed).
-/// Windows skips the spawn and leaves the card with the fail
-/// status only when a workspace exists (no Windows spawn path).
-pub fn open(model: *Model, fx: *Effects) void {
-    prepareCard(model, fx);
-    if (git_checkout.gitMutationInFlight(model)) return;
-    if (model.is_streaming()) return;
-    model.review_diff_active = true;
+fn startProbe(model: *Model, fx: *Effects) void {
+    cancelInFlight(model, fx);
+    clearFiles(model);
+    clearStatus(model);
+    model.review_diff_probe_session = 0;
+    model.review_diff_probe_path_len = 0;
     if (!probeSupported()) {
         setStatus(model, failed_status);
         return;
@@ -276,10 +298,35 @@ pub fn open(model: *Model, fx: *Effects) void {
     var argv_buf: [argv_len][]const u8 = undefined;
     fx.spawn(.{
         .key = key,
-        .argv = argvFor(cwd, &argv_buf),
+        .argv = argvForSource(model.review_diff_source, cwd, &argv_buf),
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
+}
+
+/// Close other composer git cards, open the Review card on Branch,
+/// and one-shot Branch name-status when cwd exists. Missing / Local
+/// path still opens the card with `No workspace.` Streaming and
+/// in-flight git mutations are a no-op (popover already closed).
+/// Windows skips the spawn and leaves the card with the fail
+/// status only when a workspace exists (no Windows spawn path).
+pub fn open(model: *Model, fx: *Effects) void {
+    prepareCard(model, fx);
+    if (git_checkout.gitMutationInFlight(model)) return;
+    if (model.is_streaming()) return;
+    model.review_diff_active = true;
+    model.review_diff_source = .branch;
+    startProbe(model, fx);
+}
+
+/// Switch the Review name-status source, cancel any in-flight
+/// 510+ spawn, clear rows / status, and re-probe. No-op when the
+/// card is closed. Does not invent Staged / Unstaged / Committed /
+/// LastTurn sources.
+pub fn setSource(model: *Model, fx: *Effects, source: Source) void {
+    if (!model.review_diff_active) return;
+    model.review_diff_source = source;
+    startProbe(model, fx);
 }
 
 pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
@@ -332,7 +379,25 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_upstream_range) == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_name_status) == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_diff_cmd) == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_head) == null);
     try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_upstream_range }));
+    var uncommitted_buf: [argv_len][]const u8 = undefined;
+    const uncommitted = argvForSource(.uncommitted, "/tmp/faku-review", &uncommitted_buf);
+    try std.testing.expectEqual(@as(usize, 9), uncommitted.len);
+    try std.testing.expectEqualStrings(sh_bin, uncommitted[0]);
+    try std.testing.expectEqualStrings("-c", uncommitted[1]);
+    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, uncommitted[2]);
+    try std.testing.expectEqualStrings("sh", uncommitted[3]);
+    try std.testing.expectEqualStrings("/tmp/faku-review", uncommitted[4]);
+    try std.testing.expectEqualStrings(git_bin, uncommitted[5]);
+    try std.testing.expectEqualStrings(git_diff_cmd, uncommitted[6]);
+    try std.testing.expectEqualStrings(git_name_status, uncommitted[7]);
+    try std.testing.expectEqualStrings(git_head, uncommitted[8]);
+    try std.testing.expectEqualStrings("HEAD", uncommitted[8]);
+    try std.testing.expect(isGitReviewDiffArgv(uncommitted));
+    try std.testing.expect(std.mem.indexOf(u8, uncommitted[2], git_head) == null);
+    try std.testing.expect(std.mem.indexOf(u8, uncommitted[2], git_name_status) == null);
+    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_head }));
     var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;
     const ahead = git_ahead_behind.argvFor("/tmp/faku-review", &ahead_buf);
     try std.testing.expect(!isGitReviewDiffArgv(ahead));
@@ -383,12 +448,14 @@ test "open closes nothing extra when gated; missing cwd is No workspace" {
     model.selected = id;
     open(&model, &fx);
     try std.testing.expect(model.review_diff_active);
+    try std.testing.expectEqual(Source.branch, model.review_diff_source);
     try std.testing.expectEqualStrings(no_workspace_status, reviewDiffStatus(&model));
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
     try std.testing.expectEqual(@as(u64, 0), model.review_diff_key);
 
     close(&model, &fx);
     try std.testing.expect(!model.review_diff_active);
+    try std.testing.expectEqual(Source.branch, model.review_diff_source);
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -428,6 +495,7 @@ test "name-status lines fill capped rows; empty and fail stay honest" {
 
     open(&model, &fx);
     try std.testing.expect(model.review_diff_active);
+    try std.testing.expectEqual(Source.branch, model.review_diff_source);
     try std.testing.expect(model.review_diff_key >= review_diff_key_first);
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
 
@@ -462,7 +530,92 @@ test "name-status lines fill capped rows; empty and fail stay honest" {
 
     dismiss(&model, &fx);
     try std.testing.expect(!model.review_diff_active);
+    try std.testing.expectEqual(Source.branch, model.review_diff_source);
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+}
+
+test "source switch cancels in-flight Branch and re-probes Uncommitted" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/review-source", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("review source", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    open(&model, &fx);
+    try std.testing.expectEqual(Source.branch, model.review_diff_source);
+    const branch_key = model.review_diff_key;
+    var i: usize = 0;
+    var branch_argv: ?[]const []const u8 = null;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == branch_key) branch_argv = spawn.argv;
+    }
+    try std.testing.expect(isGitReviewDiffArgv(branch_argv orelse return error.MissingBranchArgv));
+    try std.testing.expectEqualStrings(git_upstream_range, branch_argv.?[8]);
+    applyLine(&model, .{ .key = branch_key, .line = "M\tbranch-only.zig\n" });
+    try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
+
+    setSource(&model, &fx, .uncommitted);
+    try std.testing.expect(model.review_diff_active);
+    try std.testing.expectEqual(Source.uncommitted, model.review_diff_source);
+    try std.testing.expect(model.review_diff_key != branch_key);
+    try std.testing.expect(model.review_diff_key >= review_diff_key_first);
+    try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+    try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
+
+    applyLine(&model, .{ .key = branch_key, .line = "A\tshould-ignore.txt\n" });
+    try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+    handleExit(&model, .{ .key = branch_key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(Source.uncommitted, model.review_diff_source);
+    try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
+
+    const uncommitted_key = model.review_diff_key;
+    i = 0;
+    var uncommitted_argv: ?[]const []const u8 = null;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == uncommitted_key) uncommitted_argv = spawn.argv;
+    }
+    try std.testing.expect(isGitReviewDiffArgv(uncommitted_argv orelse return error.MissingUncommittedArgv));
+    try std.testing.expectEqualStrings(git_head, uncommitted_argv.?[8]);
+    try std.testing.expect(std.mem.indexOf(u8, uncommitted_argv.?[2], git_head) == null);
+    applyLine(&model, .{ .key = uncommitted_key, .line = "M\ttracked.zig\n" });
+    handleExit(&model, .{ .key = uncommitted_key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
+    try std.testing.expectEqualStrings("M tracked.zig", model.review_diff_file_store[0].label());
+    try std.testing.expect(!hasReviewDiffStatus(&model));
+
+    setSource(&model, &fx, .branch);
+    try std.testing.expectEqual(Source.branch, model.review_diff_source);
+    try std.testing.expect(model.review_diff_key != uncommitted_key);
+    try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+    try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
+
+    const empty_key = model.review_diff_key;
+    handleExit(&model, .{ .key = empty_key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqualStrings(empty_status, reviewDiffStatus(&model));
+
+    setSource(&model, &fx, .uncommitted);
+    const fail_key = model.review_diff_key;
+    handleExit(&model, .{ .key = fail_key, .reason = .exited, .code = 128 });
+    try std.testing.expectEqualStrings(failed_status, reviewDiffStatus(&model));
+    try std.testing.expectEqual(Source.uncommitted, model.review_diff_source);
+
+    dismiss(&model, &fx);
+    try std.testing.expect(!model.review_diff_active);
+    try std.testing.expectEqual(Source.branch, model.review_diff_source);
+
+    setSource(&model, &fx, .uncommitted);
+    try std.testing.expect(!model.review_diff_active);
+    try std.testing.expectEqual(Source.branch, model.review_diff_source);
 }
 
 test "cap stays at 64; extra name-status rows are dropped" {

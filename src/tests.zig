@@ -3254,6 +3254,7 @@ test "pick_folder stdout directory sets project_path the same way typing does" {
     try testing.expectEqual(@as(usize, 0), loaded.git_common_dir_path_len);
     try testing.expect(!loaded.has_git_commit_numstat());
     try testing.expect(!loaded.review_diff_active);
+    try testing.expectEqual(review_diff.Source.branch, loaded.review_diff_source);
     try testing.expectEqual(@as(u32, 0), loaded.review_diff_file_count);
 }
 
@@ -16742,6 +16743,9 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     main.update(&model, tree.msgForPointer(compare.id, .up).?, &fx);
     try testing.expect(!model.environment_summary_open);
     try testing.expect(model.review_diff_active);
+    try testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
+    try testing.expect(model.review_diff_source_branch());
+    try testing.expect(!model.review_diff_source_uncommitted());
     try testing.expect(model.review_diff_key >= main.review_diff_key_first);
     try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
 
@@ -16758,6 +16762,10 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     _ = try expectByText(tree.root, .text, "Review");
     _ = try expectByText(tree.root, .text, review_diff.comparing_status);
     _ = try expectButtonMsg(tree, "Cancel", .close_review_diff);
+    const branch_btn = try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch);
+    try testing.expect(branch_btn.state.selected);
+    const uncommitted_btn = try expectButtonMsg(tree, "Uncommitted", .set_review_diff_source_uncommitted);
+    try testing.expect(!uncommitted_btn.state.selected);
 
     try fx.feedLine(spawn.key, "M\tsrc/a.zig\nA\tnew.txt\n");
     drainEffects(&model, &fx);
@@ -16831,12 +16839,116 @@ test "Environment Compare without a workspace shows No workspace and invents no 
     model.selected = id;
     main.update(&model, .environment_compare, &fx);
     try testing.expect(model.review_diff_active);
+    try testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
     try testing.expectEqual(@as(u64, 0), model.review_diff_key);
     try testing.expectEqualStrings(review_diff.no_workspace_status, model.review_diff_status());
     try testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
     const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Review");
     _ = try expectByText(tree.root, .text, review_diff.no_workspace_status);
+    const branch_btn = try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch);
+    try testing.expect(branch_btn.state.selected);
+    const uncommitted_btn = try expectButtonMsg(tree, "Uncommitted", .set_review_diff_source_uncommitted);
+    try testing.expect(!uncommitted_btn.state.selected);
+}
+
+test "Review source row switches Uncommitted and re-probes HEAD name-status" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/review-source-ui", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("review source ui", .fx);
+    model.selected = id;
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+
+    main.update(&model, .environment_compare, &fx);
+    try testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
+    const branch_key = model.review_diff_key;
+    const branch_spawn = findGitReviewDiffSpawnKey(&fx, branch_key) orelse return error.MissingReviewDiffBranch;
+    try testing.expectEqualStrings("@{upstream}...HEAD", branch_spawn.argv[8]);
+    try testing.expect(std.mem.indexOf(u8, branch_spawn.argv[2], "@{upstream}...HEAD") == null);
+
+    var tree = try buildTree(arena, &model);
+    const uncommitted_off = try expectButtonMsg(tree, "Uncommitted", .set_review_diff_source_uncommitted);
+    try testing.expect(!uncommitted_off.state.selected);
+    main.update(&model, tree.msgForPointer(uncommitted_off.id, .up).?, &fx);
+    try testing.expect(model.review_diff_active);
+    try testing.expectEqual(review_diff.Source.uncommitted, model.review_diff_source);
+    try testing.expect(model.review_diff_source_uncommitted());
+    try testing.expect(!model.review_diff_source_branch());
+    try testing.expect(model.review_diff_key != branch_key);
+    try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
+    try testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+
+    try fx.feedLine(branch_key, "M\tshould-ignore.zig\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(branch_key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(review_diff.Source.uncommitted, model.review_diff_source);
+    try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
+    try testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+
+    const uncommitted_spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffUncommitted;
+    try testing.expect(review_diff.isGitReviewDiffArgv(uncommitted_spawn.argv));
+    try testing.expectEqualStrings("HEAD", uncommitted_spawn.argv[8]);
+    try testing.expect(std.mem.indexOf(u8, uncommitted_spawn.argv[2], "HEAD") == null);
+    try testing.expect(uncommitted_spawn.key >= main.review_diff_key_first);
+    try testing.expect(uncommitted_spawn.key != model.git_numstat_key);
+
+    try fx.feedLine(uncommitted_spawn.key, "M\ttracked.zig\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(uncommitted_spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(model.has_review_diff_files());
+    try testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "M tracked.zig");
+    const uncommitted_on = try expectButtonMsg(tree, "Uncommitted", .set_review_diff_source_uncommitted);
+    try testing.expect(uncommitted_on.state.selected);
+    const branch_off = try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch);
+    try testing.expect(!branch_off.state.selected);
+    try testing.expect(findByText(tree.root, .text, review_diff.comparing_status) == null);
+
+    main.update(&model, tree.msgForPointer(branch_off.id, .up).?, &fx);
+    try testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
+    try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
+    const back_spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffBack;
+    try testing.expectEqualStrings("@{upstream}...HEAD", back_spawn.argv[8]);
+    try fx.feedExit(back_spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(review_diff.empty_status, model.review_diff_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, review_diff.empty_status);
+    try testing.expect(findByText(tree.root, .text, "M tracked.zig") == null);
+    const branch_on = try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch);
+    try testing.expect(branch_on.state.selected);
+
+    main.update(&model, .set_review_diff_source_uncommitted, &fx);
+    const fail_spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffUncommittedFail;
+    try testing.expectEqualStrings("HEAD", fail_spawn.argv[8]);
+    try fx.feedExit(fail_spawn.key, 128);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(review_diff.failed_status, model.review_diff_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, review_diff.failed_status);
+
+    main.update(&model, .close_review_diff, &fx);
+    try testing.expect(!model.review_diff_active);
+    try testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Uncommitted") == null);
 }
 
 test "header Environment +/- reuses composer numstat and omits a zero side" {
@@ -16989,6 +17101,7 @@ test "header Environment +/- opens the same Review card as Compare" {
     main.update(&model, tree.msgForPointer(header_plus.id, .up).?, &fx);
     try testing.expect(!model.environment_summary_open);
     try testing.expect(model.review_diff_active);
+    try testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
     try testing.expect(model.review_diff_key >= main.review_diff_key_first);
     try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
     try testing.expect(fx.pendingSpawnCount() > pending_before_click);
