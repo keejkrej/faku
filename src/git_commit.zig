@@ -1,7 +1,7 @@
 //! First-cut InspectCommit flags + include-unstaged Commit… / Commit
-//! and Push, plus a one-shot CommitSnapshot numstat label and an
-//! fx-first empty-message `generate_message`, for the composer
-//! project row.
+//! and Push / Push-only, plus a one-shot CommitSnapshot numstat
+//! label and an fx-first empty-message `generate_message`, for the
+//! composer project row.
 //!
 //! Native has no git effect. `canCommitGit` follows Waku `can_commit`:
 //! dirty probe idle, and staged or (include_unstaged and unstaged).
@@ -22,7 +22,13 @@
 //! the same commit path; on successful commit it starts the existing
 //! Push… probe/spawn via `beginPushAfterCommit` (ungated vs
 //! `canPushGitBranch` — ahead/behind is stale after the commit).
-//! Commit stays commit-only. Opening the card one-shots CommitSnapshot
+//! Commit stays commit-only. Push-only (Waku `CommitAction::Push`)
+//! does not commit or generate; it is gated by `canPushGitBranch`
+//! (same as composer Push…) and, after dismissing the card the same
+//! way Cancel does, reuses `startPush`. Empty / whitespace message
+//! is fine. In-flight generate or add/commit is a no-op. First cut
+//! closes the card then starts Push… — not Waku's in-dialog pending
+//! spinner. Opening the card one-shots CommitSnapshot
 //! numstat (include-unstaged on reuses the project-row
 //! `git_numstat` script: tracked `git diff --numstat HEAD --` plus
 //! untracked text-line additions; index vs HEAD `--cached` when
@@ -31,7 +37,8 @@
 //! snapshot probe, and do not start a push. Commit and Push is
 //! offered only when `canCommitGit` and first-push remotes are OK
 //! (known upstream, or remotes ready with at least one remote).
-//! Not `git diff --cached --quiet` preflight, not
+//! Push-only is offered only when `canPushGitBranch`. Not `git
+//! diff --cached --quiet` preflight, not
 //! canonicalize(`git rev-parse --show-toplevel`), not
 //! git-common-dir nest identity, not force / amend, and not daemon
 //! `WorkspaceOperation`.
@@ -691,6 +698,29 @@ pub fn confirmCommit(model: *Model, fx: *Effects) void {
 pub fn confirmCommitAndPush(model: *Model, fx: *Effects) void {
     if (!canCommitAndPushGit(model)) return;
     confirmCommitWith(model, fx, true);
+}
+
+/// Push-only on the Commit… card (Waku `CommitAction::Push`). Does
+/// not commit, does not require a message, does not generate.
+/// Gated by `canPushGitBranch` (same as composer Push…). In-flight
+/// generate or add/commit is a no-op (Waku `commit_operation` is
+/// Some). Check those gates before dismissing so a failed gate
+/// cannot close the card without pushing. On start, dismiss the
+/// card the same way Cancel does, then the existing gated
+/// `startPush` path — not `beginPushAfterCommit` (ungated; that is
+/// for post-commit when ahead is stale). First cut: close then
+/// Push… — no in-dialog pending spinner.
+pub fn confirmPushOnly(model: *Model, fx: *Effects) void {
+    if (!git_ahead_behind.canPushGitBranch(model)) return;
+    if (model.git_commit_generate_key != 0) return;
+    if (model.git_commit_key != 0 or model.git_commit_phase != .idle) return;
+    if (git_checkout.gitMutationInFlight(model)) return;
+    if (model.is_streaming()) return;
+    if (!probeSupported()) return;
+    if (probePath(model).len == 0) return;
+
+    dismissCommit(model, fx);
+    git_checkout.startPush(model, fx);
 }
 
 /// JSON `.output` first line, else the first non-empty trimmed stdout
@@ -1382,6 +1412,190 @@ test "confirm and push commit failure sets Could not commit and does not start a
     try std.testing.expect(!model.git_commit_then_push);
     try std.testing.expect(findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) == null);
     try std.testing.expect(model.git_commit_active);
+}
+
+test "confirmPushOnly closes the card and starts the existing push probe" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-push-only", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit push only", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 2);
+
+    startCommit(&model, &fx);
+    try std.testing.expect(model.git_commit_active);
+    model.git_ahead_behind_ready = true;
+    markFirstPushRemotesOk(&model);
+    try std.testing.expect(git_ahead_behind.canPushGitBranch(&model));
+    toggleIncludeUnstaged(&model, &fx);
+    try std.testing.expect(!canCommitGit(&model));
+    try std.testing.expect(!canCommitAndPushGit(&model));
+    try std.testing.expect(git_ahead_behind.canPushGitBranch(&model));
+
+    confirmPushOnly(&model, &fx);
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_generate_key);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitGenerateArgv) == null);
+    try std.testing.expect(model.git_push_key != 0);
+    try std.testing.expectEqual(git_checkout.GitPushPhase.upstream, model.git_push_phase);
+    const probe = findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) orelse return error.MissingGitUpstreamSpawn;
+    try std.testing.expectEqual(model.git_push_key, probe.key);
+    try std.testing.expect(probe.key >= git_checkout.git_push_key_first);
+    try std.testing.expect(!isGitCommitArgv(probe.argv));
+    try std.testing.expect(!isGitCommitAddArgv(probe.argv));
+}
+
+test "confirmPushOnly empty message still starts a push" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-push-only-empty", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit push only empty", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+
+    startCommit(&model, &fx);
+    model.git_ahead_behind_ready = true;
+    markFirstPushRemotesOk(&model);
+    try std.testing.expectEqualStrings("", model.git_commit_buffer.text());
+    confirmPushOnly(&model, &fx);
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_generate_key);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitGenerateArgv) == null);
+    try std.testing.expect(model.git_push_key != 0);
+    try std.testing.expectEqual(git_checkout.GitPushPhase.upstream, model.git_push_phase);
+    try std.testing.expect(findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) != null);
+    try std.testing.expect(!model.has_attach_status());
+
+    model.git_push_key = 0;
+    model.git_push_phase = .idle;
+    startCommit(&model, &fx);
+    model.git_ahead_behind_ready = true;
+    markFirstPushRemotesOk(&model);
+    model.git_commit_buffer.apply(.{ .insert_text = "   \n\t  " });
+    confirmPushOnly(&model, &fx);
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_generate_key);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitGenerateArgv) == null);
+    try std.testing.expect(model.git_push_key != 0);
+    try std.testing.expectEqual(git_checkout.GitPushPhase.upstream, model.git_push_phase);
+}
+
+test "confirmPushOnly no-ops when canPushGitBranch is false" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-push-only-stale", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit push only stale", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+    markStaleCanPush(&model);
+    try std.testing.expect(!git_ahead_behind.canPushGitBranch(&model));
+    try std.testing.expect(canCommitAndPushGit(&model));
+
+    startCommit(&model, &fx);
+    model.git_commit_buffer.apply(.{ .insert_text = "should not push only" });
+    confirmPushOnly(&model, &fx);
+    try std.testing.expect(model.git_commit_active);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    try std.testing.expect(findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) == null);
+
+    confirmCommitAndPush(&model, &fx);
+    try std.testing.expect(model.git_commit_then_push);
+    try std.testing.expectEqual(GitCommitPhase.add, model.git_commit_phase);
+    try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) != null);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+}
+
+test "confirmPushOnly no-ops while generate or add is in flight" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-push-only-busy", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    enableFx(&model);
+    const id = model.addSession("commit push only busy", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+
+    startCommit(&model, &fx);
+    model.git_ahead_behind_ready = true;
+    markFirstPushRemotesOk(&model);
+    try std.testing.expect(git_ahead_behind.canPushGitBranch(&model));
+    confirmCommit(&model, &fx);
+    const gen_key = model.git_commit_generate_key;
+    try std.testing.expect(gen_key != 0);
+    confirmPushOnly(&model, &fx);
+    try std.testing.expect(model.git_commit_active);
+    try std.testing.expectEqual(gen_key, model.git_commit_generate_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
+    try std.testing.expect(findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) == null);
+
+    handleGenerateExit(&model, &fx, .{ .key = gen_key, .reason = .exited, .code = 1 });
+    try std.testing.expect(model.git_commit_active);
+    model.git_commit_buffer.apply(.{ .insert_text = "typed after generate" });
+    confirmCommit(&model, &fx);
+    try std.testing.expectEqual(GitCommitPhase.add, model.git_commit_phase);
+    const add_key = model.git_commit_key;
+    try std.testing.expect(add_key != 0);
+    confirmPushOnly(&model, &fx);
+    try std.testing.expect(model.git_commit_active);
+    try std.testing.expectEqual(add_key, model.git_commit_key);
+    try std.testing.expectEqual(GitCommitPhase.add, model.git_commit_phase);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(findPending(&fx, add_key, &isGitCommitAddArgv) != null);
+    try std.testing.expect(findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) == null);
 }
 
 test "cancel or session change while commit-and-push is in flight does not start a push" {

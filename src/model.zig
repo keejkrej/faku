@@ -372,6 +372,7 @@ pub const Msg = union(enum) {
     git_commit_edit: canvas.TextInputEvent,
     confirm_git_commit,
     confirm_git_commit_and_push,
+    confirm_git_commit_push,
     cancel_git_commit,
     toggle_git_commit_include_unstaged,
     start_project_edit,

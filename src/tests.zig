@@ -13504,6 +13504,7 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     try testing.expect(include.state.selected);
     _ = try expectButtonMsg(tree, "Commit", .confirm_git_commit);
     _ = try expectButtonMsg(tree, "Commit and Push", .confirm_git_commit_and_push);
+    _ = try expectButtonMsg(tree, "Push", .confirm_git_commit_push);
     _ = try expectButtonMsg(tree, "Cancel", .cancel_git_commit);
 
     const snap = findGitCommitNumstatSpawnKey(&fx, model.git_commit_numstat_key) orelse return error.MissingCommitNumstatSpawn;
@@ -13525,7 +13526,11 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     main.update(&model, tree.msgForPointer(include_after.id, .up).?, &fx);
     try testing.expect(!model.git_commit_include_unstaged);
     try testing.expect(!model.can_commit_git());
+    try testing.expect(!model.can_commit_and_push_git());
+    try testing.expect(model.can_push_git_branch());
     tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Commit and Push") == null);
+    _ = try expectButtonMsg(tree, "Push", .confirm_git_commit_push);
     const include_off = try expectButtonMsg(tree, "Include unstaged", .toggle_git_commit_include_unstaged);
     try testing.expect(!include_off.state.selected);
     main.update(&model, tree.msgForPointer(include_off.id, .up).?, &fx);
@@ -13553,6 +13558,17 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     try testing.expectEqual(@as(u64, 0), model.git_commit_numstat_key);
     try testing.expect(!model.has_git_commit_numstat());
     try testing.expect(findByText(tree.root, .text, "Generating…") == null);
+
+    main.update(&model, .start_git_commit, &fx);
+    try testing.expect(model.git_commit_active);
+    try testing.expect(model.can_push_git_branch());
+    main.update(&model, .confirm_git_commit_push, &fx);
+    try testing.expect(!model.git_commit_active);
+    try testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try testing.expectEqual(@as(u64, 0), model.git_commit_generate_key);
+    try testing.expect(!model.git_commit_then_push);
+    try testing.expect(model.git_push_key != 0);
+    try testing.expectEqual(git_checkout.GitPushPhase.upstream, model.git_push_phase);
 }
 
 test "Commit empty plus fx available shows Generating then auto-adds the subject" {

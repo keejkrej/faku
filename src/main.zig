@@ -515,6 +515,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .git_commit_edit => |edit| settings_actions.handleGitCommitEdit(model, edit),
         .confirm_git_commit => settings_actions.handleConfirmGitCommit(model, fx),
         .confirm_git_commit_and_push => settings_actions.handleConfirmGitCommitAndPush(model, fx),
+        .confirm_git_commit_push => settings_actions.handleConfirmGitCommitPush(model, fx),
         .cancel_git_commit => settings_actions.handleCancelGitCommit(model, fx),
         .toggle_git_commit_include_unstaged => settings_actions.handleToggleGitCommitIncludeUnstaged(model, fx),
         .start_project_edit => {

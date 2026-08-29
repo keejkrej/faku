@@ -461,6 +461,9 @@
                 <if test="{can_commit_and_push_git}">
                   <button variant="ghost" size="sm" on-press="confirm_git_commit_and_push">Commit and Push</button>
                 </if>
+                <if test="{can_push_git_branch}">
+                  <button variant="ghost" size="sm" on-press="confirm_git_commit_push">Push</button>
+                </if>
                 <button variant="ghost" size="sm" on-press="cancel_git_commit">Cancel</button>
               </row>
             </if>

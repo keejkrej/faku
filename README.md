@@ -65,7 +65,9 @@ is on; Commit and Push on that card runs the same commit
 path then the existing Push… probe/spawn, even when the stale
 ahead/behind gate would hide Push…, and is offered only when
 first-push remotes are OK — known upstream, or a `git remote`
-probe found at least one remote)
+probe found at least one remote; Push on that card is a
+first-cut Waku `CommitAction::Push` that reuses Push… and is
+offered only when `can_push`)
 or safe-delete a non-current, unoccupied local head (`git branch -d`)
 or fetch remotes via `git fetch --prune`
 or push the current branch via `git push` when it has an upstream,
@@ -383,7 +385,11 @@ path, then the existing Push… probe/spawn without re-checking
 `can_push`. Offered only when `can_commit` and first-push remotes
 are OK: known upstream, or a remotes probe ready with at least one
 remote (hide while that probe is still needed or in-flight on the
-no-upstream path). Not
+no-upstream path). Push on that card is a first-cut Waku
+`CommitAction::Push`: no commit, no message, no generate; offered
+only when `can_push` (same binding as composer Push…); on start it
+closes the card then reuses Push… (`startPush`, gated). This is
+not Waku's in-dialog pending spinner. Not
 `git diff --cached --quiet` preflight, not
 canonicalize(show-toplevel). Push… probes `@{upstream}` and one-shots `git push`
 when that name exists (`push` its own argv slot). When there is no
@@ -436,7 +442,9 @@ Environment Summary, not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
 Review. Leftovers: canonicalize(`git rev-parse --show-toplevel`) /
 git-common-dir worktree nest identity /
-`git diff --cached --quiet` preflight.
+`git diff --cached --quiet` preflight /
+Waku's in-dialog Pushing spinner (this cut closes the card then
+starts Push…).
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, and remotes-ready bit are runtime-only (like the
 busy spinner) and
