@@ -12147,6 +12147,7 @@ test "composer project row lists local heads and checks out another branch" {
     try testing.expectEqualStrings("feat/a", git_checkout.listedBranch(&model, 0));
     try testing.expectEqualStrings("main", git_checkout.listedBranch(&model, 1));
     try testing.expectEqualStrings("zeta", git_checkout.listedBranch(&model, 2));
+    try finishAheadBehindNoUpstream(&fx, &model);
 
     var tree = try buildTree(arena, &model);
     const chip = try expectByText(tree.root, .select, "main");
@@ -12234,6 +12235,7 @@ test "composer project row lists remote-tracking refs and checks them out with -
     try testing.expect(git_checkout.listedBranchIsRemote(&model, 2));
     try testing.expect(!git_checkout.isListedRemoteName(&model, "origin/main"));
     try testing.expect(!git_checkout.isListedRemoteName(&model, "origin/HEAD"));
+    try finishAheadBehindNoUpstream(&fx, &model);
 
     main.update(&model, .toggle_git_branch_picker, &fx);
     try testing.expect(model.git_branch_picker_open);
@@ -12467,6 +12469,7 @@ test "New branch opens create UI; Esc and cancel close it" {
     try fx.feedLine(branch.key, "main\n");
     drainEffects(&model, &fx);
     try testing.expect(model.can_pick_git_branch());
+    try finishAheadBehindNoUpstream(&fx, &model);
 
     main.update(&model, .toggle_git_branch_picker, &fx);
     try testing.expect(model.git_branch_picker_open);
@@ -12645,6 +12648,7 @@ test "Delete branch opens delete UI; Esc and cancel close it; current is omitted
     drainEffects(&model, &fx);
     try testing.expect(model.can_pick_git_branch());
     try testing.expect(model.can_delete_git_branch());
+    try finishAheadBehindNoUpstream(&fx, &model);
 
     main.update(&model, .toggle_git_branch_picker, &fx);
     try testing.expect(model.git_branch_picker_open);
@@ -12852,6 +12856,7 @@ test "Fetch menu item one-shots git fetch --prune; success refreshes; failure se
     try fx.feedExit(list.key, 0);
     drainEffects(&model, &fx);
     try testing.expect(model.can_pick_git_branch());
+    try finishAheadBehindNoUpstream(&fx, &model);
 
     main.update(&model, .toggle_git_branch_picker, &fx);
     try testing.expect(model.git_branch_picker_open);
@@ -13067,6 +13072,7 @@ test "Push menu item one-shots git push; success refreshes; failure sets status"
     try fx.feedExit(list.key, 0);
     drainEffects(&model, &fx);
     try testing.expect(model.can_pick_git_branch());
+    try finishAheadBehindNoUpstream(&fx, &model);
 
     main.update(&model, .toggle_git_branch_picker, &fx);
     try testing.expect(model.git_branch_picker_open);
@@ -13110,6 +13116,7 @@ test "Push menu item one-shots git push; success refreshes; failure sets status"
     try fx.feedLine(refreshed.key, "main\n");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("main", model.git_branch_label());
+    try finishAheadBehindNoUpstream(&fx, &model);
 
     main.update(&model, .start_git_fetch, &fx);
     const fetch_in_flight = findGitFetchSpawnKey(&fx, model.git_fetch_key) orelse return error.MissingGitFetchInFlight;
@@ -13163,6 +13170,7 @@ test "Push without upstream set-upstreams origin; detached and no remotes are no
     try fx.feedLine(branch.key, "feat/new\n");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("feat/new", model.git_branch_label());
+    try finishAheadBehindNoUpstream(&fx, &model);
 
     main.update(&model, .start_git_push, &fx);
     const upstream = findGitUpstreamSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitUpstreamSpawn;
@@ -13193,6 +13201,7 @@ test "Push without upstream set-upstreams origin; detached and no remotes are no
     const refresh = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchRefresh;
     try fx.feedLine(refresh.key, "feat/new\n");
     drainEffects(&model, &fx);
+    try finishAheadBehindNoUpstream(&fx, &model);
 
     main.update(&model, .start_git_push, &fx);
     const no_remote_up = findGitUpstreamSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitNoRemoteUpstream;
@@ -13216,6 +13225,7 @@ test "Push without upstream set-upstreams origin; detached and no remotes are no
     try fx.feedLine(sha.key, "a1b2c3d\n");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("a1b2c3d", model.git_branch_label());
+    try finishAheadBehindNoUpstream(&fx, &model);
 
     main.update(&model, .start_git_push, &fx);
     const detached_up = findGitUpstreamSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitDetachedUpstream;
@@ -14247,6 +14257,21 @@ fn findGitAheadBehindSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt
     return null;
 }
 
+fn finishAheadBehindNoUpstream(fx: *Effects, model: *Model) !void {
+    const spawn = findGitAheadBehindSpawnKey(fx, model.git_ahead_behind_key) orelse return error.MissingGitAheadBehindSpawn;
+    try fx.feedExit(spawn.key, 128);
+    drainEffects(model, fx);
+    try testing.expect(model.can_push_git_branch());
+}
+
+fn finishAheadBehindLine(fx: *Effects, model: *Model, line: []const u8) !void {
+    const spawn = findGitAheadBehindSpawnKey(fx, model.git_ahead_behind_key) orelse return error.MissingGitAheadBehindSpawn;
+    try fx.feedLine(spawn.key, line);
+    drainEffects(model, fx);
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(model, fx);
+}
+
 fn expectGitAheadBehindArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(git_ahead_behind.isGitAheadBehindArgv(spawn.argv));
     try testing.expectEqual(@as(usize, 10), spawn.argv.len);
@@ -14519,6 +14544,86 @@ test "changing session or project_path cancels the previous ahead/behind probe" 
     try testing.expect(findByText(tree.root, .text, "↑2") == null);
     try testing.expect(findByText(tree.root, .text, "↑2 ↓1") == null);
     try testing.expect(findByText(tree.root, .text, "synced") == null);
+}
+
+test "Push… follows Waku can_push: ahead or no-upstream; hides in-flight and ahead 0" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-can-push", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("can push", .fx);
+    model.selected = id;
+
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    const branch = findGitBranchSpawnKey(&fx, model.git_branch_key) orelse return error.MissingGitBranchSpawn;
+    try fx.feedLine(branch.key, "main\n");
+    drainEffects(&model, &fx);
+    try testing.expect(model.can_pick_git_branch());
+    try testing.expect(!model.can_push_git_branch());
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    try testing.expect(model.git_branch_picker_open);
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .menu_item, "Push…") == null);
+    _ = try expectByText(tree.root, .menu_item, "Fetch…");
+
+    main.update(&model, .start_git_push, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try testing.expect(!model.git_branch_picker_open);
+
+    try finishAheadBehindLine(&fx, &model, "0\t2\n");
+    try testing.expect(model.can_push_git_branch());
+    try testing.expect(model.has_git_ahead_behind());
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "Push…");
+    main.update(&model, .close_git_branch_picker, &fx);
+
+    git_ahead_behind.refresh(&model, &fx);
+    try testing.expect(!model.can_push_git_branch());
+    try finishAheadBehindLine(&fx, &model, "3\t0\n");
+    try testing.expect(!model.can_push_git_branch());
+    try testing.expectEqualStrings("↓3", model.git_ahead_behind_label());
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .menu_item, "Push…") == null);
+    main.update(&model, .start_git_push, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try testing.expect(!model.git_branch_picker_open);
+
+    git_ahead_behind.refresh(&model, &fx);
+    try finishAheadBehindLine(&fx, &model, "0\t0\n");
+    try testing.expect(!model.can_push_git_branch());
+    try testing.expect(!model.has_git_ahead_behind());
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .menu_item, "Push…") == null);
+    main.update(&model, .close_git_branch_picker, &fx);
+
+    git_ahead_behind.refresh(&model, &fx);
+    try testing.expect(!model.can_push_git_branch());
+    try finishAheadBehindNoUpstream(&fx, &model);
+    try testing.expect(model.can_push_git_branch());
+    try testing.expect(!model.has_git_ahead_behind());
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    tree = try buildTree(arena, &model);
+    const push_item = try expectByText(tree.root, .menu_item, "Push…");
+    try testing.expectEqual(Msg.start_git_push, tree.msgForPointer(push_item.id, .up).?);
+
+    main.update(&model, .start_git_push, &fx);
+    try testing.expect(findGitUpstreamSpawnKey(&fx, model.git_push_key) != null);
 }
 
 fn findFileMentionSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {

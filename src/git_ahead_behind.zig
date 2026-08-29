@@ -11,9 +11,14 @@
 //! ahead of upstream. Either side > 0 paints a muted `↑A ↓B` (omit a
 //! side when that count is 0). Both-zero / failed / empty / no
 //! upstream omits the label — this cut does not invent "synced" or
-//! "0 ahead". Not a live watch, not a Push gate, not a base-ref
-//! picker, not Waku's daemon `InspectBranches`, and not Environment
-//! Summary.
+//! "0 ahead". A separate ready / has-upstream bit (not the label)
+//! gates composer Push… the way Waku `can_push` does: ahead > 0,
+//! or the probe failed / `@{upstream}` does not exist (first-push
+//! `--set-upstream` path). In-flight and never-finished stay hidden
+//! so the row does not flash. No remotes probe — first-push with
+//! no remotes still fails at `startPush`. Not a live watch, not a
+//! base-ref picker, not Waku's daemon `InspectBranches`, and not
+//! Environment Summary.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -136,8 +141,21 @@ pub fn hasGitAheadBehind(model: *const Model) bool {
     return model.git_ahead_behind_ahead > 0 or model.git_ahead_behind_behind > 0;
 }
 
+/// Waku `can_push` without a remotes probe: hide while the
+/// ahead/behind spawn is in flight or has never finished; show when
+/// ahead > 0 or when `@{upstream}` did not resolve. Synced and
+/// behind-only (resolved + ahead 0) stay hidden.
+pub fn canPushGitBranch(model: *const Model) bool {
+    if (model.git_ahead_behind_key != 0) return false;
+    if (!model.git_ahead_behind_ready) return false;
+    if (model.git_ahead_behind_has_upstream) return model.git_ahead_behind_ahead > 0;
+    return true;
+}
+
 pub fn clearGitAheadBehind(model: *Model) void {
     setAheadBehind(model, 0, 0);
+    model.git_ahead_behind_has_upstream = false;
+    model.git_ahead_behind_ready = false;
 }
 
 fn setAheadBehind(model: *Model, ahead: u64, behind: u64) void {
@@ -203,15 +221,25 @@ pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
     if (!probeStillCurrent(model)) return;
     const parsed = parseAheadBehindLine(line.line) orelse return;
     setAheadBehind(model, parsed.ahead, parsed.behind);
+    model.git_ahead_behind_has_upstream = true;
 }
 
 pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
     if (exit.key != model.git_ahead_behind_key or model.git_ahead_behind_key == 0) return;
     const current = probeStillCurrent(model);
     model.git_ahead_behind_key = 0;
-    if (!current or exit.reason != .exited or exit.code != 0) {
+    if (!current or exit.reason != .exited) {
         clearGitAheadBehind(model);
+        return;
     }
+    if (exit.code != 0) {
+        setAheadBehind(model, 0, 0);
+        model.git_ahead_behind_has_upstream = false;
+        model.git_ahead_behind_ready = true;
+        return;
+    }
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_has_upstream = true;
 }
 
 test "argv is chdir script plus git rev-list --left-right --count @{upstream}...HEAD" {
@@ -280,4 +308,34 @@ test "parseAheadBehindLine is behind then ahead; label omits a zero side" {
     try std.testing.expectEqualStrings("↑2 ↓1", aheadBehindLabel(2, 1, &buf));
     const max_u64 = std.math.maxInt(u64);
     try std.testing.expectEqualStrings("↑18446744073709551615 ↓18446744073709551615", aheadBehindLabel(max_u64, max_u64, &buf));
+}
+
+test "canPushGitBranch is ahead>0 or no-upstream; hides in-flight and ahead 0" {
+    var model = Model{};
+    try std.testing.expect(!canPushGitBranch(&model));
+
+    model.git_ahead_behind_key = git_ahead_behind_key_first;
+    try std.testing.expect(!canPushGitBranch(&model));
+
+    model.git_ahead_behind_key = 0;
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_has_upstream = true;
+    model.git_ahead_behind_ahead = 2;
+    try std.testing.expect(canPushGitBranch(&model));
+
+    model.git_ahead_behind_ahead = 0;
+    try std.testing.expect(!canPushGitBranch(&model));
+
+    model.git_ahead_behind_behind = 3;
+    try std.testing.expect(!canPushGitBranch(&model));
+
+    model.git_ahead_behind_has_upstream = false;
+    try std.testing.expect(canPushGitBranch(&model));
+
+    model.git_ahead_behind_ready = false;
+    try std.testing.expect(!canPushGitBranch(&model));
+
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_key = git_ahead_behind_key_first + 1;
+    try std.testing.expect(!canPushGitBranch(&model));
 }
