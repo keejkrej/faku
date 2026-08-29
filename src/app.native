@@ -208,7 +208,12 @@
         <if test="{can_rewind}">
           <button variant="ghost" size="sm" on-press="rewind">Rewind</button>
         </if>
-        <row label="header-environment-controls" cross="center">
+        <row label="header-environment-controls" gap="6" cross="center">
+          <if test="{has_git_numstat}">
+            <row height="28" cross="center" label="header-git-status">
+              <text wrap="false" overflow="ellipsis" foreground="text_muted">{header_git_numstat_label}</text>
+            </row>
+          </if>
           <stack>
             <button variant="ghost" size="icon" icon="info" label="Environment" selected="{environment_summary_open}" on-press="toggle_environment_summary" width="28" height="28"></button>
             <if test="{environment_summary_open}">

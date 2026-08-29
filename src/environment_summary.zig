@@ -3,17 +3,40 @@
 //! Header info trigger plus a runtime-only dropdown titled
 //! Environment: Commit or Push (ungated open of the existing
 //! Commit… card) and Copy task ID (local session id via
-//! `fx.writeClipboard`). Not Compare, Review, background work,
-//! header +N −M, or daemon WorkspaceOperation.
+//! `fx.writeClipboard`). Header +N −M reuses the composer
+//! project-row numstat probe (omit a zero side; muted;
+//! display-only). Not Compare, Review, background work, or
+//! daemon WorkspaceOperation.
 
 const std = @import("std");
 const main = @import("main.zig");
 const git_commit = @import("git_commit.zig");
+const git_numstat = @import("git_numstat.zig");
 const copy_helpers = @import("copy.zig");
 const session_switcher = @import("switcher.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
+
+/// Scratch for `headerGitNumstatLabel`. Native copies the slice
+/// during the view bind; composer `git_numstat_label` stays the
+/// both-sides `+N −M` string.
+var header_numstat_buf: [git_numstat.max_git_numstat_label]u8 = undefined;
+
+/// Waku header change counts: omit a zero side. Empty when both
+/// are 0 (do not invent "clean"). Same `−` as the composer label.
+pub fn headerNumstatLabel(additions: u64, deletions: u64, buf: *[git_numstat.max_git_numstat_label]u8) []const u8 {
+    if (additions == 0 and deletions == 0) return "";
+    if (deletions == 0) return std.fmt.bufPrint(buf, "+{d}", .{additions}) catch "";
+    if (additions == 0) return std.fmt.bufPrint(buf, "−{d}", .{deletions}) catch "";
+    return std.fmt.bufPrint(buf, "+{d} −{d}", .{ additions, deletions }) catch "";
+}
+
+/// Header +/- from the existing composer numstat counts. No new
+/// spawn. Empty when `hasGitNumstat` is false.
+pub fn headerGitNumstatLabel(model: *const Model) []const u8 {
+    return headerNumstatLabel(model.git_numstat_additions, model.git_numstat_deletions, &header_numstat_buf);
+}
 
 pub fn close(model: *Model) void {
     model.environment_summary_open = false;
@@ -41,6 +64,33 @@ pub fn commitOrPush(model: *Model, fx: *Effects) void {
 pub fn copyTaskId(model: *Model, fx: *Effects) void {
     close(model);
     copy_helpers.copySessionId(model, fx);
+}
+
+test "headerNumstatLabel omits a zero side" {
+    var buf: [git_numstat.max_git_numstat_label]u8 = undefined;
+    try std.testing.expectEqualStrings("", headerNumstatLabel(0, 0, &buf));
+    try std.testing.expectEqualStrings("+3 −1", headerNumstatLabel(3, 1, &buf));
+    try std.testing.expectEqualStrings("+12", headerNumstatLabel(12, 0, &buf));
+    try std.testing.expectEqualStrings("−4", headerNumstatLabel(0, 4, &buf));
+    try std.testing.expectEqualStrings("+5", headerNumstatLabel(5, 0, &buf));
+    const max_u64 = std.math.maxInt(u64);
+    try std.testing.expectEqualStrings("+18446744073709551615", headerNumstatLabel(max_u64, 0, &buf));
+    try std.testing.expectEqualStrings("−18446744073709551615", headerNumstatLabel(0, max_u64, &buf));
+    try std.testing.expectEqualStrings("+18446744073709551615 −18446744073709551615", headerNumstatLabel(max_u64, max_u64, &buf));
+}
+
+test "headerGitNumstatLabel reads composer numstat counts" {
+    var model = Model{};
+    try std.testing.expectEqualStrings("", headerGitNumstatLabel(&model));
+    try std.testing.expectEqualStrings("", model.header_git_numstat_label());
+    model.git_numstat_additions = 12;
+    try std.testing.expectEqualStrings("+12", headerGitNumstatLabel(&model));
+    try std.testing.expectEqualStrings("+12", model.header_git_numstat_label());
+    model.git_numstat_deletions = 4;
+    try std.testing.expectEqualStrings("+12 −4", headerGitNumstatLabel(&model));
+    model.git_numstat_additions = 0;
+    try std.testing.expectEqualStrings("−4", headerGitNumstatLabel(&model));
+    try std.testing.expect(git_numstat.hasGitNumstat(&model));
 }
 
 test "toggle opens and closes the environment summary" {
