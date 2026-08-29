@@ -473,6 +473,7 @@ fn cancelGenerate(model: *Model, fx: *Effects) void {
     fx.cancel(model.git_commit_generate_key);
     model.git_commit_generate_key = 0;
     model.git_commit_generate_stdout_len = 0;
+    model.git_commit_then_push = false;
 }
 
 /// Drop an in-flight generate/add/commit (session / project refresh)
@@ -500,6 +501,7 @@ pub fn dismissCommit(model: *Model, fx: *Effects) void {
     cancelCommit(model, fx);
     dropCommitNumstat(model, fx);
     closeCommit(model);
+    model.git_commit_then_push = false;
     if (in_flight) model.setAttachStatus(commit_failed_status);
 }
 
