@@ -2,16 +2,18 @@
 //!
 //! Header info trigger plus a runtime-only dropdown titled
 //! Environment: Commit or Push (ungated open of the existing
-//! Commit… card) and Copy task ID (local session id via
-//! `fx.writeClipboard`). Header +N −M reuses the composer
-//! project-row numstat probe (omit a zero side; muted;
-//! display-only). Not Compare, Review, background work, or
-//! daemon WorkspaceOperation.
+//! Commit… card), Compare (Branch name-status Review file list),
+//! and Copy task ID (local session id via `fx.writeClipboard`).
+//! Header +N −M reuses the composer project-row numstat probe
+//! (omit a zero side; muted; display-only). Not full Review
+//! hunks, not header click-to-Review, not background work, and
+//! not daemon WorkspaceOperation.
 
 const std = @import("std");
 const main = @import("main.zig");
 const git_commit = @import("git_commit.zig");
 const git_numstat = @import("git_numstat.zig");
+const review_diff = @import("review_diff.zig");
 const copy_helpers = @import("copy.zig");
 const session_switcher = @import("switcher.zig");
 
@@ -64,6 +66,15 @@ pub fn commitOrPush(model: *Model, fx: *Effects) void {
 pub fn copyTaskId(model: *Model, fx: *Effects) void {
     close(model);
     copy_helpers.copySessionId(model, fx);
+}
+
+/// Close the popover and any Commit… card, then open the first-cut
+/// Review file-list card (Branch `git diff --name-status`).
+pub fn compare(model: *Model, fx: *Effects) void {
+    close(model);
+    git_commit.dropCommitNumstat(model, fx);
+    git_commit.closeCommit(model);
+    review_diff.open(model, fx);
 }
 
 test "headerNumstatLabel omits a zero side" {
@@ -164,6 +175,63 @@ test "commitOrPush no-ops when cwd is missing, streaming, or a git mutation is i
     try std.testing.expect(@import("git_checkout.zig").gitMutationInFlight(&model));
 }
 
+test "compare closes Environment Summary and opens the Review card" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/env-compare", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("env compare", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.environment_summary_open = true;
+    model.git_commit_active = true;
+
+    compare(&model, &fx);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expect(model.review_diff_active);
+    try std.testing.expect(model.review_diff_key >= review_diff.review_diff_key_first);
+    try std.testing.expectEqualStrings(review_diff.comparing_status, review_diff.reviewDiffStatus(&model));
+}
+
+test "compare no-ops the Review card when streaming or a git mutation is in flight" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/env-compare-gate", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("env compare gate", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    model.environment_summary_open = true;
+    model.phase = .streaming;
+    compare(&model, &fx);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expect(!model.review_diff_active);
+    model.phase = .idle;
+
+    model.environment_summary_open = true;
+    model.git_push_key = @import("git_checkout.zig").git_push_key_first;
+    compare(&model, &fx);
+    try std.testing.expect(!model.review_diff_active);
+}
+
 test "copyTaskId writes the local session id and no-ops without a selection" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
@@ -241,4 +309,8 @@ test "composer startCommit still requires canCommitGit" {
     main.update(&model, .environment_commit_or_push, &fx);
     try std.testing.expect(model.git_commit_active);
     try std.testing.expect(!git_commit.canCommitGit(&model));
+
+    main.update(&model, .environment_compare, &fx);
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expect(model.review_diff_active);
 }

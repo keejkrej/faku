@@ -21,6 +21,7 @@ const git_remotes = @import("git_remotes.zig");
 const git_toplevel = @import("git_toplevel.zig");
 const git_common_dir = @import("git_common_dir.zig");
 const git_commit = @import("git_commit.zig");
+const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const keys = @import("keys.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
@@ -3252,6 +3253,8 @@ test "pick_folder stdout directory sets project_path the same way typing does" {
     try testing.expect(!loaded.git_common_dir_ready);
     try testing.expectEqual(@as(usize, 0), loaded.git_common_dir_path_len);
     try testing.expect(!loaded.has_git_commit_numstat());
+    try testing.expect(!loaded.review_diff_active);
+    try testing.expectEqual(@as(u32, 0), loaded.review_diff_file_count);
 }
 
 test "pick_folder cancel empty and file path leave project_path unchanged" {
@@ -14778,6 +14781,14 @@ fn findGitCommonDirSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0
     return null;
 }
 
+fn findGitReviewDiffSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and review_diff.isGitReviewDiffArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
 fn finishGitRemotesIfInFlight(fx: *Effects, model: *Model, line: []const u8) !void {
     if (model.git_remotes_key == 0) return;
     const spawn = findGitRemotesSpawnKey(fx, model.git_remotes_key) orelse return error.MissingGitRemotesSpawn;
@@ -16583,9 +16594,13 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     _ = try expectByText(tree.root, .text, "Environment");
     const commit_or_push = try expectByText(tree.root, .menu_item, "Commit or Push");
     try testing.expectEqual(Msg.environment_commit_or_push, tree.msgForPointer(commit_or_push.id, .up).?);
+    const compare = try expectByText(tree.root, .menu_item, "Compare");
+    try testing.expectEqual(Msg.environment_compare, tree.msgForPointer(compare.id, .up).?);
     const copy_task = try expectByText(tree.root, .menu_item, "Copy task ID");
     try testing.expectEqual(Msg.environment_copy_task_id, tree.msgForPointer(copy_task.id, .up).?);
     try testing.expect(findByText(tree.root, .menu_item, "Compare branch") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_commit_or_push").? < std.mem.indexOf(u8, main.app_markup, "environment_compare").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_compare").? < std.mem.indexOf(u8, main.app_markup, "environment_copy_task_id").?);
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
     try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
@@ -16694,6 +16709,133 @@ test "Environment Copy task ID writes the local session id" {
     const expected_id = try std.fmt.bufPrint(&id_buf, "{d}", .{selected});
     try testing.expectEqualStrings(expected_id, written.text);
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "Environment Compare closes the dropdown and opens a Review file-list card" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/env-compare-ui", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const first = model.addSession("env compare ui", .fx);
+    const second = model.addSession("env compare other", .fx);
+    model.selected = first;
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+
+    main.update(&model, .toggle_environment_summary, &fx);
+    try testing.expect(model.environment_summary_open);
+    var tree = try buildTree(arena, &model);
+    const compare = try expectByText(tree.root, .menu_item, "Compare");
+    try testing.expectEqual(Msg.environment_compare, tree.msgForPointer(compare.id, .up).?);
+    main.update(&model, tree.msgForPointer(compare.id, .up).?, &fx);
+    try testing.expect(!model.environment_summary_open);
+    try testing.expect(model.review_diff_active);
+    try testing.expect(model.review_diff_key >= main.review_diff_key_first);
+    try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
+
+    const spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffSpawn;
+    try testing.expect(review_diff.isGitReviewDiffArgv(spawn.argv));
+    try testing.expectEqualStrings("@{upstream}...HEAD", spawn.argv[8]);
+    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], "@{upstream}...HEAD") == null);
+    try testing.expect(spawn.key >= main.review_diff_key_first);
+    try testing.expect(spawn.key != model.git_ahead_behind_key);
+    try testing.expect(spawn.key != model.git_common_dir_key);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+    _ = try expectByText(tree.root, .text, "Review");
+    _ = try expectByText(tree.root, .text, review_diff.comparing_status);
+    _ = try expectButtonMsg(tree, "Cancel", .close_review_diff);
+
+    try fx.feedLine(spawn.key, "M\tsrc/a.zig\nA\tnew.txt\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_review_diff_status());
+    try testing.expect(model.has_review_diff_files());
+    try testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "M src/a.zig");
+    _ = try expectByText(tree.root, .text, "A new.txt");
+    try testing.expect(findByText(tree.root, .text, review_diff.comparing_status) == null);
+    try testing.expect(findByText(tree.root, .scroll_view, "Review files") != null);
+
+    main.update(&model, .close_review_diff, &fx);
+    try testing.expect(!model.review_diff_active);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Review") == null);
+
+    main.update(&model, .environment_compare, &fx);
+    try testing.expect(model.review_diff_active);
+    const empty = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffEmpty;
+    try fx.feedExit(empty.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(review_diff.empty_status, model.review_diff_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, review_diff.empty_status);
+    try testing.expect(findByText(tree.root, .text, "M src/a.zig") == null);
+
+    main.update(&model, .environment_compare, &fx);
+    const fail = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffFail;
+    try fx.feedLine(fail.key, "M\tshould-not-show.zig\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(fail.key, 128);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(review_diff.failed_status, model.review_diff_status());
+    try testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, review_diff.failed_status);
+    try testing.expect(findByText(tree.root, .text, "M should-not-show.zig") == null);
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expect(!model.review_diff_active);
+
+    main.update(&model, .environment_compare, &fx);
+    try testing.expect(model.review_diff_active);
+    main.update(&model, .{ .select = second }, &fx);
+    try testing.expect(!model.review_diff_active);
+    try testing.expectEqual(second, model.selected);
+
+    model.selected = first;
+    main.update(&model, .environment_compare, &fx);
+    try testing.expect(model.review_diff_active);
+    model.phase = .streaming;
+    main.update(&model, .environment_compare, &fx);
+    try testing.expect(!model.review_diff_active);
+}
+
+test "Environment Compare without a workspace shows No workspace and invents no files" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env compare local", .fx);
+    model.selected = id;
+    main.update(&model, .environment_compare, &fx);
+    try testing.expect(model.review_diff_active);
+    try testing.expectEqual(@as(u64, 0), model.review_diff_key);
+    try testing.expectEqualStrings(review_diff.no_workspace_status, model.review_diff_status());
+    try testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Review");
+    _ = try expectByText(tree.root, .text, review_diff.no_workspace_status);
 }
 
 test "header Environment +/- reuses composer numstat and omits a zero side" {

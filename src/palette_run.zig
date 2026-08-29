@@ -21,6 +21,7 @@ const git_toplevel = @import("git_toplevel.zig");
 const git_common_dir = @import("git_common_dir.zig");
 const file_mention = @import("file_mention.zig");
 const environment_summary = @import("environment_summary.zig");
+const review_diff = @import("review_diff.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -87,6 +88,7 @@ pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     if (model.sessionById(id) == null) return;
     store.persistDraftIfPossible(model);
     environment_summary.close(model);
+    review_diff.close(model, fx);
     model.closeProjectEdit();
     model.closeImageAttach();
     model.closeCommands();

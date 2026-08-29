@@ -27,6 +27,7 @@ const git_remotes = @import("git_remotes.zig");
 const git_toplevel = @import("git_toplevel.zig");
 const git_common_dir = @import("git_common_dir.zig");
 const git_commit = @import("git_commit.zig");
+const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
@@ -82,6 +83,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
     }
     if (model.git_common_dir_key != 0 and line.key == model.git_common_dir_key) {
         git_common_dir.applyLine(model, line);
+        return;
+    }
+    if (model.review_diff_key != 0 and line.key == model.review_diff_key) {
+        review_diff.applyLine(model, line);
         return;
     }
     if (model.file_mention_key != 0 and line.key == model.file_mention_key) {
@@ -479,6 +484,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.git_common_dir_key != 0 and exit.key == model.git_common_dir_key) {
         git_common_dir.handleExit(model, exit);
+        return;
+    }
+    if (model.review_diff_key != 0 and exit.key == model.review_diff_key) {
+        review_diff.handleExit(model, exit);
         return;
     }
     if (model.file_mention_key != 0 and exit.key == model.file_mention_key) {
