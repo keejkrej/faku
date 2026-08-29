@@ -16554,3 +16554,143 @@ test "sidebar session rows show static relative last-activity; 0 omits; date buc
     try testing.expect(sessionRowHasGroupRail(tree.root, "folder thread"));
     try testing.expect(!sessionRowHasGroupRail(tree.root, "just now thread"));
 }
+
+test "header Environment trigger opens a dropdown; Esc and second click close it" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    var tree = try buildTree(arena, &model);
+    const toolbar = try expectByText(tree.root, .row, "Toolbar");
+    _ = try expectByText(toolbar, .row, "header-environment-controls");
+    const trigger = try expectByText(toolbar, .button, "Environment");
+    try testing.expectEqual(Msg.toggle_environment_summary, tree.msgForPointer(trigger.id, .up).?);
+    try testing.expect(pressableAppearsBefore(toolbar, "Copy session", "Environment"));
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Commit or Push") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Copy task ID") == null);
+
+    main.update(&model, tree.msgForPointer(trigger.id, .up).?, &fx);
+    try testing.expect(model.environment_summary_open);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
+    _ = try expectByText(tree.root, .text, "Environment");
+    const commit_or_push = try expectByText(tree.root, .menu_item, "Commit or Push");
+    try testing.expectEqual(Msg.environment_commit_or_push, tree.msgForPointer(commit_or_push.id, .up).?);
+    const copy_task = try expectByText(tree.root, .menu_item, "Copy task ID");
+    try testing.expectEqual(Msg.environment_copy_task_id, tree.msgForPointer(copy_task.id, .up).?);
+    try testing.expect(findByText(tree.root, .menu_item, "Compare branch") == null);
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expect(!model.environment_summary_open);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+
+    main.update(&model, .toggle_environment_summary, &fx);
+    try testing.expect(model.environment_summary_open);
+    main.update(&model, .toggle_environment_summary, &fx);
+    try testing.expect(!model.environment_summary_open);
+
+    main.update(&model, .toggle_settings, &fx);
+    tree = try buildTree(arena, &model);
+    const settings_toolbar = try expectByText(tree.root, .row, "Toolbar");
+    try testing.expect(findByText(settings_toolbar, .button, "Environment") == null);
+}
+
+test "Environment Commit or Push opens the commit card on a clean tree; composer Commit… stays gated" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/env-summary-commit", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("env summary commit", .fx);
+    model.selected = id;
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    if (findGitBranchSpawnKey(&fx, model.git_branch_key)) |branch| {
+        try fx.feedLine(branch.key, "main\n");
+        drainEffects(&model, &fx);
+    }
+    if (model.can_pick_git_branch()) {
+        try finishAheadBehindNoUpstream(&fx, &model);
+    }
+    if (findGitDirtySpawnKey(&fx, model.git_dirty_key)) |dirty| {
+        try fx.feedExit(dirty.key, 0);
+        drainEffects(&model, &fx);
+    }
+    try testing.expect(!model.can_commit_git());
+    try testing.expect(!model.git_has_staged);
+    try testing.expect(!model.git_has_unstaged);
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .menu_item, "Commit…") == null);
+
+    main.update(&model, .close_git_branch_picker, &fx);
+    main.update(&model, .toggle_environment_summary, &fx);
+    try testing.expect(model.environment_summary_open);
+    tree = try buildTree(arena, &model);
+    const commit_or_push = try expectByText(tree.root, .menu_item, "Commit or Push");
+    main.update(&model, tree.msgForPointer(commit_or_push.id, .up).?, &fx);
+    try testing.expect(!model.environment_summary_open);
+    try testing.expect(model.git_commit_active);
+    try testing.expect(!model.can_commit_git());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Commit message") != null);
+    _ = try expectButtonMsg(tree, "Commit", .confirm_git_commit);
+    try testing.expect(findByText(tree.root, .button, "Commit and Push") == null);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+
+    main.update(&model, .cancel_git_commit, &fx);
+    try testing.expect(!model.git_commit_active);
+    main.update(&model, .start_git_commit, &fx);
+    try testing.expect(!model.git_commit_active);
+    try testing.expect(!model.can_commit_git());
+}
+
+test "Environment Copy task ID writes the local session id" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const selected = model.selected;
+    try testing.expect(selected != 0);
+
+    main.update(&model, .toggle_environment_summary, &fx);
+    var tree = try buildTree(arena, &model);
+    const copy_task = try expectByText(tree.root, .menu_item, "Copy task ID");
+    try testing.expectEqual(Msg.environment_copy_task_id, tree.msgForPointer(copy_task.id, .up).?);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    main.update(&model, tree.msgForPointer(copy_task.id, .up).?, &fx);
+    try testing.expect(!model.environment_summary_open);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    const written = fx.pendingClipboardAt(0).?;
+    try testing.expectEqual(main.copy_turn_key, written.key);
+    try testing.expectEqual(native_sdk.EffectClipboardOp.write, written.op);
+    var id_buf: [16]u8 = undefined;
+    const expected_id = try std.fmt.bufPrint(&id_buf, "{d}", .{selected});
+    try testing.expectEqualStrings(expected_id, written.text);
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}

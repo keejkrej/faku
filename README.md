@@ -13,6 +13,12 @@ This app replaces the GPUI window with Vercel Native SDK markup plus a Zig
 Model / Msg / update loop. waku-daemon can stay the brain. Faku is the window,
 and it is fx-first. Desktop chrome matches the stopped Waku-parity cut
 (chromeless 48px header, measured sidebar, composer send circle).
+The header Environment control (Native `info`, 28px ghost) opens a
+runtime-only dropdown titled Environment with Commit or Push (the
+existing Commit… card, including when the tree is clean so Push-only
+still works) and Copy task ID (local session id via
+`fx.writeClipboard`); not Compare, Review, background-work rows,
+header +N −M, or daemon WorkspaceOperation.
 Header, sidebar, and Ctrl-Tab switcher titles stay on one line with
 Native ellipsis; the full name remains the accessible list-item
 label. That is in-window chrome, not the OS window title. Ctrl-Tab
@@ -87,8 +93,8 @@ one-shot `git diff --numstat HEAD` +/- that also adds untracked
 text-line counts on the + side, and muted ahead/behind vs
 `@{upstream}` (`↑A ↓B`) when that name exists (not Waku's daemon
 InspectBranches live watch / `{project_id}` UUID nest /
-Environment
-Summary / force delete / prune-alone / base-ref picker;
+the rest of Environment Summary (Compare / Review /
+background work) / force delete / prune-alone / base-ref picker;
 Native still has no git
 effect);
 typing `@` in the composer (last whitespace token; caret assumed at
@@ -136,7 +142,8 @@ git-common-dir nest). Composer include-unstaged Commit… / Commit and Push /
 first-cut Amend / first-cut CommitSnapshot numstat /
 empty-message `fx ask`
 generate helpers live in
-`src/git_commit.zig`. Composer git-dirty probe helpers (count
+`src/git_commit.zig`. Header Environment dropdown helpers live in
+`src/environment_summary.zig`. Composer git-dirty probe helpers (count
 plus porcelain XY `has_staged` / `has_unstaged`) live in
 `src/git_dirty.zig`. Composer git-numstat probe helpers live in
 `src/git_numstat.zig`. Composer git ahead/behind probe helpers live in
@@ -472,8 +479,8 @@ failed, or skipped dirty / +/- probes omit those labels — this cut
 does not invent "clean". This is not Waku's daemon
 `InspectBranches` live watch, not Waku `{project_id}` UUID
 nesting / `waku/` prefix, not defer-until-Send
-workspace mode, not a worktree base-ref picker UI, not Waku's
-Environment Summary, not force delete (`git branch -D`), not
+workspace mode, not a worktree base-ref picker UI, not the rest of Waku's Environment Summary (Compare / Review /
+background work), not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
 Review. Leftovers: force / daemon `WorkspaceOperation`.
 Native still has no git effect. The branch, dirty count,
@@ -702,7 +709,7 @@ The composer circle is Stop while streaming (cancels; does not queue).
 Enter still queues a follow-up. The placeholder becomes
 "Queue a follow-up...". Esc still closes overlays first, then cancels.
 
-Keys: Cmd/Ctrl-N is sidebar New Task and focuses the composer, Cmd/Ctrl-K and sidebar Search open the local command palette (actions + session jump; no daemon; title / provider / project_path / model match is the palette Tasks section, not an inline sidebar filter; Commands Copy session id / Copy provider session id write the selected session's local decimal id or `fx_session_id` / ACP sessionId through Native `fx.writeClipboard` — empty provider id sets a short status and does not overwrite the clipboard), Cmd/Ctrl-/ toggles the composer model picker (stored ACP options, or `FX_MODEL` + last-used; plain `/` still types in the composer), Cmd/Ctrl-F filters the selected transcript to matching turns; the find bar shows k of N and Cmd/Ctrl-G / Cmd/Ctrl-Shift-G cycle the current matching turn (turn-level, no glyph highlight), Cmd/Ctrl-L focuses the composer, Cmd/Ctrl-M minimizes the chromeless window via `fx.minimizeWindow`, Cmd/Ctrl-Shift-M maximizes via an OS sidecar (macOS `osascript` System Events `zoomed` on the Faku-named / frontmost window; Linux `wmctrl -r :ACTIVE: -b toggle,maximized_vert,maximized_horz`, else `xdotool getactivewindow windowstate --add MAXIMIZED_VERT MAXIMIZED_HORZ`; missing Linux tools set a status string and do not crash; Windows is skipped because app.zon is macos/linux). Native still has no `fx.maximizeWindow` — this is the documented workaround, not an invented Native API. Cmd/Ctrl-W closes the chromeless window via `fx.closeWindow` (same as header X; settings hides the header Close/Minimize/Maximize controls, so these keys are the keyboard path), Cmd/Ctrl-Q calls Native `fx.quitApp`, Cmd/Ctrl-, opens settings, Cmd/Ctrl-[ and Cmd/Ctrl-] walk sidebar session history, Cmd/Ctrl-B toggles the sidebar rail, Cmd/Ctrl-C copies the last non-empty turn via `fx.writeClipboard`, Enter send/queue, the composer circle is Stop while streaming (cancels; does not queue), Esc overlay-then-cancel (closes the model, access, effort, goal-status, or git-branch picker first when one is open). Ctrl-Tab opens a local session switcher (cycle with Ctrl-Tab / Ctrl-Shift-Tab, click to switch, Esc cancels); it is not a provider session fork. Cmd/Ctrl-Enter
+Keys: Cmd/Ctrl-N is sidebar New Task and focuses the composer, Cmd/Ctrl-K and sidebar Search open the local command palette (actions + session jump; no daemon; title / provider / project_path / model match is the palette Tasks section, not an inline sidebar filter; Commands Copy session id / Copy provider session id write the selected session's local decimal id or `fx_session_id` / ACP sessionId through Native `fx.writeClipboard` — empty provider id sets a short status and does not overwrite the clipboard), Cmd/Ctrl-/ toggles the composer model picker (stored ACP options, or `FX_MODEL` + last-used; plain `/` still types in the composer), Cmd/Ctrl-F filters the selected transcript to matching turns; the find bar shows k of N and Cmd/Ctrl-G / Cmd/Ctrl-Shift-G cycle the current matching turn (turn-level, no glyph highlight), Cmd/Ctrl-L focuses the composer, Cmd/Ctrl-M minimizes the chromeless window via `fx.minimizeWindow`, Cmd/Ctrl-Shift-M maximizes via an OS sidecar (macOS `osascript` System Events `zoomed` on the Faku-named / frontmost window; Linux `wmctrl -r :ACTIVE: -b toggle,maximized_vert,maximized_horz`, else `xdotool getactivewindow windowstate --add MAXIMIZED_VERT MAXIMIZED_HORZ`; missing Linux tools set a status string and do not crash; Windows is skipped because app.zon is macos/linux). Native still has no `fx.maximizeWindow` — this is the documented workaround, not an invented Native API. Cmd/Ctrl-W closes the chromeless window via `fx.closeWindow` (same as header X; settings hides the header Close/Minimize/Maximize controls, so these keys are the keyboard path), Cmd/Ctrl-Q calls Native `fx.quitApp`, Cmd/Ctrl-, opens settings, Cmd/Ctrl-[ and Cmd/Ctrl-] walk sidebar session history, Cmd/Ctrl-B toggles the sidebar rail, Cmd/Ctrl-C copies the last non-empty turn via `fx.writeClipboard`, Enter send/queue, the composer circle is Stop while streaming (cancels; does not queue), Esc overlay-then-cancel (closes the Environment dropdown or the model, access, effort, goal-status, or git-branch picker first when one is open). Ctrl-Tab opens a local session switcher (cycle with Ctrl-Tab / Ctrl-Shift-Tab, click to switch, Esc cancels); it is not a provider session fork. Cmd/Ctrl-Enter
 steers a live daemon turn via a one-shot sidecar (hello + `steer`).
 Waku does not steer when attach `supportsSteer` is false or unknown —
 those follow-ups queue, same as Send while busy. fx ask / fx acp / demo

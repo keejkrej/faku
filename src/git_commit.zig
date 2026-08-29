@@ -672,13 +672,7 @@ pub fn dismissCommit(model: *Model, fx: *Effects) void {
     if (in_flight) model.setAttachStatus(commit_failed_status);
 }
 
-/// Dismiss the select list and other git cards, then open the
-/// runtime-only Commit… card and one-shot CommitSnapshot numstat
-/// for the default include-unstaged mode. Draft message is not
-/// persisted. Resets include-unstaged to on and Amend to off.
-/// No-op when gated, a git mutation is in flight, the
-/// session is streaming, or cwd is missing.
-pub fn startCommit(model: *Model, fx: *Effects) void {
+fn prepareCommitCard(model: *Model, fx: *Effects) void {
     git_checkout.closePicker(model);
     git_checkout.closeCreate(model);
     git_checkout.closeWorktreeCreate(model);
@@ -686,7 +680,10 @@ pub fn startCommit(model: *Model, fx: *Effects) void {
     dropCommitNumstat(model, fx);
     closeCommit(model);
     model.closeProjectEdit();
-    if (!canCommitGit(model)) return;
+    model.environment_summary_open = false;
+}
+
+fn activateCommitCard(model: *Model, fx: *Effects) void {
     if (git_checkout.gitMutationInFlight(model)) return;
     if (model.is_streaming()) return;
     if (!probeSupported()) return;
@@ -695,6 +692,28 @@ pub fn startCommit(model: *Model, fx: *Effects) void {
     model.git_commit_amend = false;
     model.git_commit_active = true;
     refreshCommitNumstat(model, fx);
+}
+
+/// Dismiss the select list and other git cards, then open the
+/// runtime-only Commit… card and one-shot CommitSnapshot numstat
+/// for the default include-unstaged mode. Draft message is not
+/// persisted. Resets include-unstaged to on and Amend to off.
+/// No-op when gated, a git mutation is in flight, the
+/// session is streaming, or cwd is missing.
+pub fn startCommit(model: *Model, fx: *Effects) void {
+    prepareCommitCard(model, fx);
+    if (!canCommitGit(model)) return;
+    activateCommitCard(model, fx);
+}
+
+/// Environment Commit or Push: same card as Commit…, but without
+/// `canCommitGit` so a clean tree can still Push-only. Composer
+/// Commit… stays on `startCommit`. Card action buttons stay gated.
+/// No-op when a git mutation is in flight, the session is
+/// streaming, cwd is missing, or Windows.
+pub fn openCommitDialog(model: *Model, fx: *Effects) void {
+    prepareCommitCard(model, fx);
+    activateCommitCard(model, fx);
 }
 
 /// Runtime-only Commit… toggle. Not persisted. Cancels an in-flight
@@ -1471,6 +1490,39 @@ test "startCommit and confirm no-op when gated, busy, or cwd is missing" {
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitCachedQuietArgv) == null);
+}
+
+test "openCommitDialog opens a clean tree; startCommit still requires canCommitGit" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-env", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit env", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    try std.testing.expect(!canCommitGit(&model));
+    try std.testing.expect(!model.git_has_staged);
+    try std.testing.expect(!model.git_has_unstaged);
+
+    startCommit(&model, &fx);
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_numstat_key);
+
+    openCommitDialog(&model, &fx);
+    try std.testing.expect(model.git_commit_active);
+    try std.testing.expect(model.git_commit_include_unstaged);
+    try std.testing.expect(!model.git_commit_amend);
+    try std.testing.expect(model.git_commit_numstat_key != 0);
+    try std.testing.expect(!canCommitGit(&model));
 }
 
 fn findPending(fx: *Effects, key: u64, pred: *const fn ([]const []const u8) bool) ?@TypeOf(fx.pendingSpawnAt(0).?) {

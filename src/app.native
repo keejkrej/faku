@@ -208,6 +208,18 @@
         <if test="{can_rewind}">
           <button variant="ghost" size="sm" on-press="rewind">Rewind</button>
         </if>
+        <row label="header-environment-controls" cross="center">
+          <stack>
+            <button variant="ghost" size="icon" icon="info" label="Environment" selected="{environment_summary_open}" on-press="toggle_environment_summary" width="28" height="28"></button>
+            <if test="{environment_summary_open}">
+              <dropdown-menu anchor="below" on-dismiss="close_environment_summary">
+                <text foreground="text_muted">Environment</text>
+                <menu-item on-press="environment_commit_or_push">Commit or Push</menu-item>
+                <menu-item on-press="environment_copy_task_id">Copy task ID</menu-item>
+              </dropdown-menu>
+            </if>
+          </stack>
+        </row>
       </row>
       <separator />
       <if test="{find_active}">

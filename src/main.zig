@@ -54,6 +54,7 @@ const git_remotes = @import("git_remotes.zig");
 const git_toplevel = @import("git_toplevel.zig");
 const git_common_dir = @import("git_common_dir.zig");
 const git_commit = @import("git_commit.zig");
+const environment_summary = @import("environment_summary.zig");
 const file_mention = @import("file_mention.zig");
 const util = @import("util.zig");
 const pick_folder = @import("pick_folder.zig");
@@ -417,7 +418,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         // Chromeless titlebar has no OS close. This is the documented
         // window-action effect (`examples/deck`): last-window close
         // follows the host exit path. Esc stays `.stop` so the session
-        // switcher / command palette / settings / transcript-find / project-edit /
+        // switcher / Environment dropdown / command palette / settings / transcript-find / project-edit /
         // image-attach / commands / typing-triggered @ / slash card /
         // folder-title-edit / session-title-edit / a live turn keep it.
         .close_window => fx.closeWindow(main_window_label),
@@ -522,6 +523,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .confirm_git_worktree_create => settings_actions.handleConfirmGitWorktreeCreate(model, fx),
         .cancel_git_worktree_create => settings_actions.handleCancelGitWorktreeCreate(model, fx),
         .start_git_commit => settings_actions.handleStartGitCommit(model, fx),
+        .toggle_environment_summary => environment_summary.toggle(model),
+        .close_environment_summary => environment_summary.close(model),
+        .environment_commit_or_push => environment_summary.commitOrPush(model, fx),
+        .environment_copy_task_id => environment_summary.copyTaskId(model, fx),
         .git_commit_edit => |edit| settings_actions.handleGitCommitEdit(model, edit),
         .confirm_git_commit => settings_actions.handleConfirmGitCommit(model, fx),
         .confirm_git_commit_and_push => settings_actions.handleConfirmGitCommitAndPush(model, fx),
@@ -771,5 +776,6 @@ test {
     _ = @import("git_toplevel.zig");
     _ = @import("git_common_dir.zig");
     _ = @import("file_mention.zig");
+    _ = @import("environment_summary.zig");
     _ = @import("util.zig");
 }

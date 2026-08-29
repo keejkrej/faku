@@ -13,6 +13,7 @@ const session_switcher = @import("switcher.zig");
 const turn_stream = @import("stream.zig");
 const git_checkout = @import("git_checkout.zig");
 const git_commit = @import("git_commit.zig");
+const environment_summary = @import("environment_summary.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -21,6 +22,10 @@ const canvas = native_sdk.canvas;
 pub fn handleStop(model: *Model, fx: *Effects) void {
     if (model.switcher_open) {
         session_switcher.closeSwitcher(model);
+        return;
+    }
+    if (model.environment_summary_open) {
+        environment_summary.close(model);
         return;
     }
     if (model.git_branch_picker_open) {
