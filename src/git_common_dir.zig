@@ -349,10 +349,8 @@ test "relative git-common-dir resolves against probe cwd or ready toplevel" {
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const cwd = try std.posix.getcwd(&cwd_buf);
-    var project_buf: [main.max_project_path]u8 = undefined;
-    const project = try std.fmt.bufPrint(&project_buf, "{s}/.zig-cache/tmp/{s}/git-common-rel", .{ cwd, tmp.sub_path[0..] });
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-gcd-rel-{s}", .{tmp.sub_path[0..]});
     try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
 
     var model = Model{};
