@@ -15,7 +15,7 @@ and it is fx-first. Desktop chrome matches the stopped Waku-parity cut
 (chromeless 48px header, measured sidebar, composer send circle).
 The header Environment controls show first-cut +N −M when the
 composer numstat probe is non-zero (omit a zero side; muted
-`text_muted`; display-only — not click-to-Review, not
+ghost; click opens the same Compare Review file-list card; not
 success/danger colors) plus a Native `info` 28px ghost that
 opens a runtime-only dropdown titled Environment with Commit
 or Push (the existing Commit… card, including when the tree is
@@ -23,9 +23,9 @@ clean so Push-only still works), Compare (first-cut Branch
 Review: one-shot `git diff --name-status @{upstream}...HEAD`
 file list, cap 64; empty is `No changes to compare`; not hunk
 rendering), and Copy task ID (local session id via
-`fx.writeClipboard`); not header click-to-Review, not full
-Review hunks, not Uncommitted/Staged/Unstaged sources, not
-background-work rows, and not daemon WorkspaceOperation.
+`fx.writeClipboard`); not full Review hunks, not
+Uncommitted/Staged/Unstaged sources, not background-work rows,
+and not daemon WorkspaceOperation.
 Header, sidebar, and Ctrl-Tab switcher titles stay on one line with
 Native ellipsis; the full name remains the accessible list-item
 label. That is in-window chrome, not the OS window title. Ctrl-Tab
@@ -100,7 +100,7 @@ one-shot `git diff --numstat HEAD` +/- that also adds untracked
 text-line counts on the + side, and muted ahead/behind vs
 `@{upstream}` (`↑A ↓B`) when that name exists (not Waku's daemon
 InspectBranches live watch / `{project_id}` UUID nest /
-full Review hunks / header click-to-Review / background work /
+full Review hunks / background work /
 force delete / prune-alone / base-ref picker;
 Native still has no git
 effect);
@@ -488,13 +488,13 @@ does not invent "clean". This is not Waku's daemon
 `InspectBranches` live watch, not Waku `{project_id}` UUID
 nesting / `waku/` prefix, not defer-until-Send
 workspace mode, not a worktree base-ref picker UI, not full
-Review hunks / header click-to-Review / background-work rows,
+Review hunks / background-work rows,
 not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
 Uncommitted/Staged/Unstaged Review sources. Environment Compare
 is a first-cut Branch name-status file list (not hunks).
 Leftovers: force / daemon `WorkspaceOperation` / Review hunks /
-header click-to-Review / background work.
+background work.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and
 git-common-dir path

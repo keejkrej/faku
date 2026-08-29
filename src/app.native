@@ -211,7 +211,7 @@
         <row label="header-environment-controls" gap="6" cross="center">
           <if test="{has_git_numstat}">
             <row height="28" cross="center" label="header-git-status">
-              <text wrap="false" overflow="ellipsis" foreground="text_muted">{header_git_numstat_label}</text>
+              <button variant="ghost" size="sm" on-press="environment_compare">{header_git_numstat_label}</button>
             </row>
           </if>
           <stack>
