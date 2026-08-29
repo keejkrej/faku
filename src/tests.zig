@@ -13470,6 +13470,8 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     drainEffects(&model, &fx);
     try fx.feedExit(dirty.key, 0);
     drainEffects(&model, &fx);
+    try testing.expect(!model.git_has_staged);
+    try testing.expect(model.git_has_unstaged);
     try testing.expect(model.can_commit_git());
     try testing.expect(git_commit.canCommitGit(&model));
     try testing.expect(model.git_branch_picker_open);
@@ -13482,13 +13484,26 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     main.update(&model, tree.msgForPointer(commit_item.id, .up).?, &fx);
     try testing.expect(!model.git_branch_picker_open);
     try testing.expect(model.git_commit_active);
+    try testing.expect(model.git_commit_include_unstaged);
     try testing.expect(!model.git_worktree_create_active);
     tree = try buildTree(arena, &model);
     try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Commit message") != null);
+    const include = try expectButtonMsg(tree, "Include unstaged", .toggle_git_commit_include_unstaged);
+    try testing.expect(include.state.selected);
     _ = try expectButtonMsg(tree, "Commit", .confirm_git_commit);
     _ = try expectButtonMsg(tree, "Commit and Push", .confirm_git_commit_and_push);
     _ = try expectButtonMsg(tree, "Cancel", .cancel_git_commit);
+
+    main.update(&model, tree.msgForPointer(include.id, .up).?, &fx);
+    try testing.expect(!model.git_commit_include_unstaged);
+    try testing.expect(!model.can_commit_git());
+    tree = try buildTree(arena, &model);
+    const include_off = try expectButtonMsg(tree, "Include unstaged", .toggle_git_commit_include_unstaged);
+    try testing.expect(!include_off.state.selected);
+    main.update(&model, tree.msgForPointer(include_off.id, .up).?, &fx);
+    try testing.expect(model.git_commit_include_unstaged);
+    try testing.expect(model.can_commit_git());
 
     main.update(&model, .confirm_git_commit, &fx);
     try testing.expectEqual(@as(u64, 0), model.git_commit_key);
@@ -13831,15 +13846,21 @@ test "composer project row shows one-shot git status --porcelain dirty count" {
     try fx.feedLine(spawn.key, " M src/a.zig\n");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("1 change", model.git_dirty_label());
+    try testing.expect(!model.git_has_staged);
+    try testing.expect(model.git_has_unstaged);
     try fx.feedLine(spawn.key, " M src/b.zig\n");
     drainEffects(&model, &fx);
     try fx.feedLine(spawn.key, "?? new.txt\n");
     drainEffects(&model, &fx);
     try testing.expect(model.has_git_dirty());
     try testing.expectEqualStrings("3 changes", model.git_dirty_label());
+    try testing.expect(!model.git_has_staged);
+    try testing.expect(model.git_has_unstaged);
     try fx.feedExit(spawn.key, 0);
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("3 changes", model.git_dirty_label());
+    try testing.expect(!model.git_has_staged);
+    try testing.expect(model.git_has_unstaged);
 
     const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .button, project);
@@ -13894,9 +13915,12 @@ test "git dirty label is omitted for empty missing rejected empty and nonzero" {
     try fx.feedLine(spawn.key, " M src/a.zig\n");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("1 change", model.git_dirty_label());
+    try testing.expect(model.git_has_unstaged);
     try fx.feedExit(spawn.key, 128);
     drainEffects(&model, &fx);
     try testing.expect(!model.has_git_dirty());
+    try testing.expect(!model.git_has_staged);
+    try testing.expect(!model.git_has_unstaged);
 
     git_dirty.refresh(&model, &fx);
     spawn = findGitDirtySpawnKey(&fx, model.git_dirty_key) orelse return error.MissingGitDirtySpawn;
@@ -13950,10 +13974,13 @@ test "changing session or project_path cancels the previous dirty probe" {
     try fx.feedLine(first_key, " M a.zig\n");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("1 change", model.git_dirty_label());
+    try testing.expect(model.git_has_unstaged);
 
     main.update(&model, .{ .select = second }, &fx);
     try testing.expectEqual(second, model.selected);
     try testing.expect(!model.has_git_dirty());
+    try testing.expect(!model.git_has_staged);
+    try testing.expect(!model.git_has_unstaged);
     try testing.expectEqual(@as(u64, 0), model.git_dirty_key);
     try testing.expectError(error.EffectNotFound, fx.feedLine(first_key, " M stale.zig\n"));
     git_dirty.applyLine(&model, .{ .key = first_key, .line = " M stale.zig" });

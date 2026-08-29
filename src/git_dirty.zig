@@ -1,14 +1,18 @@
-//! One-shot dirty-file count for the composer project row.
+//! One-shot dirty-file count plus porcelain XY flags for the composer
+//! project row / Commit… gate.
 //!
 //! Native has no git/workspace effect. When the selected session has a
 //! non-empty `project_path` that exists, Faku `fx.spawn`s
 //! `git status --porcelain` through the same `/bin/sh -c` chdir
 //! workaround `fx ask` uses (`fx_ask_chdir_script`). Non-empty stdout
 //! lines are counted as dirty files (porcelain one line per path).
-//! Zero / failed / empty omits the label — this cut does not invent
-//! "clean". Not Waku's daemon `InspectBranches`, not a live watch,
-//! not a commit dialog, not a staged/unstaged split, and not Waku's
-//! Environment Summary.
+//! The same stdout also sets `has_staged` / `has_unstaged` with Waku
+//! `status_flags` rules (X not space/`?` → staged; Y not space or
+//! X is `?` → unstaged). Zero / failed / empty / cancel / session
+//! switch omits the label and clears both flags — this cut does not
+//! invent "clean". Not Waku's daemon `InspectBranches`, not a live
+//! watch, not CommitSnapshot numstat, and not Waku's Environment
+//! Summary.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -69,6 +73,41 @@ pub fn isCountedDirtyLine(raw: []const u8) bool {
     return std.mem.trim(u8, raw, " \t\r\n").len > 0;
 }
 
+/// Waku `status_flags` over one `git status --porcelain` (v1) line.
+/// Leading spaces are status, not padding — do not trim the left side.
+pub const PorcelainFlags = struct {
+    has_staged: bool = false,
+    has_unstaged: bool = false,
+
+    pub fn merge(self: *PorcelainFlags, other: PorcelainFlags) void {
+        self.has_staged = self.has_staged or other.has_staged;
+        self.has_unstaged = self.has_unstaged or other.has_unstaged;
+    }
+};
+
+/// Staged when X is not space or `?`. Unstaged when Y is not space or
+/// X is `?` (untracked `??`). Lines shorter than two columns are ignored.
+pub fn porcelainFlagsForLine(raw: []const u8) PorcelainFlags {
+    const row = std.mem.trimEnd(u8, raw, "\r");
+    if (row.len < 2) return .{};
+    const x = row[0];
+    const y = row[1];
+    return .{
+        .has_staged = x != ' ' and x != '?',
+        .has_unstaged = y != ' ' or x == '?',
+    };
+}
+
+/// Fold XY flags across a stdout chunk. Blank / short lines skipped.
+pub fn porcelainFlags(raw: []const u8) PorcelainFlags {
+    var flags = PorcelainFlags{};
+    var it = std.mem.splitScalar(u8, raw, '\n');
+    while (it.next()) |line| {
+        flags.merge(porcelainFlagsForLine(line));
+    }
+    return flags;
+}
+
 /// Count non-empty lines in a stdout chunk. `on_line` is usually one
 /// path; a batched payload still counts each porcelain line.
 pub fn countNonEmptyLines(raw: []const u8) u32 {
@@ -99,6 +138,8 @@ pub fn hasGitDirty(model: *const Model) bool {
 
 pub fn clearGitDirty(model: *Model) void {
     setDirtyCount(model, 0);
+    model.git_has_staged = false;
+    model.git_has_unstaged = false;
 }
 
 fn setDirtyCount(model: *Model, count: u32) void {
@@ -167,6 +208,9 @@ pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
     if (line.key != model.git_dirty_key or model.git_dirty_key == 0) return;
     if (!probeStillCurrent(model)) return;
     addDirtyLines(model, countNonEmptyLines(line.line));
+    const flags = porcelainFlags(line.line);
+    model.git_has_staged = model.git_has_staged or flags.has_staged;
+    model.git_has_unstaged = model.git_has_unstaged or flags.has_unstaged;
 }
 
 pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
@@ -227,4 +271,45 @@ test "countNonEmptyLines ignores blanks; dirtyLabel is change/changes" {
     try std.testing.expectEqualStrings("3 changes", dirtyLabel(3, &buf));
     try std.testing.expectEqualStrings("2500 changes", dirtyLabel(2500, &buf));
     try std.testing.expectEqualStrings("4294967295 changes", dirtyLabel(std.math.maxInt(u32), &buf));
+}
+
+test "porcelainFlags is Waku XY: staged-only unstaged-only untracked mixed blanks" {
+    const staged_only = porcelainFlags("M  src/a.zig\n");
+    try std.testing.expect(staged_only.has_staged);
+    try std.testing.expect(!staged_only.has_unstaged);
+
+    const unstaged_only = porcelainFlags(" M src/a.zig\n");
+    try std.testing.expect(!unstaged_only.has_staged);
+    try std.testing.expect(unstaged_only.has_unstaged);
+
+    const untracked = porcelainFlags("?? new.txt\n");
+    try std.testing.expect(!untracked.has_staged);
+    try std.testing.expect(untracked.has_unstaged);
+
+    const both_on_one = porcelainFlags("MM src/a.zig\n");
+    try std.testing.expect(both_on_one.has_staged);
+    try std.testing.expect(both_on_one.has_unstaged);
+
+    const mixed = porcelainFlags("M  a\n M b\n?? c\n");
+    try std.testing.expect(mixed.has_staged);
+    try std.testing.expect(mixed.has_unstaged);
+
+    const blanks = porcelainFlags("");
+    try std.testing.expect(!blanks.has_staged);
+    try std.testing.expect(!blanks.has_unstaged);
+    const whitespace = porcelainFlags("   \n\n  \t\n");
+    try std.testing.expect(!whitespace.has_staged);
+    try std.testing.expect(!whitespace.has_unstaged);
+    const mixed_blanks = porcelainFlags("\nM  staged.zig\n\n?? extra.txt\n");
+    try std.testing.expect(mixed_blanks.has_staged);
+    try std.testing.expect(mixed_blanks.has_unstaged);
+
+    const added = porcelainFlagsForLine("A  new.zig");
+    try std.testing.expect(added.has_staged);
+    try std.testing.expect(!added.has_unstaged);
+    const deleted_worktree = porcelainFlagsForLine(" D gone.zig");
+    try std.testing.expect(!deleted_worktree.has_staged);
+    try std.testing.expect(deleted_worktree.has_unstaged);
+    try std.testing.expect(!porcelainFlagsForLine("M").has_staged);
+    try std.testing.expect(!porcelainFlagsForLine("").has_unstaged);
 }

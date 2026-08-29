@@ -339,6 +339,10 @@ pub fn handleCancelGitCommit(model: *Model, fx: *Effects) void {
     git_commit.dismissCommit(model, fx);
 }
 
+pub fn handleToggleGitCommitIncludeUnstaged(model: *Model) void {
+    git_commit.toggleIncludeUnstaged(model);
+}
+
 pub fn handlePickEffort(model: *Model, fx: *Effects, id: []const u8) void {
     model.pickSelectedEffort(id);
     persist.persistComposerChips(model, fx);

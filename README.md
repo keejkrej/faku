@@ -49,12 +49,14 @@ under `~/.faku/worktrees/<16-hex of source project_path>/<slug>`
 from a probed default base, with `slug-2` … `slug-8` on dest/branch
 collision, then retarget the session `project_path` to the dest
 actually used)
-or commit dirty work via one-shot `git add -A -- .` then
-`git commit -m` (Commit…; include-unstaged first cut; message
-trimmed to one line, max 200 chars; offered when the dirty
-probe is not in flight and porcelain count is > 0; Commit
-and Push on that card runs the same add-then-commit then
-the existing Push… probe/spawn, even when the stale
+or commit dirty work via Commit… (porcelain XY inspect +
+include-unstaged toggle, default on; `git add -A -- .` then
+`git commit -m` when the toggle is on, or `git commit -m`
+only when it is off; message trimmed to one line, max 200
+chars; offered when the dirty probe is not in flight and
+there is staged work, or unstaged work while include-unstaged
+is on; Commit and Push on that card runs the same commit
+path then the existing Push… probe/spawn, even when the stale
 ahead/behind gate would hide Push…)
 or safe-delete a non-current, unoccupied local head (`git branch -d`)
 or fetch remotes via `git fetch --prune`
@@ -69,7 +71,7 @@ text-line counts on the + side, and muted ahead/behind vs
 InspectBranches live watch / `{project_id}` UUID nest /
 canonicalize(show-toplevel) / Environment
 Summary / force delete / prune-alone / base-ref picker /
-InspectCommit;
+CommitSnapshot numstat / AI generate_message;
 Native still has no git
 effect);
 typing `@` in the composer (last whitespace token; caret assumed at
@@ -114,7 +116,8 @@ stdout / ACP / daemon line handlers and fx-exit routing live in
 create-and-checkout, safe delete, fetch, push, and New worktree…
 slug-prefill plus default-base probe, collision suffixes, and
 per-project path-hash nest). Composer include-unstaged Commit… / Commit and Push
-helpers live in `src/git_commit.zig`. Composer git-dirty probe helpers live in
+helpers live in `src/git_commit.zig`. Composer git-dirty probe helpers (count
+plus porcelain XY `has_staged` / `has_unstaged`) live in
 `src/git_dirty.zig`. Composer git-numstat probe helpers live in
 `src/git_numstat.zig`. Composer git ahead/behind probe helpers live in
 `src/git_ahead_behind.zig`. Composer `@` file-mention probe helpers live in
@@ -339,17 +342,20 @@ unoccupied listed local heads and one-shots `git branch -d <name>`
 (safe delete only; never `-D` / force; never `origin/…`; occupied
 locals are omitted because `-d` of a worktree checkout fails).
 Fetch… on that picker one-shots `git fetch --prune` (`--prune` its
-own argv slot). Commit… opens a runtime-only message card and
-one-shots `git add -A -- .` then `git commit -m <message>`
+own argv slot). Commit… opens a runtime-only message card with an
+Include unstaged ghost toggle (default on; not persisted) and
+one-shots `git add -A -- .` then `git commit -m <message>` when
+that toggle is on, or `git commit -m` only when it is off
 (`-A`, `--`, `.`, `-m`, and the message each their own argv slot;
 message trimmed to one line, max 200 chars). Empty / whitespace
 sets `Enter a commit message.` and does not spawn. Offered only
-when the dirty probe is not in flight and porcelain count is > 0
-(Waku `can_commit` with include_unstaged=true). Commit and Push
-on that card uses the same add-then-commit, then the existing
-Push… probe/spawn without re-checking `can_push`. Not Waku
-InspectCommit, not staged-only, not AI
-`generate_message`, not canonicalize(show-toplevel). Push… probes `@{upstream}` and one-shots `git push`
+when the dirty probe is not in flight and porcelain XY has staged
+changes, or unstaged changes while include-unstaged is on (Waku
+`can_commit`). Commit and Push on that card uses the same commit
+path, then the existing Push… probe/spawn without re-checking
+`can_push`. Not AI `generate_message`, not CommitSnapshot numstat,
+not `git diff --cached --quiet` preflight, not
+canonicalize(show-toplevel). Push… probes `@{upstream}` and one-shots `git push`
 when that name exists (`push` its own argv slot). When there is no
 upstream it one-shots `git push --set-upstream <remote> <branch>`
 (`--set-upstream`, remote, and branch each their own argv slot;
@@ -392,14 +398,14 @@ does not invent "clean". This is not Waku's daemon
 nesting / `waku/` prefix, not defer-until-Send
 workspace mode, not a worktree base-ref picker UI, not
 canonicalize(`git rev-parse --show-toplevel`), not
-git-common-dir identity, not Waku InspectCommit, not staged-only,
-not AI `generate_message`, not Waku's
+git-common-dir identity, not CommitSnapshot numstat on the
+commit card, not AI `generate_message`, not Waku's
 Environment Summary, not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
 Review. Leftovers: canonicalize(`git rev-parse --show-toplevel`) /
-git-common-dir worktree nest identity, InspectCommit /
-staged-only / AI generate_message / `git diff --cached --quiet`
-preflight / remotes-required-for-first-push as a
+git-common-dir worktree nest identity, AI generate_message /
+CommitSnapshot numstat on the commit card /
+`git diff --cached --quiet` preflight / remotes-required-for-first-push as a
 Commit-and-Push gate (no remotes probe
 on the Push… gate).
 Native still has no git effect. The branch, dirty count,
