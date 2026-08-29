@@ -88,7 +88,7 @@ pub const PorcelainFlags = struct {
 /// Staged when X is not space or `?`. Unstaged when Y is not space or
 /// X is `?` (untracked `??`). Lines shorter than two columns are ignored.
 pub fn porcelainFlagsForLine(raw: []const u8) PorcelainFlags {
-    const row = std.mem.trimRight(u8, raw, "\r");
+    const row = std.mem.trimEnd(u8, raw, "\r");
     if (row.len < 2) return .{};
     const x = row[0];
     const y = row[1];
