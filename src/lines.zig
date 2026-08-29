@@ -81,6 +81,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         git_commit.applyNumstatLine(model, line);
         return;
     }
+    if (model.git_commit_generate_key != 0 and line.key == model.git_commit_generate_key) {
+        git_commit.applyGenerateLine(model, line);
+        return;
+    }
     if (model.git_commit_key != 0 and line.key == model.git_commit_key) {
         git_commit.applyLine(model, line);
         return;
@@ -418,6 +422,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.git_commit_numstat_key != 0 and exit.key == model.git_commit_numstat_key) {
         git_commit.handleNumstatExit(model, exit);
+        return;
+    }
+    if (model.git_commit_generate_key != 0 and exit.key == model.git_commit_generate_key) {
+        git_commit.handleGenerateExit(model, fx, exit);
         return;
     }
     if (model.git_commit_key != 0 and exit.key == model.git_commit_key) {

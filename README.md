@@ -52,7 +52,10 @@ actually used)
 or commit dirty work via Commit… (porcelain XY inspect +
 include-unstaged toggle, default on; first-cut CommitSnapshot
 `+N −M` of working tree vs HEAD when the toggle is on, or
-index vs HEAD when it is off; `git add -A -- .` then
+index vs HEAD when it is off; empty / whitespace on Commit
+or Commit and Push one-shots `fx ask --no-save --auto --json`
+when fx is available, fills a normalized subject, then
+auto-proceeds; `git add -A -- .` then
 `git commit -m` when the toggle is on, or `git commit -m`
 only when it is off; message trimmed to one line, max 200
 chars; offered when the dirty probe is not in flight and
@@ -73,7 +76,7 @@ text-line counts on the + side, and muted ahead/behind vs
 InspectBranches live watch / `{project_id}` UUID nest /
 canonicalize(show-toplevel) / Environment
 Summary / force delete / prune-alone / base-ref picker /
-untracked-as-additions on the commit card / AI generate_message;
+untracked-as-additions on the commit card;
 Native still has no git
 effect);
 typing `@` in the composer (last whitespace token; caret assumed at
@@ -118,7 +121,8 @@ stdout / ACP / daemon line handlers and fx-exit routing live in
 create-and-checkout, safe delete, fetch, push, and New worktree…
 slug-prefill plus default-base probe, collision suffixes, and
 per-project path-hash nest). Composer include-unstaged Commit… / Commit and Push /
-first-cut CommitSnapshot numstat helpers live in
+first-cut CommitSnapshot numstat / empty-message `fx ask`
+generate helpers live in
 `src/git_commit.zig`. Composer git-dirty probe helpers (count
 plus porcelain XY `has_staged` / `has_unstaged`) live in
 `src/git_dirty.zig`. Composer git-numstat probe helpers live in
@@ -358,13 +362,21 @@ or `git diff --cached --numstat --` when it is off (`--numstat`,
 from the project-row +/- probe). A muted `+N −M` shows on the
 card when either count is non-zero; zero / failed / empty /
 in-flight omits the label (no invented "clean"). Untracked-as-
-additions is not on this card. Empty / whitespace
-sets `Enter a commit message.` and does not spawn. Offered only
+additions is not on this card. Empty / whitespace on Commit /
+Commit and Push one-shots documented `fx ask --no-save --auto
+--json` when `fx_available` and `fxPath` are set (prompt is its
+own argv slot; include-unstaged on vs off changes the prompt;
+fx inspects the repo itself), fills the normalized subject, then
+auto-proceeds into add/commit. A muted `Generating…` shows while
+that spawn is live. If fx is unavailable or the path is empty,
+empty confirm sets `Enter a commit message.` and does not spawn.
+Generate fail / empty output keeps the card open with
+`Could not generate a commit message.` Offered only
 when the dirty probe is not in flight and porcelain XY has staged
 changes, or unstaged changes while include-unstaged is on (Waku
 `can_commit`). Commit and Push on that card uses the same commit
 path, then the existing Push… probe/spawn without re-checking
-`can_push`. Not AI `generate_message`, not
+`can_push`. Not
 `git diff --cached --quiet` preflight, not
 canonicalize(show-toplevel). Push… probes `@{upstream}` and one-shots `git push`
 when that name exists (`push` its own argv slot). When there is no
@@ -410,11 +422,11 @@ nesting / `waku/` prefix, not defer-until-Send
 workspace mode, not a worktree base-ref picker UI, not
 canonicalize(`git rev-parse --show-toplevel`), not
 git-common-dir identity, not untracked-as-additions on the
-commit card, not AI `generate_message`, not Waku's
+commit card, not Waku's
 Environment Summary, not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
 Review. Leftovers: canonicalize(`git rev-parse --show-toplevel`) /
-git-common-dir worktree nest identity, AI generate_message /
+git-common-dir worktree nest identity /
 untracked-as-additions on the commit card /
 `git diff --cached --quiet` preflight / remotes-required-for-first-push as a
 Commit-and-Push gate (no remotes probe

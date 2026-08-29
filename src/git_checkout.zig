@@ -1042,6 +1042,8 @@ fn closeCommitCard(model: *Model) void {
     model.git_commit_numstat_additions = 0;
     model.git_commit_numstat_deletions = 0;
     model.git_commit_numstat_label_len = 0;
+    model.git_commit_generate_key = 0;
+    model.git_commit_generate_stdout_len = 0;
 }
 
 fn dropCommitSnapshot(model: *Model, fx: *Effects) void {
@@ -1383,6 +1385,12 @@ pub fn refresh(model: *Model, fx: *Effects) void {
     closeCreate(model);
     closeWorktreeCreate(model);
     closeDelete(model);
+    if (model.git_commit_generate_key != 0) {
+        fx.cancel(model.git_commit_generate_key);
+        model.git_commit_generate_key = 0;
+        model.git_commit_generate_stdout_len = 0;
+        model.setAttachStatus("Could not commit.");
+    }
     if (model.git_commit_key != 0) {
         fx.cancel(model.git_commit_key);
         model.git_commit_key = 0;
@@ -1477,7 +1485,7 @@ fn worktreeBaseStillCurrent(model: *const Model) bool {
 }
 
 pub fn gitMutationInFlight(model: *const Model) bool {
-    return model.git_create_key != 0 or model.git_checkout_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0 or model.git_worktree_add_key != 0 or model.git_worktree_base_key != 0 or model.git_commit_key != 0;
+    return model.git_create_key != 0 or model.git_checkout_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0 or model.git_worktree_add_key != 0 or model.git_worktree_base_key != 0 or model.git_commit_key != 0 or model.git_commit_generate_key != 0;
 }
 
 pub fn applyListLine(model: *Model, line: native_sdk.EffectLine) void {
@@ -1516,7 +1524,7 @@ pub fn refreshWorkspaceProbes(model: *Model, fx: *Effects) void {
 /// the one-shots do not overlap.
 pub fn pickBranch(model: *Model, fx: *Effects, name: []const u8) void {
     closePicker(model);
-    if (model.git_create_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0 or model.git_worktree_add_key != 0 or model.git_worktree_base_key != 0 or model.git_commit_key != 0) return;
+    if (model.git_create_key != 0 or model.git_delete_key != 0 or model.git_fetch_key != 0 or model.git_push_key != 0 or model.git_worktree_add_key != 0 or model.git_worktree_base_key != 0 or model.git_commit_key != 0 or model.git_commit_generate_key != 0) return;
     if (!git_branch.isPlausibleBranchName(name)) return;
     const remote = isListedRemoteName(model, name);
     if (!remote and std.mem.eql(u8, name, git_branch.gitBranchLabel(model))) return;

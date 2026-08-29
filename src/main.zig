@@ -293,6 +293,11 @@ pub const git_commit_key_first = git_commit.git_commit_key_first;
 /// from add/commit (450+) and project-row numstat (350+). Band is
 /// 460+. Incremented per probe from `git_commit_numstat_key_first`.
 pub const git_commit_numstat_key_first = git_commit.git_commit_numstat_key_first;
+/// One-shot empty-message `fx ask` generate on the Commit… card.
+/// Distinct from add/commit (450+) and CommitSnapshot numstat (460+).
+/// Band is 470+. Incremented per spawn from
+/// `git_commit_generate_key_first`.
+pub const git_commit_generate_key_first = git_commit.git_commit_generate_key_first;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
 pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_status;
