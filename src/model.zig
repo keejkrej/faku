@@ -642,6 +642,12 @@ pub const Model = struct {
     git_commit_numstat_probe_session: u32 = 0,
     git_commit_numstat_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_commit_numstat_probe_path_len: usize = 0,
+    /// Runtime-only empty-message `fx ask` generate on the Commit…
+    /// card. Distinct spawn-key band (470+). Not persisted.
+    git_commit_generate_key: u64 = 0,
+    next_git_commit_generate_key: u64 = git_commit_mod.git_commit_generate_key_first,
+    git_commit_generate_stdout_storage: [git_commit_mod.max_generate_stdout]u8 = [_]u8{0} ** git_commit_mod.max_generate_stdout,
+    git_commit_generate_stdout_len: usize = 0,
     git_branch_delete_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     git_branch_delete_len: usize = 0,
     /// Runtime-only composer dirty count. One-shot `git status
@@ -966,6 +972,10 @@ pub const Model = struct {
         "git_commit_numstat_probe_session",
         "git_commit_numstat_probe_path_storage",
         "git_commit_numstat_probe_path_len",
+        "git_commit_generate_key",
+        "next_git_commit_generate_key",
+        "git_commit_generate_stdout_storage",
+        "git_commit_generate_stdout_len",
         "git_has_staged",
         "git_has_unstaged",
         "git_branch_delete_storage",
@@ -2212,6 +2222,10 @@ pub const Model = struct {
 
     pub fn has_git_commit_numstat(model: *const Model) bool {
         return git_commit_mod.hasGitCommitNumstat(model);
+    }
+
+    pub fn has_git_commit_generate(model: *const Model) bool {
+        return git_commit_mod.hasGitCommitGenerate(model);
     }
 
     /// Composer usage control. 0 when the live path has not reported usage.

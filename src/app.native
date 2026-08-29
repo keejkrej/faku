@@ -454,6 +454,9 @@
                 <if test="{has_git_commit_numstat}">
                   <text wrap="false" overflow="ellipsis" foreground="text_muted">{git_commit_numstat_label}</text>
                 </if>
+                <if test="{has_git_commit_generate}">
+                  <text wrap="false" overflow="ellipsis" foreground="text_muted">Generating…</text>
+                </if>
                 <button variant="ghost" size="sm" on-press="confirm_git_commit">Commit</button>
                 <button variant="ghost" size="sm" on-press="confirm_git_commit_and_push">Commit and Push</button>
                 <button variant="ghost" size="sm" on-press="cancel_git_commit">Cancel</button>

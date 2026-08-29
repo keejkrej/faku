@@ -13545,6 +13545,61 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     try testing.expectEqual(@as(u64, 0), model.git_commit_key);
     try testing.expectEqual(@as(u64, 0), model.git_commit_numstat_key);
     try testing.expect(!model.has_git_commit_numstat());
+    try testing.expect(findByText(tree.root, .text, "Generating…") == null);
+}
+
+test "Commit empty plus fx available shows Generating then auto-adds the subject" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-generate-ui", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.setFxPath("fx");
+    const id = model.addSession("commit generate ui", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_dirty_count = 1;
+    model.git_dirty_key = 0;
+    model.git_has_staged = false;
+    model.git_has_unstaged = true;
+
+    main.update(&model, .start_git_commit, &fx);
+    try testing.expect(model.git_commit_active);
+    main.update(&model, .confirm_git_commit, &fx);
+    try testing.expect(model.git_commit_generate_key >= git_commit.git_commit_generate_key_first);
+    try testing.expect(model.has_git_commit_generate());
+    try testing.expect(git_checkout.gitMutationInFlight(&model));
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Generating…");
+    _ = try expectButtonMsg(tree, "Commit", .confirm_git_commit);
+
+    main.update(&model, .confirm_git_commit, &fx);
+    try testing.expect(model.has_git_commit_generate());
+    try testing.expectEqual(@as(u64, 0), model.git_commit_key);
+
+    const gen = findGitCommitGenerateSpawnKey(&fx, model.git_commit_generate_key) orelse return error.MissingGenerateSpawn;
+    try testing.expect(git_commit.isGitCommitGenerateArgv(gen.argv));
+    try fx.feedLine(gen.key, "{\"output\":\"fix dirty count\"}\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(gen.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.has_git_commit_generate());
+    try testing.expectEqualStrings("fix dirty count", model.git_commit());
+    try testing.expectEqual(git_commit.GitCommitPhase.add, model.git_commit_phase);
+    const add = findPendingGitCommitAdd(&fx, model.git_commit_key) orelse return error.MissingGitAddSpawn;
+    try testing.expect(git_commit.isGitCommitAddArgv(add.argv));
 }
 
 test "confirm New worktree one-shots git worktree add -b; success retargets project_path; failure sets status" {
@@ -14057,6 +14112,22 @@ fn findGitCommitNumstatSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawn
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (spawn.key == key and git_commit.isGitCommitNumstatArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn findGitCommitGenerateSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_commit.isGitCommitGenerateArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn findPendingGitCommitAdd(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_commit.isGitCommitAddArgv(spawn.argv)) return spawn;
     }
     return null;
 }
