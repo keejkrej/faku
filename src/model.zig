@@ -19,7 +19,7 @@ const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
-const git_commit = @import("git_commit.zig");
+const git_commit_mod = @import("git_commit.zig");
 const file_mention = @import("file_mention.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
@@ -520,7 +520,7 @@ pub const Model = struct {
     project_edit_buffer: canvas.TextBuffer(max_project_path) = .{},
     git_branch_create_buffer: canvas.TextBuffer(git_branch.max_git_branch) = .{},
     git_worktree_create_buffer: canvas.TextBuffer(git_branch.max_git_branch) = .{},
-    git_commit_buffer: canvas.TextBuffer(git_commit.max_commit_message) = .{},
+    git_commit_buffer: canvas.TextBuffer(git_commit_mod.max_commit_message) = .{},
     image_attach_active: bool = false,
     image_path_buffer: canvas.TextBuffer(max_project_path) = .{},
     /// Runtime-only composer status for picker cancel / missing-tool.
@@ -614,12 +614,12 @@ pub const Model = struct {
     git_worktree_base_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     git_worktree_base_len: usize = 0,
     git_commit_key: u64 = 0,
-    next_git_commit_key: u64 = git_commit.git_commit_key_first,
+    next_git_commit_key: u64 = git_commit_mod.git_commit_key_first,
     git_commit_probe_session: u32 = 0,
     git_commit_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_commit_probe_path_len: usize = 0,
-    git_commit_phase: git_commit.GitCommitPhase = .idle,
-    git_commit_message_storage: [git_commit.max_commit_message]u8 = [_]u8{0} ** git_commit.max_commit_message,
+    git_commit_phase: git_commit_mod.GitCommitPhase = .idle,
+    git_commit_message_storage: [git_commit_mod.max_commit_message]u8 = [_]u8{0} ** git_commit_mod.max_commit_message,
     git_commit_message_len: usize = 0,
     git_branch_delete_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     git_branch_delete_len: usize = 0,
@@ -2163,7 +2163,7 @@ pub const Model = struct {
     /// Composer branch-picker Commit…. Hide while the dirty probe is
     /// in flight; show only when porcelain dirty count is > 0.
     pub fn can_commit_git(model: *const Model) bool {
-        return git_commit.canCommitGit(model);
+        return git_commit_mod.canCommitGit(model);
     }
 
     /// Composer usage control. 0 when the live path has not reported usage.
@@ -2307,7 +2307,7 @@ pub const Model = struct {
         git_checkout.closeCreate(model);
         git_checkout.closeWorktreeCreate(model);
         git_checkout.closeDelete(model);
-        git_commit.closeCommit(model);
+        git_commit_mod.closeCommit(model);
         model.project_edit_active = true;
         model.project_edit_buffer.set(model.selectedProjectPath());
     }
