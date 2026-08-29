@@ -55,10 +55,12 @@
 //! exit 1 falls back to the cached composer branch label
 //! (`pushBranchFromLabel`, not a detached short SHA) and otherwise
 //! omits the base (today's HEAD). Dest is
-//! `~/.faku/worktrees/<16-hex of source toplevel or project_path>/<name>`
-//! (FNV-1a 64 of the ready `show-toplevel` root when the probe
-//! finished, else the probe cwd used for `git worktree add`; not a
-//! daemon UUID / `{project_id}`, not `git-common-dir`). A taken dest
+//! `~/.faku/worktrees/<16-hex of source common-dir or toplevel or project_path>/<name>`
+//! (FNV-1a 64 of the ready `--git-common-dir` path, resolved to
+//! absolute when git prints a relative path like `.git`, when that
+//! probe finished, else the ready `show-toplevel` root, else the
+//! probe cwd used for `git worktree add`; not a daemon UUID /
+//! `{project_id}`). A taken dest
 //! directory or listed local
 //! `faku/<name>` skips to the next Waku candidate (`slug`,
 //! `slug-2`, … `slug-8`; cap 8 because Native is one-shot, not
@@ -76,8 +78,7 @@
 //! force delete, or Environment Summary. Composer Push… still
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
-//! Leftovers: `git-common-dir` nest identity, force / amend,
-//! daemon `WorkspaceOperation`.
+//! Leftovers: force / amend, daemon `WorkspaceOperation`.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -92,6 +93,7 @@ const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
 const git_remotes = @import("git_remotes.zig");
 const git_toplevel = @import("git_toplevel.zig");
+const git_common_dir = @import("git_common_dir.zig");
 const file_mention = @import("file_mention.zig");
 
 const Model = main.Model;
@@ -688,19 +690,22 @@ pub fn worktreeBranchName(name: []const u8, buf: []u8) ?[]const u8 {
 
 /// 16 lowercase hex chars of FNV-1a 64 of the trimmed source
 /// `project_path` (the cwd used for `git worktree add`). Empty /
-/// `..` / NUL after trim → null. Relative paths are allowed; this
-/// is not `git-common-dir`. Prefer `worktreeNestKeyFor` when a
-/// ready `show-toplevel` should win.
+/// `..` / NUL after trim → null. Relative paths are allowed.
+/// Prefer `worktreeNestKeyFor` when a ready `--git-common-dir`
+/// (else `show-toplevel`) should win.
 pub fn worktreeNestKey(project_path: []const u8, buf: []u8) ?[]const u8 {
     return worktreeNestKeyFor(project_path, buf, null);
 }
 
 /// Same FNV nest as `worktreeNestKey`, hashing the ready
-/// `show-toplevel` root when that probe finished so subdirs of the
-/// same repo share `~/.faku/worktrees/<nest>/`.
+/// `--git-common-dir` path when that probe finished so linked
+/// worktrees of the same repo share `~/.faku/worktrees/<nest>/`.
+/// Falls back to ready `show-toplevel`, then `project_path`.
 pub fn worktreeNestKeyFor(project_path: []const u8, buf: []u8, model: ?*const Model) ?[]const u8 {
     const source = blk: {
         if (model) |m| {
+            const common = git_common_dir.readyPath(m);
+            if (common.len > 0) break :blk common;
             const top = git_toplevel.readyPath(m);
             if (top.len > 0) break :blk top;
         }
@@ -1565,6 +1570,7 @@ pub fn refreshWorkspaceProbes(model: *Model, fx: *Effects) void {
     git_ahead_behind.refresh(model, fx);
     git_remotes.refresh(model, fx);
     git_toplevel.refresh(model, fx);
+    git_common_dir.refresh(model, fx);
     file_mention.refresh(model, fx);
     refresh(model, fx);
 }

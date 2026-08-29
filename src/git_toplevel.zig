@@ -8,14 +8,16 @@
 //! flag and operand is its own argv slot — never interpolated into
 //! the `-c` script. Reuses `git_checkout.git_bin` / `sh_bin`. A
 //! ready bit plus the trimmed path let occupancy treat "this
-//! worktree" as `worktreepath` equal to that toplevel, and New
-//! worktree… nest under a shared FNV of the repo root so subdirs of
-//! the same repo share `~/.faku/worktrees/<nest>/`. Failed / empty /
-//! cancel leave ready false and the path empty so consumers fall
-//! back to today's `project_path` heuristic. Distinct spawn-key band
-//! (490+); does not share remotes (480+). Runtime-only (not
-//! `sessions.json`). Not a live watch, not an invented Native git
-//! effect, and not `git-common-dir` nest identity.
+//! worktree" as `worktreepath` equal to that toplevel. New
+//! worktree… nest prefers `git_common_dir.zig` and falls back to
+//! this ready toplevel so subdirs of the same checkout still share
+//! `~/.faku/worktrees/<nest>/` while that probe is empty. Failed /
+//! empty / cancel leave ready false and the path empty so consumers
+//! fall back to today's `project_path` heuristic. Distinct spawn-key
+//! band (490+); does not share remotes (480+) or common-dir (500+).
+//! Runtime-only (not `sessions.json`). Not a live watch, not an
+//! invented Native git effect, and not occupancy of linked
+//! worktrees via `git-common-dir`.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).

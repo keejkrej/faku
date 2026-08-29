@@ -45,7 +45,7 @@ local counterpart; local heads checked out in another worktree stay listed
 and are refused for checkout/delete)
 or create-and-checkout a new local branch from HEAD (`git checkout -b`)
 or create a new worktree (`git worktree add -b faku/<slug>`
-under `~/.faku/worktrees/<16-hex of source project_path>/<slug>`
+under `~/.faku/worktrees/<16-hex of source git-common-dir>/<slug>`
 from a probed default base, with `slug-2` … `slug-8` on dest/branch
 collision, then retarget the session `project_path` to the dest
 actually used)
@@ -83,7 +83,7 @@ one-shot `git diff --numstat HEAD` +/- that also adds untracked
 text-line counts on the + side, and muted ahead/behind vs
 `@{upstream}` (`↑A ↓B`) when that name exists (not Waku's daemon
 InspectBranches live watch / `{project_id}` UUID nest /
-git-common-dir nest identity / Environment
+Environment
 Summary / force delete / prune-alone / base-ref picker;
 Native still has no git
 effect);
@@ -128,14 +128,16 @@ stdout / ACP / daemon line handlers and fx-exit routing live in
 `src/git_checkout.zig` (list, local checkout, remote-tracking `--track`,
 create-and-checkout, safe delete, fetch, push, and New worktree…
 slug-prefill plus default-base probe, collision suffixes, and
-per-project path-hash nest). Composer include-unstaged Commit… / Commit and Push /
+git-common-dir nest). Composer include-unstaged Commit… / Commit and Push /
 first-cut CommitSnapshot numstat / empty-message `fx ask`
 generate helpers live in
 `src/git_commit.zig`. Composer git-dirty probe helpers (count
 plus porcelain XY `has_staged` / `has_unstaged`) live in
 `src/git_dirty.zig`. Composer git-numstat probe helpers live in
 `src/git_numstat.zig`. Composer git ahead/behind probe helpers live in
-`src/git_ahead_behind.zig`. Composer `@` file-mention probe helpers live in
+`src/git_ahead_behind.zig`. Composer git show-toplevel occupancy
+helpers live in `src/git_toplevel.zig`. Composer git-common-dir nest
+helpers live in `src/git_common_dir.zig`. Composer `@` file-mention probe helpers live in
 `src/file_mention.zig`. Boot fx-probe spawn/exit lives in
 `src/fx_probe.zig`. Folder/chip persist helpers live in
 `src/persist.zig`. Session / folder / title-edit update helpers live
@@ -336,9 +338,11 @@ the path, and the optional base each their own slot; `mkdir -p` of
 exit 1 falls back to the cached composer branch label (not a
 detached short SHA) and otherwise omits the base (today's HEAD).
 The dest path is
-`~/.faku/worktrees/<16-hex of source project_path>/<name>`
+`~/.faku/worktrees/<16-hex of source git-common-dir>/<name>`
 (absolute from `$HOME`; nest is FNV-1a 64 of the ready
-`git rev-parse --show-toplevel` root when that probe finished,
+`git rev-parse --git-common-dir` path, resolved to absolute
+when git prints a relative path like `.git`, when that probe
+finished, else the ready `git rev-parse --show-toplevel` root,
 else the probe cwd used for `git worktree add`, not a daemon
 UUID / `{project_id}`). Unsafe
 / empty names are refused.
@@ -352,8 +356,7 @@ Exhausted candidates set `Could not create worktree.` and leave
 probes refresh against that path. This is not Waku's `waku/`
 prefix, `~/.waku/worktrees/{project_id}` UUID nest, daemon
 `WorkspaceOperation::NewWorktree`, defer-until-Send,
-git-common-dir identity, or a
-base-ref picker UI.
+or a base-ref picker UI.
 Delete branch… opens a runtime-only delete card of non-current,
 unoccupied listed local heads and one-shots `git branch -d <name>`
 (safe delete only; never `-D` / force; never `origin/…`; occupied
@@ -442,21 +445,26 @@ refresh also one-shots `git remote` (`remote` its own argv slot;
 prefer `origin`, else the first name) so first-push remotes can
 gate Push… and Commit and Push. The same refresh also one-shots
 `git rev-parse --show-toplevel` (`--show-toplevel` its own argv
-slot) so occupancy and New worktree… nest can canonicalize the
-session `project_path`; failed / empty / in-flight keep today's
-`project_path` fallback. Zero,
+slot) so occupancy can canonicalize the session `project_path`;
+failed / empty / in-flight keep today's `project_path` fallback.
+The same refresh also one-shots
+`git rev-parse --git-common-dir` (`--git-common-dir` its own argv
+slot) so New worktree… nest can share one hash across linked
+worktrees of the same repo; a relative print such as `.git` is
+resolved against the ready toplevel or the probe cwd to an
+absolute path before hashing; failed / empty / in-flight fall
+back to ready show-toplevel, then `project_path`. Zero,
 failed, or skipped dirty / +/- probes omit those labels — this cut
 does not invent "clean". This is not Waku's daemon
 `InspectBranches` live watch, not Waku `{project_id}` UUID
 nesting / `waku/` prefix, not defer-until-Send
-workspace mode, not a worktree base-ref picker UI, not
-git-common-dir identity, not Waku's
+workspace mode, not a worktree base-ref picker UI, not Waku's
 Environment Summary, not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
-Review. Leftovers: git-common-dir worktree nest identity /
-force / amend / daemon `WorkspaceOperation`.
+Review. Leftovers: force / amend / daemon `WorkspaceOperation`.
 Native still has no git effect. The branch, dirty count,
-+/-, ahead/behind, remotes-ready bit, and show-toplevel path
++/-, ahead/behind, remotes-ready bit, show-toplevel path, and
+git-common-dir path
 are runtime-only (like the
 busy spinner) and
 are not stored on `sessions.json`. Occupancy uses a ready
@@ -464,7 +472,7 @@ are not stored on `sessions.json`. Occupancy uses a ready
 (`worktreepath` equal to that toplevel), else the session
 `project_path` / probe cwd heuristic. New worktree… materializes
 one-shot under
-`~/.faku/worktrees/<16-hex of source toplevel or project_path>/<name>`
+`~/.faku/worktrees/<16-hex of source git-common-dir or toplevel or project_path>/<name>`
 (or `.../<name>-2` … `-8` on collision) and retargets that
 session path. This is not daemon
 `WorkspaceOperation::NewWorktree`.
