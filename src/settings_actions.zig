@@ -331,6 +331,10 @@ pub fn handleConfirmGitCommit(model: *Model, fx: *Effects) void {
     git_commit.confirmCommit(model, fx);
 }
 
+pub fn handleConfirmGitCommitAndPush(model: *Model, fx: *Effects) void {
+    git_commit.confirmCommitAndPush(model, fx);
+}
+
 pub fn handleCancelGitCommit(model: *Model, fx: *Effects) void {
     git_commit.dismissCommit(model, fx);
 }

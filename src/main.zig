@@ -498,6 +498,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .start_git_commit => settings_actions.handleStartGitCommit(model),
         .git_commit_edit => |edit| settings_actions.handleGitCommitEdit(model, edit),
         .confirm_git_commit => settings_actions.handleConfirmGitCommit(model, fx),
+        .confirm_git_commit_and_push => settings_actions.handleConfirmGitCommitAndPush(model, fx),
         .cancel_git_commit => settings_actions.handleCancelGitCommit(model, fx),
         .start_project_edit => model.startProjectEdit(),
         .project_path_edit => |edit| {

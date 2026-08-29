@@ -1,4 +1,5 @@
-//! First-cut include-unstaged Commit… for the composer project row.
+//! First-cut include-unstaged Commit… / Commit and Push for the
+//! composer project row.
 //!
 //! Native has no git effect. Confirm one-shots `git add -A -- .` then
 //! `git commit -m <message>` through the same `/bin/sh -c` chdir
@@ -6,12 +7,19 @@
 //! operand is its own argv slot — never interpolated into the `-c`
 //! script. Message is trimmed, taken as a single line, and capped at
 //! 200 chars (Waku `chars().take(200)`). Empty / whitespace does not
-//! spawn. Not Waku InspectCommit, not Commit and Push, not
+//! spawn (no AI `generate_message`). Commit and Push uses the same
+//! add-then-commit sequence; on successful commit it starts the
+//! existing Push… probe/spawn via `beginPushAfterCommit` (ungated
+//! vs `canPushGitBranch` — ahead/behind is stale after the commit).
+//! Commit stays commit-only. Cancel / Esc / session-switch drop an
+//! in-flight add/commit and do not start a push. Not Waku
+//! InspectCommit / CommitSnapshot, not include_unstaged toggle /
 //! staged-only, not AI `generate_message`, not
 //! `git diff --cached --quiet` preflight, not
+//! remotes-required-for-first-push as a Commit-and-Push gate, not
 //! canonicalize(`git rev-parse --show-toplevel`), not
-//! remotes-required-for-first-push, not git-common-dir nest identity,
-//! not force / amend, and not daemon `WorkspaceOperation`.
+//! git-common-dir nest identity, not force / amend, and not daemon
+//! `WorkspaceOperation`.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -23,6 +31,7 @@ const main = @import("main.zig");
 const git_branch = @import("git_branch.zig");
 const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
+const git_ahead_behind = @import("git_ahead_behind.zig");
 const file_mention = @import("file_mention.zig");
 
 const Model = main.Model;
@@ -89,6 +98,7 @@ fn commitStillCurrent(model: *const Model) bool {
 fn resetCommitState(model: *Model) void {
     model.git_commit_phase = .idle;
     model.git_commit_message_len = 0;
+    model.git_commit_then_push = false;
 }
 
 fn failCommit(model: *Model) void {
@@ -268,11 +278,7 @@ fn spawnCommit(model: *Model, fx: *Effects) void {
     spawnCommitCmd(model, fx, cwd, commitArgvFor(cwd, message, &argv_buf), .commit);
 }
 
-/// Confirm the Commit… card: a non-empty normalized message one-shots
-/// `git add -A -- .` then `git commit -m`. Empty / whitespace sets
-/// `Enter a commit message.` and does not spawn. Gated / busy /
-/// in-flight / missing cwd is a no-op.
-pub fn confirmCommit(model: *Model, fx: *Effects) void {
+fn confirmCommitWith(model: *Model, fx: *Effects, then_push: bool) void {
     if (!canCommitGit(model)) return;
     if (git_checkout.gitMutationInFlight(model)) return;
     if (model.is_streaming()) return;
@@ -282,12 +288,31 @@ pub fn confirmCommit(model: *Model, fx: *Effects) void {
 
     var msg_buf: [max_commit_message]u8 = undefined;
     const message = normalizeMessage(model.git_commit_buffer.text(), &msg_buf) orelse {
+        model.git_commit_then_push = false;
         model.setAttachStatus(empty_message_status);
         return;
     };
     writeFixed(&model.git_commit_message_storage, &model.git_commit_message_len, message);
     writeFixed(&model.git_commit_probe_path_storage, &model.git_commit_probe_path_len, cwd);
+    model.git_commit_then_push = then_push;
     spawnAdd(model, fx);
+}
+
+/// Confirm the Commit… card: a non-empty normalized message one-shots
+/// `git add -A -- .` then `git commit -m`. Empty / whitespace sets
+/// `Enter a commit message.` and does not spawn. Gated / busy /
+/// in-flight / missing cwd is a no-op. Commit-only: does not start
+/// a push after success.
+pub fn confirmCommit(model: *Model, fx: *Effects) void {
+    confirmCommitWith(model, fx, false);
+}
+
+/// Same gates and add-then-commit as `confirmCommit`. On successful
+/// commit, close the card and start the existing Push… path without
+/// re-checking `canPushGitBranch`. Empty message still does not
+/// spawn and does not auto-generate.
+pub fn confirmCommitAndPush(model: *Model, fx: *Effects) void {
+    confirmCommitWith(model, fx, true);
 }
 
 pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
@@ -315,9 +340,20 @@ pub fn handleCommitExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
             failCommit(model);
         },
         .commit => {
+            const then_push = model.git_commit_then_push;
             resetCommitState(model);
             if (exit.reason == .exited and exit.code == 0) {
                 closeCommit(model);
+                if (then_push) {
+                    git_checkout.beginPushAfterCommit(model, fx);
+                    if (model.git_push_key == 0) {
+                        if (!model.has_attach_status()) {
+                            model.setAttachStatus(git_checkout.push_failed_status);
+                        }
+                        git_checkout.refreshWorkspaceProbes(model, fx);
+                    }
+                    return;
+                }
                 git_checkout.refreshWorkspaceProbes(model, fx);
                 return;
             }
@@ -524,6 +560,8 @@ test "commit success refreshes the same workspace probes as other git mutations"
     handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 0 });
     try std.testing.expect(!model.git_commit_active);
     try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!model.git_commit_then_push);
     try std.testing.expect(!model.has_attach_status());
     try std.testing.expect(model.git_branch_key != 0);
     try std.testing.expect(model.git_dirty_key != 0);
@@ -583,4 +621,245 @@ test "startCommit and confirm no-op when gated, busy, or cwd is missing" {
     confirmCommit(&model, &fx);
     try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
     try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+fn findPending(fx: *Effects, key: u64, pred: *const fn ([]const []const u8) bool) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (i < fx.pendingSpawnCount()) : (i += 1) {
+        const spawn = fx.pendingSpawnAt(i).?;
+        if (spawn.key == key and pred(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+fn markStaleCanPush(model: *Model) void {
+    model.git_ahead_behind_key = 0;
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_has_upstream = true;
+    model.git_ahead_behind_ahead = 0;
+}
+
+test "confirm and push with a message add-then-commit then starts the push probe" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-and-push", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit and push", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_dirty_count = 2;
+    model.git_dirty_key = 0;
+    markStaleCanPush(&model);
+    try std.testing.expect(!git_ahead_behind.canPushGitBranch(&model));
+    git_checkout.startPush(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+
+    startCommit(&model);
+    model.git_commit_buffer.apply(.{ .insert_text = "  ship the dirty probe  " });
+    confirmCommitAndPush(&model, &fx);
+    try std.testing.expect(model.git_commit_then_push);
+    try std.testing.expectEqual(GitCommitPhase.add, model.git_commit_phase);
+    const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
+    try std.testing.expect(add.key >= git_commit_key_first);
+    try std.testing.expect(!isGitCommitArgv(add.argv));
+    try std.testing.expect(!git_checkout.isGitUpstreamArgv(add.argv));
+
+    handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
+    try std.testing.expect(model.git_commit_then_push);
+    try std.testing.expectEqual(GitCommitPhase.commit, model.git_commit_phase);
+    const commit = findPending(&fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
+    try std.testing.expectEqualStrings("ship the dirty probe", commit.argv[8]);
+    try std.testing.expect(std.mem.indexOf(u8, commit.argv[2], "ship the dirty probe") == null);
+    try std.testing.expect(commit.key != add.key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+
+    handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 0 });
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expect(model.git_push_key != 0);
+    try std.testing.expectEqual(git_checkout.GitPushPhase.upstream, model.git_push_phase);
+    try std.testing.expect(!model.has_attach_status());
+    try std.testing.expectEqual(@as(u64, 0), model.git_dirty_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_ahead_behind_key);
+    const probe = findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) orelse return error.MissingGitUpstreamSpawn;
+    try std.testing.expectEqual(model.git_push_key, probe.key);
+    try std.testing.expect(probe.key >= git_checkout.git_push_key_first);
+    try std.testing.expect(std.mem.indexOf(u8, probe.argv[2], "ship the dirty probe") == null);
+    try std.testing.expect(!isGitCommitArgv(probe.argv));
+    try std.testing.expect(!isGitCommitAddArgv(probe.argv));
+}
+
+test "confirm and push empty message does not spawn and does not start a push" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-and-push-empty", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit and push empty", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_dirty_count = 1;
+    model.git_dirty_key = 0;
+
+    startCommit(&model);
+    confirmCommitAndPush(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try std.testing.expectEqualStrings(empty_message_status, model.attach_status());
+
+    model.git_commit_buffer.apply(.{ .insert_text = "   \n\t  " });
+    model.clearAttachStatus();
+    confirmCommitAndPush(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try std.testing.expectEqualStrings(empty_message_status, model.attach_status());
+}
+
+test "confirm and push add failure sets Could not commit and does not start a push" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-and-push-add-fail", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit and push add fail", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_dirty_count = 1;
+    model.git_dirty_key = 0;
+
+    startCommit(&model);
+    model.git_commit_buffer.apply(.{ .insert_text = "save work" });
+    confirmCommitAndPush(&model, &fx);
+    try std.testing.expect(model.git_commit_then_push);
+    const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
+    handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 1 });
+    try std.testing.expectEqualStrings(commit_failed_status, model.attach_status());
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expectEqual(GitCommitPhase.idle, model.git_commit_phase);
+    try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitArgv) == null);
+    try std.testing.expect(findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) == null);
+    try std.testing.expect(model.git_commit_active);
+}
+
+test "confirm and push commit failure sets Could not commit and does not start a push" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-and-push-fail", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit and push fail", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_dirty_count = 1;
+    model.git_dirty_key = 0;
+
+    startCommit(&model);
+    model.git_commit_buffer.apply(.{ .insert_text = "broken commit" });
+    confirmCommitAndPush(&model, &fx);
+    const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
+    handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
+    const commit = findPending(&fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
+    handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 1 });
+    try std.testing.expectEqualStrings(commit_failed_status, model.attach_status());
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expect(findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) == null);
+    try std.testing.expect(model.git_commit_active);
+}
+
+test "cancel or session change while commit-and-push is in flight does not start a push" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-and-push-cancel", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit and push cancel", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_dirty_count = 3;
+    model.git_dirty_key = 0;
+    markStaleCanPush(&model);
+
+    startCommit(&model);
+    model.git_commit_buffer.apply(.{ .insert_text = "do not push" });
+    confirmCommitAndPush(&model, &fx);
+    const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
+    dismissCommit(&model, &fx);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitArgv) == null);
+    try std.testing.expect(findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) == null);
+    try std.testing.expectEqualStrings(commit_failed_status, model.attach_status());
+
+    startCommit(&model);
+    model.git_commit_buffer.apply(.{ .insert_text = "still no push" });
+    confirmCommitAndPush(&model, &fx);
+    const add2 = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn2;
+    handleCommitExit(&model, &fx, .{ .key = add2.key, .reason = .exited, .code = 0 });
+    const commit = findPending(&fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
+    try std.testing.expect(model.git_commit_then_push);
+    dismissCommit(&model, &fx);
+    try std.testing.expect(!model.git_commit_then_push);
+    handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) == null);
+
+    startCommit(&model);
+    model.git_commit_buffer.apply(.{ .insert_text = "session switch" });
+    confirmCommitAndPush(&model, &fx);
+    const add3 = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn3;
+    try std.testing.expect(model.git_commit_then_push);
+    git_checkout.refresh(&model, &fx);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    handleCommitExit(&model, &fx, .{ .key = add3.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) == null);
+    try std.testing.expectEqualStrings(commit_failed_status, model.attach_status());
 }
