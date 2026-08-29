@@ -382,6 +382,7 @@ pub const Msg = union(enum) {
     close_review_diff,
     set_review_diff_source_branch,
     set_review_diff_source_uncommitted,
+    set_review_diff_source_staged,
     git_commit_edit: canvas.TextInputEvent,
     confirm_git_commit,
     confirm_git_commit_and_push,
@@ -502,8 +503,9 @@ pub const Model = struct {
     /// Runtime-only Environment Compare Review card. Not persisted.
     review_diff_active: bool = false,
     /// Runtime-only Review name-status source. Compare / header +/-
-    /// open Branch. Uncommitted is first-cut tracked HEAD. Not
-    /// persisted to sessions.json.
+    /// open Branch. Uncommitted is first-cut tracked HEAD. Staged
+    /// is first-cut index vs HEAD (`--cached`). Not persisted to
+    /// sessions.json.
     review_diff_source: review_diff.Source = .branch,
     /// Runtime-only Delete branch… card. Selected name is not persisted.
     git_branch_delete_active: bool = false,
@@ -2419,6 +2421,10 @@ pub const Model = struct {
 
     pub fn review_diff_source_uncommitted(model: *const Model) bool {
         return model.review_diff_source == .uncommitted;
+    }
+
+    pub fn review_diff_source_staged(model: *const Model) bool {
+        return model.review_diff_source == .staged;
     }
 
     pub fn review_diff_rows(model: *const Model, arena: std.mem.Allocator) []const review_diff.ReviewDiffRow {
