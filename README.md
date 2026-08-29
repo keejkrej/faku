@@ -26,11 +26,13 @@ Unstaged + Committed sources: Branch is `git diff --name-status
 --name-status HEAD`, not untracked; Staged is index vs HEAD
 `git diff --name-status --cached`; Unstaged is worktree vs
 index `git diff --name-status` (tracked only); Committed is
-`git diff --name-status origin/HEAD...HEAD`; cap 64; empty is
+`git diff --name-status origin/HEAD...HEAD`, then local
+`main...HEAD` / `master...HEAD` if that probe exits non-zero;
+cap 64; empty is
 `No changes to compare`; not hunk rendering), and
 Copy task ID (local session id via `fx.writeClipboard`); not
-full Review hunks, not LastTurn / local main-or-master
-fallback, not untracked-in-Uncommitted, not background-work rows,
+full Review hunks, not LastTurn, not untracked-in-Uncommitted,
+not background-work rows,
 and not daemon WorkspaceOperation.
 Header, sidebar, and Ctrl-Tab switcher titles stay on one line with
 Native ellipsis; the full name remains the accessible list-item
@@ -498,16 +500,17 @@ workspace mode, not a worktree base-ref picker UI, not full
 Review hunks / background-work rows,
 not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
-LastTurn / local main-or-master fallback Review sources.
+LastTurn Review sources.
 Environment Compare Review is a first-cut Branch + Uncommitted +
 Staged + Unstaged + Committed name-status file list (Uncommitted
 = tracked `git diff --name-status HEAD`, not untracked; Staged =
 index vs HEAD `git diff --name-status --cached`; Unstaged =
 worktree vs index `git diff --name-status`, tracked only;
-Committed = `git diff --name-status origin/HEAD...HEAD`; not
-hunks). Leftovers: force / daemon `WorkspaceOperation` / Review
-hunks / untracked-in-Uncommitted / LastTurn / local
-main-or-master fallback / background work.
+Committed = `git diff --name-status origin/HEAD...HEAD`, then
+local `main...HEAD` / `master...HEAD` if that probe exits
+non-zero; not hunks). Leftovers: force / daemon
+`WorkspaceOperation` / Review hunks / untracked-in-Uncommitted /
+LastTurn / background work.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and
 git-common-dir path

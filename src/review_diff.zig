@@ -14,22 +14,24 @@
 //! range). Committed is a switchable first-cut: one-shot
 //! `git diff --name-status origin/HEAD...HEAD` (merge-base of
 //! the default remote branch and HEAD → HEAD; distinct from
-//! Branch `@{upstream}...HEAD`). Missing `origin/HEAD` is a
-//! non-zero git exit and stays `Could not compare.` Faku has
-//! no checkpoint `capture_worktree_commit`; LastTurn, local
-//! main-or-master fallback, hunks, and untracked-in-Uncommitted
-//! stay leftover. All five use the `/bin/sh -c`
-//! `fx_ask_chdir_script` chdir workaround. Last-slot operands
-//! (`@{upstream}...HEAD` / `HEAD` / `--cached` /
-//! `origin/HEAD...HEAD`) are their own argv slots — never
+//! Branch `@{upstream}...HEAD`). Missing `origin/HEAD` (non-zero
+//! git exit) retries the same argv with last-slot `main...HEAD`,
+//! then `master...HEAD`; all three failing stays
+//! `Could not compare.` A successful origin/HEAD probe with
+//! zero files is `No changes to compare` (no main/master
+//! fall-through). Faku has no checkpoint `capture_worktree_commit`;
+//! LastTurn, hunks, and untracked-in-Uncommitted stay leftover.
+//! All five use the `/bin/sh -c` `fx_ask_chdir_script` chdir
+//! workaround. Last-slot operands (`@{upstream}...HEAD` / `HEAD`
+//! / `--cached` / `origin/HEAD...HEAD` / `main...HEAD` /
+//! `master...HEAD`) are their own argv slots — never
 //! interpolated into `-c`. Unstaged has no trailing operand, so
 //! its argv is 8 slots (the 9-slot detector still accepts the
 //! others). Distinct spawn-key band 510+ (after git-common-dir
 //! 500+). Cap 64 rows. Empty / clean is `No changes to compare`.
 //! Failed / no upstream / missing workspace is a short muted
-//! status — no invented files. Not hunk rendering, not LastTurn
-//! / local main-or-master fallback, not background work, and
-//! not daemon WorkspaceOperation.
+//! status — no invented files. Not hunk rendering, not LastTurn,
+//! not background work, and not daemon WorkspaceOperation.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -62,15 +64,25 @@ pub const review_diff_key_first: u64 = 510;
 /// is first-cut index vs HEAD `git diff --name-status --cached`.
 /// Unstaged is first-cut worktree vs index `git diff
 /// --name-status` (tracked only). Committed is first-cut
-/// `git diff --name-status origin/HEAD...HEAD`. LastTurn /
-/// local main-or-master fallback / hunks /
-/// untracked-in-Uncommitted stay leftover.
+/// `git diff --name-status origin/HEAD...HEAD`, then local
+/// `main...HEAD` / `master...HEAD` on a still-current non-zero
+/// exit. LastTurn / hunks / untracked-in-Uncommitted stay leftover.
 pub const Source = enum {
     branch,
     uncommitted,
     staged,
     unstaged,
     committed,
+};
+
+/// First-cut Committed range probe. Always starts at
+/// `origin/HEAD...HEAD`. A still-current non-zero exit advances
+/// to `main...HEAD`, then `master...HEAD`. Reset when leaving
+/// or re-selecting Committed.
+pub const CommittedRange = enum {
+    origin,
+    main,
+    master,
 };
 
 pub const max_review_diff_files: usize = 64;
@@ -90,6 +102,11 @@ pub const git_cached_flag = "--cached";
 /// Symmetric range vs the default remote branch. Own argv slot,
 /// parallel to Branch `git_upstream_range` (`@{upstream}...HEAD`).
 pub const git_committed_range = "origin/HEAD...HEAD";
+/// Local default-branch fallbacks when `origin/HEAD` is missing.
+/// Three-dot form matches the origin probe (merge-base of that
+/// branch and HEAD → HEAD). Own argv slots.
+pub const git_committed_range_main = "main...HEAD";
+pub const git_committed_range_master = "master...HEAD";
 pub const sh_bin = "/bin/sh";
 
 /// `/bin/sh -c` chdir + `git diff --name-status` + last-slot operand
@@ -137,17 +154,32 @@ pub const ChangedFile = struct {
 
 /// Last argv slot for sources that have one. Unstaged is `null`
 /// (`git diff --name-status` with no range / `--cached`).
-pub fn lastOperand(source: Source) ?[]const u8 {
+/// Committed reads `committed_range` (default first probe is
+/// `origin/HEAD...HEAD`).
+pub fn lastOperand(source: Source, committed_range: CommittedRange) ?[]const u8 {
     return switch (source) {
         .branch => git_upstream_range,
         .uncommitted => git_head,
         .staged => git_cached_flag,
         .unstaged => null,
-        .committed => git_committed_range,
+        .committed => switch (committed_range) {
+            .origin => git_committed_range,
+            .main => git_committed_range_main,
+            .master => git_committed_range_master,
+        },
     };
 }
 
 pub fn argvForSource(source: Source, cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    return argvForSourceRange(source, .origin, cwd, buf);
+}
+
+pub fn argvForSourceRange(
+    source: Source,
+    committed_range: CommittedRange,
+    cwd: []const u8,
+    buf: *[argv_len][]const u8,
+) []const []const u8 {
     buf[0] = sh_bin;
     buf[1] = "-c";
     buf[2] = main.fx_ask_chdir_script;
@@ -156,7 +188,7 @@ pub fn argvForSource(source: Source, cwd: []const u8, buf: *[argv_len][]const u8
     buf[5] = git_bin;
     buf[6] = git_diff_cmd;
     buf[7] = git_name_status;
-    if (lastOperand(source)) |operand| {
+    if (lastOperand(source, committed_range)) |operand| {
         buf[8] = operand;
         return buf[0..argv_len];
     }
@@ -181,7 +213,9 @@ pub fn isGitReviewDiffArgv(argv: []const []const u8) bool {
     return std.mem.eql(u8, last, git_upstream_range) or
         std.mem.eql(u8, last, git_head) or
         std.mem.eql(u8, last, git_cached_flag) or
-        std.mem.eql(u8, last, git_committed_range);
+        std.mem.eql(u8, last, git_committed_range) or
+        std.mem.eql(u8, last, git_committed_range_main) or
+        std.mem.eql(u8, last, git_committed_range_master);
 }
 
 /// One `XY\tpath` or `R100\told\tnew` name-status row. Blank /
@@ -296,6 +330,7 @@ pub fn close(model: *Model, fx: *Effects) void {
     clearStatus(model);
     model.review_diff_probe_session = 0;
     model.review_diff_probe_path_len = 0;
+    model.review_diff_committed_range = .origin;
     model.review_diff_source = .branch;
     model.review_diff_active = false;
 }
@@ -340,7 +375,12 @@ fn startProbe(model: *Model, fx: *Effects) void {
     var argv_buf: [argv_len][]const u8 = undefined;
     fx.spawn(.{
         .key = key,
-        .argv = argvForSource(model.review_diff_source, cwd, &argv_buf),
+        .argv = argvForSourceRange(
+            model.review_diff_source,
+            model.review_diff_committed_range,
+            cwd,
+            &argv_buf,
+        ),
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
@@ -362,12 +402,14 @@ pub fn open(model: *Model, fx: *Effects) void {
 }
 
 /// Switch the Review name-status source, cancel any in-flight
-/// 510+ spawn, clear rows / status, and re-probe. No-op when the
-/// card is closed. Does not invent LastTurn / local
-/// main-or-master fallback.
+/// 510+ spawn, clear rows / status, and re-probe. Committed
+/// always restarts at `origin/HEAD...HEAD` (no leftover
+/// main/master retry). No-op when the card is closed. Does not
+/// invent LastTurn.
 pub fn setSource(model: *Model, fx: *Effects, source: Source) void {
     if (!model.review_diff_active) return;
     model.review_diff_source = source;
+    model.review_diff_committed_range = .origin;
     startProbe(model, fx);
 }
 
@@ -378,7 +420,7 @@ pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
     appendParsed(model, line.line);
 }
 
-pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
+pub fn handleExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (exit.key != model.review_diff_key or model.review_diff_key == 0) return;
     const current = probeStillCurrent(model);
     model.review_diff_key = 0;
@@ -387,7 +429,13 @@ pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
         clearStatus(model);
         return;
     }
-    if (!current or exit.reason != .exited or exit.code != 0) {
+    if (!current) {
+        clearFiles(model);
+        setStatus(model, failed_status);
+        return;
+    }
+    if (exit.reason != .exited or exit.code != 0) {
+        if (startCommittedFallback(model, fx)) return;
         clearFiles(model);
         setStatus(model, failed_status);
         return;
@@ -397,6 +445,22 @@ pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
         return;
     }
     clearStatus(model);
+}
+
+/// Still-current Committed non-zero exit: retry `main...HEAD`,
+/// then `master...HEAD`. Keeps `Comparing…` (no flashed fail).
+/// Returns false when this was not a Committed probe or both
+/// local fallbacks already failed.
+fn startCommittedFallback(model: *Model, fx: *Effects) bool {
+    if (model.review_diff_source != .committed) return false;
+    const next: CommittedRange = switch (model.review_diff_committed_range) {
+        .origin => .main,
+        .main => .master,
+        .master => return false,
+    };
+    model.review_diff_committed_range = next;
+    startProbe(model, fx);
+    return true;
 }
 
 test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
@@ -470,7 +534,7 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expectEqualStrings(git_bin, unstaged[5]);
     try std.testing.expectEqualStrings(git_diff_cmd, unstaged[6]);
     try std.testing.expectEqualStrings(git_name_status, unstaged[7]);
-    try std.testing.expect(lastOperand(.unstaged) == null);
+    try std.testing.expect(lastOperand(.unstaged, .origin) == null);
     try std.testing.expect(isGitReviewDiffArgv(unstaged));
     try std.testing.expect(std.mem.indexOf(u8, unstaged[2], git_name_status) == null);
     try std.testing.expect(std.mem.indexOf(u8, unstaged[2], git_diff_cmd) == null);
@@ -490,13 +554,35 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expectEqualStrings(git_name_status, committed[7]);
     try std.testing.expectEqualStrings(git_committed_range, committed[8]);
     try std.testing.expectEqualStrings("origin/HEAD...HEAD", committed[8]);
-    try std.testing.expect(lastOperand(.committed) != null);
-    try std.testing.expectEqualStrings(git_committed_range, lastOperand(.committed).?);
+    try std.testing.expect(lastOperand(.committed, .origin) != null);
+    try std.testing.expectEqualStrings(git_committed_range, lastOperand(.committed, .origin).?);
+    try std.testing.expectEqualStrings("origin/HEAD...HEAD", lastOperand(.committed, .origin).?);
+    try std.testing.expectEqualStrings(git_committed_range_main, lastOperand(.committed, .main).?);
+    try std.testing.expectEqualStrings("main...HEAD", lastOperand(.committed, .main).?);
+    try std.testing.expectEqualStrings(git_committed_range_master, lastOperand(.committed, .master).?);
+    try std.testing.expectEqualStrings("master...HEAD", lastOperand(.committed, .master).?);
     try std.testing.expect(isGitReviewDiffArgv(committed));
     try std.testing.expect(std.mem.indexOf(u8, committed[2], git_committed_range) == null);
     try std.testing.expect(std.mem.indexOf(u8, committed[2], git_name_status) == null);
     try std.testing.expect(std.mem.indexOf(u8, committed[2], git_upstream_range) == null);
     try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_committed_range }));
+    var committed_main_buf: [argv_len][]const u8 = undefined;
+    const committed_main = argvForSourceRange(.committed, .main, "/tmp/faku-review", &committed_main_buf);
+    try std.testing.expectEqual(@as(usize, 9), committed_main.len);
+    try std.testing.expectEqualStrings(git_committed_range_main, committed_main[8]);
+    try std.testing.expect(isGitReviewDiffArgv(committed_main));
+    try std.testing.expect(std.mem.indexOf(u8, committed_main[2], git_committed_range_main) == null);
+    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_committed_range_main }));
+    var committed_master_buf: [argv_len][]const u8 = undefined;
+    const committed_master = argvForSourceRange(.committed, .master, "/tmp/faku-review", &committed_master_buf);
+    try std.testing.expectEqualStrings(git_committed_range_master, committed_master[8]);
+    try std.testing.expect(isGitReviewDiffArgv(committed_master));
+    try std.testing.expect(std.mem.indexOf(u8, committed_master[2], git_committed_range_master) == null);
+    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_committed_range_master }));
+    var interpolated_main = committed_main_buf;
+    interpolated_main[2] = "cd \"$1\" && git diff --name-status main...HEAD";
+    interpolated_main[8] = git_committed_range_main;
+    try std.testing.expect(!isGitReviewDiffArgv(interpolated_main[0..argv_len]));
     var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;
     const ahead = git_ahead_behind.argvFor("/tmp/faku-review", &ahead_buf);
     try std.testing.expect(!isGitReviewDiffArgv(ahead));
@@ -607,7 +693,7 @@ test "name-status lines fill capped rows; empty and fail stay honest" {
     try std.testing.expectEqualStrings("D gone.txt", model.review_diff_file_store[2].label());
     try std.testing.expectEqualStrings("R renamed.txt", model.review_diff_file_store[3].label());
 
-    handleExit(&model, .{ .key = key, .reason = .exited, .code = 0 });
+    handleExit(&model, &fx, .{ .key = key, .reason = .exited, .code = 0 });
     try std.testing.expect(model.review_diff_active);
     try std.testing.expectEqual(@as(u64, 0), model.review_diff_key);
     try std.testing.expect(!hasReviewDiffStatus(&model));
@@ -615,14 +701,14 @@ test "name-status lines fill capped rows; empty and fail stay honest" {
 
     open(&model, &fx);
     const empty_key = model.review_diff_key;
-    handleExit(&model, .{ .key = empty_key, .reason = .exited, .code = 0 });
+    handleExit(&model, &fx, .{ .key = empty_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
     try std.testing.expectEqualStrings(empty_status, reviewDiffStatus(&model));
 
     open(&model, &fx);
     const fail_key = model.review_diff_key;
     applyLine(&model, .{ .key = fail_key, .line = "M\tshould-drop.zig\n" });
-    handleExit(&model, .{ .key = fail_key, .reason = .exited, .code = 128 });
+    handleExit(&model, &fx, .{ .key = fail_key, .reason = .exited, .code = 128 });
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
     try std.testing.expectEqualStrings(failed_status, reviewDiffStatus(&model));
     try std.testing.expect(model.review_diff_active);
@@ -673,7 +759,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
 
     applyLine(&model, .{ .key = branch_key, .line = "A\tshould-ignore.txt\n" });
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
-    handleExit(&model, .{ .key = branch_key, .reason = .exited, .code = 0 });
+    handleExit(&model, &fx, .{ .key = branch_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(Source.staged, model.review_diff_source);
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
 
@@ -687,7 +773,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     try std.testing.expectEqualStrings(git_cached_flag, staged_argv.?[8]);
     try std.testing.expect(std.mem.indexOf(u8, staged_argv.?[2], git_cached_flag) == null);
     applyLine(&model, .{ .key = staged_key, .line = "A\tstaged.zig\n" });
-    handleExit(&model, .{ .key = staged_key, .reason = .exited, .code = 0 });
+    handleExit(&model, &fx, .{ .key = staged_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
     try std.testing.expectEqualStrings("A staged.zig", model.review_diff_file_store[0].label());
     try std.testing.expect(!hasReviewDiffStatus(&model));
@@ -701,7 +787,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
 
     applyLine(&model, .{ .key = staged_key, .line = "M\tshould-ignore-staged.zig\n" });
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
-    handleExit(&model, .{ .key = staged_key, .reason = .exited, .code = 0 });
+    handleExit(&model, &fx, .{ .key = staged_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(Source.uncommitted, model.review_diff_source);
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
 
@@ -715,7 +801,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     try std.testing.expectEqualStrings(git_head, uncommitted_argv.?[8]);
     try std.testing.expect(std.mem.indexOf(u8, uncommitted_argv.?[2], git_head) == null);
     applyLine(&model, .{ .key = uncommitted_key, .line = "M\ttracked.zig\n" });
-    handleExit(&model, .{ .key = uncommitted_key, .reason = .exited, .code = 0 });
+    handleExit(&model, &fx, .{ .key = uncommitted_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
     try std.testing.expectEqualStrings("M tracked.zig", model.review_diff_file_store[0].label());
     try std.testing.expect(!hasReviewDiffStatus(&model));
@@ -729,7 +815,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
 
     applyLine(&model, .{ .key = uncommitted_key, .line = "M\tshould-ignore-uncommitted.zig\n" });
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
-    handleExit(&model, .{ .key = uncommitted_key, .reason = .exited, .code = 0 });
+    handleExit(&model, &fx, .{ .key = uncommitted_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(Source.unstaged, model.review_diff_source);
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
 
@@ -746,7 +832,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     try std.testing.expect(std.mem.indexOf(u8, unstaged_argv.?[2], git_head) == null);
     try std.testing.expect(std.mem.indexOf(u8, unstaged_argv.?[2], git_cached_flag) == null);
     applyLine(&model, .{ .key = unstaged_key, .line = "M\tunstaged.zig\n" });
-    handleExit(&model, .{ .key = unstaged_key, .reason = .exited, .code = 0 });
+    handleExit(&model, &fx, .{ .key = unstaged_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
     try std.testing.expectEqualStrings("M unstaged.zig", model.review_diff_file_store[0].label());
     try std.testing.expect(!hasReviewDiffStatus(&model));
@@ -760,7 +846,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
 
     applyLine(&model, .{ .key = unstaged_key, .line = "M\tshould-ignore-unstaged.zig\n" });
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
-    handleExit(&model, .{ .key = unstaged_key, .reason = .exited, .code = 0 });
+    handleExit(&model, &fx, .{ .key = unstaged_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(Source.committed, model.review_diff_source);
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
 
@@ -777,7 +863,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     try std.testing.expect(std.mem.indexOf(u8, committed_argv.?[2], git_committed_range) == null);
     try std.testing.expect(std.mem.indexOf(u8, committed_argv.?[2], git_upstream_range) == null);
     applyLine(&model, .{ .key = committed_key, .line = "M\tcommitted.zig\n" });
-    handleExit(&model, .{ .key = committed_key, .reason = .exited, .code = 0 });
+    handleExit(&model, &fx, .{ .key = committed_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
     try std.testing.expectEqualStrings("M committed.zig", model.review_diff_file_store[0].label());
     try std.testing.expect(!hasReviewDiffStatus(&model));
@@ -798,14 +884,18 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     try std.testing.expectEqualStrings(git_upstream_range, back_argv.?[8]);
     try std.testing.expectEqualStrings("@{upstream}...HEAD", back_argv.?[8]);
 
-    handleExit(&model, .{ .key = back_key, .reason = .exited, .code = 0 });
+    handleExit(&model, &fx, .{ .key = back_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqualStrings(empty_status, reviewDiffStatus(&model));
 
     setSource(&model, &fx, .committed);
+    try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
     const fail_key = model.review_diff_key;
-    handleExit(&model, .{ .key = fail_key, .reason = .exited, .code = 128 });
-    try std.testing.expectEqualStrings(failed_status, reviewDiffStatus(&model));
+    handleExit(&model, &fx, .{ .key = fail_key, .reason = .exited, .code = 128 });
+    try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
     try std.testing.expectEqual(Source.committed, model.review_diff_source);
+    try std.testing.expectEqual(CommittedRange.main, model.review_diff_committed_range);
+    try std.testing.expect(model.review_diff_key != fail_key);
+    try std.testing.expect(model.review_diff_key >= review_diff_key_first);
 
     dismiss(&model, &fx);
     try std.testing.expect(!model.review_diff_active);
@@ -814,6 +904,153 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     setSource(&model, &fx, .committed);
     try std.testing.expect(!model.review_diff_active);
     try std.testing.expectEqual(Source.branch, model.review_diff_source);
+}
+
+fn findSpawnArgv(fx: *Effects, key: u64) ?[]const []const u8 {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key) return spawn.argv;
+    }
+    return null;
+}
+
+test "Committed missing origin/HEAD retries main then master; zero-file origin stays empty" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/review-committed-fallback", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("review committed fallback", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    open(&model, &fx);
+    setSource(&model, &fx, .committed);
+    try std.testing.expectEqual(Source.committed, model.review_diff_source);
+    try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
+    const origin_key = model.review_diff_key;
+    const origin_argv = findSpawnArgv(&fx, origin_key) orelse return error.MissingOriginArgv;
+    try std.testing.expect(isGitReviewDiffArgv(origin_argv));
+    try std.testing.expectEqualStrings(git_committed_range, origin_argv[8]);
+    try std.testing.expectEqualStrings("origin/HEAD...HEAD", origin_argv[8]);
+    try std.testing.expect(std.mem.indexOf(u8, origin_argv[2], git_committed_range) == null);
+
+    handleExit(&model, &fx, .{ .key = origin_key, .reason = .exited, .code = 128 });
+    try std.testing.expect(model.review_diff_active);
+    try std.testing.expectEqual(Source.committed, model.review_diff_source);
+    try std.testing.expectEqual(CommittedRange.main, model.review_diff_committed_range);
+    try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
+    try std.testing.expect(model.review_diff_key != origin_key);
+    try std.testing.expect(model.review_diff_key >= review_diff_key_first);
+    try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+    const main_key = model.review_diff_key;
+    const main_argv = findSpawnArgv(&fx, main_key) orelse return error.MissingMainArgv;
+    try std.testing.expect(isGitReviewDiffArgv(main_argv));
+    try std.testing.expectEqual(argv_len, main_argv.len);
+    try std.testing.expectEqualStrings(git_committed_range_main, main_argv[8]);
+    try std.testing.expectEqualStrings("main...HEAD", main_argv[8]);
+    try std.testing.expect(std.mem.indexOf(u8, main_argv[2], git_committed_range_main) == null);
+
+    handleExit(&model, &fx, .{ .key = main_key, .reason = .exited, .code = 128 });
+    try std.testing.expectEqual(Source.committed, model.review_diff_source);
+    try std.testing.expectEqual(CommittedRange.master, model.review_diff_committed_range);
+    try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
+    try std.testing.expect(model.review_diff_key != main_key);
+    const master_key = model.review_diff_key;
+    const master_argv = findSpawnArgv(&fx, master_key) orelse return error.MissingMasterArgv;
+    try std.testing.expect(isGitReviewDiffArgv(master_argv));
+    try std.testing.expectEqualStrings(git_committed_range_master, master_argv[8]);
+    try std.testing.expectEqualStrings("master...HEAD", master_argv[8]);
+    try std.testing.expect(std.mem.indexOf(u8, master_argv[2], git_committed_range_master) == null);
+
+    handleExit(&model, &fx, .{ .key = master_key, .reason = .exited, .code = 128 });
+    try std.testing.expectEqualStrings(failed_status, reviewDiffStatus(&model));
+    try std.testing.expectEqual(Source.committed, model.review_diff_source);
+    try std.testing.expectEqual(CommittedRange.master, model.review_diff_committed_range);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_key);
+    try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+
+    setSource(&model, &fx, .committed);
+    try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
+    try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
+    const empty_origin_key = model.review_diff_key;
+    const empty_origin_argv = findSpawnArgv(&fx, empty_origin_key) orelse return error.MissingEmptyOriginArgv;
+    try std.testing.expectEqualStrings(git_committed_range, empty_origin_argv[8]);
+    handleExit(&model, &fx, .{ .key = empty_origin_key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqualStrings(empty_status, reviewDiffStatus(&model));
+    try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_key);
+    try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+}
+
+test "Committed fallback does not hang after source switch or close" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/review-committed-cancel", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("review committed cancel", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    open(&model, &fx);
+    setSource(&model, &fx, .committed);
+    const origin_key = model.review_diff_key;
+    handleExit(&model, &fx, .{ .key = origin_key, .reason = .exited, .code = 128 });
+    try std.testing.expectEqual(CommittedRange.main, model.review_diff_committed_range);
+    try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
+    const main_key = model.review_diff_key;
+    const main_argv = findSpawnArgv(&fx, main_key) orelse return error.MissingMainBeforeSwitch;
+    try std.testing.expectEqualStrings(git_committed_range_main, main_argv[8]);
+
+    setSource(&model, &fx, .branch);
+    try std.testing.expectEqual(Source.branch, model.review_diff_source);
+    try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
+    try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
+    try std.testing.expect(model.review_diff_key != main_key);
+    const branch_key = model.review_diff_key;
+    const branch_argv = findSpawnArgv(&fx, branch_key) orelse return error.MissingBranchAfterSwitch;
+    try std.testing.expectEqualStrings(git_upstream_range, branch_argv[8]);
+
+    handleExit(&model, &fx, .{ .key = main_key, .reason = .exited, .code = 128 });
+    try std.testing.expectEqual(Source.branch, model.review_diff_source);
+    try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
+    try std.testing.expectEqual(branch_key, model.review_diff_key);
+    try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
+    try std.testing.expect(findSpawnArgv(&fx, main_key + 1) == null or model.review_diff_key == branch_key);
+
+    setSource(&model, &fx, .committed);
+    const origin_again = model.review_diff_key;
+    const origin_again_argv = findSpawnArgv(&fx, origin_again) orelse return error.MissingOriginReselect;
+    try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
+    try std.testing.expectEqualStrings(git_committed_range, origin_again_argv[8]);
+    handleExit(&model, &fx, .{ .key = origin_again, .reason = .exited, .code = 128 });
+    const main_again = model.review_diff_key;
+    try std.testing.expectEqual(CommittedRange.main, model.review_diff_committed_range);
+
+    close(&model, &fx);
+    try std.testing.expect(!model.review_diff_active);
+    try std.testing.expectEqual(Source.branch, model.review_diff_source);
+    try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_key);
+    handleExit(&model, &fx, .{ .key = main_again, .reason = .exited, .code = 128 });
+    try std.testing.expect(!model.review_diff_active);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_key);
+    try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
 }
 
 test "cap stays at 64; extra name-status rows are dropped" {
