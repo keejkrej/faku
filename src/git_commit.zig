@@ -23,14 +23,15 @@
 //! Push… probe/spawn via `beginPushAfterCommit` (ungated vs
 //! `canPushGitBranch` — ahead/behind is stale after the commit).
 //! Commit stays commit-only. Opening the card one-shots CommitSnapshot
-//! numstat (working tree vs HEAD when include-unstaged is on; index
-//! vs HEAD when off). The toggle cancels and re-probes. Cancel / Esc
-//! / session-switch drop an in-flight generate/add/commit and the
+//! numstat (include-unstaged on reuses the project-row
+//! `git_numstat` script: tracked `git diff --numstat HEAD --` plus
+//! untracked text-line additions; index vs HEAD `--cached` when
+//! off). The toggle cancels and re-probes. Cancel / Esc /
+//! session-switch drop an in-flight generate/add/commit and the
 //! snapshot probe, and do not start a push. Commit and Push is
 //! offered only when `canCommitGit` and first-push remotes are OK
 //! (known upstream, or remotes ready with at least one remote).
-//! Not untracked-as-additions on this card, not
-//! `git diff --cached --quiet` preflight, not
+//! Not `git diff --cached --quiet` preflight, not
 //! canonicalize(`git rev-parse --show-toplevel`), not
 //! git-common-dir nest identity, not force / amend, and not daemon
 //! `WorkspaceOperation`.
@@ -115,12 +116,13 @@ pub const git_commit_cmd = "commit";
 pub const git_message_flag = "-m";
 pub const git_diff_cmd = git_numstat.git_diff_cmd;
 pub const git_numstat_flag = git_numstat.git_numstat;
-pub const git_head = git_numstat.git_head;
 pub const git_cached_flag = "--cached";
 pub const sh_bin = git_branch.sh_bin;
 
 pub const add_argv_len: usize = 10;
 pub const commit_argv_len: usize = 9;
+/// Max CommitSnapshot argv slots. Cached is 10; include-unstaged
+/// reuses `git_numstat.argv_len` (8) inside this buffer.
 pub const commit_numstat_argv_len: usize = 10;
 pub const generate_argv_len: usize = 12;
 
@@ -265,24 +267,8 @@ fn isChdirGitDiffArgv(argv: []const []const u8) bool {
     return std.mem.eql(u8, argv[6], git_diff_cmd);
 }
 
-/// Working tree vs HEAD: `git diff --numstat HEAD --`.
-pub fn commitNumstatWorkingTreeArgvFor(cwd: []const u8, buf: *[commit_numstat_argv_len][]const u8) []const []const u8 {
-    buf.* = .{
-        sh_bin,
-        "-c",
-        main.fx_ask_chdir_script,
-        "sh",
-        cwd,
-        git_bin,
-        git_diff_cmd,
-        git_numstat_flag,
-        git_head,
-        git_pathspec_dash,
-    };
-    return buf;
-}
-
-/// Index vs HEAD: `git diff --cached --numstat --`.
+/// Index vs HEAD: `git diff --cached --numstat --`. Staged only;
+/// no untracked rows.
 pub fn commitNumstatCachedArgvFor(cwd: []const u8, buf: *[commit_numstat_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
@@ -299,16 +285,24 @@ pub fn commitNumstatCachedArgvFor(cwd: []const u8, buf: *[commit_numstat_argv_le
     return buf;
 }
 
+/// Include-unstaged on: reuse `git_numstat.argvFor` (len 8, inner
+/// `sh -c` + `numstat_untracked_script`). Off: cached numstat
+/// (len 10). Cwd stays its own argv slot; nothing is interpolated
+/// into the chdir `-c` script.
 pub fn commitNumstatArgvFor(cwd: []const u8, include_unstaged: bool, buf: *[commit_numstat_argv_len][]const u8) []const []const u8 {
-    if (include_unstaged) return commitNumstatWorkingTreeArgvFor(cwd, buf);
+    if (include_unstaged) {
+        var work: [git_numstat.argv_len][]const u8 = undefined;
+        const argv = git_numstat.argvFor(cwd, &work);
+        for (argv, 0..) |slot, i| buf[i] = slot;
+        return buf[0..argv.len];
+    }
     return commitNumstatCachedArgvFor(cwd, buf);
 }
 
+/// Include-unstaged on: same argv as the project-row probe.
+/// Distinct spawn-key band (460+) keeps the two probes apart.
 pub fn isGitCommitNumstatWorkingTreeArgv(argv: []const []const u8) bool {
-    if (!isChdirGitDiffArgv(argv)) return false;
-    if (!std.mem.eql(u8, argv[7], git_numstat_flag)) return false;
-    if (!std.mem.eql(u8, argv[8], git_head)) return false;
-    return std.mem.eql(u8, argv[9], git_pathspec_dash);
+    return git_numstat.isGitNumstatArgv(argv);
 }
 
 pub fn isGitCommitNumstatCachedArgv(argv: []const []const u8) bool {
@@ -1579,31 +1573,32 @@ test "startCommit resets include_unstaged to true" {
     try std.testing.expect(model.git_commit_include_unstaged);
 }
 
-test "commit snapshot argv is HEAD when include-unstaged and --cached when off" {
+test "commit snapshot argv is numstat untracked script when include-unstaged and --cached when off" {
     var work_buf: [commit_numstat_argv_len][]const u8 = undefined;
     const work = commitNumstatArgvFor("/tmp/faku-commit-snap", true, &work_buf);
-    try std.testing.expectEqual(@as(usize, 10), work.len);
+    try std.testing.expectEqual(git_numstat.argv_len, work.len);
     try std.testing.expectEqualStrings(sh_bin, work[0]);
     try std.testing.expectEqualStrings("-c", work[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, work[2]);
     try std.testing.expectEqualStrings("sh", work[3]);
     try std.testing.expectEqualStrings("/tmp/faku-commit-snap", work[4]);
-    try std.testing.expectEqualStrings(git_bin, work[5]);
-    try std.testing.expectEqualStrings(git_diff_cmd, work[6]);
-    try std.testing.expectEqualStrings(git_numstat_flag, work[7]);
-    try std.testing.expectEqualStrings(git_head, work[8]);
-    try std.testing.expectEqualStrings(git_pathspec_dash, work[9]);
+    try std.testing.expectEqualStrings(sh_bin, work[5]);
+    try std.testing.expectEqualStrings("-c", work[6]);
+    try std.testing.expectEqualStrings(git_numstat.numstat_untracked_script, work[7]);
+    try std.testing.expect(git_numstat.isGitNumstatArgv(work));
     try std.testing.expect(isGitCommitNumstatWorkingTreeArgv(work));
     try std.testing.expect(!isGitCommitNumstatCachedArgv(work));
     try std.testing.expect(isGitCommitNumstatArgv(work));
     try std.testing.expect(!isGitCommitAddArgv(work));
     try std.testing.expect(!isGitCommitArgv(work));
-    try std.testing.expect(!git_numstat.isGitNumstatArgv(work));
     try std.testing.expect(std.mem.indexOf(u8, work[2], git_diff_cmd) == null);
-    try std.testing.expect(std.mem.indexOf(u8, work[2], git_head) == null);
+    try std.testing.expect(std.mem.indexOf(u8, work[2], git_numstat.numstat_untracked_script) == null);
+    try std.testing.expect(std.mem.indexOf(u8, work[7], git_numstat.git_ls_files_others) != null);
+    try std.testing.expect(std.mem.indexOf(u8, work[7], git_numstat.untracked_max_bytes_s) != null);
 
     var cached_buf: [commit_numstat_argv_len][]const u8 = undefined;
     const cached = commitNumstatArgvFor("/tmp/faku-commit-snap", false, &cached_buf);
+    try std.testing.expectEqual(@as(usize, 10), cached.len);
     try std.testing.expectEqualStrings(git_diff_cmd, cached[6]);
     try std.testing.expectEqualStrings(git_cached_flag, cached[7]);
     try std.testing.expectEqualStrings(git_numstat_flag, cached[8]);
@@ -1616,7 +1611,7 @@ test "commit snapshot argv is HEAD when include-unstaged and --cached when off" 
     try std.testing.expect(std.mem.indexOf(u8, cached[2], git_numstat_flag) == null);
 }
 
-test "startCommit kicks a commit-snapshot probe that does not reuse project-row numstat" {
+test "startCommit kicks a commit-snapshot probe that does not reuse project-row numstat keys" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -1650,7 +1645,8 @@ test "startCommit kicks a commit-snapshot probe that does not reuse project-row 
     try std.testing.expect(probe.key != model.git_commit_key);
     try std.testing.expectEqualStrings(project, probe.argv[4]);
     try std.testing.expect(!isGitCommitNumstatCachedArgv(probe.argv));
-    try std.testing.expect(!git_numstat.isGitNumstatArgv(probe.argv));
+    try std.testing.expect(git_numstat.isGitNumstatArgv(probe.argv));
+    try std.testing.expectEqualStrings(git_numstat.numstat_untracked_script, probe.argv[7]);
 }
 
 test "commit snapshot label omits zero fail empty and in-flight" {
@@ -1681,9 +1677,10 @@ test "commit snapshot label omits zero fail empty and in-flight" {
     try std.testing.expect(!hasGitCommitNumstat(&model));
 
     applyNumstatLine(&model, .{ .key = key, .line = "3\t1\tsrc/a.zig\n" });
+    applyNumstatLine(&model, .{ .key = key, .line = "5\t0\tnew.txt\n" });
     try std.testing.expect(hasGitCommitNumstat(&model));
-    try std.testing.expectEqualStrings("+3 −1", gitCommitNumstatLabel(&model));
-    try std.testing.expectEqualStrings("+3 −1", model.git_commit_numstat_label());
+    try std.testing.expectEqualStrings("+8 −1", gitCommitNumstatLabel(&model));
+    try std.testing.expectEqualStrings("+8 −1", model.git_commit_numstat_label());
 
     handleNumstatExit(&model, .{ .key = key, .reason = .exited, .code = 1 });
     try std.testing.expectEqual(@as(u64, 0), model.git_commit_numstat_key);
@@ -1724,9 +1721,11 @@ test "toggle refreshes commit snapshot probe and cancel clears the label" {
 
     startCommit(&model, &fx);
     const first = findPending(&fx, model.git_commit_numstat_key, &isGitCommitNumstatWorkingTreeArgv) orelse return error.MissingWorkingTreeNumstat;
+    try std.testing.expect(git_numstat.isGitNumstatArgv(first.argv));
     applyNumstatLine(&model, .{ .key = first.key, .line = "4\t2\ta.zig\n" });
+    applyNumstatLine(&model, .{ .key = first.key, .line = "6\t0\tuntracked.txt\n" });
     handleNumstatExit(&model, .{ .key = first.key, .reason = .exited, .code = 0 });
-    try std.testing.expectEqualStrings("+4 −2", gitCommitNumstatLabel(&model));
+    try std.testing.expectEqualStrings("+10 −2", gitCommitNumstatLabel(&model));
 
     toggleIncludeUnstaged(&model, &fx);
     try std.testing.expect(!model.git_commit_include_unstaged);

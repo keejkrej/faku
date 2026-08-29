@@ -290,9 +290,11 @@ pub const file_mention_key_first = file_mention.file_mention_key_first;
 /// file_mention (400+); band is 450+ so it does not sit on 400–409.
 /// Incremented per spawn from `git_commit_key_first`.
 pub const git_commit_key_first = git_commit.git_commit_key_first;
-/// One-shot CommitSnapshot numstat on the Commit… card. Distinct
-/// from add/commit (450+) and project-row numstat (350+). Band is
-/// 460+. Incremented per probe from `git_commit_numstat_key_first`.
+/// One-shot CommitSnapshot numstat on the Commit… card (include-
+/// unstaged reuses the project-row script; off is `--cached`).
+/// Distinct from add/commit (450+) and project-row keys (350+).
+/// Band is 460+. Incremented per probe from
+/// `git_commit_numstat_key_first`.
 pub const git_commit_numstat_key_first = git_commit.git_commit_numstat_key_first;
 /// One-shot empty-message `fx ask` generate on the Commit… card.
 /// Distinct from add/commit (450+) and CommitSnapshot numstat (460+).
