@@ -23,16 +23,25 @@
 //! unavailable or the path is empty, it sets
 //! `Enter a commit message.` and does not spawn. Generate fail
 //! / empty output keeps the card open with
-//! `Could not generate a commit message.` Commit and Push uses
+//! `Could not generate a commit message.` In-dialog pending
+//! labels stay muted extra lines on the card (not on the action
+//! row), mutually exclusive: Generating… while `fx ask` is live;
+//! Committing… (Waku `commit.committing`) while commit-only
+//! add/preflight/commit is in flight; Committing and pushing…
+//! (Waku `commit.committing_and_pushing`) for the whole Commit
+//! and Push flow; Pushing… for Push-only. Commit and Push uses
 //! the same commit path; on successful commit it starts the existing
 //! Push… probe/spawn via `beginPushAfterCommit` (ungated vs
 //! `canPushGitBranch` — ahead/behind is stale after the commit)
-//! and keeps the card open with an in-dialog Pushing… pending
-//! state until that push ends. Commit stays commit-only. Push-only
+//! and keeps the card open with Committing and pushing… through
+//! that follow-on push (`git_commit_then_push` stays set so the
+//! user does not see a silent commit then a sudden Pushing…).
+//! Commit stays commit-only. Push-only
 //! (Waku `CommitAction::Push`) does not commit, generate, or run
 //! this preflight; it is gated by `canPushGitBranch` (same as
 //! composer Push…) and starts the gated push probe without
-//! dismissing the card. Empty / whitespace message is fine.
+//! dismissing the card (in-dialog Pushing…). Empty / whitespace
+//! message is fine.
 //! In-flight generate, add/preflight/commit, or a card-originated
 //! push is a no-op. Opening the card one-shots CommitSnapshot
 //! numstat (include-unstaged on reuses the project-row
@@ -417,11 +426,38 @@ pub fn hasGitCommitGenerate(model: *const Model) bool {
     return model.git_commit_generate_key != 0;
 }
 
+/// In-dialog Committing… (Waku `commit.committing`). Card open,
+/// add / cached-quiet / commit in flight, and this is not Commit
+/// and Push. Hidden while generate is live, when idle, or when
+/// the card is closed.
+pub fn hasGitCommitCommitting(model: *const Model) bool {
+    return model.git_commit_active and model.git_commit_key != 0 and !model.git_commit_then_push and !hasGitCommitGenerate(model);
+}
+
+/// In-dialog Committing and pushing… (Waku
+/// `commit.committing_and_pushing`). Card open and Commit and
+/// Push is live through add/preflight/commit or the follow-on
+/// card-originated push. Hidden while generate is live.
+/// Mutually exclusive with Pushing….
+pub fn hasGitCommitCommittingAndPushing(model: *const Model) bool {
+    if (!model.git_commit_active or hasGitCommitGenerate(model) or !model.git_commit_then_push) return false;
+    return model.git_commit_key != 0 or model.git_push_key != 0;
+}
+
 /// In-dialog Pushing… pending state. Card-originated pushes keep
 /// `git_commit_active` while `git_push_key` is live; composer
-/// menu Push… closes the card first.
+/// menu Push… closes the card first. True for Commit and Push's
+/// follow-on push as well; Native uses `hasGitCommitPushOnly` so
+/// that path cannot show Pushing… beside Committing and pushing….
 pub fn hasGitCommitPushing(model: *const Model) bool {
     return model.git_commit_active and model.git_push_key != 0;
+}
+
+/// In-dialog Pushing… for Push-only (and any card-originated
+/// push that is not Commit and Push). Narrower than
+/// `hasGitCommitPushing` so both labels cannot appear together.
+pub fn hasGitCommitPushOnly(model: *const Model) bool {
+    return hasGitCommitPushing(model) and !hasGitCommitCommittingAndPushing(model);
 }
 
 pub fn applyCommitEdit(model: *Model, edit: native_sdk.canvas.TextInputEvent) void {
@@ -523,6 +559,7 @@ pub fn closeCommit(model: *Model) void {
     model.git_commit_numstat_key = 0;
     model.git_commit_generate_key = 0;
     model.git_commit_generate_stdout_len = 0;
+    model.git_commit_then_push = false;
     clearCommitNumstat(model);
 }
 
@@ -901,6 +938,10 @@ pub fn handleCommitExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
             if (exit.reason == .exited and exit.code == 0) {
                 dropCommitNumstat(model, fx);
                 if (then_push) {
+                    // Keep the Waku CommitAndPush label across Faku's
+                    // split commit-then-push so Native does not flash
+                    // from a silent commit into Pushing….
+                    model.git_commit_then_push = true;
                     git_checkout.beginPushAfterCommit(model, fx);
                     if (model.git_push_key == 0) {
                         closeCommit(model);
@@ -1376,6 +1417,25 @@ fn markFirstPushRemotesOk(model: *Model) void {
     model.git_has_remote = true;
 }
 
+fn expectCommitPending(
+    model: *const Model,
+    generate: bool,
+    committing: bool,
+    committing_and_pushing: bool,
+    pushing_only: bool,
+) !void {
+    try std.testing.expectEqual(generate, hasGitCommitGenerate(model));
+    try std.testing.expectEqual(generate, model.has_git_commit_generate());
+    try std.testing.expectEqual(committing, hasGitCommitCommitting(model));
+    try std.testing.expectEqual(committing, model.has_git_commit_committing());
+    try std.testing.expectEqual(committing_and_pushing, hasGitCommitCommittingAndPushing(model));
+    try std.testing.expectEqual(committing_and_pushing, model.has_git_commit_committing_and_pushing());
+    try std.testing.expectEqual(pushing_only, hasGitCommitPushOnly(model));
+    try std.testing.expectEqual(pushing_only, model.has_git_commit_push_only());
+    const live = @intFromBool(generate) + @intFromBool(committing) + @intFromBool(committing_and_pushing) + @intFromBool(pushing_only);
+    try std.testing.expect(live <= 1);
+}
+
 test "confirm and push with a message add-then-commit then starts the push probe" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
@@ -1422,7 +1482,7 @@ test "confirm and push with a message add-then-commit then starts the push probe
     try std.testing.expect(model.git_commit_active);
     try std.testing.expect(hasGitCommitPushing(&model));
     try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
-    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expect(model.git_commit_then_push);
     try std.testing.expect(model.git_push_key != 0);
     try std.testing.expectEqual(git_checkout.GitPushPhase.upstream, model.git_push_phase);
     try std.testing.expect(!model.has_attach_status());
@@ -1900,7 +1960,7 @@ test "confirm and push skips add when include_unstaged is false" {
     handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 0 });
     try std.testing.expect(model.git_commit_active);
     try std.testing.expect(hasGitCommitPushing(&model));
-    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expect(model.git_commit_then_push);
     try std.testing.expect(model.git_push_key != 0);
     try std.testing.expectEqual(git_checkout.GitPushPhase.upstream, model.git_push_phase);
     try std.testing.expect(!model.has_attach_status());
@@ -2453,7 +2513,7 @@ test "generate then commit and push starts push only after successful commit" {
     handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 0 });
     try std.testing.expect(model.git_commit_active);
     try std.testing.expect(hasGitCommitPushing(&model));
-    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expect(model.git_commit_then_push);
     try std.testing.expect(model.git_push_key != 0);
     try std.testing.expectEqual(git_checkout.GitPushPhase.upstream, model.git_push_phase);
 }
@@ -2741,4 +2801,227 @@ test "cancel during card-originated push drops the push and closes the card" {
     try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
     try std.testing.expectEqual(git_checkout.GitPushPhase.idle, model.git_push_phase);
     try std.testing.expectEqualStrings(git_checkout.push_failed_status, model.attach_status());
+}
+
+test "idle Commit card shows no pending labels" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-pending-idle", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit pending idle", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+    markFirstPushRemotesOk(&model);
+    model.git_ahead_behind_ready = true;
+
+    startCommit(&model, &fx);
+    try std.testing.expect(model.git_commit_active);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_generate_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try expectCommitPending(&model, false, false, false, false);
+}
+
+test "Commit shows Committing not Pushing or Generating" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-pending-commit", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit pending commit", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+    markFirstPushRemotesOk(&model);
+
+    startCommit(&model, &fx);
+    model.git_commit_buffer.apply(.{ .insert_text = "wrap the dirty probe" });
+    confirmCommit(&model, &fx);
+    try std.testing.expectEqual(GitCommitPhase.add, model.git_commit_phase);
+    try std.testing.expect(!model.git_commit_then_push);
+    try expectCommitPending(&model, false, true, false, false);
+    try std.testing.expect(!hasGitCommitPushing(&model));
+
+    const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
+    handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
+    try expectCommitPending(&model, false, true, false, false);
+
+    const commit = try advanceCachedQuietToCommit(&model, &fx);
+    try std.testing.expectEqual(GitCommitPhase.commit, model.git_commit_phase);
+    try expectCommitPending(&model, false, true, false, false);
+
+    handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 0 });
+    try std.testing.expect(!model.git_commit_active);
+    try expectCommitPending(&model, false, false, false, false);
+}
+
+test "Commit and Push shows Committing and pushing during add/commit and follow-on push" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-pending-both", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit pending both", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 2);
+    markStaleCanPush(&model);
+
+    startCommit(&model, &fx);
+    model.git_commit_buffer.apply(.{ .insert_text = "ship the dirty probe" });
+    confirmCommitAndPush(&model, &fx);
+    try std.testing.expect(model.git_commit_then_push);
+    try std.testing.expectEqual(GitCommitPhase.add, model.git_commit_phase);
+    try expectCommitPending(&model, false, false, true, false);
+    try std.testing.expect(!hasGitCommitPushing(&model));
+
+    const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
+    handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
+    try expectCommitPending(&model, false, false, true, false);
+
+    const commit = try advanceCachedQuietToCommit(&model, &fx);
+    try std.testing.expectEqual(GitCommitPhase.commit, model.git_commit_phase);
+    try expectCommitPending(&model, false, false, true, false);
+
+    handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 0 });
+    try std.testing.expect(model.git_commit_active);
+    try std.testing.expect(model.git_commit_then_push);
+    try std.testing.expect(hasGitCommitPushing(&model));
+    try expectCommitPending(&model, false, false, true, false);
+    try std.testing.expect(!hasGitCommitPushOnly(&model));
+    try std.testing.expect(!hasGitCommitCommitting(&model));
+}
+
+test "Push-only shows Pushing not Committing" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-pending-push", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit pending push", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+    markFirstPushRemotesOk(&model);
+    model.git_ahead_behind_ready = true;
+
+    startCommit(&model, &fx);
+    confirmPushOnly(&model, &fx);
+    try std.testing.expect(hasGitCommitPushing(&model));
+    try std.testing.expect(!model.git_commit_then_push);
+    try expectCommitPending(&model, false, false, false, true);
+    try std.testing.expect(!hasGitCommitCommitting(&model));
+    try std.testing.expect(!hasGitCommitCommittingAndPushing(&model));
+}
+
+test "generate shows Generating only" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-pending-generate", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    enableFx(&model);
+    const id = model.addSession("commit pending generate", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+    markFirstPushRemotesOk(&model);
+
+    startCommit(&model, &fx);
+    confirmCommit(&model, &fx);
+    try std.testing.expect(hasGitCommitGenerate(&model));
+    try expectCommitPending(&model, true, false, false, false);
+
+    handleGenerateExit(&model, &fx, .{ .key = model.git_commit_generate_key, .reason = .exited, .code = 1 });
+    try std.testing.expect(model.git_commit_active);
+    try expectCommitPending(&model, false, false, false, false);
+
+    model.clearAttachStatus();
+    confirmCommitAndPush(&model, &fx);
+    try std.testing.expect(model.git_commit_then_push);
+    try std.testing.expect(hasGitCommitGenerate(&model));
+    try expectCommitPending(&model, true, false, false, false);
+}
+
+test "dismiss and cancel clear pending commit labels" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-pending-dismiss", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit pending dismiss", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+    markFirstPushRemotesOk(&model);
+    model.git_ahead_behind_ready = true;
+
+    startCommit(&model, &fx);
+    model.git_commit_buffer.apply(.{ .insert_text = "do not keep" });
+    confirmCommit(&model, &fx);
+    try expectCommitPending(&model, false, true, false, false);
+    dismissCommit(&model, &fx);
+    try std.testing.expect(!model.git_commit_active);
+    try expectCommitPending(&model, false, false, false, false);
+
+    startCommit(&model, &fx);
+    model.git_commit_buffer.apply(.{ .insert_text = "do not push" });
+    confirmCommitAndPush(&model, &fx);
+    try expectCommitPending(&model, false, false, true, false);
+    dismissCommit(&model, &fx);
+    try std.testing.expect(!model.git_commit_then_push);
+    try expectCommitPending(&model, false, false, false, false);
+
+    startCommit(&model, &fx);
+    confirmPushOnly(&model, &fx);
+    try expectCommitPending(&model, false, false, false, true);
+    dismissCommit(&model, &fx);
+    try std.testing.expect(!model.git_commit_active);
+    try expectCommitPending(&model, false, false, false, false);
 }
