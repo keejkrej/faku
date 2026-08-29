@@ -315,7 +315,6 @@ test "parseAheadBehindLine is behind then ahead; label omits a zero side" {
 }
 
 test "canPushGitBranch is ahead>0 or no-upstream with remotes; hides in-flight" {
-    const git_remotes = @import("git_remotes.zig");
     var model = Model{};
     try std.testing.expect(!canPushGitBranch(&model));
 
