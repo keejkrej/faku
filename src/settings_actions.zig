@@ -327,7 +327,7 @@ pub fn handleStartGitCommit(model: *Model, fx: *Effects) void {
 }
 
 pub fn handleGitCommitEdit(model: *Model, edit: canvas.TextInputEvent) void {
-    model.git_commit_buffer.apply(edit);
+    git_commit.applyCommitEdit(model, edit);
 }
 
 pub fn handleConfirmGitCommit(model: *Model, fx: *Effects) void {

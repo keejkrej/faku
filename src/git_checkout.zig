@@ -73,9 +73,11 @@
 //! `InspectBranches` picker, live watch, `waku/` prefix /
 //! `~/.waku/worktrees/{project_id}` UUID nest, defer-until-Send
 //! workspace mode, base-ref picker UI, prune-alone, stash, merge,
-//! force delete, or Environment Summary. Leftovers:
-//! `git-common-dir` nest identity, in-dialog Pushing spinner,
-//! force / amend, daemon `WorkspaceOperation`.
+//! force delete, or Environment Summary. Composer Push… still
+//! closes any open Commit… card; a push started from that card
+//! keeps it open with in-dialog Pushing… until the push ends.
+//! Leftovers: `git-common-dir` nest identity, force / amend,
+//! daemon `WorkspaceOperation`.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -1269,7 +1271,7 @@ fn resetPushState(model: *Model) void {
     model.git_push_remote_len = 0;
 }
 
-fn cancelPush(model: *Model, fx: *Effects) void {
+pub fn cancelPush(model: *Model, fx: *Effects) void {
     if (model.git_push_key == 0) return;
     fx.cancel(model.git_push_key);
     model.git_push_key = 0;
@@ -1293,6 +1295,7 @@ fn pushCwd(model: *const Model) []const u8 {
 fn failPush(model: *Model) void {
     model.git_push_key = 0;
     resetPushState(model);
+    closeCommitCard(model);
     model.setAttachStatus(push_failed_status);
 }
 
@@ -1762,22 +1765,16 @@ fn spawnUpstreamProbe(model: *Model, fx: *Effects, cwd: []const u8) void {
     spawnPushCmd(model, fx, cwd, upstreamArgvFor(cwd, &argv_buf), .upstream);
 }
 
-/// Push… closes the picker and probes `@{upstream}`. A resolved
-/// upstream one-shots `git push` (no extra flags). No upstream
-/// one-shots `git push --set-upstream <remote> <branch>` after
-/// resolving the current branch and a remote (`origin` preferred).
-/// Detached HEAD or no remotes set `Could not push.` and do not
-/// spawn a push. Not force, not daemon `WorkspaceOperation::Push`.
-/// Offered only when `canPushGitBranch` (Waku `can_push` with
-/// remotes-required-for-first-push). Busy session or in-flight
-/// checkout/create/delete/fetch/push is a no-op.
-pub fn startPush(model: *Model, fx: *Effects) void {
+fn preparePushUi(model: *Model, fx: *Effects, keep_commit_card: bool) void {
     closePicker(model);
     closeCreate(model);
     closeWorktreeCreate(model);
     closeDelete(model);
     dropCommitSnapshot(model, fx);
-    closeCommitCard(model);
+    if (!keep_commit_card) closeCommitCard(model);
+}
+
+fn startGatedPush(model: *Model, fx: *Effects) void {
     if (!git_ahead_behind.canPushGitBranch(model)) return;
     if (gitMutationInFlight(model)) return;
     if (model.is_streaming()) return;
@@ -1787,29 +1784,52 @@ pub fn startPush(model: *Model, fx: *Effects) void {
     spawnUpstreamProbe(model, fx, cwd);
 }
 
+/// Composer menu Push…. Closes any open Commit… card, then probes
+/// `@{upstream}`. A resolved upstream one-shots `git push` (no extra
+/// flags). No upstream one-shots
+/// `git push --set-upstream <remote> <branch>` after resolving the
+/// current branch and a remote (`origin` preferred). Detached HEAD
+/// or no remotes set `Could not push.` and do not spawn a push. Not
+/// force, not daemon `WorkspaceOperation::Push`. Offered only when
+/// `canPushGitBranch` (Waku `can_push` with
+/// remotes-required-for-first-push). Busy session or in-flight
+/// checkout/create/delete/fetch/push is a no-op. Does not require
+/// an open Commit… card.
+pub fn startPush(model: *Model, fx: *Effects) void {
+    preparePushUi(model, fx, false);
+    startGatedPush(model, fx);
+}
+
+/// Gated Push… from the Commit… card. Same `canPushGitBranch`
+/// gates as `startPush`, but keeps the card open so Native can
+/// show Pushing… until the push terminates.
+pub fn startPushFromCommitCard(model: *Model, fx: *Effects) void {
+    preparePushUi(model, fx, true);
+    startGatedPush(model, fx);
+}
+
 /// Ungated Push… probe/spawn for Commit and Push. Reuses the same
 /// upstream → bare `git push` / `--set-upstream` path as `startPush`.
 /// Does not re-check `canPushGitBranch`: after a just-created commit
 /// the ahead/behind probe is stale (often ahead=0). Waku
-/// `CommitAndPush` does not re-check `can_push`. Sets `Could not
-/// push.` when the probe cannot start (missing cwd, streaming,
-/// another git mutation, Windows). Detached HEAD / no remotes still
-/// fail later in `handlePushExit` the same way as Push…. Does not
-/// re-check remotes-required-for-first-push vs ahead: the Commit
-/// and Push UI gate is what hides no-remotes first-push.
+/// `CommitAndPush` does not re-check `can_push`. Keeps the Commit…
+/// card open for in-dialog Pushing…; composer `startPush` still
+/// closes it. Sets `Could not push.` and dismisses the card when
+/// the probe cannot start (missing cwd, streaming, another git
+/// mutation, Windows). Detached HEAD / no remotes still fail later
+/// in `handlePushExit` the same way as Push…. Does not re-check
+/// remotes-required-for-first-push vs ahead: the Commit and Push
+/// UI gate is what hides no-remotes first-push.
 pub fn beginPushAfterCommit(model: *Model, fx: *Effects) void {
-    closePicker(model);
-    closeCreate(model);
-    closeWorktreeCreate(model);
-    closeDelete(model);
-    dropCommitSnapshot(model, fx);
-    closeCommitCard(model);
+    preparePushUi(model, fx, true);
     if (gitMutationInFlight(model) or model.is_streaming() or !probeSupported()) {
+        closeCommitCard(model);
         model.setAttachStatus(push_failed_status);
         return;
     }
     const cwd = probePath(model);
     if (cwd.len == 0) {
+        closeCommitCard(model);
         model.setAttachStatus(push_failed_status);
         return;
     }
@@ -1846,10 +1866,14 @@ pub fn handlePushExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) 
     model.git_push_key = 0;
     if (!current) {
         resetPushState(model);
+        closeCommitCard(model);
         return;
     }
     switch (phase) {
-        .idle => resetPushState(model),
+        .idle => {
+            resetPushState(model);
+            closeCommitCard(model);
+        },
         .upstream => {
             if (exit.reason == .exited and exit.code == 0 and has_upstream) {
                 spawnBarePush(model, fx);
@@ -1873,6 +1897,7 @@ pub fn handlePushExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) 
         },
         .push => {
             resetPushState(model);
+            closeCommitCard(model);
             if (exit.reason == .exited and exit.code == 0) {
                 refreshWorkspaceProbes(model, fx);
                 return;
@@ -3153,8 +3178,85 @@ test "beginPushAfterCommit sets Could not push when cwd is missing" {
     var model = Model{};
     const id = model.addSession("begin push no cwd", .fx);
     model.selected = id;
+    model.git_commit_active = true;
     beginPushAfterCommit(&model, &fx);
     try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
     try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try std.testing.expectEqualStrings(push_failed_status, model.attach_status());
+    try std.testing.expect(!model.git_commit_active);
+}
+
+test "startPush does not require an open commit card and closes one if open" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-menu-push", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("menu push", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_has_upstream = true;
+    model.git_ahead_behind_ahead = 1;
+    try std.testing.expect(git_ahead_behind.canPushGitBranch(&model));
+    try std.testing.expect(!model.git_commit_active);
+
+    startPush(&model, &fx);
+    try std.testing.expect(model.git_push_key >= git_push_key_first);
+    try std.testing.expectEqual(GitPushPhase.upstream, model.git_push_phase);
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expect(!model.has_git_commit_pushing());
+
+    model.git_push_key = 0;
+    model.git_push_phase = .idle;
+    model.git_commit_active = true;
+    startPush(&model, &fx);
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expect(!model.has_git_commit_pushing());
+    try std.testing.expect(model.git_push_key >= git_push_key_first);
+}
+
+test "beginPushAfterCommit keeps an open commit card until push exit" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-begin-push-card", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("begin push card", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_has_upstream = true;
+    model.git_ahead_behind_ahead = 0;
+    try std.testing.expect(!git_ahead_behind.canPushGitBranch(&model));
+    model.git_commit_active = true;
+
+    beginPushAfterCommit(&model, &fx);
+    try std.testing.expect(model.git_commit_active);
+    try std.testing.expect(model.has_git_commit_pushing());
+    try std.testing.expect(model.git_push_key >= git_push_key_first);
+    const key = model.git_push_key;
+    applyPushLine(&model, .{ .key = key, .line = "origin/main\n" });
+    handlePushExit(&model, &fx, .{ .key = key, .reason = .exited, .code = 0 });
+    try std.testing.expect(model.git_commit_active);
+    try std.testing.expectEqual(GitPushPhase.push, model.git_push_phase);
+    const push = model.git_push_key;
+    handlePushExit(&model, &fx, .{ .key = push, .reason = .exited, .code = 1 });
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expect(!model.has_git_commit_pushing());
     try std.testing.expectEqualStrings(push_failed_status, model.attach_status());
 }

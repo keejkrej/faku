@@ -2274,6 +2274,14 @@ pub const Model = struct {
         return git_commit_mod.hasGitCommitGenerate(model);
     }
 
+    /// In-dialog Pushing… on the Commit… card. True only while
+    /// that card is open and a push it started is in flight
+    /// (`git_push_key != 0`). Composer menu Push… closes the card
+    /// first, so this stays false for that path.
+    pub fn has_git_commit_pushing(model: *const Model) bool {
+        return git_commit_mod.hasGitCommitPushing(model);
+    }
+
     /// Composer usage control. 0 when the live path has not reported usage.
     pub fn context_usage(model: *const Model) f32 {
         const session = model.sessionByIdConst(model.selected) orelse return 0;
