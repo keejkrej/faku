@@ -311,7 +311,7 @@ test "ready toplevel occupancy and nest key share the repo root" {
 
     try std.testing.expect(git_checkout.isThisWorktreePath("/tmp/proj", "/tmp/proj/src"));
     try std.testing.expect(!git_checkout.isThisWorktreePath("/tmp/other-worktree", "/tmp/proj/src"));
-    try std.testing.expect(git_checkout.isThisWorktreePath("/tmp/proj", "/tmp/proj/src", &model));
+    try std.testing.expect(git_checkout.isThisWorktreePathFor("/tmp/proj", "/tmp/proj/src", &model));
 
     var nest_raw_buf: [git_checkout.worktree_nest_key_len]u8 = undefined;
     var nest_top_buf: [git_checkout.worktree_nest_key_len]u8 = undefined;
@@ -319,14 +319,14 @@ test "ready toplevel occupancy and nest key share the repo root" {
     const nest_raw = git_checkout.worktreeNestKey("/tmp/proj/src", nest_raw_buf[0..]).?;
     const nest_top = git_checkout.worktreeNestKey("/tmp/proj", nest_top_buf[0..]).?;
     try std.testing.expect(!std.mem.eql(u8, nest_raw, nest_top));
-    try std.testing.expectEqualStrings(nest_raw, git_checkout.worktreeNestKey("/tmp/proj/src", nest_model_buf[0..], &model).?);
+    try std.testing.expectEqualStrings(nest_raw, git_checkout.worktreeNestKeyFor("/tmp/proj/src", nest_model_buf[0..], &model).?);
 
     writeFixed(&model.git_toplevel_path_storage, &model.git_toplevel_path_len, "/tmp/proj");
     model.git_toplevel_ready = true;
     try std.testing.expectEqualStrings("/tmp/proj", readyPath(&model));
-    try std.testing.expect(git_checkout.isThisWorktreePath("/tmp/proj", "/tmp/proj/src", &model));
-    try std.testing.expect(!git_checkout.isThisWorktreePath("/tmp/other-worktree", "/tmp/proj/src", &model));
-    try std.testing.expectEqualStrings(nest_top, git_checkout.worktreeNestKey("/tmp/proj/src", nest_model_buf[0..], &model).?);
-    try std.testing.expect(!git_checkout.localHeadOccupied(false, "/tmp/proj", "/tmp/proj/src", &model));
-    try std.testing.expect(git_checkout.localHeadOccupied(false, "/tmp/other-worktree", "/tmp/proj/src", &model));
+    try std.testing.expect(git_checkout.isThisWorktreePathFor("/tmp/proj", "/tmp/proj/src", &model));
+    try std.testing.expect(!git_checkout.isThisWorktreePathFor("/tmp/other-worktree", "/tmp/proj/src", &model));
+    try std.testing.expectEqualStrings(nest_top, git_checkout.worktreeNestKeyFor("/tmp/proj/src", nest_model_buf[0..], &model).?);
+    try std.testing.expect(!git_checkout.localHeadOccupiedFor(false, "/tmp/proj", "/tmp/proj/src", &model));
+    try std.testing.expect(git_checkout.localHeadOccupiedFor(false, "/tmp/other-worktree", "/tmp/proj/src", &model));
 }

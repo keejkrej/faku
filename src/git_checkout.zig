@@ -685,12 +685,18 @@ pub fn worktreeBranchName(name: []const u8, buf: []u8) ?[]const u8 {
 }
 
 /// 16 lowercase hex chars of FNV-1a 64 of the trimmed source
-/// `project_path` (the cwd used for `git worktree add`). When
-/// `model` has a ready `show-toplevel` path, that root is hashed
-/// instead so subdirs of the same repo share a nest. Empty /
+/// `project_path` (the cwd used for `git worktree add`). Empty /
 /// `..` / NUL after trim → null. Relative paths are allowed; this
-/// is not `git-common-dir`.
-pub fn worktreeNestKey(project_path: []const u8, buf: []u8, model: ?*const Model = null) ?[]const u8 {
+/// is not `git-common-dir`. Prefer `worktreeNestKeyFor` when a
+/// ready `show-toplevel` should win.
+pub fn worktreeNestKey(project_path: []const u8, buf: []u8) ?[]const u8 {
+    return worktreeNestKeyFor(project_path, buf, null);
+}
+
+/// Same FNV nest as `worktreeNestKey`, hashing the ready
+/// `show-toplevel` root when that probe finished so subdirs of the
+/// same repo share `~/.faku/worktrees/<nest>/`.
+pub fn worktreeNestKeyFor(project_path: []const u8, buf: []u8, model: ?*const Model) ?[]const u8 {
     const source = blk: {
         if (model) |m| {
             const top = git_toplevel.readyPath(m);
@@ -708,20 +714,28 @@ pub fn worktreeNestKey(project_path: []const u8, buf: []u8, model: ?*const Model
 }
 
 /// `{home}/.faku/worktrees/<nest>` — the mkdir -p parent. Nest is
-/// `worktreeNestKey(project_path, …, model)`. Root suffix stays
+/// `worktreeNestKey(project_path)`. Root suffix stays
 /// `worktree_parent_suffix`.
-pub fn worktreeParentPath(home: []const u8, project_path: []const u8, buf: []u8, model: ?*const Model = null) ?[]const u8 {
+pub fn worktreeParentPath(home: []const u8, project_path: []const u8, buf: []u8) ?[]const u8 {
+    return worktreeParentPathFor(home, project_path, buf, null);
+}
+
+pub fn worktreeParentPathFor(home: []const u8, project_path: []const u8, buf: []u8, model: ?*const Model) ?[]const u8 {
     const trimmed = std.mem.trim(u8, home, " \t\r\n");
     if (trimmed.len == 0) return null;
     if (trimmed[0] != '/') return null;
     var nest_buf: [worktree_nest_key_len]u8 = undefined;
-    const nest = worktreeNestKey(project_path, nest_buf[0..], model) orelse return null;
+    const nest = worktreeNestKeyFor(project_path, nest_buf[0..], model) orelse return null;
     return std.fmt.bufPrint(buf, "{s}/{s}/{s}", .{ trimmed, worktree_parent_suffix, nest }) catch null;
 }
 
-pub fn worktreeDestPath(home: []const u8, project_path: []const u8, name: []const u8, buf: []u8, model: ?*const Model = null) ?[]const u8 {
+pub fn worktreeDestPath(home: []const u8, project_path: []const u8, name: []const u8, buf: []u8) ?[]const u8 {
+    return worktreeDestPathFor(home, project_path, name, buf, null);
+}
+
+pub fn worktreeDestPathFor(home: []const u8, project_path: []const u8, name: []const u8, buf: []u8, model: ?*const Model) ?[]const u8 {
     const sanitized = sanitizeWorktreeName(name) orelse return null;
-    const parent = worktreeParentPath(home, project_path, buf, model) orelse return null;
+    const parent = worktreeParentPathFor(home, project_path, buf, model) orelse return null;
     if (parent.len + 1 + sanitized.len > buf.len) return null;
     buf[parent.len] = '/';
     @memcpy(buf[parent.len + 1 ..][0..sanitized.len], sanitized);
@@ -836,11 +850,15 @@ pub fn splitRefWorktreeLine(line: []const u8) struct { refname: []const u8, work
     return .{ .refname = line, .worktreepath = "" };
 }
 
-/// This-worktree match: when `model` has a ready `show-toplevel`
-/// path, `worktreepath` must equal that root (trim both). Otherwise
-/// today's path-prefix heuristic: `worktreepath` equals
+/// This-worktree path-prefix heuristic: `worktreepath` equals
 /// `project_path`, or `project_path` starts with `worktreepath` + "/".
-pub fn isThisWorktreePath(worktreepath: []const u8, project_path: []const u8, model: ?*const Model = null) bool {
+/// Prefer `isThisWorktreePathFor` when a ready `show-toplevel` should
+/// win (worktreepath equal to that root).
+pub fn isThisWorktreePath(worktreepath: []const u8, project_path: []const u8) bool {
+    return isThisWorktreePathFor(worktreepath, project_path, null);
+}
+
+pub fn isThisWorktreePathFor(worktreepath: []const u8, project_path: []const u8, model: ?*const Model) bool {
     const wt = std.mem.trim(u8, worktreepath, " \t\r\n");
     if (model) |m| {
         const top = std.mem.trim(u8, git_toplevel.readyPath(m), " \t\r\n");
@@ -854,11 +872,15 @@ pub fn isThisWorktreePath(worktreepath: []const u8, project_path: []const u8, mo
 
 /// Local heads only. Non-empty trimmed worktreepath that is not this
 /// worktree. Remotes and empty paths are never occupied.
-pub fn localHeadOccupied(remote: bool, worktreepath: []const u8, project_path: []const u8, model: ?*const Model = null) bool {
+pub fn localHeadOccupied(remote: bool, worktreepath: []const u8, project_path: []const u8) bool {
+    return localHeadOccupiedFor(remote, worktreepath, project_path, null);
+}
+
+pub fn localHeadOccupiedFor(remote: bool, worktreepath: []const u8, project_path: []const u8, model: ?*const Model) bool {
     if (remote) return false;
     const wt = std.mem.trim(u8, worktreepath, " \t\r\n");
     if (wt.len == 0) return false;
-    return !isThisWorktreePath(wt, project_path, model);
+    return !isThisWorktreePathFor(wt, project_path, model);
 }
 
 /// Classify one `%(refname)` (NUL field already split off). Locals
@@ -890,7 +912,7 @@ fn parsedRefNameEquals(refs: []const ParsedRef, name: []const u8) bool {
 fn parseRefLine(line: []const u8, project_path: []const u8, model: ?*const Model) ?ParsedRef {
     const split = splitRefWorktreeLine(line);
     var parsed = classifyRefname(split.refname) orelse return null;
-    parsed.occupied = localHeadOccupied(parsed.remote, split.worktreepath, project_path, model);
+    parsed.occupied = localHeadOccupiedFor(parsed.remote, split.worktreepath, project_path, model);
     return parsed;
 }
 
@@ -906,7 +928,11 @@ fn occupancyCwd(model: *const Model) []const u8 {
 /// the ready toplevel when that probe finished, else the
 /// `project_path` / probe-cwd heuristic. Skip empty / implausible
 /// names. Then sort by display name. Slices alias `raw`.
-pub fn collectStdoutRefs(raw: []const u8, project_path: []const u8, out: []ParsedRef, model: ?*const Model = null) usize {
+pub fn collectStdoutRefs(raw: []const u8, project_path: []const u8, out: []ParsedRef) usize {
+    return collectStdoutRefsFor(raw, project_path, out, null);
+}
+
+pub fn collectStdoutRefsFor(raw: []const u8, project_path: []const u8, out: []ParsedRef, model: ?*const Model) usize {
     var n: usize = 0;
     var local_n: usize = 0;
     var it = std.mem.splitScalar(u8, raw, '\n');
@@ -1174,7 +1200,7 @@ fn appendListedBranch(model: *Model, name: []const u8, remote: bool, occupied: b
 
 pub fn applyStdoutBranches(model: *Model, raw: []const u8) void {
     var refs: [max_listed_branches]ParsedRef = undefined;
-    const n = collectStdoutRefs(raw, occupancyCwd(model), refs[0..], model);
+    const n = collectStdoutRefsFor(raw, occupancyCwd(model), refs[0..], model);
     var i: usize = 0;
     while (i < n) : (i += 1) {
         if (!refs[i].remote) appendListedBranch(model, refs[i].name, false, refs[i].occupied);
@@ -1873,7 +1899,7 @@ fn assignWorktreeCandidate(model: *Model, home: []const u8, project_path: []cons
     var name_buf: [git_branch.max_git_branch]u8 = undefined;
     const name = worktreeCandidateName(slug, index, name_buf[0..]) orelse return false;
     var dest_buf: [main.max_project_path]u8 = undefined;
-    const dest = worktreeDestPath(home, project_path, name, dest_buf[0..], model) orelse return false;
+    const dest = worktreeDestPathFor(home, project_path, name, dest_buf[0..], model) orelse return false;
     var branch_buf: [git_branch.max_git_branch]u8 = undefined;
     const branch = worktreeBranchName(name, branch_buf[0..]) orelse return false;
     writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, dest);
@@ -1948,7 +1974,7 @@ pub fn confirmWorktreeAdd(model: *Model, fx: *Effects) void {
     const home = model.homeDir();
 
     var parent_buf: [main.max_project_path]u8 = undefined;
-    const parent = worktreeParentPath(home, cwd, parent_buf[0..], model) orelse return;
+    const parent = worktreeParentPathFor(home, cwd, parent_buf[0..], model) orelse return;
     writeFixed(&model.git_worktree_add_slug_storage, &model.git_worktree_add_slug_len, name);
     if (!pickWorktreeCandidate(model, home, cwd, name, 0)) {
         resetWorktreeAddState(model);
