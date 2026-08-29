@@ -380,6 +380,8 @@ pub const Msg = union(enum) {
     environment_compare,
     environment_copy_task_id,
     close_review_diff,
+    set_review_diff_source_branch,
+    set_review_diff_source_uncommitted,
     git_commit_edit: canvas.TextInputEvent,
     confirm_git_commit,
     confirm_git_commit_and_push,
@@ -499,6 +501,10 @@ pub const Model = struct {
     environment_summary_open: bool = false,
     /// Runtime-only Environment Compare Review card. Not persisted.
     review_diff_active: bool = false,
+    /// Runtime-only Review name-status source. Compare / header +/-
+    /// open Branch. Uncommitted is first-cut tracked HEAD. Not
+    /// persisted to sessions.json.
+    review_diff_source: review_diff.Source = .branch,
     /// Runtime-only Delete branch… card. Selected name is not persisted.
     git_branch_delete_active: bool = false,
     /// Runtime-only select on the delete card. Not persisted.
@@ -1107,6 +1113,7 @@ pub const Model = struct {
         "file_mention_probe_path_storage",
         "file_mention_probe_path_len",
         "file_mention_probe_is_walk",
+        "review_diff_source",
         "review_diff_file_store",
         "review_diff_file_count",
         "review_diff_status_storage",
@@ -2404,6 +2411,14 @@ pub const Model = struct {
 
     pub fn has_review_diff_files(model: *const Model) bool {
         return review_diff.hasReviewDiffFiles(model);
+    }
+
+    pub fn review_diff_source_branch(model: *const Model) bool {
+        return model.review_diff_source == .branch;
+    }
+
+    pub fn review_diff_source_uncommitted(model: *const Model) bool {
+        return model.review_diff_source == .uncommitted;
     }
 
     pub fn review_diff_rows(model: *const Model, arena: std.mem.Allocator) []const review_diff.ReviewDiffRow {
