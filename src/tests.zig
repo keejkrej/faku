@@ -16718,7 +16718,6 @@ test "header Environment +/- reuses composer numstat and omits a zero side" {
 
     main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
     var spawn = findGitNumstatSpawnKey(&fx, model.git_numstat_key) orelse return error.MissingGitNumstatSpawn;
-    const numstat_key = spawn.key;
     try testing.expect(!model.has_git_numstat());
     var tree = try buildTree(arena, &model);
     var toolbar = try expectByText(tree.root, .row, "Toolbar");
@@ -16733,9 +16732,10 @@ test "header Environment +/- reuses composer numstat and omits a zero side" {
     try testing.expect(model.has_git_numstat());
     try testing.expectEqualStrings("+3 −1", model.git_numstat_label());
     try testing.expectEqualStrings("+3 −1", model.header_git_numstat_label());
-    try testing.expectEqual(numstat_key, model.git_numstat_key);
+    const pending_before_header = fx.pendingSpawnCount();
 
     tree = try buildTree(arena, &model);
+    try testing.expectEqual(pending_before_header, fx.pendingSpawnCount());
     toolbar = try expectByText(tree.root, .row, "Toolbar");
     env_controls = try expectByText(toolbar, .row, "header-environment-controls");
     const header_status = try expectByText(env_controls, .row, "header-git-status");
