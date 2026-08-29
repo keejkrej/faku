@@ -83,7 +83,7 @@ one-shot `git diff --numstat HEAD` +/- that also adds untracked
 text-line counts on the + side, and muted ahead/behind vs
 `@{upstream}` (`↑A ↓B`) when that name exists (not Waku's daemon
 InspectBranches live watch / `{project_id}` UUID nest /
-canonicalize(show-toplevel) / Environment
+git-common-dir nest identity / Environment
 Summary / force delete / prune-alone / base-ref picker;
 Native still has no git
 effect);
@@ -337,8 +337,10 @@ exit 1 falls back to the cached composer branch label (not a
 detached short SHA) and otherwise omits the base (today's HEAD).
 The dest path is
 `~/.faku/worktrees/<16-hex of source project_path>/<name>`
-(absolute from `$HOME`; nest is FNV-1a 64 of the probe cwd used
-for `git worktree add`, not a daemon UUID / `{project_id}`). Unsafe
+(absolute from `$HOME`; nest is FNV-1a 64 of the ready
+`git rev-parse --show-toplevel` root when that probe finished,
+else the probe cwd used for `git worktree add`, not a daemon
+UUID / `{project_id}`). Unsafe
 / empty names are refused.
 A dest directory that exists or a listed local `faku/<name>` walks
 Waku candidates (`slug`, `slug-2`, … `slug-8`; cap 8 because
@@ -350,7 +352,7 @@ Exhausted candidates set `Could not create worktree.` and leave
 probes refresh against that path. This is not Waku's `waku/`
 prefix, `~/.waku/worktrees/{project_id}` UUID nest, daemon
 `WorkspaceOperation::NewWorktree`, defer-until-Send,
-canonicalize(show-toplevel), git-common-dir identity, or a
+git-common-dir identity, or a
 base-ref picker UI.
 Delete branch… opens a runtime-only delete card of non-current,
 unoccupied listed local heads and one-shots `git branch -d <name>`
@@ -398,8 +400,7 @@ only when `can_push` (same binding as composer Push…); on start it
 closes the card then reuses Push… (`startPush`, gated). This is
 not Waku's in-dialog pending spinner. Commit / Commit and
 Push now run the `git diff --cached --quiet` preflight; Push
-on that card does not. Not
-canonicalize(show-toplevel). Push… probes `@{upstream}` and one-shots `git push`
+on that card does not. Push… probes `@{upstream}` and one-shots `git push`
 when that name exists (`push` its own argv slot). When there is no
 upstream it one-shots `git push --set-upstream <remote> <branch>`
 (`--set-upstream`, remote, and branch each their own argv slot;
@@ -438,27 +439,32 @@ failed, rejected, Local, empty/missing path, or Windows omits that
 label — this cut does not invent "synced" or "0 ahead". The same
 refresh also one-shots `git remote` (`remote` its own argv slot;
 prefer `origin`, else the first name) so first-push remotes can
-gate Push… and Commit and Push. Zero,
+gate Push… and Commit and Push. The same refresh also one-shots
+`git rev-parse --show-toplevel` (`--show-toplevel` its own argv
+slot) so occupancy and New worktree… nest can canonicalize the
+session `project_path`; failed / empty / in-flight keep today's
+`project_path` fallback. Zero,
 failed, or skipped dirty / +/- probes omit those labels — this cut
 does not invent "clean". This is not Waku's daemon
 `InspectBranches` live watch, not Waku `{project_id}` UUID
 nesting / `waku/` prefix, not defer-until-Send
 workspace mode, not a worktree base-ref picker UI, not
-canonicalize(`git rev-parse --show-toplevel`), not
 git-common-dir identity, not Waku's
 Environment Summary, not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
-Review. Leftovers: canonicalize(`git rev-parse --show-toplevel`) /
-git-common-dir worktree nest identity /
+Review. Leftovers: git-common-dir worktree nest identity /
 Waku's in-dialog Pushing spinner (this cut closes the card then
-starts Push…).
+starts Push…) / force / amend / daemon `WorkspaceOperation`.
 Native still has no git effect. The branch, dirty count,
-+/-, ahead/behind, and remotes-ready bit are runtime-only (like the
++/-, ahead/behind, remotes-ready bit, and show-toplevel path
+are runtime-only (like the
 busy spinner) and
-are not stored on `sessions.json`. Occupancy uses the session
-`project_path` /
-probe cwd heuristic. New worktree… materializes one-shot under
-`~/.faku/worktrees/<16-hex of source project_path>/<name>`
+are not stored on `sessions.json`. Occupancy uses a ready
+`git rev-parse --show-toplevel` root when that probe finished
+(`worktreepath` equal to that toplevel), else the session
+`project_path` / probe cwd heuristic. New worktree… materializes
+one-shot under
+`~/.faku/worktrees/<16-hex of source toplevel or project_path>/<name>`
 (or `.../<name>-2` … `-8` on collision) and retargets that
 session path. This is not daemon
 `WorkspaceOperation::NewWorktree`.

@@ -13,6 +13,7 @@ const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
 const git_remotes = @import("git_remotes.zig");
+const git_toplevel = @import("git_toplevel.zig");
 const file_mention = @import("file_mention.zig");
 
 const Model = main.Model;
@@ -56,6 +57,7 @@ pub fn persistComposerProject(model: *Model, fx: *Effects) void {
     git_numstat.refresh(model, fx);
     git_ahead_behind.refresh(model, fx);
     git_remotes.refresh(model, fx);
+    git_toplevel.refresh(model, fx);
     file_mention.refresh(model, fx);
     git_checkout.refresh(model, fx);
 }

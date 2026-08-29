@@ -20,6 +20,7 @@ const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
 const git_remotes = @import("git_remotes.zig");
+const git_toplevel = @import("git_toplevel.zig");
 const git_commit_mod = @import("git_commit.zig");
 const file_mention = @import("file_mention.zig");
 const reveal_folder = @import("reveal_folder.zig");
@@ -703,6 +704,17 @@ pub const Model = struct {
     git_remotes_probe_path_len: usize = 0,
     git_remotes_ready: bool = false,
     git_has_remote: bool = false,
+    /// Runtime-only one-shot `git rev-parse --show-toplevel`.
+    /// Not persisted to sessions.json. Occupancy / New worktree…
+    /// nest fall back to `project_path` until ready.
+    git_toplevel_key: u64 = 0,
+    next_git_toplevel_key: u64 = git_toplevel.git_toplevel_key_first,
+    git_toplevel_probe_session: u32 = 0,
+    git_toplevel_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    git_toplevel_probe_path_len: usize = 0,
+    git_toplevel_ready: bool = false,
+    git_toplevel_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    git_toplevel_path_len: usize = 0,
     /// Runtime-only file cache for composer `@` mentions.
     /// Git ls-files first; bounded walk only when that spawn fails.
     /// Not persisted to sessions.json.
@@ -1026,6 +1038,14 @@ pub const Model = struct {
         "git_remotes_probe_path_len",
         "git_remotes_ready",
         "git_has_remote",
+        "git_toplevel_key",
+        "next_git_toplevel_key",
+        "git_toplevel_probe_session",
+        "git_toplevel_probe_path_storage",
+        "git_toplevel_probe_path_len",
+        "git_toplevel_ready",
+        "git_toplevel_path_storage",
+        "git_toplevel_path_len",
         "file_mention_store",
         "file_mention_count",
         "file_mention_key",

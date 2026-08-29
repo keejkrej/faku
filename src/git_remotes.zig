@@ -13,7 +13,7 @@
 //! so the row does not flash. Distinct spawn-key band (480+); does
 //! not share `git_push_key`'s remotes phase. Runtime-only (not
 //! `sessions.json`). Not a live remotes watch, not an invented Native
-//! git effect, and not canonicalize(`git rev-parse --show-toplevel`).
+//! git effect. Canonicalize of `project_path` is `git_toplevel.zig`.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
