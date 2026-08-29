@@ -3255,6 +3255,7 @@ test "pick_folder stdout directory sets project_path the same way typing does" {
     try testing.expect(!loaded.has_git_commit_numstat());
     try testing.expect(!loaded.review_diff_active);
     try testing.expectEqual(review_diff.Source.branch, loaded.review_diff_source);
+    try testing.expectEqual(review_diff.CommittedRange.origin, loaded.review_diff_committed_range);
     try testing.expectEqual(@as(u32, 0), loaded.review_diff_file_count);
 }
 
@@ -17279,6 +17280,16 @@ test "Review source row switches Committed and re-probes origin/HEAD...HEAD name
     try testing.expectEqual(review_diff.argv_len, fail_spawn.argv.len);
     try testing.expectEqualStrings(review_diff.git_committed_range, fail_spawn.argv[8]);
     try fx.feedExit(fail_spawn.key, 128);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
+    const main_fail = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffCommittedMain;
+    try testing.expectEqualStrings(review_diff.git_committed_range_main, main_fail.argv[8]);
+    try fx.feedExit(main_fail.key, 128);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
+    const master_fail = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffCommittedMaster;
+    try testing.expectEqualStrings(review_diff.git_committed_range_master, master_fail.argv[8]);
+    try fx.feedExit(master_fail.key, 128);
     drainEffects(&model, &fx);
     try testing.expectEqualStrings(review_diff.failed_status, model.review_diff_status());
     tree = try buildTree(arena, &model);

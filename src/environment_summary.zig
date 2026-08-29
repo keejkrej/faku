@@ -8,7 +8,7 @@
 //! via `fx.writeClipboard`). Header +N −M reuses the composer
 //! project-row numstat probe (omit a zero side; muted ghost;
 //! click opens Compare Review on Branch). Not full Review
-//! hunks, not LastTurn / local main-or-master fallback, not
+//! hunks, not LastTurn, not
 //! untracked-in-Uncommitted, not force, not background work,
 //! and not daemon WorkspaceOperation.
 

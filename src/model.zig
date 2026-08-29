@@ -508,9 +508,13 @@ pub const Model = struct {
     /// open Branch. Uncommitted is first-cut tracked HEAD. Staged
     /// is first-cut index vs HEAD (`--cached`). Unstaged is
     /// first-cut worktree vs index (no operand). Committed is
-    /// first-cut `origin/HEAD...HEAD`. Not persisted to
-    /// sessions.json.
+    /// first-cut `origin/HEAD...HEAD`, then local `main...HEAD`
+    /// / `master...HEAD` on a still-current non-zero exit. Not
+    /// persisted to sessions.json.
     review_diff_source: review_diff.Source = .branch,
+    /// Runtime-only Committed range probe. Compare / source
+    /// switch / close reset to origin. Not persisted.
+    review_diff_committed_range: review_diff.CommittedRange = .origin,
     /// Runtime-only Delete branch… card. Selected name is not persisted.
     git_branch_delete_active: bool = false,
     /// Runtime-only select on the delete card. Not persisted.
@@ -1120,6 +1124,7 @@ pub const Model = struct {
         "file_mention_probe_path_len",
         "file_mention_probe_is_walk",
         "review_diff_source",
+        "review_diff_committed_range",
         "review_diff_file_store",
         "review_diff_file_count",
         "review_diff_status_storage",
