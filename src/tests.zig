@@ -13567,13 +13567,16 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     try testing.expect(model.git_commit_active);
     try testing.expect(model.can_push_git_branch());
     main.update(&model, .confirm_git_commit_push, &fx);
-    try testing.expect(!model.git_commit_active);
+    try testing.expect(model.git_commit_active);
+    try testing.expect(model.has_git_commit_pushing());
     try testing.expectEqual(@as(u64, 0), model.git_commit_key);
     try testing.expectEqual(@as(u64, 0), model.git_commit_generate_key);
     try testing.expect(!model.git_commit_then_push);
     try testing.expectEqual(git_commit.GitCommitPhase.idle, model.git_commit_phase);
     try testing.expect(model.git_push_key != 0);
     try testing.expectEqual(git_checkout.GitPushPhase.upstream, model.git_push_phase);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Pushing…");
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         try testing.expect(!git_commit.isGitCommitCachedQuietArgv(spawn.argv));

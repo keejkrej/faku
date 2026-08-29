@@ -397,8 +397,9 @@ remote (hide while that probe is still needed or in-flight on the
 no-upstream path). Push on that card is a first-cut Waku
 `CommitAction::Push`: no commit, no message, no generate; offered
 only when `can_push` (same binding as composer Push…); on start it
-closes the card then reuses Push… (`startPush`, gated). This is
-not Waku's in-dialog pending spinner. Commit / Commit and
+keeps the card open and starts the gated push probe so Native can
+show in-dialog Pushing… until the push ends. Composer menu Push…
+still closes any open commit card. Commit / Commit and
 Push now run the `git diff --cached --quiet` preflight; Push
 on that card does not. Push… probes `@{upstream}` and one-shots `git push`
 when that name exists (`push` its own argv slot). When there is no
@@ -453,8 +454,7 @@ git-common-dir identity, not Waku's
 Environment Summary, not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
 Review. Leftovers: git-common-dir worktree nest identity /
-Waku's in-dialog Pushing spinner (this cut closes the card then
-starts Push…) / force / amend / daemon `WorkspaceOperation`.
+force / amend / daemon `WorkspaceOperation`.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, and show-toplevel path
 are runtime-only (like the
