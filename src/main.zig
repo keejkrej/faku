@@ -50,6 +50,7 @@ const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
+const git_commit = @import("git_commit.zig");
 const file_mention = @import("file_mention.zig");
 const util = @import("util.zig");
 const pick_folder = @import("pick_folder.zig");
@@ -284,6 +285,10 @@ pub const git_numstat_key_first = git_numstat.git_numstat_key_first;
 /// (380+), and git_worktree_base (390+). Incremented per spawn
 /// from `file_mention_key_first` (400).
 pub const file_mention_key_first = file_mention.file_mention_key_first;
+/// One-shot `git add -A -- .` then `git commit -m`. Distinct from
+/// file_mention (400+); band is 450+ so it does not sit on 400–409.
+/// Incremented per spawn from `git_commit_key_first`.
+pub const git_commit_key_first = git_commit.git_commit_key_first;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
 pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_status;
@@ -490,6 +495,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .git_worktree_create_edit => |edit| settings_actions.handleGitWorktreeCreateEdit(model, edit),
         .confirm_git_worktree_create => settings_actions.handleConfirmGitWorktreeCreate(model, fx),
         .cancel_git_worktree_create => settings_actions.handleCancelGitWorktreeCreate(model, fx),
+        .start_git_commit => settings_actions.handleStartGitCommit(model),
+        .git_commit_edit => |edit| settings_actions.handleGitCommitEdit(model, edit),
+        .confirm_git_commit => settings_actions.handleConfirmGitCommit(model, fx),
+        .cancel_git_commit => settings_actions.handleCancelGitCommit(model, fx),
         .start_project_edit => model.startProjectEdit(),
         .project_path_edit => |edit| {
             model.applySelectedProjectPath(edit);

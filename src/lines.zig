@@ -23,6 +23,7 @@ const persist = @import("persist.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
+const git_commit = @import("git_commit.zig");
 const file_mention = @import("file_mention.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
@@ -74,6 +75,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
     }
     if (model.git_push_key != 0 and line.key == model.git_push_key) {
         git_checkout.applyPushLine(model, line);
+        return;
+    }
+    if (model.git_commit_key != 0 and line.key == model.git_commit_key) {
+        git_commit.applyLine(model, line);
         return;
     }
     if (model.git_worktree_base_key != 0 and line.key == model.git_worktree_base_key) {
@@ -405,6 +410,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.git_push_key != 0 and exit.key == model.git_push_key) {
         git_checkout.handlePushExit(model, fx, exit);
+        return;
+    }
+    if (model.git_commit_key != 0 and exit.key == model.git_commit_key) {
+        git_commit.handleCommitExit(model, fx, exit);
         return;
     }
     if (model.git_worktree_base_key != 0 and exit.key == model.git_worktree_base_key) {

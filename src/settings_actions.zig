@@ -12,6 +12,7 @@ const persist = @import("persist.zig");
 const session_switcher = @import("switcher.zig");
 const turn_stream = @import("stream.zig");
 const git_checkout = @import("git_checkout.zig");
+const git_commit = @import("git_commit.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -68,6 +69,10 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
     }
     if (model.git_worktree_create_active) {
         git_checkout.dismissWorktreeCreate(model, fx);
+        return;
+    }
+    if (model.git_commit_active) {
+        git_commit.dismissCommit(model, fx);
         return;
     }
     if (model.git_branch_delete_active) {
@@ -312,6 +317,22 @@ pub fn handleConfirmGitWorktreeCreate(model: *Model, fx: *Effects) void {
 
 pub fn handleCancelGitWorktreeCreate(model: *Model, fx: *Effects) void {
     git_checkout.dismissWorktreeCreate(model, fx);
+}
+
+pub fn handleStartGitCommit(model: *Model) void {
+    git_commit.startCommit(model);
+}
+
+pub fn handleGitCommitEdit(model: *Model, edit: canvas.TextInputEvent) void {
+    model.git_commit_buffer.apply(edit);
+}
+
+pub fn handleConfirmGitCommit(model: *Model, fx: *Effects) void {
+    git_commit.confirmCommit(model, fx);
+}
+
+pub fn handleCancelGitCommit(model: *Model, fx: *Effects) void {
+    git_commit.dismissCommit(model, fx);
 }
 
 pub fn handlePickEffort(model: *Model, fx: *Effects, id: []const u8) void {
