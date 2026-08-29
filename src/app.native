@@ -451,6 +451,9 @@
               <row gap="8" cross="center">
                 <text-field grow="1" placeholder="Commit message" text="{git_commit}" on-input="git_commit_edit" autofocus="true" />
                 <button variant="ghost" size="sm" selected="{git_commit_include_unstaged}" on-press="toggle_git_commit_include_unstaged">Include unstaged</button>
+                <if test="{has_git_commit_numstat}">
+                  <text wrap="false" overflow="ellipsis" foreground="text_muted">{git_commit_numstat_label}</text>
+                </if>
                 <button variant="ghost" size="sm" on-press="confirm_git_commit">Commit</button>
                 <button variant="ghost" size="sm" on-press="confirm_git_commit_and_push">Commit and Push</button>
                 <button variant="ghost" size="sm" on-press="cancel_git_commit">Cancel</button>

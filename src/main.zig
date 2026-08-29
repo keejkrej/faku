@@ -289,6 +289,10 @@ pub const file_mention_key_first = file_mention.file_mention_key_first;
 /// file_mention (400+); band is 450+ so it does not sit on 400–409.
 /// Incremented per spawn from `git_commit_key_first`.
 pub const git_commit_key_first = git_commit.git_commit_key_first;
+/// One-shot CommitSnapshot numstat on the Commit… card. Distinct
+/// from add/commit (450+) and project-row numstat (350+). Band is
+/// 460+. Incremented per probe from `git_commit_numstat_key_first`.
+pub const git_commit_numstat_key_first = git_commit.git_commit_numstat_key_first;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
 pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_status;
@@ -479,11 +483,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .toggle_git_branch_picker => settings_actions.handleToggleGitBranchPicker(model),
         .close_git_branch_picker => model.closeGitBranchPicker(),
         .pick_git_branch => |name| settings_actions.handlePickGitBranch(model, fx, name),
-        .start_git_branch_create => settings_actions.handleStartGitBranchCreate(model),
+        .start_git_branch_create => settings_actions.handleStartGitBranchCreate(model, fx),
         .git_branch_create_edit => |edit| settings_actions.handleGitBranchCreateEdit(model, edit),
         .confirm_git_branch_create => settings_actions.handleConfirmGitBranchCreate(model, fx),
         .cancel_git_branch_create => settings_actions.handleCancelGitBranchCreate(model),
-        .start_git_branch_delete => settings_actions.handleStartGitBranchDelete(model),
+        .start_git_branch_delete => settings_actions.handleStartGitBranchDelete(model, fx),
         .toggle_git_branch_delete_picker => settings_actions.handleToggleGitBranchDeletePicker(model),
         .close_git_branch_delete_picker => model.closeGitBranchDeletePicker(),
         .pick_git_branch_delete => |name| settings_actions.handlePickGitBranchDelete(model, name),
@@ -491,17 +495,20 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .cancel_git_branch_delete => settings_actions.handleCancelGitBranchDelete(model),
         .start_git_fetch => settings_actions.handleStartGitFetch(model, fx),
         .start_git_push => settings_actions.handleStartGitPush(model, fx),
-        .start_git_worktree_create => settings_actions.handleStartGitWorktreeCreate(model),
+        .start_git_worktree_create => settings_actions.handleStartGitWorktreeCreate(model, fx),
         .git_worktree_create_edit => |edit| settings_actions.handleGitWorktreeCreateEdit(model, edit),
         .confirm_git_worktree_create => settings_actions.handleConfirmGitWorktreeCreate(model, fx),
         .cancel_git_worktree_create => settings_actions.handleCancelGitWorktreeCreate(model, fx),
-        .start_git_commit => settings_actions.handleStartGitCommit(model),
+        .start_git_commit => settings_actions.handleStartGitCommit(model, fx),
         .git_commit_edit => |edit| settings_actions.handleGitCommitEdit(model, edit),
         .confirm_git_commit => settings_actions.handleConfirmGitCommit(model, fx),
         .confirm_git_commit_and_push => settings_actions.handleConfirmGitCommitAndPush(model, fx),
         .cancel_git_commit => settings_actions.handleCancelGitCommit(model, fx),
-        .toggle_git_commit_include_unstaged => settings_actions.handleToggleGitCommitIncludeUnstaged(model),
-        .start_project_edit => model.startProjectEdit(),
+        .toggle_git_commit_include_unstaged => settings_actions.handleToggleGitCommitIncludeUnstaged(model, fx),
+        .start_project_edit => {
+            git_commit.dropCommitNumstat(model, fx);
+            model.startProjectEdit();
+        },
         .project_path_edit => |edit| {
             model.applySelectedProjectPath(edit);
             persist.persistComposerProject(model, fx);

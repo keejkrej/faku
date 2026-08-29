@@ -259,7 +259,8 @@ pub fn handlePickGitBranch(model: *Model, fx: *Effects, name: []const u8) void {
     git_checkout.pickBranch(model, fx, name);
 }
 
-pub fn handleStartGitBranchCreate(model: *Model) void {
+pub fn handleStartGitBranchCreate(model: *Model, fx: *Effects) void {
+    git_commit.dropCommitNumstat(model, fx);
     git_checkout.startCreate(model);
 }
 
@@ -275,7 +276,8 @@ pub fn handleCancelGitBranchCreate(model: *Model) void {
     git_checkout.closeCreate(model);
 }
 
-pub fn handleStartGitBranchDelete(model: *Model) void {
+pub fn handleStartGitBranchDelete(model: *Model, fx: *Effects) void {
+    git_commit.dropCommitNumstat(model, fx);
     git_checkout.startDelete(model);
 }
 
@@ -303,7 +305,8 @@ pub fn handleStartGitPush(model: *Model, fx: *Effects) void {
     git_checkout.startPush(model, fx);
 }
 
-pub fn handleStartGitWorktreeCreate(model: *Model) void {
+pub fn handleStartGitWorktreeCreate(model: *Model, fx: *Effects) void {
+    git_commit.dropCommitNumstat(model, fx);
     git_checkout.startWorktreeCreate(model);
 }
 
@@ -319,8 +322,8 @@ pub fn handleCancelGitWorktreeCreate(model: *Model, fx: *Effects) void {
     git_checkout.dismissWorktreeCreate(model, fx);
 }
 
-pub fn handleStartGitCommit(model: *Model) void {
-    git_commit.startCommit(model);
+pub fn handleStartGitCommit(model: *Model, fx: *Effects) void {
+    git_commit.startCommit(model, fx);
 }
 
 pub fn handleGitCommitEdit(model: *Model, edit: canvas.TextInputEvent) void {
@@ -339,8 +342,8 @@ pub fn handleCancelGitCommit(model: *Model, fx: *Effects) void {
     git_commit.dismissCommit(model, fx);
 }
 
-pub fn handleToggleGitCommitIncludeUnstaged(model: *Model) void {
-    git_commit.toggleIncludeUnstaged(model);
+pub fn handleToggleGitCommitIncludeUnstaged(model: *Model, fx: *Effects) void {
+    git_commit.toggleIncludeUnstaged(model, fx);
 }
 
 pub fn handlePickEffort(model: *Model, fx: *Effects, id: []const u8) void {

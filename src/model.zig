@@ -629,6 +629,19 @@ pub const Model = struct {
     /// Runtime-only Commit… include-unstaged toggle. Default true
     /// (Waku dialog). Reset when the card opens. Not persisted.
     git_commit_include_unstaged: bool = true,
+    /// Runtime-only Commit… CommitSnapshot +/-. One-shot
+    /// `git diff --numstat HEAD --` or `git diff --cached --numstat --`
+    /// from the include-unstaged toggle. Distinct from project-row
+    /// `git_numstat_*`. Not persisted.
+    git_commit_numstat_additions: u64 = 0,
+    git_commit_numstat_deletions: u64 = 0,
+    git_commit_numstat_label_storage: [git_numstat.max_git_numstat_label]u8 = [_]u8{0} ** git_numstat.max_git_numstat_label,
+    git_commit_numstat_label_len: usize = 0,
+    git_commit_numstat_key: u64 = 0,
+    next_git_commit_numstat_key: u64 = git_commit_mod.git_commit_numstat_key_first,
+    git_commit_numstat_probe_session: u32 = 0,
+    git_commit_numstat_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    git_commit_numstat_probe_path_len: usize = 0,
     git_branch_delete_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     git_branch_delete_len: usize = 0,
     /// Runtime-only composer dirty count. One-shot `git status
@@ -944,6 +957,15 @@ pub const Model = struct {
         "git_commit_message_storage",
         "git_commit_message_len",
         "git_commit_then_push",
+        "git_commit_numstat_additions",
+        "git_commit_numstat_deletions",
+        "git_commit_numstat_label_storage",
+        "git_commit_numstat_label_len",
+        "git_commit_numstat_key",
+        "next_git_commit_numstat_key",
+        "git_commit_numstat_probe_session",
+        "git_commit_numstat_probe_path_storage",
+        "git_commit_numstat_probe_path_len",
         "git_has_staged",
         "git_has_unstaged",
         "git_branch_delete_storage",
@@ -2180,6 +2202,16 @@ pub const Model = struct {
     /// is on (Waku `can_commit`).
     pub fn can_commit_git(model: *const Model) bool {
         return git_commit_mod.canCommitGit(model);
+    }
+
+    /// Runtime-only muted +/- on the Commit… card (CommitSnapshot
+    /// numstat for the current include-unstaged mode).
+    pub fn git_commit_numstat_label(model: *const Model) []const u8 {
+        return git_commit_mod.gitCommitNumstatLabel(model);
+    }
+
+    pub fn has_git_commit_numstat(model: *const Model) bool {
+        return git_commit_mod.hasGitCommitNumstat(model);
     }
 
     /// Composer usage control. 0 when the live path has not reported usage.
