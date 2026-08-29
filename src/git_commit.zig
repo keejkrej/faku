@@ -6,40 +6,45 @@
 //! Native has no git effect. `canCommitGit` follows Waku `can_commit`:
 //! dirty probe idle, and staged or (include_unstaged and unstaged).
 //! Confirm with include_unstaged one-shots `git add -A -- .` then
-//! `git commit -m <message>` through the same `/bin/sh -c` chdir
-//! workaround `fx ask` uses (`fx_ask_chdir_script`). With the toggle
-//! off it skips add and one-shots `git commit -m` only. Every flag
-//! and operand is its own argv slot — never interpolated into the
-//! `-c` script. Message is trimmed, taken as a single line, and
-//! capped at 200 chars (Waku `chars().take(200)`). Empty / whitespace
-//! on Commit / Commit and Push one-shots documented `fx ask
-//! --no-save --auto --json` when `fx_available` and `fxPath` are set,
-//! fills the normalized subject, then auto-proceeds into the same
-//! add/commit path. If fx is unavailable or the path is empty, it
-//! sets `Enter a commit message.` and does not spawn. Generate fail
+//! always `git diff --cached --quiet --` (Waku's commit gate). Exit
+//! `1` means there are staged changes and proceeds to
+//! `git commit -m <message>`; exit `0` is
+//! `Nothing staged to commit.` and does not run commit; any other
+//! exit or spawn failure is `Could not commit.`. With the toggle
+//! off it skips add and one-shots the same cached-quiet preflight
+//! then commit. Every flag and operand is its own argv slot —
+//! never interpolated into the `-c` script
+//! (`fx_ask_chdir_script`). Message is trimmed, taken as a single
+//! line, and capped at 200 chars (Waku `chars().take(200)`). Empty
+//! / whitespace on Commit / Commit and Push one-shots documented
+//! `fx ask --no-save --auto --json` when `fx_available` and
+//! `fxPath` are set, fills the normalized subject, then
+//! auto-proceeds into the same add/preflight/commit path. If fx is
+//! unavailable or the path is empty, it sets
+//! `Enter a commit message.` and does not spawn. Generate fail
 //! / empty output keeps the card open with
 //! `Could not generate a commit message.` Commit and Push uses
 //! the same commit path; on successful commit it starts the existing
 //! Push… probe/spawn via `beginPushAfterCommit` (ungated vs
 //! `canPushGitBranch` — ahead/behind is stale after the commit).
 //! Commit stays commit-only. Push-only (Waku `CommitAction::Push`)
-//! does not commit or generate; it is gated by `canPushGitBranch`
-//! (same as composer Push…) and, after dismissing the card the same
-//! way Cancel does, reuses `startPush`. Empty / whitespace message
-//! is fine. In-flight generate or add/commit is a no-op. First cut
-//! closes the card then starts Push… — not Waku's in-dialog pending
+//! does not commit, generate, or run this preflight; it is gated
+//! by `canPushGitBranch` (same as composer Push…) and, after
+//! dismissing the card the same way Cancel does, reuses
+//! `startPush`. Empty / whitespace message is fine. In-flight
+//! generate or add/preflight/commit is a no-op. First cut closes
+//! the card then starts Push… — not Waku's in-dialog pending
 //! spinner. Opening the card one-shots CommitSnapshot
 //! numstat (include-unstaged on reuses the project-row
 //! `git_numstat` script: tracked `git diff --numstat HEAD --` plus
 //! untracked text-line additions; index vs HEAD `--cached` when
 //! off). The toggle cancels and re-probes. Cancel / Esc /
-//! session-switch drop an in-flight generate/add/commit and the
-//! snapshot probe, and do not start a push. Commit and Push is
-//! offered only when `canCommitGit` and first-push remotes are OK
-//! (known upstream, or remotes ready with at least one remote).
-//! Push-only is offered only when `canPushGitBranch`. Not `git
-//! diff --cached --quiet` preflight, not
-//! canonicalize(`git rev-parse --show-toplevel`), not
+//! session-switch drop an in-flight generate/add/preflight/commit
+//! and the snapshot probe, and do not start a push. Commit and
+//! Push is offered only when `canCommitGit` and first-push remotes
+//! are OK (known upstream, or remotes ready with at least one
+//! remote). Push-only is offered only when `canPushGitBranch`.
+//! Not canonicalize(`git rev-parse --show-toplevel`), not
 //! git-common-dir nest identity, not force / amend, and not daemon
 //! `WorkspaceOperation`.
 //!
@@ -107,10 +112,12 @@ pub const generate_prompt_include_unstaged =
 pub const generate_prompt_staged =
     "Write a one-line Git commit subject for the staged changes only. Inspect the repository yourself. Use imperative mood. Do not use quotes, Markdown, a conventional prefix, an explanation, or a trailing period. At most 72 characters.";
 
-/// Add… / commit stages that share `git_commit_key` (450+).
+/// Add / cached-quiet preflight / commit stages that share
+/// `git_commit_key` (450+).
 pub const GitCommitPhase = enum(u8) {
     idle,
     add,
+    cached_quiet,
     commit,
 };
 
@@ -124,9 +131,11 @@ pub const git_message_flag = "-m";
 pub const git_diff_cmd = git_numstat.git_diff_cmd;
 pub const git_numstat_flag = git_numstat.git_numstat;
 pub const git_cached_flag = "--cached";
+pub const git_quiet_flag = "--quiet";
 pub const sh_bin = git_branch.sh_bin;
 
 pub const add_argv_len: usize = 10;
+pub const cached_quiet_argv_len: usize = 10;
 pub const commit_argv_len: usize = 9;
 /// Max CommitSnapshot argv slots. Cached is 10; include-unstaged
 /// reuses `git_numstat.argv_len` (8) inside this buffer.
@@ -263,6 +272,38 @@ pub fn isGitCommitArgv(argv: []const []const u8) bool {
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_commit_cmd)) return false;
     return std.mem.eql(u8, argv[7], git_message_flag);
+}
+
+/// `git diff --cached --quiet --`. Same chdir script as add/commit;
+/// every flag is its own argv slot. Distinct from CommitSnapshot
+/// cached numstat (`--numstat`) and the project-row working-tree
+/// numstat script.
+pub fn cachedQuietArgvFor(cwd: []const u8, buf: *[cached_quiet_argv_len][]const u8) []const []const u8 {
+    buf.* = .{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        cwd,
+        git_bin,
+        git_diff_cmd,
+        git_cached_flag,
+        git_quiet_flag,
+        git_pathspec_dash,
+    };
+    return buf;
+}
+
+pub fn isGitCommitCachedQuietArgv(argv: []const []const u8) bool {
+    if (argv.len != cached_quiet_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], "-c")) return false;
+    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[5], git_bin)) return false;
+    if (!std.mem.eql(u8, argv[6], git_diff_cmd)) return false;
+    if (!std.mem.eql(u8, argv[7], git_cached_flag)) return false;
+    if (!std.mem.eql(u8, argv[8], git_quiet_flag)) return false;
+    return std.mem.eql(u8, argv[9], git_pathspec_dash);
 }
 
 fn isChdirGitDiffArgv(argv: []const []const u8) bool {
@@ -489,9 +530,10 @@ fn cancelGenerate(model: *Model, fx: *Effects) void {
     model.git_commit_then_push = false;
 }
 
-/// Drop an in-flight generate/add/commit (session / project refresh)
-/// so a late exit cannot paint a later card. Also drops the
-/// CommitSnapshot numstat probe. Sets `Could not commit.`
+/// Drop an in-flight generate/add/preflight/commit (session /
+/// project refresh) so a late exit cannot paint a later card.
+/// Also drops the CommitSnapshot numstat probe. Sets
+/// `Could not commit.`
 pub fn cancelInFlight(model: *Model, fx: *Effects) void {
     dropCommitNumstat(model, fx);
     const in_flight = model.git_commit_key != 0 or model.git_commit_generate_key != 0;
@@ -505,9 +547,9 @@ pub fn cancelInFlight(model: *Model, fx: *Effects) void {
 }
 
 /// Esc / Cancel: close the card and drop an in-flight generate /
-/// add/commit and snapshot probe so a late exit cannot spawn the next
-/// phase or paint the +/- label. Sets `Could not commit.` when a
-/// spawn was live.
+/// add/preflight/commit and snapshot probe so a late exit cannot
+/// spawn the next phase or paint the +/- label. Sets
+/// `Could not commit.` when a spawn was live.
 pub fn dismissCommit(model: *Model, fx: *Effects) void {
     const in_flight = model.git_commit_key != 0 or model.git_commit_generate_key != 0;
     cancelGenerate(model, fx);
@@ -588,6 +630,22 @@ fn spawnCommit(model: *Model, fx: *Effects) void {
     spawnCommitCmd(model, fx, cwd, commitArgvFor(cwd, message, &argv_buf), .commit);
 }
 
+fn spawnCachedQuiet(model: *Model, fx: *Effects) void {
+    const cwd = commitCwd(model);
+    if (cwd.len == 0) {
+        failCommit(model);
+        return;
+    }
+    var argv_buf: [cached_quiet_argv_len][]const u8 = undefined;
+    spawnCommitCmd(model, fx, cwd, cachedQuietArgvFor(cwd, &argv_buf), .cached_quiet);
+}
+
+fn failNothingStaged(model: *Model) void {
+    model.git_commit_key = 0;
+    resetCommitState(model);
+    model.setAttachStatus(nothing_staged_status);
+}
+
 fn generateAvailable(model: *const Model) bool {
     return model.fx_available and model.fxPath().len > 0;
 }
@@ -621,7 +679,7 @@ fn spawnAddOrCommit(model: *Model, fx: *Effects) void {
     if (model.git_commit_include_unstaged) {
         spawnAdd(model, fx);
     } else {
-        spawnCommit(model, fx);
+        spawnCachedQuiet(model, fx);
     }
 }
 
@@ -678,8 +736,9 @@ fn confirmCommitWith(model: *Model, fx: *Effects, then_push: bool) void {
 }
 
 /// Confirm the Commit… card: a non-empty normalized message one-shots
-/// `git add -A -- .` then `git commit -m` when include-unstaged is on;
-/// otherwise `git commit -m` only. Empty / whitespace one-shots
+/// `git add -A -- .` then `git diff --cached --quiet --` then
+/// `git commit -m` when include-unstaged is on; otherwise the same
+/// preflight then `git commit -m` only. Empty / whitespace one-shots
 /// `fx ask` generate when fx is available, then auto-proceeds; if fx
 /// is not available it sets `Enter a commit message.` and does not
 /// spawn. Confirm while generate is in flight is a no-op. Gated /
@@ -703,9 +762,10 @@ pub fn confirmCommitAndPush(model: *Model, fx: *Effects) void {
 /// Push-only on the Commit… card (Waku `CommitAction::Push`). Does
 /// not commit, does not require a message, does not generate.
 /// Gated by `canPushGitBranch` (same as composer Push…). In-flight
-/// generate or add/commit is a no-op (Waku `commit_operation` is
-/// Some). Check those gates before dismissing so a failed gate
-/// cannot close the card without pushing. On start, dismiss the
+/// generate or add/preflight/commit is a no-op (Waku
+/// `commit_operation` is Some). Check those gates before
+/// dismissing so a failed gate cannot close the card without
+/// pushing. On start, dismiss the
 /// card the same way Cancel does, then the existing gated
 /// `startPush` path — not `beginPushAfterCommit` (ungated; that is
 /// for post-commit when ahead is stale). First cut: close then
@@ -800,7 +860,18 @@ pub fn handleCommitExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
         .idle => resetCommitState(model),
         .add => {
             if (exit.reason == .exited and exit.code == 0) {
+                spawnCachedQuiet(model, fx);
+                return;
+            }
+            failCommit(model);
+        },
+        .cached_quiet => {
+            if (exit.reason == .exited and exit.code == 1) {
                 spawnCommit(model, fx);
+                return;
+            }
+            if (exit.reason == .exited and exit.code == 0) {
+                failNothingStaged(model);
                 return;
             }
             failCommit(model);
@@ -849,6 +920,7 @@ test "add argv is chdir script plus git add -A -- ." {
     try std.testing.expectEqualStrings(git_pathspec_dot, argv[9]);
     try std.testing.expect(isGitCommitAddArgv(argv));
     try std.testing.expect(!isGitCommitArgv(argv));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(argv));
     try std.testing.expect(!git_checkout.isGitPushArgv(argv));
     try std.testing.expect(!git_checkout.isGitFetchArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_add_cmd) == null);
@@ -880,6 +952,7 @@ test "commit argv is chdir script plus git commit -m and its own message slot" {
     try std.testing.expectEqualStrings("fix dirty count", argv[8]);
     try std.testing.expect(isGitCommitArgv(argv));
     try std.testing.expect(!isGitCommitAddArgv(argv));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(argv));
     try std.testing.expect(!git_checkout.isGitPushArgv(argv));
     try std.testing.expect(!git_checkout.isGitFetchArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_commit_cmd) == null);
@@ -894,6 +967,40 @@ test "commit argv is chdir script plus git commit -m and its own message slot" {
     const fetch = git_checkout.fetchArgvFor("/tmp/faku-commit", &fetch_buf);
     try std.testing.expect(!isGitCommitArgv(fetch));
     try std.testing.expect(!isGitCommitAddArgv(fetch));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(fetch));
+}
+
+test "cached-quiet argv is chdir script plus git diff --cached --quiet --" {
+    var buf: [cached_quiet_argv_len][]const u8 = undefined;
+    const argv = cachedQuietArgvFor("/tmp/faku-commit", &buf);
+    try std.testing.expectEqual(@as(usize, 10), argv.len);
+    try std.testing.expectEqualStrings(sh_bin, argv[0]);
+    try std.testing.expectEqualStrings("-c", argv[1]);
+    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings("sh", argv[3]);
+    try std.testing.expectEqualStrings("/tmp/faku-commit", argv[4]);
+    try std.testing.expectEqualStrings(git_bin, argv[5]);
+    try std.testing.expectEqualStrings(git_diff_cmd, argv[6]);
+    try std.testing.expectEqualStrings(git_cached_flag, argv[7]);
+    try std.testing.expectEqualStrings(git_quiet_flag, argv[8]);
+    try std.testing.expectEqualStrings(git_pathspec_dash, argv[9]);
+    try std.testing.expect(isGitCommitCachedQuietArgv(argv));
+    try std.testing.expect(!isGitCommitAddArgv(argv));
+    try std.testing.expect(!isGitCommitArgv(argv));
+    try std.testing.expect(!isGitCommitNumstatArgv(argv));
+    try std.testing.expect(!isGitCommitNumstatCachedArgv(argv));
+    try std.testing.expect(!isGitCommitNumstatWorkingTreeArgv(argv));
+    try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
+    try std.testing.expect(!git_checkout.isGitPushArgv(argv));
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_diff_cmd) == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_cached_flag) == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_quiet_flag) == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_pathspec_dash) == null);
+
+    var numstat_buf: [commit_numstat_argv_len][]const u8 = undefined;
+    const cached_numstat = commitNumstatCachedArgvFor("/tmp/faku-commit", &numstat_buf);
+    try std.testing.expect(isGitCommitNumstatCachedArgv(cached_numstat));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(cached_numstat));
 }
 
 test "empty or whitespace message does not spawn" {
@@ -924,6 +1031,7 @@ test "empty or whitespace message does not spawn" {
     try std.testing.expectEqual(@as(u64, 0), model.git_commit_generate_key);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitCachedQuietArgv) == null);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitGenerateArgv) == null);
     try std.testing.expectEqualStrings(empty_message_status, model.attach_status());
 
@@ -934,6 +1042,7 @@ test "empty or whitespace message does not spawn" {
     try std.testing.expectEqual(@as(u64, 0), model.git_commit_generate_key);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitCachedQuietArgv) == null);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitGenerateArgv) == null);
     try std.testing.expectEqualStrings(empty_message_status, model.attach_status());
 }
@@ -1082,6 +1191,7 @@ test "add failure sets Could not commit and does not spawn commit" {
     try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
     try std.testing.expectEqual(GitCommitPhase.idle, model.git_commit_phase);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitCachedQuietArgv) == null);
     try std.testing.expect(model.git_commit_active);
 }
 
@@ -1111,20 +1221,11 @@ test "commit success refreshes the same workspace probes as other git mutations"
     try std.testing.expect(isGitCommitAddArgv(add.argv));
     handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
     try std.testing.expect(!model.has_attach_status());
-    try std.testing.expectEqual(GitCommitPhase.commit, model.git_commit_phase);
+    try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
     try std.testing.expect(model.git_commit_key != 0);
     try std.testing.expect(model.git_commit_key != add.key);
-
-    var commit_spawn: ?@TypeOf(add) = null;
-    var i: usize = 0;
-    while (i < fx.pendingSpawnCount()) : (i += 1) {
-        const spawn = fx.pendingSpawnAt(i).?;
-        if (spawn.key == model.git_commit_key and isGitCommitArgv(spawn.argv)) {
-            commit_spawn = spawn;
-            break;
-        }
-    }
-    const commit = commit_spawn orelse return error.MissingGitCommitSpawn;
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    const commit = try advanceCachedQuietToCommit(&model, &fx);
     try std.testing.expectEqualStrings("wrap the dirty probe", commit.argv[8]);
     try std.testing.expect(std.mem.indexOf(u8, commit.argv[2], "wrap the dirty probe") == null);
     try std.testing.expect(commit.key >= git_commit_key_first);
@@ -1197,6 +1298,7 @@ test "startCommit and confirm no-op when gated, busy, or cwd is missing" {
     try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitCachedQuietArgv) == null);
 }
 
 fn findPending(fx: *Effects, key: u64, pred: *const fn ([]const []const u8) bool) ?@TypeOf(fx.pendingSpawnAt(0).?) {
@@ -1215,6 +1317,17 @@ fn findPendingArgv(fx: *Effects, pred: *const fn ([]const []const u8) bool) ?@Ty
         if (pred(spawn.argv)) return spawn;
     }
     return null;
+}
+
+fn advanceCachedQuietToCommit(model: *Model, fx: *Effects) !@TypeOf(fx.pendingSpawnAt(0).?) {
+    try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
+    const preflight = findPending(fx, model.git_commit_key, &isGitCommitCachedQuietArgv) orelse return error.MissingGitCachedQuietSpawn;
+    try std.testing.expect(!isGitCommitArgv(preflight.argv));
+    try std.testing.expect(!isGitCommitAddArgv(preflight.argv));
+    try std.testing.expect(!isGitCommitNumstatArgv(preflight.argv));
+    handleCommitExit(model, fx, .{ .key = preflight.key, .reason = .exited, .code = 1 });
+    try std.testing.expectEqual(GitCommitPhase.commit, model.git_commit_phase);
+    return findPending(fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
 }
 
 fn markDirtyUnstaged(model: *Model, count: u32) void {
@@ -1278,8 +1391,9 @@ test "confirm and push with a message add-then-commit then starts the push probe
 
     handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
     try std.testing.expect(model.git_commit_then_push);
-    try std.testing.expectEqual(GitCommitPhase.commit, model.git_commit_phase);
-    const commit = findPending(&fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
+    try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    const commit = try advanceCachedQuietToCommit(&model, &fx);
     try std.testing.expectEqualStrings("ship the dirty probe", commit.argv[8]);
     try std.testing.expect(std.mem.indexOf(u8, commit.argv[2], "ship the dirty probe") == null);
     try std.testing.expect(commit.key != add.key);
@@ -1300,6 +1414,7 @@ test "confirm and push with a message add-then-commit then starts the push probe
     try std.testing.expect(std.mem.indexOf(u8, probe.argv[2], "ship the dirty probe") == null);
     try std.testing.expect(!isGitCommitArgv(probe.argv));
     try std.testing.expect(!isGitCommitAddArgv(probe.argv));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(probe.argv));
 }
 
 test "confirm and push empty message does not spawn and does not start a push" {
@@ -1329,6 +1444,7 @@ test "confirm and push empty message does not spawn and does not start a push" {
     try std.testing.expect(!model.git_commit_then_push);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitCachedQuietArgv) == null);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitGenerateArgv) == null);
     try std.testing.expectEqualStrings(empty_message_status, model.attach_status());
 
@@ -1341,6 +1457,7 @@ test "confirm and push empty message does not spawn and does not start a push" {
     try std.testing.expect(!model.git_commit_then_push);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitCachedQuietArgv) == null);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitGenerateArgv) == null);
     try std.testing.expectEqualStrings(empty_message_status, model.attach_status());
 }
@@ -1404,7 +1521,7 @@ test "confirm and push commit failure sets Could not commit and does not start a
     confirmCommitAndPush(&model, &fx);
     const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
     handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
-    const commit = findPending(&fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
+    const commit = try advanceCachedQuietToCommit(&model, &fx);
     handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 1 });
     try std.testing.expectEqualStrings(commit_failed_status, model.attach_status());
     try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
@@ -1449,7 +1566,9 @@ test "confirmPushOnly closes the card and starts the existing push probe" {
     try std.testing.expect(!model.git_commit_then_push);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitCachedQuietArgv) == null);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitGenerateArgv) == null);
+    try std.testing.expectEqual(GitCommitPhase.idle, model.git_commit_phase);
     try std.testing.expect(model.git_push_key != 0);
     try std.testing.expectEqual(git_checkout.GitPushPhase.upstream, model.git_push_phase);
     const probe = findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) orelse return error.MissingGitUpstreamSpawn;
@@ -1457,6 +1576,7 @@ test "confirmPushOnly closes the card and starts the existing push probe" {
     try std.testing.expect(probe.key >= git_checkout.git_push_key_first);
     try std.testing.expect(!isGitCommitArgv(probe.argv));
     try std.testing.expect(!isGitCommitAddArgv(probe.argv));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(probe.argv));
 }
 
 test "confirmPushOnly empty message still starts a push" {
@@ -1488,7 +1608,9 @@ test "confirmPushOnly empty message still starts a push" {
     try std.testing.expect(!model.git_commit_then_push);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitCachedQuietArgv) == null);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitGenerateArgv) == null);
+    try std.testing.expectEqual(GitCommitPhase.idle, model.git_commit_phase);
     try std.testing.expect(model.git_push_key != 0);
     try std.testing.expectEqual(git_checkout.GitPushPhase.upstream, model.git_push_phase);
     try std.testing.expect(findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) != null);
@@ -1539,6 +1661,7 @@ test "confirmPushOnly no-ops when canPushGitBranch is false" {
     try std.testing.expect(!model.git_commit_then_push);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitCachedQuietArgv) == null);
     try std.testing.expect(findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) == null);
 
     confirmCommitAndPush(&model, &fx);
@@ -1596,6 +1719,18 @@ test "confirmPushOnly no-ops while generate or add is in flight" {
     try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
     try std.testing.expect(findPending(&fx, add_key, &isGitCommitAddArgv) != null);
     try std.testing.expect(findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) == null);
+
+    handleCommitExit(&model, &fx, .{ .key = add_key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
+    const preflight_key = model.git_commit_key;
+    try std.testing.expect(preflight_key != 0);
+    try std.testing.expect(findPending(&fx, preflight_key, &isGitCommitCachedQuietArgv) != null);
+    confirmPushOnly(&model, &fx);
+    try std.testing.expect(model.git_commit_active);
+    try std.testing.expectEqual(preflight_key, model.git_commit_key);
+    try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
 }
 
 test "cancel or session change while commit-and-push is in flight does not start a push" {
@@ -1635,7 +1770,20 @@ test "cancel or session change while commit-and-push is in flight does not start
     confirmCommitAndPush(&model, &fx);
     const add2 = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn2;
     handleCommitExit(&model, &fx, .{ .key = add2.key, .reason = .exited, .code = 0 });
-    const commit = findPending(&fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
+    try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
+    dismissCommit(&model, &fx);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    try std.testing.expect(findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) == null);
+
+    startCommit(&model, &fx);
+    model.git_commit_buffer.apply(.{ .insert_text = "still no push" });
+    confirmCommitAndPush(&model, &fx);
+    const add2b = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn2b;
+    handleCommitExit(&model, &fx, .{ .key = add2b.key, .reason = .exited, .code = 0 });
+    const commit = try advanceCachedQuietToCommit(&model, &fx);
     try std.testing.expect(model.git_commit_then_push);
     dismissCommit(&model, &fx);
     try std.testing.expect(!model.git_commit_then_push);
@@ -1682,9 +1830,10 @@ test "confirm skips add when include_unstaged is false" {
     try std.testing.expect(canCommitGit(&model));
     model.git_commit_buffer.apply(.{ .insert_text = "  staged only  " });
     confirmCommit(&model, &fx);
-    try std.testing.expectEqual(GitCommitPhase.commit, model.git_commit_phase);
+    try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
     try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) == null);
-    const commit = findPending(&fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
+    try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitArgv) == null);
+    const commit = try advanceCachedQuietToCommit(&model, &fx);
     try std.testing.expectEqualStrings("staged only", commit.argv[8]);
     try std.testing.expect(commit.key >= git_commit_key_first);
 
@@ -1719,9 +1868,10 @@ test "confirm and push skips add when include_unstaged is false" {
     model.git_commit_buffer.apply(.{ .insert_text = "ship staged" });
     confirmCommitAndPush(&model, &fx);
     try std.testing.expect(model.git_commit_then_push);
-    try std.testing.expectEqual(GitCommitPhase.commit, model.git_commit_phase);
+    try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
     try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) == null);
-    const commit = findPending(&fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
+    try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitArgv) == null);
+    const commit = try advanceCachedQuietToCommit(&model, &fx);
     try std.testing.expectEqualStrings("ship staged", commit.argv[8]);
 
     handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 0 });
@@ -1755,13 +1905,99 @@ test "staged-only commit failure sets Nothing staged to commit" {
     toggleIncludeUnstaged(&model, &fx);
     model.git_commit_buffer.apply(.{ .insert_text = "should fail" });
     confirmCommitAndPush(&model, &fx);
-    const commit = findPending(&fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
+    try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
     try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) == null);
+    const commit = try advanceCachedQuietToCommit(&model, &fx);
     handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 1 });
     try std.testing.expectEqualStrings(nothing_staged_status, model.attach_status());
     try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
     try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
     try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expect(model.git_commit_active);
+}
+
+test "include-unstaged add then cached-quiet exit 0 is Nothing staged and does not commit" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-preflight-empty", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit preflight empty", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+    markFirstPushRemotesOk(&model);
+
+    startCommit(&model, &fx);
+    model.git_commit_buffer.apply(.{ .insert_text = "nothing to stage" });
+    confirmCommitAndPush(&model, &fx);
+    try std.testing.expect(model.git_commit_then_push);
+    const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
+    handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
+    try std.testing.expect(model.git_commit_then_push);
+    const preflight = findPending(&fx, model.git_commit_key, &isGitCommitCachedQuietArgv) orelse return error.MissingGitCachedQuietSpawn;
+    try std.testing.expect(!isGitCommitArgv(preflight.argv));
+    try std.testing.expect(!isGitCommitNumstatArgv(preflight.argv));
+    handleCommitExit(&model, &fx, .{ .key = preflight.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqualStrings(nothing_staged_status, model.attach_status());
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(GitCommitPhase.idle, model.git_commit_phase);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    try std.testing.expect(findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) == null);
+    try std.testing.expect(model.git_commit_active);
+}
+
+test "cached-quiet other exit or spawn failure is Could not commit" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-preflight-fail", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit preflight fail", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyStaged(&model, 1);
+    markFirstPushRemotesOk(&model);
+
+    startCommit(&model, &fx);
+    toggleIncludeUnstaged(&model, &fx);
+    model.git_commit_buffer.apply(.{ .insert_text = "inspect failed" });
+    confirmCommitAndPush(&model, &fx);
+    try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
+    const preflight = findPending(&fx, model.git_commit_key, &isGitCommitCachedQuietArgv) orelse return error.MissingGitCachedQuietSpawn;
+    handleCommitExit(&model, &fx, .{ .key = preflight.key, .reason = .exited, .code = 128 });
+    try std.testing.expectEqualStrings(commit_failed_status, model.attach_status());
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(GitCommitPhase.idle, model.git_commit_phase);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    try std.testing.expect(model.git_commit_active);
+
+    model.clearAttachStatus();
+    confirmCommit(&model, &fx);
+    const preflight2 = findPending(&fx, model.git_commit_key, &isGitCommitCachedQuietArgv) orelse return error.MissingGitCachedQuietSpawn2;
+    handleCommitExit(&model, &fx, .{ .key = preflight2.key, .reason = .rejected, .code = 1 });
+    try std.testing.expectEqualStrings(commit_failed_status, model.attach_status());
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
     try std.testing.expect(model.git_commit_active);
 }
 
@@ -1805,6 +2041,7 @@ test "commit snapshot argv is numstat untracked script when include-unstaged and
     try std.testing.expect(isGitCommitNumstatArgv(work));
     try std.testing.expect(!isGitCommitAddArgv(work));
     try std.testing.expect(!isGitCommitArgv(work));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(work));
     try std.testing.expect(std.mem.indexOf(u8, work[2], git_diff_cmd) == null);
     try std.testing.expect(std.mem.indexOf(u8, work[2], git_numstat.numstat_untracked_script) == null);
     try std.testing.expect(std.mem.indexOf(u8, work[7], git_numstat.git_ls_files_others) != null);
@@ -1820,6 +2057,7 @@ test "commit snapshot argv is numstat untracked script when include-unstaged and
     try std.testing.expect(isGitCommitNumstatCachedArgv(cached));
     try std.testing.expect(!isGitCommitNumstatWorkingTreeArgv(cached));
     try std.testing.expect(isGitCommitNumstatArgv(cached));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(cached));
     try std.testing.expect(!git_numstat.isGitNumstatArgv(cached));
     try std.testing.expect(std.mem.indexOf(u8, cached[2], git_cached_flag) == null);
     try std.testing.expect(std.mem.indexOf(u8, cached[2], git_numstat_flag) == null);
@@ -2009,6 +2247,7 @@ fn expectGenerateArgv(argv: []const []const u8, cwd: []const u8, include_unstage
     }
     try std.testing.expect(!isGitCommitAddArgv(argv));
     try std.testing.expect(!isGitCommitArgv(argv));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(argv));
     try std.testing.expect(!isGitCommitNumstatArgv(argv));
 }
 
@@ -2114,7 +2353,7 @@ test "generate success fills the subject and auto-adds" {
     try std.testing.expect(add.key >= git_commit_key_first);
     try std.testing.expect(add.key != gen.key);
     handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
-    const commit = findPending(&fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
+    const commit = try advanceCachedQuietToCommit(&model, &fx);
     try std.testing.expectEqualStrings("wrap the dirty probe", commit.argv[8]);
     try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
 }
@@ -2145,9 +2384,10 @@ test "generate JSON output then commit when include_unstaged is off" {
     try expectGenerateArgv(gen.argv, project, false);
     applyGenerateLine(&model, .{ .key = gen.key, .line = "{\"output\":\"  staged only  \\nbody\"}\n" });
     handleGenerateExit(&model, &fx, .{ .key = gen.key, .reason = .exited, .code = 0 });
-    try std.testing.expectEqual(GitCommitPhase.commit, model.git_commit_phase);
+    try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
     try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) == null);
-    const commit = findPending(&fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
+    try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitArgv) == null);
+    const commit = try advanceCachedQuietToCommit(&model, &fx);
     try std.testing.expectEqualStrings("staged only", commit.argv[8]);
 }
 
@@ -2182,7 +2422,8 @@ test "generate then commit and push starts push only after successful commit" {
     try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
     const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
     handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
-    const commit = findPending(&fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    const commit = try advanceCachedQuietToCommit(&model, &fx);
     try std.testing.expectEqualStrings("ship the dirty probe", commit.argv[8]);
     try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
     handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 0 });
