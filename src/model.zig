@@ -630,10 +630,10 @@ pub const Model = struct {
     /// Runtime-only Commit… include-unstaged toggle. Default true
     /// (Waku dialog). Reset when the card opens. Not persisted.
     git_commit_include_unstaged: bool = true,
-    /// Runtime-only Commit… CommitSnapshot +/-. One-shot
-    /// `git diff --numstat HEAD --` or `git diff --cached --numstat --`
-    /// from the include-unstaged toggle. Distinct from project-row
-    /// `git_numstat_*`. Not persisted.
+    /// Runtime-only Commit… CommitSnapshot +/-. Include-unstaged on
+    /// reuses the project-row numstat + untracked script; off is
+    /// `git diff --cached --numstat --`. Distinct keys from
+    /// project-row `git_numstat_*`. Not persisted.
     git_commit_numstat_additions: u64 = 0,
     git_commit_numstat_deletions: u64 = 0,
     git_commit_numstat_label_storage: [git_numstat.max_git_numstat_label]u8 = [_]u8{0} ** git_numstat.max_git_numstat_label,

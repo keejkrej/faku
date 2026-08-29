@@ -13498,6 +13498,7 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Commit message") != null);
     try testing.expect(findByText(tree.root, .text, "+3 −1") == null);
+    try testing.expect(findByText(tree.root, .text, "+8 −1") == null);
     try testing.expect(findByText(tree.root, .text, "clean") == null);
     const include = try expectButtonMsg(tree, "Include unstaged", .toggle_git_commit_include_unstaged);
     try testing.expect(include.state.selected);
@@ -13507,15 +13508,17 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
 
     const snap = findGitCommitNumstatSpawnKey(&fx, model.git_commit_numstat_key) orelse return error.MissingCommitNumstatSpawn;
     try testing.expect(git_commit.isGitCommitNumstatWorkingTreeArgv(snap.argv));
-    try testing.expect(!git_numstat.isGitNumstatArgv(snap.argv));
+    try testing.expect(git_numstat.isGitNumstatArgv(snap.argv));
+    try testing.expectEqualStrings(git_numstat.numstat_untracked_script, snap.argv[7]);
     try fx.feedLine(snap.key, "3\t1\tsrc/a.zig\n");
+    try fx.feedLine(snap.key, "5\t0\tnew.txt\n");
     drainEffects(&model, &fx);
     try fx.feedExit(snap.key, 0);
     drainEffects(&model, &fx);
     try testing.expect(model.has_git_commit_numstat());
-    try testing.expectEqualStrings("+3 −1", model.git_commit_numstat_label());
+    try testing.expectEqualStrings("+8 −1", model.git_commit_numstat_label());
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "+3 −1");
+    _ = try expectByText(tree.root, .text, "+8 −1");
     const include_after = try expectButtonMsg(tree, "Include unstaged", .toggle_git_commit_include_unstaged);
     try testing.expect(include_after.state.selected);
 

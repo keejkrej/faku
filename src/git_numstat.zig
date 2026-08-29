@@ -10,10 +10,11 @@
 //! unreadable / oversized (over 1 MiB) untracked files are skipped.
 //! Tracked binary rows (`-` in either column) are skipped as before.
 //! Zero / failed / empty omits the label — this cut does not invent
-//! "clean". Deletions stay tracked-only. Not Waku's daemon
-//! `InspectBranches`, not a live watch, not a commit dialog, not a
-//! staged/unstaged split, not Waku's Environment Summary, and not
-//! Review.
+//! "clean". Deletions stay tracked-only. The Commit… include-unstaged
+//! snapshot reuses `argvFor` / `numstat_untracked_script` on its
+//! own 460+ key band. Not Waku's daemon `InspectBranches`, not a
+//! live watch, not a staged/unstaged split, not Waku's Environment
+//! Summary, and not Review.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).

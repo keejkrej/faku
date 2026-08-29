@@ -51,8 +51,9 @@ collision, then retarget the session `project_path` to the dest
 actually used)
 or commit dirty work via Commit… (porcelain XY inspect +
 include-unstaged toggle, default on; first-cut CommitSnapshot
-`+N −M` of working tree vs HEAD when the toggle is on, or
-index vs HEAD when it is off; empty / whitespace on Commit
+`+N −M` of working tree vs HEAD plus untracked text-line
+additions when the toggle is on, or index vs HEAD when it is
+off; empty / whitespace on Commit
 or Commit and Push one-shots `fx ask --no-save --auto --json`
 when fx is available, fills a normalized subject, then
 auto-proceeds; `git add -A -- .` then
@@ -78,8 +79,7 @@ text-line counts on the + side, and muted ahead/behind vs
 `@{upstream}` (`↑A ↓B`) when that name exists (not Waku's daemon
 InspectBranches live watch / `{project_id}` UUID nest /
 canonicalize(show-toplevel) / Environment
-Summary / force delete / prune-alone / base-ref picker /
-untracked-as-additions on the commit card;
+Summary / force delete / prune-alone / base-ref picker;
 Native still has no git
 effect);
 typing `@` in the composer (last whitespace token; caret assumed at
@@ -359,13 +359,14 @@ that toggle is on, or `git commit -m` only when it is off
 (`-A`, `--`, `.`, `-m`, and the message each their own argv slot;
 message trimmed to one line, max 200 chars). Opening the card
 (and toggling Include unstaged) one-shots CommitSnapshot
-numstat: `git diff --numstat HEAD --` when the toggle is on,
-or `git diff --cached --numstat --` when it is off (`--numstat`,
-`HEAD`, `--cached`, and `--` each their own argv slot; distinct
-from the project-row +/- probe). A muted `+N −M` shows on the
-card when either count is non-zero; zero / failed / empty /
-in-flight omits the label (no invented "clean"). Untracked-as-
-additions is not on this card. Empty / whitespace on Commit /
+numstat: the project-row `git_numstat` script (`git diff
+--numstat HEAD --` plus untracked text-line additions) when the
+toggle is on, or `git diff --cached --numstat --` when it is
+off (cached flags each their own argv slot; include-unstaged
+reuses the shared script on a distinct 460+ key band). A muted
+`+N −M` shows on the card when either count is non-zero; zero /
+failed / empty / in-flight omits the label (no invented
+"clean"). Deletions stay tracked-only. Empty / whitespace on Commit /
 Commit and Push one-shots documented `fx ask --no-save --auto
 --json` when `fx_available` and `fxPath` are set (prompt is its
 own argv slot; include-unstaged on vs off changes the prompt;
@@ -430,13 +431,11 @@ does not invent "clean". This is not Waku's daemon
 nesting / `waku/` prefix, not defer-until-Send
 workspace mode, not a worktree base-ref picker UI, not
 canonicalize(`git rev-parse --show-toplevel`), not
-git-common-dir identity, not untracked-as-additions on the
-commit card, not Waku's
+git-common-dir identity, not Waku's
 Environment Summary, not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
 Review. Leftovers: canonicalize(`git rev-parse --show-toplevel`) /
 git-common-dir worktree nest identity /
-untracked-as-additions on the commit card /
 `git diff --cached --quiet` preflight.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, and remotes-ready bit are runtime-only (like the
