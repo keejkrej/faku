@@ -1,20 +1,22 @@
-//! First-cut include-unstaged Commit… / Commit and Push for the
-//! composer project row.
+//! First-cut InspectCommit flags + include-unstaged Commit… / Commit
+//! and Push for the composer project row.
 //!
-//! Native has no git effect. Confirm one-shots `git add -A -- .` then
+//! Native has no git effect. `canCommitGit` follows Waku `can_commit`:
+//! dirty probe idle, and staged or (include_unstaged and unstaged).
+//! Confirm with include_unstaged one-shots `git add -A -- .` then
 //! `git commit -m <message>` through the same `/bin/sh -c` chdir
-//! workaround `fx ask` uses (`fx_ask_chdir_script`). Every flag and
-//! operand is its own argv slot — never interpolated into the `-c`
-//! script. Message is trimmed, taken as a single line, and capped at
-//! 200 chars (Waku `chars().take(200)`). Empty / whitespace does not
-//! spawn (no AI `generate_message`). Commit and Push uses the same
-//! add-then-commit sequence; on successful commit it starts the
-//! existing Push… probe/spawn via `beginPushAfterCommit` (ungated
-//! vs `canPushGitBranch` — ahead/behind is stale after the commit).
+//! workaround `fx ask` uses (`fx_ask_chdir_script`). With the toggle
+//! off it skips add and one-shots `git commit -m` only. Every flag
+//! and operand is its own argv slot — never interpolated into the
+//! `-c` script. Message is trimmed, taken as a single line, and
+//! capped at 200 chars (Waku `chars().take(200)`). Empty / whitespace
+//! does not spawn (no AI `generate_message`). Commit and Push uses
+//! the same commit path; on successful commit it starts the existing
+//! Push… probe/spawn via `beginPushAfterCommit` (ungated vs
+//! `canPushGitBranch` — ahead/behind is stale after the commit).
 //! Commit stays commit-only. Cancel / Esc / session-switch drop an
-//! in-flight add/commit and do not start a push. Not Waku
-//! InspectCommit / CommitSnapshot, not include_unstaged toggle /
-//! staged-only, not AI `generate_message`, not
+//! in-flight add/commit and do not start a push. Not AI
+//! `generate_message`, not CommitSnapshot numstat, not
 //! `git diff --cached --quiet` preflight, not
 //! remotes-required-for-first-push as a Commit-and-Push gate, not
 //! canonicalize(`git rev-parse --show-toplevel`), not
@@ -49,6 +51,7 @@ pub const max_commit_message: usize = 200;
 
 pub const empty_message_status = "Enter a commit message.";
 pub const commit_failed_status = "Could not commit.";
+pub const nothing_staged_status = "Nothing staged to commit.";
 
 /// Add… / commit stages that share `git_commit_key` (450+).
 pub const GitCommitPhase = enum(u8) {
@@ -107,12 +110,13 @@ fn failCommit(model: *Model) void {
     model.setAttachStatus(commit_failed_status);
 }
 
-/// Hide while the dirty probe is in flight; show only when porcelain
-/// dirty count is > 0 (staged + unstaged + untracked). Honest stand-in
-/// for Waku `can_commit` with `include_unstaged=true`.
+/// Hide while the dirty probe is in flight; show when porcelain XY
+/// has staged, or unstaged while `include_unstaged` is on (Waku
+/// `can_commit`).
 pub fn canCommitGit(model: *const Model) bool {
     if (model.git_dirty_key != 0) return false;
-    return git_dirty.hasGitDirty(model);
+    if (model.git_has_staged) return true;
+    return model.git_commit_include_unstaged and model.git_has_unstaged;
 }
 
 /// Trim ends, take the first line, then at most 200 UTF-8 scalars
@@ -236,7 +240,13 @@ pub fn startCommit(model: *Model) void {
     if (model.is_streaming()) return;
     if (!probeSupported()) return;
     if (probePath(model).len == 0) return;
+    model.git_commit_include_unstaged = true;
     model.git_commit_active = true;
+}
+
+/// Runtime-only Commit… toggle. Not persisted. Does not spawn.
+pub fn toggleIncludeUnstaged(model: *Model) void {
+    model.git_commit_include_unstaged = !model.git_commit_include_unstaged;
 }
 
 fn spawnCommitCmd(model: *Model, fx: *Effects, cwd: []const u8, argv: []const []const u8, phase: GitCommitPhase) void {
@@ -295,11 +305,16 @@ fn confirmCommitWith(model: *Model, fx: *Effects, then_push: bool) void {
     writeFixed(&model.git_commit_message_storage, &model.git_commit_message_len, message);
     writeFixed(&model.git_commit_probe_path_storage, &model.git_commit_probe_path_len, cwd);
     model.git_commit_then_push = then_push;
-    spawnAdd(model, fx);
+    if (model.git_commit_include_unstaged) {
+        spawnAdd(model, fx);
+    } else {
+        spawnCommit(model, fx);
+    }
 }
 
 /// Confirm the Commit… card: a non-empty normalized message one-shots
-/// `git add -A -- .` then `git commit -m`. Empty / whitespace sets
+/// `git add -A -- .` then `git commit -m` when include-unstaged is on;
+/// otherwise `git commit -m` only. Empty / whitespace sets
 /// `Enter a commit message.` and does not spawn. Gated / busy /
 /// in-flight / missing cwd is a no-op. Commit-only: does not start
 /// a push after success.
@@ -307,7 +322,7 @@ pub fn confirmCommit(model: *Model, fx: *Effects) void {
     confirmCommitWith(model, fx, false);
 }
 
-/// Same gates and add-then-commit as `confirmCommit`. On successful
+/// Same gates and commit path as `confirmCommit`. On successful
 /// commit, close the card and start the existing Push… path without
 /// re-checking `canPushGitBranch`. Empty message still does not
 /// spawn and does not auto-generate.
@@ -357,7 +372,11 @@ pub fn handleCommitExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
                 git_checkout.refreshWorkspaceProbes(model, fx);
                 return;
             }
-            model.setAttachStatus(commit_failed_status);
+            if (!model.git_commit_include_unstaged) {
+                model.setAttachStatus(nothing_staged_status);
+            } else {
+                model.setAttachStatus(commit_failed_status);
+            }
         },
     }
 }
@@ -435,8 +454,7 @@ test "empty or whitespace message does not spawn" {
     const id = model.addSession("commit empty", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
-    model.git_dirty_count = 2;
-    model.git_dirty_key = 0;
+    markDirtyUnstaged(&model, 2);
     try std.testing.expect(canCommitGit(&model));
 
     startCommit(&model);
@@ -454,21 +472,36 @@ test "empty or whitespace message does not spawn" {
     try std.testing.expectEqualStrings(empty_message_status, model.attach_status());
 }
 
-test "canCommitGit hides in-flight dirty and a zero count" {
+test "canCommitGit follows staged / include_unstaged / unstaged" {
     var model = Model{};
+    try std.testing.expect(model.git_commit_include_unstaged);
     try std.testing.expect(!canCommitGit(&model));
     try std.testing.expect(!model.can_commit_git());
 
-    model.git_dirty_count = 3;
+    model.git_has_unstaged = true;
     try std.testing.expect(canCommitGit(&model));
     try std.testing.expect(model.can_commit_git());
+
+    model.git_commit_include_unstaged = false;
+    try std.testing.expect(!canCommitGit(&model));
+    try std.testing.expect(!model.can_commit_git());
+
+    model.git_has_staged = true;
+    try std.testing.expect(canCommitGit(&model));
+    try std.testing.expect(model.can_commit_git());
+
+    model.git_has_unstaged = false;
+    try std.testing.expect(canCommitGit(&model));
+    model.git_commit_include_unstaged = true;
+    try std.testing.expect(canCommitGit(&model));
 
     model.git_dirty_key = git_dirty.git_dirty_key_first;
     try std.testing.expect(!canCommitGit(&model));
     try std.testing.expect(!model.can_commit_git());
 
     model.git_dirty_key = 0;
-    model.git_dirty_count = 0;
+    model.git_has_staged = false;
+    model.git_has_unstaged = false;
     try std.testing.expect(!canCommitGit(&model));
 }
 
@@ -488,8 +521,7 @@ test "add failure sets Could not commit and does not spawn commit" {
     const id = model.addSession("commit add fail", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
-    model.git_dirty_count = 1;
-    model.git_dirty_key = 0;
+    markDirtyUnstaged(&model, 1);
 
     startCommit(&model);
     model.git_commit_buffer.apply(.{ .insert_text = "save work" });
@@ -527,8 +559,7 @@ test "commit success refreshes the same workspace probes as other git mutations"
     const id = model.addSession("commit ok", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
-    model.git_dirty_count = 4;
-    model.git_dirty_key = 0;
+    markDirtyUnstaged(&model, 4);
 
     startCommit(&model);
     try std.testing.expect(model.git_commit_active);
@@ -590,7 +621,7 @@ test "startCommit and confirm no-op when gated, busy, or cwd is missing" {
     var model = Model{};
     const id = model.addSession("commit gate", .fx);
     model.selected = id;
-    model.git_dirty_count = 1;
+    markDirtyUnstaged(&model, 1);
     startCommit(&model);
     try std.testing.expect(!model.git_commit_active);
     try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
@@ -632,6 +663,20 @@ fn findPending(fx: *Effects, key: u64, pred: *const fn ([]const []const u8) bool
     return null;
 }
 
+fn markDirtyUnstaged(model: *Model, count: u32) void {
+    model.git_dirty_count = count;
+    model.git_dirty_key = 0;
+    model.git_has_staged = false;
+    model.git_has_unstaged = count > 0;
+}
+
+fn markDirtyStaged(model: *Model, count: u32) void {
+    model.git_dirty_count = count;
+    model.git_dirty_key = 0;
+    model.git_has_staged = count > 0;
+    model.git_has_unstaged = false;
+}
+
 fn markStaleCanPush(model: *Model) void {
     model.git_ahead_behind_key = 0;
     model.git_ahead_behind_ready = true;
@@ -655,8 +700,7 @@ test "confirm and push with a message add-then-commit then starts the push probe
     const id = model.addSession("commit and push", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
-    model.git_dirty_count = 2;
-    model.git_dirty_key = 0;
+    markDirtyUnstaged(&model, 2);
     markStaleCanPush(&model);
     try std.testing.expect(!git_ahead_behind.canPushGitBranch(&model));
     git_checkout.startPush(&model, &fx);
@@ -714,8 +758,7 @@ test "confirm and push empty message does not spawn and does not start a push" {
     const id = model.addSession("commit and push empty", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
-    model.git_dirty_count = 1;
-    model.git_dirty_key = 0;
+    markDirtyUnstaged(&model, 1);
 
     startCommit(&model);
     confirmCommitAndPush(&model, &fx);
@@ -751,8 +794,7 @@ test "confirm and push add failure sets Could not commit and does not start a pu
     const id = model.addSession("commit and push add fail", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
-    model.git_dirty_count = 1;
-    model.git_dirty_key = 0;
+    markDirtyUnstaged(&model, 1);
 
     startCommit(&model);
     model.git_commit_buffer.apply(.{ .insert_text = "save work" });
@@ -786,8 +828,7 @@ test "confirm and push commit failure sets Could not commit and does not start a
     const id = model.addSession("commit and push fail", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
-    model.git_dirty_count = 1;
-    model.git_dirty_key = 0;
+    markDirtyUnstaged(&model, 1);
 
     startCommit(&model);
     model.git_commit_buffer.apply(.{ .insert_text = "broken commit" });
@@ -820,8 +861,7 @@ test "cancel or session change while commit-and-push is in flight does not start
     const id = model.addSession("commit and push cancel", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
-    model.git_dirty_count = 3;
-    model.git_dirty_key = 0;
+    markDirtyUnstaged(&model, 3);
     markStaleCanPush(&model);
 
     startCommit(&model);
@@ -862,4 +902,129 @@ test "cancel or session change while commit-and-push is in flight does not start
     try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
     try std.testing.expect(findPending(&fx, model.git_push_key, &git_checkout.isGitUpstreamArgv) == null);
     try std.testing.expectEqualStrings(commit_failed_status, model.attach_status());
+}
+
+test "confirm skips add when include_unstaged is false" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-staged-only", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit staged only", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyStaged(&model, 1);
+
+    startCommit(&model);
+    try std.testing.expect(model.git_commit_include_unstaged);
+    toggleIncludeUnstaged(&model);
+    try std.testing.expect(!model.git_commit_include_unstaged);
+    try std.testing.expect(canCommitGit(&model));
+    model.git_commit_buffer.apply(.{ .insert_text = "  staged only  " });
+    confirmCommit(&model, &fx);
+    try std.testing.expectEqual(GitCommitPhase.commit, model.git_commit_phase);
+    try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) == null);
+    const commit = findPending(&fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
+    try std.testing.expectEqualStrings("staged only", commit.argv[8]);
+    try std.testing.expect(commit.key >= git_commit_key_first);
+
+    handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 0 });
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expect(!model.has_attach_status());
+    try std.testing.expect(model.git_dirty_key != 0);
+}
+
+test "confirm and push skips add when include_unstaged is false" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-and-push-staged", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit and push staged", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyStaged(&model, 2);
+    markStaleCanPush(&model);
+
+    startCommit(&model);
+    toggleIncludeUnstaged(&model);
+    model.git_commit_buffer.apply(.{ .insert_text = "ship staged" });
+    confirmCommitAndPush(&model, &fx);
+    try std.testing.expect(model.git_commit_then_push);
+    try std.testing.expectEqual(GitCommitPhase.commit, model.git_commit_phase);
+    try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) == null);
+    const commit = findPending(&fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
+    try std.testing.expectEqualStrings("ship staged", commit.argv[8]);
+
+    handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 0 });
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expect(model.git_push_key != 0);
+    try std.testing.expectEqual(git_checkout.GitPushPhase.upstream, model.git_push_phase);
+    try std.testing.expect(!model.has_attach_status());
+}
+
+test "staged-only commit failure sets Nothing staged to commit" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-nothing-staged", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("nothing staged", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyStaged(&model, 1);
+
+    startCommit(&model);
+    toggleIncludeUnstaged(&model);
+    model.git_commit_buffer.apply(.{ .insert_text = "should fail" });
+    confirmCommitAndPush(&model, &fx);
+    const commit = findPending(&fx, model.git_commit_key, &isGitCommitArgv) orelse return error.MissingGitCommitSpawn;
+    try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) == null);
+    handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 1 });
+    try std.testing.expectEqualStrings(nothing_staged_status, model.attach_status());
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expect(model.git_commit_active);
+}
+
+test "startCommit resets include_unstaged to true" {
+    var model = Model{};
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-reset-toggle", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    model.store_io = std.testing.io;
+    const id = model.addSession("reset toggle", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyStaged(&model, 1);
+    model.git_commit_include_unstaged = false;
+    startCommit(&model);
+    try std.testing.expect(model.git_commit_active);
+    try std.testing.expect(model.git_commit_include_unstaged);
 }

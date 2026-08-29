@@ -372,6 +372,7 @@ pub const Msg = union(enum) {
     confirm_git_commit,
     confirm_git_commit_and_push,
     cancel_git_commit,
+    toggle_git_commit_include_unstaged,
     start_project_edit,
     project_path_edit: canvas.TextInputEvent,
     /// Composer Pick folder: one-shot OS directory-dialog sidecar. Not `fx.pickFile`.
@@ -625,11 +626,18 @@ pub const Model = struct {
     /// Runtime-only: Commit and Push confirmed. Cleared on cancel /
     /// fail / session-switch. Not a view binding; not persisted.
     git_commit_then_push: bool = false,
+    /// Runtime-only Commit… include-unstaged toggle. Default true
+    /// (Waku dialog). Reset when the card opens. Not persisted.
+    git_commit_include_unstaged: bool = true,
     git_branch_delete_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     git_branch_delete_len: usize = 0,
     /// Runtime-only composer dirty count. One-shot `git status
     /// --porcelain` line count; not persisted to sessions.json.
     git_dirty_count: u32 = 0,
+    /// Runtime-only porcelain XY from the same dirty probe. Cleared
+    /// when the probe is cancelled, fails, or the session switches.
+    git_has_staged: bool = false,
+    git_has_unstaged: bool = false,
     git_dirty_label_storage: [git_dirty.max_git_dirty_label]u8 = [_]u8{0} ** git_dirty.max_git_dirty_label,
     git_dirty_label_len: usize = 0,
     git_dirty_key: u64 = 0,
@@ -936,6 +944,8 @@ pub const Model = struct {
         "git_commit_message_storage",
         "git_commit_message_len",
         "git_commit_then_push",
+        "git_has_staged",
+        "git_has_unstaged",
         "git_branch_delete_storage",
         "git_branch_delete_len",
         "git_dirty_count",
@@ -2166,7 +2176,8 @@ pub const Model = struct {
     }
 
     /// Composer branch-picker Commit…. Hide while the dirty probe is
-    /// in flight; show only when porcelain dirty count is > 0.
+    /// in flight; show when staged, or unstaged while include-unstaged
+    /// is on (Waku `can_commit`).
     pub fn can_commit_git(model: *const Model) bool {
         return git_commit_mod.canCommitGit(model);
     }

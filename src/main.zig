@@ -500,6 +500,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .confirm_git_commit => settings_actions.handleConfirmGitCommit(model, fx),
         .confirm_git_commit_and_push => settings_actions.handleConfirmGitCommitAndPush(model, fx),
         .cancel_git_commit => settings_actions.handleCancelGitCommit(model, fx),
+        .toggle_git_commit_include_unstaged => settings_actions.handleToggleGitCommitIncludeUnstaged(model),
         .start_project_edit => model.startProjectEdit(),
         .project_path_edit => |edit| {
             model.applySelectedProjectPath(edit);
