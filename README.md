@@ -52,7 +52,10 @@ actually used)
 or commit dirty work via one-shot `git add -A -- .` then
 `git commit -m` (Commit…; include-unstaged first cut; message
 trimmed to one line, max 200 chars; offered when the dirty
-probe is not in flight and porcelain count is > 0)
+probe is not in flight and porcelain count is > 0; Commit
+and Push on that card runs the same add-then-commit then
+the existing Push… probe/spawn, even when the stale
+ahead/behind gate would hide Push…)
 or safe-delete a non-current, unoccupied local head (`git branch -d`)
 or fetch remotes via `git fetch --prune`
 or push the current branch via `git push` when it has an upstream,
@@ -66,7 +69,7 @@ text-line counts on the + side, and muted ahead/behind vs
 InspectBranches live watch / `{project_id}` UUID nest /
 canonicalize(show-toplevel) / Environment
 Summary / force delete / prune-alone / base-ref picker /
-InspectCommit / Commit and Push;
+InspectCommit;
 Native still has no git
 effect);
 typing `@` in the composer (last whitespace token; caret assumed at
@@ -110,7 +113,7 @@ stdout / ACP / daemon line handlers and fx-exit routing live in
 `src/git_checkout.zig` (list, local checkout, remote-tracking `--track`,
 create-and-checkout, safe delete, fetch, push, and New worktree…
 slug-prefill plus default-base probe, collision suffixes, and
-per-project path-hash nest). Composer include-unstaged Commit…
+per-project path-hash nest). Composer include-unstaged Commit… / Commit and Push
 helpers live in `src/git_commit.zig`. Composer git-dirty probe helpers live in
 `src/git_dirty.zig`. Composer git-numstat probe helpers live in
 `src/git_numstat.zig`. Composer git ahead/behind probe helpers live in
@@ -342,8 +345,10 @@ one-shots `git add -A -- .` then `git commit -m <message>`
 message trimmed to one line, max 200 chars). Empty / whitespace
 sets `Enter a commit message.` and does not spawn. Offered only
 when the dirty probe is not in flight and porcelain count is > 0
-(Waku `can_commit` with include_unstaged=true). Not Waku
-InspectCommit, not Commit and Push, not staged-only, not AI
+(Waku `can_commit` with include_unstaged=true). Commit and Push
+on that card uses the same add-then-commit, then the existing
+Push… probe/spawn without re-checking `can_push`. Not Waku
+InspectCommit, not staged-only, not AI
 `generate_message`, not canonicalize(show-toplevel). Push… probes `@{upstream}` and one-shots `git push`
 when that name exists (`push` its own argv slot). When there is no
 upstream it one-shots `git push --set-upstream <remote> <branch>`
@@ -351,7 +356,7 @@ upstream it one-shots `git push --set-upstream <remote> <branch>`
 remote prefers `origin` from `git remote`, else the first name).
 Detached HEAD or no remotes set `Could not push.` and do not spawn
 a push. Not force, not daemon `WorkspaceOperation::Push`, not
-`InspectCommit` / Commit and Push. Push… is offered only when Waku
+`InspectCommit`. Push… is offered only when Waku
 `can_push` would be true: the ahead/behind probe resolved
 `@{upstream}` and `git_ahead_behind_ahead > 0`, or that probe
 failed / `@{upstream}` does not exist so the first-push
@@ -387,14 +392,15 @@ does not invent "clean". This is not Waku's daemon
 nesting / `waku/` prefix, not defer-until-Send
 workspace mode, not a worktree base-ref picker UI, not
 canonicalize(`git rev-parse --show-toplevel`), not
-git-common-dir identity, not Waku InspectCommit, not Commit and
-Push, not staged-only, not AI `generate_message`, not Waku's
+git-common-dir identity, not Waku InspectCommit, not staged-only,
+not AI `generate_message`, not Waku's
 Environment Summary, not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
 Review. Leftovers: canonicalize(`git rev-parse --show-toplevel`) /
-git-common-dir worktree nest identity, Commit and Push /
-InspectCommit / staged-only / AI generate_message,
-remotes-required-for-first-push (no remotes probe
+git-common-dir worktree nest identity, InspectCommit /
+staged-only / AI generate_message / `git diff --cached --quiet`
+preflight / remotes-required-for-first-push as a
+Commit-and-Push gate (no remotes probe
 on the Push… gate).
 Native still has no git effect. The branch, dirty count,
 +/-, and ahead/behind are runtime-only (like the busy spinner) and

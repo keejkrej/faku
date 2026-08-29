@@ -1376,6 +1376,7 @@ pub fn refresh(model: *Model, fx: *Effects) void {
         model.git_commit_message_len = 0;
         model.setAttachStatus("Could not commit.");
     }
+    model.git_commit_then_push = false;
     closeCommitCard(model);
     if (!probeSupported()) return;
     const cwd = probePath(model);
@@ -1680,6 +1681,12 @@ pub fn handleFetchExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit)
     model.setAttachStatus(fetch_failed_status);
 }
 
+fn spawnUpstreamProbe(model: *Model, fx: *Effects, cwd: []const u8) void {
+    resetPushState(model);
+    var argv_buf: [upstream_argv_len][]const u8 = undefined;
+    spawnPushCmd(model, fx, cwd, upstreamArgvFor(cwd, &argv_buf), .upstream);
+}
+
 /// Push… closes the picker and probes `@{upstream}`. A resolved
 /// upstream one-shots `git push` (no extra flags). No upstream
 /// one-shots `git push --set-upstream <remote> <branch>` after
@@ -1701,10 +1708,34 @@ pub fn startPush(model: *Model, fx: *Effects) void {
     if (!probeSupported()) return;
     const cwd = probePath(model);
     if (cwd.len == 0) return;
+    spawnUpstreamProbe(model, fx, cwd);
+}
 
-    resetPushState(model);
-    var argv_buf: [upstream_argv_len][]const u8 = undefined;
-    spawnPushCmd(model, fx, cwd, upstreamArgvFor(cwd, &argv_buf), .upstream);
+/// Ungated Push… probe/spawn for Commit and Push. Reuses the same
+/// upstream → bare `git push` / `--set-upstream` path as `startPush`.
+/// Does not re-check `canPushGitBranch`: after a just-created commit
+/// the ahead/behind probe is stale (often ahead=0). Waku
+/// `CommitAndPush` does not re-check `can_push`. Sets `Could not
+/// push.` when the probe cannot start (missing cwd, streaming,
+/// another git mutation, Windows). Detached HEAD / no remotes still
+/// fail later in `handlePushExit` the same way as Push…. Not a
+/// remotes-required-for-first-push gate.
+pub fn beginPushAfterCommit(model: *Model, fx: *Effects) void {
+    closePicker(model);
+    closeCreate(model);
+    closeWorktreeCreate(model);
+    closeDelete(model);
+    closeCommitCard(model);
+    if (gitMutationInFlight(model) or model.is_streaming() or !probeSupported()) {
+        model.setAttachStatus(push_failed_status);
+        return;
+    }
+    const cwd = probePath(model);
+    if (cwd.len == 0) {
+        model.setAttachStatus(push_failed_status);
+        return;
+    }
+    spawnUpstreamProbe(model, fx, cwd);
 }
 
 pub fn applyPushLine(model: *Model, line: native_sdk.EffectLine) void {
@@ -3000,4 +3031,52 @@ test "delete rows omit occupied locals" {
     try std.testing.expect(!canDeleteGitBranch(&model));
     const none = model.git_branch_delete_rows(arena);
     try std.testing.expectEqual(@as(usize, 0), none.len);
+}
+
+test "beginPushAfterCommit starts the upstream probe when canPushGitBranch is false" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-begin-push", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("begin push", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_has_upstream = true;
+    model.git_ahead_behind_ahead = 0;
+    try std.testing.expect(!git_ahead_behind.canPushGitBranch(&model));
+
+    startPush(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+
+    beginPushAfterCommit(&model, &fx);
+    try std.testing.expect(model.git_push_key >= git_push_key_first);
+    try std.testing.expectEqual(GitPushPhase.upstream, model.git_push_phase);
+    try std.testing.expect(!model.has_attach_status());
+    const spawn = fx.pendingSpawnAt(0).?;
+    try std.testing.expect(isGitUpstreamArgv(spawn.argv));
+    try std.testing.expectEqual(model.git_push_key, spawn.key);
+}
+
+test "beginPushAfterCommit sets Could not push when cwd is missing" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("begin push no cwd", .fx);
+    model.selected = id;
+    beginPushAfterCommit(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try std.testing.expectEqualStrings(push_failed_status, model.attach_status());
 }

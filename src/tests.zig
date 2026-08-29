@@ -13487,10 +13487,18 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Commit message") != null);
     _ = try expectButtonMsg(tree, "Commit", .confirm_git_commit);
+    _ = try expectButtonMsg(tree, "Commit and Push", .confirm_git_commit_and_push);
     _ = try expectButtonMsg(tree, "Cancel", .cancel_git_commit);
 
     main.update(&model, .confirm_git_commit, &fx);
     try testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try testing.expectEqualStrings(git_commit.empty_message_status, model.attach_status());
+    try testing.expect(model.git_commit_active);
+
+    main.update(&model, .confirm_git_commit_and_push, &fx);
+    try testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try testing.expect(!model.git_commit_then_push);
     try testing.expectEqualStrings(git_commit.empty_message_status, model.attach_status());
     try testing.expect(model.git_commit_active);
 

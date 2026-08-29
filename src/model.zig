@@ -370,6 +370,7 @@ pub const Msg = union(enum) {
     start_git_commit,
     git_commit_edit: canvas.TextInputEvent,
     confirm_git_commit,
+    confirm_git_commit_and_push,
     cancel_git_commit,
     start_project_edit,
     project_path_edit: canvas.TextInputEvent,
@@ -621,6 +622,9 @@ pub const Model = struct {
     git_commit_phase: git_commit_mod.GitCommitPhase = .idle,
     git_commit_message_storage: [git_commit_mod.max_commit_message]u8 = [_]u8{0} ** git_commit_mod.max_commit_message,
     git_commit_message_len: usize = 0,
+    /// Runtime-only: Commit and Push confirmed. Cleared on cancel /
+    /// fail / session-switch. Not a view binding; not persisted.
+    git_commit_then_push: bool = false,
     git_branch_delete_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     git_branch_delete_len: usize = 0,
     /// Runtime-only composer dirty count. One-shot `git status
@@ -931,6 +935,7 @@ pub const Model = struct {
         "git_commit_phase",
         "git_commit_message_storage",
         "git_commit_message_len",
+        "git_commit_then_push",
         "git_branch_delete_storage",
         "git_branch_delete_len",
         "git_dirty_count",
