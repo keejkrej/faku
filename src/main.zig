@@ -538,6 +538,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .set_review_diff_source_branch => review_diff.setSource(model, fx, .branch),
         .set_review_diff_source_uncommitted => review_diff.setSource(model, fx, .uncommitted),
         .set_review_diff_source_staged => review_diff.setSource(model, fx, .staged),
+        .set_review_diff_source_unstaged => review_diff.setSource(model, fx, .unstaged),
         .git_commit_edit => |edit| settings_actions.handleGitCommitEdit(model, edit),
         .confirm_git_commit => settings_actions.handleConfirmGitCommit(model, fx),
         .confirm_git_commit_and_push => settings_actions.handleConfirmGitCommitAndPush(model, fx),
