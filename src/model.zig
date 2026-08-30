@@ -1076,6 +1076,7 @@ pub const Model = struct {
         "openEditorPath",
         "right_panel_width",
         "right_panel_tab",
+        "right_panel_showing_files",
         "rightPanelWidthPixels",
         "applyRightPanelWidth",
         "syncRightPanelSplit",
