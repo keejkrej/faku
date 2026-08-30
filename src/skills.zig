@@ -258,11 +258,11 @@ fn frontmatterClose(rest: []const u8) ?usize {
 
 /// Light YAML `name:` in a leading `---` fence. Empty when missing.
 pub fn parseFrontmatterName(source: []const u8) []const u8 {
-    const start = std.mem.trimLeft(u8, source, " \t\r\n");
+    const start = std.mem.trimStart(u8, source, " \t\r\n");
     if (!std.mem.startsWith(u8, start, "---")) return "";
     const rest = trimOneNewline(start[3..]);
-    const close = frontmatterClose(rest) orelse return "";
-    const fm = rest[0..close];
+    const fence = frontmatterClose(rest) orelse return "";
+    const fm = rest[0..fence];
     var lines = std.mem.splitScalar(u8, fm, '\n');
     while (lines.next()) |raw_line| {
         const line = std.mem.trim(u8, raw_line, " \t\r");
@@ -282,13 +282,13 @@ pub fn parseFrontmatterName(source: []const u8) []const u8 {
 /// Body after a leading `---` / `---` fence. Unfenced source is
 /// trimmed as-is.
 pub fn stripFrontmatter(source: []const u8) []const u8 {
-    const start = std.mem.trimLeft(u8, source, " \t\r\n");
+    const start = std.mem.trimStart(u8, source, " \t\r\n");
     if (!std.mem.startsWith(u8, start, "---")) {
         return std.mem.trim(u8, source, " \t\r\n");
     }
     const rest = trimOneNewline(start[3..]);
-    const close = frontmatterClose(rest) orelse return std.mem.trim(u8, source, " \t\r\n");
-    var body = rest[close + 1 ..];
+    const fence = frontmatterClose(rest) orelse return std.mem.trim(u8, source, " \t\r\n");
+    var body = rest[fence + 1 ..];
     if (std.mem.startsWith(u8, body, "---")) body = body[3..];
     body = trimOneNewline(body);
     return std.mem.trim(u8, body, " \t\r\n");
