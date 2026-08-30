@@ -17063,9 +17063,12 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     try testing.expectEqual(Msg.environment_compare, tree.msgForPointer(compare.id, .up).?);
     const copy_task = try expectByText(tree.root, .menu_item, "Copy task ID");
     try testing.expectEqual(Msg.environment_copy_task_id, tree.msgForPointer(copy_task.id, .up).?);
+    try testing.expect(findByText(tree.root, .text, "Background") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Compare branch") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_commit_or_push").? < std.mem.indexOf(u8, main.app_markup, "menu-item on-press=\"environment_compare\"").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "menu-item on-press=\"environment_compare\"").? < std.mem.indexOf(u8, main.app_markup, "environment_copy_task_id").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_copy_task_id").? < std.mem.indexOf(u8, main.app_markup, "environment_stop_background").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"environment_compare\">{header_git_numstat_label}").? < std.mem.indexOf(u8, main.app_markup, "menu-item on-press=\"environment_compare\"").?);
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
@@ -17084,6 +17087,49 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     tree = try buildTree(arena, &model);
     const settings_toolbar = try expectByText(tree.root, .row, "Toolbar");
     try testing.expect(findByText(settings_toolbar, .button, "Environment") == null);
+}
+
+test "Environment Background Stop appears while streaming and reuses composer Stop" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const selected = model.selected;
+    main.update(&model, .toggle_environment_summary, &fx);
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Background") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
+    main.update(&model, .close_environment_summary, &fx);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "stream for background stop" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expect(model.sessionById(selected).?.busy);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    _ = try expectButtonMsg(try buildTree(arena, &model), "Stop", .stop_turn);
+
+    main.update(&model, .toggle_environment_summary, &fx);
+    try testing.expect(model.environment_summary_open);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Background");
+    const stop_agent = try expectByText(tree.root, .menu_item, "Stop agent");
+    try testing.expectEqual(Msg.environment_stop_background, tree.msgForPointer(stop_agent.id, .up).?);
+    _ = try expectByText(tree.root, .menu_item, "Copy task ID");
+
+    main.update(&model, tree.msgForPointer(stop_agent.id, .up).?, &fx);
+    try testing.expect(!model.environment_summary_open);
+    try testing.expect(!model.is_streaming());
+    try testing.expect(!model.sessionById(selected).?.busy);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+    try testing.expect(findByText(tree.root, .text, "Background") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
 }
 
 test "Environment Commit or Push opens the commit card on a clean tree; composer Commit… stays gated" {

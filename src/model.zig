@@ -379,6 +379,9 @@ pub const Msg = union(enum) {
     environment_commit_or_push,
     environment_compare,
     environment_copy_task_id,
+    /// Environment Summary Background Stop. Closes the dropdown then
+    /// `stopStream` (same path as composer Stop). No-op when idle.
+    environment_stop_background,
     close_review_diff,
     set_review_diff_source_branch,
     set_review_diff_source_uncommitted,

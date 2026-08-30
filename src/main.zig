@@ -538,6 +538,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .environment_commit_or_push => environment_summary.commitOrPush(model, fx),
         .environment_compare => environment_summary.compare(model, fx),
         .environment_copy_task_id => environment_summary.copyTaskId(model, fx),
+        .environment_stop_background => environment_summary.stopBackground(model, fx),
         .close_review_diff => review_diff.dismiss(model, fx),
         .set_review_diff_source_branch => review_diff.setSource(model, fx, .branch),
         .set_review_diff_source_uncommitted => review_diff.setSource(model, fx, .uncommitted),
