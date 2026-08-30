@@ -255,8 +255,8 @@ pub const MentionRow = struct {
 
 /// Files-pane row. `id` is a 1-based file-mention cache index or
 /// `file_mention_dir_id_base + dir_index` so Native
-/// `open_right_panel_file:{f.id}` never binds 0. Dir rows are listed
-/// but not clicked this cut (no expand/collapse).
+/// `open_right_panel_file:{f.id}` never binds 0. Dir rows toggle
+/// `toggle_right_panel_dir:{f.id}`; `expanded` is false for files.
 pub const RightPanelFileRow = struct {
     id: u32,
     path: []const u8,
@@ -264,6 +264,10 @@ pub const RightPanelFileRow = struct {
     parent: []const u8,
     has_parent: bool,
     is_file: bool,
+    expanded: bool,
+    depth: u32,
+    has_indent: bool,
+    indent: f32,
 };
 
 /// Composer model picker row. `row_id` is a 1-based Native `for` key.
@@ -356,6 +360,8 @@ pub const Msg = union(enum) {
     right_panel_resized: f32,
     /// Files-pane file click. Payload is a 1-based file-mention cache id.
     open_right_panel_file: u32,
+    /// Files-pane dir click. Payload is `file_mention_dir_id_base + index`.
+    toggle_right_panel_dir: u32,
     toggle_settings,
     settings_model_edit: canvas.TextInputEvent,
     settings_project_edit: canvas.TextInputEvent,
@@ -600,6 +606,12 @@ pub const Model = struct {
     right_panel_split: f32 = default_right_panel_split,
     /// Last Files-pane width in pixels (Waku file-tree 184).
     right_panel_width: f32 = right_panel_default_width,
+    /// Runtime-only expanded Files-tree dirs. Keys match
+    /// `file_mention.derivedDirParents` (no trailing slash). Empty =
+    /// collapsed (depth-0 only). Cap `max_file_mention_dirs`. Not
+    /// persisted to sessions.json this cut.
+    right_panel_expanded_store: [file_mention.max_file_mention_dirs]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** file_mention.max_file_mention_dirs,
+    right_panel_expanded_count: u32 = 0,
     settings_open: bool = false,
     /// Runtime-only Ctrl-Tab overlay. Not persisted to sessions.json.
     switcher_open: bool = false,
@@ -1058,6 +1070,9 @@ pub const Model = struct {
         "toggleRightPanel",
         "showRightPanel",
         "hideRightPanel",
+        "clearRightPanelExpanded",
+        "right_panel_expanded_store",
+        "right_panel_expanded_count",
         "applyRightPanelResize",
         "setAttachStatus",
         "clearAttachStatus",
@@ -2151,7 +2166,12 @@ pub const Model = struct {
 
     pub fn hideRightPanel(model: *Model) void {
         model.right_panel_open = false;
+        model.clearRightPanelExpanded();
         model.syncRightPanelSplit();
+    }
+
+    pub fn clearRightPanelExpanded(model: *Model) void {
+        model.right_panel_expanded_count = 0;
     }
 
     pub fn toggleRightPanel(model: *Model) void {

@@ -637,6 +637,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistLayoutIfPossible(model);
         },
         .open_right_panel_file => |id| right_panel.openCachedFile(model, fx, id),
+        .toggle_right_panel_dir => |id| right_panel.toggleDir(model, id),
         .sidebar_resized => |fraction| {
             sidebar_row_helpers.applySidebarResize(model, fraction);
             model.syncRightPanelSplit();
