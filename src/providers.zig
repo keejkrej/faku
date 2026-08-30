@@ -44,7 +44,7 @@ pub fn catalogLen() usize {
 }
 
 pub fn rowId(id: protocol.ProviderId) u32 {
-    return @intFromEnum(id) + 1;
+    return @as(u32, @intFromEnum(id)) + 1;
 }
 
 pub fn fromRowId(id: u32) ?protocol.ProviderId {
@@ -146,6 +146,8 @@ test "catalog lists every ProviderId; fx is row 1" {
     try std.testing.expectEqual(@as(usize, 8), tags.len);
     try std.testing.expectEqual(protocol.ProviderId.fx, tags[0]);
     try std.testing.expectEqual(@as(u32, 1), rowId(.fx));
+    try std.testing.expectEqual(@as(u32, 2), rowId(.claude));
+    try std.testing.expectEqual(@as(u32, 8), rowId(.pi));
     try std.testing.expectEqual(protocol.ProviderId.fx, fromRowId(1).?);
     try std.testing.expectEqual(protocol.ProviderId.claude, fromRowId(2).?);
     try std.testing.expectEqual(protocol.ProviderId.pi, fromRowId(8).?);
