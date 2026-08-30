@@ -16,6 +16,14 @@
 //! `FILE_TREE_MIN_WIDTH` (140) / `FILE_TREE_MAX_WIDTH` (360) because
 //! this cut is the Files tree, not the full 460px right panel that
 //! also hosts Browser / Terminal / Diff / editor.
+//!
+//! Directory expand/collapse is a runtime-only set of relative dir
+//! paths matching `file_mention.derivedDirParents` (no trailing
+//! slash), cap `max_file_mention_dirs`. Empty set = collapsed tree
+//! (Waku empty `expanded_paths` HashSet): only depth-0 files and
+//! top-level dirs. Not persisted to `sessions.json` this cut (Waku
+//! keeps `expanded_paths` on in-memory per-session
+//! `RightPanelSessionState`).
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -26,6 +34,9 @@ const open_editor = @import("open_editor.zig");
 const Model = main.Model;
 const Effects = main.Effects;
 const RightPanelFileRow = main.RightPanelFileRow;
+
+/// Mild tree indent per `fileMentionDepth`. Sidebar grouped rows use 15px.
+pub const indent_step: f32 = 12;
 
 pub fn clampWidth(width: f32) f32 {
     const raw = if (width > 0) width else main.right_panel_default_width;
@@ -70,47 +81,134 @@ pub fn isLoading(model: *const Model) bool {
     return hasProject(model) and model.file_mention_key != 0 and model.file_mention_count == 0;
 }
 
+/// `derivedDirParents` spelling: no trailing slash. `src/` → `src`.
+pub fn dirKey(path: []const u8) []const u8 {
+    return std.mem.trimEnd(u8, path, "/");
+}
+
+/// True when every ancestor directory of `path` is in `expanded`.
+/// Root files and top-level dirs (parent `""`) are always visible.
+/// Unknown expanded keys are ignored.
+pub fn ancestorsExpanded(path: []const u8, expanded: []const []const u8) bool {
+    var parent = composer.fileMentionParent(path);
+    while (parent.len > 0) {
+        if (!containsKey(expanded, parent)) return false;
+        parent = composer.fileMentionParent(parent);
+    }
+    return true;
+}
+
+fn containsKey(keys: []const []const u8, needle: []const u8) bool {
+    for (keys) |item| {
+        if (std.mem.eql(u8, item, needle)) return true;
+    }
+    return false;
+}
+
+pub fn expandedKeys(model: *const Model, buf: [][]const u8) []const []const u8 {
+    const n = @min(model.right_panel_expanded_count, buf.len);
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        buf[i] = model.right_panel_expanded_store[i].text();
+    }
+    return buf[0..n];
+}
+
+pub fn isDirExpanded(model: *const Model, path: []const u8) bool {
+    const key = dirKey(path);
+    if (key.len == 0) return false;
+    var buf: [file_mention.max_file_mention_dirs][]const u8 = undefined;
+    return containsKey(expandedKeys(model, &buf), key);
+}
+
 pub fn rows(model: *const Model, arena: std.mem.Allocator) []const RightPanelFileRow {
     if (!model.right_panel_open) return &.{};
     if (!hasProject(model)) return &.{};
     if (model.file_mention_count == 0) return &.{};
 
+    var key_buf: [file_mention.max_file_mention_dirs][]const u8 = undefined;
+    const expanded = expandedKeys(model, &key_buf);
+
     var parents: [file_mention.max_file_mention_dirs][]const u8 = undefined;
     const dir_n = file_mention.derivedDirParents(model, &parents);
     const file_n = model.file_mention_count;
-    const count = dir_n + file_n;
-    const out = arena.alloc(RightPanelFileRow, count) catch return &.{};
-    var i: usize = 0;
+    const cap = dir_n + file_n;
+    const out = arena.alloc(RightPanelFileRow, cap) catch return &.{};
+    var n: usize = 0;
     for (parents[0..dir_n], 0..) |parent, dir_index| {
         const path = std.fmt.allocPrint(arena, "{s}/", .{parent}) catch continue;
-        const name = composer.fileMentionBasename(path);
-        const dir_parent = composer.fileMentionParent(path);
-        out[i] = .{
-            .id = file_mention.dirMentionId(dir_index),
-            .path = path,
-            .name = name,
-            .parent = dir_parent,
-            .has_parent = dir_parent.len > 0,
-            .is_file = false,
-        };
-        i += 1;
+        if (!ancestorsExpanded(path, expanded)) continue;
+        out[n] = makeRow(path, file_mention.dirMentionId(dir_index), false, containsKey(expanded, parent));
+        n += 1;
     }
     var file_i: usize = 0;
     while (file_i < file_n) : (file_i += 1) {
         const path = file_mention.cachedPath(model, file_i);
-        const name = composer.fileMentionBasename(path);
-        const parent = composer.fileMentionParent(path);
-        out[i] = .{
-            .id = file_mention.fileMentionId(file_i),
-            .path = path,
-            .name = name,
-            .parent = parent,
-            .has_parent = parent.len > 0,
-            .is_file = true,
-        };
-        i += 1;
+        if (!ancestorsExpanded(path, expanded)) continue;
+        out[n] = makeRow(path, file_mention.fileMentionId(file_i), true, false);
+        n += 1;
     }
-    return out[0..i];
+    const lessThan = struct {
+        fn lessThan(_: void, a: RightPanelFileRow, b: RightPanelFileRow) bool {
+            const order = std.mem.order(u8, a.path, b.path);
+            if (order != .eq) return order == .lt;
+            return a.id < b.id;
+        }
+    }.lessThan;
+    std.mem.sort(RightPanelFileRow, out[0..n], {}, lessThan);
+    return out[0..n];
+}
+
+fn makeRow(path: []const u8, id: u32, is_file: bool, expanded: bool) RightPanelFileRow {
+    const name = composer.fileMentionBasename(path);
+    const parent = composer.fileMentionParent(path);
+    const depth = composer.fileMentionDepth(path);
+    return .{
+        .id = id,
+        .path = path,
+        .name = name,
+        .parent = parent,
+        .has_parent = parent.len > 0,
+        .is_file = is_file,
+        .expanded = expanded,
+        .depth = depth,
+        .has_indent = depth > 0,
+        .indent = @as(f32, @floatFromInt(depth)) * indent_step,
+    };
+}
+
+/// Toggle a derived-dir id in the runtime expanded set. File ids and
+/// missing dir ids are no-ops. Cap is `max_file_mention_dirs`.
+pub fn toggleDir(model: *Model, id: u32) void {
+    if (id < file_mention.file_mention_dir_id_base) return;
+    var rel_buf: [file_mention.max_file_mention_path + 1]u8 = undefined;
+    const rel = file_mention.mentionRelpath(model, id, &rel_buf) orelse return;
+    const key = dirKey(rel);
+    if (key.len == 0) return;
+    if (indexOfExpanded(model, key)) |index| {
+        removeExpandedAt(model, index);
+        return;
+    }
+    if (model.right_panel_expanded_count >= file_mention.max_file_mention_dirs) return;
+    model.right_panel_expanded_store[model.right_panel_expanded_count].set(key);
+    model.right_panel_expanded_count += 1;
+}
+
+fn indexOfExpanded(model: *const Model, key: []const u8) ?usize {
+    var i: usize = 0;
+    while (i < model.right_panel_expanded_count) : (i += 1) {
+        if (std.mem.eql(u8, model.right_panel_expanded_store[i].text(), key)) return i;
+    }
+    return null;
+}
+
+fn removeExpandedAt(model: *Model, index: usize) void {
+    if (index >= model.right_panel_expanded_count) return;
+    var i = index;
+    while (i + 1 < model.right_panel_expanded_count) : (i += 1) {
+        model.right_panel_expanded_store[i] = model.right_panel_expanded_store[i + 1];
+    }
+    model.right_panel_expanded_count -= 1;
 }
 
 pub fn openCachedFile(model: *Model, fx: *Effects, id: u32) void {
@@ -141,6 +239,26 @@ test "joinProjectRelpath joins root and relpath; empty sides miss" {
     try std.testing.expect(joinProjectRelpath("/tmp/proj", "", &buf) == null);
 }
 
+test "dirKey strips a trailing slash; ancestorsExpanded is collapsed by default" {
+    try std.testing.expectEqualStrings("src", dirKey("src/"));
+    try std.testing.expectEqualStrings("src/lib", dirKey("src/lib/"));
+    try std.testing.expectEqualStrings("src/main.zig", dirKey("src/main.zig"));
+    const none = [_][]const u8{};
+    try std.testing.expect(ancestorsExpanded("README.md", &none));
+    try std.testing.expect(ancestorsExpanded("src/", &none));
+    try std.testing.expect(!ancestorsExpanded("src/main.zig", &none));
+    try std.testing.expect(!ancestorsExpanded("src/lib/", &none));
+    try std.testing.expect(!ancestorsExpanded("src/lib/a.zig", &none));
+    const src_only = [_][]const u8{"src"};
+    try std.testing.expect(ancestorsExpanded("src/main.zig", &src_only));
+    try std.testing.expect(ancestorsExpanded("src/lib/", &src_only));
+    try std.testing.expect(!ancestorsExpanded("src/lib/a.zig", &src_only));
+    const nested = [_][]const u8{ "src", "src/lib" };
+    try std.testing.expect(ancestorsExpanded("src/lib/a.zig", &nested));
+    const stale = [_][]const u8{"src/lib"};
+    try std.testing.expect(!ancestorsExpanded("src/lib/a.zig", &stale));
+}
+
 test "rows are empty when closed or without a cache" {
     var model = Model{};
     try std.testing.expect(!model.right_panel_open);
@@ -148,4 +266,110 @@ test "rows are empty when closed or without a cache" {
 
     model.right_panel_open = true;
     try std.testing.expectEqual(@as(usize, 0), rows(&model, std.testing.allocator).len);
+}
+
+test "collapsed default, expand shows children, collapse hides descendants" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-files-tree-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("tree", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model,
+        \\src/lib/a.zig
+        \\src/main.zig
+        \\README.md
+    );
+
+    var parents: [file_mention.max_file_mention_dirs][]const u8 = undefined;
+    const dir_n = file_mention.derivedDirParents(&model, &parents);
+    try std.testing.expectEqual(@as(usize, 2), dir_n);
+    try std.testing.expectEqualStrings("src/lib", parents[0]);
+    try std.testing.expectEqualStrings("src", parents[1]);
+    const src_lib_id = file_mention.dirMentionId(0);
+    const src_id = file_mention.dirMentionId(1);
+
+    {
+        const visible = rows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 2), visible.len);
+        try std.testing.expectEqualStrings("README.md", visible[0].path);
+        try std.testing.expect(visible[0].is_file);
+        try std.testing.expectEqual(@as(u32, 0), visible[0].depth);
+        try std.testing.expectEqualStrings("src/", visible[1].path);
+        try std.testing.expect(!visible[1].is_file);
+        try std.testing.expect(!visible[1].expanded);
+        try std.testing.expectEqual(src_id, visible[1].id);
+        try std.testing.expectEqual(@as(u32, 0), visible[1].depth);
+    }
+
+    toggleDir(&model, src_id);
+    try std.testing.expect(isDirExpanded(&model, "src/"));
+    {
+        const visible = rows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 4), visible.len);
+        try std.testing.expectEqualStrings("README.md", visible[0].path);
+        try std.testing.expectEqualStrings("src/", visible[1].path);
+        try std.testing.expect(visible[1].expanded);
+        try std.testing.expectEqualStrings("src/lib/", visible[2].path);
+        try std.testing.expect(!visible[2].expanded);
+        try std.testing.expectEqual(src_lib_id, visible[2].id);
+        try std.testing.expectEqual(@as(u32, 1), visible[2].depth);
+        try std.testing.expect(visible[2].has_indent);
+        try std.testing.expectEqual(indent_step, visible[2].indent);
+        try std.testing.expectEqualStrings("src/main.zig", visible[3].path);
+        try std.testing.expect(visible[3].is_file);
+        try std.testing.expect(!visible[3].expanded);
+    }
+
+    toggleDir(&model, src_lib_id);
+    {
+        const visible = rows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 5), visible.len);
+        try std.testing.expectEqualStrings("src/lib/a.zig", visible[3].path);
+        try std.testing.expectEqual(@as(u32, 2), visible[3].depth);
+        try std.testing.expectEqualStrings("src/main.zig", visible[4].path);
+    }
+
+    toggleDir(&model, src_id);
+    try std.testing.expect(!isDirExpanded(&model, "src/"));
+    {
+        const visible = rows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 2), visible.len);
+        try std.testing.expectEqualStrings("README.md", visible[0].path);
+        try std.testing.expectEqualStrings("src/", visible[1].path);
+        try std.testing.expect(isDirExpanded(&model, "src/lib/"));
+    }
+
+    toggleDir(&model, 0);
+    toggleDir(&model, 1);
+    toggleDir(&model, file_mention.dirMentionId(99));
+    try std.testing.expectEqual(@as(u32, 1), model.right_panel_expanded_count);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    openCachedFile(&model, &fx, src_id);
+    try std.testing.expect(fx.pendingSpawnAt(0) == null);
+    openCachedFile(&model, &fx, 1);
+    try std.testing.expect(fx.pendingSpawnAt(0) != null);
+
+    model.hideRightPanel();
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_expanded_count);
+    model.showRightPanel();
+    try std.testing.expectEqual(@as(usize, 2), rows(&model, arena).len);
+
+    toggleDir(&model, src_id);
+    try std.testing.expectEqual(@as(u32, 1), model.right_panel_expanded_count);
+    file_mention.clearCache(&model);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_expanded_count);
 }

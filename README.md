@@ -76,7 +76,8 @@ numeric id and fx/ACP session id); the sidebar collapse
 control works and is restored; a first-cut Files pane sits to the
 right of the conversation (default closed; Waku `command_palette.show_right_panel`
 / `hide_right_panel`; width 184/140/360 from Waku file-tree
-constants, not the 460px full right panel); the sidebar chevrons walk session
+constants, not the 460px full right panel; dirs expand/collapse from a
+runtime-only set, default collapsed); the sidebar chevrons walk session
 selection history; clicking a session focuses the composer; New folder creates a local catalog folder; clicking
 a folder (or the move control) assigns the selected session; folder
 titles are editable; collapsed folder headers show a right chevron (expand) and expanded ones a down chevron (collapse); Collapse all folders collapses every sidebar folder (restored via `collapsed_folder_ids`); the selected session title is editable; deleting a folder unassigns its sessions;
@@ -567,8 +568,8 @@ that path; Uncommitted `?` rows one-shot
 `git diff --no-index -- /dev/null <path>`). First-cut
 Background Stop is Faku-side `is_streaming` / composer Stop
 only. Copy agent CLI thread ID is omitted unless the selected
-session has a non-empty `fx_session_id`. Leftovers: file tree
-expand/collapse, Diff tab, fuller BackgroundWork registry / settled
+session has a non-empty `fx_session_id`. Leftovers: Diff tab,
+fuller BackgroundWork registry / settled
 rows / multi-kind Process·Monitor·Subagent, Skills settings page,
 daemon `WorkspaceOperation`. Not a
 Waku BackgroundWorkRegistry. Not transcript checkpoint +/-.
@@ -618,10 +619,16 @@ mentions. Local / missing project shows Waku `files.no_project_open`
 ("No project open"). A successful empty probe stays an empty list.
 Clicking a file passes `project_path` + relpath to the existing
 Open in Editor sidecar (`cursor`/`code`/`open -a` still take one
-path argument). Dir rows are listed without expand/collapse this
-cut. Not Browser, Terminal (no Native PTY), Diff, compact File
-editor, BackgroundWork tabs, daemon `WorkspaceOperation::listTree` /
-browseDirectory / readTextFile, or Waku's 50k-file index.
+path argument). Dir rows expand/collapse from a runtime-only set of
+relative paths matching `file_mention.derivedDirParents` (no trailing
+slash, cap `max_file_mention_dirs`); empty set shows only depth-0
+files and top-level dirs (Waku empty `expanded_paths`). Nested dirs
+stay collapsed until toggled. Not persisted to `sessions.json` this
+cut (Waku keeps `expanded_paths` on in-memory per-session
+`RightPanelSessionState`). Not Browser, Terminal (no Native PTY),
+Diff, compact File editor, BackgroundWork tabs, daemon
+`WorkspaceOperation::listTree` / browseDirectory / readTextFile, or
+Waku's 50k-file index.
 
 A stdout ACP `session/new` result with `sessionId` updates the stored
 id and is not appended to the assistant turn. `fx ask --json` lines

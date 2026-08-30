@@ -670,6 +670,9 @@
               <for each="right_panel_file_rows" key="id" as="f">
                 <if test="{f.is_file}">
                   <list-item height="32" padding="8" gap="4" cross="center" on-press="open_right_panel_file:{f.id}" label="{f.path}">
+                    <if test="{f.has_indent}">
+                      <spacer width="{f.indent}" />
+                    </if>
                     <column gap="2">
                       <text wrap="false" overflow="ellipsis">{f.name}</text>
                       <if test="{f.has_parent}">
@@ -679,7 +682,16 @@
                   </list-item>
                 </if>
                 <else>
-                  <list-item height="32" padding="8" gap="4" cross="center" label="{f.path}">
+                  <list-item height="32" padding="8" gap="4" cross="center" on-press="toggle_right_panel_dir:{f.id}" label="{f.path}">
+                    <if test="{f.has_indent}">
+                      <spacer width="{f.indent}" />
+                    </if>
+                    <if test="{f.expanded}">
+                      <icon name="chevron-down" />
+                    </if>
+                    <else>
+                      <icon name="chevron-right" />
+                    </else>
                     <column gap="2">
                       <text wrap="false" overflow="ellipsis">{f.name}</text>
                       <if test="{f.has_parent}">

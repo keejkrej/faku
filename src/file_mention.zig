@@ -250,6 +250,7 @@ pub fn mentionRelpath(model: *const Model, id: u32, dir_out: []u8) ?[]const u8 {
 
 pub fn clearCache(model: *Model) void {
     model.file_mention_count = 0;
+    model.clearRightPanelExpanded();
 }
 
 fn cancelInFlight(model: *Model, fx: *Effects) void {

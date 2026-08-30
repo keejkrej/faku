@@ -7965,32 +7965,53 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     );
     {
         const rows = model.right_panel_file_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expectEqualStrings("README.md", rows[0].path);
+        try testing.expect(rows[0].is_file);
+        try testing.expect(!rows[0].expanded);
+        try testing.expectEqualStrings("src/", rows[1].path);
+        try testing.expect(!rows[1].is_file);
+        try testing.expect(!rows[1].expanded);
+        try testing.expectEqual(file_mention.file_mention_dir_id_base, rows[1].id);
+    }
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "README.md");
+    _ = try expectByText(tree.root, .text, "src");
+    try testing.expect(findByText(tree.root, .text, "main.zig") == null);
+    try testing.expect(findByText(tree.root, .text, "composer.zig") == null);
+    const dir_row = try expectButton(tree.root, "src/");
+    try testing.expectEqual(Msg{ .toggle_right_panel_dir = file_mention.file_mention_dir_id_base }, tree.msgForPointer(dir_row.id, .up).?);
+
+    main.update(&model, .{ .toggle_right_panel_dir = file_mention.file_mention_dir_id_base }, &fx);
+    {
+        const rows = model.right_panel_file_rows(arena);
         try testing.expectEqual(@as(usize, 4), rows.len);
-        try testing.expectEqualStrings("src/", rows[0].path);
-        try testing.expect(!rows[0].is_file);
-        try testing.expectEqual(file_mention.file_mention_dir_id_base, rows[0].id);
-        try testing.expectEqualStrings("src/main.zig", rows[1].path);
-        try testing.expect(rows[1].is_file);
-        try testing.expectEqual(@as(u32, 1), rows[1].id);
+        try testing.expectEqualStrings("README.md", rows[0].path);
+        try testing.expectEqualStrings("src/", rows[1].path);
+        try testing.expect(rows[1].expanded);
         try testing.expectEqualStrings("src/composer.zig", rows[2].path);
-        try testing.expectEqualStrings("README.md", rows[3].path);
+        try testing.expectEqualStrings("src/main.zig", rows[3].path);
+        try testing.expect(rows[3].is_file);
+        try testing.expectEqual(@as(u32, 1), rows[3].id);
     }
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "main.zig");
     _ = try expectByText(tree.root, .text, "composer.zig");
-    _ = try expectByText(tree.root, .text, "README.md");
-    _ = try expectByText(tree.root, .text, "src");
     const file_row = try expectButton(tree.root, "src/main.zig");
     try testing.expectEqual(Msg{ .open_right_panel_file = 1 }, tree.msgForPointer(file_row.id, .up).?);
-    const dir_row = try expectButton(tree.root, "src/");
-    try testing.expect(tree.msgForPointer(dir_row.id, .up) == null);
 
     main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
     const spawn = findOpenEditorSpawn(&fx) orelse return error.MissingOpenEditorSpawn;
     try testing.expect(open_editor.isEditorArgv(spawn.argv));
     try testing.expect(std.mem.endsWith(u8, spawn.argv[1], "/src/main.zig"));
     try testing.expect(std.mem.startsWith(u8, spawn.argv[1], project));
+
+    main.update(&model, .{ .toggle_right_panel_dir = file_mention.file_mention_dir_id_base }, &fx);
+    try testing.expectEqual(@as(usize, 2), model.right_panel_file_rows(arena).len);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "main.zig") == null);
 }
 
 test "right panel Files list stays empty without a project" {
