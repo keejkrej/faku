@@ -5948,11 +5948,22 @@ test "Send names the worktree snapshot under refs/faku" {
     try testing.expect(rewind.isStoredSha(first_owned));
 
     var first_ref_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
-    const first_ref = checkpoint.formatFakuSessionTurnRef(&first_ref_buf, id, 1) orelse return error.MissingFakuRef;
-    try testing.expectEqualStrings("refs/faku/session-1-turn-1", first_ref);
+    const first_ref = checkpoint.formatFakuSessionTurnStartRef(&first_ref_buf, id, 1) orelse return error.MissingFakuRef;
+    try testing.expectEqualStrings("refs/faku/session-1-turn-start-1", first_ref);
     const first_parsed = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "rev-parse", first_ref });
     defer allocator.free(first_parsed);
     try testing.expectEqualStrings(first_owned, std.mem.trim(u8, first_parsed, " \r\n\t"));
+
+    var first_baseline_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const first_baseline = checkpoint.formatFakuSessionTurnRef(&first_baseline_buf, id, 0) orelse return error.MissingFakuRef;
+    try testing.expect(checkpoint.hasFakuRef(allocator, testing.io, project, first_baseline));
+    const first_baseline_parsed = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "rev-parse", first_baseline });
+    defer allocator.free(first_baseline_parsed);
+    try testing.expectEqualStrings(first_owned, std.mem.trim(u8, first_baseline_parsed, " \r\n\t"));
+
+    var first_end_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const first_end = checkpoint.formatFakuSessionTurnRef(&first_end_buf, id, 1) orelse return error.MissingFakuRef;
+    try testing.expect(!checkpoint.hasFakuRef(allocator, testing.io, project, first_end));
 
     try fx.feedExit(main.fx_ask_key, 0);
     drainEffects(&model, &fx);
@@ -5968,14 +5979,27 @@ test "Send names the worktree snapshot under refs/faku" {
     try testing.expect(!std.mem.eql(u8, first_owned, second_owned));
 
     var second_ref_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
-    const second_ref = checkpoint.formatFakuSessionTurnRef(&second_ref_buf, id, 2) orelse return error.MissingFakuRef;
+    const second_ref = checkpoint.formatFakuSessionTurnStartRef(&second_ref_buf, id, 2) orelse return error.MissingFakuRef;
     const second_parsed = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "rev-parse", second_ref });
     defer allocator.free(second_parsed);
     try testing.expectEqualStrings(second_owned, std.mem.trim(u8, second_parsed, " \r\n\t"));
 
+    try testing.expect(checkpoint.hasFakuRef(allocator, testing.io, project, first_end));
+    const seeded_end = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "rev-parse", first_end });
+    defer allocator.free(seeded_end);
+    try testing.expectEqualStrings(second_owned, std.mem.trim(u8, seeded_end, " \r\n\t"));
+
+    var second_end_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const second_end = checkpoint.formatFakuSessionTurnRef(&second_end_buf, id, 2) orelse return error.MissingFakuRef;
+    try testing.expect(!checkpoint.hasFakuRef(allocator, testing.io, project, second_end));
+
     const first_again = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "rev-parse", first_ref });
     defer allocator.free(first_again);
     try testing.expectEqualStrings(first_owned, std.mem.trim(u8, first_again, " \r\n\t"));
+
+    const baseline_again = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "rev-parse", first_baseline });
+    defer allocator.free(baseline_again);
+    try testing.expectEqualStrings(first_owned, std.mem.trim(u8, baseline_again, " \r\n\t"));
 }
 
 test "failed update-ref leaves the stored worktree snapshot sha" {
