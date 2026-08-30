@@ -23,10 +23,20 @@
 //! finish, a NEW isolated snapshot is named
 //! `refs/faku/session-{id}-turn-{n}` (`captureTurnEnd`;
 //! `{n}` is `turnCount / 2` after the pair is appended).
-//! LastTurn / Review prefer stored start…end two-dot
-//! `start..end` (`worktree_snapshot_sha`..`worktree_turn_end_sha`,
-//! Waku `git diff from to`) when
-//! both are valid 40-hex, else the send-time 40-hex, else
+//! After that name is written, `prepareTurnDiffBase` names
+//! `refs/faku/session-{id}-turn-diff-{n}` from the turn-start
+//! `Faku-Turn-Start: ` JSON (`head` / `branch` / `refs`) so
+//! LastTurn after a mid-turn branch switch does not treat
+//! other-branch history as turn edits. Same-line (start
+//! metadata.branch == end `symbolic-ref` HEAD, or both
+//! detached and metadata.head == end HEAD) uses the start
+//! snapshot. Else `target_branch_start` plus
+//! `virtual_branch_start` (`merge-tree --write-tree` when
+//! dirty files were carried). LastTurn / Review prefer
+//! stored turn-diff…end two-dot `diff..end` when both are
+//! valid 40-hex, else start…end
+//! (`worktree_snapshot_sha`..`worktree_turn_end_sha`,
+//! Waku `git diff from to`), else the send-time 40-hex, else
 //! rewind `sha...HEAD` — not the ref. Failed update-ref is
 //! quiet and does not clear the stored sha. Header Rewind
 //! restores that stored 40-hex with `restoreRef` (`git
@@ -34,9 +44,7 @@
 //! clean -fd -- .`, then `git reset --quiet -- .` when HEAD
 //! exists). Sync `std.process.run` like `rewind.captureHead`
 //! — not a Native spawn and not `/bin/sh -c` interpolation.
-//! Leftovers: `prepare_turn_diff_base` /
-//! `refs/faku/session-{id}-turn-diff-{n}` for branch-switch
-//! LastTurn, force, background work, daemon
+//! Leftovers: force, background work, daemon
 //! WorkspaceOperation. Not transcript checkpoint +/-.
 
 const std = @import("std");
@@ -48,6 +56,9 @@ pub const index_prefix = "faku-checkpoint-index-";
 pub const snapshot_message = "Faku worktree snapshot";
 pub const turn_start_subject = "Faku turn start snapshot";
 pub const turn_start_metadata_prefix = "Faku-Turn-Start: ";
+pub const turn_diff_base_message = "Faku turn diff base";
+pub const empty_turn_diff_base_message = "Faku empty turn diff base";
+pub const empty_tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 pub const identity_name = "user.name=Faku";
 pub const identity_email = "user.email=faku@localhost";
 pub const commit_gpgsign = "commit.gpgsign=false";
@@ -60,6 +71,10 @@ const max_commit_parents: usize = max_repo_refs + 1;
 const turn_start_message_max: usize = 24 * 1024;
 const repo_ref_stdout_limit: usize = 128 * 1024;
 const commit_tree_argv_cap: usize = 160;
+const git_c_argv_cap: usize = 24;
+const turn_start_show_limit: usize = turn_start_message_max;
+const rev_list_stdout_limit: usize = 4096;
+const merge_tree_stdout_limit: usize = 8 * 1024;
 
 const RepoRef = struct {
     name_storage: [max_repo_ref_name]u8 = [_]u8{0} ** max_repo_ref_name,
@@ -237,6 +252,16 @@ pub fn formatFakuSessionTurnStartRef(dest: []u8, session_id: u32, turn_count: u3
     return printed;
 }
 
+/// `refs/faku/session-{session_id}-turn-diff-{turn_count}` into
+/// `dest`. Same fit / `isFakuRefName` rules as the other
+/// session refs (`-` is already allowed). Null when the name
+/// would not fit `dest` or `max_faku_ref_name`.
+pub fn formatFakuSessionTurnDiffRef(dest: []u8, session_id: u32, turn_count: u32) ?[]const u8 {
+    const printed = std.fmt.bufPrint(dest, "refs/faku/session-{d}-turn-diff-{d}", .{ session_id, turn_count }) catch return null;
+    if (printed.len == 0 or printed.len > max_faku_ref_name) return null;
+    return printed;
+}
+
 pub fn isFakuRefName(ref_name: []const u8) bool {
     if (ref_name.len == 0 or ref_name.len > max_faku_ref_name) return false;
     if (!std.mem.startsWith(u8, ref_name, faku_ref_prefix)) return false;
@@ -339,6 +364,72 @@ pub fn captureTurnEnd(
     return updateFakuRef(allocator, io, project_path, end_ref, sha);
 }
 
+/// After `turn-{n}` is named, compute a branch-switch-aware
+/// LastTurn base and name it `turn-diff-{n}`. Requires
+/// `turn-start-{n}`. Same-line uses the start snapshot.
+/// Else target-branch start plus a virtual merge of carried
+/// dirty files. Quiet null on missing start ref / non-git /
+/// failed plumbing. Failed update-ref still returns the
+/// computed 40-hex so LastTurn can use the stored sha.
+pub fn prepareTurnDiffBase(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    session_id: u32,
+    turn_count: u32,
+    dest: []u8,
+) ?[]const u8 {
+    if (!rewind.isGitWorkTree(io, project_path)) return null;
+    var start_buf: [max_faku_ref_name]u8 = undefined;
+    const start_ref = formatFakuSessionTurnStartRef(&start_buf, session_id, turn_count) orelse return null;
+    if (!hasFakuRef(allocator, io, project_path, start_ref)) return null;
+
+    var meta = TurnStartMeta{};
+    if (!loadTurnStartMetadata(allocator, io, project_path, start_ref, &meta)) return null;
+
+    var end_head_buf: [rewind.max_sha]u8 = undefined;
+    const end_head: ?[]const u8 = blk: {
+        const raw = rewind.revParseHead(allocator, io, project_path, &end_head_buf) orelse break :blk null;
+        break :blk if (rewind.isStoredSha(raw)) raw else null;
+    };
+    var end_branch_buf: [max_repo_ref_name]u8 = undefined;
+    const end_branch = symbolicHead(allocator, io, project_path, &end_branch_buf);
+
+    const same_line = sameLine(meta.branch(), end_branch, meta.head(), end_head);
+
+    var commit_buf: [rewind.stored_sha_len]u8 = undefined;
+    const commit = if (same_line)
+        resolveCommit(allocator, io, project_path, start_ref, &commit_buf) orelse return null
+    else blk: {
+        var target_buf: [rewind.stored_sha_len]u8 = undefined;
+        const target_base = targetBranchStart(
+            allocator,
+            io,
+            project_path,
+            start_ref,
+            &meta,
+            end_head,
+            end_branch,
+            &target_buf,
+        ) orelse return null;
+        break :blk virtualBranchStart(
+            allocator,
+            io,
+            project_path,
+            start_ref,
+            meta.head(),
+            target_base,
+            &commit_buf,
+        ) orelse return null;
+    };
+
+    var diff_buf: [max_faku_ref_name]u8 = undefined;
+    if (formatFakuSessionTurnDiffRef(&diff_buf, session_id, turn_count)) |diff_ref| {
+        _ = updateFakuRef(allocator, io, project_path, diff_ref, commit);
+    }
+    return copySha(commit, dest);
+}
+
 /// Restore the worktree from a stored 40-hex snapshot commit.
 /// Documented sequence: `git restore --source <sha> --worktree
 /// --staged -- .`, then `git clean -fd -- .`, then `git reset
@@ -368,6 +459,385 @@ pub fn restoreRef(
         if (!runGitC(allocator, io, project_path, &.{ "reset", "--quiet", "--", "." })) return false;
     }
     return true;
+}
+
+const TurnStartMeta = struct {
+    head_storage: [rewind.stored_sha_len]u8 = [_]u8{0} ** rewind.stored_sha_len,
+    head_len: usize = 0,
+    branch_storage: [max_repo_ref_name]u8 = [_]u8{0} ** max_repo_ref_name,
+    branch_len: usize = 0,
+    refs: [max_repo_refs]RepoRef = [_]RepoRef{.{}} ** max_repo_refs,
+    ref_count: usize = 0,
+
+    fn head(self: *const TurnStartMeta) ?[]const u8 {
+        if (self.head_len == 0) return null;
+        return self.head_storage[0..self.head_len];
+    }
+
+    fn branch(self: *const TurnStartMeta) ?[]const u8 {
+        if (self.branch_len == 0) return null;
+        return self.branch_storage[0..self.branch_len];
+    }
+
+    fn refSha(self: *const TurnStartMeta, name: []const u8) ?[]const u8 {
+        for (self.refs[0..self.ref_count]) |*ref| {
+            if (std.mem.eql(u8, ref.name(), name)) return ref.sha();
+        }
+        return null;
+    }
+};
+
+fn sameLine(start_branch: ?[]const u8, end_branch: ?[]const u8, start_head: ?[]const u8, end_head: ?[]const u8) bool {
+    if (start_branch) |start| {
+        const end = end_branch orelse return false;
+        return std.mem.eql(u8, start, end);
+    }
+    if (end_branch != null) return false;
+    return optionalEql(start_head, end_head);
+}
+
+fn optionalEql(a: ?[]const u8, b: ?[]const u8) bool {
+    const left = a orelse {
+        return b == null;
+    };
+    const right = b orelse return false;
+    return std.mem.eql(u8, left, right);
+}
+
+fn loadTurnStartMetadata(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    start_ref: []const u8,
+    dest: *TurnStartMeta,
+) bool {
+    var message_buf: [turn_start_message_max]u8 = undefined;
+    const message = runGitCOut(
+        allocator,
+        io,
+        project_path,
+        &.{ "show", "-s", "--format=%B", start_ref },
+        &message_buf,
+        turn_start_show_limit,
+    ) orelse return false;
+    const parsed = parseTurnStartMetadata(allocator, message) catch return false;
+    defer parsed.deinit();
+    return fillTurnStartMeta(parsed.value, dest);
+}
+
+fn fillTurnStartMeta(value: std.json.Value, dest: *TurnStartMeta) bool {
+    if (value != .object) return false;
+    dest.* = .{};
+    if (value.object.get("head")) |head_val| {
+        switch (head_val) {
+            .null => {},
+            .string => |s| {
+                if (!rewind.isStoredSha(s)) return false;
+                @memcpy(&dest.head_storage, s);
+                dest.head_len = rewind.stored_sha_len;
+            },
+            else => return false,
+        }
+    }
+    if (value.object.get("branch")) |branch_val| {
+        switch (branch_val) {
+            .null => {},
+            .string => |s| {
+                if (s.len == 0 or s.len > max_repo_ref_name) return false;
+                @memcpy(dest.branch_storage[0..s.len], s);
+                dest.branch_len = s.len;
+            },
+            else => return false,
+        }
+    }
+    const refs_val = value.object.get("refs") orelse return false;
+    if (refs_val != .object) return false;
+    var it = refs_val.object.iterator();
+    while (it.next()) |entry| {
+        if (dest.ref_count >= max_repo_refs) break;
+        const name = entry.key_ptr.*;
+        if (name.len == 0 or name.len > max_repo_ref_name) continue;
+        const sha = switch (entry.value_ptr.*) {
+            .string => |s| s,
+            else => continue,
+        };
+        if (!rewind.isStoredSha(sha)) continue;
+        var ref = &dest.refs[dest.ref_count];
+        @memcpy(ref.name_storage[0..name.len], name);
+        ref.name_len = name.len;
+        @memcpy(&ref.sha_storage, sha);
+        dest.ref_count += 1;
+    }
+    return true;
+}
+
+fn targetBranchStart(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    start_ref: []const u8,
+    metadata: *const TurnStartMeta,
+    end_head: ?[]const u8,
+    end_branch: ?[]const u8,
+    dest: []u8,
+) ?[]const u8 {
+    if (end_branch) |branch| {
+        if (metadata.refSha(branch)) |commit| return copySha(commit, dest);
+    }
+    const head = end_head orelse return emptyTreeCommit(allocator, io, project_path, dest);
+    var list_buf: [rewind.stored_sha_len]u8 = undefined;
+    const listed = runGitCFirstLine(
+        allocator,
+        io,
+        project_path,
+        &.{ "rev-list", "--first-parent", "--reverse", head, "--not", start_ref },
+        &list_buf,
+        rev_list_stdout_limit,
+    ) orelse return null;
+    const first = listed;
+    if (first.len == 0) return copySha(head, dest);
+    if (!rewind.isStoredSha(first)) return null;
+    var parent_spec: [rewind.stored_sha_len + 2]u8 = undefined;
+    const spec = std.fmt.bufPrint(&parent_spec, "{s}^1", .{first}) catch return null;
+    var parent_buf: [rewind.stored_sha_len]u8 = undefined;
+    if (resolveCommit(allocator, io, project_path, spec, &parent_buf)) |parent| {
+        return copySha(parent, dest);
+    }
+    return emptyTreeCommit(allocator, io, project_path, dest);
+}
+
+fn virtualBranchStart(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    start_ref: []const u8,
+    start_head: ?[]const u8,
+    target_base: []const u8,
+    dest: []u8,
+) ?[]const u8 {
+    const head = start_head orelse return copySha(target_base, dest);
+    if (std.mem.eql(u8, head, target_base)) {
+        return resolveCommit(allocator, io, project_path, start_ref, dest);
+    }
+    const names_empty = gitDiffNameOnlyEmpty(allocator, io, project_path, head, start_ref) orelse return null;
+    if (names_empty) return copySha(target_base, dest);
+
+    var merge_buf: [merge_tree_stdout_limit]u8 = undefined;
+    const merge_out = runGitCOut(
+        allocator,
+        io,
+        project_path,
+        &.{ "merge-tree", "--write-tree", "--merge-base", head, target_base, start_ref },
+        &merge_buf,
+        merge_tree_stdout_limit,
+    ) orelse return null;
+    const tree = firstNonEmptyLine(merge_out);
+    if (tree.len == 0) return null;
+    return commitTreeIsolated(allocator, io, project_path, dest, tree, turn_diff_base_message);
+}
+
+fn emptyTreeCommit(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    dest: []u8,
+) ?[]const u8 {
+    if (commitTreeIsolated(allocator, io, project_path, dest, empty_tree, empty_turn_diff_base_message)) |sha| {
+        return sha;
+    }
+    var common_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const common = gitCommonDir(allocator, io, project_path, &common_buf) orelse return null;
+    var index_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const index_path = uniqueIndexPath(io, common, &index_buf) orelse return null;
+    var env_buf: [std.fs.max_path_bytes + env_prefix.len]u8 = undefined;
+    const env_slot = std.fmt.bufPrint(&env_buf, "{s}{s}", .{ env_prefix, index_path }) catch return null;
+    var tree_buf: [rewind.stored_sha_len]u8 = undefined;
+    const tree = runGitOut(allocator, io, env_slot, project_path, &.{"write-tree"}, &tree_buf);
+    const commit = if (tree) |oid|
+        commitTreeFromIndex(allocator, io, env_slot, project_path, dest, oid, empty_turn_diff_base_message)
+    else
+        null;
+    deleteIndex(io, index_path);
+    return commit;
+}
+
+fn commitTreeIsolated(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    dest: []u8,
+    tree: []const u8,
+    message: []const u8,
+) ?[]const u8 {
+    if (!rewind.isGitWorkTree(io, project_path)) return null;
+    var common_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const common = gitCommonDir(allocator, io, project_path, &common_buf) orelse return null;
+    var index_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const index_path = uniqueIndexPath(io, common, &index_buf) orelse return null;
+    var env_buf: [std.fs.max_path_bytes + env_prefix.len]u8 = undefined;
+    const env_slot = std.fmt.bufPrint(&env_buf, "{s}{s}", .{ env_prefix, index_path }) catch return null;
+    const commit = commitTreeFromIndex(allocator, io, env_slot, project_path, dest, tree, message);
+    deleteIndex(io, index_path);
+    return commit;
+}
+
+fn commitTreeFromIndex(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    env_slot: []const u8,
+    project_path: []const u8,
+    dest: []u8,
+    tree: []const u8,
+    message: []const u8,
+) ?[]const u8 {
+    const commit = runGitOut(allocator, io, env_slot, project_path, &.{
+        "-c",
+        identity_name,
+        "-c",
+        identity_email,
+        "-c",
+        commit_gpgsign,
+        "commit-tree",
+        tree,
+        "-m",
+        message,
+    }, dest) orelse return null;
+    if (!rewind.isStoredSha(commit)) return null;
+    return commit;
+}
+
+fn resolveCommit(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    git_ref: []const u8,
+    dest: []u8,
+) ?[]const u8 {
+    const parsed = runGitCOut(
+        allocator,
+        io,
+        project_path,
+        &.{ "rev-parse", "--verify", git_ref },
+        dest,
+        128,
+    ) orelse return null;
+    if (!rewind.isStoredSha(parsed)) return null;
+    return parsed;
+}
+
+fn gitDiffNameOnlyEmpty(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    left: []const u8,
+    right: []const u8,
+) ?bool {
+    var argv_buf: [git_c_argv_cap][]const u8 = undefined;
+    var n: usize = 0;
+    argv_buf[n] = git_bin;
+    n += 1;
+    argv_buf[n] = "-C";
+    n += 1;
+    argv_buf[n] = project_path;
+    n += 1;
+    argv_buf[n] = "diff";
+    n += 1;
+    argv_buf[n] = "--name-only";
+    n += 1;
+    argv_buf[n] = left;
+    n += 1;
+    argv_buf[n] = right;
+    n += 1;
+    const result = std.process.run(allocator, io, .{
+        .argv = argv_buf[0..n],
+        .stdout_limit = .limited(256),
+        .stderr_limit = .limited(512),
+    }) catch return null;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    if (result.term != .exited or result.term.exited != 0) return null;
+    return std.mem.trim(u8, result.stdout, " \r\n\t").len == 0;
+}
+
+fn copySha(src: []const u8, dest: []u8) ?[]const u8 {
+    if (!rewind.isStoredSha(src)) return null;
+    if (src.len > dest.len) return null;
+    @memcpy(dest[0..src.len], src);
+    return dest[0..src.len];
+}
+
+fn firstNonEmptyLine(text: []const u8) []const u8 {
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \r\n\t");
+        if (line.len != 0) return line;
+    }
+    return "";
+}
+
+fn runGitCOut(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    git_args: []const []const u8,
+    dest: []u8,
+    stdout_limit: usize,
+) ?[]const u8 {
+    const raw = runGitCRaw(allocator, io, project_path, git_args, stdout_limit) orelse return null;
+    defer allocator.free(raw.stdout);
+    defer allocator.free(raw.stderr);
+    if (raw.term != .exited or raw.term.exited != 0) return null;
+    const trimmed = std.mem.trim(u8, raw.stdout, " \r\n\t");
+    if (trimmed.len > dest.len) return null;
+    if (trimmed.len == 0) return dest[0..0];
+    @memcpy(dest[0..trimmed.len], trimmed);
+    return dest[0..trimmed.len];
+}
+
+fn runGitCFirstLine(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    git_args: []const []const u8,
+    dest: []u8,
+    stdout_limit: usize,
+) ?[]const u8 {
+    const raw = runGitCRaw(allocator, io, project_path, git_args, stdout_limit) orelse return null;
+    defer allocator.free(raw.stdout);
+    defer allocator.free(raw.stderr);
+    if (raw.term != .exited or raw.term.exited != 0) return null;
+    const line = firstNonEmptyLine(raw.stdout);
+    if (line.len > dest.len) return null;
+    if (line.len == 0) return dest[0..0];
+    @memcpy(dest[0..line.len], line);
+    return dest[0..line.len];
+}
+
+fn runGitCRaw(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    git_args: []const []const u8,
+    stdout_limit: usize,
+) ?std.process.RunResult {
+    var argv_buf: [git_c_argv_cap][]const u8 = undefined;
+    var n: usize = 0;
+    argv_buf[n] = git_bin;
+    n += 1;
+    argv_buf[n] = "-C";
+    n += 1;
+    argv_buf[n] = project_path;
+    n += 1;
+    for (git_args) |arg| {
+        if (n >= argv_buf.len) return null;
+        argv_buf[n] = arg;
+        n += 1;
+    }
+    return std.process.run(allocator, io, .{
+        .argv = argv_buf[0..n],
+        .stdout_limit = .limited(stdout_limit),
+        .stderr_limit = .limited(2048),
+    }) catch null;
 }
 
 fn runGitC(
@@ -647,7 +1117,7 @@ fn collectParents(
             n += 1;
         }
     }
-    for (refs) |ref| {
+    for (refs) |*ref| {
         if (n >= dest.len) break;
         if (parentSeen(dest[0..n], ref.sha())) continue;
         dest[n] = ref.sha();
@@ -1046,6 +1516,187 @@ test "formatFakuSessionTurnStartRef uses session id and prompt ordinal" {
     try testing.expect(formatFakuSessionTurnStartRef(&tiny, 1, 1) == null);
 }
 
+test "formatFakuSessionTurnDiffRef uses session id and prompt ordinal" {
+    const testing = std.testing;
+    var buf: [max_faku_ref_name]u8 = undefined;
+    const name = formatFakuSessionTurnDiffRef(&buf, 7, 3) orelse return error.MissingFakuRef;
+    try testing.expectEqualStrings("refs/faku/session-7-turn-diff-3", name);
+    try testing.expect(isFakuRefName(name));
+    try testing.expect(isFakuRefName("refs/faku/session-1-turn-diff-1"));
+    var tiny: [8]u8 = undefined;
+    try testing.expect(formatFakuSessionTurnDiffRef(&tiny, 1, 1) == null);
+}
+
+test "prepareTurnDiffBase same-line is the start snapshot sha" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/turn-diff-same", .{tmp.sub_path[0..]});
+    const head = try initTestRepo(allocator, testing.io, path);
+    defer allocator.free(head);
+
+    var start_sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const start = captureTurnStartCommit(allocator, testing.io, path, &start_sha_buf) orelse return error.MissingStart;
+    try testing.expect(captureTurnStart(allocator, testing.io, path, 4, 1, start));
+
+    try writeRepoFile(testing.io, path, "README", "edited on the same line\n");
+    var end_sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const end = captureWorktreeCommit(allocator, testing.io, path, &end_sha_buf) orelse return error.MissingEnd;
+    try testing.expect(captureTurnEnd(allocator, testing.io, path, 4, 1, end));
+
+    var diff_sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const diff_base = prepareTurnDiffBase(allocator, testing.io, path, 4, 1, &diff_sha_buf) orelse return error.MissingDiffBase;
+    try testing.expectEqualStrings(start, diff_base);
+
+    var diff_ref_buf: [max_faku_ref_name]u8 = undefined;
+    const diff_ref = formatFakuSessionTurnDiffRef(&diff_ref_buf, 4, 1) orelse return error.MissingDiffRef;
+    try testing.expectEqualStrings("refs/faku/session-4-turn-diff-1", diff_ref);
+    try testing.expect(hasFakuRef(allocator, testing.io, path, diff_ref));
+    const parsed = try runGitCapture(allocator, testing.io, &.{ "git", "-C", path, "rev-parse", diff_ref });
+    defer allocator.free(parsed);
+    try testing.expectEqualStrings(start, std.mem.trim(u8, parsed, " \r\n\t"));
+
+    const names = try runGitCapture(allocator, testing.io, &.{ "git", "-C", path, "diff", "--name-only", diff_base, end });
+    defer allocator.free(names);
+    try testing.expect(std.mem.indexOf(u8, names, "README") != null);
+}
+
+test "prepareTurnDiffBase branch-switch with no edits is empty vs end" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/turn-diff-switch", .{tmp.sub_path[0..]});
+    const head = try initDivergedRepo(allocator, testing.io, path);
+    defer allocator.free(head);
+
+    var start_sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const start = captureTurnStartCommit(allocator, testing.io, path, &start_sha_buf) orelse return error.MissingStart;
+    const start_parents = try runGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        path,
+        "rev-list",
+        "--parents",
+        "-n",
+        "1",
+        start,
+    });
+    defer allocator.free(start_parents);
+    try testing.expect(parentCount(std.mem.trim(u8, start_parents, " \r\n\t")) >= 2);
+    try testing.expect(captureTurnStart(allocator, testing.io, path, 5, 1, start));
+
+    try runGitPlain(allocator, testing.io, &.{ "git", "-C", path, "checkout", "--quiet", "feature" });
+    var end_sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const end = captureWorktreeCommit(allocator, testing.io, path, &end_sha_buf) orelse return error.MissingEnd;
+    try testing.expect(captureTurnEnd(allocator, testing.io, path, 5, 1, end));
+
+    var diff_sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const diff_base = prepareTurnDiffBase(allocator, testing.io, path, 5, 1, &diff_sha_buf) orelse return error.MissingDiffBase;
+    try testing.expect(rewind.isStoredSha(diff_base));
+    try testing.expect(!std.mem.eql(u8, start, diff_base));
+
+    const names = try runGitCapture(allocator, testing.io, &.{ "git", "-C", path, "diff", "--name-only", diff_base, end });
+    defer allocator.free(names);
+    try testing.expectEqualStrings("", std.mem.trim(u8, names, " \r\n\t"));
+    try testing.expect(std.mem.indexOf(u8, names, "feature-only.txt") == null);
+    try testing.expect(std.mem.indexOf(u8, names, "main-only.txt") == null);
+}
+
+test "prepareTurnDiffBase branch-switch reports only edits on the target" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/turn-diff-target", .{tmp.sub_path[0..]});
+    const head = try initDivergedRepo(allocator, testing.io, path);
+    defer allocator.free(head);
+
+    var start_sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const start = captureTurnStartCommit(allocator, testing.io, path, &start_sha_buf) orelse return error.MissingStart;
+    try testing.expect(captureTurnStart(allocator, testing.io, path, 6, 1, start));
+
+    try runGitPlain(allocator, testing.io, &.{ "git", "-C", path, "checkout", "--quiet", "feature" });
+    try writeRepoFile(testing.io, path, "target.txt", "changed during turn\n");
+    try runGitPlain(allocator, testing.io, &.{ "git", "-C", path, "add", "target.txt" });
+    try runGitPlain(allocator, testing.io, &.{
+        "git",
+        "-C",
+        path,
+        "-c",
+        "user.email=checkpoint@test",
+        "-c",
+        "user.name=Checkpoint",
+        "-c",
+        commit_gpgsign,
+        "commit",
+        "-m",
+        "turn change",
+    });
+    try writeRepoFile(testing.io, path, "untracked.txt", "new during turn\n");
+
+    var end_sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const end = captureWorktreeCommit(allocator, testing.io, path, &end_sha_buf) orelse return error.MissingEnd;
+    try testing.expect(captureTurnEnd(allocator, testing.io, path, 6, 1, end));
+
+    var diff_sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const diff_base = prepareTurnDiffBase(allocator, testing.io, path, 6, 1, &diff_sha_buf) orelse return error.MissingDiffBase;
+
+    const names = try runGitCapture(allocator, testing.io, &.{ "git", "-C", path, "diff", "--name-only", diff_base, end });
+    defer allocator.free(names);
+    try testing.expect(std.mem.indexOf(u8, names, "target.txt") != null);
+    try testing.expect(std.mem.indexOf(u8, names, "untracked.txt") != null);
+    try testing.expect(std.mem.indexOf(u8, names, "feature-only.txt") == null);
+    try testing.expect(std.mem.indexOf(u8, names, "main-only.txt") == null);
+}
+
+test "prepareTurnDiffBase does not attribute dirty files carried across a switch" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/turn-diff-dirty", .{tmp.sub_path[0..]});
+    const head = try initDivergedRepo(allocator, testing.io, path);
+    defer allocator.free(head);
+
+    try writeRepoFile(testing.io, path, "shared.txt", "already dirty\n");
+    var start_sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const start = captureTurnStartCommit(allocator, testing.io, path, &start_sha_buf) orelse return error.MissingStart;
+    try testing.expect(captureTurnStart(allocator, testing.io, path, 8, 1, start));
+
+    try runGitPlain(allocator, testing.io, &.{ "git", "-C", path, "checkout", "--quiet", "feature" });
+    var end_sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const end = captureWorktreeCommit(allocator, testing.io, path, &end_sha_buf) orelse return error.MissingEnd;
+    try testing.expect(captureTurnEnd(allocator, testing.io, path, 8, 1, end));
+
+    var diff_sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const diff_base = prepareTurnDiffBase(allocator, testing.io, path, 8, 1, &diff_sha_buf) orelse return error.MissingDiffBase;
+    const names = try runGitCapture(allocator, testing.io, &.{ "git", "-C", path, "diff", "--name-only", diff_base, end });
+    defer allocator.free(names);
+    try testing.expectEqualStrings("", std.mem.trim(u8, names, " \r\n\t"));
+}
+
+test "prepareTurnDiffBase is null and quiet without a turn-start ref" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    try testing.expect(prepareTurnDiffBase(allocator, testing.io, "", 1, 1, &sha_buf) == null);
+    try testing.expect(prepareTurnDiffBase(allocator, testing.io, ".zig-cache/tmp/faku-turn-diff-missing", 1, 1, &sha_buf) == null);
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/turn-diff-none", .{tmp.sub_path[0..]});
+    const head = try initTestRepo(allocator, testing.io, path);
+    defer allocator.free(head);
+    try testing.expect(prepareTurnDiffBase(allocator, testing.io, path, 1, 1, &sha_buf) == null);
+}
+
 test "captureWorktreeCommit plus updateFakuRef names the dangling commit" {
     const testing = std.testing;
     const allocator = testing.allocator;
@@ -1394,6 +2045,69 @@ fn initTestRepo(allocator: std.mem.Allocator, io: std.Io, path: []const u8) ![]u
         "-m",
         "init",
     });
+    var sha_buf: [rewind.max_sha]u8 = undefined;
+    const sha = rewind.revParseHead(allocator, io, path, &sha_buf) orelse return error.GitHead;
+    return allocator.dupe(u8, sha);
+}
+
+fn initDivergedRepo(allocator: std.mem.Allocator, io: std.Io, path: []const u8) ![]u8 {
+    const head = try initTestRepo(allocator, io, path);
+    allocator.free(head);
+
+    try writeRepoFile(io, path, "shared.txt", "shared\n");
+    try runGitPlain(allocator, io, &.{ "git", "-C", path, "add", "shared.txt" });
+    try runGitPlain(allocator, io, &.{
+        "git",
+        "-C",
+        path,
+        "-c",
+        "user.email=checkpoint@test",
+        "-c",
+        "user.name=Checkpoint",
+        "-c",
+        commit_gpgsign,
+        "commit",
+        "-m",
+        "baseline",
+    });
+
+    try runGitPlain(allocator, io, &.{ "git", "-C", path, "checkout", "-b", "feature" });
+    try writeRepoFile(io, path, "feature-only.txt", "feature\n");
+    try writeRepoFile(io, path, "target.txt", "feature baseline\n");
+    try runGitPlain(allocator, io, &.{ "git", "-C", path, "add", "feature-only.txt", "target.txt" });
+    try runGitPlain(allocator, io, &.{
+        "git",
+        "-C",
+        path,
+        "-c",
+        "user.email=checkpoint@test",
+        "-c",
+        "user.name=Checkpoint",
+        "-c",
+        commit_gpgsign,
+        "commit",
+        "-m",
+        "feature",
+    });
+
+    try runGitPlain(allocator, io, &.{ "git", "-C", path, "checkout", "--quiet", "-" });
+    try writeRepoFile(io, path, "main-only.txt", "main\n");
+    try runGitPlain(allocator, io, &.{ "git", "-C", path, "add", "main-only.txt" });
+    try runGitPlain(allocator, io, &.{
+        "git",
+        "-C",
+        path,
+        "-c",
+        "user.email=checkpoint@test",
+        "-c",
+        "user.name=Checkpoint",
+        "-c",
+        commit_gpgsign,
+        "commit",
+        "-m",
+        "main",
+    });
+
     var sha_buf: [rewind.max_sha]u8 = undefined;
     const sha = rewind.revParseHead(allocator, io, path, &sha_buf) orelse return error.GitHead;
     return allocator.dupe(u8, sha);

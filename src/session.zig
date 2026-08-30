@@ -113,19 +113,28 @@ pub const Session = struct {
     rewind_refs: [rewind.max_refs]rewind.Ref = [_]rewind.Ref{.{}} ** rewind.max_refs,
     rewind_ref_count: usize = 0,
     /// Latest Send-time worktree snapshot (dangling 40-hex). LastTurn
-    /// prefers `start..end` (two-dot) when a finish-time end sha is also
+    /// prefers `diff..end` when turn-diff and turn-end are stored,
+    /// else `start..end` (two-dot) when a finish-time end sha is also
     /// stored, else this bare 40-hex over `rewind_refs`. Header
     /// Rewind prefers `restoreRef` on this sha when set, then
     /// clears the slot.
     worktree_snapshot_sha_storage: [rewind.stored_sha_len]u8 = [_]u8{0} ** rewind.stored_sha_len,
     worktree_snapshot_sha_len: usize = 0,
     /// Latest finish-time worktree snapshot (dangling 40-hex).
-    /// LastTurn prefers `start..end` when this is set with
+    /// LastTurn prefers `diff..end` when a turn-diff sha is also
+    /// stored, else `start..end` when this is set with
     /// `worktree_snapshot_sha`. Cleared on a new Send that
     /// records a start snapshot. Same 40-hex rules as start.
     /// Does not overwrite `worktree_snapshot_sha`.
     worktree_turn_end_sha_storage: [rewind.stored_sha_len]u8 = [_]u8{0} ** rewind.stored_sha_len,
     worktree_turn_end_sha_len: usize = 0,
+    /// Latest finish-time LastTurn diff base (dangling 40-hex).
+    /// Named `refs/faku/session-{id}-turn-diff-{n}` at turn end.
+    /// LastTurn prefers `diff..end` when this is set with
+    /// `worktree_turn_end_sha`. Cleared on a new Send / Rewind
+    /// alongside the other snapshot fields.
+    worktree_turn_diff_sha_storage: [rewind.stored_sha_len]u8 = [_]u8{0} ** rewind.stored_sha_len,
+    worktree_turn_diff_sha_len: usize = 0,
     /// 0 = ungrouped (date buckets). Unknown ids also render ungrouped.
     folder_id: u32 = 0,
     /// Last user/assistant activity, unix milliseconds. 0 = missing and
@@ -266,6 +275,19 @@ pub const Session = struct {
 
     pub fn clearWorktreeTurnEndSha(self: *Session) void {
         self.worktree_turn_end_sha_len = 0;
+    }
+
+    pub fn worktreeTurnDiffSha(self: *const Session) []const u8 {
+        return self.worktree_turn_diff_sha_storage[0..self.worktree_turn_diff_sha_len];
+    }
+
+    pub fn setWorktreeTurnDiffSha(self: *Session, sha: []const u8) void {
+        if (!rewind.isStoredSha(sha)) return;
+        writeFixed(&self.worktree_turn_diff_sha_storage, &self.worktree_turn_diff_sha_len, sha);
+    }
+
+    pub fn clearWorktreeTurnDiffSha(self: *Session) void {
+        self.worktree_turn_diff_sha_len = 0;
     }
 
     pub fn setContextUsage(self: *Session, used: u64, size: u64) void {
