@@ -2,7 +2,8 @@
 //!
 //! Header / per-turn Fork and Send-time Rewind live here. Git plumbing
 //! (`captureHead` / `resetHard`) stays in `rewind.zig`. Worktree
-//! snapshot plumbing (`captureWorktreeCommit` / `captureTurnStart` /
+//! snapshot plumbing (`captureTurnStartCommit` /
+//! `captureWorktreeCommit` / `captureTurnStart` /
 //! `captureTurnEnd` / `updateFakuRef` / `restoreRef`) stays in
 //! `checkpoint.zig`. Msg routing and Model fields stay in
 //! `main.zig`. Behavior is unchanged from the former `main` fork
@@ -27,7 +28,7 @@ pub fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
         session.appendRewindRef(captured.sha, rewind.recorded_ref, captured.recorded_at);
     }
     var snap_buf: [rewind.stored_sha_len]u8 = undefined;
-    if (checkpoint.captureWorktreeCommit(std.heap.page_allocator, io, session.projectPath(), &snap_buf)) |sha| {
+    if (checkpoint.captureTurnStartCommit(std.heap.page_allocator, io, session.projectPath(), &snap_buf)) |sha| {
         session.setWorktreeSnapshotSha(sha);
         // New start snapshot: this turn has no finish-time
         // end yet. LastTurn falls back to two-dot until
