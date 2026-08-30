@@ -29,6 +29,10 @@ pub fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
     var snap_buf: [rewind.stored_sha_len]u8 = undefined;
     if (checkpoint.captureWorktreeCommit(std.heap.page_allocator, io, session.projectPath(), &snap_buf)) |sha| {
         session.setWorktreeSnapshotSha(sha);
+        // New start snapshot: this turn has no finish-time
+        // end yet. LastTurn falls back to two-dot until
+        // recordTurnEndIfPossible stores one.
+        session.clearWorktreeTurnEndSha();
         // turn-start-N is this Send's 1-based prompt ordinal
         // (turnCount/2+1 before the user+assistant pair is
         // appended). Seeds turn-{N-1} when that baseline is
@@ -49,9 +53,11 @@ pub fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
 /// Successful finish: capture a NEW isolated worktree snapshot
 /// and name it `turn-{n}`. `{n}` is `turnCount/2` after the
 /// user+assistant pair is already appended (same ordinal as
-/// Send's `turnCount/2+1` before append). Does not write
-/// `worktree_snapshot_sha` (LastTurn / Header Rewind keep the
-/// send-time sha). Failed capture is quiet.
+/// Send's `turnCount/2+1` before append). Stores the finish
+/// sha as `worktree_turn_end_sha` (same 40-hex rules as
+/// start). Does not write `worktree_snapshot_sha` (LastTurn /
+/// Header Rewind keep the send-time sha). Failed capture is
+/// quiet. Failed update-ref does not clear the stored end sha.
 pub fn recordTurnEndIfPossible(model: *Model, session_id: u32) void {
     const io = model.store_io orelse return;
     const session = model.sessionById(session_id) orelse return;
@@ -62,6 +68,7 @@ pub fn recordTurnEndIfPossible(model: *Model, session_id: u32) void {
         session.projectPath(),
         &snap_buf,
     ) orelse return;
+    session.setWorktreeTurnEndSha(sha);
     _ = checkpoint.captureTurnEnd(
         std.heap.page_allocator,
         io,
@@ -131,6 +138,7 @@ pub fn forkSelectedThrough(model: *Model, fx: *Effects, through_index: u32) void
                 session.appendRewindRef(item.sha(), item.refName(), item.recorded_at);
             }
             session.setWorktreeSnapshotSha(from.worktreeSnapshotSha());
+            session.setWorktreeTurnEndSha(from.worktreeTurnEndSha());
         }
     }
 
@@ -166,6 +174,7 @@ pub fn applyRewindIfPossible(model: *Model, fx: *Effects) void {
     if (rewind.isStoredSha(snapshot)) {
         if (!checkpoint.restoreRef(std.heap.page_allocator, io, session.projectPath(), snapshot)) return;
         session.clearWorktreeSnapshotSha();
+        session.clearWorktreeTurnEndSha();
     } else if (!rewind.resetHard(std.heap.page_allocator, io, session.projectPath(), sha)) {
         return;
     }
