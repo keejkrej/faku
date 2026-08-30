@@ -714,7 +714,7 @@ pub fn applyHunkLine(model: *Model, line: native_sdk.EffectLine) void {
 
 fn appendHunkLine(model: *Model, raw: []const u8) void {
     if (model.review_diff_hunk_line_count >= max_review_diff_hunk_lines) return;
-    const line = std.mem.trimRight(u8, raw, "\r\n");
+    const line = std.mem.trimEnd(u8, raw, "\r\n");
     var used = model.review_diff_hunk_len;
     const dest = model.review_diff_hunk_storage[0..];
     if (used > 0) {
