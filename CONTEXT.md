@@ -164,7 +164,12 @@ lists the same bounded `file_mention` cache used by composer `@`
 mentions. Diff hosts Environment Compare / Review (Branch,
 Uncommitted, Staged, Unstaged, Committed, LastTurn). Not Browser,
 Terminal (no Native PTY), compact File editor, or BackgroundWork tabs.
-Not daemon `WorkspaceOperation`.
+Not daemon `WorkspaceOperation`. Environment Summary Background is a
+Faku-side stream row: Process ("Agent turn") while window-side
+`is_streaming`, plus Stop agent, and one runtime-only last-turn settle
+(Completed / Stopped / Failed, cap 1). Not a Waku
+BackgroundWorkRegistry, not daemon `refreshBackgroundWork`, not
+Monitor / Subagent kinds.
 
 ## Settings Skills scan
 
@@ -187,6 +192,7 @@ prompts.
 | ACP builders | `src/acp.zig`, `src/acp_proxy.zig` |
 | Daemon sidecar | `src/daemon_proxy.zig`, `src/protocol.zig` |
 | Send / stream | `src/spawn.zig`, `src/stream.zig`, `src/lines.zig` |
+| Environment Summary | `src/environment_summary.zig` |
 | Right panel | `src/right_panel.zig`, `src/review_diff.zig` |
 | Skills scan | `src/skills.zig` |
 | Composer / attach | `src/composer.zig`, `src/attach.zig` |

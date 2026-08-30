@@ -10,12 +10,21 @@
 //! thread ID when the selected session has a non-empty
 //! `fx_session_id` / ACP sessionId (same `copyFxSessionId`
 //! path as palette Copy provider session id; omitted when
-//! empty), and a first-cut Background Stop row when
-//! `is_streaming` (same composer Stop / `stopStream` path;
-//! omitted when idle; Faku-side stream state only). Header +N −M
-//! reuses the composer project-row numstat probe (omit a zero
-//! side; muted ghost; click opens the right-panel Diff tab,
-//! default Uncommitted).
+//! empty), and a first-cut Background section: a Process-kind
+//! "Agent turn" row plus Stop agent while window-side
+//! `is_streaming` (same composer Stop / `stopStream` path),
+//! and one runtime-only last-turn settle when idle (Completed
+//! on successful `finishStream` drain with no queued restart,
+//! Stopped on `stopStream`, Failed on drain=false paths that
+//! already end the stream; cap 1, overwrite). Settled is
+//! keyed by session id so switching hides another session's
+//! row without clearing it; a new settle overwrites; remove
+//! session clears that row. Not persisted to sessions.json /
+//! drafts.json. Header info trigger uses button `selected`
+//! while the dropdown is open or this section would show.
+//! Header +N −M reuses the composer project-row numstat probe
+//! (omit a zero side; muted ghost; click opens the right-panel
+//! Diff tab, default Uncommitted).
 //! First-cut per-file hunks live on the Diff-tab Review body (tracked
 //! `git diff`; Uncommitted `?` rows one-shot
 //! `git diff --no-index -- /dev/null <path>`). LastTurn
@@ -31,9 +40,9 @@
 //! `prepareTurnDiffBase` names `turn-diff-{n}`; Compare uses
 //! stored shas, not the refs); rewind `<sha>...HEAD`
 //! fallback; not `refs/waku/`; not HEAD~1. Leftovers:
-//! prune-alone, fuller background registry / settled rows /
-//! multi-kind Process·Monitor·Subagent, daemon
-//! WorkspaceOperation. Not a Waku BackgroundWorkRegistry.
+//! prune-alone, Monitor / Subagent kinds, multi-row registry,
+//! daemon `refreshBackgroundWork` / WorkspaceOperation, right-panel
+//! BackgroundWork tab. Not a Waku BackgroundWorkRegistry.
 //! Not transcript checkpoint +/-. Not force push (Waku
 //! `git_commit::push` has no `--force`).
 
@@ -54,6 +63,71 @@ const Effects = main.Effects;
 /// during the view bind; composer `git_numstat_label` stays the
 /// both-sides `+N −M` string.
 var header_numstat_buf: [git_numstat.max_git_numstat_label]u8 = undefined;
+
+/// Cap-1 last-turn Background settle. Runtime-only.
+pub const SettledStatus = enum { none, completed, stopped, failed };
+
+/// Process-kind row label. Honest about Faku-side stream state
+/// (not an OS process watch).
+pub const process_row_label = "Agent turn";
+pub const settled_completed_label = "Completed";
+pub const settled_stopped_label = "Stopped";
+pub const settled_failed_label = "Failed";
+
+/// Record the single last-turn row. `session_id == 0` or `.none`
+/// clears. A new settle overwrites (cap 1).
+pub fn settle(model: *Model, session_id: u32, status: SettledStatus) void {
+    if (session_id == 0 or status == .none) {
+        clearSettled(model);
+        return;
+    }
+    model.background_settled_session = session_id;
+    model.background_settled = status;
+}
+
+pub fn clearSettled(model: *Model) void {
+    model.background_settled_session = 0;
+    model.background_settled = .none;
+}
+
+/// Drop the cap-1 row when that session is removed. Other
+/// sessions keep their (overwritten) slot until a new settle.
+pub fn clearSettledIfSession(model: *Model, session_id: u32) void {
+    if (model.background_settled_session == session_id) clearSettled(model);
+}
+
+/// Visible settled row for the selected session. Hidden while
+/// `is_streaming` so a queued restart stays on the Process row
+/// instead of flashing Completed.
+pub fn hasSettledBackground(model: *const Model) bool {
+    if (model.is_streaming()) return false;
+    if (model.background_settled == .none) return false;
+    if (model.background_settled_session == 0) return false;
+    if (model.background_settled_session != model.selected) return false;
+    return model.sessionByIdConst(model.background_settled_session) != null;
+}
+
+/// Background section: live Process row and/or the selected
+/// session's settled last-turn row.
+pub fn hasBackgroundSection(model: *const Model) bool {
+    return model.is_streaming() or hasSettledBackground(model);
+}
+
+pub fn settledStatusLabel(model: *const Model) []const u8 {
+    if (!hasSettledBackground(model)) return "";
+    return switch (model.background_settled) {
+        .none => "",
+        .completed => settled_completed_label,
+        .stopped => settled_stopped_label,
+        .failed => settled_failed_label,
+    };
+}
+
+/// Header info trigger: selected while the dropdown is open or
+/// Background would show (streaming Process or visible settle).
+pub fn environmentInfoSelected(model: *const Model) bool {
+    return model.environment_summary_open or hasBackgroundSection(model);
+}
 
 /// Waku header change counts: omit a zero side. Empty when both
 /// are 0 (do not invent "clean"). Same `−` as the composer label.
@@ -125,8 +199,9 @@ pub fn compare(model: *Model, fx: *Effects) void {
 }
 
 /// Close the popover, then cancel the live turn the same way as
-/// composer Stop (`stopStream`). Idle is a no-op: the Background
-/// section is omitted, and this does not invent spawn/kill paths.
+/// composer Stop (`stopStream`). Idle is a no-op: Stop agent is
+/// omitted when not streaming. `stopStream` records the Stopped
+/// settle; this does not invent spawn/kill paths.
 pub fn stopBackground(model: *Model, fx: *Effects) void {
     if (!model.is_streaming()) return;
     close(model);
@@ -474,10 +549,18 @@ test "stopBackground no-ops when not streaming" {
     try std.testing.expectEqual(@as(u32, 0), model.streaming_session);
     try std.testing.expectEqual(main.Phase.idle, model.phase);
     try std.testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try std.testing.expect(!hasSettledBackground(&model));
+    try std.testing.expect(!hasBackgroundSection(&model));
+    try std.testing.expect(environmentInfoSelected(&model));
 
+    close(&model);
+    try std.testing.expect(!environmentInfoSelected(&model));
+
+    model.environment_summary_open = true;
     main.update(&model, .environment_stop_background, &fx);
     try std.testing.expect(model.environment_summary_open);
     try std.testing.expect(!model.is_streaming());
+    try std.testing.expect(!hasSettledBackground(&model));
 }
 
 test "stopBackground closes summary and stops via stopStream" {
@@ -500,6 +583,9 @@ test "stopBackground closes summary and stops via stopStream" {
     try std.testing.expectEqual(@as(u32, 0), model.streaming_session);
     try std.testing.expect(!model.sessionById(id).?.busy);
     try std.testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try std.testing.expect(hasSettledBackground(&model));
+    try std.testing.expectEqualStrings(settled_stopped_label, settledStatusLabel(&model));
+    try std.testing.expect(hasBackgroundSection(&model));
 }
 
 test "environment_stop_background uses the same stopStream path as Stop" {
@@ -524,4 +610,162 @@ test "environment_stop_background uses the same stopStream path as Stop" {
     try std.testing.expect(!model.sessionById(id).?.busy);
     try std.testing.expectEqual(@as(u32, 0), model.streaming_session);
     try std.testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try std.testing.expect(hasSettledBackground(&model));
+    try std.testing.expectEqualStrings(settled_stopped_label, settledStatusLabel(&model));
+}
+
+test "idle with no settle omits Background; streaming shows the section" {
+    var model = Model{};
+    const id = model.addSession("env idle omit", .fx);
+    model.selected = id;
+    try std.testing.expect(!hasBackgroundSection(&model));
+    try std.testing.expect(!hasSettledBackground(&model));
+    try std.testing.expect(!environmentInfoSelected(&model));
+    try std.testing.expectEqualStrings("", settledStatusLabel(&model));
+
+    model.environment_summary_open = true;
+    try std.testing.expect(environmentInfoSelected(&model));
+    try std.testing.expect(!hasBackgroundSection(&model));
+
+    model.phase = .streaming;
+    model.streaming_session = id;
+    try std.testing.expect(hasBackgroundSection(&model));
+    try std.testing.expect(!hasSettledBackground(&model));
+    try std.testing.expect(environmentInfoSelected(&model));
+}
+
+test "successful finishStream without a queue settles Completed" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env settle complete", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "go" } }, &fx);
+    main.update(&model, .send, &fx);
+    try std.testing.expect(model.is_streaming());
+    try std.testing.expect(hasBackgroundSection(&model));
+    try std.testing.expect(!hasSettledBackground(&model));
+    try std.testing.expect(environmentInfoSelected(&model));
+
+    var n: u32 = 0;
+    while (n < 16 and model.is_streaming()) : (n += 1) {
+        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+    }
+    try std.testing.expect(!model.is_streaming());
+    try std.testing.expect(hasSettledBackground(&model));
+    try std.testing.expectEqualStrings(settled_completed_label, settledStatusLabel(&model));
+    try std.testing.expect(hasBackgroundSection(&model));
+    try std.testing.expect(environmentInfoSelected(&model));
+    try std.testing.expectEqual(id, model.background_settled_session);
+    try std.testing.expectEqual(SettledStatus.completed, model.background_settled);
+}
+
+test "queued finishStream restart stays on Process and does not flash Completed" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env settle queue", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "first" } }, &fx);
+    main.update(&model, .send, &fx);
+    try std.testing.expect(model.is_streaming());
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "queued follow-up" } }, &fx);
+    main.update(&model, .send, &fx);
+    try std.testing.expectEqual(@as(u32, 1), model.queuedCount(id));
+
+    var n: u32 = 0;
+    while (n < 16 and model.queuedCount(id) > 0) : (n += 1) {
+        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+    }
+    try std.testing.expect(model.is_streaming());
+    try std.testing.expectEqual(@as(u32, 0), model.queuedCount(id));
+    try std.testing.expect(!hasSettledBackground(&model));
+    try std.testing.expectEqual(SettledStatus.none, model.background_settled);
+    try std.testing.expect(hasBackgroundSection(&model));
+}
+
+test "stopStream and Esc settle Stopped" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env settle stop", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "go" } }, &fx);
+    main.update(&model, .send, &fx);
+    try std.testing.expect(model.is_streaming());
+    main.update(&model, .stop_turn, &fx);
+    try std.testing.expect(!model.is_streaming());
+    try std.testing.expectEqualStrings(settled_stopped_label, settledStatusLabel(&model));
+
+    var esc = Model{};
+    const esc_id = esc.addSession("env settle esc", .fx);
+    esc.selected = esc_id;
+    main.update(&esc, .{ .draft_edit = .{ .insert_text = "go" } }, &fx);
+    main.update(&esc, .send, &fx);
+    try std.testing.expect(esc.is_streaming());
+    main.update(&esc, .stop, &fx);
+    try std.testing.expect(!esc.is_streaming());
+    try std.testing.expectEqualStrings(settled_stopped_label, settledStatusLabel(&esc));
+}
+
+test "drain=false finishStream settles Failed" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env settle fail", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "go" } }, &fx);
+    main.update(&model, .send, &fx);
+    try std.testing.expect(model.is_streaming());
+    model.fx_spawn_key = main.fx_ask_key;
+    main.update(&model, .{ .fx_exit = .{
+        .key = main.fx_ask_key,
+        .code = 1,
+        .reason = .exited,
+    } }, &fx);
+    try std.testing.expect(!model.is_streaming());
+    try std.testing.expectEqualStrings(settled_failed_label, settledStatusLabel(&model));
+    try std.testing.expectEqual(SettledStatus.failed, model.background_settled);
+}
+
+test "cap-1 settle overwrites; session switch hides another session's row" {
+    var model = Model{};
+    const first = model.addSession("env settle first", .fx);
+    const second = model.addSession("env settle second", .fx);
+    model.selected = first;
+    settle(&model, first, .completed);
+    try std.testing.expectEqualStrings(settled_completed_label, settledStatusLabel(&model));
+    try std.testing.expect(hasBackgroundSection(&model));
+
+    settle(&model, first, .stopped);
+    try std.testing.expectEqualStrings(settled_stopped_label, settledStatusLabel(&model));
+    try std.testing.expectEqual(first, model.background_settled_session);
+
+    settle(&model, second, .failed);
+    try std.testing.expectEqual(second, model.background_settled_session);
+    try std.testing.expectEqual(SettledStatus.failed, model.background_settled);
+    try std.testing.expect(!hasSettledBackground(&model));
+    try std.testing.expect(!hasBackgroundSection(&model));
+
+    model.selected = second;
+    try std.testing.expectEqualStrings(settled_failed_label, settledStatusLabel(&model));
+    try std.testing.expect(hasBackgroundSection(&model));
+
+    model.selected = first;
+    try std.testing.expect(!hasSettledBackground(&model));
+    try std.testing.expectEqualStrings("", settledStatusLabel(&model));
+
+    clearSettledIfSession(&model, second);
+    try std.testing.expectEqual(SettledStatus.none, model.background_settled);
+    try std.testing.expectEqual(@as(u32, 0), model.background_settled_session);
+    model.selected = second;
+    try std.testing.expect(!hasBackgroundSection(&model));
 }

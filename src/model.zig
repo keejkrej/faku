@@ -443,7 +443,8 @@ pub const Msg = union(enum) {
     /// non-empty selected `fx_session_id`.
     environment_copy_agent_thread_id,
     /// Environment Summary Background Stop. Closes the dropdown then
-    /// `stopStream` (same path as composer Stop). No-op when idle.
+    /// `stopStream` (same path as composer Stop; records Stopped).
+    /// No-op when idle.
     environment_stop_background,
     close_review_diff,
     set_review_diff_source_branch,
@@ -573,6 +574,13 @@ pub const Model = struct {
     git_commit_active: bool = false,
     /// Runtime-only header Environment dropdown. Not persisted.
     environment_summary_open: bool = false,
+    /// Cap-1 last-turn Background settle. Runtime-only; not
+    /// sessions.json / drafts.json. Keyed by session id so
+    /// switching hides another session's row without clearing
+    /// it; a new settle overwrites. Cleared when that session
+    /// is removed.
+    background_settled: environment_summary.SettledStatus = .none,
+    background_settled_session: u32 = 0,
     /// Runtime-only Environment Compare Review card. Not persisted.
     review_diff_active: bool = false,
     /// Runtime-only Review name-status source. Compare / header +/-
@@ -1073,6 +1081,9 @@ pub const Model = struct {
         "stream_cursor",
         "stream_turn_id",
         "streaming_session",
+        "background_settled",
+        "background_settled_session",
+        "has_settled_background",
         "queued_store",
         "queued_count",
         "next_queued_id",
@@ -2730,6 +2741,29 @@ pub const Model = struct {
     /// session non-empty `fx_session_id` / ACP sessionId.
     pub fn has_provider_session_id(model: *const Model) bool {
         return environment_summary.hasProviderSessionId(model);
+    }
+
+    /// Environment Summary Background section: live Process row
+    /// (`is_streaming`) or the selected session's last-turn settle.
+    pub fn has_background_section(model: *const Model) bool {
+        return environment_summary.hasBackgroundSection(model);
+    }
+
+    /// Visible settled last-turn row (idle, selected session).
+    pub fn has_settled_background(model: *const Model) bool {
+        return environment_summary.hasSettledBackground(model);
+    }
+
+    /// Completed / Stopped / Failed. Empty when the settled row
+    /// is omitted.
+    pub fn background_settled_status(model: *const Model) []const u8 {
+        return environment_summary.settledStatusLabel(model);
+    }
+
+    /// Header Environment info trigger. Selected while the
+    /// dropdown is open or Background would show.
+    pub fn environment_info_selected(model: *const Model) bool {
+        return environment_summary.environmentInfoSelected(model);
     }
 
     /// Runtime-only muted ahead/behind vs `@{upstream}` on the composer

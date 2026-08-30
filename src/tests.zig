@@ -17893,6 +17893,7 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     _ = try expectByText(toolbar, .row, "header-environment-controls");
     const trigger = try expectByText(toolbar, .button, "Environment");
     try testing.expectEqual(Msg.toggle_environment_summary, tree.msgForPointer(trigger.id, .up).?);
+    try testing.expect(!trigger.state.selected);
     try testing.expect(pressableAppearsBefore(toolbar, "Copy session", "Environment"));
     try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
     try testing.expect(findByText(tree.root, .menu_item, "Commit or Push") == null);
@@ -17903,6 +17904,8 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     try testing.expect(model.environment_summary_open);
     tree = try buildTree(arena, &model);
     try testing.expect(findByKind(tree.root, .dropdown_menu) != null);
+    const open_trigger = try expectByText(try expectByText(tree.root, .row, "Toolbar"), .button, "Environment");
+    try testing.expect(open_trigger.state.selected);
     _ = try expectByText(tree.root, .text, "Environment");
     const commit_or_push = try expectByText(tree.root, .menu_item, "Commit or Push");
     try testing.expectEqual(Msg.environment_commit_or_push, tree.msgForPointer(commit_or_push.id, .up).?);
@@ -17913,6 +17916,7 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     try testing.expect(!model.has_provider_session_id());
     try testing.expect(findByText(tree.root, .menu_item, "Copy agent CLI thread ID") == null);
     try testing.expect(findByText(tree.root, .text, "Background") == null);
+    try testing.expect(findByText(tree.root, .text, "Agent turn") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Compare branch") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_commit_or_push").? < std.mem.indexOf(u8, main.app_markup, "menu-item on-press=\"environment_compare\"").?);
@@ -17953,6 +17957,7 @@ test "Environment Background Stop appears while streaming and reuses composer St
     main.update(&model, .toggle_environment_summary, &fx);
     var tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "Background") == null);
+    try testing.expect(findByText(tree.root, .text, "Agent turn") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
     main.update(&model, .close_environment_summary, &fx);
 
@@ -17961,12 +17966,19 @@ test "Environment Background Stop appears while streaming and reuses composer St
     try testing.expect(model.is_streaming());
     try testing.expect(model.sessionById(selected).?.busy);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expect(model.has_background_section());
+    try testing.expect(!model.has_settled_background());
+    try testing.expect(model.environment_info_selected());
     _ = try expectButtonMsg(try buildTree(arena, &model), "Stop", .stop_turn);
+    tree = try buildTree(arena, &model);
+    const streaming_trigger = try expectByText(try expectByText(tree.root, .row, "Toolbar"), .button, "Environment");
+    try testing.expect(streaming_trigger.state.selected);
 
     main.update(&model, .toggle_environment_summary, &fx);
     try testing.expect(model.environment_summary_open);
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Background");
+    _ = try expectByText(tree.root, .text, "Agent turn");
     const stop_agent = try expectByText(tree.root, .menu_item, "Stop agent");
     try testing.expectEqual(Msg.environment_stop_background, tree.msgForPointer(stop_agent.id, .up).?);
     _ = try expectByText(tree.root, .menu_item, "Copy task ID");
@@ -17977,9 +17989,51 @@ test "Environment Background Stop appears while streaming and reuses composer St
     try testing.expect(!model.is_streaming());
     try testing.expect(!model.sessionById(selected).?.busy);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expect(model.has_settled_background());
+    try testing.expectEqualStrings("Stopped", model.background_settled_status());
+    try testing.expect(model.environment_info_selected());
     tree = try buildTree(arena, &model);
     try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
     try testing.expect(findByText(tree.root, .text, "Background") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
+    const settled_trigger = try expectByText(try expectByText(tree.root, .row, "Toolbar"), .button, "Environment");
+    try testing.expect(settled_trigger.state.selected);
+
+    main.update(&model, .toggle_environment_summary, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Background");
+    _ = try expectByText(tree.root, .text, "Agent turn");
+    _ = try expectByText(tree.root, .text, "Stopped");
+    try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
+}
+
+test "Environment Background settles Completed on a finished turn with no queue" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "stream for background complete" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    var n: u32 = 0;
+    while (n < 16 and model.is_streaming()) : (n += 1) {
+        main.update(&model, .{ .tick = .{ .key = main.stream_timer_key } }, &fx);
+    }
+    try testing.expect(!model.is_streaming());
+    try testing.expect(model.has_settled_background());
+    try testing.expectEqualStrings("Completed", model.background_settled_status());
+    try testing.expect(model.environment_info_selected());
+
+    main.update(&model, .toggle_environment_summary, &fx);
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Background");
+    _ = try expectByText(tree.root, .text, "Agent turn");
+    _ = try expectByText(tree.root, .text, "Completed");
     try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
 }
 
