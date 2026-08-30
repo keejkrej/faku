@@ -25,7 +25,6 @@ pub const identity_email = "user.email=faku@localhost";
 pub const commit_gpgsign = "commit.gpgsign=false";
 
 const env_prefix = "GIT_INDEX_FILE=";
-const index_nonce_len: usize = 16;
 
 /// Isolated-index worktree snapshot. Returns a 40-hex sha or null.
 /// Missing / non-git / failed plumbing is quiet.
@@ -41,7 +40,7 @@ pub fn captureWorktreeCommit(
     const common = gitCommonDir(allocator, io, project_path, &common_buf) orelse return null;
 
     var index_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const index_path = uniqueIndexPath(common, &index_buf) orelse return null;
+    const index_path = uniqueIndexPath(io, common, &index_buf) orelse return null;
 
     var env_buf: [std.fs.max_path_bytes + env_prefix.len]u8 = undefined;
     const env_slot = std.fmt.bufPrint(&env_buf, "{s}{s}", .{ env_prefix, index_path }) catch return null;
@@ -115,15 +114,17 @@ fn gitCommonDir(
     return joined;
 }
 
-fn uniqueIndexPath(common_dir: []const u8, dest: []u8) ?[]const u8 {
-    var nonce: [index_nonce_len / 2]u8 = undefined;
-    std.crypto.random.bytes(&nonce);
-    const hex = std.fmt.bytesToHex(nonce, .lower);
-    return std.fmt.bufPrint(dest, "{s}{s}{s}{s}", .{
+var index_seq: u32 = 0;
+
+fn uniqueIndexPath(io: std.Io, common_dir: []const u8, dest: []u8) ?[]const u8 {
+    index_seq +%= 1;
+    const stamp: u64 = @bitCast(std.Io.Clock.real.now(io).toSeconds());
+    return std.fmt.bufPrint(dest, "{s}{s}{s}{x:0>8}{x:0>8}", .{
         common_dir,
         std.fs.path.sep_str,
         index_prefix,
-        hex[0..],
+        @as(u32, @truncate(stamp)),
+        index_seq,
     }) catch null;
 }
 
@@ -245,7 +246,7 @@ test "captureWorktreeCommit includes dirty and untracked and leaves the user ind
     defer allocator.free(parents);
     try testing.expectEqualStrings(snap, std.mem.trim(u8, parents, " \r\n\t"));
 
-    try testing.expect(!leftoverIndex(testing.io, path));
+    try testing.expect(!leftoverIndex(allocator, testing.io, path));
 }
 
 test "captureWorktreeCommit is null for missing and non-git paths" {
@@ -262,17 +263,29 @@ test "captureWorktreeCommit is null for missing and non-git paths" {
     try testing.expect(captureWorktreeCommit(testing.allocator, testing.io, path, &sha_buf) == null);
 }
 
-fn leftoverIndex(io: std.Io, project_path: []const u8) bool {
+fn leftoverIndex(allocator: std.mem.Allocator, io: std.Io, project_path: []const u8) bool {
     var git_buf: [std.fs.max_path_bytes]u8 = undefined;
     const git_path = std.fmt.bufPrint(&git_buf, "{s}{s}.git", .{ project_path, std.fs.path.sep_str }) catch return true;
-    var dir = std.fs.cwd().openDir(git_path, .{ .iterate = true }) catch return false;
-    defer dir.close();
-    var it = dir.iterate();
-    while (it.next() catch return true) |entry| {
-        if (std.mem.startsWith(u8, entry.name, index_prefix)) return true;
-        if (std.mem.startsWith(u8, entry.name, "waku-checkpoint-index-")) return true;
-    }
-    return false;
+    const faku = runGitCapture(allocator, io, &.{
+        "find",
+        git_path,
+        "-maxdepth",
+        "1",
+        "-name",
+        "faku-checkpoint-index-*",
+    }) catch return true;
+    defer allocator.free(faku);
+    if (std.mem.trim(u8, faku, " \r\n\t").len != 0) return true;
+    const waku = runGitCapture(allocator, io, &.{
+        "find",
+        git_path,
+        "-maxdepth",
+        "1",
+        "-name",
+        "waku-checkpoint-index-*",
+    }) catch return true;
+    defer allocator.free(waku);
+    return std.mem.trim(u8, waku, " \r\n\t").len != 0;
 }
 
 fn initTestRepo(allocator: std.mem.Allocator, io: std.Io, path: []const u8) ![]u8 {
