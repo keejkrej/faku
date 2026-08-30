@@ -5,10 +5,13 @@
 //! Commit… card), Compare (Review name-status file list; opens
 //! on Branch, Uncommitted / Staged / Unstaged / Committed /
 //! LastTurn are switchable on the card), Copy task ID
-//! (local session id via `fx.writeClipboard`), and a first-cut
-//! Background Stop row when `is_streaming` (same composer Stop /
-//! `stopStream` path; omitted when idle; Faku-side stream state
-//! only). Header +N −M
+//! (local session id via `fx.writeClipboard`), Copy agent CLI
+//! thread ID when the selected session has a non-empty
+//! `fx_session_id` / ACP sessionId (same `copyFxSessionId`
+//! path as palette Copy provider session id; omitted when
+//! empty), and a first-cut Background Stop row when
+//! `is_streaming` (same composer Stop / `stopStream` path;
+//! omitted when idle; Faku-side stream state only). Header +N −M
 //! reuses the composer project-row numstat probe (omit a zero
 //! side; muted ghost; click opens Compare Review on Branch).
 //! First-cut per-file hunks live on the Review card (tracked
@@ -26,10 +29,11 @@
 //! `prepareTurnDiffBase` names `turn-diff-{n}`; Compare uses
 //! stored shas, not the refs); rewind `<sha>...HEAD`
 //! fallback; not `refs/waku/`; not HEAD~1. Leftovers:
-//! force push, fuller background registry / settled rows /
+//! prune-alone, fuller background registry / settled rows /
 //! multi-kind Process·Monitor·Subagent, daemon
 //! WorkspaceOperation. Not a Waku BackgroundWorkRegistry.
-//! Not transcript checkpoint +/-.
+//! Not transcript checkpoint +/-. Not force push (Waku
+//! `git_commit::push` has no `--force`).
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -89,6 +93,22 @@ pub fn commitOrPush(model: *Model, fx: *Effects) void {
 pub fn copyTaskId(model: *Model, fx: *Effects) void {
     close(model);
     copy_helpers.copySessionId(model, fx);
+}
+
+/// Selected session has a non-empty `fx_session_id` / ACP
+/// sessionId. Same presence as Waku `session.provider_native_id()`
+/// Some — gates Copy agent CLI thread ID so an empty id does not
+/// show a dead row that only sets status.
+pub fn hasProviderSessionId(model: *const Model) bool {
+    const session = model.sessionByIdConst(model.selected) orelse return false;
+    return session.fxSessionId().len > 0;
+}
+
+/// Close the popover, then copy the selected `fx_session_id` the
+/// same way as palette Copy provider session id.
+pub fn copyAgentCliThreadId(model: *Model, fx: *Effects) void {
+    close(model);
+    copy_helpers.copyFxSessionId(model, fx);
 }
 
 /// Close the popover and any Commit… card, then open the first-cut
@@ -320,6 +340,54 @@ test "copyTaskId writes the local session id and no-ops without a selection" {
     copyTaskId(&model, &empty_fx);
     try std.testing.expect(!model.environment_summary_open);
     try std.testing.expectEqual(@as(usize, 0), empty_fx.pendingClipboardCount());
+}
+
+test "copyAgentCliThreadId writes fx_session_id; empty and no selection match copyFxSessionId" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env copy thread", .fx);
+    model.selected = id;
+    try std.testing.expect(!hasProviderSessionId(&model));
+    try std.testing.expect(!model.has_provider_session_id());
+    if (model.sessionById(id)) |session| session.setFxSessionId("fx-sess-env");
+    try std.testing.expect(hasProviderSessionId(&model));
+    try std.testing.expect(model.has_provider_session_id());
+    model.environment_summary_open = true;
+    copyAgentCliThreadId(&model, &fx);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    const first = fx.pendingClipboardAt(0).?;
+    try std.testing.expectEqual(main.copy_turn_key, first.key);
+    try std.testing.expectEqual(@import("native_sdk").EffectClipboardOp.write, first.op);
+    try std.testing.expectEqualStrings("fx-sess-env", first.text);
+
+    if (model.sessionById(id)) |session| session.setFxSessionId("");
+    try std.testing.expect(!hasProviderSessionId(&model));
+    try std.testing.expect(!model.has_provider_session_id());
+    var empty_fx = Effects.init(std.testing.allocator);
+    defer empty_fx.deinit();
+    empty_fx.executor = .fake;
+    model.environment_summary_open = true;
+    copyAgentCliThreadId(&model, &empty_fx);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expectEqual(@as(usize, 0), empty_fx.pendingClipboardCount());
+    try std.testing.expectEqualStrings(copy_helpers.no_provider_session_id_status, model.window_status());
+
+    var none_fx = Effects.init(std.testing.allocator);
+    defer none_fx.deinit();
+    none_fx.executor = .fake;
+    model.selected = 0;
+    model.clearWindowStatus();
+    try std.testing.expect(!hasProviderSessionId(&model));
+    try std.testing.expect(!model.has_provider_session_id());
+    model.environment_summary_open = true;
+    copyAgentCliThreadId(&model, &none_fx);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expectEqual(@as(usize, 0), none_fx.pendingClipboardCount());
+    try std.testing.expectEqual(@as(usize, 0), model.window_status().len);
 }
 
 test "Esc, session switch, and palette close the environment summary" {

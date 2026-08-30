@@ -17201,12 +17201,15 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     try testing.expectEqual(Msg.environment_compare, tree.msgForPointer(compare.id, .up).?);
     const copy_task = try expectByText(tree.root, .menu_item, "Copy task ID");
     try testing.expectEqual(Msg.environment_copy_task_id, tree.msgForPointer(copy_task.id, .up).?);
+    try testing.expect(!model.has_provider_session_id());
+    try testing.expect(findByText(tree.root, .menu_item, "Copy agent CLI thread ID") == null);
     try testing.expect(findByText(tree.root, .text, "Background") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Compare branch") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_commit_or_push").? < std.mem.indexOf(u8, main.app_markup, "menu-item on-press=\"environment_compare\"").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "menu-item on-press=\"environment_compare\"").? < std.mem.indexOf(u8, main.app_markup, "environment_copy_task_id").?);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_copy_task_id").? < std.mem.indexOf(u8, main.app_markup, "environment_stop_background").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_copy_task_id").? < std.mem.indexOf(u8, main.app_markup, "environment_copy_agent_thread_id").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_copy_agent_thread_id").? < std.mem.indexOf(u8, main.app_markup, "environment_stop_background").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"environment_compare\">{header_git_numstat_label}").? < std.mem.indexOf(u8, main.app_markup, "menu-item on-press=\"environment_compare\"").?);
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
@@ -17258,6 +17261,7 @@ test "Environment Background Stop appears while streaming and reuses composer St
     const stop_agent = try expectByText(tree.root, .menu_item, "Stop agent");
     try testing.expectEqual(Msg.environment_stop_background, tree.msgForPointer(stop_agent.id, .up).?);
     _ = try expectByText(tree.root, .menu_item, "Copy task ID");
+    try testing.expect(findByText(tree.root, .menu_item, "Copy agent CLI thread ID") == null);
 
     main.update(&model, tree.msgForPointer(stop_agent.id, .up).?, &fx);
     try testing.expect(!model.environment_summary_open);
@@ -17348,6 +17352,8 @@ test "Environment Copy task ID writes the local session id" {
     var tree = try buildTree(arena, &model);
     const copy_task = try expectByText(tree.root, .menu_item, "Copy task ID");
     try testing.expectEqual(Msg.environment_copy_task_id, tree.msgForPointer(copy_task.id, .up).?);
+    try testing.expect(!model.has_provider_session_id());
+    try testing.expect(findByText(tree.root, .menu_item, "Copy agent CLI thread ID") == null);
     try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
     main.update(&model, tree.msgForPointer(copy_task.id, .up).?, &fx);
     try testing.expect(!model.environment_summary_open);
@@ -17359,6 +17365,49 @@ test "Environment Copy task ID writes the local session id" {
     const expected_id = try std.fmt.bufPrint(&id_buf, "{d}", .{selected});
     try testing.expectEqualStrings(expected_id, written.text);
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "Environment Copy agent CLI thread ID is gated and writes fx_session_id" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const selected = model.selected;
+    try testing.expect(selected != 0);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(selected).?.fxSessionId().len);
+    try testing.expect(!model.has_provider_session_id());
+
+    main.update(&model, .toggle_environment_summary, &fx);
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "Copy task ID");
+    try testing.expect(findByText(tree.root, .menu_item, "Copy agent CLI thread ID") == null);
+
+    main.update(&model, .close_environment_summary, &fx);
+    if (model.sessionById(selected)) |session| {
+        session.setFxSessionId("fx-sess-env-summary");
+    }
+    try testing.expect(model.has_provider_session_id());
+
+    main.update(&model, .toggle_environment_summary, &fx);
+    tree = try buildTree(arena, &model);
+    const copy_thread = try expectByText(tree.root, .menu_item, "Copy agent CLI thread ID");
+    try testing.expectEqual(Msg.environment_copy_agent_thread_id, tree.msgForPointer(copy_thread.id, .up).?);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    main.update(&model, tree.msgForPointer(copy_thread.id, .up).?, &fx);
+    try testing.expect(!model.environment_summary_open);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    const written = fx.pendingClipboardAt(0).?;
+    try testing.expectEqual(main.copy_turn_key, written.key);
+    try testing.expectEqual(native_sdk.EffectClipboardOp.write, written.op);
+    try testing.expectEqualStrings("fx-sess-env-summary", written.text);
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
 }
 
 test "Environment Compare closes the dropdown and opens a Review file-list card" {
