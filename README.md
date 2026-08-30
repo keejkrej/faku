@@ -47,9 +47,14 @@ HEAD~1);
 cap 64; empty is
 `No changes to compare`; clicking a tracked file one-shots
 that path's unified diff; Uncommitted `?` rows one-shot
-`git diff --no-index -- /dev/null <path>`), and
-Copy task ID (local session id via `fx.writeClipboard`); leftovers
-are force, background-work rows, and daemon
+`git diff --no-index -- /dev/null <path>`),
+Copy task ID (local session id via `fx.writeClipboard`), and a
+first-cut Background Stop row when the selected session is
+live-streaming (same `is_streaming` / composer Stop /
+`stopStream` path; omitted when idle; Faku-side stream state
+only, not a daemon BackgroundWork registry); leftovers
+are force, a fuller background registry / settled rows /
+multi-kind Process·Monitor·Subagent, and daemon
 WorkspaceOperation (not transcript checkpoint +/-).
 Header, sidebar, and Ctrl-Tab switcher titles stay on one line with
 Native ellipsis; the full name remains the accessible list-item
@@ -545,9 +550,12 @@ bare 40-hex two-dot vs the live worktree; rewind
 HEAD~1); clicking a
 tracked file one-shots `git diff` for
 that path; Uncommitted `?` rows one-shot
-`git diff --no-index -- /dev/null <path>`). Leftovers:
-force, daemon `WorkspaceOperation`, background
-work. Not transcript checkpoint +/-.
+`git diff --no-index -- /dev/null <path>`). First-cut
+Background Stop is Faku-side `is_streaming` / composer Stop
+only. Leftovers: force, fuller background registry / settled
+rows / multi-kind Process·Monitor·Subagent, daemon
+`WorkspaceOperation`. Not a Waku BackgroundWorkRegistry. Not
+transcript checkpoint +/-.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and
 git-common-dir path

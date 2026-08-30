@@ -4,8 +4,11 @@
 //! Environment: Commit or Push (ungated open of the existing
 //! Commit… card), Compare (Review name-status file list; opens
 //! on Branch, Uncommitted / Staged / Unstaged / Committed /
-//! LastTurn are switchable on the card), and Copy task ID
-//! (local session id via `fx.writeClipboard`). Header +N −M
+//! LastTurn are switchable on the card), Copy task ID
+//! (local session id via `fx.writeClipboard`), and a first-cut
+//! Background Stop row when `is_streaming` (same composer Stop /
+//! `stopStream` path; omitted when idle; Faku-side stream state
+//! only). Header +N −M
 //! reuses the composer project-row numstat probe (omit a zero
 //! side; muted ghost; click opens Compare Review on Branch).
 //! First-cut per-file hunks live on the Review card (tracked
@@ -23,8 +26,10 @@
 //! `prepareTurnDiffBase` names `turn-diff-{n}`; Compare uses
 //! stored shas, not the refs); rewind `<sha>...HEAD`
 //! fallback; not `refs/waku/`; not HEAD~1. Leftovers:
-//! force, background work, daemon WorkspaceOperation. Not
-//! transcript checkpoint +/-.
+//! force, fuller background registry / settled rows /
+//! multi-kind Process·Monitor·Subagent, daemon
+//! WorkspaceOperation. Not a Waku BackgroundWorkRegistry.
+//! Not transcript checkpoint +/-.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -33,6 +38,7 @@ const git_numstat = @import("git_numstat.zig");
 const review_diff = @import("review_diff.zig");
 const copy_helpers = @import("copy.zig");
 const session_switcher = @import("switcher.zig");
+const turn_stream = @import("stream.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -94,6 +100,15 @@ pub fn compare(model: *Model, fx: *Effects) void {
     git_commit.dropCommitNumstat(model, fx);
     git_commit.closeCommit(model);
     review_diff.open(model, fx);
+}
+
+/// Close the popover, then cancel the live turn the same way as
+/// composer Stop (`stopStream`). Idle is a no-op: the Background
+/// section is omitted, and this does not invent spawn/kill paths.
+pub fn stopBackground(model: *Model, fx: *Effects) void {
+    if (!model.is_streaming()) return;
+    close(model);
+    turn_stream.stopStream(model, fx);
 }
 
 test "headerNumstatLabel omits a zero side" {
@@ -360,4 +375,73 @@ test "composer startCommit still requires canCommitGit" {
     try std.testing.expect(!model.git_commit_active);
     try std.testing.expect(model.review_diff_active);
     try std.testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
+}
+
+test "stopBackground no-ops when not streaming" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env stop idle", .fx);
+    model.selected = id;
+    model.environment_summary_open = true;
+    try std.testing.expect(!model.is_streaming());
+
+    stopBackground(&model, &fx);
+    try std.testing.expect(model.environment_summary_open);
+    try std.testing.expect(!model.is_streaming());
+    try std.testing.expectEqual(@as(u32, 0), model.streaming_session);
+    try std.testing.expectEqual(main.Phase.idle, model.phase);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+
+    main.update(&model, .environment_stop_background, &fx);
+    try std.testing.expect(model.environment_summary_open);
+    try std.testing.expect(!model.is_streaming());
+}
+
+test "stopBackground closes summary and stops via stopStream" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env stop live", .fx);
+    model.selected = id;
+    model.environment_summary_open = true;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    if (model.sessionById(id)) |session| session.busy = true;
+
+    stopBackground(&model, &fx);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expect(!model.is_streaming());
+    try std.testing.expectEqual(main.Phase.idle, model.phase);
+    try std.testing.expectEqual(@as(u32, 0), model.streaming_session);
+    try std.testing.expect(!model.sessionById(id).?.busy);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+}
+
+test "environment_stop_background uses the same stopStream path as Stop" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env stop send", .fx);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "go" } }, &fx);
+    main.update(&model, .send, &fx);
+    try std.testing.expect(model.is_streaming());
+    try std.testing.expect(model.sessionById(id).?.busy);
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try std.testing.expectEqual(main.stream_timer_key, fx.pendingTimerAt(0).?.key);
+    model.environment_summary_open = true;
+
+    main.update(&model, .environment_stop_background, &fx);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expect(!model.is_streaming());
+    try std.testing.expect(!model.sessionById(id).?.busy);
+    try std.testing.expectEqual(@as(u32, 0), model.streaming_session);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
 }

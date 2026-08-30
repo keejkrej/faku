@@ -222,6 +222,10 @@
                 <menu-item on-press="environment_commit_or_push">Commit or Push</menu-item>
                 <menu-item on-press="environment_compare">Compare</menu-item>
                 <menu-item on-press="environment_copy_task_id">Copy task ID</menu-item>
+                <if test="{is_streaming}">
+                  <text foreground="text_muted">Background</text>
+                  <menu-item on-press="environment_stop_background">Stop agent</menu-item>
+                </if>
               </dropdown-menu>
             </if>
           </stack>
