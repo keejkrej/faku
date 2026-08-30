@@ -480,7 +480,7 @@ const TurnStartMeta = struct {
     }
 
     fn refSha(self: *const TurnStartMeta, name: []const u8) ?[]const u8 {
-        for (self.refs[0..self.ref_count]) |ref| {
+        for (self.refs[0..self.ref_count]) |*ref| {
             if (std.mem.eql(u8, ref.name(), name)) return ref.sha();
         }
         return null;
@@ -1117,7 +1117,7 @@ fn collectParents(
             n += 1;
         }
     }
-    for (refs) |ref| {
+    for (refs) |*ref| {
         if (n >= dest.len) break;
         if (parentSeen(dest[0..n], ref.sha())) continue;
         dest[n] = ref.sha();
@@ -1575,6 +1575,18 @@ test "prepareTurnDiffBase branch-switch with no edits is empty vs end" {
 
     var start_sha_buf: [rewind.stored_sha_len]u8 = undefined;
     const start = captureTurnStartCommit(allocator, testing.io, path, &start_sha_buf) orelse return error.MissingStart;
+    const start_parents = try runGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        path,
+        "rev-list",
+        "--parents",
+        "-n",
+        "1",
+        start,
+    });
+    defer allocator.free(start_parents);
+    try testing.expect(parentCount(std.mem.trim(u8, start_parents, " \r\n\t")) >= 2);
     try testing.expect(captureTurnStart(allocator, testing.io, path, 5, 1, start));
 
     try runGitPlain(allocator, testing.io, &.{ "git", "-C", path, "checkout", "--quiet", "feature" });
