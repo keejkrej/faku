@@ -113,7 +113,8 @@ pub const Session = struct {
     rewind_refs: [rewind.max_refs]rewind.Ref = [_]rewind.Ref{.{}} ** rewind.max_refs,
     rewind_ref_count: usize = 0,
     /// Latest Send-time worktree snapshot (dangling 40-hex). LastTurn
-    /// prefers this over `rewind_refs`. Not a Rewind target.
+    /// prefers this over `rewind_refs`. Header Rewind prefers
+    /// `restoreRef` on this sha when set, then clears the slot.
     worktree_snapshot_sha_storage: [rewind.stored_sha_len]u8 = [_]u8{0} ** rewind.stored_sha_len,
     worktree_snapshot_sha_len: usize = 0,
     /// 0 = ungrouped (date buckets). Unknown ids also render ungrouped.

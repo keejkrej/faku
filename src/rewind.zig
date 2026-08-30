@@ -2,14 +2,18 @@
 //!
 //! At Send / spawn (turn start), Faku stores `{ sha, ref: "HEAD", recorded_at }`
 //! on the session when `project_path` is a git work tree. That Send-time sha is
-//! the Rewind target — not a post-turn HEAD, and not a provider session fork.
+//! the no-snapshot Rewind fallback — not a post-turn HEAD, and not a
+//! provider session fork.
 //! After-success capture is omitted: a later snapshot would become
 //! `latestStoredSha` and restore the post-turn tree instead of undoing it.
 //! The next Send records the then-current HEAD as its own checkpoint.
 //!
-//! Rewind `git reset --hard`s the latest stored 40-char hex sha, then pops
-//! that entry so a second Rewind walks the previous checkpoint. The caller
-//! drops the last prompt's transcript turns after a successful reset.
+//! Header Rewind prefers `checkpoint.restoreRef` on the stored
+//! worktree snapshot when set. This module's `resetHard` is the
+//! no-snapshot fallback: `git reset --hard` the latest stored
+//! 40-char hex sha. The caller pops that entry so a second
+//! Rewind walks the previous checkpoint, and drops the last
+//! prompt's transcript turns after a successful restore.
 //! Missing / non-git / unknown sha is a no-op. No extra git refs, no invented
 //! shas. Native has no git API — one-shot `git -C` only.
 

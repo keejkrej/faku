@@ -530,7 +530,7 @@ tracked file one-shots `git diff` for
 that path; Uncommitted `?` rows one-shot
 `git diff --no-index -- /dev/null <path>`). Leftovers: force /
 daemon `WorkspaceOperation` / background work /
-`capture_turn_start` / turn-end capture / `restore_ref`.
+`capture_turn_start` / turn-end capture.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and
 git-common-dir path
@@ -743,9 +743,14 @@ dangling commit named `refs/faku/session-{id}-turn-{n}` via
 `git update-ref`; `{n}` is the 1-based prompt ordinal
 `turnCount/2 + 1` at Send; the ref is not stored on
 `sessions.json`). Failed update-ref is quiet and does not
-clear the stored sha. Rewind undoes the last turn's files and those chat turns, using
-the Send-time HEAD (`git reset --hard` that latest stored sha, then
-pop it), not the snapshot sha and not a provider session fork. `fx_session_id` stays.
+clear the stored sha. Rewind undoes the last turn's files and those chat turns. When a
+worktree snapshot is stored, Rewind `restoreRef`s that 40-hex
+(`git restore --source <sha> --worktree --staged -- .`,
+`git clean -fd -- .`, then `git reset --quiet -- .` when HEAD
+exists; HEAD stays; the snapshot slot is then cleared). When no
+snapshot is stored, Rewind `git reset --hard`s the latest
+Send-time HEAD and pops it. Failed restore is a no-op. Not a
+provider session fork. `fx_session_id` stays.
 Fork copies turns through the last turn into a new local session id
 and leaves `fx_session_id` / `runtime_id` empty so the next Send
 calls `session/new`; the source row is unchanged. That is a local

@@ -66,7 +66,7 @@
 //! syntax highlighting, no gap expansion, no right-panel Diff
 //! tab, no force, no background work, no `refs/waku/` Compare
 //! operand (LastTurn uses the stored 40-hex), no
-//! `capture_turn_start` / turn-end capture / `restore_ref`, and
+//! `capture_turn_start` / turn-end capture, and
 //! not daemon WorkspaceOperation.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped

@@ -6129,13 +6129,14 @@ test "Rewind restores Send-time files, pops that ref, and truncates the last pro
     var third_buf: [rewind.max_sha]u8 = undefined;
     const third_sha = rewind.revParseHead(allocator, testing.io, project, &third_buf) orelse return error.GitHead;
     try testing.expect(!std.mem.eql(u8, second_sha, third_sha));
+    try testing.expect(rewind.isStoredSha(model.sessionById(id).?.worktreeSnapshotSha()));
 
     var tree = try buildTree(arena, &model);
     const rewind_btn = try expectByText(tree.root, .button, "Rewind");
     try testing.expect(model.can_rewind());
 
     main.update(&model, tree.msgForPointer(rewind_btn.id, .up).?, &fx);
-    try expectHead(allocator, testing.io, project, second_sha);
+    try expectHead(allocator, testing.io, project, third_sha);
     const after_first_rewind = try readRepoReadme(allocator, testing.io, project);
     defer allocator.free(after_first_rewind);
     try testing.expectEqualStrings("after first\n", after_first_rewind);
@@ -6144,6 +6145,7 @@ test "Rewind restores Send-time files, pops that ref, and truncates the last pro
     try testing.expectEqualStrings("fx-sess-rewind", after_one.fxSessionId());
     try testing.expectEqual(@as(usize, 1), after_one.rewind_ref_count);
     try testing.expectEqualStrings(first_sha, after_one.rewindRefs()[0].sha());
+    try testing.expectEqual(@as(usize, 0), after_one.worktreeSnapshotSha().len);
     try testing.expectEqual(@as(u32, 2), model.turnCount(id));
     try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
     try testing.expectEqualStrings("first prompt", lastUser(&model));
@@ -6158,6 +6160,7 @@ test "Rewind restores Send-time files, pops that ref, and truncates the last pro
     const after_two = model.sessionById(id).?;
     try testing.expectEqualStrings("fx-sess-rewind", after_two.fxSessionId());
     try testing.expectEqual(@as(usize, 0), after_two.rewind_ref_count);
+    try testing.expectEqual(@as(usize, 0), after_two.worktreeSnapshotSha().len);
     try testing.expectEqual(@as(u32, 0), model.turnCount(id));
     try testing.expect(!model.can_rewind());
 
@@ -6166,9 +6169,69 @@ test "Rewind restores Send-time files, pops that ref, and truncates the last pro
     loaded.store_io = testing.io;
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, allocator, testing.io));
     try testing.expectEqual(@as(usize, 0), loaded.session_store[0].rewind_ref_count);
+    try testing.expectEqual(@as(usize, 0), loaded.session_store[0].worktreeSnapshotSha().len);
     store.hydrateSession(&loaded, id, allocator, testing.io);
     try testing.expectEqual(@as(u32, 0), loaded.turnCount(id));
     try testing.expectEqualStrings("fx-sess-rewind", loaded.session_store[0].fxSessionId());
+}
+
+test "Rewind restoreRef restores dirty and untracked and does not move HEAD" {
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/rewind-snap", .{tmp.sub_path[0..]});
+    const head = try initTestGitRepo(allocator, testing.io, project);
+    defer allocator.free(head);
+
+    var readme_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const readme = try std.fmt.bufPrint(&readme_buf, "{s}{s}README", .{ project, std.fs.path.sep_str });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = readme, .data = "dirty\n" });
+    var extra_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const extra = try std.fmt.bufPrint(&extra_buf, "{s}{s}untracked.txt", .{ project, std.fs.path.sep_str });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = extra, .data = "new\n" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("rewind snap", .fx);
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "snap this tree" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(rewind.isStoredSha(model.sessionById(id).?.worktreeSnapshotSha()));
+    try fx.feedExit(main.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = readme, .data = "later\n" });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = extra, .data = "changed\n" });
+    var after_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const after_path = try std.fmt.bufPrint(&after_buf, "{s}{s}after.txt", .{ project, std.fs.path.sep_str });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = after_path, .data = "post-snap\n" });
+
+    main.update(&model, .rewind, &fx);
+    try expectHead(allocator, testing.io, project, head);
+    const restored_readme = try readRepoReadme(allocator, testing.io, project);
+    defer allocator.free(restored_readme);
+    try testing.expectEqualStrings("dirty\n", restored_readme);
+    const restored_extra = try std.Io.Dir.cwd().readFileAlloc(testing.io, extra, allocator, .limited(64));
+    defer allocator.free(restored_extra);
+    try testing.expectEqualStrings("new\n", restored_extra);
+    if (std.Io.Dir.cwd().openFile(testing.io, after_path, .{})) |*file| {
+        file.close(testing.io);
+        return error.AfterFileRemained;
+    } else |_| {}
+
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.rewind_ref_count);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.worktreeSnapshotSha().len);
+    try testing.expectEqual(@as(u32, 0), model.turnCount(id));
 }
 
 test "Rewind is a no-op when git, path, or stored sha is missing" {
@@ -6219,6 +6282,17 @@ test "Rewind is a no-op when git, path, or stored sha is missing" {
     main.update(&model, .rewind, &fx);
     try expectHead(allocator, testing.io, project, expected);
     try testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", model.sessionById(id).?.rewindRefs()[0].sha());
+    try expectCatalogUnchanged(allocator, testing.io, dir, before);
+
+    if (model.sessionById(id)) |session| {
+        session.clearRewindRefs();
+        session.appendRewindRef(expected, rewind.recorded_ref, 3);
+        session.setWorktreeSnapshotSha("cccccccccccccccccccccccccccccccccccccccc");
+    }
+    main.update(&model, .rewind, &fx);
+    try expectHead(allocator, testing.io, project, expected);
+    try testing.expectEqualStrings("cccccccccccccccccccccccccccccccccccccccc", model.sessionById(id).?.worktreeSnapshotSha());
+    try testing.expectEqualStrings(expected, model.sessionById(id).?.rewindRefs()[0].sha());
     try expectCatalogUnchanged(allocator, testing.io, dir, before);
 
     var plain_buf: [256]u8 = undefined;

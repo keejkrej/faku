@@ -14,11 +14,14 @@
 //! the user+assistant pair is appended (first Send is
 //! `turn-1`). LastTurn / Review still use the stored 40-hex
 //! (`worktree_snapshot_sha`), not the ref. Failed update-ref is
-//! quiet and does not clear the stored sha. Sync
+//! quiet and does not clear the stored sha. Header Rewind
+//! restores that stored 40-hex with `restoreRef` (`git restore
+//! --source <sha> --worktree --staged -- .`, `git clean -fd --
+//! .`, then `git reset --quiet -- .` when HEAD exists). Sync
 //! `std.process.run` like `rewind.captureHead` — not a Native
 //! spawn and not `/bin/sh -c` interpolation. Leftovers:
-//! `capture_turn_start`, turn-end capture, `restore_ref`, force,
-//! background work, daemon WorkspaceOperation.
+//! `capture_turn_start`, turn-end capture, force, background
+//! work, daemon WorkspaceOperation.
 
 const std = @import("std");
 const rewind = @import("rewind.zig");
@@ -138,6 +141,66 @@ pub fn updateFakuRef(
     const result = std.process.run(allocator, io, .{
         .argv = &.{ git_bin, "-C", project_path, "update-ref", ref_name, sha },
         .stdout_limit = .limited(256),
+        .stderr_limit = .limited(512),
+    }) catch return false;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    return result.term == .exited and result.term.exited == 0;
+}
+
+/// Restore the worktree from a stored 40-hex snapshot commit.
+/// Documented sequence: `git restore --source <sha> --worktree
+/// --staged -- .`, then `git clean -fd -- .`, then `git reset
+/// --quiet -- .` when HEAD exists. Does not move HEAD. Input is
+/// the stored sha, not `refs/faku/`. Missing / non-git / bad
+/// sha / failed git is quiet false.
+pub fn restoreRef(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    sha: []const u8,
+) bool {
+    if (!rewind.isStoredSha(sha)) return false;
+    if (!rewind.isGitWorkTree(io, project_path)) return false;
+    if (!runGitC(allocator, io, project_path, &.{
+        "restore",
+        "--source",
+        sha,
+        "--worktree",
+        "--staged",
+        "--",
+        ".",
+    })) return false;
+    if (!runGitC(allocator, io, project_path, &.{ "clean", "-fd", "--", "." })) return false;
+    var head_buf: [rewind.max_sha]u8 = undefined;
+    if (rewind.revParseHead(allocator, io, project_path, &head_buf) != null) {
+        if (!runGitC(allocator, io, project_path, &.{ "reset", "--quiet", "--", "." })) return false;
+    }
+    return true;
+}
+
+fn runGitC(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    git_args: []const []const u8,
+) bool {
+    var argv_buf: [16][]const u8 = undefined;
+    var n: usize = 0;
+    argv_buf[n] = git_bin;
+    n += 1;
+    argv_buf[n] = "-C";
+    n += 1;
+    argv_buf[n] = project_path;
+    n += 1;
+    for (git_args) |arg| {
+        if (n >= argv_buf.len) return false;
+        argv_buf[n] = arg;
+        n += 1;
+    }
+    const result = std.process.run(allocator, io, .{
+        .argv = argv_buf[0..n],
+        .stdout_limit = .limited(4096),
         .stderr_limit = .limited(512),
     }) catch return false;
     defer allocator.free(result.stdout);
@@ -450,6 +513,96 @@ test "updateFakuRef is false and quiet on missing, non-git, and bad inputs" {
     try testing.expect(!updateFakuRef(allocator, testing.io, path, "refs/faku/session-1-turn-1", sha));
 }
 
+test "restoreRef restores dirty and untracked, cleans later files, and leaves HEAD and the user index" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/restore", .{tmp.sub_path[0..]});
+    const head = try initTestRepo(allocator, testing.io, path);
+    defer allocator.free(head);
+
+    try writeRepoFile(testing.io, path, "README", "dirty\n");
+    try writeRepoFile(testing.io, path, "untracked.txt", "new\n");
+    try writeRepoFile(testing.io, path, "staged.txt", "staged\n");
+    try runGitPlain(allocator, testing.io, &.{ "git", "-C", path, "add", "staged.txt" });
+
+    const before = try porcelain(allocator, testing.io, path);
+    defer allocator.free(before);
+    try testing.expect(std.mem.indexOf(u8, before, "staged.txt") != null);
+    try testing.expect(std.mem.indexOf(u8, before, "untracked.txt") != null);
+
+    var sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const snap = captureWorktreeCommit(allocator, testing.io, path, &sha_buf) orelse return error.MissingSnapshot;
+    try testing.expect(rewind.isStoredSha(snap));
+
+    const after_capture = try porcelain(allocator, testing.io, path);
+    defer allocator.free(after_capture);
+    try testing.expectEqualStrings(before, after_capture);
+
+    const cached_before = try runGitCapture(allocator, testing.io, &.{ "git", "-C", path, "diff", "--cached", "--name-only" });
+    defer allocator.free(cached_before);
+    try testing.expect(std.mem.indexOf(u8, cached_before, "staged.txt") != null);
+
+    try writeRepoFile(testing.io, path, "README", "later\n");
+    try writeRepoFile(testing.io, path, "untracked.txt", "changed\n");
+    try writeRepoFile(testing.io, path, "after.txt", "post-snap\n");
+
+    try testing.expect(restoreRef(allocator, testing.io, path, snap));
+
+    var still_buf: [rewind.max_sha]u8 = undefined;
+    const still = rewind.revParseHead(allocator, testing.io, path, &still_buf) orelse return error.GitHead;
+    try testing.expectEqualStrings(head, still);
+
+    const readme = try readRepoFile(allocator, testing.io, path, "README");
+    defer allocator.free(readme);
+    try testing.expectEqualStrings("dirty\n", readme);
+    const untracked = try readRepoFile(allocator, testing.io, path, "untracked.txt");
+    defer allocator.free(untracked);
+    try testing.expectEqualStrings("new\n", untracked);
+    const staged = try readRepoFile(allocator, testing.io, path, "staged.txt");
+    defer allocator.free(staged);
+    try testing.expectEqualStrings("staged\n", staged);
+    try testing.expect(!repoFileExists(testing.io, path, "after.txt"));
+
+    const cached_after = try runGitCapture(allocator, testing.io, &.{ "git", "-C", path, "diff", "--cached", "--name-only" });
+    defer allocator.free(cached_after);
+    try testing.expectEqualStrings("", std.mem.trim(u8, cached_after, " \r\n\t"));
+
+    try testing.expect(!leftoverIndex(allocator, testing.io, path));
+}
+
+test "restoreRef is false and quiet on missing, non-git, and bad sha" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    const unknown = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    try testing.expect(!restoreRef(allocator, testing.io, "", unknown));
+    try testing.expect(!restoreRef(allocator, testing.io, ".zig-cache/tmp/faku-restore-missing", unknown));
+    try testing.expect(!restoreRef(allocator, testing.io, ".", "not-a-sha"));
+    try testing.expect(!restoreRef(allocator, testing.io, ".", ""));
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var plain_buf: [256]u8 = undefined;
+    const plain = try std.fmt.bufPrint(&plain_buf, ".zig-cache/tmp/{s}/plain", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, plain);
+    try testing.expect(!restoreRef(allocator, testing.io, plain, unknown));
+
+    var repo_buf: [256]u8 = undefined;
+    const repo = try std.fmt.bufPrint(&repo_buf, ".zig-cache/tmp/{s}/unknown", .{tmp.sub_path[0..]});
+    const head = try initTestRepo(allocator, testing.io, repo);
+    defer allocator.free(head);
+    try writeRepoFile(testing.io, repo, "README", "keep\n");
+    try testing.expect(!restoreRef(allocator, testing.io, repo, unknown));
+    var still_buf: [rewind.max_sha]u8 = undefined;
+    const still = rewind.revParseHead(allocator, testing.io, repo, &still_buf) orelse return error.GitHead;
+    try testing.expectEqualStrings(head, still);
+    const readme = try readRepoFile(allocator, testing.io, repo, "README");
+    defer allocator.free(readme);
+    try testing.expectEqualStrings("keep\n", readme);
+}
+
 fn leftoverIndex(allocator: std.mem.Allocator, io: std.Io, project_path: []const u8) bool {
     var git_buf: [std.fs.max_path_bytes]u8 = undefined;
     const git_path = std.fmt.bufPrint(&git_buf, "{s}{s}.git", .{ project_path, std.fs.path.sep_str }) catch return true;
@@ -503,6 +656,20 @@ fn writeRepoFile(io: std.Io, path: []const u8, name: []const u8, contents: []con
     var file_buf: [std.fs.max_path_bytes]u8 = undefined;
     const file_path = try std.fmt.bufPrint(&file_buf, "{s}{s}{s}", .{ path, std.fs.path.sep_str, name });
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = file_path, .data = contents });
+}
+
+fn readRepoFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8, name: []const u8) ![]u8 {
+    var file_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}{s}{s}", .{ path, std.fs.path.sep_str, name });
+    return std.Io.Dir.cwd().readFileAlloc(io, file_path, allocator, .limited(64));
+}
+
+fn repoFileExists(io: std.Io, path: []const u8, name: []const u8) bool {
+    var file_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const file_path = std.fmt.bufPrint(&file_buf, "{s}{s}{s}", .{ path, std.fs.path.sep_str, name }) catch return false;
+    var file = std.Io.Dir.cwd().openFile(io, file_path, .{}) catch return false;
+    file.close(io);
+    return true;
 }
 
 fn porcelain(allocator: std.mem.Allocator, io: std.Io, path: []const u8) ![]u8 {

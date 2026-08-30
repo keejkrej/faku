@@ -2,8 +2,8 @@
 //!
 //! Header / per-turn Fork and Send-time Rewind live here. Git plumbing
 //! (`captureHead` / `resetHard`) stays in `rewind.zig`. Worktree
-//! snapshot plumbing (`captureWorktreeCommit` / `updateFakuRef`)
-//! stays in `checkpoint.zig`. Msg routing and Model fields stay in
+//! snapshot plumbing (`captureWorktreeCommit` / `updateFakuRef` /
+//! `restoreRef`) stays in `checkpoint.zig`. Msg routing and Model fields stay in
 //! `main.zig`. Behavior is unchanged from the former `main` fork
 //! and rewind helpers.
 
@@ -117,14 +117,25 @@ pub fn forkSelectedThrough(model: *Model, fx: *Effects, through_index: u32) void
     store.persistIfPossible(model, fork_id, fx);
 }
 
-/// Reset workspace files to the latest Send-time HEAD, consume that ref,
-/// and drop the last prompt's turns. Does not change `fx_session_id`.
-/// Failed git is a no-op (ref and transcript stay).
+/// Restore the last Send-time workspace and drop that prompt's
+/// turns. Prefers `restoreRef(worktree_snapshot_sha)` when a
+/// snapshot is stored (does not `reset --hard`; HEAD stays).
+/// On snapshot success, clear that single slot so a second
+/// Rewind does not replay the same tree. When no snapshot is
+/// stored, `reset --hard` the latest Send-time HEAD. Failed
+/// git is a no-op (ref, snapshot, and transcript stay). Does
+/// not change `fx_session_id`.
 pub fn applyRewindIfPossible(model: *Model, fx: *Effects) void {
     const io = model.store_io orelse return;
     const session = model.sessionById(model.selected) orelse return;
     const sha = session.latestRewindSha() orelse return;
-    if (!rewind.resetHard(std.heap.page_allocator, io, session.projectPath(), sha)) return;
+    const snapshot = session.worktreeSnapshotSha();
+    if (rewind.isStoredSha(snapshot)) {
+        if (!checkpoint.restoreRef(std.heap.page_allocator, io, session.projectPath(), snapshot)) return;
+        session.clearWorktreeSnapshotSha();
+    } else if (!rewind.resetHard(std.heap.page_allocator, io, session.projectPath(), sha)) {
+        return;
+    }
     session.popLatestRewindRef();
     model.dropLastPromptTurns(session.id);
     store.persistIfPossible(model, session.id, fx);
