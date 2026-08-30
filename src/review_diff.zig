@@ -5,9 +5,13 @@
 //! card. Initial source is Branch: one-shot
 //! `git diff --name-status @{upstream}...HEAD` (symmetric range,
 //! same spirit as ahead/behind). Uncommitted is a switchable
-//! first-cut: one-shot `git diff --name-status HEAD` (tracked
-//! staged+unstaged vs HEAD). Staged is a switchable first-cut:
-//! one-shot `git diff --name-status --cached` (index vs HEAD;
+//! first-cut: tracked `git diff --name-status HEAD` plus
+//! untracked, non-ignored paths from
+//! `git ls-files --others --exclude-standard` (synthetic
+//! `?\tpath` rows; no text-only / size filter). Packed under
+//! Native `max_effect_argv` as chdir + nested `/bin/sh -c`.
+//! Staged is a switchable first-cut: one-shot
+//! `git diff --name-status --cached` (index vs HEAD;
 //! untracked cannot appear unless already staged). Unstaged is a
 //! switchable first-cut: one-shot `git diff --name-status`
 //! (worktree vs index, tracked only; no `--cached`, no `HEAD`
@@ -20,14 +24,16 @@
 //! `Could not compare.` A successful origin/HEAD probe with
 //! zero files is `No changes to compare` (no main/master
 //! fall-through). Faku has no checkpoint `capture_worktree_commit`;
-//! LastTurn, hunks, and untracked-in-Uncommitted stay leftover.
+//! LastTurn and hunks stay leftover.
 //! All five use the `/bin/sh -c` `fx_ask_chdir_script` chdir
-//! workaround. Last-slot operands (`@{upstream}...HEAD` / `HEAD`
-//! / `--cached` / `origin/HEAD...HEAD` / `main...HEAD` /
+//! workaround. Last-slot operands (`@{upstream}...HEAD` /
+//! `--cached` / `origin/HEAD...HEAD` / `main...HEAD` /
 //! `master...HEAD`) are their own argv slots — never
-//! interpolated into `-c`. Unstaged has no trailing operand, so
-//! its argv is 8 slots (the 9-slot detector still accepts the
-//! others). Distinct spawn-key band 510+ (after git-common-dir
+//! interpolated into `-c`. Uncommitted packs `HEAD` into the
+//! nested script (not a last-slot `HEAD`). Unstaged has no
+//! trailing operand, so its argv is 8 slots (the 9-slot detector
+//! still accepts Branch / Staged / Committed). Distinct
+//! spawn-key band 510+ (after git-common-dir
 //! 500+). Cap 64 rows. Empty / clean is `No changes to compare`.
 //! Failed / no upstream / missing workspace is a short muted
 //! status — no invented files. Not hunk rendering, not LastTurn,
@@ -60,13 +66,14 @@ const writeFixed = main.writeFixed;
 pub const review_diff_key_first: u64 = 510;
 
 /// Compare / header +/- open Branch. Uncommitted is first-cut
-/// tracked `git diff --name-status HEAD` (not untracked). Staged
+/// tracked `git diff --name-status HEAD` plus untracked
+/// `git ls-files --others --exclude-standard` (`?` rows). Staged
 /// is first-cut index vs HEAD `git diff --name-status --cached`.
 /// Unstaged is first-cut worktree vs index `git diff
 /// --name-status` (tracked only). Committed is first-cut
 /// `git diff --name-status origin/HEAD...HEAD`, then local
 /// `main...HEAD` / `master...HEAD` on a still-current non-zero
-/// exit. LastTurn / hunks / untracked-in-Uncommitted stay leftover.
+/// exit. LastTurn / hunks stay leftover.
 pub const Source = enum {
     branch,
     uncommitted,
@@ -96,6 +103,9 @@ pub const git_diff_cmd = "diff";
 pub const git_name_status = "--name-status";
 pub const git_upstream_range = git_ahead_behind.git_upstream_range;
 pub const git_head = "HEAD";
+pub const git_ls_files_cmd = "ls-files";
+pub const git_ls_files_others = "--others";
+pub const git_ls_files_exclude_standard = "--exclude-standard";
 /// Same `--cached` as `git_commit.git_cached_flag`. Local to avoid
 /// a review_diff ↔ git_commit import cycle. Own argv slot.
 pub const git_cached_flag = "--cached";
@@ -109,11 +119,27 @@ pub const git_committed_range_main = "main...HEAD";
 pub const git_committed_range_master = "master...HEAD";
 pub const sh_bin = "/bin/sh";
 
+/// Packed into one `-c` string so Uncommitted stays under Native
+/// `max_effect_argv` (16). Real `git diff --name-status HEAD`
+/// first; then synthetic `?\tpath` rows for every non-empty
+/// `git ls-files --others --exclude-standard` path. Non-zero
+/// from the diff exits without inventing untracked.
+pub const uncommitted_untracked_script =
+    \\git diff --name-status HEAD || exit $?
+    \\git ls-files --others --exclude-standard 2>/dev/null | while IFS= read -r f || [ -n "$f" ]; do
+    \\[ -z "$f" ] && continue
+    \\printf '?\t%s\n' "$f"
+    \\done
+;
+
 /// `/bin/sh -c` chdir + `git diff --name-status` + last-slot operand
-/// (Branch / Uncommitted / Staged / Committed). Unstaged omits the operand.
+/// (Branch / Staged / Committed). Unstaged omits the operand.
+/// Uncommitted is chdir + nested `/bin/sh -c` + this script.
 pub const argv_len: usize = 9;
 /// Unstaged: same chdir prefix, no trailing operand.
 pub const argv_len_unstaged: usize = 8;
+/// Uncommitted: chdir + `/bin/sh -c` + `uncommitted_untracked_script`.
+pub const argv_len_uncommitted: usize = 8;
 
 pub const comparing_status = "Comparing…";
 pub const empty_status = "No changes to compare";
@@ -154,12 +180,13 @@ pub const ChangedFile = struct {
 
 /// Last argv slot for sources that have one. Unstaged is `null`
 /// (`git diff --name-status` with no range / `--cached`).
+/// Uncommitted is `null` (`HEAD` lives in the nested script).
 /// Committed reads `committed_range` (default first probe is
 /// `origin/HEAD...HEAD`).
 pub fn lastOperand(source: Source, committed_range: CommittedRange) ?[]const u8 {
     return switch (source) {
         .branch => git_upstream_range,
-        .uncommitted => git_head,
+        .uncommitted => null,
         .staged => git_cached_flag,
         .unstaged => null,
         .committed => switch (committed_range) {
@@ -185,6 +212,12 @@ pub fn argvForSourceRange(
     buf[2] = main.fx_ask_chdir_script;
     buf[3] = "sh";
     buf[4] = cwd;
+    if (source == .uncommitted) {
+        buf[5] = sh_bin;
+        buf[6] = "-c";
+        buf[7] = uncommitted_untracked_script;
+        return buf[0..argv_len_uncommitted];
+    }
     buf[5] = git_bin;
     buf[6] = git_diff_cmd;
     buf[7] = git_name_status;
@@ -200,7 +233,18 @@ pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
     return argvForSource(.branch, cwd, buf);
 }
 
+pub fn isGitReviewUncommittedArgv(argv: []const []const u8) bool {
+    if (argv.len != argv_len_uncommitted) return false;
+    if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], "-c")) return false;
+    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[5], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[6], "-c")) return false;
+    return std.mem.eql(u8, argv[7], uncommitted_untracked_script);
+}
+
 pub fn isGitReviewDiffArgv(argv: []const []const u8) bool {
+    if (isGitReviewUncommittedArgv(argv)) return true;
     if (argv.len != argv_len and argv.len != argv_len_unstaged) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
@@ -211,7 +255,6 @@ pub fn isGitReviewDiffArgv(argv: []const []const u8) bool {
     if (argv.len == argv_len_unstaged) return true;
     const last = argv[8];
     return std.mem.eql(u8, last, git_upstream_range) or
-        std.mem.eql(u8, last, git_head) or
         std.mem.eql(u8, last, git_cached_flag) or
         std.mem.eql(u8, last, git_committed_range) or
         std.mem.eql(u8, last, git_committed_range_main) or
@@ -242,6 +285,7 @@ pub fn parseNameStatusLine(raw: []const u8) ?struct { status: u8, path: []const 
 
 fn statusLetter(code: []const u8) ?u8 {
     const first = code[0];
+    if (first == '?') return '?';
     if (first < 'A' or first > 'Z') return null;
     return first;
 }
@@ -489,21 +533,51 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_upstream_range }));
     var uncommitted_buf: [argv_len][]const u8 = undefined;
     const uncommitted = argvForSource(.uncommitted, "/tmp/faku-review", &uncommitted_buf);
-    try std.testing.expectEqual(@as(usize, 9), uncommitted.len);
+    try std.testing.expectEqual(argv_len_uncommitted, uncommitted.len);
     try std.testing.expectEqualStrings(sh_bin, uncommitted[0]);
     try std.testing.expectEqualStrings("-c", uncommitted[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, uncommitted[2]);
     try std.testing.expectEqualStrings("sh", uncommitted[3]);
     try std.testing.expectEqualStrings("/tmp/faku-review", uncommitted[4]);
-    try std.testing.expectEqualStrings(git_bin, uncommitted[5]);
-    try std.testing.expectEqualStrings(git_diff_cmd, uncommitted[6]);
-    try std.testing.expectEqualStrings(git_name_status, uncommitted[7]);
-    try std.testing.expectEqualStrings(git_head, uncommitted[8]);
-    try std.testing.expectEqualStrings("HEAD", uncommitted[8]);
+    try std.testing.expectEqualStrings(sh_bin, uncommitted[5]);
+    try std.testing.expectEqualStrings("-c", uncommitted[6]);
+    try std.testing.expectEqualStrings(uncommitted_untracked_script, uncommitted[7]);
+    try std.testing.expect(lastOperand(.uncommitted, .origin) == null);
+    try std.testing.expect(isGitReviewUncommittedArgv(uncommitted));
     try std.testing.expect(isGitReviewDiffArgv(uncommitted));
     try std.testing.expect(std.mem.indexOf(u8, uncommitted[2], git_head) == null);
     try std.testing.expect(std.mem.indexOf(u8, uncommitted[2], git_name_status) == null);
+    try std.testing.expect(std.mem.indexOf(u8, uncommitted[2], uncommitted_untracked_script) == null);
+    try std.testing.expect(scriptHas(uncommitted[7], git_diff_cmd));
+    try std.testing.expect(scriptHas(uncommitted[7], git_name_status));
+    try std.testing.expect(scriptHas(uncommitted[7], git_head));
+    try std.testing.expect(scriptHas(uncommitted[7], git_ls_files_cmd));
+    try std.testing.expect(scriptHas(uncommitted[7], git_ls_files_others));
+    try std.testing.expect(scriptHas(uncommitted[7], git_ls_files_exclude_standard));
+    try std.testing.expect(scriptHas(uncommitted[7], "?\\t"));
     try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_head }));
+    try std.testing.expect(!isGitReviewUncommittedArgv(&.{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-review",
+        git_bin,
+        git_diff_cmd,
+        git_name_status,
+        git_head,
+    }));
+    try std.testing.expect(!isGitReviewDiffArgv(&.{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-review",
+        git_bin,
+        git_diff_cmd,
+        git_name_status,
+        git_head,
+    }));
     var staged_buf: [argv_len][]const u8 = undefined;
     const staged = argvForSource(.staged, "/tmp/faku-review", &staged_buf);
     try std.testing.expectEqual(@as(usize, 9), staged.len);
@@ -596,8 +670,11 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
     const numstat = git_numstat.argvFor("/tmp/faku-review", &numstat_buf);
     try std.testing.expect(!isGitReviewDiffArgv(numstat));
+    try std.testing.expect(!isGitReviewUncommittedArgv(numstat));
     try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
+    try std.testing.expect(!git_numstat.isGitNumstatArgv(uncommitted));
     try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
+    try std.testing.expect(!file_mention.isGitLsFilesArgv(uncommitted));
     try std.testing.expect(review_diff_key_first >= 510);
     try std.testing.expect(review_diff_key_first > git_common_dir.git_common_dir_key_first);
     try std.testing.expect(git_common_dir.git_common_dir_key_first >= 500);
@@ -615,12 +692,51 @@ test "parseNameStatusLine is status letter plus path; rename uses dest" {
     try std.testing.expectEqual(@as(u8, 'C'), parseNameStatusLine("C80\ta.txt\tb.txt").?.status);
     try std.testing.expectEqualStrings("b.txt", parseNameStatusLine("C80\ta.txt\tb.txt").?.path);
     try std.testing.expectEqualStrings("only-dest", parseNameStatusLine("R\tonly-dest").?.path);
+    try std.testing.expectEqual(@as(u8, '?'), parseNameStatusLine("?\tnew.txt").?.status);
+    try std.testing.expectEqualStrings("new.txt", parseNameStatusLine("?\tnew.txt").?.path);
+    try std.testing.expectEqual(@as(u8, '?'), parseNameStatusLine("??\tuntracked.txt\n").?.status);
+    try std.testing.expectEqualStrings("untracked.txt", parseNameStatusLine("??\tuntracked.txt\n").?.path);
+    try std.testing.expect(parseNameStatusLine("?\t") == null);
+    try std.testing.expect(parseNameStatusLine("?") == null);
     try std.testing.expect(parseNameStatusLine("") == null);
     try std.testing.expect(parseNameStatusLine("   \n") == null);
     try std.testing.expect(parseNameStatusLine("not-status") == null);
     try std.testing.expect(parseNameStatusLine("M") == null);
     try std.testing.expect(parseNameStatusLine("M\t") == null);
     try std.testing.expect(parseNameStatusLine("1\tbad.txt") == null);
+}
+
+test "Uncommitted argv is nested sh -c; old HEAD-only argv is not Review" {
+    var buf: [argv_len][]const u8 = undefined;
+    const argv = argvForSource(.uncommitted, "/tmp/faku-uncommitted", &buf);
+    try std.testing.expectEqual(argv_len_uncommitted, argv.len);
+    try std.testing.expectEqualStrings(sh_bin, argv[5]);
+    try std.testing.expectEqualStrings("-c", argv[6]);
+    try std.testing.expectEqualStrings(uncommitted_untracked_script, argv[7]);
+    try std.testing.expect(isGitReviewUncommittedArgv(argv));
+    try std.testing.expect(isGitReviewDiffArgv(argv));
+    try std.testing.expect(lastOperand(.uncommitted, .origin) == null);
+    try std.testing.expect(scriptHas(argv[7], "git diff --name-status HEAD"));
+    try std.testing.expect(scriptHas(argv[7], "git ls-files --others --exclude-standard"));
+    try std.testing.expect(scriptHas(argv[7], "|| exit $?"));
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_head) == null);
+    const old_head = [_][]const u8{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-uncommitted",
+        git_bin,
+        git_diff_cmd,
+        git_name_status,
+        git_head,
+    };
+    try std.testing.expect(!isGitReviewUncommittedArgv(&old_head));
+    try std.testing.expect(!isGitReviewDiffArgv(&old_head));
+    var unstaged_buf: [argv_len][]const u8 = undefined;
+    const unstaged = argvForSource(.unstaged, "/tmp/faku-uncommitted", &unstaged_buf);
+    try std.testing.expect(!isGitReviewUncommittedArgv(unstaged));
+    try std.testing.expect(isGitReviewDiffArgv(unstaged));
 }
 
 test "open closes nothing extra when gated; missing cwd is No workspace" {
@@ -798,12 +914,16 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
         if (spawn.key == uncommitted_key) uncommitted_argv = spawn.argv;
     }
     try std.testing.expect(isGitReviewDiffArgv(uncommitted_argv orelse return error.MissingUncommittedArgv));
-    try std.testing.expectEqualStrings(git_head, uncommitted_argv.?[8]);
+    try std.testing.expect(isGitReviewUncommittedArgv(uncommitted_argv.?));
+    try std.testing.expectEqual(argv_len_uncommitted, uncommitted_argv.?.len);
+    try std.testing.expectEqualStrings(uncommitted_untracked_script, uncommitted_argv.?[7]);
     try std.testing.expect(std.mem.indexOf(u8, uncommitted_argv.?[2], git_head) == null);
-    applyLine(&model, .{ .key = uncommitted_key, .line = "M\ttracked.zig\n" });
+    try std.testing.expect(std.mem.indexOf(u8, uncommitted_argv.?[2], uncommitted_untracked_script) == null);
+    applyLine(&model, .{ .key = uncommitted_key, .line = "M\ttracked.zig\n?\tnew.txt\n" });
     handleExit(&model, &fx, .{ .key = uncommitted_key, .reason = .exited, .code = 0 });
-    try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
+    try std.testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
     try std.testing.expectEqualStrings("M tracked.zig", model.review_diff_file_store[0].label());
+    try std.testing.expectEqualStrings("? new.txt", model.review_diff_file_store[1].label());
     try std.testing.expect(!hasReviewDiffStatus(&model));
 
     setSource(&model, &fx, .unstaged);
@@ -904,6 +1024,10 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     setSource(&model, &fx, .committed);
     try std.testing.expect(!model.review_diff_active);
     try std.testing.expectEqual(Source.branch, model.review_diff_source);
+}
+
+fn scriptHas(script: []const u8, needle: []const u8) bool {
+    return std.mem.indexOf(u8, script, needle) != null;
 }
 
 fn findSpawnArgv(fx: *Effects, key: u64) ?[]const []const u8 {
