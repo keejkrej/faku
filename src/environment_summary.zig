@@ -8,8 +8,10 @@
 //! via `fx.writeClipboard`). Header +N −M reuses the composer
 //! project-row numstat probe (omit a zero side; muted ghost;
 //! click opens Compare Review on Branch). First-cut per-file
-//! hunks live on the Review card. Not LastTurn, not force, not
-//! background work, and not daemon WorkspaceOperation.
+//! hunks live on the Review card (tracked `git diff`; Uncommitted
+//! `?` rows one-shot `git diff --no-index -- /dev/null <path>`).
+//! Not LastTurn, not force, not background work, and not
+//! daemon WorkspaceOperation.
 
 const std = @import("std");
 const main = @import("main.zig");
