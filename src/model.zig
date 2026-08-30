@@ -86,9 +86,11 @@ const window_width: f32 = 1380;
 const default_sidebar_split: f32 = sidebar_default_width / window_width;
 const sidebar_min_width: f32 = 180;
 const sidebar_rail_width: f32 = 48;
-/// Waku `DEFAULT_FILE_TREE_WIDTH`. Files-only pane, not the 460px panel.
+/// Waku `DEFAULT_FILE_TREE_WIDTH`. Files tab default, not the 460px panel.
 const right_panel_default_width: f32 = 184;
 const right_panel_min_width: f32 = 140;
+/// Waku `FILE_TREE_MAX_WIDTH`. Files tab clamp.
+const right_panel_max_width: f32 = 360;
 const default_right_panel_split: f32 = 1.0;
 const attach_preview_id_first: u64 = 33;
 const daemon_proxy_key_first: u64 = 4;
@@ -362,6 +364,10 @@ pub const Msg = union(enum) {
     open_right_panel_file: u32,
     /// Files-pane dir click. Payload is `file_mention_dir_id_base + index`.
     toggle_right_panel_dir: u32,
+    /// Right-panel Files tab. Runtime-only; default when the panel opens.
+    set_right_panel_tab_files,
+    /// Right-panel Diff tab. Opens the pane if closed and starts Compare.
+    set_right_panel_tab_diff,
     toggle_settings,
     settings_model_edit: canvas.TextInputEvent,
     settings_project_edit: canvas.TextInputEvent,
@@ -604,8 +610,13 @@ pub const Model = struct {
     /// Default closed (Waku `default_right_panel_visibility` is false).
     right_panel_open: bool = false,
     right_panel_split: f32 = default_right_panel_split,
-    /// Last Files-pane width in pixels (Waku file-tree 184).
+    /// Last pane width in pixels. Files tab clamps to the file-tree
+    /// 184/140/360. Diff tab may bump toward Waku `DEFAULT_RIGHT_PANEL_WIDTH`
+    /// 460. Tab is runtime-only; hide reclamps to the file-tree max.
     right_panel_width: f32 = right_panel_default_width,
+    /// Runtime-only Files | Diff surface. Default `files` when the panel
+    /// opens. Not persisted to sessions.json this cut.
+    right_panel_tab: right_panel.Tab = .files,
     /// Runtime-only expanded Files-tree dirs. Keys match
     /// `file_mention.derivedDirParents` (no trailing slash). Empty =
     /// collapsed (depth-0 only). Cap `max_file_mention_dirs`. Not
@@ -1064,6 +1075,8 @@ pub const Model = struct {
         "open_editor_path_len",
         "openEditorPath",
         "right_panel_width",
+        "right_panel_tab",
+        "right_panel_showing_files",
         "rightPanelWidthPixels",
         "applyRightPanelWidth",
         "syncRightPanelSplit",
@@ -1603,12 +1616,28 @@ pub const Model = struct {
         return right_panel.rows(model, arena);
     }
 
+    pub fn right_panel_tab_files(model: *const Model) bool {
+        return model.right_panel_tab == .files;
+    }
+
+    pub fn right_panel_tab_diff(model: *const Model) bool {
+        return model.right_panel_tab == .diff;
+    }
+
+    pub fn right_panel_showing_files(model: *const Model) bool {
+        return model.right_panel_open and model.right_panel_tab == .files;
+    }
+
+    pub fn right_panel_showing_diff(model: *const Model) bool {
+        return model.right_panel_open and model.right_panel_tab == .diff;
+    }
+
     pub fn right_panel_no_project(model: *const Model) bool {
-        return model.right_panel_open and !right_panel.hasProject(model);
+        return model.right_panel_showing_files() and !right_panel.hasProject(model);
     }
 
     pub fn right_panel_loading(model: *const Model) bool {
-        return model.right_panel_open and right_panel.isLoading(model);
+        return model.right_panel_showing_files() and right_panel.isLoading(model);
     }
 
     pub fn right_panel_pane_min(model: *const Model) f32 {
@@ -2143,12 +2172,12 @@ pub const Model = struct {
     }
 
     pub fn rightPanelWidthPixels(model: *const Model) u32 {
-        return @intFromFloat(@round(right_panel.clampWidth(model.right_panel_width)));
+        return @intFromFloat(@round(right_panel.clampWidthTab(model.right_panel_width, model.right_panel_tab)));
     }
 
     pub fn applyRightPanelWidth(model: *Model, width: u32) void {
         if (width == 0) return;
-        model.right_panel_width = right_panel.clampWidth(@floatFromInt(width));
+        model.right_panel_width = right_panel.clampWidthTab(@floatFromInt(width), model.right_panel_tab);
     }
 
     pub fn syncRightPanelSplit(model: *Model) void {
@@ -2161,12 +2190,17 @@ pub const Model = struct {
 
     pub fn showRightPanel(model: *Model) void {
         model.right_panel_open = true;
+        if (model.right_panel_tab == .files) {
+            model.right_panel_width = right_panel.clampWidthTab(model.right_panel_width, .files);
+        }
         model.syncRightPanelSplit();
     }
 
     pub fn hideRightPanel(model: *Model) void {
         model.right_panel_open = false;
+        model.right_panel_tab = .files;
         model.clearRightPanelExpanded();
+        model.right_panel_width = right_panel.clampWidthTab(model.right_panel_width, .files);
         model.syncRightPanelSplit();
     }
 
@@ -2189,7 +2223,7 @@ pub const Model = struct {
             if (files < right_panel_min_width) return;
             model.right_panel_open = true;
         }
-        model.right_panel_width = right_panel.clampWidth(files);
+        model.right_panel_width = right_panel.clampWidthTab(files, model.right_panel_tab);
         model.syncRightPanelSplit();
     }
 

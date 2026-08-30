@@ -2,9 +2,10 @@
 //!
 //! Header info trigger plus a runtime-only dropdown titled
 //! Environment: Commit or Push (ungated open of the existing
-//! Commit… card), Compare (Review name-status file list; opens
-//! on Branch, Uncommitted / Staged / Unstaged / Committed /
-//! LastTurn are switchable on the card), Copy task ID
+//! Commit… card), Compare (opens the right-panel Diff tab on
+//! Uncommitted when no compare is active; Branch / Uncommitted /
+//! Staged / Unstaged / Committed / LastTurn are switchable on the
+//! Diff body), Copy task ID
 //! (local session id via `fx.writeClipboard`), Copy agent CLI
 //! thread ID when the selected session has a non-empty
 //! `fx_session_id` / ACP sessionId (same `copyFxSessionId`
@@ -13,8 +14,9 @@
 //! `is_streaming` (same composer Stop / `stopStream` path;
 //! omitted when idle; Faku-side stream state only). Header +N −M
 //! reuses the composer project-row numstat probe (omit a zero
-//! side; muted ghost; click opens Compare Review on Branch).
-//! First-cut per-file hunks live on the Review card (tracked
+//! side; muted ghost; click opens the right-panel Diff tab,
+//! default Uncommitted).
+//! First-cut per-file hunks live on the Diff-tab Review body (tracked
 //! `git diff`; Uncommitted `?` rows one-shot
 //! `git diff --no-index -- /dev/null <path>`). LastTurn
 //! prefers turn-diff…end two-dot `diff..end` when both
@@ -40,6 +42,7 @@ const main = @import("main.zig");
 const git_commit = @import("git_commit.zig");
 const git_numstat = @import("git_numstat.zig");
 const review_diff = @import("review_diff.zig");
+const right_panel = @import("right_panel.zig");
 const copy_helpers = @import("copy.zig");
 const session_switcher = @import("switcher.zig");
 const turn_stream = @import("stream.zig");
@@ -111,15 +114,14 @@ pub fn copyAgentCliThreadId(model: *Model, fx: *Effects) void {
     copy_helpers.copyFxSessionId(model, fx);
 }
 
-/// Close the popover and any Commit… card, then open the first-cut
-/// Review file-list card on Branch (`git diff --name-status
-/// @{upstream}...HEAD`). Uncommitted, Staged, Unstaged,
-/// Committed, and LastTurn are selected on the card.
+/// Close the popover and any Commit… card, then open the right-panel
+/// Diff tab. Uncommitted is the Diff-tab default when no compare is
+/// active; an already-active source is kept and refreshed.
 pub fn compare(model: *Model, fx: *Effects) void {
     close(model);
     git_commit.dropCommitNumstat(model, fx);
     git_commit.closeCommit(model);
-    review_diff.open(model, fx);
+    right_panel.selectDiff(model, fx);
 }
 
 /// Close the popover, then cancel the live turn the same way as
@@ -252,7 +254,9 @@ test "compare closes Environment Summary and opens the Review card" {
     try std.testing.expect(!model.environment_summary_open);
     try std.testing.expect(!model.git_commit_active);
     try std.testing.expect(model.review_diff_active);
-    try std.testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.diff, model.right_panel_tab);
+    try std.testing.expectEqual(review_diff.Source.uncommitted, model.review_diff_source);
     try std.testing.expect(model.review_diff_key >= review_diff.review_diff_key_first);
     try std.testing.expectEqualStrings(review_diff.comparing_status, review_diff.reviewDiffStatus(&model));
 }
@@ -278,7 +282,9 @@ test "compare opens Review when Environment Summary is already closed" {
     compare(&model, &fx);
     try std.testing.expect(!model.environment_summary_open);
     try std.testing.expect(model.review_diff_active);
-    try std.testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.diff, model.right_panel_tab);
+    try std.testing.expectEqual(review_diff.Source.uncommitted, model.review_diff_source);
     try std.testing.expect(model.review_diff_key >= review_diff.review_diff_key_first);
     try std.testing.expectEqualStrings(review_diff.comparing_status, review_diff.reviewDiffStatus(&model));
 }
@@ -305,12 +311,16 @@ test "compare no-ops the Review card when streaming or a git mutation is in flig
     compare(&model, &fx);
     try std.testing.expect(!model.environment_summary_open);
     try std.testing.expect(!model.review_diff_active);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.diff, model.right_panel_tab);
     model.phase = .idle;
 
     model.environment_summary_open = true;
     model.git_push_key = @import("git_checkout.zig").git_push_key_first;
     compare(&model, &fx);
     try std.testing.expect(!model.review_diff_active);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.diff, model.right_panel_tab);
 }
 
 test "copyTaskId writes the local session id and no-ops without a selection" {
@@ -442,7 +452,9 @@ test "composer startCommit still requires canCommitGit" {
     main.update(&model, .environment_compare, &fx);
     try std.testing.expect(!model.git_commit_active);
     try std.testing.expect(model.review_diff_active);
-    try std.testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.diff, model.right_panel_tab);
+    try std.testing.expectEqual(review_diff.Source.uncommitted, model.review_diff_source);
 }
 
 test "stopBackground no-ops when not streaming" {
