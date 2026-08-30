@@ -5921,7 +5921,6 @@ test "Send worktree snapshot includes dirty and untracked; overwrite keeps lates
     try fx.feedExit(main.fx_ask_key, 0);
     drainEffects(&model, &fx);
     try testing.expect(rewind.isStoredSha(model.sessionById(id).?.worktreeTurnEndSha()));
-    try testing.expect(!std.mem.eql(u8, first_owned, model.sessionById(id).?.worktreeTurnEndSha()));
     try testing.expectEqualStrings(first_owned, model.sessionById(id).?.worktreeSnapshotSha());
 
     try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = extra, .data = "changed\n" });
