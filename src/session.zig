@@ -113,14 +113,14 @@ pub const Session = struct {
     rewind_refs: [rewind.max_refs]rewind.Ref = [_]rewind.Ref{.{}} ** rewind.max_refs,
     rewind_ref_count: usize = 0,
     /// Latest Send-time worktree snapshot (dangling 40-hex). LastTurn
-    /// prefers `start...end` when a finish-time end sha is also
+    /// prefers `start..end` (two-dot) when a finish-time end sha is also
     /// stored, else this bare 40-hex over `rewind_refs`. Header
     /// Rewind prefers `restoreRef` on this sha when set, then
     /// clears the slot.
     worktree_snapshot_sha_storage: [rewind.stored_sha_len]u8 = [_]u8{0} ** rewind.stored_sha_len,
     worktree_snapshot_sha_len: usize = 0,
     /// Latest finish-time worktree snapshot (dangling 40-hex).
-    /// LastTurn prefers `start...end` when this is set with
+    /// LastTurn prefers `start..end` when this is set with
     /// `worktree_snapshot_sha`. Cleared on a new Send that
     /// records a start snapshot. Same 40-hex rules as start.
     /// Does not overwrite `worktree_snapshot_sha`.

@@ -11,7 +11,8 @@
 //! First-cut per-file hunks live on the Review card (tracked
 //! `git diff`; Uncommitted `?` rows one-shot
 //! `git diff --no-index -- /dev/null <path>`). LastTurn
-//! prefers start…end when both send-time
+//! prefers start…end two-dot `start..end` (Waku `git diff
+//! from to`) when both send-time
 //! (`worktree_snapshot_sha`) and finish-time
 //! (`worktree_turn_end_sha`) 40-hex exist; else send-time
 //! `git diff --name-status <40-hex>` (isolated index,
@@ -20,8 +21,11 @@
 //! `turn-{n-1}` when that baseline is missing; successful finish
 //! also names a NEW snapshot `turn-{n}`; Compare uses stored
 //! shas, not the refs); rewind `<sha>...HEAD` fallback; not
-//! `refs/waku/`; not HEAD~1). Not force, not background
-//! work, and not daemon WorkspaceOperation.
+//! `refs/waku/`; not HEAD~1; not
+//! `refs/faku/...-turn-diff-{n}`). Leftovers:
+//! `prepare_turn_diff_base` / turn-diff refs for
+//! branch-switch LastTurn, force, background work, daemon
+//! WorkspaceOperation. Not transcript checkpoint +/-.
 
 const std = @import("std");
 const main = @import("main.zig");
