@@ -68,7 +68,9 @@ pub const find_skills_script =
 
 const walk_argv_len: usize = 8;
 
-pub const Page = enum { general, skills };
+/// Runtime-only Settings page. Chrome is General | Providers | Skills.
+/// Appearance / Usage / Computer Use are leftovers.
+pub const Page = enum { general, providers, skills };
 
 pub const CachedSkill = struct {
     path_storage: [max_skill_path]u8 = [_]u8{0} ** max_skill_path,

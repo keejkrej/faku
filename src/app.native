@@ -160,10 +160,14 @@
         <separator />
         <row height="40" padding="14" gap="8" cross="center">
           <button variant="ghost" size="sm" selected="{settings_page_general}" on-press="set_settings_page_general">General</button>
+          <button variant="ghost" size="sm" selected="{settings_page_providers}" on-press="set_settings_page_providers">Providers</button>
           <button variant="ghost" size="sm" selected="{settings_page_skills}" on-press="set_settings_page_skills">Skills</button>
           <spacer grow="1" />
           <if test="{settings_page_skills}">
             <button variant="ghost" size="sm" on-press="refresh_skills">Refresh</button>
+          </if>
+          <if test="{settings_page_providers}">
+            <button variant="ghost" size="sm" on-press="refresh_providers">Refresh</button>
           </if>
         </row>
         <separator />
@@ -185,6 +189,32 @@
                 </for>
                 <if test="{has_skill_body}">
                   <text wrap="true">{skill_body}</text>
+                </if>
+              </column>
+            </row>
+          </if>
+          <else>
+          <if test="{settings_page_providers}">
+            <row grow="1" main="center">
+              <column grow="1" max-width="720" gap="10" padding="14">
+                <for each="provider_rows" key="id" as="p">
+                  <list-item height="52" padding="8" gap="4" cross="center" selected="{p.selected}" on-press="select_provider:{p.id}" label="{p.name}">
+                    <column gap="2" grow="1">
+                      <row gap="8" cross="center">
+                        <text wrap="false" overflow="ellipsis">{p.name}</text>
+                        <if test="{p.first_party}">
+                          <text wrap="false" overflow="ellipsis" foreground="text_muted">First-party default</text>
+                        </if>
+                      </row>
+                      <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.status}</text>
+                      <if test="{p.has_binary}">
+                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.binary}</text>
+                      </if>
+                    </column>
+                  </list-item>
+                </for>
+                <if test="{has_provider_detail}">
+                  <text wrap="true">{provider_detail}</text>
                 </if>
               </column>
             </row>
@@ -222,6 +252,7 @@
               <text-field text="{settings_daemon}" placeholder="host:port" on-input="settings_daemon_edit" />
             </column>
           </row>
+          </else>
           </else>
         </scroll>
       </if>

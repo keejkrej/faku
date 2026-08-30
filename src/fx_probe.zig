@@ -1,9 +1,10 @@
 //! Boot fx-probe spawn/exit helpers.
 //!
-//! `startFxProbe` / `spawnFxProbe` / `handleFxProbeExit` / `fxProbePath`
-//! live here. Boot still starts from `initFx` in `main.zig`. Probe
-//! order is `~/.local/bin/fx --help` then `fx --help` (PATH). Behavior
-//! is unchanged from the former `main` probe helpers.
+//! `startFxProbe` / `restartFxProbe` / `spawnFxProbe` /
+//! `handleFxProbeExit` / `fxProbePath` live here. Boot still starts
+//! from `initFx` in `main.zig`. Probe order is `~/.local/bin/fx
+//! --help` then `fx --help` (PATH). Settings → Providers Refresh
+//! calls `restartFxProbe`. Behavior of the boot probe is unchanged.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -21,6 +22,22 @@ pub fn startFxProbe(model: *Model, fx: *Effects) void {
     model.fx_probe_started = true;
     model.fx_probe_index = 0;
     spawnFxProbe(model, fx);
+}
+
+/// Settings → Providers Refresh. Cancel any in-flight `--help` probe
+/// (same fixed key) and start from index 0. Fake executor queues the
+/// spawn; tests do not need a live fx binary.
+pub fn restartFxProbe(model: *Model, fx: *Effects) void {
+    fx.cancel(fx_probe_key);
+    model.fx_probe_started = false;
+    startFxProbe(model, fx);
+}
+
+pub fn isFxProbeArgv(argv: []const []const u8) bool {
+    if (argv.len != 2) return false;
+    if (!std.mem.eql(u8, argv[1], "--help")) return false;
+    const bin = argv[0];
+    return std.mem.eql(u8, bin, "fx") or std.mem.endsWith(u8, bin, "/fx");
 }
 
 fn spawnFxProbe(model: *Model, fx: *Effects) void {
@@ -44,7 +61,9 @@ fn spawnFxProbe(model: *Model, fx: *Effects) void {
 
 pub fn handleFxProbeExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (exit.key != fx_probe_key) return;
-    if (exit.reason == .exited and exit.code == 0) {
+    // Cancel (Providers Refresh) must not chain to the PATH probe.
+    if (exit.reason != .exited) return;
+    if (exit.code == 0) {
         model.fx_available = true;
         return;
     }
@@ -88,4 +107,28 @@ test "fxProbePath index 0 is null when home is empty" {
     var buf: [max_fx_path]u8 = undefined;
     try std.testing.expect(fxProbePath(&model, 0, &buf) == null);
     try std.testing.expectEqualStrings("fx", fxProbePath(&model, 1, &buf).?);
+}
+
+test "isFxProbeArgv matches --help on fx path" {
+    try std.testing.expect(isFxProbeArgv(&.{ "fx", "--help" }));
+    try std.testing.expect(isFxProbeArgv(&.{ "/home/probe/.local/bin/fx", "--help" }));
+    try std.testing.expect(!isFxProbeArgv(&.{ "fx", "acp" }));
+    try std.testing.expect(!isFxProbeArgv(&.{"fx"}));
+}
+
+test "restartFxProbe resets started and queues --help" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.fx_available = true;
+    model.setFxPath("/tmp/already-probed");
+    restartFxProbe(&model, &fx);
+    try testing.expect(model.fx_probe_started);
+    const spawn = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(fx_probe_key, spawn.key);
+    try testing.expect(isFxProbeArgv(spawn.argv));
 }

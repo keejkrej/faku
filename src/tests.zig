@@ -25,6 +25,8 @@ const git_commit = @import("git_commit.zig");
 const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const skills = @import("skills.zig");
+const providers = @import("providers.zig");
+const fx_probe = @import("fx_probe.zig");
 const keys = @import("keys.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 const goal = @import("goal.zig");
@@ -60,6 +62,14 @@ fn widgetName(widget: canvas.Widget) []const u8 {
 
 fn findByText(widget: canvas.Widget, kind: canvas.WidgetKind, text: []const u8) ?canvas.Widget {
     return findNthByText(widget, kind, text, 0);
+}
+
+fn findTextContaining(widget: canvas.Widget, needle: []const u8) ?canvas.Widget {
+    if (widget.kind == .text and std.mem.indexOf(u8, widget.text, needle) != null) return widget;
+    for (widget.children) |child| {
+        if (findTextContaining(child, needle)) |hit| return hit;
+    }
+    return null;
 }
 
 fn findNthByText(widget: canvas.Widget, kind: canvas.WidgetKind, text: []const u8, n: usize) ?canvas.Widget {
@@ -10051,20 +10061,28 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(model.settings_open);
     try testing.expect(model.settings_page_general());
     try testing.expect(!model.settings_page_skills());
+    try testing.expect(!model.settings_page_providers());
 
     var tree = try buildTree(arena, &model);
     const general = try expectButtonMsg(tree, "General", .set_settings_page_general);
     try testing.expect(general.state.selected);
+    const providers_tab = try expectButtonMsg(tree, "Providers", .set_settings_page_providers);
+    try testing.expect(!providers_tab.state.selected);
     const skills_tab = try expectButtonMsg(tree, "Skills", .set_settings_page_skills);
     try testing.expect(!skills_tab.state.selected);
+    try testing.expect(pressableAppearsBefore(tree.root, "General", "Providers"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Providers", "Skills"));
     _ = try expectByText(tree.root, .text, "Default model");
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
     try testing.expect(findByText(tree.root, .button, "Refresh") == null);
     try testing.expect(findByText(tree.root, .text, "Open a project") == null);
+    try testing.expect(findByText(tree.root, .list_item, "fx") == null);
+    try testing.expect(findByText(tree.root, .text, "Catalog id only") == null);
 
     main.update(&model, tree.msgForPointer(skills_tab.id, .up).?, &fx);
     try testing.expect(model.settings_page_skills());
     try testing.expect(!model.settings_page_general());
+    try testing.expect(!model.settings_page_providers());
     try testing.expectEqual(@as(u32, 0), model.skill_count);
 
     tree = try buildTree(arena, &model);
@@ -10076,6 +10094,8 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(findByText(tree.root, .text, "Default model") == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") != null);
     _ = try expectByText(tree.root, .text, "Open a project");
+    try testing.expect(findByText(tree.root, .list_item, "fx") == null);
+    try testing.expect(findByText(tree.root, .text, "Catalog id only") == null);
 
     main.update(&model, .set_settings_page_general, &fx);
     try testing.expect(model.settings_page_general());
@@ -10161,6 +10181,126 @@ test "settings Skills lists SKILL.md name and path; select shows body" {
     try testing.expectEqualStrings("Use this skill.", model.skill_body());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Use this skill.");
+}
+
+test "settings Providers tab lists catalog; fx Available vs Not found from model fields" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const before_open = fx.pendingSpawnCount();
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_page_general());
+    try testing.expect(!model.fx_available);
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .list_item, "fx") == null);
+    try testing.expect(findByText(tree.root, .text, "Catalog id only") == null);
+    try testing.expect(findByText(tree.root, .text, "Default model") != null);
+    const providers_tab = try expectButtonMsg(tree, "Providers", .set_settings_page_providers);
+    try testing.expect(!providers_tab.state.selected);
+
+    main.update(&model, tree.msgForPointer(providers_tab.id, .up).?, &fx);
+    try testing.expect(model.settings_page_providers());
+    try testing.expect(!model.settings_page_general());
+    try testing.expect(!model.settings_page_skills());
+    try testing.expectEqual(before_open, fx.pendingSpawnCount());
+
+    tree = try buildTree(arena, &model);
+    const providers_on = try expectButtonMsg(tree, "Providers", .set_settings_page_providers);
+    try testing.expect(providers_on.state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "General", .set_settings_page_general)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Skills", .set_settings_page_skills)).state.selected);
+    _ = try expectButtonMsg(tree, "Refresh", .refresh_providers);
+    try testing.expect(findByText(tree.root, .text, "Default model") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
+
+    const fx_row = try expectByText(tree.root, .list_item, "fx");
+    try testing.expectEqual(Msg{ .select_provider = 1 }, tree.msgForPointer(fx_row.id, .up).?);
+    _ = try expectByText(tree.root, .text, "First-party default");
+    _ = try expectByText(tree.root, .text, providers.fx_missing_status);
+    _ = try expectByText(tree.root, .list_item, "claude");
+    _ = try expectByText(tree.root, .list_item, "codex");
+    _ = try expectByText(tree.root, .list_item, "amp");
+    _ = try expectByText(tree.root, .list_item, "grok");
+    _ = try expectByText(tree.root, .list_item, "opencode");
+    _ = try expectByText(tree.root, .list_item, "cursor");
+    _ = try expectByText(tree.root, .list_item, "pi");
+    _ = try expectByText(tree.root, .text, providers.catalog_status);
+    _ = try expectByText(tree.root, .text, "cursor-agent");
+    try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) == null);
+    try testing.expect(findByText(tree.root, .text, "Install") == null);
+    try testing.expect(findByText(tree.root, .text, "Sign in") == null);
+
+    model.fx_available = true;
+    model.setFxPath("/tmp/faku-fx-probe");
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, providers.fx_available_status);
+    _ = try expectByText(tree.root, .text, "/tmp/faku-fx-probe");
+    try testing.expect(findByText(tree.root, .text, providers.fx_missing_status) == null);
+    try testing.expectEqual(before_open, fx.pendingSpawnCount());
+}
+
+test "settings Providers select shows detail; Refresh queues fx probe; close returns to General" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.fx_probe_started = true;
+    model.fx_available = true;
+    model.setFxPath("/home/probe/.local/bin/fx");
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_providers, &fx);
+    try testing.expect(model.settings_page_providers());
+
+    var tree = try buildTree(arena, &model);
+    const fx_row = try expectByText(tree.root, .list_item, "fx");
+    main.update(&model, tree.msgForPointer(fx_row.id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 1), model.provider_selected_id);
+    try testing.expect(model.has_provider_detail());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) != null);
+    try testing.expect(findTextContaining(tree.root, "/home/probe/.local/bin/fx") != null);
+    try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) == null);
+
+    main.update(&model, .{ .select_provider = 2 }, &fx);
+    try testing.expectEqual(@as(u32, 2), model.provider_selected_id);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) == null);
+
+    const before_refresh = fx.pendingSpawnCount();
+    const refresh = try expectButtonMsg(tree, "Refresh", .refresh_providers);
+    main.update(&model, tree.msgForPointer(refresh.id, .up).?, &fx);
+    try testing.expect(model.fx_probe_started);
+    var i: usize = 0;
+    var spawn = fx.pendingSpawnAt(0);
+    while (spawn) |item| : (i += 1) {
+        if (item.key == main.fx_probe_key and fx_probe.isFxProbeArgv(item.argv)) break;
+        spawn = fx.pendingSpawnAt(i + 1);
+    }
+    try testing.expect(spawn != null);
+    try testing.expect(fx.pendingSpawnCount() > before_refresh);
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(!model.settings_open);
+    try testing.expect(model.settings_page_general());
+    try testing.expectEqual(@as(u32, 0), model.provider_selected_id);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .list_item, "fx") == null);
+    try testing.expect(findByText(tree.root, .text, "Default model") == null);
+    _ = try expectByText(tree.root, .button, "Send");
 }
 
 test "settings edits persist model access and daemon address and reload" {
