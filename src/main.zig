@@ -544,6 +544,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .set_review_diff_source_staged => review_diff.setSource(model, fx, .staged),
         .set_review_diff_source_unstaged => review_diff.setSource(model, fx, .unstaged),
         .set_review_diff_source_committed => review_diff.setSource(model, fx, .committed),
+        .set_review_diff_source_last_turn => review_diff.setSource(model, fx, .last_turn),
         .select_review_diff_file => |id| review_diff.selectFile(model, fx, id),
         .git_commit_edit => |edit| settings_actions.handleGitCommitEdit(model, edit),
         .confirm_git_commit => settings_actions.handleConfirmGitCommit(model, fx),

@@ -479,6 +479,7 @@
                     <button variant="ghost" size="sm" selected="{review_diff_source_staged}" on-press="set_review_diff_source_staged">Staged</button>
                     <button variant="ghost" size="sm" selected="{review_diff_source_unstaged}" on-press="set_review_diff_source_unstaged">Unstaged</button>
                     <button variant="ghost" size="sm" selected="{review_diff_source_committed}" on-press="set_review_diff_source_committed">Committed</button>
+                    <button variant="ghost" size="sm" selected="{review_diff_source_last_turn}" on-press="set_review_diff_source_last_turn">Last turn</button>
                   </row>
                   <if test="{has_review_diff_status}">
                     <text wrap="true" foreground="text_muted">{review_diff_status}</text>

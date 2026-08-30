@@ -21,7 +21,7 @@ opens a runtime-only dropdown titled Environment with Commit
 or Push (the existing Commit… card, including when the tree is
 clean so Push-only still works), Compare (first-cut Review
 name-status file list with Branch + Uncommitted + Staged +
-Unstaged + Committed sources: Branch is `git diff --name-status
+Unstaged + Committed + LastTurn sources: Branch is `git diff --name-status
 @{upstream}...HEAD`; Uncommitted is `git diff --name-status
 HEAD` plus untracked `git ls-files --others --exclude-standard`
 (`?` rows); Staged is index vs HEAD
@@ -29,13 +29,15 @@ HEAD` plus untracked `git ls-files --others --exclude-standard`
 index `git diff --name-status` (tracked only); Committed is
 `git diff --name-status origin/HEAD...HEAD`, then local
 `main...HEAD` / `master...HEAD` if that probe exits non-zero;
+LastTurn is send-time rewind sha
+`git diff --name-status <sha>...HEAD` (not Waku checkpoint
+refs / `capture_worktree_commit`, not HEAD~1);
 cap 64; empty is
 `No changes to compare`; clicking a tracked file one-shots
 that path's unified diff; Uncommitted `?` rows one-shot
 `git diff --no-index -- /dev/null <path>`), and
 Copy task ID (local session id via `fx.writeClipboard`); not
-LastTurn,
-not background-work rows,
+background-work rows,
 and not daemon WorkspaceOperation.
 Header, sidebar, and Ctrl-Tab switcher titles stay on one line with
 Native ellipsis; the full name remains the accessible list-item
@@ -111,7 +113,7 @@ one-shot `git diff --numstat HEAD` +/- that also adds untracked
 text-line counts on the + side, and muted ahead/behind vs
 `@{upstream}` (`↑A ↓B`) when that name exists (not Waku's daemon
 InspectBranches live watch / `{project_id}` UUID nest /
-LastTurn Review / background work /
+background work /
 force delete / prune-alone / base-ref picker;
 Native still has no git
 effect);
@@ -162,7 +164,7 @@ empty-message `fx ask`
 generate helpers live in
 `src/git_commit.zig`. Header Environment dropdown helpers live in
 `src/environment_summary.zig`. Environment Compare / first-cut
-Review name-status + first-cut per-file hunk helpers (Branch + Uncommitted + Staged + Unstaged + Committed sources) live in
+Review name-status + first-cut per-file hunk helpers (Branch + Uncommitted + Staged + Unstaged + Committed + LastTurn sources) live in
 `src/review_diff.zig`. Composer git-dirty probe helpers (count
 plus porcelain XY `has_staged` / `has_unstaged`) live in
 `src/git_dirty.zig`. Composer git-numstat probe helpers live in
@@ -500,23 +502,26 @@ does not invent "clean". This is not Waku's daemon
 `InspectBranches` live watch, not Waku `{project_id}` UUID
 nesting / `waku/` prefix, not defer-until-Send
 workspace mode, not a worktree base-ref picker UI, not
-LastTurn Review / background-work rows,
+background-work rows,
 not force delete (`git branch -D`), not
-force push, not prune-alone (`git prune` without fetch), and not
-LastTurn Review sources.
+force push, and not prune-alone (`git prune` without fetch).
 Environment Compare Review is a first-cut Branch + Uncommitted +
-Staged + Unstaged + Committed name-status file list (Uncommitted
+Staged + Unstaged + Committed + LastTurn name-status file list
+(Uncommitted
 = `git diff --name-status HEAD` plus untracked
 `git ls-files --others --exclude-standard` as `?` rows; Staged =
 index vs HEAD `git diff --name-status --cached`; Unstaged =
 worktree vs index `git diff --name-status`, tracked only;
 Committed = `git diff --name-status origin/HEAD...HEAD`, then
 local `main...HEAD` / `master...HEAD` if that probe exits
-non-zero; clicking a tracked file one-shots `git diff` for
+non-zero; LastTurn = send-time rewind sha
+`git diff --name-status <sha>...HEAD`, not Waku checkpoint
+refs / `capture_worktree_commit`, not HEAD~1; clicking a
+tracked file one-shots `git diff` for
 that path; Uncommitted `?` rows one-shot
-`git diff --no-index -- /dev/null <path>`). Leftovers: force / daemon
-`WorkspaceOperation` /
-LastTurn / background work.
+`git diff --no-index -- /dev/null <path>`). Leftovers: force /
+daemon `WorkspaceOperation` / background work / Waku worktree
+checkpoints.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and
 git-common-dir path

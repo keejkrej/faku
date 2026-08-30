@@ -3256,6 +3256,7 @@ test "pick_folder stdout directory sets project_path the same way typing does" {
     try testing.expect(!loaded.review_diff_active);
     try testing.expectEqual(review_diff.Source.branch, loaded.review_diff_source);
     try testing.expectEqual(review_diff.CommittedRange.origin, loaded.review_diff_committed_range);
+    try testing.expectEqual(@as(usize, 0), loaded.review_diff_last_turn_range_len);
     try testing.expectEqual(@as(u32, 0), loaded.review_diff_file_count);
     try testing.expectEqual(@as(u32, 0), loaded.review_diff_selected_id);
     try testing.expectEqual(@as(u64, 0), loaded.review_diff_hunk_key);
@@ -16762,6 +16763,7 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expect(!model.review_diff_source_staged());
     try testing.expect(!model.review_diff_source_unstaged());
     try testing.expect(!model.review_diff_source_committed());
+    try testing.expect(!model.review_diff_source_last_turn());
     try testing.expect(model.review_diff_key >= main.review_diff_key_first);
     try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
 
@@ -16788,6 +16790,8 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expect(!unstaged_btn.state.selected);
     const committed_btn = try expectButtonMsg(tree, "Committed", .set_review_diff_source_committed);
     try testing.expect(!committed_btn.state.selected);
+    const last_turn_btn = try expectButtonMsg(tree, "Last turn", .set_review_diff_source_last_turn);
+    try testing.expect(!last_turn_btn.state.selected);
 
     try fx.feedLine(spawn.key, "M\tsrc/a.zig\nA\tnew.txt\n");
     drainEffects(&model, &fx);
@@ -16900,6 +16904,8 @@ test "Environment Compare without a workspace shows No workspace and invents no 
     try testing.expect(!unstaged_btn.state.selected);
     const committed_btn = try expectButtonMsg(tree, "Committed", .set_review_diff_source_committed);
     try testing.expect(!committed_btn.state.selected);
+    const last_turn_btn = try expectButtonMsg(tree, "Last turn", .set_review_diff_source_last_turn);
+    try testing.expect(!last_turn_btn.state.selected);
 }
 
 test "Review source row switches Uncommitted and re-probes name-status plus untracked" {
@@ -16992,6 +16998,8 @@ test "Review source row switches Uncommitted and re-probes name-status plus untr
     try testing.expect(!unstaged_off.state.selected);
     const committed_off = try expectButtonMsg(tree, "Committed", .set_review_diff_source_committed);
     try testing.expect(!committed_off.state.selected);
+    const last_turn_off = try expectButtonMsg(tree, "Last turn", .set_review_diff_source_last_turn);
+    try testing.expect(!last_turn_off.state.selected);
     try testing.expect(findByText(tree.root, .text, review_diff.comparing_status) == null);
 
     main.update(&model, tree.msgForPointer(branch_off.id, .up).?, &fx);
@@ -17026,6 +17034,7 @@ test "Review source row switches Uncommitted and re-probes name-status plus untr
     try testing.expect(findByText(tree.root, .button, "Staged") == null);
     try testing.expect(findByText(tree.root, .button, "Unstaged") == null);
     try testing.expect(findByText(tree.root, .button, "Committed") == null);
+    try testing.expect(findByText(tree.root, .button, "Last turn") == null);
 }
 
 test "Review source row switches Staged and re-probes --cached name-status" {
@@ -17055,6 +17064,7 @@ test "Review source row switches Staged and re-probes --cached name-status" {
     try testing.expect(!model.review_diff_source_staged());
     try testing.expect(!model.review_diff_source_unstaged());
     try testing.expect(!model.review_diff_source_committed());
+    try testing.expect(!model.review_diff_source_last_turn());
     const branch_key = model.review_diff_key;
     const branch_spawn = findGitReviewDiffSpawnKey(&fx, branch_key) orelse return error.MissingReviewDiffBranch;
     try testing.expectEqualStrings("@{upstream}...HEAD", branch_spawn.argv[8]);
@@ -17101,6 +17111,8 @@ test "Review source row switches Staged and re-probes --cached name-status" {
     try testing.expect(!unstaged_off.state.selected);
     const committed_off = try expectButtonMsg(tree, "Committed", .set_review_diff_source_committed);
     try testing.expect(!committed_off.state.selected);
+    const last_turn_off = try expectButtonMsg(tree, "Last turn", .set_review_diff_source_last_turn);
+    try testing.expect(!last_turn_off.state.selected);
     try testing.expect(findByText(tree.root, .text, review_diff.comparing_status) == null);
 
     main.update(&model, tree.msgForPointer(branch_off.id, .up).?, &fx);
@@ -17133,6 +17145,7 @@ test "Review source row switches Staged and re-probes --cached name-status" {
     try testing.expect(findByText(tree.root, .button, "Staged") == null);
     try testing.expect(findByText(tree.root, .button, "Unstaged") == null);
     try testing.expect(findByText(tree.root, .button, "Committed") == null);
+    try testing.expect(findByText(tree.root, .button, "Last turn") == null);
 }
 
 test "Review source row switches Unstaged and re-probes worktree name-status" {
@@ -17161,6 +17174,7 @@ test "Review source row switches Unstaged and re-probes worktree name-status" {
     try testing.expect(model.review_diff_source_branch());
     try testing.expect(!model.review_diff_source_unstaged());
     try testing.expect(!model.review_diff_source_committed());
+    try testing.expect(!model.review_diff_source_last_turn());
     const branch_key = model.review_diff_key;
     const branch_spawn = findGitReviewDiffSpawnKey(&fx, branch_key) orelse return error.MissingReviewDiffBranch;
     try testing.expectEqualStrings("@{upstream}...HEAD", branch_spawn.argv[8]);
@@ -17210,6 +17224,8 @@ test "Review source row switches Unstaged and re-probes worktree name-status" {
     try testing.expect(!staged_off.state.selected);
     const committed_off = try expectButtonMsg(tree, "Committed", .set_review_diff_source_committed);
     try testing.expect(!committed_off.state.selected);
+    const last_turn_off = try expectButtonMsg(tree, "Last turn", .set_review_diff_source_last_turn);
+    try testing.expect(!last_turn_off.state.selected);
     try testing.expect(findByText(tree.root, .text, review_diff.comparing_status) == null);
 
     main.update(&model, tree.msgForPointer(branch_off.id, .up).?, &fx);
@@ -17242,6 +17258,7 @@ test "Review source row switches Unstaged and re-probes worktree name-status" {
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .button, "Unstaged") == null);
     try testing.expect(findByText(tree.root, .button, "Committed") == null);
+    try testing.expect(findByText(tree.root, .button, "Last turn") == null);
 }
 
 test "Review source row switches Committed and re-probes origin/HEAD...HEAD name-status" {
@@ -17269,6 +17286,7 @@ test "Review source row switches Committed and re-probes origin/HEAD...HEAD name
     try testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
     try testing.expect(model.review_diff_source_branch());
     try testing.expect(!model.review_diff_source_committed());
+    try testing.expect(!model.review_diff_source_last_turn());
     const branch_key = model.review_diff_key;
     const branch_spawn = findGitReviewDiffSpawnKey(&fx, branch_key) orelse return error.MissingReviewDiffBranch;
     try testing.expectEqualStrings("@{upstream}...HEAD", branch_spawn.argv[8]);
@@ -17285,6 +17303,7 @@ test "Review source row switches Committed and re-probes origin/HEAD...HEAD name
     try testing.expect(!model.review_diff_source_uncommitted());
     try testing.expect(!model.review_diff_source_staged());
     try testing.expect(!model.review_diff_source_unstaged());
+    try testing.expect(!model.review_diff_source_last_turn());
     try testing.expect(model.review_diff_key != branch_key);
     try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
     try testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
@@ -17318,6 +17337,8 @@ test "Review source row switches Committed and re-probes origin/HEAD...HEAD name
     try testing.expect(!staged_off.state.selected);
     const unstaged_off = try expectButtonMsg(tree, "Unstaged", .set_review_diff_source_unstaged);
     try testing.expect(!unstaged_off.state.selected);
+    const last_turn_off = try expectButtonMsg(tree, "Last turn", .set_review_diff_source_last_turn);
+    try testing.expect(!last_turn_off.state.selected);
     try testing.expect(findByText(tree.root, .text, review_diff.comparing_status) == null);
 
     main.update(&model, tree.msgForPointer(branch_off.id, .up).?, &fx);
@@ -17359,6 +17380,134 @@ test "Review source row switches Committed and re-probes origin/HEAD...HEAD name
     try testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .button, "Committed") == null);
+    try testing.expect(findByText(tree.root, .button, "Last turn") == null);
+}
+
+test "Review source row switches Last turn and re-probes rewind sha...HEAD name-status" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/review-last-turn-ui", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("review last turn ui", .fx);
+    model.selected = id;
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+
+    const sha = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+    var range_buf: [review_diff.last_turn_range_len]u8 = undefined;
+    const range = review_diff.formatLastTurnRange(sha, &range_buf) orelse return error.MissingLastTurnRange;
+
+    main.update(&model, .environment_compare, &fx);
+    try testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
+    try testing.expect(model.review_diff_source_branch());
+    try testing.expect(!model.review_diff_source_last_turn());
+    const branch_key = model.review_diff_key;
+    const branch_spawn = findGitReviewDiffSpawnKey(&fx, branch_key) orelse return error.MissingReviewDiffBranch;
+    try testing.expectEqualStrings("@{upstream}...HEAD", branch_spawn.argv[8]);
+
+    var tree = try buildTree(arena, &model);
+    const last_turn_off = try expectButtonMsg(tree, "Last turn", .set_review_diff_source_last_turn);
+    try testing.expect(!last_turn_off.state.selected);
+    main.update(&model, tree.msgForPointer(last_turn_off.id, .up).?, &fx);
+    try testing.expect(model.review_diff_active);
+    try testing.expectEqual(review_diff.Source.last_turn, model.review_diff_source);
+    try testing.expect(model.review_diff_source_last_turn());
+    try testing.expect(!model.review_diff_source_branch());
+    try testing.expect(!model.review_diff_source_uncommitted());
+    try testing.expect(!model.review_diff_source_staged());
+    try testing.expect(!model.review_diff_source_unstaged());
+    try testing.expect(!model.review_diff_source_committed());
+    try testing.expectEqual(@as(u64, 0), model.review_diff_key);
+    try testing.expectEqualStrings(review_diff.failed_status, model.review_diff_status());
+    try testing.expect(findGitReviewDiffSpawnKey(&fx, branch_key) == null);
+    try testing.expect(std.mem.indexOf(u8, model.review_diff_status(), "HEAD~1") == null);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, review_diff.failed_status);
+    const last_turn_failed = try expectButtonMsg(tree, "Last turn", .set_review_diff_source_last_turn);
+    try testing.expect(last_turn_failed.state.selected);
+
+    if (model.sessionById(id)) |session| {
+        session.appendRewindRef(sha, rewind.recorded_ref, 1);
+    }
+    main.update(&model, .set_review_diff_source_last_turn, &fx);
+    try testing.expectEqual(review_diff.Source.last_turn, model.review_diff_source);
+    try testing.expect(model.review_diff_key >= main.review_diff_key_first);
+    try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
+    const last_turn_spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffLastTurn;
+    try testing.expect(review_diff.isGitReviewDiffArgv(last_turn_spawn.argv));
+    try testing.expectEqual(review_diff.argv_len, last_turn_spawn.argv.len);
+    try testing.expectEqualStrings(range, last_turn_spawn.argv[8]);
+    try testing.expectEqualStrings("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee...HEAD", last_turn_spawn.argv[8]);
+    try testing.expect(std.mem.indexOf(u8, last_turn_spawn.argv[2], sha) == null);
+    try testing.expect(std.mem.indexOf(u8, last_turn_spawn.argv[2], "HEAD~1") == null);
+    try testing.expect(last_turn_spawn.key != model.git_numstat_key);
+
+    try fx.feedLine(last_turn_spawn.key, "M\tlast-turn.zig\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(last_turn_spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(model.has_review_diff_files());
+    try testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
+    tree = try buildTree(arena, &model);
+    const file_row = try expectButtonMsg(tree, "M last-turn.zig", .{ .select_review_diff_file = 1 });
+    const last_turn_on = try expectButtonMsg(tree, "Last turn", .set_review_diff_source_last_turn);
+    try testing.expect(last_turn_on.state.selected);
+    const branch_off = try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch);
+    try testing.expect(!branch_off.state.selected);
+    const uncommitted_off = try expectButtonMsg(tree, "Uncommitted", .set_review_diff_source_uncommitted);
+    try testing.expect(!uncommitted_off.state.selected);
+    const staged_off = try expectButtonMsg(tree, "Staged", .set_review_diff_source_staged);
+    try testing.expect(!staged_off.state.selected);
+    const unstaged_off = try expectButtonMsg(tree, "Unstaged", .set_review_diff_source_unstaged);
+    try testing.expect(!unstaged_off.state.selected);
+    const committed_off = try expectButtonMsg(tree, "Committed", .set_review_diff_source_committed);
+    try testing.expect(!committed_off.state.selected);
+
+    main.update(&model, tree.msgForPointer(file_row.id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 1), model.review_diff_selected_id);
+    try testing.expect(model.review_diff_hunk_key >= main.review_diff_hunk_key_first);
+    const hunk = findGitReviewHunkSpawnKey(&fx, model.review_diff_hunk_key) orelse return error.MissingLastTurnHunkUi;
+    try testing.expect(review_diff.isGitReviewHunkArgv(hunk.argv));
+    try testing.expectEqualStrings(range, hunk.argv[7]);
+    try testing.expectEqualStrings("--", hunk.argv[8]);
+    try testing.expectEqualStrings("last-turn.zig", hunk.argv[9]);
+    try testing.expect(std.mem.indexOf(u8, hunk.argv[2], sha) == null);
+
+    main.update(&model, tree.msgForPointer(branch_off.id, .up).?, &fx);
+    try testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
+    try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());
+    const back_spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffBack;
+    try testing.expectEqualStrings("@{upstream}...HEAD", back_spawn.argv[8]);
+    try fx.feedExit(back_spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(review_diff.empty_status, model.review_diff_status());
+
+    main.update(&model, .set_review_diff_source_last_turn, &fx);
+    const fail_spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffLastTurnFail;
+    try testing.expectEqualStrings(range, fail_spawn.argv[8]);
+    try fx.feedExit(fail_spawn.key, 128);
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings(review_diff.failed_status, model.review_diff_status());
+    try testing.expectEqual(review_diff.Source.last_turn, model.review_diff_source);
+    try testing.expectEqual(review_diff.CommittedRange.origin, model.review_diff_committed_range);
+
+    main.update(&model, .close_review_diff, &fx);
+    try testing.expect(!model.review_diff_active);
+    try testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
+    try testing.expectEqual(@as(usize, 0), model.review_diff_last_turn_range_len);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Last turn") == null);
 }
 
 test "header Environment +/- reuses composer numstat and omits a zero side" {
