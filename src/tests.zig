@@ -2574,7 +2574,14 @@ test "composer Enter confirms first $ skill row and does not send; Esc dismisses
         try testing.expect(rows[0].selected);
         try testing.expectEqual(@as(u32, 1), rows[0].id);
     }
-    try testing.expectEqual(@as(usize, 0), model.command_rows(arena).len);
+    {
+        const rows = model.command_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expectEqualStrings("/commit", rows[0].slash_name);
+        try testing.expectEqual(@as(u32, 1), rows[0].id);
+        try testing.expectEqualStrings("/compact", rows[1].slash_name);
+        try testing.expectEqual(@as(u32, 2), rows[1].id);
+    }
 
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "to-spec");
