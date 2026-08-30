@@ -26,11 +26,13 @@
 //! fall-through). LastTurn is a switchable first-cut: one-shot
 //! `git diff --name-status <40-hex>` of the session's send-time
 //! worktree snapshot (`worktree_snapshot_sha`, isolated index,
-//! dangling commit) so the live dirty/untracked worktree is the
-//! right side. Missing snapshot falls back to send-time rewind
-//! sha `git diff --name-status <sha>...HEAD` (`latestRewindSha`
+//! dangling commit named `refs/faku/session-{id}-turn-{n}`) so
+//! the live dirty/untracked worktree is the right side. Compare
+//! still uses the stored 40-hex, not the ref. Missing snapshot
+//! falls back to send-time rewind sha
+//! `git diff --name-status <sha>...HEAD` (`latestRewindSha`
 //! / `rewind_refs`). Not `HEAD~1`, not `refs/waku/` /
-//! `refs/faku/` / `capture_turn_start`. Missing both does not
+//! `capture_turn_start`. Missing both does not
 //! spawn and stays `Could not compare.` (no main/master
 //! fallback). The chosen operand lives on the model so hunk
 //! clicks reuse it if `rewind_refs` later change.
@@ -62,9 +64,10 @@
 //! Failed / no upstream / missing workspace is a short muted
 //! status — no invented files. First-cut hunks only: no
 //! syntax highlighting, no gap expansion, no right-panel Diff
-//! tab, no force, no background work, no `refs/waku/` /
-//! `refs/faku/` update-ref, no `capture_turn_start` / turn-end
-//! capture / `restore_ref`, and not daemon WorkspaceOperation.
+//! tab, no force, no background work, no `refs/waku/` Compare
+//! operand (LastTurn uses the stored 40-hex), no
+//! `capture_turn_start` / turn-end capture / `restore_ref`, and
+//! not daemon WorkspaceOperation.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).

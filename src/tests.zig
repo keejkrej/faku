@@ -6,6 +6,7 @@ const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const acp_proxy = @import("acp_proxy.zig");
 const rewind = @import("rewind.zig");
+const checkpoint = @import("checkpoint.zig");
 const pick_image = @import("pick_image.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
@@ -5916,6 +5917,84 @@ test "Send worktree snapshot includes dirty and untracked; overwrite keeps lates
     const second = model.sessionById(id).?.worktreeSnapshotSha();
     try testing.expect(rewind.isStoredSha(second));
     try testing.expect(!std.mem.eql(u8, first_owned, second));
+}
+
+test "Send names the worktree snapshot under refs/faku" {
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/faku-ref-send", .{tmp.sub_path[0..]});
+    const head = try initTestGitRepo(allocator, testing.io, project);
+    defer allocator.free(head);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("faku ref send", .fx);
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "name this snap" } }, &fx);
+    main.update(&model, .send, &fx);
+    const first_owned = try allocator.dupe(u8, model.sessionById(id).?.worktreeSnapshotSha());
+    defer allocator.free(first_owned);
+    try testing.expect(rewind.isStoredSha(first_owned));
+
+    var first_ref_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const first_ref = checkpoint.formatFakuSessionTurnRef(&first_ref_buf, id, 1) orelse return error.MissingFakuRef;
+    try testing.expectEqualStrings("refs/faku/session-1-turn-1", first_ref);
+    const first_parsed = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "rev-parse", first_ref });
+    defer allocator.free(first_parsed);
+    try testing.expectEqualStrings(first_owned, std.mem.trim(u8, first_parsed, " \r\n\t"));
+
+    try fx.feedExit(main.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+
+    var extra_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const extra = try std.fmt.bufPrint(&extra_buf, "{s}{s}later.txt", .{ project, std.fs.path.sep_str });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = extra, .data = "later\n" });
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "name again" } }, &fx);
+    main.update(&model, .send, &fx);
+    const second_owned = try allocator.dupe(u8, model.sessionById(id).?.worktreeSnapshotSha());
+    defer allocator.free(second_owned);
+    try testing.expect(rewind.isStoredSha(second_owned));
+    try testing.expect(!std.mem.eql(u8, first_owned, second_owned));
+
+    var second_ref_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const second_ref = checkpoint.formatFakuSessionTurnRef(&second_ref_buf, id, 2) orelse return error.MissingFakuRef;
+    const second_parsed = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "rev-parse", second_ref });
+    defer allocator.free(second_parsed);
+    try testing.expectEqualStrings(second_owned, std.mem.trim(u8, second_parsed, " \r\n\t"));
+
+    const first_again = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "rev-parse", first_ref });
+    defer allocator.free(first_again);
+    try testing.expectEqualStrings(first_owned, std.mem.trim(u8, first_again, " \r\n\t"));
+}
+
+test "failed update-ref leaves the stored worktree snapshot sha" {
+    const allocator = testing.allocator;
+    const sha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    var model = Model{};
+    const id = model.addSession("keep snap", .fx);
+    if (model.sessionById(id)) |session| {
+        session.setWorktreeSnapshotSha(sha);
+        try testing.expectEqualStrings(sha, session.worktreeSnapshotSha());
+        try testing.expect(!checkpoint.updateFakuRef(
+            allocator,
+            testing.io,
+            ".zig-cache/tmp/faku-ref-no-git",
+            "refs/faku/session-1-turn-1",
+            sha,
+        ));
+        try testing.expectEqualStrings(sha, session.worktreeSnapshotSha());
+    } else return error.MissingSession;
 }
 
 test "non-git project_path records no rewind ref" {
