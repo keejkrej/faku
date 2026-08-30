@@ -540,8 +540,7 @@ tracked file one-shots `git diff` for
 that path; Uncommitted `?` rows one-shot
 `git diff --no-index -- /dev/null <path>`). Leftovers: force /
 daemon `WorkspaceOperation` / background work /
-parents/metadata in the commit message / `refs/waku/`
-Compare operand.
+`refs/waku/` Compare operand.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and
 git-common-dir path
@@ -755,9 +754,14 @@ via `git update-ref`, plus `turn-{n-1}` when that baseline
 is missing; `{n}` is the 1-based prompt ordinal
 `turnCount/2 + 1` at Send; the ref is not stored on
 `sessions.json`; a new start snapshot clears
-`worktree_turn_end_sha`). A successful finish captures a NEW isolated
+`worktree_turn_end_sha`; the start commit message is
+`Faku turn start snapshot` plus a `Faku-Turn-Start: `
+JSON line of `head` / `branch` / `refs`, and
+`commit-tree` gets `-p` for HEAD then unique
+`refs/heads` / `refs/remotes` / `refs/tags` commits). A successful finish captures a NEW isolated
 snapshot as `refs/faku/session-{id}-turn-{n}` (`turnCount/2`
-after the user+assistant pair is appended), stores that 40-hex
+after the user+assistant pair is appended; message
+`Faku worktree snapshot`, empty parents), stores that 40-hex
 as `worktree_turn_end_sha`, and does not
 overwrite `worktree_snapshot_sha`. Failed update-ref is quiet
 and does not clear the stored sha. LastTurn prefers

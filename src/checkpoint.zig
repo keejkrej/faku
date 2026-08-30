@@ -1,13 +1,18 @@
 //! First-cut Waku-style worktree snapshot (isolated temp index).
 //!
-//! `captureWorktreeCommit` writes a dangling commit of the live
-//! worktree plus untracked files. `GIT_INDEX_FILE` is a
+//! `captureTurnStartCommit` (Send) writes a dangling commit of
+//! the live worktree plus untracked files. `GIT_INDEX_FILE` is a
 //! `faku-checkpoint-index-*` under the repo `git-common-dir` so
 //! the user's index is never staged or unstaged. Identity is
 //! `-c user.name=Faku` `-c user.email=faku@localhost`. Message is
-//! `Faku worktree snapshot`. No `-p` (empty parents). Always
-//! deletes the temp index and `.lock`. After a successful
-//! capture, Send names that commit with one-shot
+//! `Faku turn start snapshot` plus a `Faku-Turn-Start: ` JSON
+//! line (`head`, `branch`, `refs`). `commit-tree` gets `-p` for
+//! HEAD (when present) then unique `for-each-ref` commits from
+//! `refs/heads`, `refs/remotes`, `refs/tags` (tags peeled to
+//! commits). `captureWorktreeCommit` (finish) still uses
+//! `Faku worktree snapshot` and no `-p`. Always deletes the
+//! temp index and `.lock`. After a successful capture, Send
+//! names that commit with one-shot
 //! `git update-ref refs/faku/session-{Session.id}-turn-start-{n}`
 //! (`captureTurnStart` / `updateFakuRef`). `{n}` is the 1-based
 //! prompt ordinal of this Send: `Model.turnCount / 2 + 1` at
@@ -28,9 +33,8 @@
 //! clean -fd -- .`, then `git reset --quiet -- .` when HEAD
 //! exists). Sync `std.process.run` like `rewind.captureHead`
 //! — not a Native spawn and not `/bin/sh -c` interpolation.
-//! Leftovers: parents/metadata in the commit message, force,
-//! background work, daemon WorkspaceOperation, refs/waku
-//! Compare operand.
+//! Leftovers: force, background work, daemon
+//! WorkspaceOperation, refs/waku Compare operand.
 
 const std = @import("std");
 const rewind = @import("rewind.zig");
@@ -39,21 +43,91 @@ pub const env_bin = "/usr/bin/env";
 pub const git_bin = "git";
 pub const index_prefix = "faku-checkpoint-index-";
 pub const snapshot_message = "Faku worktree snapshot";
+pub const turn_start_subject = "Faku turn start snapshot";
+pub const turn_start_metadata_prefix = "Faku-Turn-Start: ";
 pub const identity_name = "user.name=Faku";
 pub const identity_email = "user.email=faku@localhost";
 pub const commit_gpgsign = "commit.gpgsign=false";
 pub const faku_ref_prefix = "refs/faku/";
 pub const max_faku_ref_name: usize = 128;
+const repo_ref_format = "--format=%(refname)%09%(objecttype)%09%(objectname)%09%(*objecttype)%09%(*objectname)";
+const max_repo_refs: usize = 64;
+const max_repo_ref_name: usize = 255;
+const max_commit_parents: usize = max_repo_refs + 1;
+const turn_start_message_max: usize = 24 * 1024;
+const repo_ref_stdout_limit: usize = 128 * 1024;
+const commit_tree_argv_cap: usize = 160;
+
+const RepoRef = struct {
+    name_storage: [max_repo_ref_name]u8 = [_]u8{0} ** max_repo_ref_name,
+    name_len: usize = 0,
+    sha_storage: [rewind.stored_sha_len]u8 = [_]u8{0} ** rewind.stored_sha_len,
+
+    fn name(self: *const RepoRef) []const u8 {
+        return self.name_storage[0..self.name_len];
+    }
+
+    fn sha(self: *const RepoRef) []const u8 {
+        return self.sha_storage[0..rewind.stored_sha_len];
+    }
+};
 
 const env_prefix = "GIT_INDEX_FILE=";
 
-/// Isolated-index worktree snapshot. Returns a 40-hex sha or null.
-/// Missing / non-git / failed plumbing is quiet.
+/// Isolated-index worktree snapshot. Finish / turn-end shape:
+/// message `Faku worktree snapshot`, empty parents. Returns a
+/// 40-hex sha or null. Missing / non-git / failed plumbing is
+/// quiet.
 pub fn captureWorktreeCommit(
     allocator: std.mem.Allocator,
     io: std.Io,
     project_path: []const u8,
     dest: []u8,
+) ?[]const u8 {
+    return captureIsolated(allocator, io, project_path, dest, snapshot_message, &.{});
+}
+
+/// Isolated-index turn-start snapshot. Message is
+/// `Faku turn start snapshot` plus `Faku-Turn-Start: ` JSON
+/// (`head`, `branch`, `refs`). Parents are HEAD (when present)
+/// then unique peeled repository-ref commits. Returns a 40-hex
+/// sha or null. Missing / non-git / failed plumbing is quiet.
+pub fn captureTurnStartCommit(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    dest: []u8,
+) ?[]const u8 {
+    if (!rewind.isGitWorkTree(io, project_path)) return null;
+
+    var head_buf: [rewind.max_sha]u8 = undefined;
+    const head: ?[]const u8 = blk: {
+        const raw = rewind.revParseHead(allocator, io, project_path, &head_buf) orelse break :blk null;
+        break :blk if (rewind.isStoredSha(raw)) raw else null;
+    };
+
+    var branch_buf: [max_repo_ref_name]u8 = undefined;
+    const branch = symbolicHead(allocator, io, project_path, &branch_buf);
+
+    var refs: [max_repo_refs]RepoRef = undefined;
+    const ref_count = collectRepositoryRefs(allocator, io, project_path, &refs);
+
+    var message_buf: [turn_start_message_max]u8 = undefined;
+    const message = buildTurnStartMessage(&message_buf, head, branch, refs[0..ref_count]) orelse return null;
+
+    var parent_slots: [max_commit_parents][]const u8 = undefined;
+    const parent_count = collectParents(head, refs[0..ref_count], &parent_slots);
+
+    return captureIsolated(allocator, io, project_path, dest, message, parent_slots[0..parent_count]);
+}
+
+fn captureIsolated(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    dest: []u8,
+    message: []const u8,
+    parents: []const []const u8,
 ) ?[]const u8 {
     if (!rewind.isGitWorkTree(io, project_path)) return null;
 
@@ -66,7 +140,7 @@ pub fn captureWorktreeCommit(
     var env_buf: [std.fs.max_path_bytes + env_prefix.len]u8 = undefined;
     const env_slot = std.fmt.bufPrint(&env_buf, "{s}{s}", .{ env_prefix, index_path }) catch return null;
 
-    const captured = captureFromIndex(allocator, io, project_path, env_slot, dest);
+    const captured = captureFromIndex(allocator, io, project_path, env_slot, dest, message, parents);
     deleteIndex(io, index_path);
     return captured;
 }
@@ -77,6 +151,8 @@ fn captureFromIndex(
     project_path: []const u8,
     env_slot: []const u8,
     dest: []u8,
+    message: []const u8,
+    parents: []const []const u8,
 ) ?[]const u8 {
     var head_buf: [rewind.max_sha]u8 = undefined;
     if (rewind.revParseHead(allocator, io, project_path, &head_buf) != null) {
@@ -87,19 +163,38 @@ fn captureFromIndex(
     var tree_buf: [rewind.stored_sha_len]u8 = undefined;
     const tree = runGitOut(allocator, io, env_slot, project_path, &.{"write-tree"}, &tree_buf) orelse return null;
 
+    var git_args: [8 + max_commit_parents * 2][]const u8 = undefined;
+    var n: usize = 0;
+    git_args[n] = "-c";
+    n += 1;
+    git_args[n] = identity_name;
+    n += 1;
+    git_args[n] = "-c";
+    n += 1;
+    git_args[n] = identity_email;
+    n += 1;
+    git_args[n] = "-c";
+    n += 1;
+    git_args[n] = commit_gpgsign;
+    n += 1;
+    git_args[n] = "commit-tree";
+    n += 1;
+    git_args[n] = tree;
+    n += 1;
+    git_args[n] = "-m";
+    n += 1;
+    git_args[n] = message;
+    n += 1;
+    for (parents) |parent| {
+        if (n + 1 >= git_args.len) return null;
+        git_args[n] = "-p";
+        n += 1;
+        git_args[n] = parent;
+        n += 1;
+    }
+
     var commit_buf: [rewind.stored_sha_len]u8 = undefined;
-    const commit = runGitOut(allocator, io, env_slot, project_path, &.{
-        "-c",
-        identity_name,
-        "-c",
-        identity_email,
-        "-c",
-        commit_gpgsign,
-        "commit-tree",
-        tree,
-        "-m",
-        snapshot_message,
-    }, &commit_buf) orelse return null;
+    const commit = runGitOut(allocator, io, env_slot, project_path, git_args[0..n], &commit_buf) orelse return null;
     if (!rewind.isStoredSha(commit)) return null;
     if (commit.len > dest.len) return null;
     @memcpy(dest[0..commit.len], commit);
@@ -415,7 +510,7 @@ fn runGitOut(
     git_args: []const []const u8,
     dest: []u8,
 ) ?[]const u8 {
-    var argv_buf: [24][]const u8 = undefined;
+    var argv_buf: [commit_tree_argv_cap][]const u8 = undefined;
     var n: usize = 0;
     argv_buf[n] = env_bin;
     n += 1;
@@ -445,6 +540,201 @@ fn runGitOut(
     if (trimmed.len == 0 or trimmed.len > dest.len) return null;
     @memcpy(dest[0..trimmed.len], trimmed);
     return dest[0..trimmed.len];
+}
+
+fn symbolicHead(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    dest: []u8,
+) ?[]const u8 {
+    const result = std.process.run(allocator, io, .{
+        .argv = &.{ git_bin, "-C", project_path, "symbolic-ref", "--quiet", "HEAD" },
+        .stdout_limit = .limited(256),
+        .stderr_limit = .limited(256),
+    }) catch return null;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    if (result.term != .exited or result.term.exited != 0) return null;
+    const trimmed = std.mem.trim(u8, result.stdout, " \r\n\t");
+    if (trimmed.len == 0 or trimmed.len > dest.len) return null;
+    @memcpy(dest[0..trimmed.len], trimmed);
+    return dest[0..trimmed.len];
+}
+
+fn collectRepositoryRefs(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    dest: []RepoRef,
+) usize {
+    const result = std.process.run(allocator, io, .{
+        .argv = &.{
+            git_bin,
+            "-C",
+            project_path,
+            "for-each-ref",
+            repo_ref_format,
+            "refs/heads",
+            "refs/remotes",
+            "refs/tags",
+        },
+        .stdout_limit = .limited(repo_ref_stdout_limit),
+        .stderr_limit = .limited(512),
+    }) catch return 0;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    if (result.term != .exited or result.term.exited != 0) return 0;
+
+    var n: usize = 0;
+    var lines = std.mem.splitScalar(u8, result.stdout, '\n');
+    while (lines.next()) |raw| {
+        if (n >= dest.len) break;
+        const line = std.mem.trim(u8, raw, " \r\n\t");
+        if (line.len == 0) continue;
+        if (parseRepoRef(line, &dest[n])) n += 1;
+    }
+    sortRepoRefs(dest[0..n]);
+    return n;
+}
+
+fn parseRepoRef(line: []const u8, dest: *RepoRef) bool {
+    var fields = std.mem.splitScalar(u8, line, '\t');
+    const refname = fields.next() orelse return false;
+    const object_type = fields.next() orelse return false;
+    const object = fields.next() orelse return false;
+    const peeled_type = fields.next() orelse "";
+    const peeled = fields.next() orelse "";
+    const commit = if (std.mem.eql(u8, object_type, "commit"))
+        object
+    else if (std.mem.eql(u8, peeled_type, "commit"))
+        peeled
+    else
+        return false;
+    if (refname.len == 0 or refname.len > max_repo_ref_name) return false;
+    if (!rewind.isStoredSha(commit)) return false;
+    @memcpy(dest.name_storage[0..refname.len], refname);
+    dest.name_len = refname.len;
+    @memcpy(&dest.sha_storage, commit);
+    return true;
+}
+
+fn sortRepoRefs(refs: []RepoRef) void {
+    var i: usize = 1;
+    while (i < refs.len) : (i += 1) {
+        var j = i;
+        while (j > 0 and std.mem.lessThan(u8, refs[j].name(), refs[j - 1].name())) {
+            const tmp = refs[j];
+            refs[j] = refs[j - 1];
+            refs[j - 1] = tmp;
+            j -= 1;
+        }
+    }
+}
+
+fn collectParents(
+    head: ?[]const u8,
+    refs: []const RepoRef,
+    dest: [][]const u8,
+) usize {
+    var n: usize = 0;
+    if (head) |h| {
+        if (rewind.isStoredSha(h) and n < dest.len) {
+            dest[n] = h;
+            n += 1;
+        }
+    }
+    for (refs) |ref| {
+        if (n >= dest.len) break;
+        if (parentSeen(dest[0..n], ref.sha())) continue;
+        dest[n] = ref.sha();
+        n += 1;
+    }
+    return n;
+}
+
+fn parentSeen(parents: []const []const u8, sha: []const u8) bool {
+    for (parents) |parent| {
+        if (std.mem.eql(u8, parent, sha)) return true;
+    }
+    return false;
+}
+
+fn buildTurnStartMessage(
+    dest: []u8,
+    head: ?[]const u8,
+    branch: ?[]const u8,
+    refs: []const RepoRef,
+) ?[]const u8 {
+    var n: usize = 0;
+    if (!appendSlice(dest, &n, turn_start_subject)) return null;
+    if (!appendSlice(dest, &n, "\n\n")) return null;
+    if (!appendSlice(dest, &n, turn_start_metadata_prefix)) return null;
+    if (!appendSlice(dest, &n, "{\"head\":")) return null;
+    if (!appendJsonOptionalString(dest, &n, head)) return null;
+    if (!appendSlice(dest, &n, ",\"branch\":")) return null;
+    if (!appendJsonOptionalString(dest, &n, branch)) return null;
+    if (!appendSlice(dest, &n, ",\"refs\":{")) return null;
+    for (refs, 0..) |ref, i| {
+        if (i != 0 and !appendSlice(dest, &n, ",")) return null;
+        if (!appendJsonString(dest, &n, ref.name())) return null;
+        if (!appendSlice(dest, &n, ":")) return null;
+        if (!appendJsonString(dest, &n, ref.sha())) return null;
+    }
+    if (!appendSlice(dest, &n, "}}")) return null;
+    return dest[0..n];
+}
+
+fn appendJsonOptionalString(dest: []u8, n: *usize, value: ?[]const u8) bool {
+    if (value) |text| return appendJsonString(dest, n, text);
+    return appendSlice(dest, n, "null");
+}
+
+fn appendJsonString(dest: []u8, n: *usize, text: []const u8) bool {
+    if (!appendByte(dest, n, '"')) return false;
+    for (text) |c| {
+        switch (c) {
+            '"' => {
+                if (!appendSlice(dest, n, "\\\"")) return false;
+            },
+            '\\' => {
+                if (!appendSlice(dest, n, "\\\\")) return false;
+            },
+            '\n' => {
+                if (!appendSlice(dest, n, "\\n")) return false;
+            },
+            '\r' => {
+                if (!appendSlice(dest, n, "\\r")) return false;
+            },
+            '\t' => {
+                if (!appendSlice(dest, n, "\\t")) return false;
+            },
+            else => {
+                if (c < 0x20) {
+                    var hex: [6]u8 = undefined;
+                    const piece = std.fmt.bufPrint(&hex, "\\u{x:0>4}", .{c}) catch return false;
+                    if (!appendSlice(dest, n, piece)) return false;
+                } else if (!appendByte(dest, n, c)) {
+                    return false;
+                }
+            },
+        }
+    }
+    return appendByte(dest, n, '"');
+}
+
+fn appendSlice(dest: []u8, n: *usize, text: []const u8) bool {
+    if (n.* + text.len > dest.len) return false;
+    @memcpy(dest[n.* ..][0..text.len], text);
+    n.* += text.len;
+    return true;
+}
+
+fn appendByte(dest: []u8, n: *usize, byte: u8) bool {
+    if (n.* >= dest.len) return false;
+    dest[n.*] = byte;
+    n.* += 1;
+    return true;
 }
 
 fn deleteIndex(io: std.Io, index_path: []const u8) void {
@@ -516,6 +806,20 @@ test "captureWorktreeCommit includes dirty and untracked and leaves the user ind
     defer allocator.free(parents);
     try testing.expectEqualStrings(snap, std.mem.trim(u8, parents, " \r\n\t"));
 
+    const message = try runGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        path,
+        "log",
+        "-1",
+        "--format=%B",
+        snap,
+    });
+    defer allocator.free(message);
+    try testing.expectEqualStrings(snapshot_message, std.mem.trim(u8, message, " \r\n\t"));
+    try testing.expect(std.mem.indexOf(u8, message, turn_start_subject) == null);
+    try testing.expect(std.mem.indexOf(u8, message, turn_start_metadata_prefix) == null);
+
     try testing.expect(!leftoverIndex(allocator, testing.io, path));
 }
 
@@ -524,6 +828,8 @@ test "captureWorktreeCommit is null for missing and non-git paths" {
     var sha_buf: [rewind.stored_sha_len]u8 = undefined;
     try testing.expect(captureWorktreeCommit(testing.allocator, testing.io, "", &sha_buf) == null);
     try testing.expect(captureWorktreeCommit(testing.allocator, testing.io, ".zig-cache/tmp/faku-checkpoint-missing", &sha_buf) == null);
+    try testing.expect(captureTurnStartCommit(testing.allocator, testing.io, "", &sha_buf) == null);
+    try testing.expect(captureTurnStartCommit(testing.allocator, testing.io, ".zig-cache/tmp/faku-checkpoint-missing", &sha_buf) == null);
 
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -531,6 +837,174 @@ test "captureWorktreeCommit is null for missing and non-git paths" {
     const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/plain", .{tmp.sub_path[0..]});
     try std.Io.Dir.cwd().createDirPath(testing.io, path);
     try testing.expect(captureWorktreeCommit(testing.allocator, testing.io, path, &sha_buf) == null);
+    try testing.expect(captureTurnStartCommit(testing.allocator, testing.io, path, &sha_buf) == null);
+}
+
+test "captureTurnStartCommit records parents and Faku-Turn-Start metadata" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/turn-start-meta", .{tmp.sub_path[0..]});
+    const head = try initTestRepo(allocator, testing.io, path);
+    defer allocator.free(head);
+
+    try writeRepoFile(testing.io, path, "README", "dirty\n");
+    try writeRepoFile(testing.io, path, "untracked.txt", "new\n");
+
+    var sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const snap = captureTurnStartCommit(allocator, testing.io, path, &sha_buf) orelse return error.MissingSnapshot;
+    try testing.expect(rewind.isStoredSha(snap));
+    try testing.expect(!std.mem.eql(u8, head, snap));
+
+    const parents = try runGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        path,
+        "rev-list",
+        "--parents",
+        "-n",
+        "1",
+        snap,
+    });
+    defer allocator.free(parents);
+    const parent_line = std.mem.trim(u8, parents, " \r\n\t");
+    try testing.expect(std.mem.startsWith(u8, parent_line, snap));
+    try testing.expect(std.mem.indexOf(u8, parent_line, head) != null);
+    try testing.expect(parentCount(parent_line) >= 1);
+
+    const message = try runGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        path,
+        "log",
+        "-1",
+        "--format=%B",
+        snap,
+    });
+    defer allocator.free(message);
+    try testing.expect(std.mem.indexOf(u8, message, turn_start_subject) != null);
+    try testing.expect(std.mem.indexOf(u8, message, snapshot_message) == null);
+    const meta = try parseTurnStartMetadata(allocator, message);
+    defer meta.deinit();
+    try expectJsonString(meta.value, "head", head);
+    const branch = try runGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        path,
+        "symbolic-ref",
+        "--quiet",
+        "HEAD",
+    });
+    defer allocator.free(branch);
+    try expectJsonString(meta.value, "branch", std.mem.trim(u8, branch, " \r\n\t"));
+    const refs = meta.value.object.get("refs") orelse return error.MissingRefs;
+    try testing.expect(refs == .object);
+    try testing.expect(refs.object.count() >= 1);
+    try testing.expectEqualStrings(head, refs.object.get(std.mem.trim(u8, branch, " \r\n\t")).?.string);
+
+    try testing.expect(!leftoverIndex(allocator, testing.io, path));
+}
+
+test "captureTurnStartCommit detached HEAD leaves branch null and still parents HEAD" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/turn-start-detach", .{tmp.sub_path[0..]});
+    const head = try initTestRepo(allocator, testing.io, path);
+    defer allocator.free(head);
+    try runGitPlain(allocator, testing.io, &.{ "git", "-C", path, "checkout", "--detach", "--quiet" });
+
+    var sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const snap = captureTurnStartCommit(allocator, testing.io, path, &sha_buf) orelse return error.MissingSnapshot;
+
+    const parents = try runGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        path,
+        "rev-list",
+        "--parents",
+        "-n",
+        "1",
+        snap,
+    });
+    defer allocator.free(parents);
+    try testing.expect(std.mem.indexOf(u8, std.mem.trim(u8, parents, " \r\n\t"), head) != null);
+
+    const message = try runGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        path,
+        "log",
+        "-1",
+        "--format=%B",
+        snap,
+    });
+    defer allocator.free(message);
+    const meta = try parseTurnStartMetadata(allocator, message);
+    defer meta.deinit();
+    try expectJsonString(meta.value, "head", head);
+    try testing.expect(meta.value.object.get("branch").? == .null);
+}
+
+test "captureTurnStartCommit peels annotated tags and dedupes shared commits" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/turn-start-tag", .{tmp.sub_path[0..]});
+    const head = try initTestRepo(allocator, testing.io, path);
+    defer allocator.free(head);
+    try runGitPlain(allocator, testing.io, &.{
+        "git",
+        "-C",
+        path,
+        "-c",
+        "user.email=checkpoint@test",
+        "-c",
+        "user.name=Checkpoint",
+        "-c",
+        commit_gpgsign,
+        "tag",
+        "-a",
+        "v1",
+        "-m",
+        "annotated",
+    });
+
+    var sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const snap = captureTurnStartCommit(allocator, testing.io, path, &sha_buf) orelse return error.MissingSnapshot;
+    const message = try runGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        path,
+        "log",
+        "-1",
+        "--format=%B",
+        snap,
+    });
+    defer allocator.free(message);
+    const meta = try parseTurnStartMetadata(allocator, message);
+    defer meta.deinit();
+    const refs = meta.value.object.get("refs").?.object;
+    try testing.expectEqualStrings(head, refs.get("refs/tags/v1").?.string);
+
+    const parents = try runGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        path,
+        "rev-list",
+        "--parents",
+        "-n",
+        "1",
+        snap,
+    });
+    defer allocator.free(parents);
+    try testing.expectEqual(@as(usize, 1), parentCount(std.mem.trim(u8, parents, " \r\n\t")));
 }
 
 test "formatFakuSessionTurnRef uses session id and prompt ordinal" {
@@ -842,6 +1316,35 @@ test "restoreRef is false and quiet on missing, non-git, and bad sha" {
     const readme = try readRepoFile(allocator, testing.io, repo, "README");
     defer allocator.free(readme);
     try testing.expectEqualStrings("keep\n", readme);
+}
+
+fn parentCount(line: []const u8) usize {
+    var n: usize = 0;
+    var it = std.mem.tokenizeScalar(u8, line, ' ');
+    _ = it.next();
+    while (it.next()) |_| n += 1;
+    return n;
+}
+
+fn turnStartMetadataJson(message: []const u8) ?[]const u8 {
+    var lines = std.mem.splitScalar(u8, message, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trimEnd(u8, raw, " \r\t");
+        if (std.mem.startsWith(u8, line, turn_start_metadata_prefix)) {
+            return std.mem.trim(u8, line[turn_start_metadata_prefix.len..], " \r\t");
+        }
+    }
+    return null;
+}
+
+fn parseTurnStartMetadata(allocator: std.mem.Allocator, message: []const u8) !std.json.Parsed(std.json.Value) {
+    const json = turnStartMetadataJson(message) orelse return error.MissingMetadata;
+    return std.json.parseFromSlice(std.json.Value, allocator, json, .{});
+}
+
+fn expectJsonString(value: std.json.Value, key: []const u8, expected: []const u8) !void {
+    const item = value.object.get(key) orelse return error.MissingJsonKey;
+    try std.testing.expectEqualStrings(expected, item.string);
 }
 
 fn leftoverIndex(allocator: std.mem.Allocator, io: std.Io, project_path: []const u8) bool {

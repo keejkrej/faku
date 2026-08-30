@@ -6052,6 +6052,121 @@ test "Send names the worktree snapshot under refs/faku" {
     try testing.expectEqualStrings(third_owned, model.sessionById(id).?.worktreeSnapshotSha());
 }
 
+test "Send turn-start snapshot has parents and metadata; finish end snapshot does not" {
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/turn-start-msg", .{tmp.sub_path[0..]});
+    const head = try initTestGitRepo(allocator, testing.io, project);
+    defer allocator.free(head);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("turn start meta", .fx);
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "snap with parents" } }, &fx);
+    main.update(&model, .send, &fx);
+    const start = try allocator.dupe(u8, model.sessionById(id).?.worktreeSnapshotSha());
+    defer allocator.free(start);
+    try testing.expect(rewind.isStoredSha(start));
+
+    const start_parents = try runGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        project,
+        "rev-list",
+        "--parents",
+        "-n",
+        "1",
+        start,
+    });
+    defer allocator.free(start_parents);
+    const start_parent_line = std.mem.trim(u8, start_parents, " \r\n\t");
+    try testing.expect(std.mem.startsWith(u8, start_parent_line, start));
+    try testing.expect(std.mem.indexOf(u8, start_parent_line, head) != null);
+
+    const start_message = try runGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        project,
+        "log",
+        "-1",
+        "--format=%B",
+        start,
+    });
+    defer allocator.free(start_message);
+    try testing.expect(std.mem.indexOf(u8, start_message, checkpoint.turn_start_subject) != null);
+    const prefix = checkpoint.turn_start_metadata_prefix;
+    const meta_line = blk: {
+        var lines = std.mem.splitScalar(u8, start_message, '\n');
+        while (lines.next()) |raw| {
+            const line = std.mem.trimEnd(u8, raw, " \r\t");
+            if (std.mem.startsWith(u8, line, prefix)) {
+                break :blk std.mem.trim(u8, line[prefix.len..], " \r\t");
+            }
+        }
+        return error.MissingMetadata;
+    };
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, meta_line, .{});
+    defer parsed.deinit();
+    try testing.expectEqualStrings(head, parsed.value.object.get("head").?.string);
+    const branch = try runGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        project,
+        "symbolic-ref",
+        "--quiet",
+        "HEAD",
+    });
+    defer allocator.free(branch);
+    try testing.expectEqualStrings(std.mem.trim(u8, branch, " \r\n\t"), parsed.value.object.get("branch").?.string);
+    try testing.expect(parsed.value.object.get("refs").? == .object);
+
+    try fx.feedExit(main.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+    const end = try allocator.dupe(u8, model.sessionById(id).?.worktreeTurnEndSha());
+    defer allocator.free(end);
+    try testing.expect(rewind.isStoredSha(end));
+    try testing.expect(!std.mem.eql(u8, start, end));
+
+    const end_parents = try runGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        project,
+        "rev-list",
+        "--parents",
+        "-n",
+        "1",
+        end,
+    });
+    defer allocator.free(end_parents);
+    try testing.expectEqualStrings(end, std.mem.trim(u8, end_parents, " \r\n\t"));
+
+    const end_message = try runGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        project,
+        "log",
+        "-1",
+        "--format=%B",
+        end,
+    });
+    defer allocator.free(end_message);
+    try testing.expectEqualStrings(checkpoint.snapshot_message, std.mem.trim(u8, end_message, " \r\n\t"));
+    try testing.expect(std.mem.indexOf(u8, end_message, checkpoint.turn_start_subject) == null);
+    try testing.expect(std.mem.indexOf(u8, end_message, checkpoint.turn_start_metadata_prefix) == null);
+}
+
 test "failed update-ref leaves the stored worktree snapshot sha" {
     const allocator = testing.allocator;
     const sha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
