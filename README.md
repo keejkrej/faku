@@ -29,9 +29,11 @@ HEAD` plus untracked `git ls-files --others --exclude-standard`
 index `git diff --name-status` (tracked only); Committed is
 `git diff --name-status origin/HEAD...HEAD`, then local
 `main...HEAD` / `master...HEAD` if that probe exits non-zero;
-LastTurn is send-time rewind sha
-`git diff --name-status <sha>...HEAD` (not Waku checkpoint
-refs / `capture_worktree_commit`, not HEAD~1);
+LastTurn is send-time worktree snapshot
+`git diff --name-status <40-hex>` (isolated temp index,
+dangling commit; rewind `<sha>...HEAD` fallback; not
+`refs/waku/` / `refs/faku/` / `capture_turn_start`, not
+HEAD~1);
 cap 64; empty is
 `No changes to compare`; clicking a tracked file one-shots
 that path's unified diff; Uncommitted `?` rows one-shot
@@ -165,7 +167,8 @@ generate helpers live in
 `src/git_commit.zig`. Header Environment dropdown helpers live in
 `src/environment_summary.zig`. Environment Compare / first-cut
 Review name-status + first-cut per-file hunk helpers (Branch + Uncommitted + Staged + Unstaged + Committed + LastTurn sources) live in
-`src/review_diff.zig`. Composer git-dirty probe helpers (count
+`src/review_diff.zig`. Send-time worktree snapshot helpers live in
+`src/checkpoint.zig`. Composer git-dirty probe helpers (count
 plus porcelain XY `has_staged` / `has_unstaged`) live in
 `src/git_dirty.zig`. Composer git-numstat probe helpers live in
 `src/git_numstat.zig`. Composer git ahead/behind probe helpers live in
@@ -514,14 +517,17 @@ index vs HEAD `git diff --name-status --cached`; Unstaged =
 worktree vs index `git diff --name-status`, tracked only;
 Committed = `git diff --name-status origin/HEAD...HEAD`, then
 local `main...HEAD` / `master...HEAD` if that probe exits
-non-zero; LastTurn = send-time rewind sha
-`git diff --name-status <sha>...HEAD`, not Waku checkpoint
-refs / `capture_worktree_commit`, not HEAD~1; clicking a
+non-zero; LastTurn = send-time worktree snapshot
+`git diff --name-status <40-hex>` (isolated temp index,
+dangling commit; rewind `<sha>...HEAD` fallback; not
+`refs/waku/` / `refs/faku/` / `capture_turn_start`, not
+HEAD~1); clicking a
 tracked file one-shots `git diff` for
 that path; Uncommitted `?` rows one-shot
 `git diff --no-index -- /dev/null <path>`). Leftovers: force /
-daemon `WorkspaceOperation` / background work / Waku worktree
-checkpoints.
+daemon `WorkspaceOperation` / background work /
+`refs/waku/` / `refs/faku/` update-ref / `capture_turn_start`
+/ turn-end capture / `restore_ref`.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and
 git-common-dir path
@@ -728,9 +734,11 @@ One-shot `fx acp` mints and resumes an `fx_session_id` (same saved fx
 session). `fx ask --json` still mints/resumes that field on the image
 and fallback path. Send stores that workspace's HEAD sha on the session
 (`rewind_refs` in `sessions.json`) when `project_path` is a git work
-tree. Rewind undoes the last turn's files and those chat turns, using
+tree, and overwrites the latest worktree snapshot
+(`worktree_snapshot_sha`; isolated `faku-checkpoint-index-*`,
+dangling commit). Rewind undoes the last turn's files and those chat turns, using
 the Send-time HEAD (`git reset --hard` that latest stored sha, then
-pop it), not a provider session fork. `fx_session_id` stays.
+pop it), not the snapshot sha and not a provider session fork. `fx_session_id` stays.
 Fork copies turns through the last turn into a new local session id
 and leaves `fx_session_id` / `runtime_id` empty so the next Send
 calls `session/new`; the source row is unchanged. That is a local

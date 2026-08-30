@@ -513,15 +513,17 @@ pub const Model = struct {
     /// first-cut worktree vs index (no operand). Committed is
     /// first-cut `origin/HEAD...HEAD`, then local `main...HEAD`
     /// / `master...HEAD` on a still-current non-zero exit.
-    /// LastTurn is first-cut send-time rewind sha
-    /// `<sha>...HEAD` (not HEAD~1). Not persisted to sessions.json.
+    /// LastTurn is first-cut send-time worktree snapshot
+    /// `<40-hex>` (rewind `<sha>...HEAD` fallback; not HEAD~1).
+    /// Not persisted to sessions.json.
     review_diff_source: review_diff.Source = .branch,
     /// Runtime-only Committed range probe. Compare / source
     /// switch / close reset to origin. Not persisted.
     review_diff_committed_range: review_diff.CommittedRange = .origin,
-    /// Runtime-only LastTurn `<40-hex>...HEAD` captured when that
-    /// probe starts. Hunk clicks reuse this slot if rewind_refs
-    /// later change. Not persisted.
+    /// Runtime-only LastTurn snapshot `40-hex` or rewind
+    /// `<40-hex>...HEAD` captured when that probe starts. Hunk
+    /// clicks reuse this slot if rewind_refs later change. Not
+    /// persisted.
     review_diff_last_turn_range_storage: [review_diff.last_turn_range_len]u8 = [_]u8{0} ** review_diff.last_turn_range_len,
     review_diff_last_turn_range_len: usize = 0,
     /// Runtime-only Delete branch… card. Selected name is not persisted.

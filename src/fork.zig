@@ -1,14 +1,17 @@
 //! Session fork and rewind orchestration helpers.
 //!
 //! Header / per-turn Fork and Send-time Rewind live here. Git plumbing
-//! (`captureHead` / `resetHard`) stays in `rewind.zig`. Msg routing
-//! and Model fields stay in `main.zig`. Behavior is unchanged from
-//! the former `main` fork and rewind helpers.
+//! (`captureHead` / `resetHard`) stays in `rewind.zig`. Worktree
+//! snapshot plumbing (`captureWorktreeCommit`) stays in
+//! `checkpoint.zig`. Msg routing and Model fields stay in
+//! `main.zig`. Behavior is unchanged from the former `main` fork
+//! and rewind helpers.
 
 const std = @import("std");
 const main = @import("main.zig");
 const store = @import("store.zig");
 const rewind = @import("rewind.zig");
+const checkpoint = @import("checkpoint.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -19,8 +22,13 @@ pub fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
     const io = model.store_io orelse return;
     const session = model.sessionById(session_id) orelse return;
     var sha_buf: [rewind.max_sha]u8 = undefined;
-    const captured = rewind.captureHead(std.heap.page_allocator, io, session.projectPath(), &sha_buf) orelse return;
-    session.appendRewindRef(captured.sha, rewind.recorded_ref, captured.recorded_at);
+    if (rewind.captureHead(std.heap.page_allocator, io, session.projectPath(), &sha_buf)) |captured| {
+        session.appendRewindRef(captured.sha, rewind.recorded_ref, captured.recorded_at);
+    }
+    var snap_buf: [rewind.stored_sha_len]u8 = undefined;
+    if (checkpoint.captureWorktreeCommit(std.heap.page_allocator, io, session.projectPath(), &snap_buf)) |sha| {
+        session.setWorktreeSnapshotSha(sha);
+    }
 }
 
 /// Header Fork: local catalog clone through the last turn.
@@ -81,6 +89,7 @@ pub fn forkSelectedThrough(model: *Model, fx: *Effects, through_index: u32) void
             for (from.rewindRefs()) |item| {
                 session.appendRewindRef(item.sha(), item.refName(), item.recorded_at);
             }
+            session.setWorktreeSnapshotSha(from.worktreeSnapshotSha());
         }
     }
 

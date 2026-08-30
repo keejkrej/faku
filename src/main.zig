@@ -767,6 +767,7 @@ test {
     _ = @import("open_editor.zig");
     _ = @import("maximize_window.zig");
     _ = @import("rewind.zig");
+    _ = @import("checkpoint.zig");
     _ = @import("keys.zig");
     _ = @import("palette.zig");
     _ = @import("sidebar_dates.zig");

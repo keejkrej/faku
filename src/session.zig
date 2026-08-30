@@ -112,6 +112,10 @@ pub const Session = struct {
     /// Send-time HEAD snapshots. Cap last 20. Rewind uses the latest sha.
     rewind_refs: [rewind.max_refs]rewind.Ref = [_]rewind.Ref{.{}} ** rewind.max_refs,
     rewind_ref_count: usize = 0,
+    /// Latest Send-time worktree snapshot (dangling 40-hex). LastTurn
+    /// prefers this over `rewind_refs`. Not a Rewind target.
+    worktree_snapshot_sha_storage: [rewind.stored_sha_len]u8 = [_]u8{0} ** rewind.stored_sha_len,
+    worktree_snapshot_sha_len: usize = 0,
     /// 0 = ungrouped (date buckets). Unknown ids also render ungrouped.
     folder_id: u32 = 0,
     /// Last user/assistant activity, unix milliseconds. 0 = missing and
@@ -226,6 +230,19 @@ pub const Session = struct {
 
     pub fn popLatestRewindRef(self: *Session) void {
         rewind.popLatestStored(&self.rewind_refs, &self.rewind_ref_count);
+    }
+
+    pub fn worktreeSnapshotSha(self: *const Session) []const u8 {
+        return self.worktree_snapshot_sha_storage[0..self.worktree_snapshot_sha_len];
+    }
+
+    pub fn setWorktreeSnapshotSha(self: *Session, sha: []const u8) void {
+        if (!rewind.isStoredSha(sha)) return;
+        writeFixed(&self.worktree_snapshot_sha_storage, &self.worktree_snapshot_sha_len, sha);
+    }
+
+    pub fn clearWorktreeSnapshotSha(self: *Session) void {
+        self.worktree_snapshot_sha_len = 0;
     }
 
     pub fn setContextUsage(self: *Session, used: u64, size: u64) void {

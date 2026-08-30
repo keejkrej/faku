@@ -11,10 +11,11 @@
 //! First-cut per-file hunks live on the Review card (tracked
 //! `git diff`; Uncommitted `?` rows one-shot
 //! `git diff --no-index -- /dev/null <path>`). LastTurn is
-//! send-time rewind sha `git diff --name-status <sha>...HEAD`
-//! (not Waku checkpoint refs / `capture_worktree_commit`, not
-//! HEAD~1). Not force, not background work, and not
-//! daemon WorkspaceOperation.
+//! send-time worktree snapshot `git diff --name-status <40-hex>`
+//! (isolated index, dangling commit; rewind `<sha>...HEAD`
+//! fallback; not `refs/waku/` / `refs/faku/` /
+//! `capture_turn_start`, not HEAD~1). Not force, not
+//! background work, and not daemon WorkspaceOperation.
 
 const std = @import("std");
 const main = @import("main.zig");
