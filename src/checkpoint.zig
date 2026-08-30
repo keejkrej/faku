@@ -1329,7 +1329,7 @@ fn parentCount(line: []const u8) usize {
 fn turnStartMetadataJson(message: []const u8) ?[]const u8 {
     var lines = std.mem.splitScalar(u8, message, '\n');
     while (lines.next()) |raw| {
-        const line = std.mem.trimRight(u8, raw, " \r\t");
+        const line = std.mem.trimEnd(u8, raw, " \r\t");
         if (std.mem.startsWith(u8, line, turn_start_metadata_prefix)) {
             return std.mem.trim(u8, line[turn_start_metadata_prefix.len..], " \r\t");
         }

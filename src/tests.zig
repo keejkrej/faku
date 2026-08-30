@@ -6110,7 +6110,7 @@ test "Send turn-start snapshot has parents and metadata; finish end snapshot doe
     const meta_line = blk: {
         var lines = std.mem.splitScalar(u8, start_message, '\n');
         while (lines.next()) |raw| {
-            const line = std.mem.trimRight(u8, raw, " \r\t");
+            const line = std.mem.trimEnd(u8, raw, " \r\t");
             if (std.mem.startsWith(u8, line, prefix)) {
                 break :blk std.mem.trim(u8, line[prefix.len..], " \r\t");
             }
