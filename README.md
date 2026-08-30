@@ -30,9 +30,10 @@ index `git diff --name-status` (tracked only); Committed is
 `git diff --name-status origin/HEAD...HEAD`, then local
 `main...HEAD` / `master...HEAD` if that probe exits non-zero;
 cap 64; empty is
-`No changes to compare`; not hunk rendering), and
+`No changes to compare`; clicking a tracked file one-shots
+that path's unified diff), and
 Copy task ID (local session id via `fx.writeClipboard`); not
-full Review hunks, not LastTurn,
+LastTurn,
 not background-work rows,
 and not daemon WorkspaceOperation.
 Header, sidebar, and Ctrl-Tab switcher titles stay on one line with
@@ -109,7 +110,7 @@ one-shot `git diff --numstat HEAD` +/- that also adds untracked
 text-line counts on the + side, and muted ahead/behind vs
 `@{upstream}` (`↑A ↓B`) when that name exists (not Waku's daemon
 InspectBranches live watch / `{project_id}` UUID nest /
-full Review hunks / background work /
+LastTurn Review / background work /
 force delete / prune-alone / base-ref picker;
 Native still has no git
 effect);
@@ -160,7 +161,7 @@ empty-message `fx ask`
 generate helpers live in
 `src/git_commit.zig`. Header Environment dropdown helpers live in
 `src/environment_summary.zig`. Environment Compare / first-cut
-Review name-status helpers (Branch + Uncommitted + Staged + Unstaged + Committed sources) live in
+Review name-status + first-cut per-file hunk helpers (Branch + Uncommitted + Staged + Unstaged + Committed sources) live in
 `src/review_diff.zig`. Composer git-dirty probe helpers (count
 plus porcelain XY `has_staged` / `has_unstaged`) live in
 `src/git_dirty.zig`. Composer git-numstat probe helpers live in
@@ -497,8 +498,8 @@ failed, or skipped dirty / +/- probes omit those labels — this cut
 does not invent "clean". This is not Waku's daemon
 `InspectBranches` live watch, not Waku `{project_id}` UUID
 nesting / `waku/` prefix, not defer-until-Send
-workspace mode, not a worktree base-ref picker UI, not full
-Review hunks / background-work rows,
+workspace mode, not a worktree base-ref picker UI, not
+LastTurn Review / background-work rows,
 not force delete (`git branch -D`), not
 force push, not prune-alone (`git prune` without fetch), and not
 LastTurn Review sources.
@@ -510,8 +511,9 @@ index vs HEAD `git diff --name-status --cached`; Unstaged =
 worktree vs index `git diff --name-status`, tracked only;
 Committed = `git diff --name-status origin/HEAD...HEAD`, then
 local `main...HEAD` / `master...HEAD` if that probe exits
-non-zero; not hunks). Leftovers: force / daemon
-`WorkspaceOperation` / Review hunks /
+non-zero; clicking a tracked file one-shots `git diff` for
+that path). Leftovers: force / daemon
+`WorkspaceOperation` /
 LastTurn / background work.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and

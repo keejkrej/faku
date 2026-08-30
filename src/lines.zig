@@ -89,6 +89,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         review_diff.applyLine(model, line);
         return;
     }
+    if (model.review_diff_hunk_key != 0 and line.key == model.review_diff_hunk_key) {
+        review_diff.applyHunkLine(model, line);
+        return;
+    }
     if (model.file_mention_key != 0 and line.key == model.file_mention_key) {
         file_mention.applyLine(model, line);
         return;
@@ -488,6 +492,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.review_diff_key != 0 and exit.key == model.review_diff_key) {
         review_diff.handleExit(model, fx, exit);
+        return;
+    }
+    if (model.review_diff_hunk_key != 0 and exit.key == model.review_diff_hunk_key) {
+        review_diff.handleHunkExit(model, fx, exit);
         return;
     }
     if (model.file_mention_key != 0 and exit.key == model.file_mention_key) {

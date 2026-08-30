@@ -487,9 +487,17 @@
                     <scroll height="240" label="Review files">
                       <column gap="2">
                         <for each="review_diff_rows" key="id" as="r">
-                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{r.label}</text>
+                          <button variant="ghost" size="sm" selected="{r.selected}" on-press="select_review_diff_file:{r.id}">{r.label}</button>
                         </for>
                       </column>
+                    </scroll>
+                  </if>
+                  <if test="{has_review_diff_hunk_status}">
+                    <text wrap="true" foreground="text_muted">{review_diff_hunk_status}</text>
+                  </if>
+                  <if test="{has_review_diff_hunk}">
+                    <scroll height="200" label="Review hunks">
+                      <text wrap="true" foreground="text_muted">{review_diff_hunk}</text>
                     </scroll>
                   </if>
                 </column>

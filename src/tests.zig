@@ -3257,6 +3257,10 @@ test "pick_folder stdout directory sets project_path the same way typing does" {
     try testing.expectEqual(review_diff.Source.branch, loaded.review_diff_source);
     try testing.expectEqual(review_diff.CommittedRange.origin, loaded.review_diff_committed_range);
     try testing.expectEqual(@as(u32, 0), loaded.review_diff_file_count);
+    try testing.expectEqual(@as(u32, 0), loaded.review_diff_selected_id);
+    try testing.expectEqual(@as(u64, 0), loaded.review_diff_hunk_key);
+    try testing.expectEqual(@as(usize, 0), loaded.review_diff_hunk_len);
+    try testing.expectEqual(@as(u64, 0), loaded.next_review_diff_hunk_key - review_diff.review_diff_hunk_key_first);
 }
 
 test "pick_folder cancel empty and file path leave project_path unchanged" {
@@ -14791,6 +14795,14 @@ fn findGitReviewDiffSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(
     return null;
 }
 
+fn findGitReviewHunkSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and review_diff.isGitReviewHunkArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
 fn finishGitRemotesIfInFlight(fx: *Effects, model: *Model, line: []const u8) !void {
     if (model.git_remotes_key == 0) return;
     const spawn = findGitRemotesSpawnKey(fx, model.git_remotes_key) orelse return error.MissingGitRemotesSpawn;
@@ -16785,10 +16797,32 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expect(model.has_review_diff_files());
     try testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "M src/a.zig");
-    _ = try expectByText(tree.root, .text, "A new.txt");
+    const file_row = try expectButtonMsg(tree, "M src/a.zig", .{ .select_review_diff_file = 1 });
+    _ = try expectButtonMsg(tree, "A new.txt", .{ .select_review_diff_file = 2 });
     try testing.expect(findByText(tree.root, .text, review_diff.comparing_status) == null);
     try testing.expect(findByText(tree.root, .scroll_view, "Review files") != null);
+
+    main.update(&model, tree.msgForPointer(file_row.id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 1), model.review_diff_selected_id);
+    try testing.expect(model.review_diff_hunk_key >= main.review_diff_hunk_key_first);
+    const hunk = findGitReviewHunkSpawnKey(&fx, model.review_diff_hunk_key) orelse return error.MissingReviewHunkSpawn;
+    try testing.expect(review_diff.isGitReviewHunkArgv(hunk.argv));
+    try testing.expect(!review_diff.isGitReviewDiffArgv(hunk.argv));
+    try testing.expectEqualStrings("@{upstream}...HEAD", hunk.argv[7]);
+    try testing.expectEqualStrings("--", hunk.argv[8]);
+    try testing.expectEqualStrings("src/a.zig", hunk.argv[9]);
+    try testing.expect(std.mem.indexOf(u8, hunk.argv[2], "src/a.zig") == null);
+    try fx.feedLine(hunk.key, "diff --git a/src/a.zig b/src/a.zig\n+hello\n");
+    drainEffects(&model, &fx);
+    try fx.feedExit(hunk.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(model.has_review_diff_hunk());
+    try testing.expect(std.mem.indexOf(u8, model.review_diff_hunk(), "+hello") != null);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, model.review_diff_hunk());
+    try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") != null);
+    const selected_row = try expectButtonMsg(tree, "M src/a.zig", .{ .select_review_diff_file = 1 });
+    try testing.expect(selected_row.state.selected);
 
     main.update(&model, .close_review_diff, &fx);
     try testing.expect(!model.review_diff_active);
@@ -16926,8 +16960,17 @@ test "Review source row switches Uncommitted and re-probes name-status plus untr
     try testing.expect(model.has_review_diff_files());
     try testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "M tracked.zig");
-    _ = try expectByText(tree.root, .text, "? new.txt");
+    _ = try expectButtonMsg(tree, "M tracked.zig", .{ .select_review_diff_file = 1 });
+    const untracked_row = try expectButtonMsg(tree, "? new.txt", .{ .select_review_diff_file = 2 });
+    const pending_before_untracked = fx.pendingSpawnCount();
+    main.update(&model, tree.msgForPointer(untracked_row.id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 2), model.review_diff_selected_id);
+    try testing.expectEqual(@as(u64, 0), model.review_diff_hunk_key);
+    try testing.expectEqual(pending_before_untracked, fx.pendingSpawnCount());
+    try testing.expect(!model.has_review_diff_hunk());
+    try testing.expectEqualStrings(review_diff.hunk_failed_status, model.review_diff_hunk_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, review_diff.hunk_failed_status);
     const uncommitted_on = try expectButtonMsg(tree, "Uncommitted", .set_review_diff_source_uncommitted);
     try testing.expect(uncommitted_on.state.selected);
     const branch_off = try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch);
@@ -17036,7 +17079,7 @@ test "Review source row switches Staged and re-probes --cached name-status" {
     try testing.expect(model.has_review_diff_files());
     try testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "A staged.zig");
+    _ = try expectButtonMsg(tree, "A staged.zig", .{ .select_review_diff_file = 1 });
     const staged_on = try expectButtonMsg(tree, "Staged", .set_review_diff_source_staged);
     try testing.expect(staged_on.state.selected);
     const branch_off = try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch);
@@ -17145,7 +17188,7 @@ test "Review source row switches Unstaged and re-probes worktree name-status" {
     try testing.expect(model.has_review_diff_files());
     try testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "M unstaged.zig");
+    _ = try expectButtonMsg(tree, "M unstaged.zig", .{ .select_review_diff_file = 1 });
     const unstaged_on = try expectButtonMsg(tree, "Unstaged", .set_review_diff_source_unstaged);
     try testing.expect(unstaged_on.state.selected);
     const branch_off = try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch);
@@ -17253,7 +17296,7 @@ test "Review source row switches Committed and re-probes origin/HEAD...HEAD name
     try testing.expect(model.has_review_diff_files());
     try testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "M committed.zig");
+    _ = try expectButtonMsg(tree, "M committed.zig", .{ .select_review_diff_file = 1 });
     const committed_on = try expectButtonMsg(tree, "Committed", .set_review_diff_source_committed);
     try testing.expect(committed_on.state.selected);
     const branch_off = try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch);
@@ -17482,7 +17525,7 @@ test "header Environment +/- opens the same Review card as Compare" {
     drainEffects(&model, &fx);
     try testing.expect(model.has_review_diff_files());
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "M src/a.zig");
+    _ = try expectButtonMsg(tree, "M src/a.zig", .{ .select_review_diff_file = 1 });
 
     main.update(&model, .close_review_diff, &fx);
     try testing.expect(!model.review_diff_active);

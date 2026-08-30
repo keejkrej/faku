@@ -24,7 +24,14 @@
 //! `Could not compare.` A successful origin/HEAD probe with
 //! zero files is `No changes to compare` (no main/master
 //! fall-through). Faku has no checkpoint `capture_worktree_commit`;
-//! LastTurn and hunks stay leftover.
+//! LastTurn stays leftover (do not invent it as HEAD~1).
+//! Clicking a tracked name-status row one-shots `git diff`
+//! for that path (current source + the Committed range that
+//! already succeeded). `--` and the path are own argv slots.
+//! Untracked Uncommitted `?` rows do not spawn
+//! `git diff --no-index` (exit-1-on-success is messy) — click
+//! sets `Could not show diff.` and invents no patch. Hunk
+//! spawn-key band 520+ is distinct from name-status 510+.
 //! All five use the `/bin/sh -c` `fx_ask_chdir_script` chdir
 //! workaround. Last-slot operands (`@{upstream}...HEAD` /
 //! `--cached` / `origin/HEAD...HEAD` / `main...HEAD` /
@@ -36,8 +43,10 @@
 //! spawn-key band 510+ (after git-common-dir
 //! 500+). Cap 64 rows. Empty / clean is `No changes to compare`.
 //! Failed / no upstream / missing workspace is a short muted
-//! status — no invented files. Not hunk rendering, not LastTurn,
-//! not background work, and not daemon WorkspaceOperation.
+//! status — no invented files. First-cut hunks only: no
+//! syntax highlighting, no gap expansion, no right-panel Diff
+//! tab, no LastTurn, no force, no background work, and not
+//! daemon WorkspaceOperation.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -65,6 +74,12 @@ const writeFixed = main.writeFixed;
 /// cannot paint a later session.
 pub const review_diff_key_first: u64 = 510;
 
+/// One-shot Review `git diff [operand] -- <path>` hunk probe.
+/// Distinct from name-status 510+. Band is 520+. Incremented
+/// per file click so a cancelled spawn cannot paint a later
+/// click or session.
+pub const review_diff_hunk_key_first: u64 = 520;
+
 /// Compare / header +/- open Branch. Uncommitted is first-cut
 /// tracked `git diff --name-status HEAD` plus untracked
 /// `git ls-files --others --exclude-standard` (`?` rows). Staged
@@ -73,7 +88,7 @@ pub const review_diff_key_first: u64 = 510;
 /// --name-status` (tracked only). Committed is first-cut
 /// `git diff --name-status origin/HEAD...HEAD`, then local
 /// `main...HEAD` / `master...HEAD` on a still-current non-zero
-/// exit. LastTurn / hunks stay leftover.
+/// exit. LastTurn stays leftover.
 pub const Source = enum {
     branch,
     uncommitted,
@@ -117,6 +132,8 @@ pub const git_committed_range = "origin/HEAD...HEAD";
 /// branch and HEAD → HEAD). Own argv slots.
 pub const git_committed_range_main = "main...HEAD";
 pub const git_committed_range_master = "master...HEAD";
+/// Own argv slot before the path. Never interpolated into `-c`.
+pub const git_pathspec_end = "--";
 pub const sh_bin = "/bin/sh";
 
 /// Packed into one `-c` string so Uncommitted stays under Native
@@ -140,16 +157,29 @@ pub const argv_len: usize = 9;
 pub const argv_len_unstaged: usize = 8;
 /// Uncommitted: chdir + `/bin/sh -c` + `uncommitted_untracked_script`.
 pub const argv_len_uncommitted: usize = 8;
+/// Hunk with operand: chdir + `git diff <operand> -- <path>`.
+pub const argv_len_hunk: usize = 10;
+/// Unstaged hunk: chdir + `git diff -- <path>` (no operand).
+pub const argv_len_hunk_unstaged: usize = 9;
+/// First-cut body cap. Extra stdout is dropped, not invented.
+pub const max_review_diff_hunk_lines: usize = 160;
+/// Enough for 160 short unified-diff lines. Longer lines still
+/// fill this buffer and stop; the line cap also stops early.
+pub const max_review_diff_hunk: usize = 8192;
+pub const max_review_diff_hunk_status: usize = 32;
 
 pub const comparing_status = "Comparing…";
 pub const empty_status = "No changes to compare";
 pub const failed_status = "Could not compare.";
 pub const no_workspace_status = "No workspace.";
+pub const hunk_empty_status = "No hunks";
+pub const hunk_failed_status = "Could not show diff.";
 
 /// Native `for each="review_diff_rows"` row. `id` is 1-based.
 pub const ReviewDiffRow = struct {
     id: u32,
     label: []const u8,
+    selected: bool = false,
 };
 
 pub const ChangedFile = struct {
@@ -197,6 +227,21 @@ pub fn lastOperand(source: Source, committed_range: CommittedRange) ?[]const u8 
     };
 }
 
+/// Hunk operand for the current Review source. Uncommitted tracked
+/// uses last-slot `HEAD` (name-status packs `HEAD` in the nested
+/// script). Unstaged omits the operand. Committed reads the range
+/// that already succeeded — no origin/HEAD fall-through on a
+/// hunk click.
+pub fn hunkOperand(source: Source, committed_range: CommittedRange) ?[]const u8 {
+    return switch (source) {
+        .branch => git_upstream_range,
+        .uncommitted => git_head,
+        .staged => git_cached_flag,
+        .unstaged => null,
+        .committed => lastOperand(.committed, committed_range),
+    };
+}
+
 pub fn argvForSource(source: Source, cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
     return argvForSourceRange(source, .origin, cwd, buf);
 }
@@ -226,6 +271,34 @@ pub fn argvForSourceRange(
         return buf[0..argv_len];
     }
     return buf[0..argv_len_unstaged];
+}
+
+/// `/bin/sh -c <chdir> sh <cwd> git diff [operand] -- <path>`.
+/// `--` and the path are own argv slots. Never interpolate the
+/// path into `-c`.
+pub fn argvForHunk(
+    source: Source,
+    committed_range: CommittedRange,
+    cwd: []const u8,
+    path: []const u8,
+    buf: *[argv_len_hunk][]const u8,
+) []const []const u8 {
+    buf[0] = sh_bin;
+    buf[1] = "-c";
+    buf[2] = main.fx_ask_chdir_script;
+    buf[3] = "sh";
+    buf[4] = cwd;
+    buf[5] = git_bin;
+    buf[6] = git_diff_cmd;
+    if (hunkOperand(source, committed_range)) |operand| {
+        buf[7] = operand;
+        buf[8] = git_pathspec_end;
+        buf[9] = path;
+        return buf[0..argv_len_hunk];
+    }
+    buf[7] = git_pathspec_end;
+    buf[8] = path;
+    return buf[0..argv_len_hunk_unstaged];
 }
 
 /// Branch argv. Compare / header +/- still use this shape.
@@ -259,6 +332,30 @@ pub fn isGitReviewDiffArgv(argv: []const []const u8) bool {
         std.mem.eql(u8, last, git_committed_range) or
         std.mem.eql(u8, last, git_committed_range_main) or
         std.mem.eql(u8, last, git_committed_range_master);
+}
+
+fn isKnownHunkOperand(last: []const u8) bool {
+    return std.mem.eql(u8, last, git_upstream_range) or
+        std.mem.eql(u8, last, git_head) or
+        std.mem.eql(u8, last, git_cached_flag) or
+        std.mem.eql(u8, last, git_committed_range) or
+        std.mem.eql(u8, last, git_committed_range_main) or
+        std.mem.eql(u8, last, git_committed_range_master);
+}
+
+/// Hunk argv: chdir + `git diff [operand] -- <path>`. Rejects
+/// name-status (`--name-status`) and Uncommitted nested `sh -c`.
+pub fn isGitReviewHunkArgv(argv: []const []const u8) bool {
+    if (argv.len != argv_len_hunk and argv.len != argv_len_hunk_unstaged) return false;
+    if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], "-c")) return false;
+    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[5], git_bin)) return false;
+    if (!std.mem.eql(u8, argv[6], git_diff_cmd)) return false;
+    if (argv.len == argv_len_hunk_unstaged) {
+        return std.mem.eql(u8, argv[7], git_pathspec_end);
+    }
+    return isKnownHunkOperand(argv[7]) and std.mem.eql(u8, argv[8], git_pathspec_end);
 }
 
 /// One `XY\tpath` or `R100\told\tnew` name-status row. Blank /
@@ -310,9 +407,26 @@ pub fn reviewDiffRows(model: *const Model, arena: std.mem.Allocator) []const Rev
         out[i] = .{
             .id = @intCast(i + 1),
             .label = file.label(),
+            .selected = model.review_diff_selected_id == i + 1,
         };
     }
     return out;
+}
+
+pub fn reviewDiffHunk(model: *const Model) []const u8 {
+    return model.review_diff_hunk_storage[0..model.review_diff_hunk_len];
+}
+
+pub fn hasReviewDiffHunk(model: *const Model) bool {
+    return model.review_diff_hunk_len > 0;
+}
+
+pub fn reviewDiffHunkStatus(model: *const Model) []const u8 {
+    return model.review_diff_hunk_status_storage[0..model.review_diff_hunk_status_len];
+}
+
+pub fn hasReviewDiffHunkStatus(model: *const Model) bool {
+    return model.review_diff_hunk_status_len > 0;
 }
 
 fn setStatus(model: *Model, text: []const u8) void {
@@ -330,10 +444,38 @@ fn clearFiles(model: *Model) void {
     }
 }
 
+fn setHunkStatus(model: *Model, text: []const u8) void {
+    writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, text);
+}
+
+fn clearHunkStatus(model: *Model) void {
+    model.review_diff_hunk_status_len = 0;
+}
+
+fn clearHunkBody(model: *Model) void {
+    model.review_diff_hunk_len = 0;
+    model.review_diff_hunk_line_count = 0;
+}
+
+fn clearHunks(model: *Model) void {
+    clearHunkBody(model);
+    clearHunkStatus(model);
+    model.review_diff_selected_id = 0;
+    model.review_diff_hunk_probe_session = 0;
+    model.review_diff_hunk_probe_path_len = 0;
+    model.review_diff_hunk_path_len = 0;
+}
+
 fn cancelInFlight(model: *Model, fx: *Effects) void {
     if (model.review_diff_key == 0) return;
     fx.cancel(model.review_diff_key);
     model.review_diff_key = 0;
+}
+
+fn cancelHunkInFlight(model: *Model, fx: *Effects) void {
+    if (model.review_diff_hunk_key == 0) return;
+    fx.cancel(model.review_diff_hunk_key);
+    model.review_diff_hunk_key = 0;
 }
 
 fn probeSupported() bool {
@@ -367,11 +509,13 @@ fn appendParsed(model: *Model, raw: []const u8) void {
     }
 }
 
-/// Cancel any in-flight probe, drop files / status, and close the card.
+/// Cancel any in-flight probe, drop files / status / hunks, and close the card.
 pub fn close(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
+    cancelHunkInFlight(model, fx);
     clearFiles(model);
     clearStatus(model);
+    clearHunks(model);
     model.review_diff_probe_session = 0;
     model.review_diff_probe_path_len = 0;
     model.review_diff_committed_range = .origin;
@@ -395,8 +539,10 @@ fn prepareCard(model: *Model, fx: *Effects) void {
 
 fn startProbe(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
+    cancelHunkInFlight(model, fx);
     clearFiles(model);
     clearStatus(model);
+    clearHunks(model);
     model.review_diff_probe_session = 0;
     model.review_diff_probe_path_len = 0;
     if (!probeSupported()) {
@@ -457,6 +603,73 @@ pub fn setSource(model: *Model, fx: *Effects, source: Source) void {
     startProbe(model, fx);
 }
 
+fn hunkStillCurrent(model: *const Model) bool {
+    if (model.review_diff_hunk_key == 0) return false;
+    if (model.review_diff_hunk_probe_session != model.selected) return false;
+    const path = model.selectedProjectPath();
+    const probed = model.review_diff_hunk_probe_path_storage[0..model.review_diff_hunk_probe_path_len];
+    return std.mem.eql(u8, path, probed);
+}
+
+fn startHunkProbe(model: *Model, fx: *Effects, file_path: []const u8) void {
+    cancelHunkInFlight(model, fx);
+    clearHunkBody(model);
+    clearHunkStatus(model);
+    model.review_diff_hunk_probe_session = 0;
+    model.review_diff_hunk_probe_path_len = 0;
+    model.review_diff_hunk_path_len = 0;
+    if (!probeSupported()) {
+        setHunkStatus(model, hunk_failed_status);
+        return;
+    }
+    const cwd = probePath(model);
+    if (cwd.len == 0) {
+        setHunkStatus(model, hunk_failed_status);
+        return;
+    }
+
+    writeFixed(&model.review_diff_hunk_path_storage, &model.review_diff_hunk_path_len, file_path);
+    const path = model.review_diff_hunk_path_storage[0..model.review_diff_hunk_path_len];
+    const key = model.next_review_diff_hunk_key;
+    model.next_review_diff_hunk_key = key + 1;
+    model.review_diff_hunk_key = key;
+    model.review_diff_hunk_probe_session = model.selected;
+    writeFixed(&model.review_diff_hunk_probe_path_storage, &model.review_diff_hunk_probe_path_len, cwd);
+
+    var argv_buf: [argv_len_hunk][]const u8 = undefined;
+    fx.spawn(.{
+        .key = key,
+        .argv = argvForHunk(
+            model.review_diff_source,
+            model.review_diff_committed_range,
+            cwd,
+            path,
+            &argv_buf,
+        ),
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+}
+
+/// Click a 1-based Review file row. Tracked rows one-shot a hunk
+/// probe for the current source. Untracked `?` does not spawn
+/// `git diff --no-index` — sets `Could not show diff.` only.
+/// Cancels any in-flight hunk and clears the previous body.
+pub fn selectFile(model: *Model, fx: *Effects, id: u32) void {
+    if (!model.review_diff_active) return;
+    if (id == 0 or id > model.review_diff_file_count) return;
+    const file = &model.review_diff_file_store[id - 1];
+    cancelHunkInFlight(model, fx);
+    clearHunkBody(model);
+    clearHunkStatus(model);
+    model.review_diff_selected_id = id;
+    if (file.status == '?') {
+        setHunkStatus(model, hunk_failed_status);
+        return;
+    }
+    startHunkProbe(model, fx, file.path());
+}
+
 pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
     if (line.key != model.review_diff_key or model.review_diff_key == 0) return;
     if (!probeStillCurrent(model)) return;
@@ -489,6 +702,57 @@ pub fn handleExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void
         return;
     }
     clearStatus(model);
+}
+
+pub fn applyHunkLine(model: *Model, line: native_sdk.EffectLine) void {
+    if (line.key != model.review_diff_hunk_key or model.review_diff_hunk_key == 0) return;
+    if (!hunkStillCurrent(model)) return;
+    if (!model.review_diff_active) return;
+    appendHunkLine(model, line.line);
+}
+
+fn appendHunkLine(model: *Model, raw: []const u8) void {
+    if (model.review_diff_hunk_line_count >= max_review_diff_hunk_lines) return;
+    const line = std.mem.trimEnd(u8, raw, "\r\n");
+    var used = model.review_diff_hunk_len;
+    const dest = model.review_diff_hunk_storage[0..];
+    if (used > 0) {
+        if (used >= dest.len) return;
+        dest[used] = '\n';
+        used += 1;
+    }
+    if (used >= dest.len) return;
+    const take = @min(dest.len - used, line.len);
+    @memcpy(dest[used .. used + take], line[0..take]);
+    model.review_diff_hunk_len = used + take;
+    model.review_diff_hunk_line_count += 1;
+}
+
+pub fn handleHunkExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    _ = fx;
+    if (exit.key != model.review_diff_hunk_key or model.review_diff_hunk_key == 0) return;
+    const current = hunkStillCurrent(model);
+    model.review_diff_hunk_key = 0;
+    if (!model.review_diff_active) {
+        clearHunkBody(model);
+        clearHunkStatus(model);
+        return;
+    }
+    if (!current) {
+        clearHunkBody(model);
+        setHunkStatus(model, hunk_failed_status);
+        return;
+    }
+    if (exit.reason != .exited or exit.code != 0) {
+        clearHunkBody(model);
+        setHunkStatus(model, hunk_failed_status);
+        return;
+    }
+    if (model.review_diff_hunk_len == 0) {
+        setHunkStatus(model, hunk_empty_status);
+        return;
+    }
+    clearHunkStatus(model);
 }
 
 /// Still-current Committed non-zero exit: retry `main...HEAD`,
@@ -678,6 +942,8 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expect(review_diff_key_first >= 510);
     try std.testing.expect(review_diff_key_first > git_common_dir.git_common_dir_key_first);
     try std.testing.expect(git_common_dir.git_common_dir_key_first >= 500);
+    try std.testing.expect(review_diff_hunk_key_first >= 520);
+    try std.testing.expect(review_diff_hunk_key_first > review_diff_key_first);
 }
 
 test "parseNameStatusLine is status letter plus path; rename uses dest" {
@@ -1189,4 +1455,358 @@ test "cap stays at 64; extra name-status rows are dropped" {
         appendParsed(&model, line);
     }
     try std.testing.expectEqual(@as(u32, max_review_diff_files), model.review_diff_file_count);
+}
+
+test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" {
+    var buf: [argv_len_hunk][]const u8 = undefined;
+    const branch = argvForHunk(.branch, .origin, "/tmp/faku-hunk", "src/a.zig", &buf);
+    try std.testing.expectEqual(argv_len_hunk, branch.len);
+    try std.testing.expectEqualStrings(sh_bin, branch[0]);
+    try std.testing.expectEqualStrings("-c", branch[1]);
+    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, branch[2]);
+    try std.testing.expectEqualStrings("sh", branch[3]);
+    try std.testing.expectEqualStrings("/tmp/faku-hunk", branch[4]);
+    try std.testing.expectEqualStrings(git_bin, branch[5]);
+    try std.testing.expectEqualStrings(git_diff_cmd, branch[6]);
+    try std.testing.expectEqualStrings(git_upstream_range, branch[7]);
+    try std.testing.expectEqualStrings(git_pathspec_end, branch[8]);
+    try std.testing.expectEqualStrings("src/a.zig", branch[9]);
+    try std.testing.expect(isGitReviewHunkArgv(branch));
+    try std.testing.expect(!isGitReviewDiffArgv(branch));
+    try std.testing.expect(std.mem.indexOf(u8, branch[2], git_upstream_range) == null);
+    try std.testing.expect(std.mem.indexOf(u8, branch[2], "src/a.zig") == null);
+
+    var uncommitted_buf: [argv_len_hunk][]const u8 = undefined;
+    const uncommitted = argvForHunk(.uncommitted, .origin, "/tmp/faku-hunk", "tracked.zig", &uncommitted_buf);
+    try std.testing.expectEqual(argv_len_hunk, uncommitted.len);
+    try std.testing.expectEqualStrings(git_head, uncommitted[7]);
+    try std.testing.expectEqualStrings(git_pathspec_end, uncommitted[8]);
+    try std.testing.expectEqualStrings("tracked.zig", uncommitted[9]);
+    try std.testing.expect(isGitReviewHunkArgv(uncommitted));
+    try std.testing.expect(!isGitReviewDiffArgv(uncommitted));
+    try std.testing.expect(!isGitReviewUncommittedArgv(uncommitted));
+    try std.testing.expect(std.mem.indexOf(u8, uncommitted[2], git_head) == null);
+
+    var staged_buf: [argv_len_hunk][]const u8 = undefined;
+    const staged = argvForHunk(.staged, .origin, "/tmp/faku-hunk", "staged.zig", &staged_buf);
+    try std.testing.expectEqualStrings(git_cached_flag, staged[7]);
+    try std.testing.expectEqualStrings(git_pathspec_end, staged[8]);
+    try std.testing.expectEqualStrings("staged.zig", staged[9]);
+    try std.testing.expect(isGitReviewHunkArgv(staged));
+    try std.testing.expect(!isGitReviewDiffArgv(staged));
+    try std.testing.expect(std.mem.indexOf(u8, staged[2], git_cached_flag) == null);
+
+    var unstaged_buf: [argv_len_hunk][]const u8 = undefined;
+    const unstaged = argvForHunk(.unstaged, .origin, "/tmp/faku-hunk", "unstaged.zig", &unstaged_buf);
+    try std.testing.expectEqual(argv_len_hunk_unstaged, unstaged.len);
+    try std.testing.expectEqualStrings(git_pathspec_end, unstaged[7]);
+    try std.testing.expectEqualStrings("unstaged.zig", unstaged[8]);
+    try std.testing.expect(hunkOperand(.unstaged, .origin) == null);
+    try std.testing.expect(isGitReviewHunkArgv(unstaged));
+    try std.testing.expect(!isGitReviewDiffArgv(unstaged));
+    try std.testing.expect(std.mem.indexOf(u8, unstaged[2], "unstaged.zig") == null);
+
+    var committed_buf: [argv_len_hunk][]const u8 = undefined;
+    const committed = argvForHunk(.committed, .origin, "/tmp/faku-hunk", "committed.zig", &committed_buf);
+    try std.testing.expectEqualStrings(git_committed_range, committed[7]);
+    try std.testing.expectEqualStrings(git_pathspec_end, committed[8]);
+    try std.testing.expect(isGitReviewHunkArgv(committed));
+    try std.testing.expect(!isGitReviewDiffArgv(committed));
+
+    var committed_main_buf: [argv_len_hunk][]const u8 = undefined;
+    const committed_main = argvForHunk(.committed, .main, "/tmp/faku-hunk", "committed.zig", &committed_main_buf);
+    try std.testing.expectEqualStrings(git_committed_range_main, committed_main[7]);
+    try std.testing.expectEqualStrings(git_pathspec_end, committed_main[8]);
+    try std.testing.expect(isGitReviewHunkArgv(committed_main));
+    try std.testing.expect(!isGitReviewDiffArgv(committed_main));
+
+    var committed_master_buf: [argv_len_hunk][]const u8 = undefined;
+    const committed_master = argvForHunk(.committed, .master, "/tmp/faku-hunk", "committed.zig", &committed_master_buf);
+    try std.testing.expectEqualStrings(git_committed_range_master, committed_master[7]);
+    try std.testing.expect(isGitReviewHunkArgv(committed_master));
+    try std.testing.expect(!isGitReviewDiffArgv(committed_master));
+}
+
+test "isGitReviewHunkArgv does not match name-status; name-status detector rejects hunks" {
+    var name_buf: [argv_len][]const u8 = undefined;
+    const name = argvFor("/tmp/faku-hunk", &name_buf);
+    try std.testing.expect(isGitReviewDiffArgv(name));
+    try std.testing.expect(!isGitReviewHunkArgv(name));
+
+    var uncommitted_buf: [argv_len][]const u8 = undefined;
+    const uncommitted = argvForSource(.uncommitted, "/tmp/faku-hunk", &uncommitted_buf);
+    try std.testing.expect(isGitReviewDiffArgv(uncommitted));
+    try std.testing.expect(isGitReviewUncommittedArgv(uncommitted));
+    try std.testing.expect(!isGitReviewHunkArgv(uncommitted));
+
+    var unstaged_name_buf: [argv_len][]const u8 = undefined;
+    const unstaged_name = argvForSource(.unstaged, "/tmp/faku-hunk", &unstaged_name_buf);
+    try std.testing.expect(isGitReviewDiffArgv(unstaged_name));
+    try std.testing.expect(!isGitReviewHunkArgv(unstaged_name));
+
+    var hunk_buf: [argv_len_hunk][]const u8 = undefined;
+    const hunk = argvForHunk(.branch, .origin, "/tmp/faku-hunk", "src/a.zig", &hunk_buf);
+    try std.testing.expect(isGitReviewHunkArgv(hunk));
+    try std.testing.expect(!isGitReviewDiffArgv(hunk));
+    try std.testing.expect(!isGitReviewUncommittedArgv(hunk));
+
+    var unstaged_hunk_buf: [argv_len_hunk][]const u8 = undefined;
+    const unstaged_hunk = argvForHunk(.unstaged, .origin, "/tmp/faku-hunk", "src/a.zig", &unstaged_hunk_buf);
+    try std.testing.expect(isGitReviewHunkArgv(unstaged_hunk));
+    try std.testing.expect(!isGitReviewDiffArgv(unstaged_hunk));
+
+    try std.testing.expect(!isGitReviewHunkArgv(&.{ git_bin, git_diff_cmd, git_upstream_range, git_pathspec_end, "src/a.zig" }));
+    try std.testing.expect(!isGitReviewHunkArgv(&.{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-hunk",
+        git_bin,
+        git_diff_cmd,
+        git_name_status,
+        git_upstream_range,
+    }));
+}
+
+test "hunk path and -- are own argv slots; space in path stays last-slot" {
+    var buf: [argv_len_hunk][]const u8 = undefined;
+    const path = "src/my file.zig";
+    const argv = argvForHunk(.branch, .origin, "/tmp/faku hunk", path, &buf);
+    try std.testing.expectEqual(argv_len_hunk, argv.len);
+    try std.testing.expectEqualStrings(git_pathspec_end, argv[8]);
+    try std.testing.expectEqualStrings(path, argv[9]);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], path) == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], "my file.zig") == null);
+    try std.testing.expect(isGitReviewHunkArgv(argv));
+    try std.testing.expect(!isGitReviewDiffArgv(argv));
+
+    var unstaged_buf: [argv_len_hunk][]const u8 = undefined;
+    const unstaged = argvForHunk(.unstaged, .origin, "/tmp/faku hunk", path, &unstaged_buf);
+    try std.testing.expectEqual(argv_len_hunk_unstaged, unstaged.len);
+    try std.testing.expectEqualStrings(git_pathspec_end, unstaged[7]);
+    try std.testing.expectEqualStrings(path, unstaged[8]);
+    try std.testing.expect(std.mem.indexOf(u8, unstaged[2], path) == null);
+    try std.testing.expect(isGitReviewHunkArgv(unstaged));
+}
+
+fn openWithFiles(model: *Model, fx: *Effects, line: []const u8) !u64 {
+    open(model, fx);
+    const key = model.review_diff_key;
+    applyLine(model, .{ .key = key, .line = line });
+    handleExit(model, fx, .{ .key = key, .reason = .exited, .code = 0 });
+    return key;
+}
+
+test "clicking a tracked row fills capped patch text; empty and fail stay honest" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/review-hunk", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("review hunk", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    _ = try openWithFiles(&model, &fx, "M\tsrc/a.zig\nA\tnew.txt\n");
+    try std.testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
+    try std.testing.expectEqual(@as(u32, 0), model.review_diff_selected_id);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_hunk_key);
+
+    selectFile(&model, &fx, 1);
+    try std.testing.expectEqual(@as(u32, 1), model.review_diff_selected_id);
+    try std.testing.expect(model.review_diff_hunk_key >= review_diff_hunk_key_first);
+    try std.testing.expect(model.review_diff_hunk_key != model.review_diff_key);
+    const hunk_key = model.review_diff_hunk_key;
+    const hunk_argv = findSpawnArgv(&fx, hunk_key) orelse return error.MissingHunkArgv;
+    try std.testing.expect(isGitReviewHunkArgv(hunk_argv));
+    try std.testing.expect(!isGitReviewDiffArgv(hunk_argv));
+    try std.testing.expectEqualStrings(git_upstream_range, hunk_argv[7]);
+    try std.testing.expectEqualStrings(git_pathspec_end, hunk_argv[8]);
+    try std.testing.expectEqualStrings("src/a.zig", hunk_argv[9]);
+    try std.testing.expect(std.mem.indexOf(u8, hunk_argv[2], "src/a.zig") == null);
+
+    applyHunkLine(&model, .{ .key = hunk_key, .line = "diff --git a/src/a.zig b/src/a.zig\n" });
+    applyHunkLine(&model, .{ .key = hunk_key, .line = "--- a/src/a.zig\n+++ b/src/a.zig\n@@ -1 +1 @@\n-old\n+new\n" });
+    handleHunkExit(&model, &fx, .{ .key = hunk_key, .reason = .exited, .code = 0 });
+    try std.testing.expect(hasReviewDiffHunk(&model));
+    try std.testing.expect(!hasReviewDiffHunkStatus(&model));
+    try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "diff --git a/src/a.zig b/src/a.zig") != null);
+    try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "+new") != null);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_hunk_key);
+
+    selectFile(&model, &fx, 2);
+    try std.testing.expectEqual(@as(u32, 2), model.review_diff_selected_id);
+    try std.testing.expect(!hasReviewDiffHunk(&model));
+    try std.testing.expect(model.review_diff_hunk_key != hunk_key);
+    const empty_key = model.review_diff_hunk_key;
+    const empty_argv = findSpawnArgv(&fx, empty_key) orelse return error.MissingEmptyHunkArgv;
+    try std.testing.expectEqualStrings("new.txt", empty_argv[9]);
+    handleHunkExit(&model, &fx, .{ .key = empty_key, .reason = .exited, .code = 0 });
+    try std.testing.expect(!hasReviewDiffHunk(&model));
+    try std.testing.expectEqualStrings(hunk_empty_status, reviewDiffHunkStatus(&model));
+
+    selectFile(&model, &fx, 1);
+    const fail_key = model.review_diff_hunk_key;
+    applyHunkLine(&model, .{ .key = fail_key, .line = "should-drop\n" });
+    handleHunkExit(&model, &fx, .{ .key = fail_key, .reason = .exited, .code = 128 });
+    try std.testing.expect(!hasReviewDiffHunk(&model));
+    try std.testing.expectEqualStrings(hunk_failed_status, reviewDiffHunkStatus(&model));
+
+    selectFile(&model, &fx, 1);
+    const cap_key = model.review_diff_hunk_key;
+    var i: usize = 0;
+    while (i < max_review_diff_hunk_lines + 8) : (i += 1) {
+        var line_buf: [24]u8 = undefined;
+        const line = try std.fmt.bufPrint(&line_buf, "+line-{d}", .{i});
+        applyHunkLine(&model, .{ .key = cap_key, .line = line });
+    }
+    try std.testing.expectEqual(@as(u32, max_review_diff_hunk_lines), model.review_diff_hunk_line_count);
+    handleHunkExit(&model, &fx, .{ .key = cap_key, .reason = .exited, .code = 0 });
+    try std.testing.expect(hasReviewDiffHunk(&model));
+    try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "+line-0") != null);
+    try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "+line-160") == null);
+}
+
+test "clicking a ? untracked row does not spawn a hunk argv or invent a patch" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/review-hunk-untracked", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("review hunk untracked", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    open(&model, &fx);
+    setSource(&model, &fx, .uncommitted);
+    const name_key = model.review_diff_key;
+    applyLine(&model, .{ .key = name_key, .line = "M\ttracked.zig\n?\tnew file.txt\n" });
+    handleExit(&model, &fx, .{ .key = name_key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
+    try std.testing.expectEqual(@as(u8, '?'), model.review_diff_file_store[1].status);
+
+    const before = fx.pendingSpawnCount();
+    selectFile(&model, &fx, 2);
+    try std.testing.expectEqual(@as(u32, 2), model.review_diff_selected_id);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_hunk_key);
+    try std.testing.expectEqual(before, fx.pendingSpawnCount());
+    try std.testing.expect(!hasReviewDiffHunk(&model));
+    try std.testing.expectEqualStrings(hunk_failed_status, reviewDiffHunkStatus(&model));
+    try std.testing.expect(findSpawnArgv(&fx, review_diff_hunk_key_first) == null);
+
+    selectFile(&model, &fx, 1);
+    try std.testing.expectEqual(@as(u32, 1), model.review_diff_selected_id);
+    try std.testing.expect(model.review_diff_hunk_key >= review_diff_hunk_key_first);
+    const tracked_argv = findSpawnArgv(&fx, model.review_diff_hunk_key) orelse return error.MissingTrackedHunk;
+    try std.testing.expect(isGitReviewHunkArgv(tracked_argv));
+    try std.testing.expectEqualStrings(git_head, tracked_argv[7]);
+    try std.testing.expectEqualStrings("tracked.zig", tracked_argv[9]);
+}
+
+test "source switch and dismiss cancel in-flight hunk spawn" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/review-hunk-cancel", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("review hunk cancel", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    _ = try openWithFiles(&model, &fx, "M\tsrc/a.zig\n");
+    selectFile(&model, &fx, 1);
+    const hunk_key = model.review_diff_hunk_key;
+    try std.testing.expect(hunk_key >= review_diff_hunk_key_first);
+    applyHunkLine(&model, .{ .key = hunk_key, .line = "partial\n" });
+    try std.testing.expect(hasReviewDiffHunk(&model));
+
+    setSource(&model, &fx, .staged);
+    try std.testing.expectEqual(Source.staged, model.review_diff_source);
+    try std.testing.expectEqual(@as(u32, 0), model.review_diff_selected_id);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_hunk_key);
+    try std.testing.expect(!hasReviewDiffHunk(&model));
+    try std.testing.expect(!hasReviewDiffHunkStatus(&model));
+    applyHunkLine(&model, .{ .key = hunk_key, .line = "should-ignore\n" });
+    try std.testing.expect(!hasReviewDiffHunk(&model));
+    handleHunkExit(&model, &fx, .{ .key = hunk_key, .reason = .exited, .code = 0 });
+    try std.testing.expect(!hasReviewDiffHunk(&model));
+    try std.testing.expectEqual(Source.staged, model.review_diff_source);
+
+    applyLine(&model, .{ .key = model.review_diff_key, .line = "A\tstaged.zig\n" });
+    handleExit(&model, &fx, .{ .key = model.review_diff_key, .reason = .exited, .code = 0 });
+    selectFile(&model, &fx, 1);
+    const again = model.review_diff_hunk_key;
+    try std.testing.expect(again != hunk_key);
+    const staged_argv = findSpawnArgv(&fx, again) orelse return error.MissingStagedHunk;
+    try std.testing.expectEqualStrings(git_cached_flag, staged_argv[7]);
+
+    dismiss(&model, &fx);
+    try std.testing.expect(!model.review_diff_active);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_hunk_key);
+    try std.testing.expectEqual(@as(u32, 0), model.review_diff_selected_id);
+    try std.testing.expect(!hasReviewDiffHunk(&model));
+    applyHunkLine(&model, .{ .key = again, .line = "after-dismiss\n" });
+    handleHunkExit(&model, &fx, .{ .key = again, .reason = .exited, .code = 0 });
+    try std.testing.expect(!hasReviewDiffHunk(&model));
+    try std.testing.expect(!model.review_diff_active);
+}
+
+test "Committed hunk uses the range that already succeeded" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/review-hunk-committed", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const sid = model.addSession("review hunk committed", .fx);
+    model.selected = sid;
+    if (model.sessionById(sid)) |session| session.setProjectPath(project);
+
+    open(&model, &fx);
+    setSource(&model, &fx, .committed);
+    try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
+    const origin_key = model.review_diff_key;
+    handleExit(&model, &fx, .{ .key = origin_key, .reason = .exited, .code = 128 });
+    try std.testing.expectEqual(CommittedRange.main, model.review_diff_committed_range);
+    applyLine(&model, .{ .key = model.review_diff_key, .line = "M\tcommitted.zig\n" });
+    handleExit(&model, &fx, .{ .key = model.review_diff_key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(CommittedRange.main, model.review_diff_committed_range);
+
+    selectFile(&model, &fx, 1);
+    const hunk_key = model.review_diff_hunk_key;
+    const hunk_argv = findSpawnArgv(&fx, hunk_key) orelse return error.MissingCommittedHunk;
+    try std.testing.expect(isGitReviewHunkArgv(hunk_argv));
+    try std.testing.expectEqualStrings(git_committed_range_main, hunk_argv[7]);
+    try std.testing.expectEqualStrings(git_pathspec_end, hunk_argv[8]);
+    try std.testing.expectEqualStrings("committed.zig", hunk_argv[9]);
+    try std.testing.expect(std.mem.indexOf(u8, hunk_argv[2], git_committed_range_main) == null);
+    try std.testing.expect(std.mem.indexOf(u8, hunk_argv[2], git_committed_range) == null);
 }
