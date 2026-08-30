@@ -15,6 +15,7 @@ const git_checkout = @import("git_checkout.zig");
 const git_commit = @import("git_commit.zig");
 const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
+const skills = @import("skills.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -58,6 +59,7 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
         return;
     }
     if (model.settings_open) {
+        skills.close(model, fx);
         model.closeSettings();
         return;
     }
@@ -130,8 +132,13 @@ pub fn handleToggleGoalStatusPicker(model: *Model) void {
 }
 
 pub fn handleToggleSettings(model: *Model, fx: *Effects) void {
-    if (!model.settings_open) review_diff.close(model, fx);
-    model.toggleSettings();
+    if (model.settings_open) {
+        skills.close(model, fx);
+        model.closeSettings();
+        return;
+    }
+    review_diff.close(model, fx);
+    model.openSettings();
 }
 
 pub fn handleSettingsModelEdit(model: *Model, edit: canvas.TextInputEvent) void {
@@ -186,6 +193,28 @@ pub fn handleToggleSettingsEffortPicker(model: *Model) void {
 pub fn handlePickSettingsEffort(model: *Model, id: []const u8) void {
     model.pickSettingsEffort(id);
     store.persistSettingsIfPossible(model);
+}
+
+pub fn handleSetSettingsPageGeneral(model: *Model) void {
+    model.settings_page = .general;
+}
+
+pub fn handleSetSettingsPageSkills(model: *Model, fx: *Effects) void {
+    model.settings_page = .skills;
+    skills.refresh(model, fx);
+}
+
+pub fn handleRefreshSkills(model: *Model, fx: *Effects) void {
+    if (model.settings_page != .skills) return;
+    skills.refresh(model, fx);
+}
+
+pub fn handleSkillsFilterEdit(model: *Model, edit: canvas.TextInputEvent) void {
+    model.applySkillsFilter(edit);
+}
+
+pub fn handleSelectSkill(model: *Model, id: u32) void {
+    skills.selectSkill(model, id);
 }
 
 pub fn handleCycleAccess(model: *Model, fx: *Effects) void {

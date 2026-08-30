@@ -29,6 +29,7 @@ const git_common_dir = @import("git_common_dir.zig");
 const git_commit = @import("git_commit.zig");
 const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
+const skills = @import("skills.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
@@ -95,6 +96,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
     }
     if (model.file_mention_key != 0 and line.key == model.file_mention_key) {
         file_mention.applyLine(model, line);
+        return;
+    }
+    if (model.skill_key != 0 and line.key == model.skill_key) {
+        skills.applyLine(model, line);
         return;
     }
     if (model.git_push_key != 0 and line.key == model.git_push_key) {
@@ -500,6 +505,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.file_mention_key != 0 and exit.key == model.file_mention_key) {
         file_mention.handleExit(model, fx, exit);
+        return;
+    }
+    if (model.skill_key != 0 and exit.key == model.skill_key) {
+        skills.handleExit(model, fx, exit);
         return;
     }
     if (exit.key == maximize_window_key) {

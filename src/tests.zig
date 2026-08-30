@@ -24,6 +24,7 @@ const git_common_dir = @import("git_common_dir.zig");
 const git_commit = @import("git_commit.zig");
 const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
+const skills = @import("skills.zig");
 const keys = @import("keys.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 const goal = @import("goal.zig");
@@ -9722,6 +9723,132 @@ test "settings gear opens the panel; Esc and gear return to the session" {
     _ = try expectByText(tree.root, .button, "Send");
     _ = try expectByText(tree.root, .text, "Today");
     try testing.expect(findByText(tree.root, .text, "Default model") == null);
+}
+
+test "settings General and Skills pages switch; Skills empty without a project" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expect(model.settings_page_general());
+    try testing.expect(!model.settings_page_skills());
+
+    var tree = try buildTree(arena, &model);
+    const general = try expectButtonMsg(tree, "General", .set_settings_page_general);
+    try testing.expect(general.state.selected);
+    const skills_tab = try expectButtonMsg(tree, "Skills", .set_settings_page_skills);
+    try testing.expect(!skills_tab.state.selected);
+    _ = try expectByText(tree.root, .text, "Default model");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
+    try testing.expect(findByText(tree.root, .button, "Refresh") == null);
+    try testing.expect(findByText(tree.root, .text, "Open a project") == null);
+
+    main.update(&model, tree.msgForPointer(skills_tab.id, .up).?, &fx);
+    try testing.expect(model.settings_page_skills());
+    try testing.expect(!model.settings_page_general());
+    try testing.expectEqual(@as(u32, 0), model.skill_count);
+
+    tree = try buildTree(arena, &model);
+    const general_off = try expectButtonMsg(tree, "General", .set_settings_page_general);
+    try testing.expect(!general_off.state.selected);
+    const skills_on = try expectButtonMsg(tree, "Skills", .set_settings_page_skills);
+    try testing.expect(skills_on.state.selected);
+    _ = try expectButtonMsg(tree, "Refresh", .refresh_skills);
+    try testing.expect(findByText(tree.root, .text, "Default model") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") != null);
+    _ = try expectByText(tree.root, .text, "Open a project");
+
+    main.update(&model, .set_settings_page_general, &fx);
+    try testing.expect(model.settings_page_general());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Default model");
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(!model.settings_open);
+    try testing.expect(model.settings_page_general());
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expect(model.settings_page_general());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Default model");
+    const general_again = try expectButtonMsg(tree, "General", .set_settings_page_general);
+    try testing.expect(general_again.state.selected);
+}
+
+test "settings Skills lists SKILL.md name and path; select shows body" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-ui", .{tmp.sub_path[0..]});
+    var skill_dir_buf: [256]u8 = undefined;
+    const skill_dir = try std.fmt.bufPrint(&skill_dir_buf, "{s}/.cursor/skills/demo", .{project});
+    try std.Io.Dir.cwd().createDirPath(testing.io, skill_dir);
+    var file_buf: [256]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/SKILL.md", .{skill_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = file_path,
+        .data =
+        \\---
+        \\name: demo-skill
+        \\---
+        \\
+        \\Use this skill.
+        \\
+        ,
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("skills ui", .fx);
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(project);
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_skills, &fx);
+    try testing.expect(model.settings_page_skills());
+    try testing.expect(model.skill_key >= main.skills_key_first);
+    var i: usize = 0;
+    var spawn = fx.pendingSpawnAt(0);
+    while (spawn) |item| : (i += 1) {
+        if (item.key == model.skill_key and skills.isSkillsWalkArgv(item.argv)) break;
+        spawn = fx.pendingSpawnAt(i + 1);
+    }
+    try testing.expect(spawn != null);
+    try testing.expect(skills.isSkillsWalkArgv(spawn.?.argv));
+    try testing.expectEqualStrings(project, spawn.?.argv[4]);
+
+    skills.applyStdoutPaths(&model, ".cursor/skills/demo/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 1), model.skill_count);
+    try testing.expectEqualStrings("demo-skill", skills.cachedName(&model, 0));
+
+    var tree = try buildTree(arena, &model);
+    const row = try expectByText(tree.root, .list_item, "demo-skill");
+    try testing.expectEqual(Msg{ .select_skill = 1 }, tree.msgForPointer(row.id, .up).?);
+    _ = try expectByText(tree.root, .text, "demo-skill");
+    _ = try expectByText(tree.root, .text, ".cursor/skills/demo/SKILL.md");
+    try testing.expect(findByText(tree.root, .text, "Use this skill.") == null);
+
+    main.update(&model, .{ .select_skill = 1 }, &fx);
+    try testing.expectEqual(@as(u32, 1), model.skill_selected_id);
+    try testing.expectEqualStrings("Use this skill.", model.skill_body());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Use this skill.");
 }
 
 test "settings edits persist model access and daemon address and reload" {

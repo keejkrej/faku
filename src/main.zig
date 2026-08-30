@@ -57,6 +57,7 @@ const git_commit = @import("git_commit.zig");
 const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
+const skills = @import("skills.zig");
 const util = @import("util.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
@@ -340,6 +341,10 @@ pub const review_diff_key_first = review_diff.review_diff_key_first;
 /// Distinct from name-status 510+. Band is 520+. Incremented
 /// per file click from `review_diff_hunk_key_first`.
 pub const review_diff_hunk_key_first = review_diff.review_diff_hunk_key_first;
+/// One-shot Settings Skills `find` for `SKILL.md`. Distinct from
+/// review hunk (520+). Band is 530+. Incremented per scan from
+/// `skills_key_first`.
+pub const skills_key_first = skills.skills_key_first;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
 pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_status;
@@ -403,6 +408,7 @@ pub const paletteActionId = palette.paletteActionId;
 pub const QueuedMessage = model_mod.QueuedMessage;
 pub const QueuedRow = model_mod.QueuedRow;
 pub const RightPanelFileRow = model_mod.RightPanelFileRow;
+pub const SkillRow = model_mod.SkillRow;
 pub const Msg = model_mod.Msg;
 pub const Model = model_mod.Model;
 
@@ -516,6 +522,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .toggle_settings_effort_picker => settings_actions.handleToggleSettingsEffortPicker(model),
         .close_settings_effort_picker => model.closeSettingsEffortPicker(),
         .pick_settings_effort => |id| settings_actions.handlePickSettingsEffort(model, id),
+        .set_settings_page_general => settings_actions.handleSetSettingsPageGeneral(model),
+        .set_settings_page_skills => settings_actions.handleSetSettingsPageSkills(model, fx),
+        .refresh_skills => settings_actions.handleRefreshSkills(model, fx),
+        .skills_filter_edit => |edit| settings_actions.handleSkillsFilterEdit(model, edit),
+        .select_skill => |id| settings_actions.handleSelectSkill(model, id),
         .cycle_access => settings_actions.handleCycleAccess(model, fx),
         .cycle_interaction => settings_actions.handleCycleInteraction(model, fx),
         .cycle_effort => settings_actions.handleCycleEffort(model, fx),
@@ -849,6 +860,7 @@ test {
     _ = @import("git_toplevel.zig");
     _ = @import("git_common_dir.zig");
     _ = @import("file_mention.zig");
+    _ = @import("skills.zig");
     _ = @import("environment_summary.zig");
     _ = @import("review_diff.zig");
     _ = @import("util.zig");
