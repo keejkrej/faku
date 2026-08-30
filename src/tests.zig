@@ -5965,8 +5965,20 @@ test "Send names the worktree snapshot under refs/faku" {
     const first_end = checkpoint.formatFakuSessionTurnRef(&first_end_buf, id, 1) orelse return error.MissingFakuRef;
     try testing.expect(!checkpoint.hasFakuRef(allocator, testing.io, project, first_end));
 
+    var mid_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const mid = try std.fmt.bufPrint(&mid_buf, "{s}{s}midstream.txt", .{ project, std.fs.path.sep_str });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = mid, .data = "during\n" });
+
     try fx.feedExit(main.fx_ask_key, 0);
     drainEffects(&model, &fx);
+
+    try testing.expect(checkpoint.hasFakuRef(allocator, testing.io, project, first_end));
+    const first_end_parsed = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "rev-parse", first_end });
+    defer allocator.free(first_end_parsed);
+    const first_end_sha = std.mem.trim(u8, first_end_parsed, " \r\n\t");
+    try testing.expect(rewind.isStoredSha(first_end_sha));
+    try testing.expect(!std.mem.eql(u8, first_owned, first_end_sha));
+    try testing.expectEqualStrings(first_owned, model.sessionById(id).?.worktreeSnapshotSha());
 
     var extra_buf: [std.fs.max_path_bytes]u8 = undefined;
     const extra = try std.fmt.bufPrint(&extra_buf, "{s}{s}later.txt", .{ project, std.fs.path.sep_str });
@@ -5985,9 +5997,9 @@ test "Send names the worktree snapshot under refs/faku" {
     try testing.expectEqualStrings(second_owned, std.mem.trim(u8, second_parsed, " \r\n\t"));
 
     try testing.expect(checkpoint.hasFakuRef(allocator, testing.io, project, first_end));
-    const seeded_end = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "rev-parse", first_end });
-    defer allocator.free(seeded_end);
-    try testing.expectEqualStrings(second_owned, std.mem.trim(u8, seeded_end, " \r\n\t"));
+    const first_end_again = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "rev-parse", first_end });
+    defer allocator.free(first_end_again);
+    try testing.expectEqualStrings(first_end_sha, std.mem.trim(u8, first_end_again, " \r\n\t"));
 
     var second_end_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
     const second_end = checkpoint.formatFakuSessionTurnRef(&second_end_buf, id, 2) orelse return error.MissingFakuRef;
@@ -6000,6 +6012,29 @@ test "Send names the worktree snapshot under refs/faku" {
     const baseline_again = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "rev-parse", first_baseline });
     defer allocator.free(baseline_again);
     try testing.expectEqualStrings(first_owned, std.mem.trim(u8, baseline_again, " \r\n\t"));
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "queued next" } }, &fx);
+    main.update(&model, .send, &fx);
+    try fx.feedExit(main.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(checkpoint.hasFakuRef(allocator, testing.io, project, second_end));
+    const second_end_parsed = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "rev-parse", second_end });
+    defer allocator.free(second_end_parsed);
+    try testing.expect(rewind.isStoredSha(std.mem.trim(u8, second_end_parsed, " \r\n\t")));
+    try testing.expect(model.is_streaming());
+    const third_owned = try allocator.dupe(u8, model.sessionById(id).?.worktreeSnapshotSha());
+    defer allocator.free(third_owned);
+    try testing.expect(rewind.isStoredSha(third_owned));
+    var third_start_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const third_start = checkpoint.formatFakuSessionTurnStartRef(&third_start_buf, id, 3) orelse return error.MissingFakuRef;
+    try testing.expect(checkpoint.hasFakuRef(allocator, testing.io, project, third_start));
+    var third_end_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const third_end = checkpoint.formatFakuSessionTurnRef(&third_end_buf, id, 3) orelse return error.MissingFakuRef;
+    try testing.expect(!checkpoint.hasFakuRef(allocator, testing.io, project, third_end));
+    main.update(&model, .stop, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expect(!checkpoint.hasFakuRef(allocator, testing.io, project, third_end));
+    try testing.expectEqualStrings(third_owned, model.sessionById(id).?.worktreeSnapshotSha());
 }
 
 test "failed update-ref leaves the stored worktree snapshot sha" {

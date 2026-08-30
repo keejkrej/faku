@@ -28,13 +28,16 @@
 //! worktree snapshot (`worktree_snapshot_sha`, isolated index,
 //! dangling commit named
 //! `refs/faku/session-{id}-turn-start-{n}`, plus
-//! `turn-{n-1}` when that baseline is missing) so
+//! `turn-{n-1}` when that baseline is missing; successful
+//! finish also names a NEW snapshot `turn-{n}`) so
 //! the live dirty/untracked worktree is the right side. Compare
-//! still uses the stored 40-hex, not the ref. Missing snapshot
+//! still uses the stored 40-hex, not the ref, and not a
+//! start…end range. Missing snapshot
 //! falls back to send-time rewind sha
 //! `git diff --name-status <sha>...HEAD` (`latestRewindSha`
 //! / `rewind_refs`). Not `HEAD~1`, not `refs/waku/`.
-//! Turn-end `turn-{n}` is leftover. Missing both does not
+//! Turn-end `turn-{n}` is captured at successful finish.
+//! Missing both does not
 //! spawn and stays `Could not compare.` (no main/master
 //! fallback). The chosen operand lives on the model so hunk
 //! clicks reuse it if `rewind_refs` later change.
@@ -68,7 +71,7 @@
 //! syntax highlighting, no gap expansion, no right-panel Diff
 //! tab, no force, no background work, no `refs/waku/` Compare
 //! operand (LastTurn uses the stored 40-hex), no
-//! turn-end capture, and
+//! LastTurn start…end range, and
 //! not daemon WorkspaceOperation.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped

@@ -36,7 +36,8 @@ dangling commit named
 `git update-ref`, plus `turn-{n-1}` when that
 baseline is missing; Compare still uses the stored
 40-hex, not the ref; rewind `<sha>...HEAD` fallback;
-not `refs/waku/`; turn-end `turn-{n}` is leftover; not
+not `refs/waku/`; turn-end `turn-{n}` is captured at
+successful finish; LastTurn does not use start…end; not
 HEAD~1);
 cap 64; empty is
 `No changes to compare`; clicking a tracked file one-shots
@@ -528,13 +529,15 @@ dangling commit named
 `git update-ref`, plus `turn-{n-1}` when that
 baseline is missing; Compare still uses the stored
 40-hex, not the ref; rewind `<sha>...HEAD` fallback;
-not `refs/waku/`; turn-end `turn-{n}` is leftover; not
+not `refs/waku/`; turn-end `turn-{n}` is captured at
+successful finish; LastTurn does not use start…end; not
 HEAD~1); clicking a
 tracked file one-shots `git diff` for
 that path; Uncommitted `?` rows one-shot
 `git diff --no-index -- /dev/null <path>`). Leftovers: force /
 daemon `WorkspaceOperation` / background work /
-turn-end capture (`turn-{n}` at finish).
+parents/metadata in the commit message / LastTurn
+start…end range.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and
 git-common-dir path
@@ -747,8 +750,12 @@ dangling commit named `refs/faku/session-{id}-turn-start-{n}`
 via `git update-ref`, plus `turn-{n-1}` when that baseline
 is missing; `{n}` is the 1-based prompt ordinal
 `turnCount/2 + 1` at Send; the ref is not stored on
-`sessions.json`). Failed update-ref is quiet and does not
-clear the stored sha. Turn-end `turn-{n}` is leftover. Rewind undoes the last turn's files and those chat turns. When a
+`sessions.json`). A successful finish captures a NEW isolated
+snapshot as `refs/faku/session-{id}-turn-{n}` (`turnCount/2`
+after the user+assistant pair is appended) and does not
+overwrite `worktree_snapshot_sha`. Failed update-ref is quiet
+and does not clear the stored sha. LastTurn still uses the
+send-time 40-hex, not a start…end range. Rewind undoes the last turn's files and those chat turns. When a
 worktree snapshot is stored, Rewind `restoreRef`s that 40-hex
 (`git restore --source <sha> --worktree --staged -- .`,
 `git clean -fd -- .`, then `git reset --quiet -- .` when HEAD

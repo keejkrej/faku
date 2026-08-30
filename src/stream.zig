@@ -2,7 +2,11 @@
 //!
 //! `handleSend` / `handleSteer`, demo `tickStream`, finish drain +
 //! queued restart, `stopStream` cancels, and daemon steer/cancel
-//! one-shots live here. Prompt spawn stays in `spawn.zig`. Line
+//! one-shots live here. Successful `finishStream` (`drain == true`)
+//! captures turn-end `refs/faku/session-{id}-turn-{n}` via
+//! `fork.recordTurnEndIfPossible` after streaming state is
+//! cleared and before persist / queued restart. Cancel /
+//! `stopStream` does not. Prompt spawn stays in `spawn.zig`. Line
 //! handlers live in `lines.zig`. Behavior is unchanged from the
 //! former `main` stream helpers.
 
@@ -12,6 +16,7 @@ const protocol = @import("protocol.zig");
 const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const prompt_spawn = @import("spawn.zig");
+const session_fork = @import("fork.zig");
 const copy_helpers = @import("copy.zig");
 const attach_helpers = @import("attach.zig");
 
@@ -97,6 +102,7 @@ pub fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
     if (drain) {
+        session_fork.recordTurnEndIfPossible(model, finished_id);
         copy_helpers.notifyTurnComplete(model, fx, finished_id);
         var copy: [max_queued_text]u8 = undefined;
         if (model.takeNextQueued(finished_id, &copy)) |n| {
