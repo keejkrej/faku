@@ -311,12 +311,16 @@ test "compare no-ops the Review card when streaming or a git mutation is in flig
     compare(&model, &fx);
     try std.testing.expect(!model.environment_summary_open);
     try std.testing.expect(!model.review_diff_active);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.diff, model.right_panel_tab);
     model.phase = .idle;
 
     model.environment_summary_open = true;
     model.git_push_key = @import("git_checkout.zig").git_push_key_first;
     compare(&model, &fx);
     try std.testing.expect(!model.review_diff_active);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.diff, model.right_panel_tab);
 }
 
 test "copyTaskId writes the local session id and no-ops without a selection" {

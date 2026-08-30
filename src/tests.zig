@@ -17827,9 +17827,12 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     model.selected = first;
     main.update(&model, .environment_compare, &fx);
     try testing.expect(model.review_diff_active);
+    const streaming_key = model.review_diff_key;
     model.phase = .streaming;
     main.update(&model, .environment_compare, &fx);
-    try testing.expect(!model.review_diff_active);
+    try testing.expect(model.review_diff_active);
+    try testing.expectEqual(streaming_key, model.review_diff_key);
+    try testing.expect(model.right_panel_tab_diff());
 }
 
 test "Environment Compare without a workspace shows No workspace and invents no files" {
