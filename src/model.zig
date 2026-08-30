@@ -50,7 +50,9 @@ const max_command_name = session_mod.max_command_name;
 const PaletteRow = palette.PaletteRow;
 const slashCommandPrefix = composer.slashCommandPrefix;
 const fileMentionQuery = composer.fileMentionQuery;
+const skillQuery = composer.skillQuery;
 const replaceMentionToken = composer.replaceMentionToken;
+const replaceSkillToken = composer.replaceSkillToken;
 const accessLabel = composer.accessLabel;
 const effortLabel = composer.effortLabel;
 const nextAccessMode = composer.nextAccessMode;
@@ -274,8 +276,9 @@ pub const RightPanelFileRow = struct {
 };
 
 /// Settings Skills row. `id` is a 1-based index into the runtime
-/// `SKILL.md` cache so Native `select_skill:{k.id}` never binds 0
-/// and a filtered click still selects that path, not a neighbor.
+/// `SKILL.md` cache so Native `select_skill:{k.id}` /
+/// `insert_skill:{sk.id}` never binds 0 and a filtered click still
+/// targets that path, not a neighbor.
 pub const SkillRow = struct {
     id: u32,
     name: []const u8,
@@ -342,7 +345,7 @@ pub const Msg = union(enum) {
     search_edit: canvas.TextInputEvent,
     find_edit: canvas.TextInputEvent,
     draft_edit: canvas.TextInputEvent,
-    /// Composer Enter: confirm the open `@` / slash card, else send.
+    /// Composer Enter: confirm the open `@` / `$` / slash card, else send.
     composer_enter,
     send,
     steer,
@@ -482,6 +485,8 @@ pub const Msg = union(enum) {
     insert_command: u32,
     /// Composer `@` mention: replace the last `@query` token. Not ACP.
     insert_mention: u32,
+    /// Composer `$` skill: replace the last `$query` token. Not ACP.
+    insert_skill: u32,
     rewind,
     fork,
     fork_turn: u32,
@@ -653,8 +658,8 @@ pub const Model = struct {
     settings_daemon_buffer: canvas.TextBuffer(max_daemon_address) = .{},
     /// Runtime-only Skills list filter. Not persisted.
     skills_filter_buffer: canvas.TextBuffer(max_search) = .{},
-    /// Runtime-only `SKILL.md` cache for Settings → Skills.
-    /// Bounded find; not persisted to sessions.json.
+    /// Runtime-only `SKILL.md` cache for Settings → Skills and composer
+    /// `$` insert. Bounded find; not persisted to sessions.json.
     skill_store: [skills.max_skills]skills.CachedSkill = [_]skills.CachedSkill{.{}} ** skills.max_skills,
     skill_count: u32 = 0,
     skill_key: u64 = 0,
@@ -1324,6 +1329,8 @@ pub const Model = struct {
         "toggleCommands",
         "closeCommands",
         "insertAvailableCommand",
+        "insertAvailableSkill",
+        "maybeEnsureSkillsScanned",
         "switcher_ids",
         "switcher_count",
         "switcher_highlight",
@@ -1744,7 +1751,7 @@ pub const Model = struct {
     }
 
     pub fn mention_rows(model: *const Model, arena: std.mem.Allocator) []const MentionRow {
-        if (model.commands_list_open()) return &.{};
+        if (model.commands_list_open() or model.skills_list_open()) return &.{};
         const query = fileMentionQuery(model.draft()) orelse return &.{};
         if (model.file_mention_count == 0) return &.{};
 
@@ -2066,13 +2073,66 @@ pub const Model = struct {
         return model.commands_list_open() and !model.commands_open;
     }
 
-    /// `@` mention card. Hidden when slash commands are open, the
-    /// caret-at-end parser sees no mention, the cache is empty, the
-    /// filter has no matches, or Esc dismissed the current draft.
-    /// No placeholders.
-    pub fn mentions_list_open(model: *const Model) bool {
+    /// Composer `$` skill card. Hidden when slash commands are open, the
+    /// caret-at-end parser sees no `$` query, Esc dismissed the current
+    /// draft, or a non-empty filter has no name/path matches. Empty
+    /// cache while the find is in flight still opens so the empty hint
+    /// can show.
+    pub fn skills_list_open(model: *const Model) bool {
         if (model.autocomplete_dismissed) return false;
         if (model.commands_list_open()) return false;
+        const query = skillQuery(model.draft()) orelse return false;
+        if (hasSkillInsertMatch(model, query)) return true;
+        return model.skill_count == 0 and model.skill_key != 0;
+    }
+
+    pub fn skill_insert_rows(model: *const Model, arena: std.mem.Allocator) []const SkillRow {
+        if (model.commands_list_open()) return &.{};
+        const query = skillQuery(model.draft()) orelse return &.{};
+        var count: usize = 0;
+        var i: usize = 0;
+        while (i < model.skill_count) : (i += 1) {
+            if (!skillRowMatches(&model.skill_store[i], query)) continue;
+            count += 1;
+        }
+        if (count == 0) return &.{};
+        const out = arena.alloc(SkillRow, count) catch return &.{};
+        var n: usize = 0;
+        i = 0;
+        while (i < model.skill_count) : (i += 1) {
+            if (!skillRowMatches(&model.skill_store[i], query)) continue;
+            out[n] = .{
+                .id = skills.skillId(i),
+                .name = model.skill_store[i].name(),
+                .path = model.skill_store[i].path(),
+                .selected = false,
+            };
+            n += 1;
+        }
+        const highlight = model.clampedAutocompleteHighlight(n);
+        for (out[0..n], 0..) |*row, index| {
+            row.selected = index == highlight;
+        }
+        return out[0..n];
+    }
+
+    pub fn skills_insert_empty(model: *const Model) bool {
+        if (!model.skills_list_open()) return false;
+        const query = skillQuery(model.draft()) orelse return true;
+        return !hasSkillInsertMatch(model, query);
+    }
+
+    pub fn skills_insert_hint(model: *const Model) []const u8 {
+        return skills.emptyHint(model);
+    }
+
+    /// `@` mention card. Hidden when slash commands or `$` skills are
+    /// open, the caret-at-end parser sees no mention, the cache is
+    /// empty, the filter has no matches, or Esc dismissed the current
+    /// draft. No placeholders.
+    pub fn mentions_list_open(model: *const Model) bool {
+        if (model.autocomplete_dismissed) return false;
+        if (model.commands_list_open() or model.skills_list_open()) return false;
         const query = fileMentionQuery(model.draft()) orelse return false;
         return hasFileMentionMatch(model, query);
     }
@@ -3263,9 +3323,23 @@ pub const Model = struct {
         model.autocomplete_dismissed = false;
     }
 
-    /// Confirm the highlighted `@` / slash row (first visible row in
-    /// this cut). `false` when neither card is open or the open card
-    /// has no rows.
+    /// Replace the last `$query` token with `$name ` from the runtime
+    /// SKILL.md cache. Writes the composer draft only — no spawn, no
+    /// SKILL.md body stuffing. Focuses the composer.
+    pub fn insertAvailableSkill(model: *Model, id: u32) void {
+        if (id == 0 or id > model.skill_count) return;
+        const name = model.skill_store[id - 1].name();
+        if (name.len == 0) return;
+        var buf: [max_draft]u8 = undefined;
+        const text = replaceSkillToken(model.draft(), name, &buf) orelse return;
+        model.draft_buffer.set(text);
+        model.composer_active = true;
+        model.autocomplete_dismissed = false;
+    }
+
+    /// Confirm the highlighted `@` / `$` / slash row (first visible
+    /// row in this cut). `false` when neither card is open or the open
+    /// card has no rows.
     pub fn insertHighlightedAutocomplete(model: *Model) bool {
         var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena_state.deinit();
@@ -3276,6 +3350,12 @@ pub const Model = struct {
             model.insertAvailableCommand(rows[model.clampedAutocompleteHighlight(rows.len)].id);
             return true;
         }
+        if (model.skills_list_open()) {
+            const rows = model.skill_insert_rows(arena);
+            if (rows.len == 0) return false;
+            model.insertAvailableSkill(rows[model.clampedAutocompleteHighlight(rows.len)].id);
+            return true;
+        }
         if (model.mentions_list_open()) {
             const rows = model.mention_rows(arena);
             if (rows.len == 0) return false;
@@ -3283,6 +3363,14 @@ pub const Model = struct {
             return true;
         }
         return false;
+    }
+
+    /// Scan project SKILL.md when the composer `$` query is active.
+    /// No-op without a `$` token or when `ensureScanned` already holds
+    /// the current probe path.
+    pub fn maybeEnsureSkillsScanned(model: *Model, fx: *main.Effects) void {
+        if (skillQuery(model.draft()) == null) return;
+        skills.ensureScanned(model, fx);
     }
 
     pub fn lastSpawnImagePath(model: *const Model) []const u8 {
@@ -3760,6 +3848,15 @@ fn hasFileMentionMatch(model: *const Model, query: []const u8) bool {
     if (model.file_mention_count == 0) return false;
     for (model.file_mention_store[0..model.file_mention_count]) |*item| {
         if (composer.fileMentionScore(item.text(), query) > 0) return true;
+    }
+    return false;
+}
+
+fn hasSkillInsertMatch(model: *const Model, query: []const u8) bool {
+    if (model.skill_count == 0) return false;
+    var i: usize = 0;
+    while (i < model.skill_count) : (i += 1) {
+        if (skillRowMatches(&model.skill_store[i], query)) return true;
     }
     return false;
 }

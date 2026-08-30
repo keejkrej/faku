@@ -476,6 +476,23 @@
                 </column>
               </card>
             </if>
+            <if test="{skills_list_open}">
+              <card size="sm" padding="10">
+                <column gap="2">
+                  <if test="{skills_insert_empty}">
+                    <text foreground="text_muted">{skills_insert_hint}</text>
+                  </if>
+                  <for each="skill_insert_rows" key="id" as="sk">
+                    <list-item height="44" selected="{sk.selected}" on-press="insert_skill:{sk.id}" label="{sk.name}">
+                      <column gap="2" padding="4">
+                        <text>{sk.name}</text>
+                        <text foreground="text_muted">{sk.path}</text>
+                      </column>
+                    </list-item>
+                  </for>
+                </column>
+              </card>
+            </if>
             <if test="{mentions_list_open}">
               <card size="sm" padding="10">
                 <column gap="2">

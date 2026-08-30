@@ -1,16 +1,20 @@
-//! Settings Skills first-cut: bounded `SKILL.md` scan + light YAML name.
+//! Settings Skills + composer `$` insert: bounded `SKILL.md` scan.
 //!
-//! Native has no FS watcher. When Settings opens the Skills page, Faku
-//! one-shots a packed `find` for `SKILL.md` through the same
-//! `/bin/sh -c` chdir workaround `fx ask` uses (`fx_ask_chdir_script`).
-//! Scan root is the selected session `project_path` when that directory
-//! exists, else settings `last_project_path`. Skip `node_modules` /
-//! `target` / `dist` / `build` / `out` / `vendor` / `__pycache__`. Cap
-//! 64 rows. Name comes from YAML `name:` frontmatter when present,
-//! else the parent folder. Selecting a row shows the body with
-//! frontmatter stripped. Runtime-only (not `sessions.json`). Not wired
-//! into prompts, not enable/disable, not a daemon WorkspaceOperation.
-//! Windows stays empty this cut.
+//! Native has no FS watcher. Faku one-shots a packed `find` for
+//! `SKILL.md` through the same `/bin/sh -c` chdir workaround `fx ask`
+//! uses (`fx_ask_chdir_script`). Settings → Skills still `refresh`s on
+//! page open. Composer `$` calls `ensureScanned` even when
+//! `settings_page != .skills`. Scan root is the selected session
+//! `project_path` when that directory exists, else settings
+//! `last_project_path`. Skip `node_modules` / `target` / `dist` /
+//! `build` / `out` / `vendor` / `__pycache__`. Cap 64 rows. Name comes
+//! from YAML `name:` frontmatter when present, else the parent folder.
+//! Settings selecting a row shows the body with frontmatter stripped.
+//! Composer `$` inserts `$name ` into the draft; Send still ships that
+//! composer text as-is (fx loads the skill). Runtime-only (not
+//! `sessions.json`). Not SKILL.md body stuffing, not enable/disable,
+//! not a daemon SkillsCatalog / WorkspaceOperation, not ACP `/name`
+//! slash rows. Windows stays empty this cut.
 //!
 //! Spawn/line/exit orchestration lives here. Tests do not need a live
 //! daemon or fx.
@@ -176,7 +180,20 @@ pub fn probePath(model: *const Model) []const u8 {
 pub fn close(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     clearCache(model);
+    model.skill_probe_path_len = 0;
     model.skills_filter_buffer.clear();
+}
+
+/// One-shot find when the probe path is empty or changed. No-op when
+/// that path is already current (in-flight or a finished scan), so a
+/// composer `$to…` keystroke does not spawn again. Works when
+/// `settings_page != .skills`. Empty / missing / Windows skips.
+pub fn ensureScanned(model: *Model, fx: *Effects) void {
+    if (!scanSupported()) return;
+    const cwd = probePath(model);
+    const probed = model.skill_probe_path_storage[0..model.skill_probe_path_len];
+    if (std.mem.eql(u8, cwd, probed)) return;
+    refresh(model, fx);
 }
 
 /// Cancel any in-flight scan, drop the cache, and spawn find when
@@ -185,9 +202,15 @@ pub fn close(model: *Model, fx: *Effects) void {
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     clearCache(model);
-    if (!scanSupported()) return;
+    if (!scanSupported()) {
+        model.skill_probe_path_len = 0;
+        return;
+    }
     const cwd = probePath(model);
-    if (cwd.len == 0) return;
+    if (cwd.len == 0) {
+        model.skill_probe_path_len = 0;
+        return;
+    }
 
     writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, cwd);
     spawnWalk(model, fx, cwd);
@@ -519,4 +542,52 @@ test "hydrate name from SKILL.md frontmatter in a temp project" {
     selectSkill(&model, 1);
     try std.testing.expectEqual(@as(u32, 1), model.skill_selected_id);
     try std.testing.expectEqualStrings("Do the thing.", model.skill_body_storage[0..model.skill_body_len]);
+}
+
+test "ensureScanned one-shots find when the probe path is empty; no-op when current" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skills-ensure", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, root);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("ensure scanned", .fx);
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(root);
+    try testing.expect(model.settings_page != .skills);
+    try testing.expectEqual(@as(u32, 0), cachedCount(&model));
+
+    ensureScanned(&model, &fx);
+    try testing.expect(model.skill_key >= skills_key_first);
+    const first_key = model.skill_key;
+    var i: usize = 0;
+    var spawn = fx.pendingSpawnAt(0);
+    while (spawn) |item| : (i += 1) {
+        if (item.key == first_key and isSkillsWalkArgv(item.argv)) break;
+        spawn = fx.pendingSpawnAt(i + 1);
+    }
+    try testing.expect(spawn != null);
+    try testing.expectEqualStrings(root, spawn.?.argv[4]);
+    const after_first = fx.pendingSpawnCount();
+
+    ensureScanned(&model, &fx);
+    try testing.expectEqual(first_key, model.skill_key);
+    try testing.expectEqual(after_first, fx.pendingSpawnCount());
+
+    applyStdoutPaths(&model, "skills/named/SKILL.md\n");
+    handleExit(&model, &fx, .{ .key = first_key, .reason = .exited, .code = 0 });
+    try testing.expectEqual(@as(u64, 0), model.skill_key);
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
+
+    ensureScanned(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.skill_key);
+    try testing.expectEqual(after_first, fx.pendingSpawnCount());
+    try testing.expectEqual(@as(u32, 1), cachedCount(&model));
 }

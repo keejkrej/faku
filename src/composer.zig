@@ -96,20 +96,37 @@ pub fn slashCommandPrefix(draft: []const u8) ?[]const u8 {
     return rest;
 }
 
+/// Active `$` skill query assuming the caret is at the end (Native has
+/// no caret API). Last whitespace-separated token must start with `$`.
+/// `use $to` → `to`; `$` alone → `""`; `price$` does not trigger.
+/// Mid-prompt `$foo` with more text after it is not a query — this
+/// cut does not fake a caret. Slash prefix stays authoritative (`/`
+/// wins, then `$`, then `@`).
+pub fn skillQuery(draft: []const u8) ?[]const u8 {
+    if (slashCommandPrefix(draft) != null) return null;
+    return lastTokenAfter(draft, '$');
+}
+
 /// Active `@` mention assuming the caret is at the end (Native has no
 /// caret API). Last whitespace-separated token must start with `@`.
 /// `see @src` → `src`; `@` alone → `""`; `user@host` does not trigger.
 /// Mid-prompt `@foo` with more text after it is not a mention — this
-/// cut does not fake a caret. Slash prefix stays authoritative.
+/// cut does not fake a caret. Slash prefix stays authoritative; `$`
+/// skill query wins over `@`.
 pub fn fileMentionQuery(draft: []const u8) ?[]const u8 {
     if (slashCommandPrefix(draft) != null) return null;
+    if (skillQuery(draft) != null) return null;
+    return lastTokenAfter(draft, '@');
+}
+
+fn lastTokenAfter(draft: []const u8, marker: u8) ?[]const u8 {
     if (draft.len == 0) return null;
     var start = draft.len;
     while (start > 0 and !std.ascii.isWhitespace(draft[start - 1])) {
         start -= 1;
     }
     const token = draft[start..];
-    if (token.len == 0 or token[0] != '@') return null;
+    if (token.len == 0 or token[0] != marker) return null;
     return token[1..];
 }
 
@@ -121,6 +138,16 @@ pub fn replaceMentionToken(draft: []const u8, relpath: []const u8, out: []u8) ?[
     if (relpath.len == 0) return null;
     const token_start = draft.len - query.len - 1;
     return std.fmt.bufPrint(out, "{s}@{s} ", .{ draft[0..token_start], relpath }) catch null;
+}
+
+/// Replace only the last `$query` token with `$name` plus a trailing
+/// space. Keeps the rest of the draft. `null` when there is no active
+/// skill query, `name` is empty, or the result does not fit `out`.
+pub fn replaceSkillToken(draft: []const u8, name: []const u8, out: []u8) ?[]const u8 {
+    const query = skillQuery(draft) orelse return null;
+    if (name.len == 0) return null;
+    const token_start = draft.len - query.len - 1;
+    return std.fmt.bufPrint(out, "{s}${s} ", .{ draft[0..token_start], name }) catch null;
 }
 
 /// Basename of a repo-relative mention path (`/` separators). A trailing
@@ -267,7 +294,7 @@ pub fn isAttachImagePath(path: []const u8) bool {
         std.ascii.eqlIgnoreCase(ext, ".gif");
 }
 
-test "fileMentionQuery is caret-at-end; slash prefix wins" {
+test "fileMentionQuery is caret-at-end; slash prefix wins; $ skill query wins over @" {
     try std.testing.expectEqualStrings("src", fileMentionQuery("see @src").?);
     try std.testing.expectEqualStrings("", fileMentionQuery("@").?);
     try std.testing.expectEqualStrings("", fileMentionQuery("see @").?);
@@ -279,6 +306,36 @@ test "fileMentionQuery is caret-at-end; slash prefix wins" {
     try std.testing.expect(fileMentionQuery("/commit") == null);
     try std.testing.expect(fileMentionQuery("/") == null);
     try std.testing.expect(fileMentionQuery("/@src") == null);
+    try std.testing.expect(fileMentionQuery("$to-spec") == null);
+    try std.testing.expect(fileMentionQuery("use $to") == null);
+    try std.testing.expect(fileMentionQuery("$") == null);
+}
+
+test "skillQuery is caret-at-end $ token; slash prefix wins" {
+    try std.testing.expectEqualStrings("to-spec", skillQuery("$to-spec").?);
+    try std.testing.expectEqualStrings("to", skillQuery("use $to").?);
+    try std.testing.expectEqualStrings("", skillQuery("$").?);
+    try std.testing.expectEqualStrings("", skillQuery("use $").?);
+    try std.testing.expect(skillQuery("") == null);
+    try std.testing.expect(skillQuery("price$") == null);
+    try std.testing.expect(skillQuery("use $to more") == null);
+    try std.testing.expect(skillQuery("use $to ") == null);
+    try std.testing.expect(skillQuery("/") == null);
+    try std.testing.expect(skillQuery("/skills") == null);
+    try std.testing.expect(skillQuery("/$to") == null);
+    try std.testing.expect(skillQuery("@src") == null);
+}
+
+test "replaceSkillToken rewrites only the last $query token and appends a space" {
+    var buf: [64]u8 = undefined;
+    try std.testing.expectEqualStrings("$to-spec ", replaceSkillToken("$to", "to-spec", &buf).?);
+    try std.testing.expectEqualStrings("use $to-spec ", replaceSkillToken("use $to", "to-spec", &buf).?);
+    try std.testing.expectEqualStrings("$to-spec ", replaceSkillToken("$", "to-spec", &buf).?);
+    try std.testing.expect(replaceSkillToken("price$", "to-spec", &buf) == null);
+    try std.testing.expect(replaceSkillToken("use $to more", "to-spec", &buf) == null);
+    try std.testing.expect(replaceSkillToken("/skills", "to-spec", &buf) == null);
+    try std.testing.expect(replaceSkillToken("$to", "", &buf) == null);
+    try std.testing.expect(replaceSkillToken("@src", "to-spec", &buf) == null);
 }
 
 test "replaceMentionToken rewrites only the last @query token and appends a space" {
