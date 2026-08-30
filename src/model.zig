@@ -1083,6 +1083,7 @@ pub const Model = struct {
         "streaming_session",
         "background_settled",
         "background_settled_session",
+        "has_settled_background",
         "queued_store",
         "queued_count",
         "next_queued_id",
