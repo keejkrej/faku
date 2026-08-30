@@ -514,14 +514,14 @@ pub const Model = struct {
     /// first-cut `origin/HEAD...HEAD`, then local `main...HEAD`
     /// / `master...HEAD` on a still-current non-zero exit.
     /// LastTurn is first-cut last-completed-turn
-    /// `start...end` when both snapshots exist, else send-time
+    /// `start..end` when both snapshots exist, else send-time
     /// `<40-hex>` (rewind `<sha>...HEAD` fallback; not HEAD~1).
     /// Not persisted to sessions.json.
     review_diff_source: review_diff.Source = .branch,
     /// Runtime-only Committed range probe. Compare / source
     /// switch / close reset to origin. Not persisted.
     review_diff_committed_range: review_diff.CommittedRange = .origin,
-    /// Runtime-only LastTurn `start...end`, snapshot `40-hex`,
+    /// Runtime-only LastTurn `start..end`, snapshot `40-hex`,
     /// or rewind `<40-hex>...HEAD` captured when that probe
     /// starts. Hunk clicks reuse this slot if later snapshots
     /// or rewind_refs change. Not persisted.

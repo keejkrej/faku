@@ -27,15 +27,17 @@
 //! `git diff --name-status` of the last completed turn.
 //! When both send-time start (`worktree_snapshot_sha`) and
 //! finish-time end (`worktree_turn_end_sha`) are valid
-//! 40-hex, the operand is `start...end` (three-dot, own
-//! argv slot). Else a valid start is a bare 40-hex two-dot
-//! vs the live worktree. Else send-time rewind
+//! 40-hex, the operand is `start..end` (two-dot, own argv
+//! slot; Waku `git diff from to` / `A..B` is the tree of A
+//! vs the tree of B). Else a valid start is a bare 40-hex
+//! two-dot vs the live worktree. Else send-time rewind
 //! `git diff --name-status <sha>...HEAD` (`latestRewindSha`
 //! / `rewind_refs`). Isolated index, dangling commits
 //! named `refs/faku/session-{id}-turn-start-{n}` (plus
 //! `turn-{n-1}` when that baseline is missing) and finish
 //! `turn-{n}`. Compare uses the stored shas, not the
-//! refs. Not `HEAD~1`, not `refs/waku/`. Missing all three
+//! refs. Not `HEAD~1`, not `refs/waku/`, not
+//! `refs/faku/...-turn-diff-{n}`. Missing all three
 //! does not spawn and stays `Could not compare.` (no
 //! main/master fallback). The chosen operand lives on the
 //! model so hunk clicks reuse it if later snapshots or
@@ -57,7 +59,7 @@
 //! All six use the `/bin/sh -c` `fx_ask_chdir_script` chdir
 //! workaround. Last-slot operands (`@{upstream}...HEAD` /
 //! `--cached` / `origin/HEAD...HEAD` / `main...HEAD` /
-//! `master...HEAD` / `<40-hex>...<40-hex>` / `<40-hex>` /
+//! `master...HEAD` / `<40-hex>..<40-hex>` / `<40-hex>` /
 //! `<40-hex>...HEAD`) are their
 //! own argv slots — never interpolated into `-c`. Uncommitted packs
 //! `HEAD` into the nested script (not a last-slot `HEAD`).
@@ -69,9 +71,12 @@
 //! Failed / no upstream / missing workspace is a short muted
 //! status — no invented files. First-cut hunks only: no
 //! syntax highlighting, no gap expansion, no right-panel Diff
-//! tab, no force, no background work, no `refs/waku/` Compare
-//! operand (LastTurn uses stored shas), and
-//! not daemon WorkspaceOperation.
+//! tab. Leftovers: `prepare_turn_diff_base` /
+//! `refs/faku/session-{id}-turn-diff-{n}` for branch-switch
+//! LastTurn, force, background work, daemon
+//! WorkspaceOperation. Not transcript checkpoint +/-.
+//! LastTurn uses stored shas, not the refs, and not a
+//! `refs/waku/` Compare operand.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -116,7 +121,7 @@ pub const review_diff_hunk_key_first: u64 = 520;
 /// `git diff --name-status origin/HEAD...HEAD`, then local
 /// `main...HEAD` / `master...HEAD` on a still-current non-zero
 /// exit. LastTurn is first-cut last-completed-turn
-/// `git diff --name-status start...end` when both snapshots
+/// `git diff --name-status start..end` when both snapshots
 /// exist, else send-time `<40-hex>` (rewind `<sha>...HEAD`
 /// fallback; not HEAD~1).
 pub const Source = enum {
@@ -163,18 +168,19 @@ pub const git_committed_range = "origin/HEAD...HEAD";
 /// branch and HEAD → HEAD). Own argv slots.
 pub const git_committed_range_main = "main...HEAD";
 pub const git_committed_range_master = "master...HEAD";
-/// Three-dot infix for LastTurn start…end. Own argv slot —
-/// never interpolated into `-c`.
-pub const git_last_turn_start_end_dots = "...";
+/// Two-dot infix for LastTurn start…end. Own argv slot —
+/// never interpolated into `-c`. `git diff A..B` is the tree
+/// of A vs the tree of B (same as `git diff A B`).
+pub const git_last_turn_start_end_dots = "..";
 /// Three-dot suffix for LastTurn rewind fallback. Own argv slot
 /// together with the 40-char send-time rewind sha — never
 /// interpolated into `-c`. Snapshot LastTurn uses the bare 40-hex.
 pub const git_last_turn_range_suffix = "...HEAD";
 /// Exact rewind operand length: `40-hex...HEAD`.
 pub const last_turn_rewind_range_len: usize = rewind.stored_sha_len + git_last_turn_range_suffix.len;
-/// Exact start…end operand length: `40-hex...40-hex`.
+/// Exact start…end operand length: `40-hex..40-hex`.
 pub const last_turn_start_end_range_len: usize = rewind.stored_sha_len + git_last_turn_start_end_dots.len + rewind.stored_sha_len;
-/// Max LastTurn operand: `40-hex...40-hex` (also holds
+/// Max LastTurn operand: `40-hex..40-hex` (also holds
 /// `40-hex...HEAD` and bare `40-hex`). Stored on the model
 /// when LastTurn starts.
 pub const last_turn_range_len: usize = last_turn_start_end_range_len;
@@ -267,7 +273,7 @@ pub const ChangedFile = struct {
 /// Uncommitted is `null` (`HEAD` lives in the nested script).
 /// Committed reads `committed_range` (default first probe is
 /// `origin/HEAD...HEAD`). LastTurn reads the captured
-/// `start...end`, snapshot `40-hex`, or rewind
+/// `start..end`, snapshot `40-hex`, or rewind
 /// `<40-hex>...HEAD`.
 pub fn lastOperand(source: Source, committed_range: CommittedRange) ?[]const u8 {
     return lastOperandRange(source, committed_range, "");
@@ -296,7 +302,7 @@ pub fn lastOperandRange(
 /// uses last-slot `HEAD` (name-status packs `HEAD` in the nested
 /// script). Unstaged omits the operand. Committed reads the range
 /// that already succeeded — no origin/HEAD fall-through on a
-/// hunk click. LastTurn reuses the stored `start...end`,
+/// hunk click. LastTurn reuses the stored `start..end`,
 /// snapshot `40-hex`, or rewind `<sha>...HEAD`.
 pub fn hunkOperand(source: Source, committed_range: CommittedRange) ?[]const u8 {
     return hunkOperandRange(source, committed_range, "");
@@ -329,8 +335,8 @@ pub fn formatLastTurnRange(sha: []const u8, dest: *[last_turn_range_len]u8) ?[]c
 }
 
 /// Format send-time start and finish-time end as
-/// `<40-hex>...<40-hex>` (three-dot). Rejects `HEAD~1` and
-/// any non-40-hex side.
+/// `<40-hex>..<40-hex>` (two-dot). Rejects `HEAD~1`,
+/// three-dot `start...end`, and any non-40-hex side.
 pub fn formatLastTurnStartEnd(start: []const u8, end: []const u8, dest: *[last_turn_range_len]u8) ?[]const u8 {
     if (!rewind.isStoredSha(start) or !rewind.isStoredSha(end)) return null;
     const written = std.fmt.bufPrint(dest, "{s}{s}{s}", .{ start, git_last_turn_start_end_dots, end }) catch return null;
@@ -354,8 +360,9 @@ pub fn isLastTurnSnapshotRange(operand: []const u8) bool {
     return rewind.isStoredSha(operand);
 }
 
-/// True only for `<40-hex>...<40-hex>`. Rejects `...HEAD`,
-/// `HEAD~1`, short hex, and any interpolated `-c` string.
+/// True only for `<40-hex>..<40-hex>`. Rejects `...HEAD`,
+/// three-dot `start...end`, `HEAD~1`, short hex, and any
+/// interpolated `-c` string.
 pub fn isLastTurnStartEndRange(operand: []const u8) bool {
     if (operand.len != last_turn_start_end_range_len) return false;
     const mid = rewind.stored_sha_len;
@@ -371,7 +378,7 @@ pub fn isLastTurnRewindRange(operand: []const u8) bool {
     return rewind.isStoredSha(operand[0..rewind.stored_sha_len]);
 }
 
-/// True for any LastTurn operand: `start...end`, snapshot
+/// True for any LastTurn operand: `start..end`, snapshot
 /// `40-hex`, or rewind `<40-hex>...HEAD`.
 pub fn isLastTurnRange(operand: []const u8) bool {
     return isLastTurnStartEndRange(operand) or isLastTurnSnapshotRange(operand) or isLastTurnRewindRange(operand);
@@ -386,7 +393,7 @@ fn clearLastTurnRange(model: *Model) void {
 }
 
 /// Capture the selected session's LastTurn operand.
-/// Preference: valid start+end → `start...end`; else valid
+/// Preference: valid start+end → `start..end`; else valid
 /// start → bare 40-hex; else latest rewind → `<sha>...HEAD`.
 /// Returns false when none are 40-hex (do not spawn).
 fn captureLastTurnRange(model: *Model) bool {
@@ -424,7 +431,7 @@ pub fn argvForSourceRange(
 }
 
 /// LastTurn name-status: 9-slot chdir + `git diff --name-status`
-/// + `start...end`, snapshot `40-hex`, or rewind `<sha>...HEAD`.
+/// + `start..end`, snapshot `40-hex`, or rewind `<sha>...HEAD`.
 /// Operand is one own argv slot.
 pub fn argvForLastTurn(cwd: []const u8, last_turn_range: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
     return argvForSourceRangeWith(.last_turn, .origin, last_turn_range, cwd, buf);
@@ -471,7 +478,7 @@ pub fn argvForHunk(
     return argvForHunkRange(source, committed_range, "", cwd, path, buf);
 }
 
-/// LastTurn hunk: same `start...end`, snapshot `40-hex`, or rewind `<sha>...HEAD`
+/// LastTurn hunk: same `start..end`, snapshot `40-hex`, or rewind `<sha>...HEAD`
 /// operand + `--` + path.
 pub fn argvForHunkLastTurn(
     cwd: []const u8,
@@ -1204,19 +1211,24 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expect(!isLastTurnRewindRange(last_turn_snap));
     try std.testing.expect(formatLastTurnSnapshot("HEAD~1", &last_turn_snap_buf) == null);
     try std.testing.expectEqual(last_turn_start_end_range_len, last_turn_range_len);
-    try std.testing.expectEqual(@as(usize, 83), last_turn_range_len);
+    try std.testing.expectEqual(@as(usize, 82), last_turn_range_len);
     try std.testing.expectEqual(@as(usize, 47), last_turn_rewind_range_len);
+    try std.testing.expectEqualStrings("..", git_last_turn_start_end_dots);
+    try std.testing.expectEqualStrings("...HEAD", git_last_turn_range_suffix);
     const last_turn_end_sha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     var last_turn_start_end_buf: [last_turn_range_len]u8 = undefined;
     const last_turn_start_end = formatLastTurnStartEnd(last_turn_sha, last_turn_end_sha, &last_turn_start_end_buf) orelse return error.MissingLastTurnStartEnd;
-    try std.testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", last_turn_start_end);
-    try std.testing.expectEqual(@as(usize, 83), last_turn_start_end.len);
+    try std.testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", last_turn_start_end);
+    try std.testing.expectEqual(@as(usize, 82), last_turn_start_end.len);
+    try std.testing.expect(std.mem.indexOf(u8, last_turn_start_end, "...") == null);
     try std.testing.expect(isLastTurnRange(last_turn_start_end));
     try std.testing.expect(isLastTurnStartEndRange(last_turn_start_end));
     try std.testing.expect(!isLastTurnSnapshotRange(last_turn_start_end));
     try std.testing.expect(!isLastTurnRewindRange(last_turn_start_end));
     try std.testing.expect(!isLastTurnStartEndRange(last_turn_range));
     try std.testing.expect(!isLastTurnStartEndRange(last_turn_snap));
+    try std.testing.expect(!isLastTurnStartEndRange("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+    try std.testing.expect(!isLastTurnRange("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
     try std.testing.expect(formatLastTurnStartEnd("HEAD~1", last_turn_end_sha, &last_turn_start_end_buf) == null);
     try std.testing.expect(formatLastTurnStartEnd(last_turn_sha, "HEAD~1", &last_turn_start_end_buf) == null);
     try std.testing.expect(formatLastTurnStartEnd(last_turn_sha, "", &last_turn_start_end_buf) == null);
@@ -1250,7 +1262,9 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     const last_turn_start_end_argv = argvForLastTurn("/tmp/faku-review", last_turn_start_end, &last_turn_start_end_argv_buf);
     try std.testing.expectEqual(argv_len, last_turn_start_end_argv.len);
     try std.testing.expectEqualStrings(last_turn_start_end, last_turn_start_end_argv[8]);
-    try std.testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", last_turn_start_end_argv[8]);
+    try std.testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", last_turn_start_end_argv[8]);
+    try std.testing.expectEqual(@as(usize, 82), last_turn_start_end_argv[8].len);
+    try std.testing.expect(std.mem.indexOf(u8, last_turn_start_end_argv[8], "...") == null);
     try std.testing.expect(isGitReviewDiffArgv(last_turn_start_end_argv));
     try std.testing.expect(std.mem.indexOf(u8, last_turn_start_end_argv[2], last_turn_sha) == null);
     try std.testing.expect(std.mem.indexOf(u8, last_turn_start_end_argv[2], last_turn_end_sha) == null);
@@ -1966,7 +1980,7 @@ test "setSource last_turn with snapshot sha spawns two-dot; prefers snapshot ove
     try std.testing.expect(std.mem.indexOf(u8, hunk_argv[7], git_last_turn_range_suffix) == null);
 }
 
-test "setSource last_turn prefers start...end when both snapshots exist" {
+test "setSource last_turn prefers start..end when both snapshots exist" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -1988,7 +2002,9 @@ test "setSource last_turn prefers start...end when both snapshots exist" {
     const rewind_sha = "cccccccccccccccccccccccccccccccccccccccc";
     var range_buf: [last_turn_range_len]u8 = undefined;
     const range = formatLastTurnStartEnd(start, end, &range_buf) orelse return error.MissingLastTurnStartEndRange;
-    try std.testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", range);
+    try std.testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", range);
+    try std.testing.expectEqual(@as(usize, 82), range.len);
+    try std.testing.expect(std.mem.indexOf(u8, range, "...") == null);
 
     open(&model, &fx);
     setSource(&model, &fx, .last_turn);
@@ -2007,7 +2023,9 @@ test "setSource last_turn prefers start...end when both snapshots exist" {
     try std.testing.expect(isGitReviewDiffArgv(last_turn_argv));
     try std.testing.expectEqual(argv_len, last_turn_argv.len);
     try std.testing.expectEqualStrings(range, last_turn_argv[8]);
-    try std.testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", last_turn_argv[8]);
+    try std.testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", last_turn_argv[8]);
+    try std.testing.expectEqual(@as(usize, 82), last_turn_argv[8].len);
+    try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[8], "...") == null);
     try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[2], start) == null);
     try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[2], end) == null);
     try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[2], rewind_sha) == null);
@@ -2028,6 +2046,84 @@ test "setSource last_turn prefers start...end when both snapshots exist" {
     try std.testing.expectEqualStrings("start-end.zig", hunk_argv[9]);
     try std.testing.expect(std.mem.indexOf(u8, hunk_argv[2], start) == null);
     try std.testing.expect(std.mem.indexOf(u8, hunk_argv[7], "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee") == null);
+}
+
+test "LastTurn start..end two-dot name-status is the edited path only" {
+    const checkpoint = @import("checkpoint.zig");
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/last-turn-two-dot", .{tmp.sub_path[0..]});
+    const head = try initLastTurnRepo(allocator, testing.io, path);
+    defer allocator.free(head);
+
+    var start_buf: [rewind.stored_sha_len]u8 = undefined;
+    const start = checkpoint.captureTurnStartCommit(allocator, testing.io, path, &start_buf) orelse return error.MissingTurnStart;
+    try testing.expect(rewind.isStoredSha(start));
+
+    try writeLastTurnFile(testing.io, path, "keep-a.txt", "edited\n");
+
+    var end_buf: [rewind.stored_sha_len]u8 = undefined;
+    const end = checkpoint.captureWorktreeCommit(allocator, testing.io, path, &end_buf) orelse return error.MissingTurnEnd;
+    try testing.expect(rewind.isStoredSha(end));
+    try testing.expect(!std.mem.eql(u8, start, end));
+
+    var range_buf: [last_turn_range_len]u8 = undefined;
+    const range = formatLastTurnStartEnd(start, end, &range_buf) orelse return error.MissingLastTurnTwoDot;
+    try testing.expectEqual(last_turn_start_end_range_len, range.len);
+    try testing.expectEqual(@as(usize, 82), range.len);
+    try testing.expect(isLastTurnStartEndRange(range));
+    try testing.expect(std.mem.startsWith(u8, range, start));
+    try testing.expect(std.mem.endsWith(u8, range, end));
+    try testing.expectEqualStrings("..", range[rewind.stored_sha_len .. rewind.stored_sha_len + git_last_turn_start_end_dots.len]);
+    try testing.expect(std.mem.indexOf(u8, range, "...") == null);
+    try testing.expect(std.mem.indexOf(u8, range, git_last_turn_range_suffix) == null);
+
+    var three_buf: [rewind.stored_sha_len + 3 + rewind.stored_sha_len]u8 = undefined;
+    const three = try std.fmt.bufPrint(&three_buf, "{s}...{s}", .{ start, end });
+    try testing.expectEqual(@as(usize, 83), three.len);
+    try testing.expect(!isLastTurnStartEndRange(three));
+    try testing.expect(!isLastTurnRange(three));
+
+    var argv_buf: [argv_len][]const u8 = undefined;
+    const argv = argvForLastTurn(path, range, &argv_buf);
+    try testing.expectEqual(argv_len, argv.len);
+    try testing.expectEqualStrings(range, argv[8]);
+    try testing.expect(isGitReviewDiffArgv(argv));
+    try testing.expect(!std.mem.eql(u8, argv[8], three));
+    try testing.expect(std.mem.indexOf(u8, argv[8], "...") == null);
+    try testing.expect(std.mem.indexOf(u8, argv[2], range) == null);
+
+    var hunk_buf: [argv_len_hunk][]const u8 = undefined;
+    const hunk = argvForHunkLastTurn(path, range, "keep-a.txt", &hunk_buf);
+    try testing.expectEqual(argv_len_hunk, hunk.len);
+    try testing.expectEqualStrings(range, hunk[7]);
+    try testing.expectEqualStrings(git_pathspec_end, hunk[8]);
+    try testing.expectEqualStrings("keep-a.txt", hunk[9]);
+    try testing.expect(isGitReviewHunkArgv(hunk));
+    try testing.expect(!std.mem.eql(u8, hunk[7], three));
+
+    const name_status = try runLastTurnGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        path,
+        "diff",
+        "--name-status",
+        range,
+    });
+    defer allocator.free(name_status);
+    const trimmed = std.mem.trim(u8, name_status, " \r\n\t");
+    try testing.expect(std.mem.indexOf(u8, trimmed, "keep-a.txt") != null);
+    try testing.expect(std.mem.indexOf(u8, trimmed, "README") == null);
+    try testing.expect(std.mem.indexOf(u8, trimmed, "keep-b.txt") == null);
+    var rows: usize = 0;
+    var it = std.mem.splitScalar(u8, trimmed, '\n');
+    while (it.next()) |line| {
+        if (line.len != 0) rows += 1;
+    }
+    try testing.expectEqual(@as(usize, 1), rows);
 }
 
 test "cap stays at 64; extra name-status rows are dropped" {
@@ -2147,6 +2243,9 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
     const last_turn_start_end_hunk = argvForHunkLastTurn("/tmp/faku-hunk", last_turn_start_end_hunk_range, "last-turn.zig", &last_turn_start_end_hunk_buf);
     try std.testing.expectEqual(argv_len_hunk, last_turn_start_end_hunk.len);
     try std.testing.expectEqualStrings(last_turn_start_end_hunk_range, last_turn_start_end_hunk[7]);
+    try std.testing.expectEqualStrings("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb..cccccccccccccccccccccccccccccccccccccccc", last_turn_start_end_hunk[7]);
+    try std.testing.expectEqual(@as(usize, 82), last_turn_start_end_hunk[7].len);
+    try std.testing.expect(std.mem.indexOf(u8, last_turn_start_end_hunk[7], "...") == null);
     try std.testing.expectEqualStrings(git_pathspec_end, last_turn_start_end_hunk[8]);
     try std.testing.expectEqualStrings("last-turn.zig", last_turn_start_end_hunk[9]);
     try std.testing.expect(isGitReviewHunkArgv(last_turn_start_end_hunk));
@@ -2532,4 +2631,61 @@ test "Committed hunk uses the range that already succeeded" {
     try std.testing.expectEqualStrings("committed.zig", hunk_argv[9]);
     try std.testing.expect(std.mem.indexOf(u8, hunk_argv[2], git_committed_range_main) == null);
     try std.testing.expect(std.mem.indexOf(u8, hunk_argv[2], git_committed_range) == null);
+}
+
+fn initLastTurnRepo(allocator: std.mem.Allocator, io: std.Io, path: []const u8) ![]u8 {
+    try std.Io.Dir.cwd().createDirPath(io, path);
+    try runLastTurnGitPlain(allocator, io, &.{ "git", "-C", path, "init" });
+    try writeLastTurnFile(io, path, "README", "keep\n");
+    try writeLastTurnFile(io, path, "keep-a.txt", "a\n");
+    try writeLastTurnFile(io, path, "keep-b.txt", "b\n");
+    try runLastTurnGitPlain(allocator, io, &.{ "git", "-C", path, "add", "README", "keep-a.txt", "keep-b.txt" });
+    try runLastTurnGitPlain(allocator, io, &.{
+        "git",
+        "-C",
+        path,
+        "-c",
+        "user.email=review-diff@test",
+        "-c",
+        "user.name=ReviewDiff",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-m",
+        "init",
+    });
+    var sha_buf: [rewind.max_sha]u8 = undefined;
+    const sha = rewind.revParseHead(allocator, io, path, &sha_buf) orelse return error.GitHead;
+    return allocator.dupe(u8, sha);
+}
+
+fn writeLastTurnFile(io: std.Io, path: []const u8, name: []const u8, contents: []const u8) !void {
+    var file_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}{s}{s}", .{ path, std.fs.path.sep_str, name });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = file_path, .data = contents });
+}
+
+fn runLastTurnGitPlain(allocator: std.mem.Allocator, io: std.Io, argv: []const []const u8) !void {
+    const result = try std.process.run(allocator, io, .{
+        .argv = argv,
+        .stdout_limit = .limited(1024),
+        .stderr_limit = .limited(4096),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    if (result.term != .exited or result.term.exited != 0) return error.GitFailed;
+}
+
+fn runLastTurnGitCapture(allocator: std.mem.Allocator, io: std.Io, argv: []const []const u8) ![]u8 {
+    const result = try std.process.run(allocator, io, .{
+        .argv = argv,
+        .stdout_limit = .limited(4096),
+        .stderr_limit = .limited(4096),
+    });
+    defer allocator.free(result.stderr);
+    if (result.term != .exited or result.term.exited != 0) {
+        allocator.free(result.stdout);
+        return error.GitFailed;
+    }
+    return result.stdout;
 }

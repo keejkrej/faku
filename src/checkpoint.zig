@@ -23,8 +23,9 @@
 //! finish, a NEW isolated snapshot is named
 //! `refs/faku/session-{id}-turn-{n}` (`captureTurnEnd`;
 //! `{n}` is `turnCount / 2` after the pair is appended).
-//! LastTurn / Review prefer stored start…end
-//! (`worktree_snapshot_sha`…`worktree_turn_end_sha`) when
+//! LastTurn / Review prefer stored start…end two-dot
+//! `start..end` (`worktree_snapshot_sha`..`worktree_turn_end_sha`,
+//! Waku `git diff from to`) when
 //! both are valid 40-hex, else the send-time 40-hex, else
 //! rewind `sha...HEAD` — not the ref. Failed update-ref is
 //! quiet and does not clear the stored sha. Header Rewind
@@ -33,8 +34,10 @@
 //! clean -fd -- .`, then `git reset --quiet -- .` when HEAD
 //! exists). Sync `std.process.run` like `rewind.captureHead`
 //! — not a Native spawn and not `/bin/sh -c` interpolation.
-//! Leftovers: force, background work, daemon
-//! WorkspaceOperation, refs/waku Compare operand.
+//! Leftovers: `prepare_turn_diff_base` /
+//! `refs/faku/session-{id}-turn-diff-{n}` for branch-switch
+//! LastTurn, force, background work, daemon
+//! WorkspaceOperation. Not transcript checkpoint +/-.
 
 const std = @import("std");
 const rewind = @import("rewind.zig");
