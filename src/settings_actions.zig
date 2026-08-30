@@ -16,6 +16,7 @@ const git_commit = @import("git_commit.zig");
 const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const skills = @import("skills.zig");
+const providers = @import("providers.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -60,6 +61,7 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
     }
     if (model.settings_open) {
         skills.close(model, fx);
+        providers.close(model);
         model.closeSettings();
         return;
     }
@@ -134,6 +136,7 @@ pub fn handleToggleGoalStatusPicker(model: *Model) void {
 pub fn handleToggleSettings(model: *Model, fx: *Effects) void {
     if (model.settings_open) {
         skills.close(model, fx);
+        providers.close(model);
         model.closeSettings();
         return;
     }
@@ -199,6 +202,10 @@ pub fn handleSetSettingsPageGeneral(model: *Model) void {
     model.settings_page = .general;
 }
 
+pub fn handleSetSettingsPageProviders(model: *Model) void {
+    model.settings_page = .providers;
+}
+
 pub fn handleSetSettingsPageSkills(model: *Model, fx: *Effects) void {
     model.settings_page = .skills;
     skills.refresh(model, fx);
@@ -207,6 +214,15 @@ pub fn handleSetSettingsPageSkills(model: *Model, fx: *Effects) void {
 pub fn handleRefreshSkills(model: *Model, fx: *Effects) void {
     if (model.settings_page != .skills) return;
     skills.refresh(model, fx);
+}
+
+pub fn handleRefreshProviders(model: *Model, fx: *Effects) void {
+    if (model.settings_page != .providers) return;
+    providers.refresh(model, fx);
+}
+
+pub fn handleSelectProvider(model: *Model, id: u32) void {
+    providers.selectProvider(model, id);
 }
 
 pub fn handleSkillsFilterEdit(model: *Model, edit: canvas.TextInputEvent) void {

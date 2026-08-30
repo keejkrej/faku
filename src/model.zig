@@ -27,6 +27,7 @@ const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const skills = @import("skills.zig");
+const providers = @import("providers.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
 const copy_helpers = @import("copy.zig");
@@ -286,6 +287,10 @@ pub const SkillRow = struct {
     selected: bool = false,
 };
 
+/// Settings Providers row. `id` is 1-based `ProviderId` so Native
+/// `select_provider:{p.id}` never binds 0. Catalog-only for non-fx.
+pub const ProviderRow = providers.ProviderRow;
+
 /// Composer model picker row. `row_id` is a 1-based Native `for` key.
 /// `id` is the ACP wire value (empty clears `session.model`).
 pub const ModelPickerRow = struct {
@@ -395,10 +400,13 @@ pub const Msg = union(enum) {
     close_settings_effort_picker,
     pick_settings_effort: []const u8,
     set_settings_page_general,
+    set_settings_page_providers,
     set_settings_page_skills,
     refresh_skills,
+    refresh_providers,
     skills_filter_edit: canvas.TextInputEvent,
     select_skill: u32,
+    select_provider: u32,
     cycle_access,
     cycle_interaction,
     cycle_effort,
@@ -653,9 +661,11 @@ pub const Model = struct {
     right_panel_expanded_store: [file_mention.max_file_mention_dirs]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** file_mention.max_file_mention_dirs,
     right_panel_expanded_count: u32 = 0,
     settings_open: bool = false,
-    /// Runtime-only Settings General | Skills page. Default General.
-    /// Not persisted to sessions.json.
+    /// Runtime-only Settings General | Providers | Skills page.
+    /// Default General. Not persisted to sessions.json.
     settings_page: skills.Page = .general,
+    /// Runtime-only selected Providers row (1-based). Not persisted.
+    provider_selected_id: u32 = 0,
     /// Runtime-only Ctrl-Tab overlay. Not persisted to sessions.json.
     switcher_open: bool = false,
     switcher_ids: [switcher_cap]u32 = [_]u32{0} ** switcher_cap,
@@ -1100,6 +1110,7 @@ pub const Model = struct {
         "settings_project_buffer",
         "settings_daemon_buffer",
         "settings_page",
+        "provider_selected_id",
         "skills_filter_buffer",
         "skill_store",
         "skill_count",
@@ -2390,8 +2401,25 @@ pub const Model = struct {
         return model.settings_page == .general;
     }
 
+    pub fn settings_page_providers(model: *const Model) bool {
+        return model.settings_page == .providers;
+    }
+
     pub fn settings_page_skills(model: *const Model) bool {
         return model.settings_page == .skills;
+    }
+
+    pub fn provider_rows(model: *const Model, arena: std.mem.Allocator) []const ProviderRow {
+        return providers.rows(model, arena);
+    }
+
+    pub fn has_provider_detail(model: *const Model) bool {
+        return model.settings_page == .providers and model.provider_selected_id != 0;
+    }
+
+    pub fn provider_detail(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        if (!model.has_provider_detail()) return "";
+        return providers.detailText(model, arena);
     }
 
     pub fn skills_filter(model: *const Model) []const u8 {
@@ -2474,6 +2502,7 @@ pub const Model = struct {
         model.closeSettingsEffortPicker();
         model.settings_open = false;
         model.settings_page = .general;
+        model.provider_selected_id = 0;
     }
 
     pub fn toggleSettings(model: *Model) void {

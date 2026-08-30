@@ -37,7 +37,8 @@ send circle.
 | **hydrateSession** | Daemon transcript fill when the local transcript is empty. Local turns win. |
 | **argv slot** | Every flag and operand is its own spawn argument. Never interpolate into the chdir `-c` script. |
 | **right panel** | First-cut Files + Diff pane to the right of the conversation. Default closed. |
-| **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Not wired into prompts. |
+| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live; other ids are catalog-only this cut. Not Waku install/auth/onboarding. |
+| **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
 
 Avoid: calling ACP a live WebSocket; treating the daemon as the catalog
 of record; inventing Native git / pick-file / maximize / caret / PTY /
@@ -171,15 +172,31 @@ Faku-side stream row: Process ("Agent turn") while window-side
 BackgroundWorkRegistry, not daemon `refreshBackgroundWork`, not
 Monitor / Subagent kinds.
 
+## Settings Providers
+
+The settings gear chrome is General | Providers | Skills. Providers
+lists every `protocol.ProviderId` (fx, claude, codex, amp, grok,
+opencode, cursor, pi). fx is the first-party default: status is
+`Available` + probed path or `Not found` from the existing boot
+`--help` probe (`fx_available` / `fxPath()`). Refresh re-runs that
+probe. Other rows are catalog ids only — not live drivers, not
+install/sign-in, not Send enable toggles, not a change to
+`session.provider`. Selecting a row shows a short blurb (name, binary,
+fx path when applicable, and that the live fx path is one-shot
+`fx acp` via acp-proxy). Runtime-only. Leftovers: probing every
+non-fx CLI, onboarding, Appearance / Usage / Computer Use pages.
+
 ## Settings Skills scan
 
 The settings gear opens a panel for persisted defaults. A runtime-only
-General | Skills switch lists project `SKILL.md` files from a bounded
-one-shot `find` (selected session `project_path`, else last project
-path). Name is YAML `name:` when present, else the parent folder.
-Selecting a row shows the body with frontmatter stripped. Refresh on
-open / Refresh. Not persisted, not a live watch, not wired into
-prompts.
+General | Providers | Skills switch lists project `SKILL.md` files from
+a bounded one-shot `find` (selected session `project_path`, else last
+project path). Name is YAML `name:` when present, else the parent
+folder. Selecting a row shows the body with frontmatter stripped.
+Refresh on open / Refresh. Composer `$name` insert ships from this
+scan (Send still ships the composer text as-is; fx loads the skill).
+Not SKILL.md body stuffing, not enable/disable. Not persisted, not a
+live watch.
 
 ## Code map
 
@@ -195,4 +212,5 @@ prompts.
 | Environment Summary | `src/environment_summary.zig` |
 | Right panel | `src/right_panel.zig`, `src/review_diff.zig` |
 | Skills scan | `src/skills.zig` |
+| Providers catalog | `src/providers.zig` |
 | Composer / attach | `src/composer.zig`, `src/attach.zig` |
