@@ -13,9 +13,10 @@
 //! `git diff --no-index -- /dev/null <path>`). LastTurn is
 //! send-time worktree snapshot `git diff --name-status <40-hex>`
 //! (isolated index, dangling commit named
-//! `refs/faku/session-{id}-turn-{n}`; Compare still uses the
+//! `refs/faku/session-{id}-turn-start-{n}`, plus
+//! `turn-{n-1}` when that baseline is missing; Compare still uses the
 //! stored 40-hex, not the ref; rewind `<sha>...HEAD` fallback;
-//! not `refs/waku/` / `capture_turn_start`, not HEAD~1). Not
+//! not `refs/waku/`; turn-end `turn-{n}` is leftover; not HEAD~1). Not
 //! force, not background work, and not daemon
 //! WorkspaceOperation.
 

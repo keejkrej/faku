@@ -8,20 +8,23 @@
 //! `Faku worktree snapshot`. No `-p` (empty parents). Always
 //! deletes the temp index and `.lock`. After a successful
 //! capture, Send names that commit with one-shot
-//! `git update-ref refs/faku/session-{Session.id}-turn-{n}`
-//! (`updateFakuRef`). `{n}` is the 1-based prompt ordinal of
-//! this Send: `Model.turnCount / 2 + 1` at record time, before
-//! the user+assistant pair is appended (first Send is
-//! `turn-1`). LastTurn / Review still use the stored 40-hex
-//! (`worktree_snapshot_sha`), not the ref. Failed update-ref is
-//! quiet and does not clear the stored sha. Header Rewind
-//! restores that stored 40-hex with `restoreRef` (`git restore
-//! --source <sha> --worktree --staged -- .`, `git clean -fd --
-//! .`, then `git reset --quiet -- .` when HEAD exists). Sync
-//! `std.process.run` like `rewind.captureHead` — not a Native
-//! spawn and not `/bin/sh -c` interpolation. Leftovers:
-//! `capture_turn_start`, turn-end capture, force, background
-//! work, daemon WorkspaceOperation.
+//! `git update-ref refs/faku/session-{Session.id}-turn-start-{n}`
+//! (`captureTurnStart` / `updateFakuRef`). `{n}` is the 1-based
+//! prompt ordinal of this Send: `Model.turnCount / 2 + 1` at
+//! record time, before the user+assistant pair is appended
+//! (first Send is `turn-start-1`). If
+//! `refs/faku/session-{id}-turn-{n-1}` is missing, the same
+//! commit is also named as that baseline. LastTurn / Review
+//! still use the stored 40-hex (`worktree_snapshot_sha`), not
+//! the ref. Failed update-ref is quiet and does not clear the
+//! stored sha. Header Rewind restores that stored 40-hex with
+//! `restoreRef` (`git restore --source <sha> --worktree --staged
+//! -- .`, `git clean -fd -- .`, then `git reset --quiet -- .`
+//! when HEAD exists). Sync `std.process.run` like
+//! `rewind.captureHead` — not a Native spawn and not `/bin/sh
+//! -c` interpolation. Leftovers: turn-end capture (`turn-{n}`
+//! at finish), parents/metadata in the commit message, force,
+//! background work, daemon WorkspaceOperation.
 
 const std = @import("std");
 const rewind = @import("rewind.zig");
@@ -112,6 +115,16 @@ pub fn formatFakuSessionTurnRef(dest: []u8, session_id: u32, turn_count: u32) ?[
     return printed;
 }
 
+/// `refs/faku/session-{session_id}-turn-start-{turn_count}` into
+/// `dest`. Same fit / `isFakuRefName` rules as the turn-end
+/// name (`-` is already allowed). Null when the name would not
+/// fit `dest` or `max_faku_ref_name`.
+pub fn formatFakuSessionTurnStartRef(dest: []u8, session_id: u32, turn_count: u32) ?[]const u8 {
+    const printed = std.fmt.bufPrint(dest, "refs/faku/session-{d}-turn-start-{d}", .{ session_id, turn_count }) catch return null;
+    if (printed.len == 0 or printed.len > max_faku_ref_name) return null;
+    return printed;
+}
+
 pub fn isFakuRefName(ref_name: []const u8) bool {
     if (ref_name.len == 0 or ref_name.len > max_faku_ref_name) return false;
     if (!std.mem.startsWith(u8, ref_name, faku_ref_prefix)) return false;
@@ -146,6 +159,55 @@ pub fn updateFakuRef(
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
     return result.term == .exited and result.term.exited == 0;
+}
+
+/// Quiet bool: one-shot `git -C <path> show-ref --verify --quiet
+/// <ref>`. Missing / non-git / bad ref is false. No `/bin/sh -c`.
+pub fn hasFakuRef(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    ref_name: []const u8,
+) bool {
+    if (!isFakuRefName(ref_name)) return false;
+    if (!rewind.isGitWorkTree(io, project_path)) return false;
+    const result = std.process.run(allocator, io, .{
+        .argv = &.{ git_bin, "-C", project_path, "show-ref", "--verify", "--quiet", ref_name },
+        .stdout_limit = .limited(256),
+        .stderr_limit = .limited(512),
+    }) catch return false;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    return result.term == .exited and result.term.exited == 0;
+}
+
+/// Name the stored 40-hex as `turn-start-{n}`. If
+/// `turn-{n-1}` (or `turn-0` when `n` is 0) is missing, also
+/// name that baseline with the same sha. Does not write
+/// `turn-{n}` (that is turn-end leftover). Quiet false only
+/// when the turn-start update fails; a failed baseline seed
+/// is still true.
+pub fn captureTurnStart(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    session_id: u32,
+    turn_count: u32,
+    sha: []const u8,
+) bool {
+    if (!rewind.isStoredSha(sha)) return false;
+    var start_buf: [max_faku_ref_name]u8 = undefined;
+    const start_ref = formatFakuSessionTurnStartRef(&start_buf, session_id, turn_count) orelse return false;
+    if (!updateFakuRef(allocator, io, project_path, start_ref, sha)) return false;
+
+    const baseline_n: u32 = if (turn_count >= 1) turn_count - 1 else 0;
+    var baseline_buf: [max_faku_ref_name]u8 = undefined;
+    if (formatFakuSessionTurnRef(&baseline_buf, session_id, baseline_n)) |baseline_ref| {
+        if (!hasFakuRef(allocator, io, project_path, baseline_ref)) {
+            _ = updateFakuRef(allocator, io, project_path, baseline_ref, sha);
+        }
+    }
+    return true;
 }
 
 /// Restore the worktree from a stored 40-hex snapshot commit.
@@ -459,6 +521,16 @@ test "formatFakuSessionTurnRef uses session id and prompt ordinal" {
     try testing.expect(!isFakuRefName("refs/faku/../heads/main"));
 }
 
+test "formatFakuSessionTurnStartRef uses session id and prompt ordinal" {
+    const testing = std.testing;
+    var buf: [max_faku_ref_name]u8 = undefined;
+    const name = formatFakuSessionTurnStartRef(&buf, 7, 3) orelse return error.MissingFakuRef;
+    try testing.expectEqualStrings("refs/faku/session-7-turn-start-3", name);
+    try testing.expect(isFakuRefName(name));
+    var tiny: [8]u8 = undefined;
+    try testing.expect(formatFakuSessionTurnStartRef(&tiny, 1, 1) == null);
+}
+
 test "captureWorktreeCommit plus updateFakuRef names the dangling commit" {
     const testing = std.testing;
     const allocator = testing.allocator;
@@ -511,6 +583,103 @@ test "updateFakuRef is false and quiet on missing, non-git, and bad inputs" {
     const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/plain", .{tmp.sub_path[0..]});
     try std.Io.Dir.cwd().createDirPath(testing.io, path);
     try testing.expect(!updateFakuRef(allocator, testing.io, path, "refs/faku/session-1-turn-1", sha));
+}
+
+test "hasFakuRef is false for missing and true after update" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/has-ref", .{tmp.sub_path[0..]});
+    const head = try initTestRepo(allocator, testing.io, path);
+    defer allocator.free(head);
+
+    var ref_buf: [max_faku_ref_name]u8 = undefined;
+    const ref_name = formatFakuSessionTurnStartRef(&ref_buf, 3, 2) orelse return error.MissingFakuRef;
+    try testing.expect(!hasFakuRef(allocator, testing.io, path, ref_name));
+    try testing.expect(!hasFakuRef(allocator, testing.io, "", ref_name));
+    try testing.expect(!hasFakuRef(allocator, testing.io, ".zig-cache/tmp/faku-has-ref-missing", ref_name));
+    try testing.expect(!hasFakuRef(allocator, testing.io, path, "refs/heads/main"));
+    try testing.expect(!hasFakuRef(allocator, testing.io, path, ""));
+
+    var sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const snap = captureWorktreeCommit(allocator, testing.io, path, &sha_buf) orelse return error.MissingSnapshot;
+    try testing.expect(updateFakuRef(allocator, testing.io, path, ref_name, snap));
+    try testing.expect(hasFakuRef(allocator, testing.io, path, ref_name));
+}
+
+test "captureTurnStart writes turn-start and seeds a missing baseline" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/turn-start", .{tmp.sub_path[0..]});
+    const head = try initTestRepo(allocator, testing.io, path);
+    defer allocator.free(head);
+
+    var sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const snap = captureWorktreeCommit(allocator, testing.io, path, &sha_buf) orelse return error.MissingSnapshot;
+    try testing.expect(captureTurnStart(allocator, testing.io, path, 12, 4, snap));
+
+    var start_buf: [max_faku_ref_name]u8 = undefined;
+    const start_ref = formatFakuSessionTurnStartRef(&start_buf, 12, 4) orelse return error.MissingFakuRef;
+    try testing.expect(hasFakuRef(allocator, testing.io, path, start_ref));
+    const start_parsed = try runGitCapture(allocator, testing.io, &.{ "git", "-C", path, "rev-parse", start_ref });
+    defer allocator.free(start_parsed);
+    try testing.expectEqualStrings(snap, std.mem.trim(u8, start_parsed, " \r\n\t"));
+
+    var baseline_buf: [max_faku_ref_name]u8 = undefined;
+    const baseline = formatFakuSessionTurnRef(&baseline_buf, 12, 3) orelse return error.MissingFakuRef;
+    try testing.expect(hasFakuRef(allocator, testing.io, path, baseline));
+    const baseline_parsed = try runGitCapture(allocator, testing.io, &.{ "git", "-C", path, "rev-parse", baseline });
+    defer allocator.free(baseline_parsed);
+    try testing.expectEqualStrings(snap, std.mem.trim(u8, baseline_parsed, " \r\n\t"));
+
+    var end_buf: [max_faku_ref_name]u8 = undefined;
+    const end_ref = formatFakuSessionTurnRef(&end_buf, 12, 4) orelse return error.MissingFakuRef;
+    try testing.expect(!hasFakuRef(allocator, testing.io, path, end_ref));
+
+    try testing.expect(!captureTurnStart(allocator, testing.io, path, 12, 4, "not-a-sha"));
+    try testing.expect(!captureTurnStart(allocator, testing.io, "", 12, 4, snap));
+}
+
+test "captureTurnStart does not overwrite an existing baseline" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/turn-start-keep", .{tmp.sub_path[0..]});
+    const head = try initTestRepo(allocator, testing.io, path);
+    defer allocator.free(head);
+
+    var first_buf: [rewind.stored_sha_len]u8 = undefined;
+    const first = captureWorktreeCommit(allocator, testing.io, path, &first_buf) orelse return error.MissingSnapshot;
+    var baseline_buf: [max_faku_ref_name]u8 = undefined;
+    const baseline = formatFakuSessionTurnRef(&baseline_buf, 9, 2) orelse return error.MissingFakuRef;
+    try testing.expect(updateFakuRef(allocator, testing.io, path, baseline, first));
+
+    try writeRepoFile(testing.io, path, "later.txt", "later\n");
+    var second_buf: [rewind.stored_sha_len]u8 = undefined;
+    const second = captureWorktreeCommit(allocator, testing.io, path, &second_buf) orelse return error.MissingSnapshot;
+    try testing.expect(!std.mem.eql(u8, first, second));
+    try testing.expect(captureTurnStart(allocator, testing.io, path, 9, 3, second));
+
+    const baseline_parsed = try runGitCapture(allocator, testing.io, &.{ "git", "-C", path, "rev-parse", baseline });
+    defer allocator.free(baseline_parsed);
+    try testing.expectEqualStrings(first, std.mem.trim(u8, baseline_parsed, " \r\n\t"));
+
+    var start_buf: [max_faku_ref_name]u8 = undefined;
+    const start_ref = formatFakuSessionTurnStartRef(&start_buf, 9, 3) orelse return error.MissingFakuRef;
+    const start_parsed = try runGitCapture(allocator, testing.io, &.{ "git", "-C", path, "rev-parse", start_ref });
+    defer allocator.free(start_parsed);
+    try testing.expectEqualStrings(second, std.mem.trim(u8, start_parsed, " \r\n\t"));
+
+    var end_buf: [max_faku_ref_name]u8 = undefined;
+    const end_ref = formatFakuSessionTurnRef(&end_buf, 9, 3) orelse return error.MissingFakuRef;
+    try testing.expect(!hasFakuRef(allocator, testing.io, path, end_ref));
 }
 
 test "restoreRef restores dirty and untracked, cleans later files, and leaves HEAD and the user index" {
