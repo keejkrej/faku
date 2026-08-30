@@ -1608,6 +1608,7 @@ pub fn refreshWorkspaceProbes(model: *Model, fx: *Effects) void {
     git_common_dir.refresh(model, fx);
     file_mention.refresh(model, fx);
     refresh(model, fx);
+    model.maybeEnsureSkillsScanned(fx);
 }
 
 /// Selecting the current branch closes the picker. A listed

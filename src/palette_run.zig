@@ -111,6 +111,7 @@ pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     git_common_dir.refresh(model, fx);
     file_mention.refresh(model, fx);
     git_checkout.refresh(model, fx);
+    model.maybeEnsureSkillsScanned(fx);
     model.pinTranscriptToLatest();
     model.composer_active = true;
 }

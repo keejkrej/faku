@@ -2400,6 +2400,318 @@ test "composer slash prefix stays closed when no commands are stored" {
     try testing.expect(!model.commands_list_open());
 }
 
+test "composer $ prefix lists cached SKILL.md; filters; click inserts $name; no fx spawn" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skill-dollar", .{tmp.sub_path[0..]});
+    var skill_dir_buf: [256]u8 = undefined;
+    const skill_dir = try std.fmt.bufPrint(&skill_dir_buf, "{s}/.cursor/skills/to-spec", .{project});
+    try std.Io.Dir.cwd().createDirPath(testing.io, skill_dir);
+    var file_buf: [256]u8 = undefined;
+    const file_path = try std.fmt.bufPrint(&file_buf, "{s}/SKILL.md", .{skill_dir});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = file_path,
+        .data =
+        \\---
+        \\name: to-spec
+        \\---
+        \\
+        \\Do the thing.
+        \\
+        ,
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("skill dollar", .fx);
+    _ = model.appendTurn(id, .user, "already started");
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(project);
+    try testing.expect(!model.settings_page_skills());
+    try testing.expect(!model.has_commands());
+    try testing.expect(!model.skills_list_open());
+    try testing.expectEqual(@as(usize, 0), model.command_rows(arena).len);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "$" } }, &fx);
+    try testing.expectEqualStrings("$", model.draft());
+    try testing.expect(model.skill_key >= main.skills_key_first);
+    const first_key = model.skill_key;
+    var i: usize = 0;
+    var spawn = fx.pendingSpawnAt(0);
+    while (spawn) |item| : (i += 1) {
+        if (item.key == first_key and skills.isSkillsWalkArgv(item.argv)) break;
+        spawn = fx.pendingSpawnAt(i + 1);
+    }
+    try testing.expect(spawn != null);
+    try testing.expectEqualStrings(project, spawn.?.argv[4]);
+    const after_first = fx.pendingSpawnCount();
+    try testing.expect(model.skills_list_open());
+    try testing.expect(model.skills_insert_empty());
+    try testing.expectEqual(@as(usize, 0), model.skill_insert_rows(arena).len);
+    try testing.expect(!model.commands_list_open());
+    try testing.expect(!model.fx_spawn_live);
+    try testing.expect(!model.is_streaming());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "t" } }, &fx);
+    try testing.expectEqualStrings("$t", model.draft());
+    try testing.expectEqual(first_key, model.skill_key);
+    try testing.expectEqual(after_first, fx.pendingSpawnCount());
+
+    skills.applyStdoutPaths(&model, ".cursor/skills/to-spec/SKILL.md\n");
+    try testing.expectEqual(@as(u32, 1), model.skill_count);
+    try testing.expectEqualStrings("to-spec", skills.cachedName(&model, 0));
+    try testing.expect(model.skills_list_open());
+    try testing.expect(!model.skills_insert_empty());
+    {
+        const rows = model.skill_insert_rows(arena);
+        try testing.expectEqual(@as(usize, 1), rows.len);
+        try testing.expectEqualStrings("to-spec", rows[0].name);
+        try testing.expectEqualStrings(".cursor/skills/to-spec/SKILL.md", rows[0].path);
+        try testing.expectEqual(@as(u32, 1), rows[0].id);
+        try testing.expect(rows[0].selected);
+    }
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "to-spec");
+    _ = try expectByText(tree.root, .text, ".cursor/skills/to-spec/SKILL.md");
+    try testing.expect(findByText(tree.root, .text, "/to-spec") == null);
+    try testing.expect(findByText(tree.root, .button, "Commands") == null);
+    const row = try expectButton(tree.root, "to-spec");
+    try testing.expectEqual(Msg{ .insert_skill = 1 }, tree.msgForPointer(row.id, .up).?);
+
+    model.draft_buffer.clear();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "$to" } }, &fx);
+    try testing.expectEqualStrings("$to", model.draft());
+    try testing.expect(model.skills_list_open());
+    try testing.expectEqual(@as(usize, 1), model.skill_insert_rows(arena).len);
+    try testing.expectEqual(first_key, model.skill_key);
+    try testing.expectEqual(after_first, fx.pendingSpawnCount());
+
+    model.draft_buffer.clear();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "$z" } }, &fx);
+    try testing.expectEqualStrings("$z", model.draft());
+    try testing.expect(!model.skills_list_open());
+    try testing.expectEqual(@as(usize, 0), model.skill_insert_rows(arena).len);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "to-spec") == null);
+
+    model.draft_buffer.clear();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "$to" } }, &fx);
+    tree = try buildTree(arena, &model);
+    const click = try expectButton(tree.root, "to-spec");
+    main.update(&model, tree.msgForPointer(click.id, .up).?, &fx);
+    try testing.expectEqualStrings("$to-spec ", model.draft());
+    try testing.expect(!model.skills_list_open());
+    try testing.expect(model.composer_active);
+    try testing.expect(!model.fx_spawn_live);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "to-spec") == null);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("$to-spec ", composer.text);
+    }
+
+    skills.ensureScanned(&model, &fx);
+    try testing.expectEqual(first_key, model.skill_key);
+    try testing.expectEqual(after_first, fx.pendingSpawnCount());
+}
+
+test "composer Enter confirms first $ skill row and does not send; Esc dismisses" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-skill-enter", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("skill enter", .fx);
+    _ = model.appendTurn(id, .user, "already started");
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(project);
+    if (model.sessionById(id)) |session| {
+        session.appendAvailableCommand("commit", "Create a commit");
+        session.appendAvailableCommand("compact", "Compact the conversation");
+    }
+    main.writeFixed(&model.skill_probe_path_storage, &model.skill_probe_path_len, project);
+    skills.applyStdoutPaths(&model, ".cursor/skills/to-spec/SKILL.md\n");
+    try testing.expectEqualStrings("to-spec", skills.cachedName(&model, 0));
+
+    try expectComposerEnterMarkup();
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "$to" } }, &fx);
+    try testing.expect(model.skills_list_open());
+    try testing.expect(!model.commands_list_open());
+    try testing.expect(!model.mentions_list_open());
+    {
+        const rows = model.skill_insert_rows(arena);
+        try testing.expectEqual(@as(usize, 1), rows.len);
+        try testing.expect(rows[0].selected);
+        try testing.expectEqual(@as(u32, 1), rows[0].id);
+    }
+    {
+        const rows = model.command_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expectEqualStrings("/commit", rows[0].slash_name);
+        try testing.expectEqual(@as(u32, 1), rows[0].id);
+        try testing.expectEqualStrings("/compact", rows[1].slash_name);
+        try testing.expectEqual(@as(u32, 2), rows[1].id);
+    }
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "to-spec");
+    try testing.expect(findByText(tree.root, .text, "/commit") == null);
+    const first_row = try expectButton(tree.root, "to-spec");
+    if (@hasField(canvas.Widget, "selected")) {
+        try testing.expect(first_row.selected);
+    }
+
+    main.update(&model, .composer_enter, &fx);
+    try testing.expectEqualStrings("$to-spec ", model.draft());
+    try testing.expect(!model.skills_list_open());
+    try testing.expect(!model.autocomplete_dismissed);
+    try testing.expect(!model.fx_spawn_live);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
+    tree = try buildTree(arena, &model);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expectEqualStrings("$to-spec ", composer.text);
+    }
+
+    model.draft_buffer.clear();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "$to" } }, &fx);
+    try testing.expect(model.skills_list_open());
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expect(model.autocomplete_dismissed);
+    try testing.expect(!model.skills_list_open());
+    try testing.expectEqualStrings("$to", model.draft());
+    try testing.expect(!model.is_streaming());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "-" } }, &fx);
+    try testing.expectEqualStrings("$to-", model.draft());
+    try testing.expect(!model.autocomplete_dismissed);
+    try testing.expect(model.skills_list_open());
+}
+
+test "composer $ card stays closed when slash is active; @ still works; skills stay out of CommandRow" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("skill vs slash", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| {
+        session.appendAvailableCommand("commit", "Create a commit");
+        session.appendAvailableCommand("compact", "Compact the conversation");
+    }
+    skills.applyStdoutPaths(&model, ".cursor/skills/to-spec/SKILL.md\n");
+    try testing.expectEqualStrings("to-spec", skills.cachedName(&model, 0));
+    file_mention.applyStdoutPaths(&model,
+        \\src/main.zig
+        \\src/composer.zig
+    );
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "/" } }, &fx);
+    try testing.expect(model.commands_list_open());
+    try testing.expect(!model.skills_list_open());
+    try testing.expect(!model.mentions_list_open());
+    {
+        const rows = model.command_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expectEqualStrings("/commit", rows[0].slash_name);
+        try testing.expectEqual(@as(u32, 1), rows[0].id);
+        try testing.expectEqualStrings("/compact", rows[1].slash_name);
+    }
+    try testing.expectEqual(@as(usize, 0), model.skill_insert_rows(arena).len);
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "/commit");
+    try testing.expect(findByText(tree.root, .text, "to-spec") == null);
+
+    model.draft_buffer.clear();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "$to" } }, &fx);
+    try testing.expect(model.skills_list_open());
+    try testing.expect(!model.commands_list_open());
+    try testing.expect(!model.mentions_list_open());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "to-spec");
+    try testing.expect(findByText(tree.root, .text, "/commit") == null);
+    try testing.expect(findByText(tree.root, .text, "src/main.zig") == null);
+    _ = try expectButton(tree.root, "Commands");
+
+    model.draft_buffer.clear();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "@src" } }, &fx);
+    try testing.expect(model.mentions_list_open());
+    try testing.expect(!model.skills_list_open());
+    try testing.expect(!model.commands_list_open());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "main.zig");
+    try testing.expect(findByText(tree.root, .text, "to-spec") == null);
+    try testing.expect(findByText(tree.root, .text, "/commit") == null);
+
+    model.draft_buffer.clear();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "/$to" } }, &fx);
+    try testing.expect(!model.skills_list_open());
+    try testing.expect(!model.mentions_list_open());
+}
+
+test "composer $ prefix stays closed when no skills are cached and no project" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    const id = model.addSession("no skills", .fx);
+    model.selected = id;
+    try testing.expect(!model.skills_list_open());
+    try testing.expect(!model.has_commands());
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "$" } }, &fx);
+    try testing.expectEqualStrings("$", model.draft());
+    try testing.expectEqual(@as(u64, 0), model.skill_key);
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expect(!model.skills_list_open());
+    try testing.expect(!model.commands_list_open());
+    try testing.expectEqual(@as(usize, 0), model.skill_insert_rows(arena).len);
+    const tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "to-spec") == null);
+}
+
 test "fx ask spawn records FX_MODEL and FX_PERMISSION_MODE" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
@@ -16630,6 +16942,7 @@ fn expectComposerEnterMarkup() !void {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-submit=\"composer_enter\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"send\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "selected=\"{c.selected}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "selected=\"{sk.selected}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "selected=\"{m.selected}\"") != null);
 }
 

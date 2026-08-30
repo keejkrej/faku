@@ -485,9 +485,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.autocomplete_dismissed = false;
             model.autocomplete_highlight = 0;
             store.persistDraftIfPossible(model);
+            model.maybeEnsureSkillsScanned(fx);
         },
         .composer_enter => {
-            if (model.commands_list_open() or model.mentions_list_open()) {
+            if (model.commands_list_open() or model.skills_list_open() or model.mentions_list_open()) {
                 if (model.insertHighlightedAutocomplete()) {
                     store.persistDraftIfPossible(model);
                 }
@@ -619,6 +620,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .insert_mention => |id| {
             model.insertAvailableMention(id);
+            store.persistDraftIfPossible(model);
+        },
+        .insert_skill => |id| {
+            model.insertAvailableSkill(id);
             store.persistDraftIfPossible(model);
         },
         .rewind => session_fork.applyRewindIfPossible(model, fx),

@@ -111,7 +111,7 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
         model.exitFind();
         return;
     }
-    if (model.mentions_list_open() or model.slashPrefixCommandsShowing()) {
+    if (model.mentions_list_open() or model.skills_list_open() or model.slashPrefixCommandsShowing()) {
         model.autocomplete_dismissed = true;
         return;
     }
