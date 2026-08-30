@@ -56,10 +56,11 @@ first-cut Background Stop row when the selected session is
 live-streaming (same `is_streaming` / composer Stop /
 `stopStream` path; omitted when idle; Faku-side stream state
 only, not a daemon BackgroundWork registry); leftovers
-are prune-alone, a fuller background registry / settled rows /
-multi-kind Process·Monitor·Subagent, and daemon
+are a fuller background registry / settled rows /
+multi-kind Process·Monitor·Subagent, Skills settings page, and daemon
 WorkspaceOperation (not transcript checkpoint +/-; not force
-push — Waku `git_commit::push` has no `--force`).
+push — Waku `git_commit::push` has no `--force`; not prune-alone —
+Waku fetch is already `git fetch --prune` and has no separate prune).
 Header, sidebar, and Ctrl-Tab switcher titles stay on one line with
 Native ellipsis; the full name remains the accessible list-item
 label. That is in-window chrome, not the OS window title. Ctrl-Tab
@@ -72,7 +73,10 @@ sidecar because Native still has no `fx.maximizeWindow`; sidebar
 Search and Cmd/Ctrl-K open a local command palette (actions + session
 jump, no daemon; Commands can copy the selected session's local
 numeric id and fx/ACP session id); the sidebar collapse
-control works and is restored; the sidebar chevrons walk session
+control works and is restored; a first-cut Files pane sits to the
+right of the conversation (default closed; Waku `command_palette.show_right_panel`
+/ `hide_right_panel`; width 184/140/360 from Waku file-tree
+constants, not the 460px full right panel); the sidebar chevrons walk session
 selection history; clicking a session focuses the composer; New folder creates a local catalog folder; clicking
 a folder (or the move control) assigns the selected session; folder
 titles are editable; collapsed folder headers show a right chevron (expand) and expanded ones a down chevron (collapse); Collapse all folders collapses every sidebar folder (restored via `collapsed_folder_ids`); the selected session title is editable; deleting a folder unassigns its sessions;
@@ -137,7 +141,7 @@ text-line counts on the + side, and muted ahead/behind vs
 `@{upstream}` (`↑A ↓B`) when that name exists (not Waku's daemon
 InspectBranches live watch / `{project_id}` UUID nest /
 background work /
-force push / prune-alone / base-ref picker;
+force push / base-ref picker;
 Native still has no git
 effect);
 typing `@` in the composer (last whitespace token; caret assumed at
@@ -196,7 +200,8 @@ plus porcelain XY `has_staged` / `has_unstaged`) live in
 `src/git_ahead_behind.zig`. Composer git show-toplevel occupancy
 helpers live in `src/git_toplevel.zig`. Composer git-common-dir nest
 helpers live in `src/git_common_dir.zig`. Composer `@` file-mention probe helpers live in
-`src/file_mention.zig`. Boot fx-probe spawn/exit lives in
+`src/file_mention.zig`. First-cut right panel Files helpers live in
+`src/right_panel.zig`. Boot fx-probe spawn/exit lives in
 `src/fx_probe.zig`. Folder/chip persist helpers live in
 `src/persist.zig`. Session / folder / title-edit update helpers live
 in `src/session_actions.zig`. Settings / Esc-stop / composer-picker
@@ -530,7 +535,8 @@ does not invent "clean". This is not Waku's daemon
 nesting / `waku/` prefix, not defer-until-Send
 workspace mode, not a worktree base-ref picker UI, not
 background-work rows,
-not force push, and not prune-alone (`git prune` without fetch).
+not force push, and not prune-alone (`git prune` without fetch —
+not a leftover; Waku has no prune-alone).
 Environment Compare Review is a first-cut Branch + Uncommitted +
 Staged + Unstaged + Committed + LastTurn name-status file list
 (Uncommitted
@@ -561,11 +567,13 @@ that path; Uncommitted `?` rows one-shot
 `git diff --no-index -- /dev/null <path>`). First-cut
 Background Stop is Faku-side `is_streaming` / composer Stop
 only. Copy agent CLI thread ID is omitted unless the selected
-session has a non-empty `fx_session_id`. Leftovers: prune-alone,
-fuller background registry / settled rows / multi-kind
-Process·Monitor·Subagent, daemon `WorkspaceOperation`. Not a
+session has a non-empty `fx_session_id`. Leftovers: file tree
+expand/collapse, Diff tab, fuller BackgroundWork registry / settled
+rows / multi-kind Process·Monitor·Subagent, Skills settings page,
+daemon `WorkspaceOperation`. Not a
 Waku BackgroundWorkRegistry. Not transcript checkpoint +/-.
 Not force push (Waku `git_commit::push` has no `--force`).
+Not prune-alone (not in Waku).
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and
 git-common-dir path
@@ -593,6 +601,27 @@ The visible mention card scores those files plus unique parent
 directories derived at row time (`composer.fileMentionScore`);
 it is still not Waku's 50k-file index, caret-aware trigger, a
 daemon catalog, or a live watch. Windows stays empty this cut.
+
+Command palette Show right panel / Hide right panel (Waku
+`command_palette.show_right_panel` / `hide_right_panel`) toggles a
+first-cut Files pane on the right of the conversation column.
+Default closed: Waku `RightPanelSessionState::take_or_closed` uses
+`empty(false)` and persistence `default_right_panel_visibility` is
+false. Width persists like the sidebar (`right_panel_open` /
+`right_panel_width`) using Waku `DEFAULT_FILE_TREE_WIDTH` 184,
+`FILE_TREE_MIN_WIDTH` 140, and `FILE_TREE_MAX_WIDTH` 360 — this cut
+is the Files tree, not the 460px `DEFAULT_RIGHT_PANEL_WIDTH` panel
+that also hosts Browser / Terminal / Diff / editor. The list is the
+same bounded `file_mention` cache (max 256) plus derived parent
+dirs; refresh on open / session / `project_path` change matches `@`
+mentions. Local / missing project shows Waku `files.no_project_open`
+("No project open"). A successful empty probe stays an empty list.
+Clicking a file passes `project_path` + relpath to the existing
+Open in Editor sidecar (`cursor`/`code`/`open -a` still take one
+path argument). Dir rows are listed without expand/collapse this
+cut. Not Browser, Terminal (no Native PTY), Diff, compact File
+editor, BackgroundWork tabs, daemon `WorkspaceOperation::listTree` /
+browseDirectory / readTextFile, or Waku's 50k-file index.
 
 A stdout ACP `session/new` result with `sessionId` updates the stored
 id and is not appended to the assistant turn. `fx ask --json` lines
@@ -668,9 +697,10 @@ access_mode, interaction_mode, reasoning_effort, folder_id, context_used, contex
 available_commands, thread_goal_objective, thread_goal_status, thread_goal_token_budget, thread_goal_tokens_used, thread_goal_time_used_seconds, updated_at) — no demo rows and no transcripts. The document also stores
 `last_project_path`, `last_model`, `last_access_mode`,
 `last_interaction_mode`, `last_reasoning_effort`, `last_daemon_address`, `sidebar_collapsed`,
-`sidebar_width`, `folders`, and `collapsed_folder_ids` so a new session can inherit the last workspace and last
+`sidebar_width`, `right_panel_open`, `right_panel_width`, `folders`, and `collapsed_folder_ids` so a new session can inherit the last workspace and last
 model/access/interaction, a later send can reuse the last sidecar address,
-the sidebar collapse control is restored, and New folder groups persist.
+the sidebar collapse control is restored, the Files pane open/closed + width
+are restored, and New folder groups persist.
 Ungrouped sessions (`folder_id` 0 or omitted) group into Today / Yesterday /
 This week / This month / This year / Older date buckets from each session `updated_at`
 (unix ms). Missing or 0 is Today so existing catalogs stay in one bucket.

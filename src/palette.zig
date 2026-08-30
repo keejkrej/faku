@@ -57,6 +57,10 @@ pub const PaletteAction = enum(u32) {
     open_editor = 13,
     /// Selected session workspace path via `fx.writeClipboard`. Not Open-in.
     copy_project_path = 14,
+    /// Waku `command_palette.show_right_panel`.
+    show_right_panel = 15,
+    /// Waku `command_palette.hide_right_panel`.
+    hide_right_panel = 16,
 };
 
 pub const PaletteActionSpec = struct {
@@ -81,6 +85,8 @@ pub const palette_action_specs = [_]PaletteActionSpec{
     .{ .action = .open_terminal, .label = "Open project in Terminal", .keywords = &.{ "terminal", "shell", "iterm", "console", "project", "open" }, .suggested = false },
     .{ .action = .open_editor, .label = "Open project in Editor", .keywords = &.{ "editor", "vscode", "cursor", "code", "project", "open" }, .suggested = false },
     .{ .action = .copy_project_path, .label = "Copy project path", .keywords = &.{ "copy", "path", "folder", "project", "cwd" }, .suggested = false },
+    .{ .action = .show_right_panel, .label = "Show right panel", .keywords = &.{ "right", "panel", "files", "show" }, .suggested = false },
+    .{ .action = .hide_right_panel, .label = "Hide right panel", .keywords = &.{ "right", "panel", "files", "hide" }, .suggested = false },
 };
 
 pub fn paletteActionId(action: PaletteAction) u32 {
@@ -233,6 +239,8 @@ fn paletteActionAvailable(model: *const Model, spec: PaletteActionSpec) bool {
         .open_terminal => model.can_open_terminal(),
         .open_editor => model.can_open_editor(),
         .copy_project_path => model.can_copy_project_path(),
+        .show_right_panel => !model.right_panel_open,
+        .hide_right_panel => model.right_panel_open,
         else => true,
     };
 }

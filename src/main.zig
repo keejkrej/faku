@@ -62,6 +62,7 @@ const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
 const open_editor = @import("open_editor.zig");
+const right_panel = @import("right_panel.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -83,6 +84,12 @@ pub const sidebar_default_width: f32 = 252;
 pub const sidebar_min_width: f32 = 180;
 pub const sidebar_max_width: f32 = 420;
 pub const sidebar_rail_width: f32 = 48;
+/// Waku `DEFAULT_FILE_TREE_WIDTH` — Files-only pane (not 460px `DEFAULT_RIGHT_PANEL_WIDTH`).
+pub const right_panel_default_width: f32 = 184;
+/// Waku `FILE_TREE_MIN_WIDTH`.
+pub const right_panel_min_width: f32 = 140;
+/// Waku `FILE_TREE_MAX_WIDTH`.
+pub const right_panel_max_width: f32 = 360;
 pub const max_sessions = model_mod.max_sessions;
 /// Sidebar folder-header keys sit above session ids so `for` keys stay unique.
 pub const folder_row_id_base: u32 = 1_000_000;
@@ -388,6 +395,7 @@ pub const paletteActionId = palette.paletteActionId;
 
 pub const QueuedMessage = model_mod.QueuedMessage;
 pub const QueuedRow = model_mod.QueuedRow;
+pub const RightPanelFileRow = model_mod.RightPanelFileRow;
 pub const Msg = model_mod.Msg;
 pub const Model = model_mod.Model;
 
@@ -609,8 +617,29 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.toggleSidebar();
             store.persistLayoutIfPossible(model);
         },
+        .show_right_panel => {
+            model.showRightPanel();
+            file_mention.refresh(model, fx);
+            store.persistLayoutIfPossible(model);
+        },
+        .hide_right_panel => {
+            model.hideRightPanel();
+            store.persistLayoutIfPossible(model);
+        },
+        .toggle_right_panel => {
+            const opening = !model.right_panel_open;
+            model.toggleRightPanel();
+            if (opening) file_mention.refresh(model, fx);
+            store.persistLayoutIfPossible(model);
+        },
+        .right_panel_resized => |fraction| {
+            model.applyRightPanelResize(fraction);
+            store.persistLayoutIfPossible(model);
+        },
+        .open_right_panel_file => |id| right_panel.openCachedFile(model, fx, id),
         .sidebar_resized => |fraction| {
             sidebar_row_helpers.applySidebarResize(model, fraction);
+            model.syncRightPanelSplit();
             store.persistLayoutIfPossible(model);
         },
         .transcript_scrolled => |scroll| model.applyTranscriptScroll(scroll),
@@ -768,6 +797,7 @@ test {
     _ = @import("reveal_folder.zig");
     _ = @import("open_terminal.zig");
     _ = @import("open_editor.zig");
+    _ = @import("right_panel.zig");
     _ = @import("maximize_window.zig");
     _ = @import("rewind.zig");
     _ = @import("checkpoint.zig");

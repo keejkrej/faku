@@ -30,6 +30,7 @@ const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
 const copy_helpers = @import("copy.zig");
 const open_editor = @import("open_editor.zig");
+const right_panel = @import("right_panel.zig");
 
 const canvas = native_sdk.canvas;
 const main = @import("main.zig");
@@ -85,6 +86,10 @@ const window_width: f32 = 1380;
 const default_sidebar_split: f32 = sidebar_default_width / window_width;
 const sidebar_min_width: f32 = 180;
 const sidebar_rail_width: f32 = 48;
+/// Waku `DEFAULT_FILE_TREE_WIDTH`. Files-only pane, not the 460px panel.
+const right_panel_default_width: f32 = 184;
+const right_panel_min_width: f32 = 140;
+const default_right_panel_split: f32 = 1.0;
 const attach_preview_id_first: u64 = 33;
 const daemon_proxy_key_first: u64 = 4;
 const fx_spawn_overlap_key_first: u64 = 64;
@@ -248,6 +253,19 @@ pub const MentionRow = struct {
     selected: bool = false,
 };
 
+/// Files-pane row. `id` is a 1-based file-mention cache index or
+/// `file_mention_dir_id_base + dir_index` so Native
+/// `open_right_panel_file:{f.id}` never binds 0. Dir rows are listed
+/// but not clicked this cut (no expand/collapse).
+pub const RightPanelFileRow = struct {
+    id: u32,
+    path: []const u8,
+    name: []const u8,
+    parent: []const u8,
+    has_parent: bool,
+    is_file: bool,
+};
+
 /// Composer model picker row. `row_id` is a 1-based Native `for` key.
 /// `id` is the ACP wire value (empty clears `session.model`).
 pub const ModelPickerRow = struct {
@@ -329,6 +347,15 @@ pub const Msg = union(enum) {
     /// Click a queued follow-up: restore its text to the composer and drop it.
     edit_queued: u32,
     toggle_sidebar,
+    /// Palette / header: open the first-cut Files pane. Default closed.
+    show_right_panel,
+    /// Palette / Files header: close the Files pane.
+    hide_right_panel,
+    toggle_right_panel,
+    /// Nested split drag. Fraction is the conversation pane of the inner split.
+    right_panel_resized: f32,
+    /// Files-pane file click. Payload is a 1-based file-mention cache id.
+    open_right_panel_file: u32,
     toggle_settings,
     settings_model_edit: canvas.TextInputEvent,
     settings_project_edit: canvas.TextInputEvent,
@@ -472,7 +499,7 @@ pub const Msg = union(enum) {
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "open_find", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "open_find", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel" };
 };
 
 pub const Model = struct {
@@ -568,6 +595,11 @@ pub const Model = struct {
     sidebar_split: f32 = default_sidebar_split,
     sidebar_collapsed: bool = false,
     sidebar_last_width: f32 = sidebar_default_width,
+    /// Default closed (Waku `default_right_panel_visibility` is false).
+    right_panel_open: bool = false,
+    right_panel_split: f32 = default_right_panel_split,
+    /// Last Files-pane width in pixels (Waku file-tree 184).
+    right_panel_width: f32 = right_panel_default_width,
     settings_open: bool = false,
     /// Runtime-only Ctrl-Tab overlay. Not persisted to sessions.json.
     switcher_open: bool = false,
@@ -600,6 +632,8 @@ pub const Model = struct {
     open_terminal_wd_len: usize = 0,
     open_editor_live: bool = false,
     open_editor_stage: open_editor.Stage = .first,
+    open_editor_path_storage: [open_editor.max_open_path]u8 = [_]u8{0} ** open_editor.max_open_path,
+    open_editor_path_len: usize = 0,
     /// Runtime-only chrome status when the OS maximize sidecar is missing.
     window_status_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
     window_status_len: usize = 0,
@@ -1014,6 +1048,17 @@ pub const Model = struct {
         "open_terminal_wd_len",
         "open_editor_live",
         "open_editor_stage",
+        "open_editor_path_storage",
+        "open_editor_path_len",
+        "openEditorPath",
+        "right_panel_width",
+        "rightPanelWidthPixels",
+        "applyRightPanelWidth",
+        "syncRightPanelSplit",
+        "toggleRightPanel",
+        "showRightPanel",
+        "hideRightPanel",
+        "applyRightPanelResize",
         "setAttachStatus",
         "clearAttachStatus",
         "window_status_storage",
@@ -1539,6 +1584,26 @@ pub const Model = struct {
         return sidebar_row_helpers.rows(model, arena);
     }
 
+    pub fn right_panel_file_rows(model: *const Model, arena: std.mem.Allocator) []const RightPanelFileRow {
+        return right_panel.rows(model, arena);
+    }
+
+    pub fn right_panel_no_project(model: *const Model) bool {
+        return model.right_panel_open and !right_panel.hasProject(model);
+    }
+
+    pub fn right_panel_loading(model: *const Model) bool {
+        return model.right_panel_open and right_panel.isLoading(model);
+    }
+
+    pub fn right_panel_pane_min(model: *const Model) f32 {
+        return if (model.right_panel_open) right_panel_min_width else 0;
+    }
+
+    pub fn right_panel_toggle_label(model: *const Model) []const u8 {
+        return if (model.right_panel_open) "Hide right panel" else "Show right panel";
+    }
+
     pub fn switcher_rows(model: *const Model, arena: std.mem.Allocator) []const SessionRow {
         if (!model.switcher_open or model.switcher_count == 0) return &.{};
         const out = arena.alloc(SessionRow, model.switcher_count) catch return &.{};
@@ -2045,10 +2110,11 @@ pub const Model = struct {
     pub fn syncSidebarSplit(model: *Model) void {
         if (model.sidebar_collapsed) {
             model.sidebar_split = sidebar_row_helpers.collapsedSidebarSplit();
-            return;
+        } else {
+            const width = if (model.sidebar_last_width > 0) model.sidebar_last_width else sidebar_default_width;
+            model.sidebar_split = sidebar_row_helpers.clampExpandedSidebarSplit(width / window_width);
         }
-        const width = if (model.sidebar_last_width > 0) model.sidebar_last_width else sidebar_default_width;
-        model.sidebar_split = sidebar_row_helpers.clampExpandedSidebarSplit(width / window_width);
+        model.syncRightPanelSplit();
     }
 
     pub fn toggleSidebar(model: *Model) void {
@@ -2059,6 +2125,56 @@ pub const Model = struct {
             model.sidebar_collapsed = true;
         }
         model.syncSidebarSplit();
+    }
+
+    pub fn rightPanelWidthPixels(model: *const Model) u32 {
+        return @intFromFloat(@round(right_panel.clampWidth(model.right_panel_width)));
+    }
+
+    pub fn applyRightPanelWidth(model: *Model, width: u32) void {
+        if (width == 0) return;
+        model.right_panel_width = right_panel.clampWidth(@floatFromInt(width));
+    }
+
+    pub fn syncRightPanelSplit(model: *Model) void {
+        if (!model.right_panel_open) {
+            model.right_panel_split = right_panel.closedSplit();
+            return;
+        }
+        model.right_panel_split = right_panel.splitForWidth(model, model.right_panel_width);
+    }
+
+    pub fn showRightPanel(model: *Model) void {
+        model.right_panel_open = true;
+        model.syncRightPanelSplit();
+    }
+
+    pub fn hideRightPanel(model: *Model) void {
+        model.right_panel_open = false;
+        model.syncRightPanelSplit();
+    }
+
+    pub fn toggleRightPanel(model: *Model) void {
+        if (model.right_panel_open) {
+            model.hideRightPanel();
+        } else {
+            model.showRightPanel();
+        }
+    }
+
+    pub fn applyRightPanelResize(model: *Model, fraction: f32) void {
+        const rest = right_panel.restWidth(model);
+        const files = rest * (1.0 - fraction);
+        if (!model.right_panel_open) {
+            if (files < right_panel_min_width) return;
+            model.right_panel_open = true;
+        }
+        model.right_panel_width = right_panel.clampWidth(files);
+        model.syncRightPanelSplit();
+    }
+
+    pub fn openEditorPath(model: *const Model) []const u8 {
+        return model.open_editor_path_storage[0..model.open_editor_path_len];
     }
 
     pub fn settings_model(model: *const Model) []const u8 {

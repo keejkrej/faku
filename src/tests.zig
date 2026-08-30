@@ -7883,6 +7883,187 @@ test "cmd-b persist extras stay merge-only" {
     try testing.expectEqual(@as(u32, 320), restored.sidebarWidthPixels());
 }
 
+test "toggle right panel opens and closes the Files pane" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expect(!model.right_panel_open);
+    try testing.expectEqual(@as(f32, 1.0), model.right_panel_split);
+    try testing.expectEqual(@as(u32, 184), model.rightPanelWidthPixels());
+
+    var tree = try buildTree(arena, &model);
+    const show = try expectButton(tree.root, "Show right panel");
+    try testing.expectEqual(Msg.toggle_right_panel, tree.msgForPointer(show.id, .up).?);
+    try testing.expect(findByText(tree.root, .text, "Files") == null);
+    try testing.expect(findByText(tree.root, .text, "No project open") == null);
+
+    main.update(&model, .toggle_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+    try testing.expect(model.right_panel_split < 1.0);
+    try testing.expect(model.right_panel_no_project());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Files");
+    _ = try expectByText(tree.root, .text, "No project open");
+    _ = try expectByText(tree.root, .text, "Open a project to browse its files");
+    const hide = try expectButton(tree.root, "Hide right panel");
+    try testing.expect(tree.msgForPointer(hide.id, .up).? == .hide_right_panel or tree.msgForPointer(hide.id, .up).? == .toggle_right_panel);
+
+    main.update(&model, .hide_right_panel, &fx);
+    try testing.expect(!model.right_panel_open);
+    try testing.expectEqual(@as(f32, 1.0), model.right_panel_split);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Files") == null);
+    try testing.expect(findByText(tree.root, .text, "No project open") == null);
+
+    main.update(&model, .show_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+    main.update(&model, .show_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+}
+
+test "right panel Files list reads file_mention cache and derived dirs" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try absCopyProjectDir(tmp, "files-pane", &project_buf);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("files pane", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+
+    main.update(&model, .show_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+    try testing.expect(!model.right_panel_no_project());
+    try testing.expectEqual(@as(usize, 0), model.right_panel_file_rows(arena).len);
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "No project open") == null);
+    try testing.expect(findByText(tree.root, .text, "main.zig") == null);
+
+    file_mention.applyStdoutPaths(&model,
+        \\src/main.zig
+        \\src/composer.zig
+        \\README.md
+    );
+    {
+        const rows = model.right_panel_file_rows(arena);
+        try testing.expectEqual(@as(usize, 4), rows.len);
+        try testing.expectEqualStrings("src/", rows[0].path);
+        try testing.expect(!rows[0].is_file);
+        try testing.expectEqual(file_mention.file_mention_dir_id_base, rows[0].id);
+        try testing.expectEqualStrings("src/main.zig", rows[1].path);
+        try testing.expect(rows[1].is_file);
+        try testing.expectEqual(@as(u32, 1), rows[1].id);
+        try testing.expectEqualStrings("src/composer.zig", rows[2].path);
+        try testing.expectEqualStrings("README.md", rows[3].path);
+    }
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "main.zig");
+    _ = try expectByText(tree.root, .text, "composer.zig");
+    _ = try expectByText(tree.root, .text, "README.md");
+    _ = try expectByText(tree.root, .text, "src");
+    const file_row = try expectButton(tree.root, "src/main.zig");
+    try testing.expectEqual(Msg{ .open_right_panel_file = 1 }, tree.msgForPointer(file_row.id, .up).?);
+    const dir_row = try expectButton(tree.root, "src/");
+    try testing.expect(tree.msgForPointer(dir_row.id, .up) == null);
+
+    main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
+    const spawn = findOpenEditorSpawn(&fx) orelse return error.MissingOpenEditorSpawn;
+    try testing.expect(open_editor.isEditorArgv(spawn.argv));
+    try testing.expect(std.mem.endsWith(u8, spawn.argv[1], "/src/main.zig"));
+    try testing.expect(std.mem.startsWith(u8, spawn.argv[1], project));
+}
+
+test "right panel Files list stays empty without a project" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("local files pane", .fx);
+    model.selected = id;
+
+    file_mention.applyStdoutPaths(&model, "src/invented.zig\n");
+    try testing.expectEqual(@as(u32, 1), model.file_mention_count);
+
+    main.update(&model, .show_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+    try testing.expect(model.right_panel_no_project());
+    try testing.expectEqual(@as(usize, 0), model.right_panel_file_rows(arena).len);
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No project open");
+    try testing.expect(findByText(tree.root, .text, "invented.zig") == null);
+}
+
+test "palette Show right panel and Hide right panel toggle the Files pane" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .start_search, &fx);
+    const empty = model.palette_rows(arena);
+    try testing.expect(paletteHasLabel(empty, "Show right panel"));
+    try testing.expect(!paletteHasLabel(empty, "Hide right panel"));
+    try testing.expectEqual(main.paletteActionId(.show_right_panel), paletteRowId(empty, "Show right panel"));
+
+    var tree = try buildTree(arena, &model);
+    const dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    const show = try expectButton(dialog, "Show right panel");
+    try testing.expectEqual(
+        Msg{ .palette_pick = main.paletteActionId(.show_right_panel) },
+        tree.msgForPointer(show.id, .up).?,
+    );
+    main.update(&model, tree.msgForPointer(show.id, .up).?, &fx);
+    try testing.expect(!model.palette_open);
+    try testing.expect(model.right_panel_open);
+
+    main.update(&model, .start_search, &fx);
+    const open_rows = model.palette_rows(arena);
+    try testing.expect(!paletteHasLabel(open_rows, "Show right panel"));
+    try testing.expect(paletteHasLabel(open_rows, "Hide right panel"));
+    try testing.expectEqual(main.paletteActionId(.hide_right_panel), paletteRowId(open_rows, "Hide right panel"));
+
+    tree = try buildTree(arena, &model);
+    const hide_dialog = findByKind(tree.root, .dialog) orelse return error.WidgetNotFound;
+    const hide = try expectButton(hide_dialog, "Hide right panel");
+    try testing.expectEqual(
+        Msg{ .palette_pick = main.paletteActionId(.hide_right_panel) },
+        tree.msgForPointer(hide.id, .up).?,
+    );
+    main.update(&model, tree.msgForPointer(hide.id, .up).?, &fx);
+    try testing.expect(!model.right_panel_open);
+}
+
 test "cmd-c and ctrl-c copy the last non-empty turn via writeClipboard" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -8355,6 +8536,8 @@ test "empty palette lists New Task; query new t still includes it" {
     try testing.expect(paletteHasLabel(empty, "Copy session id"));
     try testing.expect(paletteHasLabel(empty, "Copy provider session id"));
     try testing.expect(paletteHasLabel(empty, "Reveal project folder"));
+    try testing.expect(paletteHasLabel(empty, "Show right panel"));
+    try testing.expect(!paletteHasLabel(empty, "Hide right panel"));
     try testing.expect(!paletteHasLabel(empty, "Open project in Terminal"));
     try testing.expect(!paletteHasLabel(empty, "Open project in Editor"));
     try testing.expect(!paletteHasLabel(empty, "Copy project path"));
