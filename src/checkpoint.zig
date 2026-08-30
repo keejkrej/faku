@@ -91,15 +91,9 @@ fn gitCommonDir(
     project_path: []const u8,
     dest: []u8,
 ) ?[]const u8 {
-    const result = std.process.run(allocator, io, .{
-        .argv = &.{ git_bin, "-C", project_path, "rev-parse", "--git-common-dir" },
-        .stdout_limit = .limited(512),
-        .stderr_limit = .limited(256),
-    }) catch return null;
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
-    if (result.term != .exited or result.term.exited != 0) return null;
-    const printed = std.mem.trim(u8, result.stdout, " \r\n\t");
+    const printed = revParseCommonDir(allocator, io, project_path, true) orelse
+        revParseCommonDir(allocator, io, project_path, false) orelse return null;
+    defer allocator.free(printed);
     if (printed.len == 0) return null;
     if (printed[0] == '/') {
         if (printed.len > dest.len) return null;
@@ -111,7 +105,65 @@ fn gitCommonDir(
         std.fs.path.sep_str,
         printed,
     }) catch return null;
-    return joined;
+    if (joined[0] == '/') return joined;
+    return realpathInto(allocator, io, joined, dest);
+}
+
+fn revParseCommonDir(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    absolute: bool,
+) ?[]u8 {
+    const result = if (absolute)
+        std.process.run(allocator, io, .{
+            .argv = &.{ git_bin, "-C", project_path, "rev-parse", "--path-format=absolute", "--git-common-dir" },
+            .stdout_limit = .limited(512),
+            .stderr_limit = .limited(256),
+        })
+    else
+        std.process.run(allocator, io, .{
+            .argv = &.{ git_bin, "-C", project_path, "rev-parse", "--git-common-dir" },
+            .stdout_limit = .limited(512),
+            .stderr_limit = .limited(256),
+        });
+    const ran = result catch return null;
+    defer allocator.free(ran.stderr);
+    if (ran.term != .exited or ran.term.exited != 0) {
+        allocator.free(ran.stdout);
+        return null;
+    }
+    const trimmed = std.mem.trim(u8, ran.stdout, " \r\n\t");
+    if (trimmed.len == 0) {
+        allocator.free(ran.stdout);
+        return null;
+    }
+    const out = allocator.dupe(u8, trimmed) catch {
+        allocator.free(ran.stdout);
+        return null;
+    };
+    allocator.free(ran.stdout);
+    return out;
+}
+
+fn realpathInto(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    path: []const u8,
+    dest: []u8,
+) ?[]const u8 {
+    const result = std.process.run(allocator, io, .{
+        .argv = &.{ "realpath", "--", path },
+        .stdout_limit = .limited(512),
+        .stderr_limit = .limited(256),
+    }) catch return null;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    if (result.term != .exited or result.term.exited != 0) return null;
+    const trimmed = std.mem.trim(u8, result.stdout, " \r\n\t");
+    if (trimmed.len == 0 or trimmed[0] != '/' or trimmed.len > dest.len) return null;
+    @memcpy(dest[0..trimmed.len], trimmed);
+    return dest[0..trimmed.len];
 }
 
 var index_seq: u32 = 0;
@@ -229,9 +281,11 @@ test "captureWorktreeCommit includes dirty and untracked and leaves the user ind
     try testing.expect(std.mem.indexOf(u8, vs_head, "untracked.txt") != null);
     try testing.expect(std.mem.indexOf(u8, vs_head, "staged.txt") != null);
 
-    const vs_worktree = try runGitCapture(allocator, testing.io, &.{ "git", "-C", path, "diff", "--name-status", snap });
-    defer allocator.free(vs_worktree);
-    try testing.expectEqual(@as(usize, 0), std.mem.trim(u8, vs_worktree, " \r\n\t").len);
+    const tree = try runGitCapture(allocator, testing.io, &.{ "git", "-C", path, "ls-tree", "-r", "--name-only", snap });
+    defer allocator.free(tree);
+    try testing.expect(std.mem.indexOf(u8, tree, "README") != null);
+    try testing.expect(std.mem.indexOf(u8, tree, "untracked.txt") != null);
+    try testing.expect(std.mem.indexOf(u8, tree, "staged.txt") != null);
 
     const parents = try runGitCapture(allocator, testing.io, &.{
         "git",
