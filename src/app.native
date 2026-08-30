@@ -150,6 +150,7 @@
         </row>
       </if>
     </column>
+    <split grow="1" value="{right_panel_split}" on-resize="right_panel_resized">
     <column grow="1" min-width="360">
       <if test="{settings_open}">
         <row height="48" padding="14" gap="10" cross="center" window-drag="true" label="Toolbar">
@@ -233,6 +234,7 @@
             </if>
           </stack>
         </row>
+        <button variant="ghost" size="icon" icon="panel-right" label="{right_panel_toggle_label}" on-press="toggle_right_panel"></button>
       </row>
       <separator />
       <if test="{find_active}">
@@ -643,6 +645,56 @@
       </column>
       </else>
     </column>
+    <column min-width="{right_panel_pane_min}" background="surface_subtle">
+      <if test="{right_panel_open}">
+        <row height="48" padding="10" gap="8" cross="center">
+          <text>Files</text>
+          <spacer grow="1" />
+          <button variant="ghost" size="icon" icon="panel-right" label="Hide right panel" on-press="hide_right_panel"></button>
+        </row>
+        <separator />
+        <if test="{right_panel_no_project}">
+          <column padding="14" gap="6">
+            <text>No project open</text>
+            <text foreground="text_muted">Open a project to browse its files</text>
+          </column>
+        </if>
+        <else>
+          <if test="{right_panel_loading}">
+            <column padding="14">
+              <text foreground="text_muted">Loading files…</text>
+            </column>
+          </if>
+          <scroll grow="1">
+            <column>
+              <for each="right_panel_file_rows" key="id" as="f">
+                <if test="{f.is_file}">
+                  <list-item height="32" padding="8" gap="4" cross="center" on-press="open_right_panel_file:{f.id}" label="{f.path}">
+                    <column gap="2">
+                      <text wrap="false" overflow="ellipsis">{f.name}</text>
+                      <if test="{f.has_parent}">
+                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
+                      </if>
+                    </column>
+                  </list-item>
+                </if>
+                <else>
+                  <list-item height="32" padding="8" gap="4" cross="center" label="{f.path}">
+                    <column gap="2">
+                      <text wrap="false" overflow="ellipsis">{f.name}</text>
+                      <if test="{f.has_parent}">
+                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
+                      </if>
+                    </column>
+                  </list-item>
+                </else>
+              </for>
+            </column>
+          </scroll>
+        </else>
+      </if>
+    </column>
+    </split>
   </split>
   <if test="{palette_open}">
     <dialog text="Command palette" width="680" height="480" padding="16" on-dismiss="palette_cancel">

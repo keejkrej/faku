@@ -13,6 +13,8 @@
 //! a session hydrates its turns,
 //! `queued_messages`, `rewind_refs`, `worktree_snapshot_sha`, `worktree_turn_end_sha`, `worktree_turn_diff_sha`, and last-known context usage. Document extras also keep
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
+//! plus `right_panel_open` / `right_panel_width` for the first-cut Files
+//! pane (default closed; Waku file-tree 184px),
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
 //! `last_project_path` / `last_daemon_address` so the settings gear and
@@ -306,8 +308,10 @@ pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void
     mirrorSaveTaskStateIfPossible(model, session_id, fx);
 }
 
-/// Merge-only write of sidebar extras. Does not create `sessions.json` and
-/// does not spawn a daemon sidecar. Missing / corrupt catalogs are a no-op.
+/// Merge-only write of layout extras (`sidebar_collapsed`,
+/// `sidebar_width`, `right_panel_open`, `right_panel_width`). Does not
+/// create `sessions.json` and does not spawn a daemon sidecar. Missing
+/// / corrupt catalogs are a no-op.
 pub fn persistLayoutIfPossible(model: *const Model) void {
     const io = model.store_io orelse return;
     saveExtras(model, std.heap.page_allocator, io, .layout) catch {};
@@ -356,6 +360,8 @@ fn saveExtras(model: *const Model, allocator: std.mem.Allocator, io: std.Io, kin
 fn applySidebarExtras(document: *Document, model: *const Model) void {
     document.sidebar_collapsed = model.sidebar_collapsed;
     document.sidebar_width = model.sidebarWidthPixels();
+    document.right_panel_open = model.right_panel_open;
+    document.right_panel_width = model.rightPanelWidthPixels();
 }
 
 fn applySettingsExtras(document: *Document, model: *const Model) void {
@@ -828,6 +834,8 @@ const Document = struct {
     last_daemon_address: []const u8 = "",
     sidebar_collapsed: bool = false,
     sidebar_width: u32 = 0,
+    right_panel_open: bool = false,
+    right_panel_width: u32 = 0,
     folders: []StoredFolder = &.{},
     collapsed_folder_ids: []u32 = &.{},
     sessions: []StoredSession = &.{},
@@ -847,6 +855,8 @@ const Document = struct {
             .last_daemon_address = lastDaemonAddressForSave(model),
             .sidebar_collapsed = model.sidebar_collapsed,
             .sidebar_width = model.sidebarWidthPixels(),
+            .right_panel_open = model.right_panel_open,
+            .right_panel_width = model.rightPanelWidthPixels(),
             .sessions = &.{},
         };
     }
@@ -901,6 +911,8 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.setLastDaemonAddress(document.last_daemon_address);
     model.sidebar_collapsed = document.sidebar_collapsed;
     model.applySidebarWidth(document.sidebar_width);
+    model.right_panel_open = document.right_panel_open;
+    model.applyRightPanelWidth(document.right_panel_width);
     model.syncSidebarSplit();
     for (document.folders) |folder| {
         const collapsed = folderIdCollapsed(document.collapsed_folder_ids, folder.id);
@@ -1174,6 +1186,8 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .last_daemon_address = jsonString(obj.get("last_daemon_address")) orelse "",
         .sidebar_collapsed = jsonBool(obj.get("sidebar_collapsed")) orelse false,
         .sidebar_width = jsonUint(obj.get("sidebar_width")) orelse 0,
+        .right_panel_open = jsonBool(obj.get("right_panel_open")) orelse false,
+        .right_panel_width = jsonUint(obj.get("right_panel_width")) orelse 0,
         .next_folder_id = jsonUint(obj.get("next_folder_id")) orelse 1,
         .folders = try parseFolders(arena, obj.get("folders")),
         .collapsed_folder_ids = try parseUintList(arena, obj.get("collapsed_folder_ids")),
@@ -1463,6 +1477,10 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try out.appendSlice(allocator, if (document.sidebar_collapsed) "true" else "false");
     try out.appendSlice(allocator, ",\"sidebar_width\":");
     try appendUint(&out, allocator, document.sidebar_width);
+    try out.appendSlice(allocator, ",\"right_panel_open\":");
+    try out.appendSlice(allocator, if (document.right_panel_open) "true" else "false");
+    try out.appendSlice(allocator, ",\"right_panel_width\":");
+    try appendUint(&out, allocator, document.right_panel_width);
     try out.appendSlice(allocator, ",\"next_folder_id\":");
     try appendUint(&out, allocator, document.next_folder_id);
     try out.appendSlice(allocator, ",\"folders\":[");
@@ -2046,6 +2064,51 @@ test "sidebar collapsed flag and last width reload from document extras" {
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&restored, allocator, io));
     try testing.expect(!restored.sidebar_collapsed);
     try testing.expectEqual(@as(u32, 300), restored.sidebarWidthPixels());
+}
+
+test "right panel open flag and width reload from document extras" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("files pane later", .fx);
+    _ = source.appendTurn(id, .user, "remember the files pane");
+    try saveSession(&source, id, allocator, io);
+
+    try testing.expect(!source.right_panel_open);
+    source.right_panel_open = true;
+    source.right_panel_width = 220;
+    source.syncRightPanelSplit();
+    persistLayoutIfPossible(&source);
+    try testing.expect(source.right_panel_open);
+    try testing.expectEqual(@as(u32, 220), source.rightPanelWidthPixels());
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expect(loaded.right_panel_open);
+    try testing.expectEqual(@as(u32, 220), loaded.rightPanelWidthPixels());
+    try testing.expect(loaded.right_panel_split < 1.0);
+
+    loaded.hideRightPanel();
+    persistLayoutIfPossible(&loaded);
+    try testing.expect(!loaded.right_panel_open);
+
+    var restored = Model{};
+    restored.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&restored, allocator, io));
+    try testing.expect(!restored.right_panel_open);
+    try testing.expectEqual(@as(u32, 220), restored.rightPanelWidthPixels());
+    try testing.expectEqual(@as(f32, 1.0), restored.right_panel_split);
 }
 
 test "settings extras persist last_model access path and daemon; missing catalog is not created" {

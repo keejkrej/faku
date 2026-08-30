@@ -58,6 +58,8 @@ fn runPaletteAction(model: *Model, fx: *Effects, action: PaletteAction) void {
         .open_terminal => main.update(model, .open_terminal, fx),
         .open_editor => main.update(model, .open_editor, fx),
         .copy_project_path => main.update(model, .copy_project_path, fx),
+        .show_right_panel => main.update(model, .show_right_panel, fx),
+        .hide_right_panel => main.update(model, .hide_right_panel, fx),
     }
 }
 

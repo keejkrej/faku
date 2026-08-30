@@ -258,7 +258,10 @@ fn cancelInFlight(model: *Model, fx: *Effects) void {
     model.file_mention_key = 0;
 }
 
-fn probePath(model: *const Model) []const u8 {
+/// Existing selected-session directory used by `@` mentions and the
+/// Files pane. Empty / missing / Local stays empty so neither surface
+/// invents a project.
+pub fn probePath(model: *const Model) []const u8 {
     const path = model.selectedProjectPath();
     if (path.len == 0) return "";
     const io = model.store_io orelse return "";

@@ -31,6 +31,9 @@ const Effects = main.Effects;
 /// fx_probe (3), fx_spawn 64+, git_branch 200+. 26 sits in that gap and
 /// is unused by those tables.
 pub const open_editor_key: u64 = 26;
+/// Absolute editor target: session `project_path`, or that directory
+/// plus a Files-pane relpath. Fits `max_project_path` + 255 + `/`.
+pub const max_open_path = main.max_project_path + 256;
 
 pub const missing_exit: u8 = 2;
 
@@ -156,14 +159,27 @@ pub fn startOpenEditor(model: *Model, fx: *Effects) void {
         model.setWindowStatus(no_project_status);
         return;
     };
+    startOpenEditorAt(model, fx, path);
+}
+
+/// Same `cursor` / `code` / `open -a` argv as directory Open in Editor,
+/// with `path` as the sole path argument. Files-pane clicks pass an
+/// absolute file path; the directory button still passes `project_path`.
+pub fn startOpenEditorAt(model: *Model, fx: *Effects, path: []const u8) void {
+    if (model.open_editor_live) return;
+    if (path.len == 0) {
+        model.setWindowStatus(no_project_status);
+        return;
+    }
     const tool = hostTool(.first) orelse {
         model.setWindowStatus(hostMissingStatus());
         return;
     };
+    main.writeFixed(&model.open_editor_path_storage, &model.open_editor_path_len, path);
     model.open_editor_live = true;
     model.open_editor_stage = .first;
     model.clearWindowStatus();
-    spawnEditor(fx, tool, path);
+    spawnEditor(fx, tool, model.openEditorPath());
 }
 
 fn spawnEditor(fx: *Effects, tool: Tool, path: []const u8) void {
@@ -183,7 +199,8 @@ fn isMissingEditorExit(exit: native_sdk.EffectExit) bool {
 pub fn handleOpenEditorExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (isMissingEditorExit(exit)) {
         if (nextStage(model.open_editor_stage)) |stage| {
-            if (resolveOpenPath(model)) |path| {
+            const path = model.openEditorPath();
+            if (path.len > 0) {
                 if (hostTool(stage)) |tool| {
                     model.open_editor_stage = stage;
                     spawnEditor(fx, tool, path);
@@ -204,6 +221,15 @@ test "cursor argv is cursor PATH" {
     try std.testing.expectEqual(@as(usize, 2), argv.len);
     try std.testing.expectEqualStrings(cursor_bin, argv[0]);
     try std.testing.expectEqualStrings("/tmp/proj", argv[1]);
+    try std.testing.expect(isEditorArgv(argv));
+}
+
+test "cursor argv with a file path stays bin PATH" {
+    var scratch: ArgvScratch = .{};
+    const argv = argvForTool(.cursor, "/tmp/proj/src/main.zig", &scratch);
+    try std.testing.expectEqual(@as(usize, 2), argv.len);
+    try std.testing.expectEqualStrings(cursor_bin, argv[0]);
+    try std.testing.expectEqualStrings("/tmp/proj/src/main.zig", argv[1]);
     try std.testing.expect(isEditorArgv(argv));
 }
 
