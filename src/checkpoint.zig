@@ -6,12 +6,19 @@
 //! the user's index is never staged or unstaged. Identity is
 //! `-c user.name=Faku` `-c user.email=faku@localhost`. Message is
 //! `Faku worktree snapshot`. No `-p` (empty parents). Always
-//! deletes the temp index and `.lock`. Sync `std.process.run`
-//! like `rewind.captureHead` — not a Native spawn and not
-//! `/bin/sh -c` interpolation. Leftovers: `refs/waku/` /
-//! `refs/faku/` update-ref, `capture_turn_start`, turn-end
-//! capture, `restore_ref`, force, background work, daemon
-//! WorkspaceOperation.
+//! deletes the temp index and `.lock`. After a successful
+//! capture, Send names that commit with one-shot
+//! `git update-ref refs/faku/session-{Session.id}-turn-{n}`
+//! (`updateFakuRef`). `{n}` is the 1-based prompt ordinal of
+//! this Send: `Model.turnCount / 2 + 1` at record time, before
+//! the user+assistant pair is appended (first Send is
+//! `turn-1`). LastTurn / Review still use the stored 40-hex
+//! (`worktree_snapshot_sha`), not the ref. Failed update-ref is
+//! quiet and does not clear the stored sha. Sync
+//! `std.process.run` like `rewind.captureHead` — not a Native
+//! spawn and not `/bin/sh -c` interpolation. Leftovers:
+//! `capture_turn_start`, turn-end capture, `restore_ref`, force,
+//! background work, daemon WorkspaceOperation.
 
 const std = @import("std");
 const rewind = @import("rewind.zig");
@@ -23,6 +30,8 @@ pub const snapshot_message = "Faku worktree snapshot";
 pub const identity_name = "user.name=Faku";
 pub const identity_email = "user.email=faku@localhost";
 pub const commit_gpgsign = "commit.gpgsign=false";
+pub const faku_ref_prefix = "refs/faku/";
+pub const max_faku_ref_name: usize = 128;
 
 const env_prefix = "GIT_INDEX_FILE=";
 
@@ -83,6 +92,57 @@ fn captureFromIndex(
     if (commit.len > dest.len) return null;
     @memcpy(dest[0..commit.len], commit);
     return dest[0..commit.len];
+}
+
+/// 1-based prompt ordinal for `refs/faku/session-*-turn-*`.
+/// `transcript_turns` is `Model.turnCount` at Send record time
+/// (before this Send appends the user+assistant pair).
+pub fn fakuSendTurn(transcript_turns: u32) u32 {
+    return transcript_turns / 2 + 1;
+}
+
+/// `refs/faku/session-{session_id}-turn-{turn_count}` into `dest`.
+/// Null when the name would not fit `dest` or `max_faku_ref_name`.
+pub fn formatFakuSessionTurnRef(dest: []u8, session_id: u32, turn_count: u32) ?[]const u8 {
+    const printed = std.fmt.bufPrint(dest, "refs/faku/session-{d}-turn-{d}", .{ session_id, turn_count }) catch return null;
+    if (printed.len == 0 or printed.len > max_faku_ref_name) return null;
+    return printed;
+}
+
+pub fn isFakuRefName(ref_name: []const u8) bool {
+    if (ref_name.len == 0 or ref_name.len > max_faku_ref_name) return false;
+    if (!std.mem.startsWith(u8, ref_name, faku_ref_prefix)) return false;
+    const rest = ref_name[faku_ref_prefix.len..];
+    if (rest.len == 0) return false;
+    for (rest) |c| {
+        const letter = c >= 'a' and c <= 'z';
+        const digit = c >= '0' and c <= '9';
+        if (!letter and !digit and c != '-' and c != '_') return false;
+    }
+    return true;
+}
+
+/// One-shot `git -C <path> update-ref <ref> <40-hex>`. No Native
+/// git API and not `/bin/sh -c`. Missing / non-git / bad sha /
+/// bad ref / failed update-ref is quiet false.
+pub fn updateFakuRef(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    ref_name: []const u8,
+    sha: []const u8,
+) bool {
+    if (!rewind.isStoredSha(sha)) return false;
+    if (!isFakuRefName(ref_name)) return false;
+    if (!rewind.isGitWorkTree(io, project_path)) return false;
+    const result = std.process.run(allocator, io, .{
+        .argv = &.{ git_bin, "-C", project_path, "update-ref", ref_name, sha },
+        .stdout_limit = .limited(256),
+        .stderr_limit = .limited(512),
+    }) catch return false;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    return result.term == .exited and result.term.exited == 0;
 }
 
 fn gitCommonDir(
@@ -315,6 +375,79 @@ test "captureWorktreeCommit is null for missing and non-git paths" {
     const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/plain", .{tmp.sub_path[0..]});
     try std.Io.Dir.cwd().createDirPath(testing.io, path);
     try testing.expect(captureWorktreeCommit(testing.allocator, testing.io, path, &sha_buf) == null);
+}
+
+test "formatFakuSessionTurnRef uses session id and prompt ordinal" {
+    const testing = std.testing;
+    var buf: [max_faku_ref_name]u8 = undefined;
+    const name = formatFakuSessionTurnRef(&buf, 7, 3) orelse return error.MissingFakuRef;
+    try testing.expectEqualStrings("refs/faku/session-7-turn-3", name);
+    try testing.expect(isFakuRefName(name));
+    try testing.expectEqual(@as(u32, 1), fakuSendTurn(0));
+    try testing.expectEqual(@as(u32, 1), fakuSendTurn(1));
+    try testing.expectEqual(@as(u32, 2), fakuSendTurn(2));
+    try testing.expectEqual(@as(u32, 2), fakuSendTurn(3));
+    try testing.expectEqual(@as(u32, 3), fakuSendTurn(4));
+    var tiny: [8]u8 = undefined;
+    try testing.expect(formatFakuSessionTurnRef(&tiny, 1, 1) == null);
+    try testing.expect(!isFakuRefName(""));
+    try testing.expect(!isFakuRefName("refs/heads/main"));
+    try testing.expect(!isFakuRefName("refs/faku/"));
+    try testing.expect(!isFakuRefName("refs/faku/../heads/main"));
+}
+
+test "captureWorktreeCommit plus updateFakuRef names the dangling commit" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/faku-ref", .{tmp.sub_path[0..]});
+    const head = try initTestRepo(allocator, testing.io, path);
+    defer allocator.free(head);
+
+    var sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const snap = captureWorktreeCommit(allocator, testing.io, path, &sha_buf) orelse return error.MissingSnapshot;
+    var ref_buf: [max_faku_ref_name]u8 = undefined;
+    const ref_name = formatFakuSessionTurnRef(&ref_buf, 12, 4) orelse return error.MissingFakuRef;
+    try testing.expect(updateFakuRef(allocator, testing.io, path, ref_name, snap));
+
+    const parsed = try runGitCapture(allocator, testing.io, &.{ "git", "-C", path, "rev-parse", ref_name });
+    defer allocator.free(parsed);
+    try testing.expectEqualStrings(snap, std.mem.trim(u8, parsed, " \r\n\t"));
+
+    const reachable = try runGitCapture(allocator, testing.io, &.{
+        "git",
+        "-C",
+        path,
+        "rev-list",
+        "--max-count=1",
+        ref_name,
+    });
+    defer allocator.free(reachable);
+    try testing.expectEqualStrings(snap, std.mem.trim(u8, reachable, " \r\n\t"));
+
+    const kind = try runGitCapture(allocator, testing.io, &.{ "git", "-C", path, "cat-file", "-t", snap });
+    defer allocator.free(kind);
+    try testing.expectEqualStrings("commit", std.mem.trim(u8, kind, " \r\n\t"));
+}
+
+test "updateFakuRef is false and quiet on missing, non-git, and bad inputs" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    const sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    try testing.expect(!updateFakuRef(allocator, testing.io, "", "refs/faku/session-1-turn-1", sha));
+    try testing.expect(!updateFakuRef(allocator, testing.io, ".zig-cache/tmp/faku-ref-missing", "refs/faku/session-1-turn-1", sha));
+    try testing.expect(!updateFakuRef(allocator, testing.io, ".", "refs/heads/main", sha));
+    try testing.expect(!updateFakuRef(allocator, testing.io, ".", "refs/faku/session-1-turn-1", "not-a-sha"));
+    try testing.expect(!updateFakuRef(allocator, testing.io, ".", "refs/faku/session-1-turn-1", ""));
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/plain", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, path);
+    try testing.expect(!updateFakuRef(allocator, testing.io, path, "refs/faku/session-1-turn-1", sha));
 }
 
 fn leftoverIndex(allocator: std.mem.Allocator, io: std.Io, project_path: []const u8) bool {

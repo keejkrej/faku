@@ -2,8 +2,8 @@
 //!
 //! Header / per-turn Fork and Send-time Rewind live here. Git plumbing
 //! (`captureHead` / `resetHard`) stays in `rewind.zig`. Worktree
-//! snapshot plumbing (`captureWorktreeCommit`) stays in
-//! `checkpoint.zig`. Msg routing and Model fields stay in
+//! snapshot plumbing (`captureWorktreeCommit` / `updateFakuRef`)
+//! stays in `checkpoint.zig`. Msg routing and Model fields stay in
 //! `main.zig`. Behavior is unchanged from the former `main` fork
 //! and rewind helpers.
 
@@ -28,6 +28,14 @@ pub fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
     var snap_buf: [rewind.stored_sha_len]u8 = undefined;
     if (checkpoint.captureWorktreeCommit(std.heap.page_allocator, io, session.projectPath(), &snap_buf)) |sha| {
         session.setWorktreeSnapshotSha(sha);
+        // turn-N is this Send's 1-based prompt ordinal (turnCount/2+1
+        // before the user+assistant pair is appended). Failed
+        // update-ref must not clear the sha already stored.
+        var ref_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+        const turn_n = checkpoint.fakuSendTurn(model.turnCount(session_id));
+        if (checkpoint.formatFakuSessionTurnRef(&ref_buf, session.id, turn_n)) |ref_name| {
+            _ = checkpoint.updateFakuRef(std.heap.page_allocator, io, session.projectPath(), ref_name, sha);
+        }
     }
 }
 

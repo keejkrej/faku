@@ -31,8 +31,10 @@ index `git diff --name-status` (tracked only); Committed is
 `main...HEAD` / `master...HEAD` if that probe exits non-zero;
 LastTurn is send-time worktree snapshot
 `git diff --name-status <40-hex>` (isolated temp index,
-dangling commit; rewind `<sha>...HEAD` fallback; not
-`refs/waku/` / `refs/faku/` / `capture_turn_start`, not
+dangling commit named `refs/faku/session-{id}-turn-{n}`
+via `git update-ref`; Compare still uses the stored
+40-hex, not the ref; rewind `<sha>...HEAD` fallback; not
+`refs/waku/` / `capture_turn_start`, not
 HEAD~1);
 cap 64; empty is
 `No changes to compare`; clicking a tracked file one-shots
@@ -519,15 +521,16 @@ Committed = `git diff --name-status origin/HEAD...HEAD`, then
 local `main...HEAD` / `master...HEAD` if that probe exits
 non-zero; LastTurn = send-time worktree snapshot
 `git diff --name-status <40-hex>` (isolated temp index,
-dangling commit; rewind `<sha>...HEAD` fallback; not
-`refs/waku/` / `refs/faku/` / `capture_turn_start`, not
+dangling commit named `refs/faku/session-{id}-turn-{n}`
+via `git update-ref`; Compare still uses the stored
+40-hex, not the ref; rewind `<sha>...HEAD` fallback; not
+`refs/waku/` / `capture_turn_start`, not
 HEAD~1); clicking a
 tracked file one-shots `git diff` for
 that path; Uncommitted `?` rows one-shot
 `git diff --no-index -- /dev/null <path>`). Leftovers: force /
 daemon `WorkspaceOperation` / background work /
-`refs/waku/` / `refs/faku/` update-ref / `capture_turn_start`
-/ turn-end capture / `restore_ref`.
+`capture_turn_start` / turn-end capture / `restore_ref`.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and
 git-common-dir path
@@ -736,7 +739,11 @@ and fallback path. Send stores that workspace's HEAD sha on the session
 (`rewind_refs` in `sessions.json`) when `project_path` is a git work
 tree, and overwrites the latest worktree snapshot
 (`worktree_snapshot_sha`; isolated `faku-checkpoint-index-*`,
-dangling commit). Rewind undoes the last turn's files and those chat turns, using
+dangling commit named `refs/faku/session-{id}-turn-{n}` via
+`git update-ref`; `{n}` is the 1-based prompt ordinal
+`turnCount/2 + 1` at Send; the ref is not stored on
+`sessions.json`). Failed update-ref is quiet and does not
+clear the stored sha. Rewind undoes the last turn's files and those chat turns, using
 the Send-time HEAD (`git reset --hard` that latest stored sha, then
 pop it), not the snapshot sha and not a provider session fork. `fx_session_id` stays.
 Fork copies turns through the last turn into a new local session id
