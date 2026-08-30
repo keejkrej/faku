@@ -551,8 +551,12 @@ test "stopBackground no-ops when not streaming" {
     try std.testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try std.testing.expect(!hasSettledBackground(&model));
     try std.testing.expect(!hasBackgroundSection(&model));
+    try std.testing.expect(environmentInfoSelected(&model));
+
+    close(&model);
     try std.testing.expect(!environmentInfoSelected(&model));
 
+    model.environment_summary_open = true;
     main.update(&model, .environment_stop_background, &fx);
     try std.testing.expect(model.environment_summary_open);
     try std.testing.expect(!model.is_streaming());
