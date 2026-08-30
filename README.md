@@ -48,14 +48,18 @@ cap 64; empty is
 `No changes to compare`; clicking a tracked file one-shots
 that path's unified diff; Uncommitted `?` rows one-shot
 `git diff --no-index -- /dev/null <path>`),
-Copy task ID (local session id via `fx.writeClipboard`), and a
+Copy task ID (local session id via `fx.writeClipboard`), Copy
+agent CLI thread ID when the selected session has a non-empty
+`fx_session_id` / ACP sessionId (same `copyFxSessionId` path as
+palette Copy provider session id; omitted when empty), and a
 first-cut Background Stop row when the selected session is
 live-streaming (same `is_streaming` / composer Stop /
 `stopStream` path; omitted when idle; Faku-side stream state
 only, not a daemon BackgroundWork registry); leftovers
-are force push, a fuller background registry / settled rows /
+are prune-alone, a fuller background registry / settled rows /
 multi-kind Process·Monitor·Subagent, and daemon
-WorkspaceOperation (not transcript checkpoint +/-).
+WorkspaceOperation (not transcript checkpoint +/-; not force
+push — Waku `git_commit::push` has no `--force`).
 Header, sidebar, and Ctrl-Tab switcher titles stay on one line with
 Native ellipsis; the full name remains the accessible list-item
 label. That is in-window chrome, not the OS window title. Ctrl-Tab
@@ -556,10 +560,12 @@ tracked file one-shots `git diff` for
 that path; Uncommitted `?` rows one-shot
 `git diff --no-index -- /dev/null <path>`). First-cut
 Background Stop is Faku-side `is_streaming` / composer Stop
-only. Leftovers: force push, fuller background registry / settled
-rows / multi-kind Process·Monitor·Subagent, daemon
-`WorkspaceOperation`. Not a Waku BackgroundWorkRegistry. Not
-transcript checkpoint +/-.
+only. Copy agent CLI thread ID is omitted unless the selected
+session has a non-empty `fx_session_id`. Leftovers: prune-alone,
+fuller background registry / settled rows / multi-kind
+Process·Monitor·Subagent, daemon `WorkspaceOperation`. Not a
+Waku BackgroundWorkRegistry. Not transcript checkpoint +/-.
+Not force push (Waku `git_commit::push` has no `--force`).
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and
 git-common-dir path

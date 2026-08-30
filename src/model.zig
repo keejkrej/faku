@@ -380,6 +380,10 @@ pub const Msg = union(enum) {
     environment_commit_or_push,
     environment_compare,
     environment_copy_task_id,
+    /// Environment Summary Copy agent CLI thread ID. Closes the
+    /// dropdown then `copyFxSessionId`. Menu is gated on a
+    /// non-empty selected `fx_session_id`.
+    environment_copy_agent_thread_id,
     /// Environment Summary Background Stop. Closes the dropdown then
     /// `stopStream` (same path as composer Stop). No-op when idle.
     environment_stop_background,
@@ -2377,6 +2381,12 @@ pub const Model = struct {
     /// (file list; click a tracked row for first-cut hunks).
     pub fn header_git_numstat_label(model: *const Model) []const u8 {
         return environment_summary.headerGitNumstatLabel(model);
+    }
+
+    /// Environment Summary Copy agent CLI thread ID. Selected
+    /// session non-empty `fx_session_id` / ACP sessionId.
+    pub fn has_provider_session_id(model: *const Model) bool {
+        return environment_summary.hasProviderSessionId(model);
     }
 
     /// Runtime-only muted ahead/behind vs `@{upstream}` on the composer
