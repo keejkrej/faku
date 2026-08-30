@@ -3,7 +3,8 @@
 //! Header / per-turn Fork and Send-time Rewind live here. Git plumbing
 //! (`captureHead` / `resetHard`) stays in `rewind.zig`. Worktree
 //! snapshot plumbing (`captureWorktreeCommit` / `captureTurnStart` /
-//! `updateFakuRef` / `restoreRef`) stays in `checkpoint.zig`. Msg routing and Model fields stay in
+//! `captureTurnEnd` / `updateFakuRef` / `restoreRef`) stays in
+//! `checkpoint.zig`. Msg routing and Model fields stay in
 //! `main.zig`. Behavior is unchanged from the former `main` fork
 //! and rewind helpers.
 
@@ -31,8 +32,9 @@ pub fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
         // turn-start-N is this Send's 1-based prompt ordinal
         // (turnCount/2+1 before the user+assistant pair is
         // appended). Seeds turn-{N-1} when that baseline is
-        // missing. Does not write turn-N (turn-end leftover).
-        // Failed update-ref must not clear the sha already stored.
+        // missing. Does not write turn-N (that is finish-time
+        // captureTurnEnd). Failed update-ref must not clear
+        // the sha already stored.
         _ = checkpoint.captureTurnStart(
             std.heap.page_allocator,
             io,
@@ -42,6 +44,32 @@ pub fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
             sha,
         );
     }
+}
+
+/// Successful finish: capture a NEW isolated worktree snapshot
+/// and name it `turn-{n}`. `{n}` is `turnCount/2` after the
+/// user+assistant pair is already appended (same ordinal as
+/// Send's `turnCount/2+1` before append). Does not write
+/// `worktree_snapshot_sha` (LastTurn / Header Rewind keep the
+/// send-time sha). Failed capture is quiet.
+pub fn recordTurnEndIfPossible(model: *Model, session_id: u32) void {
+    const io = model.store_io orelse return;
+    const session = model.sessionById(session_id) orelse return;
+    var snap_buf: [rewind.stored_sha_len]u8 = undefined;
+    const sha = checkpoint.captureWorktreeCommit(
+        std.heap.page_allocator,
+        io,
+        session.projectPath(),
+        &snap_buf,
+    ) orelse return;
+    _ = checkpoint.captureTurnEnd(
+        std.heap.page_allocator,
+        io,
+        session.projectPath(),
+        session.id,
+        checkpoint.fakuFinishTurn(model.turnCount(session_id)),
+        sha,
+    );
 }
 
 /// Header Fork: local catalog clone through the last turn.
