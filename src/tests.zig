@@ -16868,7 +16868,7 @@ test "Environment Compare without a workspace shows No workspace and invents no 
     try testing.expect(!committed_btn.state.selected);
 }
 
-test "Review source row switches Uncommitted and re-probes HEAD name-status" {
+test "Review source row switches Uncommitted and re-probes name-status plus untracked" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -16911,19 +16911,23 @@ test "Review source row switches Uncommitted and re-probes HEAD name-status" {
 
     const uncommitted_spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffUncommitted;
     try testing.expect(review_diff.isGitReviewDiffArgv(uncommitted_spawn.argv));
-    try testing.expectEqualStrings("HEAD", uncommitted_spawn.argv[8]);
+    try testing.expect(review_diff.isGitReviewUncommittedArgv(uncommitted_spawn.argv));
+    try testing.expectEqual(review_diff.argv_len_uncommitted, uncommitted_spawn.argv.len);
+    try testing.expectEqualStrings(review_diff.uncommitted_untracked_script, uncommitted_spawn.argv[7]);
     try testing.expect(std.mem.indexOf(u8, uncommitted_spawn.argv[2], "HEAD") == null);
+    try testing.expect(std.mem.indexOf(u8, uncommitted_spawn.argv[2], review_diff.uncommitted_untracked_script) == null);
     try testing.expect(uncommitted_spawn.key >= main.review_diff_key_first);
     try testing.expect(uncommitted_spawn.key != model.git_numstat_key);
 
-    try fx.feedLine(uncommitted_spawn.key, "M\ttracked.zig\n");
+    try fx.feedLine(uncommitted_spawn.key, "M\ttracked.zig\n?\tnew.txt\n");
     drainEffects(&model, &fx);
     try fx.feedExit(uncommitted_spawn.key, 0);
     drainEffects(&model, &fx);
     try testing.expect(model.has_review_diff_files());
-    try testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
+    try testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "M tracked.zig");
+    _ = try expectByText(tree.root, .text, "? new.txt");
     const uncommitted_on = try expectButtonMsg(tree, "Uncommitted", .set_review_diff_source_uncommitted);
     try testing.expect(uncommitted_on.state.selected);
     const branch_off = try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch);
@@ -16952,7 +16956,8 @@ test "Review source row switches Uncommitted and re-probes HEAD name-status" {
 
     main.update(&model, .set_review_diff_source_uncommitted, &fx);
     const fail_spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffUncommittedFail;
-    try testing.expectEqualStrings("HEAD", fail_spawn.argv[8]);
+    try testing.expect(review_diff.isGitReviewUncommittedArgv(fail_spawn.argv));
+    try testing.expectEqualStrings(review_diff.uncommitted_untracked_script, fail_spawn.argv[7]);
     try fx.feedExit(fail_spawn.key, 128);
     drainEffects(&model, &fx);
     try testing.expectEqualStrings(review_diff.failed_status, model.review_diff_status());

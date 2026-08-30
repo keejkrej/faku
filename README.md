@@ -22,8 +22,9 @@ or Push (the existing Commit… card, including when the tree is
 clean so Push-only still works), Compare (first-cut Review
 name-status file list with Branch + Uncommitted + Staged +
 Unstaged + Committed sources: Branch is `git diff --name-status
-@{upstream}...HEAD`; Uncommitted is tracked-only `git diff
---name-status HEAD`, not untracked; Staged is index vs HEAD
+@{upstream}...HEAD`; Uncommitted is `git diff --name-status
+HEAD` plus untracked `git ls-files --others --exclude-standard`
+(`?` rows); Staged is index vs HEAD
 `git diff --name-status --cached`; Unstaged is worktree vs
 index `git diff --name-status` (tracked only); Committed is
 `git diff --name-status origin/HEAD...HEAD`, then local
@@ -31,7 +32,7 @@ index `git diff --name-status` (tracked only); Committed is
 cap 64; empty is
 `No changes to compare`; not hunk rendering), and
 Copy task ID (local session id via `fx.writeClipboard`); not
-full Review hunks, not LastTurn, not untracked-in-Uncommitted,
+full Review hunks, not LastTurn,
 not background-work rows,
 and not daemon WorkspaceOperation.
 Header, sidebar, and Ctrl-Tab switcher titles stay on one line with
@@ -503,13 +504,14 @@ force push, not prune-alone (`git prune` without fetch), and not
 LastTurn Review sources.
 Environment Compare Review is a first-cut Branch + Uncommitted +
 Staged + Unstaged + Committed name-status file list (Uncommitted
-= tracked `git diff --name-status HEAD`, not untracked; Staged =
+= `git diff --name-status HEAD` plus untracked
+`git ls-files --others --exclude-standard` as `?` rows; Staged =
 index vs HEAD `git diff --name-status --cached`; Unstaged =
 worktree vs index `git diff --name-status`, tracked only;
 Committed = `git diff --name-status origin/HEAD...HEAD`, then
 local `main...HEAD` / `master...HEAD` if that probe exits
 non-zero; not hunks). Leftovers: force / daemon
-`WorkspaceOperation` / Review hunks / untracked-in-Uncommitted /
+`WorkspaceOperation` / Review hunks /
 LastTurn / background work.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and
