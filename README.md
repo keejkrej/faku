@@ -29,15 +29,17 @@ HEAD` plus untracked `git ls-files --others --exclude-standard`
 index `git diff --name-status` (tracked only); Committed is
 `git diff --name-status origin/HEAD...HEAD`, then local
 `main...HEAD` / `master...HEAD` if that probe exits non-zero;
-LastTurn is send-time worktree snapshot
-`git diff --name-status <40-hex>` (isolated temp index,
-dangling commit named
+LastTurn prefers start…end (`git diff --name-status
+<40-hex>...<40-hex>`) when both send-time
+`worktree_snapshot_sha` and finish-time
+`worktree_turn_end_sha` exist (isolated temp index,
+dangling commits named
 `refs/faku/session-{id}-turn-start-{n}` via
 `git update-ref`, plus `turn-{n-1}` when that
-baseline is missing; Compare still uses the stored
-40-hex, not the ref; rewind `<sha>...HEAD` fallback;
-not `refs/waku/`; turn-end `turn-{n}` is captured at
-successful finish; LastTurn does not use start…end; not
+baseline is missing, and finish `turn-{n}`; Compare
+uses the stored shas, not the refs); else send-time
+bare 40-hex two-dot vs the live worktree; rewind
+`<sha>...HEAD` fallback; not `refs/waku/`; not
 HEAD~1);
 cap 64; empty is
 `No changes to compare`; clicking a tracked file one-shots
@@ -522,22 +524,24 @@ index vs HEAD `git diff --name-status --cached`; Unstaged =
 worktree vs index `git diff --name-status`, tracked only;
 Committed = `git diff --name-status origin/HEAD...HEAD`, then
 local `main...HEAD` / `master...HEAD` if that probe exits
-non-zero; LastTurn = send-time worktree snapshot
-`git diff --name-status <40-hex>` (isolated temp index,
-dangling commit named
+non-zero; LastTurn prefers start…end
+(`git diff --name-status <40-hex>...<40-hex>`) when both
+send-time `worktree_snapshot_sha` and finish-time
+`worktree_turn_end_sha` exist (isolated temp index,
+dangling commits named
 `refs/faku/session-{id}-turn-start-{n}` via
 `git update-ref`, plus `turn-{n-1}` when that
-baseline is missing; Compare still uses the stored
-40-hex, not the ref; rewind `<sha>...HEAD` fallback;
-not `refs/waku/`; turn-end `turn-{n}` is captured at
-successful finish; LastTurn does not use start…end; not
+baseline is missing, and finish `turn-{n}`; Compare
+uses the stored shas, not the refs); else send-time
+bare 40-hex two-dot vs the live worktree; rewind
+`<sha>...HEAD` fallback; not `refs/waku/`; not
 HEAD~1); clicking a
 tracked file one-shots `git diff` for
 that path; Uncommitted `?` rows one-shot
 `git diff --no-index -- /dev/null <path>`). Leftovers: force /
 daemon `WorkspaceOperation` / background work /
-parents/metadata in the commit message / LastTurn
-start…end range.
+parents/metadata in the commit message / `refs/waku/`
+Compare operand.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and
 git-common-dir path
@@ -750,16 +754,19 @@ dangling commit named `refs/faku/session-{id}-turn-start-{n}`
 via `git update-ref`, plus `turn-{n-1}` when that baseline
 is missing; `{n}` is the 1-based prompt ordinal
 `turnCount/2 + 1` at Send; the ref is not stored on
-`sessions.json`). A successful finish captures a NEW isolated
+`sessions.json`; a new start snapshot clears
+`worktree_turn_end_sha`). A successful finish captures a NEW isolated
 snapshot as `refs/faku/session-{id}-turn-{n}` (`turnCount/2`
-after the user+assistant pair is appended) and does not
+after the user+assistant pair is appended), stores that 40-hex
+as `worktree_turn_end_sha`, and does not
 overwrite `worktree_snapshot_sha`. Failed update-ref is quiet
-and does not clear the stored sha. LastTurn still uses the
-send-time 40-hex, not a start…end range. Rewind undoes the last turn's files and those chat turns. When a
+and does not clear the stored sha. LastTurn prefers
+start…end when both shas exist; bare snapshot and rewind
+remain fallbacks. Rewind undoes the last turn's files and those chat turns. When a
 worktree snapshot is stored, Rewind `restoreRef`s that 40-hex
 (`git restore --source <sha> --worktree --staged -- .`,
 `git clean -fd -- .`, then `git reset --quiet -- .` when HEAD
-exists; HEAD stays; the snapshot slot is then cleared). When no
+exists; HEAD stays; the snapshot slot and finish-time end sha are then cleared). When no
 snapshot is stored, Rewind `git reset --hard`s the latest
 Send-time HEAD and pops it. Failed restore is a no-op. Not a
 provider session fork. `fx_session_id` stays.

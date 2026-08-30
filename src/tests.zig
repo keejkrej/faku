@@ -663,6 +663,7 @@ test "fork copies turns and project_path; new id; empty fx_session_id; source un
         session.folder_id = 7;
         session.appendRewindRef("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", rewind.recorded_ref, 1_700_000_000);
         session.setWorktreeSnapshotSha("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        session.setWorktreeTurnEndSha("cccccccccccccccccccccccccccccccccccccccc");
     }
     model.selected = id;
     _ = model.appendTurn(id, .user, "first prompt");
@@ -699,6 +700,7 @@ test "fork copies turns and project_path; new id; empty fx_session_id; source un
     try testing.expectEqual(@as(usize, 1), forked.rewind_ref_count);
     try testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", forked.rewindRefs()[0].sha());
     try testing.expectEqualStrings("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", forked.worktreeSnapshotSha());
+    try testing.expectEqualStrings("cccccccccccccccccccccccccccccccccccccccc", forked.worktreeTurnEndSha());
 
     const source = model.sessionById(id).?;
     try testing.expectEqualStrings("fx-sess-source", source.fxSessionId());
@@ -711,6 +713,7 @@ test "fork copies turns and project_path; new id; empty fx_session_id; source un
     try testing.expectEqual(@as(usize, 1), source.rewind_ref_count);
     try testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", source.rewindRefs()[0].sha());
     try testing.expectEqualStrings("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", source.worktreeSnapshotSha());
+    try testing.expectEqualStrings("cccccccccccccccccccccccccccccccccccccccc", source.worktreeTurnEndSha());
 
     var loaded = Model{};
     loaded.setStoreDir(dir);
@@ -723,6 +726,7 @@ test "fork copies turns and project_path; new id; empty fx_session_id; source un
     try testing.expectEqual(@as(usize, 0), loaded_fork.runtimeId().len);
     try testing.expectEqualStrings("/tmp/faku-fork-project", loaded_fork.projectPath());
     try testing.expectEqualStrings("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", loaded_fork.worktreeSnapshotSha());
+    try testing.expectEqualStrings("cccccccccccccccccccccccccccccccccccccccc", loaded_fork.worktreeTurnEndSha());
     store.hydrateSession(&loaded, fork_id, testing.allocator, testing.io);
     try testing.expectEqual(@as(u32, 3), loaded.turnCount(fork_id));
     try testing.expectEqualStrings("first prompt", sessionTurnText(&loaded, fork_id, 0));
@@ -5843,6 +5847,7 @@ test "Send records the pre-commit HEAD; a later commit stays off the rewind targ
     try testing.expect(at_send.rewindRefs()[0].recorded_at > 0);
     try testing.expect(rewind.isStoredSha(at_send.worktreeSnapshotSha()));
     try testing.expect(!std.mem.eql(u8, expected, at_send.worktreeSnapshotSha()));
+    try testing.expectEqual(@as(usize, 0), at_send.worktreeTurnEndSha().len);
 
     try dirtyAndAdvanceRepo(allocator, testing.io, project, "agent commit\n");
     var after_buf: [rewind.max_sha]u8 = undefined;
@@ -5857,15 +5862,19 @@ test "Send records the pre-commit HEAD; a later commit stays off the rewind targ
     try testing.expectEqual(@as(usize, 1), live.rewind_ref_count);
     try testing.expectEqualStrings(expected, live.rewindRefs()[0].sha());
     try testing.expectEqualStrings(rewind.recorded_ref, live.rewindRefs()[0].refName());
+    try testing.expect(rewind.isStoredSha(live.worktreeTurnEndSha()));
+    try testing.expect(!std.mem.eql(u8, live.worktreeSnapshotSha(), live.worktreeTurnEndSha()));
 
     var loaded = Model{};
     loaded.setStoreDir(dir);
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, allocator, testing.io));
     try testing.expectEqualStrings(expected, loaded.session_store[0].rewindRefs()[0].sha());
     try testing.expect(rewind.isStoredSha(loaded.session_store[0].worktreeSnapshotSha()));
+    try testing.expectEqualStrings(live.worktreeTurnEndSha(), loaded.session_store[0].worktreeTurnEndSha());
     store.hydrateSession(&loaded, id, allocator, testing.io);
     try testing.expectEqualStrings(expected, loaded.session_store[0].rewindRefs()[0].sha());
     try testing.expectEqualStrings(live.worktreeSnapshotSha(), loaded.session_store[0].worktreeSnapshotSha());
+    try testing.expectEqualStrings(live.worktreeTurnEndSha(), loaded.session_store[0].worktreeTurnEndSha());
 }
 
 test "Send worktree snapshot includes dirty and untracked; overwrite keeps latest" {
@@ -5903,6 +5912,7 @@ test "Send worktree snapshot includes dirty and untracked; overwrite keeps lates
     defer allocator.free(first_owned);
     try testing.expect(rewind.isStoredSha(first_owned));
     try testing.expect(!std.mem.eql(u8, head, first_owned));
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.worktreeTurnEndSha().len);
     const names = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "diff", "--name-status", head, first_owned });
     defer allocator.free(names);
     try testing.expect(std.mem.indexOf(u8, names, "README") != null);
@@ -5910,6 +5920,9 @@ test "Send worktree snapshot includes dirty and untracked; overwrite keeps lates
 
     try fx.feedExit(main.fx_ask_key, 0);
     drainEffects(&model, &fx);
+    try testing.expect(rewind.isStoredSha(model.sessionById(id).?.worktreeTurnEndSha()));
+    try testing.expect(!std.mem.eql(u8, first_owned, model.sessionById(id).?.worktreeTurnEndSha()));
+    try testing.expectEqualStrings(first_owned, model.sessionById(id).?.worktreeSnapshotSha());
 
     try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = extra, .data = "changed\n" });
     main.update(&model, .{ .draft_edit = .{ .insert_text = "snap again" } }, &fx);
@@ -5917,6 +5930,7 @@ test "Send worktree snapshot includes dirty and untracked; overwrite keeps lates
     const second = model.sessionById(id).?.worktreeSnapshotSha();
     try testing.expect(rewind.isStoredSha(second));
     try testing.expect(!std.mem.eql(u8, first_owned, second));
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.worktreeTurnEndSha().len);
 }
 
 test "Send names the worktree snapshot under refs/faku" {
@@ -5979,6 +5993,7 @@ test "Send names the worktree snapshot under refs/faku" {
     try testing.expect(rewind.isStoredSha(first_end_sha));
     try testing.expect(!std.mem.eql(u8, first_owned, first_end_sha));
     try testing.expectEqualStrings(first_owned, model.sessionById(id).?.worktreeSnapshotSha());
+    try testing.expectEqualStrings(first_end_sha, model.sessionById(id).?.worktreeTurnEndSha());
 
     var extra_buf: [std.fs.max_path_bytes]u8 = undefined;
     const extra = try std.fmt.bufPrint(&extra_buf, "{s}{s}later.txt", .{ project, std.fs.path.sep_str });
@@ -5989,6 +6004,7 @@ test "Send names the worktree snapshot under refs/faku" {
     defer allocator.free(second_owned);
     try testing.expect(rewind.isStoredSha(second_owned));
     try testing.expect(!std.mem.eql(u8, first_owned, second_owned));
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.worktreeTurnEndSha().len);
 
     var second_ref_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
     const second_ref = checkpoint.formatFakuSessionTurnStartRef(&second_ref_buf, id, 2) orelse return error.MissingFakuRef;
@@ -6205,6 +6221,7 @@ test "Rewind restores Send-time files, pops that ref, and truncates the last pro
     try testing.expectEqual(@as(usize, 1), after_one.rewind_ref_count);
     try testing.expectEqualStrings(first_sha, after_one.rewindRefs()[0].sha());
     try testing.expectEqual(@as(usize, 0), after_one.worktreeSnapshotSha().len);
+    try testing.expectEqual(@as(usize, 0), after_one.worktreeTurnEndSha().len);
     try testing.expectEqual(@as(u32, 2), model.turnCount(id));
     try testing.expectEqual(@as(usize, 1), countRole(&model, .user));
     try testing.expectEqualStrings("first prompt", lastUser(&model));

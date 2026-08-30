@@ -10,16 +10,18 @@
 //! side; muted ghost; click opens Compare Review on Branch).
 //! First-cut per-file hunks live on the Review card (tracked
 //! `git diff`; Uncommitted `?` rows one-shot
-//! `git diff --no-index -- /dev/null <path>`). LastTurn is
-//! send-time worktree snapshot `git diff --name-status <40-hex>`
-//! (isolated index, dangling commit named
+//! `git diff --no-index -- /dev/null <path>`). LastTurn
+//! prefers start…end when both send-time
+//! (`worktree_snapshot_sha`) and finish-time
+//! (`worktree_turn_end_sha`) 40-hex exist; else send-time
+//! `git diff --name-status <40-hex>` (isolated index,
+//! dangling commit named
 //! `refs/faku/session-{id}-turn-start-{n}`, plus
 //! `turn-{n-1}` when that baseline is missing; successful finish
-//! also names a NEW snapshot `turn-{n}`; Compare still uses the
-//! stored 40-hex, not the ref, and not a start…end range; rewind
-//! `<sha>...HEAD` fallback; not `refs/waku/`; not HEAD~1). Not
-//! force, not background work, and not daemon
-//! WorkspaceOperation.
+//! also names a NEW snapshot `turn-{n}`; Compare uses stored
+//! shas, not the refs); rewind `<sha>...HEAD` fallback; not
+//! `refs/waku/`; not HEAD~1). Not force, not background
+//! work, and not daemon WorkspaceOperation.
 
 const std = @import("std");
 const main = @import("main.zig");

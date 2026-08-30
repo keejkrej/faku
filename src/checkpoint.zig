@@ -18,18 +18,19 @@
 //! finish, a NEW isolated snapshot is named
 //! `refs/faku/session-{id}-turn-{n}` (`captureTurnEnd`;
 //! `{n}` is `turnCount / 2` after the pair is appended).
-//! LastTurn / Review still use the stored 40-hex
-//! (`worktree_snapshot_sha`), not the ref, and not a
-//! start…end range. Failed update-ref is quiet and does not
-//! clear the stored sha. Header Rewind restores that stored
-//! 40-hex with `restoreRef` (`git restore --source <sha>
-//! --worktree --staged -- .`, `git clean -fd -- .`, then
-//! `git reset --quiet -- .` when HEAD exists). Sync
-//! `std.process.run` like `rewind.captureHead` — not a Native
-//! spawn and not `/bin/sh -c` interpolation. Leftovers:
-//! parents/metadata in the commit message, LastTurn
-//! start…end range, force, background work, daemon
-//! WorkspaceOperation.
+//! LastTurn / Review prefer stored start…end
+//! (`worktree_snapshot_sha`…`worktree_turn_end_sha`) when
+//! both are valid 40-hex, else the send-time 40-hex, else
+//! rewind `sha...HEAD` — not the ref. Failed update-ref is
+//! quiet and does not clear the stored sha. Header Rewind
+//! restores that stored 40-hex with `restoreRef` (`git
+//! restore --source <sha> --worktree --staged -- .`, `git
+//! clean -fd -- .`, then `git reset --quiet -- .` when HEAD
+//! exists). Sync `std.process.run` like `rewind.captureHead`
+//! — not a Native spawn and not `/bin/sh -c` interpolation.
+//! Leftovers: parents/metadata in the commit message, force,
+//! background work, daemon WorkspaceOperation, refs/waku
+//! Compare operand.
 
 const std = @import("std");
 const rewind = @import("rewind.zig");
