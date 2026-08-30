@@ -526,6 +526,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .pick_git_branch_delete => |name| settings_actions.handlePickGitBranchDelete(model, name),
         .confirm_git_branch_delete => settings_actions.handleConfirmGitBranchDelete(model, fx),
         .cancel_git_branch_delete => settings_actions.handleCancelGitBranchDelete(model),
+        .toggle_git_branch_delete_force => settings_actions.handleToggleGitBranchDeleteForce(model, fx),
         .start_git_fetch => settings_actions.handleStartGitFetch(model, fx),
         .start_git_push => settings_actions.handleStartGitPush(model, fx),
         .start_git_worktree_create => settings_actions.handleStartGitWorktreeCreate(model, fx),

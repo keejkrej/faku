@@ -366,6 +366,7 @@ pub const Msg = union(enum) {
     pick_git_branch_delete: []const u8,
     confirm_git_branch_delete,
     cancel_git_branch_delete,
+    toggle_git_branch_delete_force,
     start_git_fetch,
     start_git_push,
     start_git_worktree_create,
@@ -533,6 +534,10 @@ pub const Model = struct {
     review_diff_last_turn_range_len: usize = 0,
     /// Runtime-only Delete branch… card. Selected name is not persisted.
     git_branch_delete_active: bool = false,
+    /// Runtime-only Delete branch… Force toggle. Default off. Reset
+    /// when the card opens. Not persisted. Force on one-shots
+    /// `git branch -D`; off is `-d`.
+    git_branch_delete_force: bool = false,
     /// Runtime-only select on the delete card. Not persisted.
     git_branch_delete_picker_open: bool = false,
     palette_highlight: u32 = 0,

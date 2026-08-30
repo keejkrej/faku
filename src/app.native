@@ -553,6 +553,7 @@
                     </dropdown-menu>
                   </if>
                 </stack>
+                <button variant="ghost" size="sm" selected="{git_branch_delete_force}" on-press="toggle_git_branch_delete_force">Force</button>
                 <button variant="ghost" size="sm" on-press="confirm_git_branch_delete">Delete</button>
                 <button variant="ghost" size="sm" on-press="cancel_git_branch_delete">Cancel</button>
               </row>
