@@ -15,12 +15,13 @@ and it is fx-first. Desktop chrome matches the stopped Waku-parity cut
 (chromeless 48px header, measured sidebar, composer send circle).
 The header Environment controls show first-cut +N −M when the
 composer numstat probe is non-zero (omit a zero side; muted
-ghost; click opens the same Compare Review file-list card; not
+ghost; click opens the right-panel Diff tab Compare, default
+Uncommitted; not
 success/danger colors) plus a Native `info` 28px ghost that
 opens a runtime-only dropdown titled Environment with Commit
 or Push (the existing Commit… card, including when the tree is
-clean so Push-only still works), Compare (first-cut Review
-name-status file list with Branch + Uncommitted + Staged +
+clean so Push-only still works), Compare (opens the right-panel Diff
+tab; first-cut Review name-status file list with Branch + Uncommitted + Staged +
 Unstaged + Committed + LastTurn sources: Branch is `git diff --name-status
 @{upstream}...HEAD`; Uncommitted is `git diff --name-status
 HEAD` plus untracked `git ls-files --others --exclude-standard`
@@ -73,10 +74,11 @@ sidecar because Native still has no `fx.maximizeWindow`; sidebar
 Search and Cmd/Ctrl-K open a local command palette (actions + session
 jump, no daemon; Commands can copy the selected session's local
 numeric id and fx/ACP session id); the sidebar collapse
-control works and is restored; a first-cut Files pane sits to the
-right of the conversation (default closed; Waku `command_palette.show_right_panel`
-/ `hide_right_panel`; width 184/140/360 from Waku file-tree
-constants, not the 460px full right panel; dirs expand/collapse from a
+control works and is restored; a first-cut Files + Diff pane sits to the
+right of the conversation (default closed on the Files tab; Waku `command_palette.show_right_panel`
+/ `hide_right_panel`; Files width 184/140/360 from Waku file-tree
+constants; Diff tab bumps toward Waku `DEFAULT_RIGHT_PANEL_WIDTH` 460
+when the pane is still file-tree-narrow, runtime-only tab; dirs expand/collapse from a
 runtime-only set, default collapsed); the sidebar chevrons walk session
 selection history; clicking a session focuses the composer; New folder creates a local catalog folder; clicking
 a folder (or the move control) assigns the selected session; folder
@@ -192,7 +194,7 @@ empty-message `fx ask`
 generate helpers live in
 `src/git_commit.zig`. Header Environment dropdown helpers live in
 `src/environment_summary.zig`. Environment Compare / first-cut
-Review name-status + first-cut per-file hunk helpers (Branch + Uncommitted + Staged + Unstaged + Committed + LastTurn sources) live in
+Review name-status + first-cut per-file hunk helpers (Branch + Uncommitted + Staged + Unstaged + Committed + LastTurn sources; Diff tab hosts the body) live in
 `src/review_diff.zig`. Send-time worktree snapshot helpers live in
 `src/checkpoint.zig`. Composer git-dirty probe helpers (count
 plus porcelain XY `has_staged` / `has_unstaged`) live in
@@ -201,7 +203,7 @@ plus porcelain XY `has_staged` / `has_unstaged`) live in
 `src/git_ahead_behind.zig`. Composer git show-toplevel occupancy
 helpers live in `src/git_toplevel.zig`. Composer git-common-dir nest
 helpers live in `src/git_common_dir.zig`. Composer `@` file-mention probe helpers live in
-`src/file_mention.zig`. First-cut right panel Files helpers live in
+`src/file_mention.zig`. First-cut right panel Files + Diff helpers live in
 `src/right_panel.zig`. Boot fx-probe spawn/exit lives in
 `src/fx_probe.zig`. Folder/chip persist helpers live in
 `src/persist.zig`. Session / folder / title-edit update helpers live
@@ -538,7 +540,7 @@ workspace mode, not a worktree base-ref picker UI, not
 background-work rows,
 not force push, and not prune-alone (`git prune` without fetch —
 not a leftover; Waku has no prune-alone).
-Environment Compare Review is a first-cut Branch + Uncommitted +
+Environment Compare Review lives in the right-panel Diff tab as a first-cut Branch + Uncommitted +
 Staged + Unstaged + Committed + LastTurn name-status file list
 (Uncommitted
 = `git diff --name-status HEAD` plus untracked
@@ -568,8 +570,7 @@ that path; Uncommitted `?` rows one-shot
 `git diff --no-index -- /dev/null <path>`). First-cut
 Background Stop is Faku-side `is_streaming` / composer Stop
 only. Copy agent CLI thread ID is omitted unless the selected
-session has a non-empty `fx_session_id`. Leftovers: Diff tab,
-fuller BackgroundWork registry / settled
+session has a non-empty `fx_session_id`. Leftovers: fuller BackgroundWork registry / settled
 rows / multi-kind Process·Monitor·Subagent, Skills settings page,
 daemon `WorkspaceOperation`. Not a
 Waku BackgroundWorkRegistry. Not transcript checkpoint +/-.
@@ -605,14 +606,21 @@ daemon catalog, or a live watch. Windows stays empty this cut.
 
 Command palette Show right panel / Hide right panel (Waku
 `command_palette.show_right_panel` / `hide_right_panel`) toggles a
-first-cut Files pane on the right of the conversation column.
+first-cut Files + Diff pane on the right of the conversation column.
 Default closed: Waku `RightPanelSessionState::take_or_closed` uses
 `empty(false)` and persistence `default_right_panel_visibility` is
 false. Width persists like the sidebar (`right_panel_open` /
 `right_panel_width`) using Waku `DEFAULT_FILE_TREE_WIDTH` 184,
-`FILE_TREE_MIN_WIDTH` 140, and `FILE_TREE_MAX_WIDTH` 360 — this cut
-is the Files tree, not the 460px `DEFAULT_RIGHT_PANEL_WIDTH` panel
-that also hosts Browser / Terminal / Diff / editor. The list is the
+`FILE_TREE_MIN_WIDTH` 140, and `FILE_TREE_MAX_WIDTH` 360 on the Files
+tab. The Diff tab is a first-cut Waku `RightPanelSurface::Diff` /
+web `changes` surface: inline Review sources + name-status + hunks
+from `review_diff` (Uncommitted default when entering with no active
+compare). Switching to Diff bumps the pane toward Waku
+`DEFAULT_RIGHT_PANEL_WIDTH` 460 when it is still file-tree-narrow;
+first-cut Diff max is 460 (Waku `RIGHT_PANEL_MAX_WIDTH` is 1000). Tab
+state is runtime-only (default Files when the panel opens) and is not
+persisted this cut. Environment Compare / header +/- open this Diff
+tab rather than a floating Review dialog. The Files list is the
 same bounded `file_mention` cache (max 256) plus derived parent
 dirs; refresh on open / session / `project_path` change matches `@`
 mentions. Local / missing project shows Waku `files.no_project_open`
@@ -626,9 +634,10 @@ files and top-level dirs (Waku empty `expanded_paths`). Nested dirs
 stay collapsed until toggled. Not persisted to `sessions.json` this
 cut (Waku keeps `expanded_paths` on in-memory per-session
 `RightPanelSessionState`). Not Browser, Terminal (no Native PTY),
-Diff, compact File editor, BackgroundWork tabs, daemon
+compact File editor, BackgroundWork tabs, daemon
 `WorkspaceOperation::listTree` / browseDirectory / readTextFile, or
-Waku's 50k-file index.
+Waku's 50k-file index. Leftovers: fuller BackgroundWork registry,
+Skills settings page, daemon WorkspaceOperation.
 
 A stdout ACP `session/new` result with `sessionId` updates the stored
 id and is not appended to the assistant turn. `fx ask --json` lines
@@ -706,8 +715,8 @@ available_commands, thread_goal_objective, thread_goal_status, thread_goal_token
 `last_interaction_mode`, `last_reasoning_effort`, `last_daemon_address`, `sidebar_collapsed`,
 `sidebar_width`, `right_panel_open`, `right_panel_width`, `folders`, and `collapsed_folder_ids` so a new session can inherit the last workspace and last
 model/access/interaction, a later send can reuse the last sidecar address,
-the sidebar collapse control is restored, the Files pane open/closed + width
-are restored, and New folder groups persist.
+the sidebar collapse control is restored, the Files + Diff pane open/closed + width
+are restored (Diff tab is runtime-only), and New folder groups persist.
 Ungrouped sessions (`folder_id` 0 or omitted) group into Today / Yesterday /
 This week / This month / This year / Older date buckets from each session `updated_at`
 (unix ms). Missing or 0 is Today so existing catalogs stay in one bucket.

@@ -13,8 +13,8 @@
 //! a session hydrates its turns,
 //! `queued_messages`, `rewind_refs`, `worktree_snapshot_sha`, `worktree_turn_end_sha`, `worktree_turn_diff_sha`, and last-known context usage. Document extras also keep
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
-//! plus `right_panel_open` / `right_panel_width` for the first-cut Files
-//! pane (default closed; Waku file-tree 184px),
+//! plus `right_panel_open` / `right_panel_width` for the first-cut Files +
+//! Diff pane (default closed; Waku file-tree 184px; Diff tab is runtime-only),
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
 //! `last_project_path` / `last_daemon_address` so the settings gear and

@@ -1,8 +1,11 @@
 //! First-cut Waku Environment Compare / Review file list.
 //!
 //! Environment Compare and header +/- close the Environment
-//! Summary popover (when open) and open a runtime-only Review
-//! card. Initial source is Branch: one-shot
+//! Summary popover (when open) and open the right-panel Diff tab
+//! with this Review body inline. Diff-tab default source is
+//! Uncommitted (Waku web `changes` defaults `uncommitted`); if
+//! Compare is already active, that source is kept and refreshed.
+//! `open` still starts Branch for unit tests of the probe stack.
 //! `git diff --name-status @{upstream}...HEAD` (symmetric range,
 //! same spirit as ahead/behind). Uncommitted is a switchable
 //! first-cut: tracked `git diff --name-status HEAD` plus
@@ -72,8 +75,10 @@
 //! 500+). Cap 64 rows. Empty / clean is `No changes to compare`.
 //! Failed / no upstream / missing workspace is a short muted
 //! status — no invented files. First-cut hunks only: no
-//! syntax highlighting, no gap expansion, no right-panel Diff
-//! tab. Leftovers: force, background work, daemon
+//! syntax highlighting, no gap expansion. The right-panel Diff
+//! tab hosts this same body (not a second git probe stack).
+//! Leftovers: force, background work, daemon
+
 //! WorkspaceOperation. Not transcript checkpoint +/-.
 //! LastTurn uses stored shas, not the refs, and not a
 //! `refs/waku/` Compare operand.
@@ -112,7 +117,8 @@ pub const review_diff_key_first: u64 = 510;
 /// click or session.
 pub const review_diff_hunk_key_first: u64 = 520;
 
-/// Compare / header +/- open Branch. Uncommitted is first-cut
+/// Compare / header +/- open the Diff tab on Uncommitted when no
+/// compare is active. Uncommitted is first-cut
 /// tracked `git diff --name-status HEAD` plus untracked
 /// `git ls-files --others --exclude-standard` (`?` rows). Staged
 /// is first-cut index vs HEAD `git diff --name-status --cached`.
@@ -124,7 +130,7 @@ pub const review_diff_hunk_key_first: u64 = 520;
 /// `git diff --name-status diff..end` when turn-diff and
 /// turn-end exist, else `start..end` when both snapshots
 /// exist, else send-time `<40-hex>` (rewind `<sha>...HEAD`
-/// fallback; not HEAD~1).
+/// fallback; not HEAD~1). `open` still starts Branch.
 pub const Source = enum {
     branch,
     uncommitted,
@@ -549,7 +555,8 @@ pub fn argvForUntrackedHunk(
     return buf[0..argv_len_hunk_untracked];
 }
 
-/// Branch argv. Compare / header +/- still use this shape.
+/// Branch argv. `open` still uses this shape. Diff tab / header +/-
+/// default to Uncommitted via `ensureDiff`.
 pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
     return argvForSource(.branch, cwd, buf);
 }
@@ -851,6 +858,7 @@ fn startProbe(model: *Model, fx: *Effects) void {
 /// in-flight git mutations are a no-op (popover already closed).
 /// Windows skips the spawn and leaves the card with the fail
 /// status only when a workspace exists (no Windows spawn path).
+/// Environment Compare / Diff tab use `ensureDiff` instead.
 pub fn open(model: *Model, fx: *Effects) void {
     prepareCard(model, fx);
     if (git_checkout.gitMutationInFlight(model)) return;
@@ -860,15 +868,36 @@ pub fn open(model: *Model, fx: *Effects) void {
     startProbe(model, fx);
 }
 
+/// Diff tab / Environment Compare: start Uncommitted when no compare
+/// is active; keep the current source and refresh when it is.
+/// Same streaming / git-mutation gate as `open`.
+pub fn ensureDiff(model: *Model, fx: *Effects) void {
+    if (git_checkout.gitMutationInFlight(model)) return;
+    if (model.is_streaming()) return;
+    if (model.review_diff_active) {
+        startProbe(model, fx);
+        return;
+    }
+    prepareCard(model, fx);
+    model.review_diff_active = true;
+    model.review_diff_source = .uncommitted;
+    startProbe(model, fx);
+}
+
 /// Switch the Review name-status source, cancel any in-flight
 /// 510+ spawn, clear rows / status, and re-probe. Committed
 /// always restarts at `origin/HEAD...HEAD` (no leftover
 /// main/master retry). LastTurn captures the selected session's
 /// start…end / send-time snapshot / rewind fallback or fails
 /// without spawn (never HEAD~1).
-/// No-op when the card is closed.
+/// No-op when the card is closed, unless the Diff tab is showing
+/// (chips can restart Compare after Esc / Cancel).
 pub fn setSource(model: *Model, fx: *Effects, source: Source) void {
-    if (!model.review_diff_active) return;
+    if (!model.review_diff_active) {
+        if (!(model.right_panel_open and model.right_panel_tab == .diff)) return;
+        if (git_checkout.gitMutationInFlight(model) or model.is_streaming()) return;
+        model.review_diff_active = true;
+    }
     model.review_diff_source = source;
     model.review_diff_committed_range = .origin;
     startProbe(model, fx);

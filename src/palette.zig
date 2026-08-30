@@ -85,8 +85,8 @@ pub const palette_action_specs = [_]PaletteActionSpec{
     .{ .action = .open_terminal, .label = "Open project in Terminal", .keywords = &.{ "terminal", "shell", "iterm", "console", "project", "open" }, .suggested = false },
     .{ .action = .open_editor, .label = "Open project in Editor", .keywords = &.{ "editor", "vscode", "cursor", "code", "project", "open" }, .suggested = false },
     .{ .action = .copy_project_path, .label = "Copy project path", .keywords = &.{ "copy", "path", "folder", "project", "cwd" }, .suggested = false },
-    .{ .action = .show_right_panel, .label = "Show right panel", .keywords = &.{ "right", "panel", "files", "show" }, .suggested = false },
-    .{ .action = .hide_right_panel, .label = "Hide right panel", .keywords = &.{ "right", "panel", "files", "hide" }, .suggested = false },
+    .{ .action = .show_right_panel, .label = "Show right panel", .keywords = &.{ "right", "panel", "files", "diff", "show" }, .suggested = false },
+    .{ .action = .hide_right_panel, .label = "Hide right panel", .keywords = &.{ "right", "panel", "files", "diff", "hide" }, .suggested = false },
 };
 
 pub fn paletteActionId(action: PaletteAction) u32 {

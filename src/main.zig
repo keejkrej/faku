@@ -84,12 +84,19 @@ pub const sidebar_default_width: f32 = 252;
 pub const sidebar_min_width: f32 = 180;
 pub const sidebar_max_width: f32 = 420;
 pub const sidebar_rail_width: f32 = 48;
-/// Waku `DEFAULT_FILE_TREE_WIDTH` — Files-only pane (not 460px `DEFAULT_RIGHT_PANEL_WIDTH`).
+/// Waku `DEFAULT_FILE_TREE_WIDTH`. Files tab default (not the 460px panel).
 pub const right_panel_default_width: f32 = 184;
-/// Waku `FILE_TREE_MIN_WIDTH`.
+/// Waku `FILE_TREE_MIN_WIDTH`. Shared min for Files and Diff this cut.
 pub const right_panel_min_width: f32 = 140;
-/// Waku `FILE_TREE_MAX_WIDTH`.
+/// Waku `FILE_TREE_MAX_WIDTH`. Files tab clamp. Diff uses `right_panel_diff_max_width`.
 pub const right_panel_max_width: f32 = 360;
+/// Waku `DEFAULT_RIGHT_PANEL_WIDTH`. Diff tab target when the pane is still
+/// file-tree-narrow (≤ `right_panel_max_width`). Not persisted as a tab:
+/// switching back to Files reclamps to `right_panel_max_width`.
+pub const right_panel_diff_default_width: f32 = 460;
+/// First-cut Diff tab max: Waku `DEFAULT_RIGHT_PANEL_WIDTH` 460 (full Waku
+/// `RIGHT_PANEL_MAX_WIDTH` is 1000; `RIGHT_PANEL_MIN_WIDTH` is 280).
+pub const right_panel_diff_max_width: f32 = 460;
 pub const max_sessions = model_mod.max_sessions;
 /// Sidebar folder-header keys sit above session ids so `for` keys stay unique.
 pub const folder_row_id_base: u32 = 1_000_000;
@@ -545,7 +552,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .toggle_environment_summary => environment_summary.toggle(model),
         .close_environment_summary => environment_summary.close(model),
         .environment_commit_or_push => environment_summary.commitOrPush(model, fx),
-        .environment_compare => environment_summary.compare(model, fx),
+        .environment_compare => {
+            environment_summary.compare(model, fx);
+            store.persistLayoutIfPossible(model);
+        },
         .environment_copy_task_id => environment_summary.copyTaskId(model, fx),
         .environment_copy_agent_thread_id => environment_summary.copyAgentCliThreadId(model, fx),
         .environment_stop_background => environment_summary.stopBackground(model, fx),
@@ -638,6 +648,14 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .open_right_panel_file => |id| right_panel.openCachedFile(model, fx, id),
         .toggle_right_panel_dir => |id| right_panel.toggleDir(model, id),
+        .set_right_panel_tab_files => {
+            right_panel.selectFiles(model, fx);
+            store.persistLayoutIfPossible(model);
+        },
+        .set_right_panel_tab_diff => {
+            right_panel.selectDiff(model, fx);
+            store.persistLayoutIfPossible(model);
+        },
         .sidebar_resized => |fraction| {
             sidebar_row_helpers.applySidebarResize(model, fraction);
             model.syncRightPanelSplit();

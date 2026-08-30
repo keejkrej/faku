@@ -1,21 +1,26 @@
-//! First-cut Waku right panel: Files surface only.
+//! First-cut Waku right panel: Files tree plus Diff tab.
 //!
-//! Toggleable pane to the right of the conversation column. Lists the
-//! selected session's project files from the existing `file_mention`
-//! cache (`git ls-files --cached --others --exclude-standard`, then
-//! the bounded find walk) plus derived parent directories collected
-//! there. Not Browser, Terminal (Native has no PTY), Diff, compact
-//! File editor, or BackgroundWork tabs. Not daemon
+//! Toggleable pane to the right of the conversation column. Files
+//! lists the selected session's project files from the existing
+//! `file_mention` cache (`git ls-files --cached --others
+//! --exclude-standard`, then the bounded find walk) plus derived
+//! parent directories collected there. Diff shows the existing
+//! Environment Compare / Review body inline (source chips + status +
+//! file list + hunk text) via `review_diff` — not a second git probe
+//! stack. Not Browser, Terminal (Native has no PTY), compact File
+//! editor, or BackgroundWork tabs. Not daemon
 //! `WorkspaceOperation::listTree` / browseDirectory / readTextFile.
 //! Not Waku's 50k-file index (cap 256). Windows stays empty this cut
 //! (`file_mention` already skips Windows).
 //!
 //! Default closed: Waku `RightPanelSessionState::take_or_closed` uses
 //! `empty(false)` and persistence `default_right_panel_visibility` is
-//! false. Widths are Waku `DEFAULT_FILE_TREE_WIDTH` (184) /
-//! `FILE_TREE_MIN_WIDTH` (140) / `FILE_TREE_MAX_WIDTH` (360) because
-//! this cut is the Files tree, not the full 460px right panel that
-//! also hosts Browser / Terminal / Diff / editor.
+//! false. Files tab widths are Waku `DEFAULT_FILE_TREE_WIDTH` (184) /
+//! `FILE_TREE_MIN_WIDTH` (140) / `FILE_TREE_MAX_WIDTH` (360). Diff tab
+//! bumps toward Waku `DEFAULT_RIGHT_PANEL_WIDTH` (460) when the pane
+//! is still file-tree-narrow; first-cut Diff max is 460 (Waku
+//! `RIGHT_PANEL_MAX_WIDTH` is 1000). Tab is runtime-only (default
+//! `files` when the panel opens); not persisted this cut.
 //!
 //! Directory expand/collapse is a runtime-only set of relative dir
 //! paths matching `file_mention.derivedDirParents` (no trailing
@@ -30,17 +35,40 @@ const main = @import("main.zig");
 const file_mention = @import("file_mention.zig");
 const composer = @import("composer.zig");
 const open_editor = @import("open_editor.zig");
+const review_diff = @import("review_diff.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
 const RightPanelFileRow = main.RightPanelFileRow;
 
+/// Runtime-only Files | Diff surface. Default `files` when the panel opens.
+pub const Tab = enum { files, diff };
+
 /// Mild tree indent per `fileMentionDepth`. Sidebar grouped rows use 15px.
 pub const indent_step: f32 = 12;
 
+/// Files-tree clamp (Waku 184/140/360). Kept for tests and hide/Files.
 pub fn clampWidth(width: f32) f32 {
-    const raw = if (width > 0) width else main.right_panel_default_width;
-    return @max(main.right_panel_min_width, @min(main.right_panel_max_width, raw));
+    return clampWidthTab(width, .files);
+}
+
+pub fn defaultWidth(tab: Tab) f32 {
+    return switch (tab) {
+        .files => main.right_panel_default_width,
+        .diff => main.right_panel_diff_default_width,
+    };
+}
+
+pub fn maxWidth(tab: Tab) f32 {
+    return switch (tab) {
+        .files => main.right_panel_max_width,
+        .diff => main.right_panel_diff_max_width,
+    };
+}
+
+pub fn clampWidthTab(width: f32, tab: Tab) f32 {
+    const raw = if (width > 0) width else defaultWidth(tab);
+    return @max(main.right_panel_min_width, @min(maxWidth(tab), raw));
 }
 
 pub fn restWidth(model: *const Model) f32 {
@@ -55,8 +83,8 @@ pub fn restWidth(model: *const Model) f32 {
 
 pub fn splitForWidth(model: *const Model, width: f32) f32 {
     const rest = restWidth(model);
-    const files = clampWidth(width);
-    const conversation = @max(0, rest - files);
+    const pane = clampWidthTab(width, model.right_panel_tab);
+    const conversation = @max(0, rest - pane);
     return conversation / rest;
 }
 
@@ -123,6 +151,7 @@ pub fn isDirExpanded(model: *const Model, path: []const u8) bool {
 
 pub fn rows(model: *const Model, arena: std.mem.Allocator) []const RightPanelFileRow {
     if (!model.right_panel_open) return &.{};
+    if (model.right_panel_tab != .files) return &.{};
     if (!hasProject(model)) return &.{};
     if (model.file_mention_count == 0) return &.{};
 
@@ -211,6 +240,32 @@ fn removeExpandedAt(model: *Model, index: usize) void {
     model.right_panel_expanded_count -= 1;
 }
 
+/// Files tab. Opens the pane if closed. Clamps width to the file-tree max.
+pub fn selectFiles(model: *Model, fx: *Effects) void {
+    const was_open = model.right_panel_open;
+    model.right_panel_open = true;
+    model.right_panel_tab = .files;
+    model.right_panel_width = clampWidthTab(model.right_panel_width, .files);
+    model.syncRightPanelSplit();
+    if (!was_open) file_mention.refresh(model, fx);
+}
+
+/// Diff tab. Opens the pane if closed, selects Diff, bumps width toward
+/// 460 when still file-tree-narrow, and starts/refreshes Compare
+/// (Uncommitted when none is active; keeps the current source otherwise).
+pub fn selectDiff(model: *Model, fx: *Effects) void {
+    const was_open = model.right_panel_open;
+    model.right_panel_open = true;
+    if (model.right_panel_width <= main.right_panel_max_width) {
+        model.right_panel_width = main.right_panel_diff_default_width;
+    }
+    model.right_panel_tab = .diff;
+    model.right_panel_width = clampWidthTab(model.right_panel_width, .diff);
+    model.syncRightPanelSplit();
+    if (!was_open) file_mention.refresh(model, fx);
+    review_diff.ensureDiff(model, fx);
+}
+
 pub fn openCachedFile(model: *Model, fx: *Effects, id: u32) void {
     if (id == 0 or id >= file_mention.file_mention_dir_id_base) return;
     var rel_buf: [file_mention.max_file_mention_path + 1]u8 = undefined;
@@ -229,6 +284,91 @@ test "file-tree widths match Waku DEFAULT_FILE_TREE / FILE_TREE_MIN / MAX" {
     try std.testing.expectEqual(@as(f32, 140), clampWidth(100));
     try std.testing.expectEqual(@as(f32, 360), clampWidth(500));
     try std.testing.expectEqual(@as(f32, 200), clampWidth(200));
+}
+
+test "Diff tab default 460 / max 460; Files clamp stays 360" {
+    try std.testing.expectEqual(@as(f32, 460), main.right_panel_diff_default_width);
+    try std.testing.expectEqual(@as(f32, 460), main.right_panel_diff_max_width);
+    try std.testing.expectEqual(@as(f32, 460), clampWidthTab(0, .diff));
+    try std.testing.expectEqual(@as(f32, 140), clampWidthTab(100, .diff));
+    try std.testing.expectEqual(@as(f32, 460), clampWidthTab(500, .diff));
+    try std.testing.expectEqual(@as(f32, 400), clampWidthTab(400, .diff));
+    try std.testing.expectEqual(@as(f32, 360), clampWidthTab(400, .files));
+    try std.testing.expectEqual(@as(f32, 360), clampWidthTab(460, .files));
+}
+
+test "tab defaults to files; Diff opens the panel; Files↔Diff clamps width" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    try std.testing.expect(!model.right_panel_open);
+    try std.testing.expectEqual(Tab.files, model.right_panel_tab);
+    try std.testing.expectEqual(@as(f32, 184), model.right_panel_width);
+
+    selectDiff(&model, &fx);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(Tab.diff, model.right_panel_tab);
+    try std.testing.expectEqual(@as(f32, 460), model.right_panel_width);
+    try std.testing.expect(model.right_panel_split < 1.0);
+
+    selectFiles(&model, &fx);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(Tab.files, model.right_panel_tab);
+    try std.testing.expectEqual(@as(f32, 360), model.right_panel_width);
+
+    selectDiff(&model, &fx);
+    try std.testing.expectEqual(Tab.diff, model.right_panel_tab);
+    try std.testing.expectEqual(@as(f32, 460), model.right_panel_width);
+
+    model.right_panel_width = 400;
+    selectFiles(&model, &fx);
+    try std.testing.expectEqual(@as(f32, 360), model.right_panel_width);
+
+    model.hideRightPanel();
+    try std.testing.expect(!model.right_panel_open);
+    try std.testing.expectEqual(Tab.files, model.right_panel_tab);
+    try std.testing.expectEqual(@as(f32, 360), model.right_panel_width);
+}
+
+test "Diff keeps an active Compare source; Uncommitted is the empty default" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-diff-tab-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("diff tab", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+
+    selectDiff(&model, &fx);
+    try std.testing.expect(model.review_diff_active);
+    try std.testing.expectEqual(review_diff.Source.uncommitted, model.review_diff_source);
+    try std.testing.expect(model.review_diff_key >= review_diff.review_diff_key_first);
+    const first_key = model.review_diff_key;
+
+    review_diff.setSource(&model, &fx, .branch);
+    try std.testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
+    try std.testing.expect(model.review_diff_key != first_key);
+
+    selectFiles(&model, &fx);
+    try std.testing.expectEqual(Tab.files, model.right_panel_tab);
+    try std.testing.expect(model.review_diff_active);
+    try std.testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
+
+    const branch_key = model.review_diff_key;
+    selectDiff(&model, &fx);
+    try std.testing.expectEqual(Tab.diff, model.right_panel_tab);
+    try std.testing.expectEqual(review_diff.Source.branch, model.review_diff_source);
+    try std.testing.expect(model.review_diff_key != branch_key);
 }
 
 test "joinProjectRelpath joins root and relpath; empty sides miss" {

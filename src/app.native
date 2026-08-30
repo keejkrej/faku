@@ -474,45 +474,6 @@
                 <button variant="ghost" size="sm" on-press="cancel_git_worktree_create">Cancel</button>
               </row>
             </if>
-            <if test="{review_diff_active}">
-              <card size="sm" padding="10" label="Review">
-                <column gap="6">
-                  <row gap="8" cross="center">
-                    <text>Review</text>
-                    <spacer grow="1" />
-                    <button variant="ghost" size="sm" on-press="close_review_diff">Cancel</button>
-                  </row>
-                  <row gap="8" cross="center">
-                    <button variant="ghost" size="sm" selected="{review_diff_source_branch}" on-press="set_review_diff_source_branch">Branch</button>
-                    <button variant="ghost" size="sm" selected="{review_diff_source_uncommitted}" on-press="set_review_diff_source_uncommitted">Uncommitted</button>
-                    <button variant="ghost" size="sm" selected="{review_diff_source_staged}" on-press="set_review_diff_source_staged">Staged</button>
-                    <button variant="ghost" size="sm" selected="{review_diff_source_unstaged}" on-press="set_review_diff_source_unstaged">Unstaged</button>
-                    <button variant="ghost" size="sm" selected="{review_diff_source_committed}" on-press="set_review_diff_source_committed">Committed</button>
-                    <button variant="ghost" size="sm" selected="{review_diff_source_last_turn}" on-press="set_review_diff_source_last_turn">Last turn</button>
-                  </row>
-                  <if test="{has_review_diff_status}">
-                    <text wrap="true" foreground="text_muted">{review_diff_status}</text>
-                  </if>
-                  <if test="{has_review_diff_files}">
-                    <scroll height="240" label="Review files">
-                      <column gap="2">
-                        <for each="review_diff_rows" key="id" as="r">
-                          <button variant="ghost" size="sm" selected="{r.selected}" on-press="select_review_diff_file:{r.id}">{r.label}</button>
-                        </for>
-                      </column>
-                    </scroll>
-                  </if>
-                  <if test="{has_review_diff_hunk_status}">
-                    <text wrap="true" foreground="text_muted">{review_diff_hunk_status}</text>
-                  </if>
-                  <if test="{has_review_diff_hunk}">
-                    <scroll height="200" label="Review hunks">
-                      <text wrap="true" foreground="text_muted">{review_diff_hunk}</text>
-                    </scroll>
-                  </if>
-                </column>
-              </card>
-            </if>
             <if test="{git_commit_active}">
               <row gap="8" cross="center">
                 <text-field grow="1" placeholder="Commit message" text="{git_commit}" on-input="git_commit_edit" autofocus="true" />
@@ -648,11 +609,52 @@
     <column min-width="{right_panel_pane_min}" background="surface_subtle">
       <if test="{right_panel_open}">
         <row height="48" padding="10" gap="8" cross="center">
-          <text>Files</text>
+          <button variant="ghost" size="sm" selected="{right_panel_tab_files}" on-press="set_right_panel_tab_files">Files</button>
+          <button variant="ghost" size="sm" selected="{right_panel_tab_diff}" on-press="set_right_panel_tab_diff">Diff</button>
           <spacer grow="1" />
           <button variant="ghost" size="icon" icon="panel-right" label="Hide right panel" on-press="hide_right_panel"></button>
         </row>
         <separator />
+        <if test="{right_panel_showing_diff}">
+          <if test="{review_diff_active}">
+            <column grow="1" gap="6" padding="10">
+              <row gap="8" cross="center">
+                <text>Review</text>
+                <spacer grow="1" />
+                <button variant="ghost" size="sm" on-press="close_review_diff">Cancel</button>
+              </row>
+              <row gap="8" cross="center">
+                <button variant="ghost" size="sm" selected="{review_diff_source_branch}" on-press="set_review_diff_source_branch">Branch</button>
+                <button variant="ghost" size="sm" selected="{review_diff_source_uncommitted}" on-press="set_review_diff_source_uncommitted">Uncommitted</button>
+                <button variant="ghost" size="sm" selected="{review_diff_source_staged}" on-press="set_review_diff_source_staged">Staged</button>
+                <button variant="ghost" size="sm" selected="{review_diff_source_unstaged}" on-press="set_review_diff_source_unstaged">Unstaged</button>
+                <button variant="ghost" size="sm" selected="{review_diff_source_committed}" on-press="set_review_diff_source_committed">Committed</button>
+                <button variant="ghost" size="sm" selected="{review_diff_source_last_turn}" on-press="set_review_diff_source_last_turn">Last turn</button>
+              </row>
+              <if test="{has_review_diff_status}">
+                <text wrap="true" foreground="text_muted">{review_diff_status}</text>
+              </if>
+              <if test="{has_review_diff_files}">
+                <scroll grow="1" label="Review files">
+                  <column gap="2">
+                    <for each="review_diff_rows" key="id" as="r">
+                      <button variant="ghost" size="sm" selected="{r.selected}" on-press="select_review_diff_file:{r.id}">{r.label}</button>
+                    </for>
+                  </column>
+                </scroll>
+              </if>
+              <if test="{has_review_diff_hunk_status}">
+                <text wrap="true" foreground="text_muted">{review_diff_hunk_status}</text>
+              </if>
+              <if test="{has_review_diff_hunk}">
+                <scroll grow="1" label="Review hunks">
+                  <text wrap="true" foreground="text_muted">{review_diff_hunk}</text>
+                </scroll>
+              </if>
+            </column>
+          </if>
+        </if>
+        <else>
         <if test="{right_panel_no_project}">
           <column padding="14" gap="6">
             <text>No project open</text>
@@ -703,6 +705,7 @@
               </for>
             </column>
           </scroll>
+        </else>
         </else>
       </if>
     </column>
