@@ -322,6 +322,10 @@ pub const git_common_dir_key_first = git_common_dir.git_common_dir_key_first;
 /// (500+). Band is 510+. Incremented per open from
 /// `review_diff_key_first`.
 pub const review_diff_key_first = review_diff.review_diff_key_first;
+/// One-shot Review `git diff [operand] -- <path>` hunk probe.
+/// Distinct from name-status 510+. Band is 520+. Incremented
+/// per file click from `review_diff_hunk_key_first`.
+pub const review_diff_hunk_key_first = review_diff.review_diff_hunk_key_first;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
 pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_status;
@@ -540,6 +544,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .set_review_diff_source_staged => review_diff.setSource(model, fx, .staged),
         .set_review_diff_source_unstaged => review_diff.setSource(model, fx, .unstaged),
         .set_review_diff_source_committed => review_diff.setSource(model, fx, .committed),
+        .select_review_diff_file => |id| review_diff.selectFile(model, fx, id),
         .git_commit_edit => |edit| settings_actions.handleGitCommitEdit(model, edit),
         .confirm_git_commit => settings_actions.handleConfirmGitCommit(model, fx),
         .confirm_git_commit_and_push => settings_actions.handleConfirmGitCommitAndPush(model, fx),

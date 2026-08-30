@@ -385,6 +385,8 @@ pub const Msg = union(enum) {
     set_review_diff_source_staged,
     set_review_diff_source_unstaged,
     set_review_diff_source_committed,
+    /// Review file-row click. Payload is the 1-based `ReviewDiffRow.id`.
+    select_review_diff_file: []const u8,
     git_commit_edit: canvas.TextInputEvent,
     confirm_git_commit,
     confirm_git_commit_and_push,
@@ -787,6 +789,24 @@ pub const Model = struct {
     review_diff_probe_session: u32 = 0,
     review_diff_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     review_diff_probe_path_len: usize = 0,
+    /// Runtime-only selected Review file (1-based `ReviewDiffRow.id`).
+    /// 0 means none. Not persisted.
+    review_diff_selected_id: u32 = 0,
+    /// Runtime-only first-cut unified-diff body for the selected file.
+    /// Cap `max_review_diff_hunk_lines` / `max_review_diff_hunk`.
+    /// Not persisted to sessions.json.
+    review_diff_hunk_storage: [review_diff.max_review_diff_hunk]u8 = [_]u8{0} ** review_diff.max_review_diff_hunk,
+    review_diff_hunk_len: usize = 0,
+    review_diff_hunk_line_count: u32 = 0,
+    review_diff_hunk_status_storage: [review_diff.max_review_diff_hunk_status]u8 = [_]u8{0} ** review_diff.max_review_diff_hunk_status,
+    review_diff_hunk_status_len: usize = 0,
+    review_diff_hunk_key: u64 = 0,
+    next_review_diff_hunk_key: u64 = review_diff.review_diff_hunk_key_first,
+    review_diff_hunk_probe_session: u32 = 0,
+    review_diff_hunk_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    review_diff_hunk_probe_path_len: usize = 0,
+    review_diff_hunk_path_storage: [review_diff.max_review_diff_path]u8 = [_]u8{0} ** review_diff.max_review_diff_path,
+    review_diff_hunk_path_len: usize = 0,
     /// Runtime ImageId bound by the composer `<image>`. 0 until
     /// `fx.loadImage` reports `.loaded`. Same draft `image_path` as
     /// the chip — not a second persist field.
@@ -1134,6 +1154,19 @@ pub const Model = struct {
         "review_diff_probe_session",
         "review_diff_probe_path_storage",
         "review_diff_probe_path_len",
+        "review_diff_selected_id",
+        "review_diff_hunk_storage",
+        "review_diff_hunk_len",
+        "review_diff_hunk_line_count",
+        "review_diff_hunk_status_storage",
+        "review_diff_hunk_status_len",
+        "review_diff_hunk_key",
+        "next_review_diff_hunk_key",
+        "review_diff_hunk_probe_session",
+        "review_diff_hunk_probe_path_storage",
+        "review_diff_hunk_probe_path_len",
+        "review_diff_hunk_path_storage",
+        "review_diff_hunk_path_len",
         "insertAvailableMention",
         "attach_preview_load_id",
         "next_attach_preview_id",
@@ -2315,7 +2348,7 @@ pub const Model = struct {
 
     /// Header Environment +/-. Same counts as the composer probe;
     /// omits a zero side. Muted ghost; click opens Compare Review
-    /// (file list, not hunks).
+    /// (file list; click a tracked row for first-cut hunks).
     pub fn header_git_numstat_label(model: *const Model) []const u8 {
         return environment_summary.headerGitNumstatLabel(model);
     }
@@ -2446,6 +2479,22 @@ pub const Model = struct {
 
     pub fn review_diff_rows(model: *const Model, arena: std.mem.Allocator) []const review_diff.ReviewDiffRow {
         return review_diff.reviewDiffRows(model, arena);
+    }
+
+    pub fn review_diff_hunk(model: *const Model) []const u8 {
+        return review_diff.reviewDiffHunk(model);
+    }
+
+    pub fn has_review_diff_hunk(model: *const Model) bool {
+        return review_diff.hasReviewDiffHunk(model);
+    }
+
+    pub fn review_diff_hunk_status(model: *const Model) []const u8 {
+        return review_diff.reviewDiffHunkStatus(model);
+    }
+
+    pub fn has_review_diff_hunk_status(model: *const Model) bool {
+        return review_diff.hasReviewDiffHunkStatus(model);
     }
 
     /// Composer usage control. 0 when the live path has not reported usage.
