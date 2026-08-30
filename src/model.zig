@@ -385,6 +385,7 @@ pub const Msg = union(enum) {
     set_review_diff_source_staged,
     set_review_diff_source_unstaged,
     set_review_diff_source_committed,
+    set_review_diff_source_last_turn,
     /// Review file-row click. Payload is the 1-based `ReviewDiffRow.id`.
     select_review_diff_file: u32,
     git_commit_edit: canvas.TextInputEvent,
@@ -511,12 +512,18 @@ pub const Model = struct {
     /// is first-cut index vs HEAD (`--cached`). Unstaged is
     /// first-cut worktree vs index (no operand). Committed is
     /// first-cut `origin/HEAD...HEAD`, then local `main...HEAD`
-    /// / `master...HEAD` on a still-current non-zero exit. Not
-    /// persisted to sessions.json.
+    /// / `master...HEAD` on a still-current non-zero exit.
+    /// LastTurn is first-cut send-time rewind sha
+    /// `<sha>...HEAD` (not HEAD~1). Not persisted to sessions.json.
     review_diff_source: review_diff.Source = .branch,
     /// Runtime-only Committed range probe. Compare / source
     /// switch / close reset to origin. Not persisted.
     review_diff_committed_range: review_diff.CommittedRange = .origin,
+    /// Runtime-only LastTurn `<40-hex>...HEAD` captured when that
+    /// probe starts. Hunk clicks reuse this slot if rewind_refs
+    /// later change. Not persisted.
+    review_diff_last_turn_range_storage: [review_diff.last_turn_range_len]u8 = [_]u8{0} ** review_diff.last_turn_range_len,
+    review_diff_last_turn_range_len: usize = 0,
     /// Runtime-only Delete branch… card. Selected name is not persisted.
     git_branch_delete_active: bool = false,
     /// Runtime-only select on the delete card. Not persisted.
@@ -1149,6 +1156,8 @@ pub const Model = struct {
         "file_mention_probe_is_walk",
         "review_diff_source",
         "review_diff_committed_range",
+        "review_diff_last_turn_range_storage",
+        "review_diff_last_turn_range_len",
         "review_diff_file_store",
         "review_diff_file_count",
         "review_diff_status_storage",
@@ -2480,6 +2489,10 @@ pub const Model = struct {
 
     pub fn review_diff_source_committed(model: *const Model) bool {
         return model.review_diff_source == .committed;
+    }
+
+    pub fn review_diff_source_last_turn(model: *const Model) bool {
+        return model.review_diff_source == .last_turn;
     }
 
     pub fn review_diff_rows(model: *const Model, arena: std.mem.Allocator) []const review_diff.ReviewDiffRow {

@@ -23,11 +23,20 @@
 //! then `master...HEAD`; all three failing stays
 //! `Could not compare.` A successful origin/HEAD probe with
 //! zero files is `No changes to compare` (no main/master
-//! fall-through). Faku has no checkpoint `capture_worktree_commit`;
-//! LastTurn stays leftover (do not invent it as HEAD~1).
+//! fall-through). LastTurn is a switchable first-cut: one-shot
+//! `git diff --name-status <sha>...HEAD` where `<sha>` is the
+//! selected session's send-time rewind sha (`latestRewindSha` /
+//! `rewind_refs`). That is not Waku
+//! `capture_worktree_commit` / checkpoint refs, and not
+//! `HEAD~1`. Missing / not-40-hex sha does not spawn and
+//! stays `Could not compare.` (no main/master fallback).
+//! The formatted `<sha>...HEAD` lives on the model so hunk
+//! clicks reuse the same sha if `rewind_refs` later change.
+//! Tracked files only (no untracked `?`, no `--no-index`).
 //! Clicking a tracked name-status row one-shots `git diff`
 //! for that path (current source + the Committed range that
-//! already succeeded). `--` and the path are own argv slots.
+//! already succeeded, or the stored LastTurn range).
+//! `--` and the path are own argv slots.
 //! Uncommitted `?` rows one-shot
 //! `git diff --no-index -- /dev/null <path>` (POSIX empty
 //! left side; `--no-index` implies `--exit-code`, so exit 1
@@ -37,21 +46,22 @@
 //! makes git fail is `Could not show diff.` — no invented
 //! tree listing. Not `capture_worktree_commit`. Hunk
 //! spawn-key band 520+ is distinct from name-status 510+.
-//! All five use the `/bin/sh -c` `fx_ask_chdir_script` chdir
+//! All six use the `/bin/sh -c` `fx_ask_chdir_script` chdir
 //! workaround. Last-slot operands (`@{upstream}...HEAD` /
 //! `--cached` / `origin/HEAD...HEAD` / `main...HEAD` /
-//! `master...HEAD`) are their own argv slots — never
-//! interpolated into `-c`. Uncommitted packs `HEAD` into the
-//! nested script (not a last-slot `HEAD`). Unstaged has no
-//! trailing operand, so its argv is 8 slots (the 9-slot detector
-//! still accepts Branch / Staged / Committed). Distinct
+//! `master...HEAD` / `<40-hex>...HEAD`) are their own argv
+//! slots — never interpolated into `-c`. Uncommitted packs
+//! `HEAD` into the nested script (not a last-slot `HEAD`).
+//! Unstaged has no trailing operand, so its argv is 8 slots
+//! (the 9-slot detector still accepts Branch / Staged /
+//! Committed / LastTurn). Distinct
 //! spawn-key band 510+ (after git-common-dir
 //! 500+). Cap 64 rows. Empty / clean is `No changes to compare`.
 //! Failed / no upstream / missing workspace is a short muted
 //! status — no invented files. First-cut hunks only: no
 //! syntax highlighting, no gap expansion, no right-panel Diff
-//! tab, no LastTurn, no force, no background work, and not
-//! daemon WorkspaceOperation.
+//! tab, no force, no background work, no Waku worktree
+//! checkpoints, and not daemon WorkspaceOperation.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -63,13 +73,14 @@ const main = @import("main.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
 const git_checkout = @import("git_checkout.zig");
 const git_common_dir = @import("git_common_dir.zig");
+const rewind = @import("rewind.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
 const writeFixed = main.writeFixed;
 
 /// One-shot Review `git diff --name-status` (Branch,
-/// Uncommitted, Staged, Unstaged, or Committed). Distinct from git_branch
+/// Uncommitted, Staged, Unstaged, Committed, or LastTurn). Distinct from git_branch
 /// (200+), git_dirty (300+), git_numstat (350+), git_push
 /// (360+), git_worktree_add (370+), git_ahead_behind (380+),
 /// git_worktree_base (390+), file_mention (400+), git_commit
@@ -94,13 +105,15 @@ pub const review_diff_hunk_key_first: u64 = 520;
 /// --name-status` (tracked only). Committed is first-cut
 /// `git diff --name-status origin/HEAD...HEAD`, then local
 /// `main...HEAD` / `master...HEAD` on a still-current non-zero
-/// exit. LastTurn stays leftover.
+/// exit. LastTurn is first-cut send-time rewind sha
+/// `git diff --name-status <sha>...HEAD` (not HEAD~1).
 pub const Source = enum {
     branch,
     uncommitted,
     staged,
     unstaged,
     committed,
+    last_turn,
 };
 
 /// First-cut Committed range probe. Always starts at
@@ -138,6 +151,11 @@ pub const git_committed_range = "origin/HEAD...HEAD";
 /// branch and HEAD → HEAD). Own argv slots.
 pub const git_committed_range_main = "main...HEAD";
 pub const git_committed_range_master = "master...HEAD";
+/// Three-dot suffix for LastTurn. Own argv slot together with the
+/// 40-char send-time rewind sha — never interpolated into `-c`.
+pub const git_last_turn_range_suffix = "...HEAD";
+/// `40-hex` + `...HEAD`. Stored on the model when LastTurn starts.
+pub const last_turn_range_len: usize = rewind.stored_sha_len + git_last_turn_range_suffix.len;
 /// Own argv slot before the path. Never interpolated into `-c`.
 pub const git_pathspec_end = "--";
 /// Documented `git diff --no-index` (implies `--exit-code`).
@@ -162,8 +180,8 @@ pub const uncommitted_untracked_script =
 ;
 
 /// `/bin/sh -c` chdir + `git diff --name-status` + last-slot operand
-/// (Branch / Staged / Committed). Unstaged omits the operand.
-/// Uncommitted is chdir + nested `/bin/sh -c` + this script.
+/// (Branch / Staged / Committed / LastTurn). Unstaged omits the
+/// operand. Uncommitted is chdir + nested `/bin/sh -c` + this script.
 pub const argv_len: usize = 9;
 /// Unstaged: same chdir prefix, no trailing operand.
 pub const argv_len_unstaged: usize = 8;
@@ -226,8 +244,17 @@ pub const ChangedFile = struct {
 /// (`git diff --name-status` with no range / `--cached`).
 /// Uncommitted is `null` (`HEAD` lives in the nested script).
 /// Committed reads `committed_range` (default first probe is
-/// `origin/HEAD...HEAD`).
+/// `origin/HEAD...HEAD`). LastTurn reads the formatted
+/// `<40-hex>...HEAD` captured when that probe started.
 pub fn lastOperand(source: Source, committed_range: CommittedRange) ?[]const u8 {
+    return lastOperandRange(source, committed_range, "");
+}
+
+pub fn lastOperandRange(
+    source: Source,
+    committed_range: CommittedRange,
+    last_turn_range: []const u8,
+) ?[]const u8 {
     return switch (source) {
         .branch => git_upstream_range,
         .uncommitted => null,
@@ -238,6 +265,7 @@ pub fn lastOperand(source: Source, committed_range: CommittedRange) ?[]const u8 
             .main => git_committed_range_main,
             .master => git_committed_range_master,
         },
+        .last_turn => if (isLastTurnRange(last_turn_range)) last_turn_range else null,
     };
 }
 
@@ -245,15 +273,61 @@ pub fn lastOperand(source: Source, committed_range: CommittedRange) ?[]const u8 
 /// uses last-slot `HEAD` (name-status packs `HEAD` in the nested
 /// script). Unstaged omits the operand. Committed reads the range
 /// that already succeeded — no origin/HEAD fall-through on a
-/// hunk click.
+/// hunk click. LastTurn reuses the stored `<sha>...HEAD`.
 pub fn hunkOperand(source: Source, committed_range: CommittedRange) ?[]const u8 {
+    return hunkOperandRange(source, committed_range, "");
+}
+
+pub fn hunkOperandRange(
+    source: Source,
+    committed_range: CommittedRange,
+    last_turn_range: []const u8,
+) ?[]const u8 {
     return switch (source) {
         .branch => git_upstream_range,
         .uncommitted => git_head,
         .staged => git_cached_flag,
         .unstaged => null,
-        .committed => lastOperand(.committed, committed_range),
+        .committed => lastOperandRange(.committed, committed_range, last_turn_range),
+        .last_turn => lastOperandRange(.last_turn, committed_range, last_turn_range),
     };
+}
+
+/// Format send-time rewind sha as `<40-hex>...HEAD`. Rejects
+/// anything that is not a stored 40-char hex sha (including
+/// `HEAD~1`).
+pub fn formatLastTurnRange(sha: []const u8, dest: *[last_turn_range_len]u8) ?[]const u8 {
+    if (!rewind.isStoredSha(sha)) return null;
+    const written = std.fmt.bufPrint(dest, "{s}{s}", .{ sha, git_last_turn_range_suffix }) catch return null;
+    if (!isLastTurnRange(written)) return null;
+    return written;
+}
+
+/// True only for `<40-hex>...HEAD`. Rejects `HEAD~1`, short
+/// hex, and any interpolated `-c` string.
+pub fn isLastTurnRange(operand: []const u8) bool {
+    if (operand.len != last_turn_range_len) return false;
+    if (!std.mem.eql(u8, operand[rewind.stored_sha_len..], git_last_turn_range_suffix)) return false;
+    return rewind.isStoredSha(operand[0..rewind.stored_sha_len]);
+}
+
+fn lastTurnRange(model: *const Model) []const u8 {
+    return model.review_diff_last_turn_range_storage[0..model.review_diff_last_turn_range_len];
+}
+
+fn clearLastTurnRange(model: *Model) void {
+    model.review_diff_last_turn_range_len = 0;
+}
+
+/// Capture the selected session's send-time rewind sha into the
+/// model buffer. Returns false when missing / not 40-hex.
+fn captureLastTurnRange(model: *Model) bool {
+    clearLastTurnRange(model);
+    const session = model.sessionById(model.selected) orelse return false;
+    const sha = session.latestRewindSha() orelse return false;
+    const written = formatLastTurnRange(sha, &model.review_diff_last_turn_range_storage) orelse return false;
+    model.review_diff_last_turn_range_len = written.len;
+    return true;
 }
 
 pub fn argvForSource(source: Source, cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
@@ -263,6 +337,22 @@ pub fn argvForSource(source: Source, cwd: []const u8, buf: *[argv_len][]const u8
 pub fn argvForSourceRange(
     source: Source,
     committed_range: CommittedRange,
+    cwd: []const u8,
+    buf: *[argv_len][]const u8,
+) []const []const u8 {
+    return argvForSourceRangeWith(source, committed_range, "", cwd, buf);
+}
+
+/// LastTurn name-status: 9-slot chdir + `git diff --name-status`
+/// + `<sha>...HEAD`. Sha and `...HEAD` are one own argv slot.
+pub fn argvForLastTurn(cwd: []const u8, last_turn_range: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    return argvForSourceRangeWith(.last_turn, .origin, last_turn_range, cwd, buf);
+}
+
+pub fn argvForSourceRangeWith(
+    source: Source,
+    committed_range: CommittedRange,
+    last_turn_range: []const u8,
     cwd: []const u8,
     buf: *[argv_len][]const u8,
 ) []const []const u8 {
@@ -280,7 +370,7 @@ pub fn argvForSourceRange(
     buf[5] = git_bin;
     buf[6] = git_diff_cmd;
     buf[7] = git_name_status;
-    if (lastOperand(source, committed_range)) |operand| {
+    if (lastOperandRange(source, committed_range, last_turn_range)) |operand| {
         buf[8] = operand;
         return buf[0..argv_len];
     }
@@ -297,6 +387,27 @@ pub fn argvForHunk(
     path: []const u8,
     buf: *[argv_len_hunk][]const u8,
 ) []const []const u8 {
+    return argvForHunkRange(source, committed_range, "", cwd, path, buf);
+}
+
+/// LastTurn hunk: same `<sha>...HEAD` operand + `--` + path.
+pub fn argvForHunkLastTurn(
+    cwd: []const u8,
+    last_turn_range: []const u8,
+    path: []const u8,
+    buf: *[argv_len_hunk][]const u8,
+) []const []const u8 {
+    return argvForHunkRange(.last_turn, .origin, last_turn_range, cwd, path, buf);
+}
+
+pub fn argvForHunkRange(
+    source: Source,
+    committed_range: CommittedRange,
+    last_turn_range: []const u8,
+    cwd: []const u8,
+    path: []const u8,
+    buf: *[argv_len_hunk][]const u8,
+) []const []const u8 {
     buf[0] = sh_bin;
     buf[1] = "-c";
     buf[2] = main.fx_ask_chdir_script;
@@ -304,7 +415,7 @@ pub fn argvForHunk(
     buf[4] = cwd;
     buf[5] = git_bin;
     buf[6] = git_diff_cmd;
-    if (hunkOperand(source, committed_range)) |operand| {
+    if (hunkOperandRange(source, committed_range, last_turn_range)) |operand| {
         buf[7] = operand;
         buf[8] = git_pathspec_end;
         buf[9] = path;
@@ -367,7 +478,8 @@ pub fn isGitReviewDiffArgv(argv: []const []const u8) bool {
         std.mem.eql(u8, last, git_cached_flag) or
         std.mem.eql(u8, last, git_committed_range) or
         std.mem.eql(u8, last, git_committed_range_main) or
-        std.mem.eql(u8, last, git_committed_range_master);
+        std.mem.eql(u8, last, git_committed_range_master) or
+        isLastTurnRange(last);
 }
 
 fn isKnownHunkOperand(last: []const u8) bool {
@@ -376,7 +488,8 @@ fn isKnownHunkOperand(last: []const u8) bool {
         std.mem.eql(u8, last, git_cached_flag) or
         std.mem.eql(u8, last, git_committed_range) or
         std.mem.eql(u8, last, git_committed_range_main) or
-        std.mem.eql(u8, last, git_committed_range_master);
+        std.mem.eql(u8, last, git_committed_range_master) or
+        isLastTurnRange(last);
 }
 
 /// Hunk argv: chdir + `git diff [operand] -- <path>`, or the
@@ -564,6 +677,7 @@ pub fn close(model: *Model, fx: *Effects) void {
     model.review_diff_probe_session = 0;
     model.review_diff_probe_path_len = 0;
     model.review_diff_committed_range = .origin;
+    clearLastTurnRange(model);
     model.review_diff_source = .branch;
     model.review_diff_active = false;
 }
@@ -599,6 +713,14 @@ fn startProbe(model: *Model, fx: *Effects) void {
         setStatus(model, no_workspace_status);
         return;
     }
+    if (model.review_diff_source == .last_turn) {
+        if (!captureLastTurnRange(model)) {
+            setStatus(model, failed_status);
+            return;
+        }
+    } else {
+        clearLastTurnRange(model);
+    }
 
     const key = model.next_review_diff_key;
     model.next_review_diff_key = key + 1;
@@ -610,9 +732,10 @@ fn startProbe(model: *Model, fx: *Effects) void {
     var argv_buf: [argv_len][]const u8 = undefined;
     fx.spawn(.{
         .key = key,
-        .argv = argvForSourceRange(
+        .argv = argvForSourceRangeWith(
             model.review_diff_source,
             model.review_diff_committed_range,
+            lastTurnRange(model),
             cwd,
             &argv_buf,
         ),
@@ -639,8 +762,9 @@ pub fn open(model: *Model, fx: *Effects) void {
 /// Switch the Review name-status source, cancel any in-flight
 /// 510+ spawn, clear rows / status, and re-probe. Committed
 /// always restarts at `origin/HEAD...HEAD` (no leftover
-/// main/master retry). No-op when the card is closed. Does not
-/// invent LastTurn.
+/// main/master retry). LastTurn captures the selected session's
+/// send-time rewind sha or fails without spawn (never HEAD~1).
+/// No-op when the card is closed.
 pub fn setSource(model: *Model, fx: *Effects, source: Source) void {
     if (!model.review_diff_active) return;
     model.review_diff_source = source;
@@ -696,9 +820,10 @@ fn startHunkProbe(model: *Model, fx: *Effects, file_path: []const u8, no_index: 
     var argv_buf: [argv_len_hunk][]const u8 = undefined;
     fx.spawn(.{
         .key = key,
-        .argv = argvForHunk(
+        .argv = argvForHunkRange(
             model.review_diff_source,
             model.review_diff_committed_range,
+            lastTurnRange(model),
             cwd,
             path,
             &argv_buf,
@@ -720,7 +845,8 @@ pub fn selectFile(model: *Model, fx: *Effects, id: u32) void {
     clearHunkBody(model);
     clearHunkStatus(model);
     model.review_diff_selected_id = id;
-    startHunkProbe(model, fx, file.path(), file.status == '?');
+    const no_index = file.status == '?' and model.review_diff_source != .last_turn;
+    startHunkProbe(model, fx, file.path(), no_index);
 }
 
 pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
@@ -978,6 +1104,52 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     interpolated_main[2] = "cd \"$1\" && git diff --name-status main...HEAD";
     interpolated_main[8] = git_committed_range_main;
     try std.testing.expect(!isGitReviewDiffArgv(interpolated_main[0..argv_len]));
+    const last_turn_sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    var last_turn_range_buf: [last_turn_range_len]u8 = undefined;
+    const last_turn_range = formatLastTurnRange(last_turn_sha, &last_turn_range_buf) orelse return error.MissingLastTurnRange;
+    try std.testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...HEAD", last_turn_range);
+    try std.testing.expect(isLastTurnRange(last_turn_range));
+    try std.testing.expect(!isLastTurnRange("HEAD~1"));
+    try std.testing.expect(!isLastTurnRange("HEAD~1...HEAD"));
+    try std.testing.expect(lastOperandRange(.last_turn, .origin, last_turn_range) != null);
+    try std.testing.expectEqualStrings(last_turn_range, lastOperandRange(.last_turn, .origin, last_turn_range).?);
+    try std.testing.expect(lastOperand(.last_turn, .origin) == null);
+    var last_turn_buf: [argv_len][]const u8 = undefined;
+    const last_turn = argvForLastTurn("/tmp/faku-review", last_turn_range, &last_turn_buf);
+    try std.testing.expectEqual(@as(usize, 9), last_turn.len);
+    try std.testing.expectEqual(argv_len, last_turn.len);
+    try std.testing.expectEqualStrings(sh_bin, last_turn[0]);
+    try std.testing.expectEqualStrings("-c", last_turn[1]);
+    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, last_turn[2]);
+    try std.testing.expectEqualStrings("sh", last_turn[3]);
+    try std.testing.expectEqualStrings("/tmp/faku-review", last_turn[4]);
+    try std.testing.expectEqualStrings(git_bin, last_turn[5]);
+    try std.testing.expectEqualStrings(git_diff_cmd, last_turn[6]);
+    try std.testing.expectEqualStrings(git_name_status, last_turn[7]);
+    try std.testing.expectEqualStrings(last_turn_range, last_turn[8]);
+    try std.testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...HEAD", last_turn[8]);
+    try std.testing.expect(isGitReviewDiffArgv(last_turn));
+    try std.testing.expect(std.mem.indexOf(u8, last_turn[2], last_turn_sha) == null);
+    try std.testing.expect(std.mem.indexOf(u8, last_turn[2], last_turn_range) == null);
+    try std.testing.expect(std.mem.indexOf(u8, last_turn[2], git_last_turn_range_suffix) == null);
+    try std.testing.expect(std.mem.indexOf(u8, last_turn[2], "HEAD~1") == null);
+    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, last_turn_range }));
+    const head_tilde = [_][]const u8{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-review",
+        git_bin,
+        git_diff_cmd,
+        git_name_status,
+        "HEAD~1",
+    };
+    try std.testing.expect(!isGitReviewDiffArgv(&head_tilde));
+    var interpolated_last_turn = last_turn_buf;
+    interpolated_last_turn[2] = "cd \"$1\" && git diff --name-status aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...HEAD";
+    interpolated_last_turn[8] = last_turn_range;
+    try std.testing.expect(!isGitReviewDiffArgv(interpolated_last_turn[0..argv_len]));
     var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;
     const ahead = git_ahead_behind.argvFor("/tmp/faku-review", &ahead_buf);
     try std.testing.expect(!isGitReviewDiffArgv(ahead));
@@ -1504,6 +1676,110 @@ test "Committed fallback does not hang after source switch or close" {
     try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
 }
 
+test "setSource last_turn with rewind sha spawns Comparing; without sha does not spawn" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/review-last-turn", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("review last turn", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    const sha = "cccccccccccccccccccccccccccccccccccccccc";
+    var range_buf: [last_turn_range_len]u8 = undefined;
+    const range = formatLastTurnRange(sha, &range_buf) orelse return error.MissingLastTurnRange;
+    try std.testing.expectEqualStrings("cccccccccccccccccccccccccccccccccccccccc...HEAD", range);
+
+    open(&model, &fx);
+    try std.testing.expectEqual(Source.branch, model.review_diff_source);
+    const branch_key = model.review_diff_key;
+    setSource(&model, &fx, .last_turn);
+    try std.testing.expect(model.review_diff_active);
+    try std.testing.expectEqual(Source.last_turn, model.review_diff_source);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_key);
+    try std.testing.expectEqualStrings(failed_status, reviewDiffStatus(&model));
+    try std.testing.expect(findSpawnArgv(&fx, branch_key + 1) == null);
+    try std.testing.expect(std.mem.indexOf(u8, reviewDiffStatus(&model), "HEAD~1") == null);
+
+    if (model.sessionById(id)) |session| {
+        session.appendRewindRef(sha, rewind.recorded_ref, 1);
+        try std.testing.expectEqualStrings(sha, session.latestRewindSha().?);
+    }
+
+    setSource(&model, &fx, .last_turn);
+    try std.testing.expect(model.review_diff_active);
+    try std.testing.expectEqual(Source.last_turn, model.review_diff_source);
+    try std.testing.expect(model.review_diff_key != branch_key);
+    try std.testing.expect(model.review_diff_key >= review_diff_key_first);
+    try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
+    const last_turn_key = model.review_diff_key;
+    const last_turn_argv = findSpawnArgv(&fx, last_turn_key) orelse return error.MissingLastTurnArgv;
+    try std.testing.expect(isGitReviewDiffArgv(last_turn_argv));
+    try std.testing.expectEqual(argv_len, last_turn_argv.len);
+    try std.testing.expectEqualStrings(range, last_turn_argv[8]);
+    try std.testing.expectEqualStrings("cccccccccccccccccccccccccccccccccccccccc...HEAD", last_turn_argv[8]);
+    try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[2], sha) == null);
+    try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[2], "HEAD~1") == null);
+    try std.testing.expectEqualStrings(range, lastTurnRange(&model));
+
+    applyLine(&model, .{ .key = last_turn_key, .line = "M\tlast-turn.zig\n" });
+    handleExit(&model, &fx, .{ .key = last_turn_key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
+    try std.testing.expectEqualStrings("M last-turn.zig", model.review_diff_file_store[0].label());
+    try std.testing.expect(!hasReviewDiffStatus(&model));
+
+    if (model.sessionById(id)) |session| {
+        session.appendRewindRef("dddddddddddddddddddddddddddddddddddddddd", rewind.recorded_ref, 2);
+    }
+    selectFile(&model, &fx, 1);
+    const hunk_key = model.review_diff_hunk_key;
+    try std.testing.expect(hunk_key >= review_diff_hunk_key_first);
+    const hunk_argv = findSpawnArgv(&fx, hunk_key) orelse return error.MissingLastTurnHunk;
+    try std.testing.expect(isGitReviewHunkArgv(hunk_argv));
+    try std.testing.expectEqualStrings(range, hunk_argv[7]);
+    try std.testing.expectEqualStrings(git_pathspec_end, hunk_argv[8]);
+    try std.testing.expectEqualStrings("last-turn.zig", hunk_argv[9]);
+    try std.testing.expect(std.mem.indexOf(u8, hunk_argv[2], sha) == null);
+    try std.testing.expect(std.mem.indexOf(u8, hunk_argv[7], "dddddddddddddddddddddddddddddddddddddddd") == null);
+
+    handleHunkExit(&model, &fx, .{ .key = hunk_key, .reason = .exited, .code = 0 });
+    setSource(&model, &fx, .last_turn);
+    const fail_key = model.review_diff_key;
+    handleExit(&model, &fx, .{ .key = fail_key, .reason = .exited, .code = 128 });
+    try std.testing.expectEqualStrings(failed_status, reviewDiffStatus(&model));
+    try std.testing.expectEqual(Source.last_turn, model.review_diff_source);
+    try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_key);
+    try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+
+    setSource(&model, &fx, .committed);
+    const origin_key = model.review_diff_key;
+    handleExit(&model, &fx, .{ .key = origin_key, .reason = .exited, .code = 128 });
+    try std.testing.expectEqual(CommittedRange.main, model.review_diff_committed_range);
+    try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
+    const main_key = model.review_diff_key;
+    setSource(&model, &fx, .last_turn);
+    try std.testing.expectEqual(Source.last_turn, model.review_diff_source);
+    try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
+    try std.testing.expect(model.review_diff_key != main_key);
+    handleExit(&model, &fx, .{ .key = main_key, .reason = .exited, .code = 128 });
+    try std.testing.expectEqual(Source.last_turn, model.review_diff_source);
+    try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
+
+    dismiss(&model, &fx);
+    try std.testing.expect(!model.review_diff_active);
+    try std.testing.expectEqual(Source.branch, model.review_diff_source);
+    try std.testing.expectEqual(@as(usize, 0), model.review_diff_last_turn_range_len);
+}
+
 test "cap stays at 64; extra name-status rows are dropped" {
     var model = Model{};
     model.review_diff_active = true;
@@ -1586,6 +1862,35 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
     try std.testing.expectEqualStrings(git_committed_range_master, committed_master[7]);
     try std.testing.expect(isGitReviewHunkArgv(committed_master));
     try std.testing.expect(!isGitReviewDiffArgv(committed_master));
+
+    const last_turn_sha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    var last_turn_range_buf: [last_turn_range_len]u8 = undefined;
+    const last_turn_range = formatLastTurnRange(last_turn_sha, &last_turn_range_buf) orelse return error.MissingLastTurnHunkRange;
+    var last_turn_hunk_buf: [argv_len_hunk][]const u8 = undefined;
+    const last_turn_hunk = argvForHunkLastTurn("/tmp/faku-hunk", last_turn_range, "last-turn.zig", &last_turn_hunk_buf);
+    try std.testing.expectEqual(argv_len_hunk, last_turn_hunk.len);
+    try std.testing.expectEqualStrings(last_turn_range, last_turn_hunk[7]);
+    try std.testing.expectEqualStrings("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb...HEAD", last_turn_hunk[7]);
+    try std.testing.expectEqualStrings(git_pathspec_end, last_turn_hunk[8]);
+    try std.testing.expectEqualStrings("last-turn.zig", last_turn_hunk[9]);
+    try std.testing.expect(isGitReviewHunkArgv(last_turn_hunk));
+    try std.testing.expect(!isGitReviewDiffArgv(last_turn_hunk));
+    try std.testing.expect(std.mem.indexOf(u8, last_turn_hunk[2], last_turn_sha) == null);
+    try std.testing.expect(std.mem.indexOf(u8, last_turn_hunk[2], last_turn_range) == null);
+    try std.testing.expect(std.mem.indexOf(u8, last_turn_hunk[2], "HEAD~1") == null);
+    const head_tilde_hunk = [_][]const u8{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-hunk",
+        git_bin,
+        git_diff_cmd,
+        "HEAD~1",
+        git_pathspec_end,
+        "last-turn.zig",
+    };
+    try std.testing.expect(!isGitReviewHunkArgv(&head_tilde_hunk));
 
     var untracked_buf: [argv_len_hunk_untracked][]const u8 = undefined;
     const untracked = argvForUntrackedHunk("/tmp/faku-hunk", "new file.txt", &untracked_buf);

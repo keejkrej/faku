@@ -3,14 +3,17 @@
 //! Header info trigger plus a runtime-only dropdown titled
 //! Environment: Commit or Push (ungated open of the existing
 //! Commit… card), Compare (Review name-status file list; opens
-//! on Branch, Uncommitted / Staged / Unstaged / Committed are
-//! switchable on the card), and Copy task ID (local session id
-//! via `fx.writeClipboard`). Header +N −M reuses the composer
-//! project-row numstat probe (omit a zero side; muted ghost;
-//! click opens Compare Review on Branch). First-cut per-file
-//! hunks live on the Review card (tracked `git diff`; Uncommitted
-//! `?` rows one-shot `git diff --no-index -- /dev/null <path>`).
-//! Not LastTurn, not force, not background work, and not
+//! on Branch, Uncommitted / Staged / Unstaged / Committed /
+//! LastTurn are switchable on the card), and Copy task ID
+//! (local session id via `fx.writeClipboard`). Header +N −M
+//! reuses the composer project-row numstat probe (omit a zero
+//! side; muted ghost; click opens Compare Review on Branch).
+//! First-cut per-file hunks live on the Review card (tracked
+//! `git diff`; Uncommitted `?` rows one-shot
+//! `git diff --no-index -- /dev/null <path>`). LastTurn is
+//! send-time rewind sha `git diff --name-status <sha>...HEAD`
+//! (not Waku checkpoint refs / `capture_worktree_commit`, not
+//! HEAD~1). Not force, not background work, and not
 //! daemon WorkspaceOperation.
 
 const std = @import("std");
@@ -74,8 +77,8 @@ pub fn copyTaskId(model: *Model, fx: *Effects) void {
 
 /// Close the popover and any Commit… card, then open the first-cut
 /// Review file-list card on Branch (`git diff --name-status
-/// @{upstream}...HEAD`). Uncommitted, Staged, Unstaged, and
-/// Committed are selected on the card.
+/// @{upstream}...HEAD`). Uncommitted, Staged, Unstaged,
+/// Committed, and LastTurn are selected on the card.
 pub fn compare(model: *Model, fx: *Effects) void {
     close(model);
     git_commit.dropCommitNumstat(model, fx);
