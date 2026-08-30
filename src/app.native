@@ -248,7 +248,7 @@
             </row>
           </if>
           <stack>
-            <button variant="ghost" size="icon" icon="info" label="Environment" selected="{environment_summary_open}" on-press="toggle_environment_summary" width="28" height="28"></button>
+            <button variant="ghost" size="icon" icon="info" label="Environment" selected="{environment_info_selected}" on-press="toggle_environment_summary" width="28" height="28"></button>
             <if test="{environment_summary_open}">
               <dropdown-menu anchor="below" on-dismiss="close_environment_summary">
                 <text foreground="text_muted">Environment</text>
@@ -258,9 +258,16 @@
                 <if test="{has_provider_session_id}">
                   <menu-item on-press="environment_copy_agent_thread_id">Copy agent CLI thread ID</menu-item>
                 </if>
-                <if test="{is_streaming}">
+                <if test="{has_background_section}">
                   <text foreground="text_muted">Background</text>
-                  <menu-item on-press="environment_stop_background">Stop agent</menu-item>
+                  <if test="{is_streaming}">
+                    <text>Agent turn</text>
+                    <menu-item on-press="environment_stop_background">Stop agent</menu-item>
+                  </if>
+                  <else>
+                    <text>Agent turn</text>
+                    <text foreground="text_muted">{background_settled_status}</text>
+                  </else>
                 </if>
               </dropdown-menu>
             </if>

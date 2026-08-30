@@ -127,6 +127,7 @@ pub fn handleSessionTitleEdit(model: *Model, fx: *Effects, edit: canvas.TextInpu
 pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
     if (model.editing_session_id == id) model.closeSessionTitleEdit();
     model.closeCommands();
+    environment_summary.clearSettledIfSession(model, id);
     store.removeIfPossible(model, id, fx);
     store.loadDraftIfPossible(model);
     attach_helpers.refreshAttachPreview(model, fx);

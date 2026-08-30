@@ -7,10 +7,14 @@
 //! `fork.recordTurnEndIfPossible` (stores
 //! `worktree_turn_end_sha` and `worktree_turn_diff_sha`; does
 //! not overwrite `worktree_snapshot_sha`) after streaming state is
-//! cleared and before persist / queued restart. Cancel /
-//! `stopStream` does not. Prompt spawn stays in `spawn.zig`. Line
-//! handlers live in `lines.zig`. Behavior is unchanged from the
-//! former `main` stream helpers.
+//! cleared and before persist / queued restart. That same success
+//! records Environment Summary last-turn Completed unless a queued
+//! follow-up immediately restarts (stay on the Process row).
+//! `stopStream` records Stopped. `drain == false` records Failed.
+//! Cancel / `stopStream` does not snapshot. Prompt spawn stays in
+//! `spawn.zig`. Line handlers live in `lines.zig`. Behavior is
+//! unchanged from the former `main` stream helpers except the
+//! Background settle hooks.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -21,6 +25,7 @@ const prompt_spawn = @import("spawn.zig");
 const session_fork = @import("fork.zig");
 const copy_helpers = @import("copy.zig");
 const attach_helpers = @import("attach.zig");
+const environment_summary = @import("environment_summary.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -112,6 +117,9 @@ pub fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
             prompt_spawn.startPrompt(model, fx, finished_id, copy[0..n]);
             return;
         }
+        environment_summary.settle(model, finished_id, .completed);
+    } else {
+        environment_summary.settle(model, finished_id, .failed);
     }
     store.persistIfPossible(model, finished_id, fx);
 }
@@ -131,6 +139,7 @@ pub fn stopStream(model: *Model, fx: *Effects) void {
     if (model.daemon_spawn_key != 0) fx.cancel(model.daemon_spawn_key);
     model.fx_spawn_live = false;
     if (was_daemon) maybeCancelDaemonTurn(model, fx, finished_id);
+    environment_summary.settle(model, finished_id, .stopped);
     store.persistIfPossible(model, finished_id, fx);
 }
 
