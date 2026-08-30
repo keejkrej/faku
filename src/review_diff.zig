@@ -28,9 +28,14 @@
 //! Clicking a tracked name-status row one-shots `git diff`
 //! for that path (current source + the Committed range that
 //! already succeeded). `--` and the path are own argv slots.
-//! Untracked Uncommitted `?` rows do not spawn
-//! `git diff --no-index` (exit-1-on-success is messy) — click
-//! sets `Could not show diff.` and invents no patch. Hunk
+//! Uncommitted `?` rows one-shot
+//! `git diff --no-index -- /dev/null <path>` (POSIX empty
+//! left side; `--no-index` implies `--exit-code`, so exit 1
+//! with a body is a successful patch). `--no-index`, `--`,
+//! `/dev/null`, and the path are own argv slots (11 total;
+//! under Native `max_effect_argv` 16). A `?` directory that
+//! makes git fail is `Could not show diff.` — no invented
+//! tree listing. Not `capture_worktree_commit`. Hunk
 //! spawn-key band 520+ is distinct from name-status 510+.
 //! All five use the `/bin/sh -c` `fx_ask_chdir_script` chdir
 //! workaround. Last-slot operands (`@{upstream}...HEAD` /
@@ -74,7 +79,8 @@ const writeFixed = main.writeFixed;
 /// cannot paint a later session.
 pub const review_diff_key_first: u64 = 510;
 
-/// One-shot Review `git diff [operand] -- <path>` hunk probe.
+/// One-shot Review `git diff [operand] -- <path>` hunk probe,
+/// or untracked `git diff --no-index -- /dev/null <path>`.
 /// Distinct from name-status 510+. Band is 520+. Incremented
 /// per file click so a cancelled spawn cannot paint a later
 /// click or session.
@@ -134,6 +140,12 @@ pub const git_committed_range_main = "main...HEAD";
 pub const git_committed_range_master = "master...HEAD";
 /// Own argv slot before the path. Never interpolated into `-c`.
 pub const git_pathspec_end = "--";
+/// Documented `git diff --no-index` (implies `--exit-code`).
+/// Own argv slot. Untracked `?` hunks only.
+pub const git_no_index = "--no-index";
+/// POSIX empty left side for `--no-index`. Own argv slot.
+/// Never interpolated into `-c`.
+pub const git_dev_null = "/dev/null";
 pub const sh_bin = "/bin/sh";
 
 /// Packed into one `-c` string so Uncommitted stays under Native
@@ -161,6 +173,8 @@ pub const argv_len_uncommitted: usize = 8;
 pub const argv_len_hunk: usize = 10;
 /// Unstaged hunk: chdir + `git diff -- <path>` (no operand).
 pub const argv_len_hunk_unstaged: usize = 9;
+/// Untracked `?` hunk: chdir + `git diff --no-index -- /dev/null <path>`.
+pub const argv_len_hunk_untracked: usize = 11;
 /// First-cut body cap. Extra stdout is dropped, not invented.
 pub const max_review_diff_hunk_lines: usize = 160;
 /// Enough for 160 short unified-diff lines. Longer lines still
@@ -301,6 +315,28 @@ pub fn argvForHunk(
     return buf[0..argv_len_hunk_unstaged];
 }
 
+/// `/bin/sh -c <chdir> sh <cwd> git diff --no-index -- /dev/null <path>`.
+/// `--no-index`, `--`, `/dev/null`, and the path are own argv slots.
+/// Never interpolate the path (or `/dev/null`) into `-c`.
+pub fn argvForUntrackedHunk(
+    cwd: []const u8,
+    path: []const u8,
+    buf: *[argv_len_hunk_untracked][]const u8,
+) []const []const u8 {
+    buf[0] = sh_bin;
+    buf[1] = "-c";
+    buf[2] = main.fx_ask_chdir_script;
+    buf[3] = "sh";
+    buf[4] = cwd;
+    buf[5] = git_bin;
+    buf[6] = git_diff_cmd;
+    buf[7] = git_no_index;
+    buf[8] = git_pathspec_end;
+    buf[9] = git_dev_null;
+    buf[10] = path;
+    return buf[0..argv_len_hunk_untracked];
+}
+
 /// Branch argv. Compare / header +/- still use this shape.
 pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
     return argvForSource(.branch, cwd, buf);
@@ -343,15 +379,23 @@ fn isKnownHunkOperand(last: []const u8) bool {
         std.mem.eql(u8, last, git_committed_range_master);
 }
 
-/// Hunk argv: chdir + `git diff [operand] -- <path>`. Rejects
-/// name-status (`--name-status`) and Uncommitted nested `sh -c`.
+/// Hunk argv: chdir + `git diff [operand] -- <path>`, or the
+/// 11-slot untracked `git diff --no-index -- /dev/null <path>`.
+/// Rejects name-status (`--name-status`) and Uncommitted nested `sh -c`.
 pub fn isGitReviewHunkArgv(argv: []const []const u8) bool {
-    if (argv.len != argv_len_hunk and argv.len != argv_len_hunk_unstaged) return false;
+    if (argv.len != argv_len_hunk and
+        argv.len != argv_len_hunk_unstaged and
+        argv.len != argv_len_hunk_untracked) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_diff_cmd)) return false;
+    if (argv.len == argv_len_hunk_untracked) {
+        return std.mem.eql(u8, argv[7], git_no_index) and
+            std.mem.eql(u8, argv[8], git_pathspec_end) and
+            std.mem.eql(u8, argv[9], git_dev_null);
+    }
     if (argv.len == argv_len_hunk_unstaged) {
         return std.mem.eql(u8, argv[7], git_pathspec_end);
     }
@@ -464,6 +508,7 @@ fn clearHunks(model: *Model) void {
     model.review_diff_hunk_probe_session = 0;
     model.review_diff_hunk_probe_path_len = 0;
     model.review_diff_hunk_path_len = 0;
+    model.review_diff_hunk_no_index = false;
 }
 
 fn cancelInFlight(model: *Model, fx: *Effects) void {
@@ -611,13 +656,14 @@ fn hunkStillCurrent(model: *const Model) bool {
     return std.mem.eql(u8, path, probed);
 }
 
-fn startHunkProbe(model: *Model, fx: *Effects, file_path: []const u8) void {
+fn startHunkProbe(model: *Model, fx: *Effects, file_path: []const u8, no_index: bool) void {
     cancelHunkInFlight(model, fx);
     clearHunkBody(model);
     clearHunkStatus(model);
     model.review_diff_hunk_probe_session = 0;
     model.review_diff_hunk_probe_path_len = 0;
     model.review_diff_hunk_path_len = 0;
+    model.review_diff_hunk_no_index = false;
     if (!probeSupported()) {
         setHunkStatus(model, hunk_failed_status);
         return;
@@ -634,8 +680,19 @@ fn startHunkProbe(model: *Model, fx: *Effects, file_path: []const u8) void {
     model.next_review_diff_hunk_key = key + 1;
     model.review_diff_hunk_key = key;
     model.review_diff_hunk_probe_session = model.selected;
+    model.review_diff_hunk_no_index = no_index;
     writeFixed(&model.review_diff_hunk_probe_path_storage, &model.review_diff_hunk_probe_path_len, cwd);
 
+    if (no_index) {
+        var argv_buf: [argv_len_hunk_untracked][]const u8 = undefined;
+        fx.spawn(.{
+            .key = key,
+            .argv = argvForUntrackedHunk(cwd, path, &argv_buf),
+            .on_line = Effects.lineMsg(.fx_line),
+            .on_exit = Effects.exitMsg(.fx_exit),
+        });
+        return;
+    }
     var argv_buf: [argv_len_hunk][]const u8 = undefined;
     fx.spawn(.{
         .key = key,
@@ -652,9 +709,9 @@ fn startHunkProbe(model: *Model, fx: *Effects, file_path: []const u8) void {
 }
 
 /// Click a 1-based Review file row. Tracked rows one-shot a hunk
-/// probe for the current source. Untracked `?` does not spawn
-/// `git diff --no-index` — sets `Could not show diff.` only.
-/// Cancels any in-flight hunk and clears the previous body.
+/// probe for the current source (`argvForHunk`). Untracked `?`
+/// one-shots `git diff --no-index -- /dev/null <path>`. Cancels
+/// any in-flight hunk and clears the previous body.
 pub fn selectFile(model: *Model, fx: *Effects, id: u32) void {
     if (!model.review_diff_active) return;
     if (id == 0 or id > model.review_diff_file_count) return;
@@ -663,11 +720,7 @@ pub fn selectFile(model: *Model, fx: *Effects, id: u32) void {
     clearHunkBody(model);
     clearHunkStatus(model);
     model.review_diff_selected_id = id;
-    if (file.status == '?') {
-        setHunkStatus(model, hunk_failed_status);
-        return;
-    }
-    startHunkProbe(model, fx, file.path());
+    startHunkProbe(model, fx, file.path(), file.status == '?');
 }
 
 pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
@@ -743,7 +796,11 @@ pub fn handleHunkExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) 
         setHunkStatus(model, hunk_failed_status);
         return;
     }
-    if (exit.reason != .exited or exit.code != 0) {
+    const ok = if (model.review_diff_hunk_no_index)
+        exit.reason == .exited and (exit.code == 0 or exit.code == 1)
+    else
+        exit.reason == .exited and exit.code == 0;
+    if (!ok) {
         clearHunkBody(model);
         setHunkStatus(model, hunk_failed_status);
         return;
@@ -944,6 +1001,10 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expect(git_common_dir.git_common_dir_key_first >= 500);
     try std.testing.expect(review_diff_hunk_key_first >= 520);
     try std.testing.expect(review_diff_hunk_key_first > review_diff_key_first);
+    try std.testing.expect(argv_len_hunk_untracked == 11);
+    try std.testing.expect(argv_len_hunk_untracked < 16);
+    try std.testing.expect(argv_len_hunk == 10);
+    try std.testing.expect(argv_len_hunk_unstaged == 9);
 }
 
 test "parseNameStatusLine is status letter plus path; rename uses dest" {
@@ -1525,6 +1586,25 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
     try std.testing.expectEqualStrings(git_committed_range_master, committed_master[7]);
     try std.testing.expect(isGitReviewHunkArgv(committed_master));
     try std.testing.expect(!isGitReviewDiffArgv(committed_master));
+
+    var untracked_buf: [argv_len_hunk_untracked][]const u8 = undefined;
+    const untracked = argvForUntrackedHunk("/tmp/faku-hunk", "new file.txt", &untracked_buf);
+    try std.testing.expectEqual(argv_len_hunk_untracked, untracked.len);
+    try std.testing.expectEqual(@as(usize, 11), untracked.len);
+    try std.testing.expectEqualStrings(git_bin, untracked[5]);
+    try std.testing.expectEqualStrings(git_diff_cmd, untracked[6]);
+    try std.testing.expectEqualStrings(git_no_index, untracked[7]);
+    try std.testing.expectEqualStrings("--no-index", untracked[7]);
+    try std.testing.expectEqualStrings(git_pathspec_end, untracked[8]);
+    try std.testing.expectEqualStrings(git_dev_null, untracked[9]);
+    try std.testing.expectEqualStrings("/dev/null", untracked[9]);
+    try std.testing.expectEqualStrings("new file.txt", untracked[10]);
+    try std.testing.expect(isGitReviewHunkArgv(untracked));
+    try std.testing.expect(!isGitReviewDiffArgv(untracked));
+    try std.testing.expect(!isGitReviewUncommittedArgv(untracked));
+    try std.testing.expect(std.mem.indexOf(u8, untracked[2], git_no_index) == null);
+    try std.testing.expect(std.mem.indexOf(u8, untracked[2], git_dev_null) == null);
+    try std.testing.expect(std.mem.indexOf(u8, untracked[2], "new file.txt") == null);
 }
 
 test "isGitReviewHunkArgv does not match name-status; name-status detector rejects hunks" {
@@ -1554,6 +1634,14 @@ test "isGitReviewHunkArgv does not match name-status; name-status detector rejec
     const unstaged_hunk = argvForHunk(.unstaged, .origin, "/tmp/faku-hunk", "src/a.zig", &unstaged_hunk_buf);
     try std.testing.expect(isGitReviewHunkArgv(unstaged_hunk));
     try std.testing.expect(!isGitReviewDiffArgv(unstaged_hunk));
+
+    var untracked_buf: [argv_len_hunk_untracked][]const u8 = undefined;
+    const untracked = argvForUntrackedHunk("/tmp/faku-hunk", "new file.txt", &untracked_buf);
+    try std.testing.expect(isGitReviewHunkArgv(untracked));
+    try std.testing.expect(!isGitReviewDiffArgv(untracked));
+    try std.testing.expect(!isGitReviewUncommittedArgv(untracked));
+    try std.testing.expect(!isGitReviewHunkArgv(name));
+    try std.testing.expect(!isGitReviewDiffArgv(untracked));
 
     try std.testing.expect(!isGitReviewHunkArgv(&.{ git_bin, git_diff_cmd, git_upstream_range, git_pathspec_end, "src/a.zig" }));
     try std.testing.expect(!isGitReviewHunkArgv(&.{
@@ -1588,6 +1676,20 @@ test "hunk path and -- are own argv slots; space in path stays last-slot" {
     try std.testing.expectEqualStrings(path, unstaged[8]);
     try std.testing.expect(std.mem.indexOf(u8, unstaged[2], path) == null);
     try std.testing.expect(isGitReviewHunkArgv(unstaged));
+
+    var untracked_buf: [argv_len_hunk_untracked][]const u8 = undefined;
+    const untracked_path = "new file.txt";
+    const untracked = argvForUntrackedHunk("/tmp/faku hunk", untracked_path, &untracked_buf);
+    try std.testing.expectEqual(argv_len_hunk_untracked, untracked.len);
+    try std.testing.expectEqualStrings(git_no_index, untracked[7]);
+    try std.testing.expectEqualStrings(git_pathspec_end, untracked[8]);
+    try std.testing.expectEqualStrings(git_dev_null, untracked[9]);
+    try std.testing.expectEqualStrings(untracked_path, untracked[10]);
+    try std.testing.expect(std.mem.indexOf(u8, untracked[2], untracked_path) == null);
+    try std.testing.expect(std.mem.indexOf(u8, untracked[2], "new file") == null);
+    try std.testing.expect(std.mem.indexOf(u8, untracked[2], git_dev_null) == null);
+    try std.testing.expect(isGitReviewHunkArgv(untracked));
+    try std.testing.expect(!isGitReviewDiffArgv(untracked));
 }
 
 fn openWithFiles(model: *Model, fx: *Effects, line: []const u8) !u64 {
@@ -1675,7 +1777,7 @@ test "clicking a tracked row fills capped patch text; empty and fail stay honest
     try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "+line-160") == null);
 }
 
-test "clicking a ? untracked row does not spawn a hunk argv or invent a patch" {
+test "clicking a ? untracked row one-shots git diff --no-index" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -1700,22 +1802,64 @@ test "clicking a ? untracked row does not spawn a hunk argv or invent a patch" {
     try std.testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
     try std.testing.expectEqual(@as(u8, '?'), model.review_diff_file_store[1].status);
 
-    const before = fx.pendingSpawnCount();
     selectFile(&model, &fx, 2);
     try std.testing.expectEqual(@as(u32, 2), model.review_diff_selected_id);
+    try std.testing.expect(model.review_diff_hunk_key >= review_diff_hunk_key_first);
+    try std.testing.expect(model.review_diff_hunk_no_index);
+    const untracked_key = model.review_diff_hunk_key;
+    const untracked_argv = findSpawnArgv(&fx, untracked_key) orelse return error.MissingUntrackedHunk;
+    try std.testing.expect(isGitReviewHunkArgv(untracked_argv));
+    try std.testing.expect(!isGitReviewDiffArgv(untracked_argv));
+    try std.testing.expectEqual(argv_len_hunk_untracked, untracked_argv.len);
+    try std.testing.expectEqualStrings(git_bin, untracked_argv[5]);
+    try std.testing.expectEqualStrings(git_diff_cmd, untracked_argv[6]);
+    try std.testing.expectEqualStrings(git_no_index, untracked_argv[7]);
+    try std.testing.expectEqualStrings(git_pathspec_end, untracked_argv[8]);
+    try std.testing.expectEqualStrings(git_dev_null, untracked_argv[9]);
+    try std.testing.expectEqualStrings("new file.txt", untracked_argv[10]);
+    try std.testing.expect(std.mem.indexOf(u8, untracked_argv[2], "new file.txt") == null);
+    try std.testing.expect(std.mem.indexOf(u8, untracked_argv[2], git_dev_null) == null);
+
+    applyHunkLine(&model, .{ .key = untracked_key, .line = "diff --git a/new file.txt b/new file.txt\n+hello\n" });
+    handleHunkExit(&model, &fx, .{ .key = untracked_key, .reason = .exited, .code = 1 });
+    try std.testing.expect(hasReviewDiffHunk(&model));
+    try std.testing.expect(!hasReviewDiffHunkStatus(&model));
+    try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "diff --git") != null);
     try std.testing.expectEqual(@as(u64, 0), model.review_diff_hunk_key);
-    try std.testing.expectEqual(before, fx.pendingSpawnCount());
+
+    selectFile(&model, &fx, 2);
+    const empty_key = model.review_diff_hunk_key;
+    try std.testing.expect(model.review_diff_hunk_no_index);
+    handleHunkExit(&model, &fx, .{ .key = empty_key, .reason = .exited, .code = 1 });
+    try std.testing.expect(!hasReviewDiffHunk(&model));
+    try std.testing.expectEqualStrings(hunk_empty_status, reviewDiffHunkStatus(&model));
+
+    selectFile(&model, &fx, 2);
+    const fail_128 = model.review_diff_hunk_key;
+    applyHunkLine(&model, .{ .key = fail_128, .line = "should-drop\n" });
+    handleHunkExit(&model, &fx, .{ .key = fail_128, .reason = .exited, .code = 128 });
     try std.testing.expect(!hasReviewDiffHunk(&model));
     try std.testing.expectEqualStrings(hunk_failed_status, reviewDiffHunkStatus(&model));
-    try std.testing.expect(findSpawnArgv(&fx, review_diff_hunk_key_first) == null);
+
+    selectFile(&model, &fx, 2);
+    const fail_2 = model.review_diff_hunk_key;
+    applyHunkLine(&model, .{ .key = fail_2, .line = "should-drop-too\n" });
+    handleHunkExit(&model, &fx, .{ .key = fail_2, .reason = .exited, .code = 2 });
+    try std.testing.expect(!hasReviewDiffHunk(&model));
+    try std.testing.expectEqualStrings(hunk_failed_status, reviewDiffHunkStatus(&model));
 
     selectFile(&model, &fx, 1);
     try std.testing.expectEqual(@as(u32, 1), model.review_diff_selected_id);
     try std.testing.expect(model.review_diff_hunk_key >= review_diff_hunk_key_first);
+    try std.testing.expect(!model.review_diff_hunk_no_index);
     const tracked_argv = findSpawnArgv(&fx, model.review_diff_hunk_key) orelse return error.MissingTrackedHunk;
     try std.testing.expect(isGitReviewHunkArgv(tracked_argv));
+    try std.testing.expect(!isGitReviewDiffArgv(tracked_argv));
+    try std.testing.expectEqual(argv_len_hunk, tracked_argv.len);
     try std.testing.expectEqualStrings(git_head, tracked_argv[7]);
+    try std.testing.expectEqualStrings(git_pathspec_end, tracked_argv[8]);
     try std.testing.expectEqualStrings("tracked.zig", tracked_argv[9]);
+    try std.testing.expect(!std.mem.eql(u8, tracked_argv[7], git_no_index));
 }
 
 test "source switch and dismiss cancel in-flight hunk spawn" {

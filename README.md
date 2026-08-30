@@ -31,7 +31,8 @@ index `git diff --name-status` (tracked only); Committed is
 `main...HEAD` / `master...HEAD` if that probe exits non-zero;
 cap 64; empty is
 `No changes to compare`; clicking a tracked file one-shots
-that path's unified diff), and
+that path's unified diff; Uncommitted `?` rows one-shot
+`git diff --no-index -- /dev/null <path>`), and
 Copy task ID (local session id via `fx.writeClipboard`); not
 LastTurn,
 not background-work rows,
@@ -512,7 +513,8 @@ worktree vs index `git diff --name-status`, tracked only;
 Committed = `git diff --name-status origin/HEAD...HEAD`, then
 local `main...HEAD` / `master...HEAD` if that probe exits
 non-zero; clicking a tracked file one-shots `git diff` for
-that path). Leftovers: force / daemon
+that path; Uncommitted `?` rows one-shot
+`git diff --no-index -- /dev/null <path>`). Leftovers: force / daemon
 `WorkspaceOperation` /
 LastTurn / background work.
 Native still has no git effect. The branch, dirty count,

@@ -807,6 +807,10 @@ pub const Model = struct {
     review_diff_hunk_probe_path_len: usize = 0,
     review_diff_hunk_path_storage: [review_diff.max_review_diff_path]u8 = [_]u8{0} ** review_diff.max_review_diff_path,
     review_diff_hunk_path_len: usize = 0,
+    /// Runtime-only: in-flight hunk used `--no-index` (untracked `?`).
+    /// Exit 0 or 1 is success. Cleared for tracked hunks so they
+    /// cannot inherit those exit rules. Not persisted.
+    review_diff_hunk_no_index: bool = false,
     /// Runtime ImageId bound by the composer `<image>`. 0 until
     /// `fx.loadImage` reports `.loaded`. Same draft `image_path` as
     /// the chip — not a second persist field.
@@ -1167,6 +1171,7 @@ pub const Model = struct {
         "review_diff_hunk_probe_path_len",
         "review_diff_hunk_path_storage",
         "review_diff_hunk_path_len",
+        "review_diff_hunk_no_index",
         "insertAvailableMention",
         "attach_preview_load_id",
         "next_attach_preview_id",
