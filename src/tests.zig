@@ -16797,8 +16797,8 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expect(model.has_review_diff_files());
     try testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
     tree = try buildTree(arena, &model);
-    const file_row = try expectButtonMsg(tree, "M src/a.zig", .{ .select_review_diff_file = "1" });
-    _ = try expectButtonMsg(tree, "A new.txt", .{ .select_review_diff_file = "2" });
+    const file_row = try expectButtonMsg(tree, "M src/a.zig", .{ .select_review_diff_file = 1 });
+    _ = try expectButtonMsg(tree, "A new.txt", .{ .select_review_diff_file = 2 });
     try testing.expect(findByText(tree.root, .text, review_diff.comparing_status) == null);
     try testing.expect(findByText(tree.root, .scroll_view, "Review files") != null);
 
@@ -16821,7 +16821,7 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, model.review_diff_hunk());
     try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") != null);
-    const selected_row = try expectButtonMsg(tree, "M src/a.zig", .{ .select_review_diff_file = "1" });
+    const selected_row = try expectButtonMsg(tree, "M src/a.zig", .{ .select_review_diff_file = 1 });
     try testing.expect(selected_row.state.selected);
 
     main.update(&model, .close_review_diff, &fx);
@@ -16960,8 +16960,8 @@ test "Review source row switches Uncommitted and re-probes name-status plus untr
     try testing.expect(model.has_review_diff_files());
     try testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
     tree = try buildTree(arena, &model);
-    _ = try expectButtonMsg(tree, "M tracked.zig", .{ .select_review_diff_file = "1" });
-    const untracked_row = try expectButtonMsg(tree, "? new.txt", .{ .select_review_diff_file = "2" });
+    _ = try expectButtonMsg(tree, "M tracked.zig", .{ .select_review_diff_file = 1 });
+    const untracked_row = try expectButtonMsg(tree, "? new.txt", .{ .select_review_diff_file = 2 });
     const pending_before_untracked = fx.pendingSpawnCount();
     main.update(&model, tree.msgForPointer(untracked_row.id, .up).?, &fx);
     try testing.expectEqual(@as(u32, 2), model.review_diff_selected_id);
@@ -17079,7 +17079,7 @@ test "Review source row switches Staged and re-probes --cached name-status" {
     try testing.expect(model.has_review_diff_files());
     try testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
     tree = try buildTree(arena, &model);
-    _ = try expectButtonMsg(tree, "A staged.zig", .{ .select_review_diff_file = "1" });
+    _ = try expectButtonMsg(tree, "A staged.zig", .{ .select_review_diff_file = 1 });
     const staged_on = try expectButtonMsg(tree, "Staged", .set_review_diff_source_staged);
     try testing.expect(staged_on.state.selected);
     const branch_off = try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch);
@@ -17188,7 +17188,7 @@ test "Review source row switches Unstaged and re-probes worktree name-status" {
     try testing.expect(model.has_review_diff_files());
     try testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
     tree = try buildTree(arena, &model);
-    _ = try expectButtonMsg(tree, "M unstaged.zig", .{ .select_review_diff_file = "1" });
+    _ = try expectButtonMsg(tree, "M unstaged.zig", .{ .select_review_diff_file = 1 });
     const unstaged_on = try expectButtonMsg(tree, "Unstaged", .set_review_diff_source_unstaged);
     try testing.expect(unstaged_on.state.selected);
     const branch_off = try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch);
@@ -17296,7 +17296,7 @@ test "Review source row switches Committed and re-probes origin/HEAD...HEAD name
     try testing.expect(model.has_review_diff_files());
     try testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
     tree = try buildTree(arena, &model);
-    _ = try expectButtonMsg(tree, "M committed.zig", .{ .select_review_diff_file = "1" });
+    _ = try expectButtonMsg(tree, "M committed.zig", .{ .select_review_diff_file = 1 });
     const committed_on = try expectButtonMsg(tree, "Committed", .set_review_diff_source_committed);
     try testing.expect(committed_on.state.selected);
     const branch_off = try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch);
@@ -17525,7 +17525,7 @@ test "header Environment +/- opens the same Review card as Compare" {
     drainEffects(&model, &fx);
     try testing.expect(model.has_review_diff_files());
     tree = try buildTree(arena, &model);
-    _ = try expectButtonMsg(tree, "M src/a.zig", .{ .select_review_diff_file = "1" });
+    _ = try expectButtonMsg(tree, "M src/a.zig", .{ .select_review_diff_file = 1 });
 
     main.update(&model, .close_review_diff, &fx);
     try testing.expect(!model.review_diff_active);

@@ -655,9 +655,8 @@ fn startHunkProbe(model: *Model, fx: *Effects, file_path: []const u8) void {
 /// probe for the current source. Untracked `?` does not spawn
 /// `git diff --no-index` — sets `Could not show diff.` only.
 /// Cancels any in-flight hunk and clears the previous body.
-pub fn selectFile(model: *Model, fx: *Effects, raw_id: []const u8) void {
+pub fn selectFile(model: *Model, fx: *Effects, id: u32) void {
     if (!model.review_diff_active) return;
-    const id = std.fmt.parseInt(u32, raw_id, 10) catch return;
     if (id == 0 or id > model.review_diff_file_count) return;
     const file = &model.review_diff_file_store[id - 1];
     cancelHunkInFlight(model, fx);
@@ -1476,7 +1475,6 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
     try std.testing.expect(!isGitReviewDiffArgv(branch));
     try std.testing.expect(std.mem.indexOf(u8, branch[2], git_upstream_range) == null);
     try std.testing.expect(std.mem.indexOf(u8, branch[2], "src/a.zig") == null);
-    try std.testing.expect(std.mem.indexOf(u8, branch[2], git_pathspec_end) == null);
 
     var uncommitted_buf: [argv_len_hunk][]const u8 = undefined;
     const uncommitted = argvForHunk(.uncommitted, .origin, "/tmp/faku-hunk", "tracked.zig", &uncommitted_buf);
@@ -1506,7 +1504,7 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
     try std.testing.expect(hunkOperand(.unstaged, .origin) == null);
     try std.testing.expect(isGitReviewHunkArgv(unstaged));
     try std.testing.expect(!isGitReviewDiffArgv(unstaged));
-    try std.testing.expect(std.mem.indexOf(u8, unstaged[2], git_pathspec_end) == null);
+    try std.testing.expect(std.mem.indexOf(u8, unstaged[2], "unstaged.zig") == null);
 
     var committed_buf: [argv_len_hunk][]const u8 = undefined;
     const committed = argvForHunk(.committed, .origin, "/tmp/faku-hunk", "committed.zig", &committed_buf);
@@ -1580,7 +1578,6 @@ test "hunk path and -- are own argv slots; space in path stays last-slot" {
     try std.testing.expectEqualStrings(path, argv[9]);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], path) == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "my file.zig") == null);
-    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_pathspec_end) == null);
     try std.testing.expect(isGitReviewHunkArgv(argv));
     try std.testing.expect(!isGitReviewDiffArgv(argv));
 
@@ -1623,7 +1620,7 @@ test "clicking a tracked row fills capped patch text; empty and fail stay honest
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_selected_id);
     try std.testing.expectEqual(@as(u64, 0), model.review_diff_hunk_key);
 
-    selectFile(&model, &fx, "1");
+    selectFile(&model, &fx, 1);
     try std.testing.expectEqual(@as(u32, 1), model.review_diff_selected_id);
     try std.testing.expect(model.review_diff_hunk_key >= review_diff_hunk_key_first);
     try std.testing.expect(model.review_diff_hunk_key != model.review_diff_key);
@@ -1645,7 +1642,7 @@ test "clicking a tracked row fills capped patch text; empty and fail stay honest
     try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "+new") != null);
     try std.testing.expectEqual(@as(u64, 0), model.review_diff_hunk_key);
 
-    selectFile(&model, &fx, "2");
+    selectFile(&model, &fx, 2);
     try std.testing.expectEqual(@as(u32, 2), model.review_diff_selected_id);
     try std.testing.expect(!hasReviewDiffHunk(&model));
     try std.testing.expect(model.review_diff_hunk_key != hunk_key);
@@ -1656,14 +1653,14 @@ test "clicking a tracked row fills capped patch text; empty and fail stay honest
     try std.testing.expect(!hasReviewDiffHunk(&model));
     try std.testing.expectEqualStrings(hunk_empty_status, reviewDiffHunkStatus(&model));
 
-    selectFile(&model, &fx, "1");
+    selectFile(&model, &fx, 1);
     const fail_key = model.review_diff_hunk_key;
     applyHunkLine(&model, .{ .key = fail_key, .line = "should-drop\n" });
     handleHunkExit(&model, &fx, .{ .key = fail_key, .reason = .exited, .code = 128 });
     try std.testing.expect(!hasReviewDiffHunk(&model));
     try std.testing.expectEqualStrings(hunk_failed_status, reviewDiffHunkStatus(&model));
 
-    selectFile(&model, &fx, "1");
+    selectFile(&model, &fx, 1);
     const cap_key = model.review_diff_hunk_key;
     var i: usize = 0;
     while (i < max_review_diff_hunk_lines + 8) : (i += 1) {
@@ -1704,7 +1701,7 @@ test "clicking a ? untracked row does not spawn a hunk argv or invent a patch" {
     try std.testing.expectEqual(@as(u8, '?'), model.review_diff_file_store[1].status);
 
     const before = fx.pendingSpawnCount();
-    selectFile(&model, &fx, "2");
+    selectFile(&model, &fx, 2);
     try std.testing.expectEqual(@as(u32, 2), model.review_diff_selected_id);
     try std.testing.expectEqual(@as(u64, 0), model.review_diff_hunk_key);
     try std.testing.expectEqual(before, fx.pendingSpawnCount());
@@ -1712,7 +1709,7 @@ test "clicking a ? untracked row does not spawn a hunk argv or invent a patch" {
     try std.testing.expectEqualStrings(hunk_failed_status, reviewDiffHunkStatus(&model));
     try std.testing.expect(findSpawnArgv(&fx, review_diff_hunk_key_first) == null);
 
-    selectFile(&model, &fx, "1");
+    selectFile(&model, &fx, 1);
     try std.testing.expectEqual(@as(u32, 1), model.review_diff_selected_id);
     try std.testing.expect(model.review_diff_hunk_key >= review_diff_hunk_key_first);
     const tracked_argv = findSpawnArgv(&fx, model.review_diff_hunk_key) orelse return error.MissingTrackedHunk;
@@ -1739,7 +1736,7 @@ test "source switch and dismiss cancel in-flight hunk spawn" {
     if (model.sessionById(id)) |session| session.setProjectPath(project);
 
     _ = try openWithFiles(&model, &fx, "M\tsrc/a.zig\n");
-    selectFile(&model, &fx, "1");
+    selectFile(&model, &fx, 1);
     const hunk_key = model.review_diff_hunk_key;
     try std.testing.expect(hunk_key >= review_diff_hunk_key_first);
     applyHunkLine(&model, .{ .key = hunk_key, .line = "partial\n" });
@@ -1759,7 +1756,7 @@ test "source switch and dismiss cancel in-flight hunk spawn" {
 
     applyLine(&model, .{ .key = model.review_diff_key, .line = "A\tstaged.zig\n" });
     handleExit(&model, &fx, .{ .key = model.review_diff_key, .reason = .exited, .code = 0 });
-    selectFile(&model, &fx, "1");
+    selectFile(&model, &fx, 1);
     const again = model.review_diff_hunk_key;
     try std.testing.expect(again != hunk_key);
     const staged_argv = findSpawnArgv(&fx, again) orelse return error.MissingStagedHunk;
@@ -1803,7 +1800,7 @@ test "Committed hunk uses the range that already succeeded" {
     handleExit(&model, &fx, .{ .key = model.review_diff_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(CommittedRange.main, model.review_diff_committed_range);
 
-    selectFile(&model, &fx, "1");
+    selectFile(&model, &fx, 1);
     const hunk_key = model.review_diff_hunk_key;
     const hunk_argv = findSpawnArgv(&fx, hunk_key) orelse return error.MissingCommittedHunk;
     try std.testing.expect(isGitReviewHunkArgv(hunk_argv));

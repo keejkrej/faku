@@ -386,7 +386,7 @@ pub const Msg = union(enum) {
     set_review_diff_source_unstaged,
     set_review_diff_source_committed,
     /// Review file-row click. Payload is the 1-based `ReviewDiffRow.id`.
-    select_review_diff_file: []const u8,
+    select_review_diff_file: u32,
     git_commit_edit: canvas.TextInputEvent,
     confirm_git_commit,
     confirm_git_commit_and_push,
