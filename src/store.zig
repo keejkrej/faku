@@ -8,10 +8,10 @@
 //! One JSON document `sessions.json`. Catalog load copies only session
 //! skeletons (id, title, provider, untitled, has_started, project_path,
 //! fx_session_id, runtime_id, model, access_mode, interaction_mode, reasoning_effort, folder_id, updated_at, rewind_refs,
-//! context_used, context_size, available_commands, thread_goal_objective, thread_goal_status,
+//! worktree_snapshot_sha, context_used, context_size, available_commands, thread_goal_objective, thread_goal_status,
 //! thread_goal_token_budget, thread_goal_tokens_used, thread_goal_time_used_seconds) — no transcripts. Selecting
 //! a session hydrates its turns,
-//! `queued_messages`, `rewind_refs`, and last-known context usage. Document extras also keep
+//! `queued_messages`, `rewind_refs`, `worktree_snapshot_sha`, and last-known context usage. Document extras also keep
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
@@ -788,6 +788,7 @@ const StoredSession = struct {
     turns: []StoredTurn,
     queued_messages: []StoredQueued,
     rewind_refs: []StoredRewind = &.{},
+    worktree_snapshot_sha: []const u8 = "",
     folder_id: u32 = 0,
     updated_at: i64 = 0,
     context_used: u64 = 0,
@@ -906,6 +907,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     for (document.sessions) |stored| {
         model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode, stored.runtime_id, stored.interaction_mode, stored.reasoning_effort, stored.folder_id, stored.updated_at);
         applyRewindRefs(model, stored.id, stored.rewind_refs);
+        applyWorktreeSnapshotSha(model, stored.id, stored.worktree_snapshot_sha);
         applyContextUsage(model, stored.id, stored.context_used, stored.context_size);
         applyAvailableCommands(model, stored.id, stored.available_commands);
         applyThreadGoal(model, stored.id, stored.thread_goal_objective, stored.thread_goal_status, stored.thread_goal_token_budget, stored.thread_goal_tokens_used, stored.thread_goal_time_used_seconds);
@@ -931,6 +933,7 @@ fn applyDetail(model: *Model, allocator: std.mem.Allocator, bytes: []const u8, s
         model.restoreQueued(queued.id, session_id, queued.text);
     }
     applyRewindRefs(model, session_id, stored.rewind_refs);
+    applyWorktreeSnapshotSha(model, session_id, stored.worktree_snapshot_sha);
     applyContextUsage(model, session_id, stored.context_used, stored.context_size);
     applyAvailableCommands(model, session_id, stored.available_commands);
     applyThreadGoal(model, session_id, stored.thread_goal_objective, stored.thread_goal_status, stored.thread_goal_token_budget, stored.thread_goal_tokens_used, stored.thread_goal_time_used_seconds);
@@ -961,6 +964,7 @@ fn upsertSession(document: *Document, arena: std.mem.Allocator, model: *const Mo
         existing.folder_id = incoming.folder_id;
         existing.updated_at = incoming.updated_at;
         existing.rewind_refs = incoming.rewind_refs;
+        existing.worktree_snapshot_sha = incoming.worktree_snapshot_sha;
         existing.context_used = incoming.context_used;
         existing.context_size = incoming.context_size;
         existing.available_commands = incoming.available_commands;
@@ -1037,6 +1041,7 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
         .rewind_refs = try snapshotRewindRefs(arena, session),
+        .worktree_snapshot_sha = try arena.dupe(u8, session.worktreeSnapshotSha()),
     };
 }
 
@@ -1059,6 +1064,12 @@ fn applyRewindRefs(model: *Model, session_id: u32, refs: []const StoredRewind) v
     for (refs) |item| {
         session.appendRewindRef(item.sha, item.ref, item.recorded_at);
     }
+}
+
+fn applyWorktreeSnapshotSha(model: *Model, session_id: u32, sha: []const u8) void {
+    const session = model.sessionById(session_id) orelse return;
+    session.clearWorktreeSnapshotSha();
+    session.setWorktreeSnapshotSha(sha);
 }
 
 fn applyContextUsage(model: *Model, session_id: u32, used: u64, size: u64) void {
@@ -1198,6 +1209,7 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         .turns = try turns.toOwnedSlice(arena),
         .queued_messages = try queued.toOwnedSlice(arena),
         .rewind_refs = try parseRewindRefs(arena, obj.get("rewind_refs")),
+        .worktree_snapshot_sha = jsonString(obj.get("worktree_snapshot_sha")) orelse "",
         .folder_id = jsonUint(obj.get("folder_id")) orelse 0,
         .updated_at = jsonInt(obj.get("updated_at")) orelse 0,
         .context_used = jsonU64(obj.get("context_used")) orelse 0,
@@ -1541,7 +1553,9 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
         try appendInt(out, allocator, item.recorded_at);
         try out.append(allocator, '}');
     }
-    try out.appendSlice(allocator, "]}");
+    try out.appendSlice(allocator, "],\"worktree_snapshot_sha\":");
+    try appendJsonString(out, allocator, session.worktree_snapshot_sha);
+    try out.appendSlice(allocator, "}");
 }
 
 fn appendUint(out: *std.ArrayList(u8), allocator: std.mem.Allocator, value: u32) !void {
@@ -2215,6 +2229,39 @@ test "session rewind_refs persist on the row and hydrate with the session" {
     hydrateSession(&loaded, id, allocator, io);
     try testing.expectEqual(@as(usize, 2), loaded.session_store[0].rewind_ref_count);
     try testing.expectEqualStrings("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", loaded.session_store[0].rewindRefs()[1].sha());
+}
+
+test "session worktree_snapshot_sha persists on the row and hydrates with the session" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    const snap = "cccccccccccccccccccccccccccccccccccccccc";
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("snapshot later", .fx);
+    if (source.sessionById(id)) |session| {
+        session.setWorktreeSnapshotSha(snap);
+        session.setWorktreeSnapshotSha("not-a-sha");
+        try testing.expectEqualStrings(snap, session.worktreeSnapshotSha());
+    }
+    _ = source.appendTurn(id, .user, "remember this tree");
+    try saveSession(&source, id, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqualStrings(snap, loaded.session_store[0].worktreeSnapshotSha());
+
+    if (loaded.sessionById(id)) |session| session.clearWorktreeSnapshotSha();
+    hydrateSession(&loaded, id, allocator, io);
+    try testing.expectEqualStrings(snap, loaded.session_store[0].worktreeSnapshotSha());
 }
 
 test "draft keys are newSession until started, then session id" {

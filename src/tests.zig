@@ -661,6 +661,7 @@ test "fork copies turns and project_path; new id; empty fx_session_id; source un
         session.setInteractionMode("plan");
         session.folder_id = 7;
         session.appendRewindRef("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", rewind.recorded_ref, 1_700_000_000);
+        session.setWorktreeSnapshotSha("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     }
     model.selected = id;
     _ = model.appendTurn(id, .user, "first prompt");
@@ -696,6 +697,7 @@ test "fork copies turns and project_path; new id; empty fx_session_id; source un
     try testing.expectEqualStrings("read src/fork.ts", sessionTurnText(&model, fork_id, 2));
     try testing.expectEqual(@as(usize, 1), forked.rewind_ref_count);
     try testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", forked.rewindRefs()[0].sha());
+    try testing.expectEqualStrings("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", forked.worktreeSnapshotSha());
 
     const source = model.sessionById(id).?;
     try testing.expectEqualStrings("fx-sess-source", source.fxSessionId());
@@ -707,6 +709,7 @@ test "fork copies turns and project_path; new id; empty fx_session_id; source un
     try testing.expectEqualStrings("read src/fork.ts", sessionTurnText(&model, id, 2));
     try testing.expectEqual(@as(usize, 1), source.rewind_ref_count);
     try testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", source.rewindRefs()[0].sha());
+    try testing.expectEqualStrings("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", source.worktreeSnapshotSha());
 
     var loaded = Model{};
     loaded.setStoreDir(dir);
@@ -718,6 +721,7 @@ test "fork copies turns and project_path; new id; empty fx_session_id; source un
     try testing.expectEqual(@as(usize, 0), loaded_fork.fxSessionId().len);
     try testing.expectEqual(@as(usize, 0), loaded_fork.runtimeId().len);
     try testing.expectEqualStrings("/tmp/faku-fork-project", loaded_fork.projectPath());
+    try testing.expectEqualStrings("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", loaded_fork.worktreeSnapshotSha());
     store.hydrateSession(&loaded, fork_id, testing.allocator, testing.io);
     try testing.expectEqual(@as(u32, 3), loaded.turnCount(fork_id));
     try testing.expectEqualStrings("first prompt", sessionTurnText(&loaded, fork_id, 0));
@@ -5836,6 +5840,8 @@ test "Send records the pre-commit HEAD; a later commit stays off the rewind targ
     try testing.expectEqualStrings(expected, at_send.rewindRefs()[0].sha());
     try testing.expectEqualStrings(rewind.recorded_ref, at_send.rewindRefs()[0].refName());
     try testing.expect(at_send.rewindRefs()[0].recorded_at > 0);
+    try testing.expect(rewind.isStoredSha(at_send.worktreeSnapshotSha()));
+    try testing.expect(!std.mem.eql(u8, expected, at_send.worktreeSnapshotSha()));
 
     try dirtyAndAdvanceRepo(allocator, testing.io, project, "agent commit\n");
     var after_buf: [rewind.max_sha]u8 = undefined;
@@ -5855,8 +5861,61 @@ test "Send records the pre-commit HEAD; a later commit stays off the rewind targ
     loaded.setStoreDir(dir);
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, allocator, testing.io));
     try testing.expectEqualStrings(expected, loaded.session_store[0].rewindRefs()[0].sha());
+    try testing.expect(rewind.isStoredSha(loaded.session_store[0].worktreeSnapshotSha()));
     store.hydrateSession(&loaded, id, allocator, testing.io);
     try testing.expectEqualStrings(expected, loaded.session_store[0].rewindRefs()[0].sha());
+    try testing.expectEqualStrings(live.worktreeSnapshotSha(), loaded.session_store[0].worktreeSnapshotSha());
+}
+
+test "Send worktree snapshot includes dirty and untracked; overwrite keeps latest" {
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/snap-send", .{tmp.sub_path[0..]});
+    const head = try initTestGitRepo(allocator, testing.io, project);
+    defer allocator.free(head);
+
+    var readme_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const readme = try std.fmt.bufPrint(&readme_buf, "{s}{s}README", .{ project, std.fs.path.sep_str });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = readme, .data = "dirty\n" });
+    var extra_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const extra = try std.fmt.bufPrint(&extra_buf, "{s}{s}untracked.txt", .{ project, std.fs.path.sep_str });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = extra, .data = "new\n" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("snap send", .fx);
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "snap this tree" } }, &fx);
+    main.update(&model, .send, &fx);
+    const first_owned = try allocator.dupe(u8, model.sessionById(id).?.worktreeSnapshotSha());
+    defer allocator.free(first_owned);
+    try testing.expect(rewind.isStoredSha(first_owned));
+    try testing.expect(!std.mem.eql(u8, head, first_owned));
+    const names = try runGitCapture(allocator, testing.io, &.{ "git", "-C", project, "diff", "--name-status", head, first_owned });
+    defer allocator.free(names);
+    try testing.expect(std.mem.indexOf(u8, names, "README") != null);
+    try testing.expect(std.mem.indexOf(u8, names, "untracked.txt") != null);
+
+    try fx.feedExit(main.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = extra, .data = "changed\n" });
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "snap again" } }, &fx);
+    main.update(&model, .send, &fx);
+    const second = model.sessionById(id).?.worktreeSnapshotSha();
+    try testing.expect(rewind.isStoredSha(second));
+    try testing.expect(!std.mem.eql(u8, first_owned, second));
 }
 
 test "non-git project_path records no rewind ref" {
@@ -5882,10 +5941,12 @@ test "non-git project_path records no rewind ref" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "no snapshot" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.rewind_ref_count);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.worktreeSnapshotSha().len);
     try fx.feedExit(main.fx_ask_key, 0);
     drainEffects(&model, &fx);
     try testing.expect(!model.is_streaming());
     try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.rewind_ref_count);
+    try testing.expectEqual(@as(usize, 0), model.sessionById(id).?.worktreeSnapshotSha().len);
 }
 
 test "failed or cancelled turns keep the send-time rewind ref" {
@@ -6131,6 +6192,20 @@ fn runGit(allocator: std.mem.Allocator, io: std.Io, argv: []const []const u8) !v
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
     if (result.term != .exited or result.term.exited != 0) return error.GitFailed;
+}
+
+fn runGitCapture(allocator: std.mem.Allocator, io: std.Io, argv: []const []const u8) ![]u8 {
+    const result = try std.process.run(allocator, io, .{
+        .argv = argv,
+        .stdout_limit = .limited(4096),
+        .stderr_limit = .limited(4096),
+    });
+    defer allocator.free(result.stderr);
+    if (result.term != .exited or result.term.exited != 0) {
+        allocator.free(result.stdout);
+        return error.GitFailed;
+    }
+    return result.stdout;
 }
 
 fn dirtyAndAdvanceRepo(allocator: std.mem.Allocator, io: std.Io, path: []const u8, contents: []const u8) !void {
