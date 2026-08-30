@@ -26,6 +26,7 @@ const git_commit_mod = @import("git_commit.zig");
 const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
+const skills = @import("skills.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
 const copy_helpers = @import("copy.zig");
@@ -272,6 +273,16 @@ pub const RightPanelFileRow = struct {
     indent: f32,
 };
 
+/// Settings Skills row. `id` is a 1-based index into the runtime
+/// `SKILL.md` cache so Native `select_skill:{k.id}` never binds 0
+/// and a filtered click still selects that path, not a neighbor.
+pub const SkillRow = struct {
+    id: u32,
+    name: []const u8,
+    path: []const u8,
+    selected: bool = false,
+};
+
 /// Composer model picker row. `row_id` is a 1-based Native `for` key.
 /// `id` is the ACP wire value (empty clears `session.model`).
 pub const ModelPickerRow = struct {
@@ -380,6 +391,11 @@ pub const Msg = union(enum) {
     toggle_settings_effort_picker,
     close_settings_effort_picker,
     pick_settings_effort: []const u8,
+    set_settings_page_general,
+    set_settings_page_skills,
+    refresh_skills,
+    skills_filter_edit: canvas.TextInputEvent,
+    select_skill: u32,
     cycle_access,
     cycle_interaction,
     cycle_effort,
@@ -624,6 +640,9 @@ pub const Model = struct {
     right_panel_expanded_store: [file_mention.max_file_mention_dirs]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** file_mention.max_file_mention_dirs,
     right_panel_expanded_count: u32 = 0,
     settings_open: bool = false,
+    /// Runtime-only Settings General | Skills page. Default General.
+    /// Not persisted to sessions.json.
+    settings_page: skills.Page = .general,
     /// Runtime-only Ctrl-Tab overlay. Not persisted to sessions.json.
     switcher_open: bool = false,
     switcher_ids: [switcher_cap]u32 = [_]u32{0} ** switcher_cap,
@@ -632,6 +651,19 @@ pub const Model = struct {
     settings_model_buffer: canvas.TextBuffer(max_fx_model) = .{},
     settings_project_buffer: canvas.TextBuffer(max_project_path) = .{},
     settings_daemon_buffer: canvas.TextBuffer(max_daemon_address) = .{},
+    /// Runtime-only Skills list filter. Not persisted.
+    skills_filter_buffer: canvas.TextBuffer(max_search) = .{},
+    /// Runtime-only `SKILL.md` cache for Settings → Skills.
+    /// Bounded find; not persisted to sessions.json.
+    skill_store: [skills.max_skills]skills.CachedSkill = [_]skills.CachedSkill{.{}} ** skills.max_skills,
+    skill_count: u32 = 0,
+    skill_key: u64 = 0,
+    next_skill_key: u64 = skills.skills_key_first,
+    skill_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    skill_probe_path_len: usize = 0,
+    skill_selected_id: u32 = 0,
+    skill_body_storage: [skills.max_skill_body]u8 = [_]u8{0} ** skills.max_skill_body,
+    skill_body_len: usize = 0,
     project_edit_active: bool = false,
     project_edit_buffer: canvas.TextBuffer(max_project_path) = .{},
     git_branch_create_buffer: canvas.TextBuffer(git_branch.max_git_branch) = .{},
@@ -1051,6 +1083,18 @@ pub const Model = struct {
         "settings_model_buffer",
         "settings_project_buffer",
         "settings_daemon_buffer",
+        "settings_page",
+        "skills_filter_buffer",
+        "skill_store",
+        "skill_count",
+        "skill_key",
+        "next_skill_key",
+        "skill_probe_path_storage",
+        "skill_probe_path_len",
+        "skill_selected_id",
+        "skill_body_storage",
+        "skill_body_len",
+        "applySkillsFilter",
         "project_edit_buffer",
         "git_branch_create_buffer",
         "git_worktree_create_buffer",
@@ -2271,6 +2315,73 @@ pub const Model = struct {
         return effortLabel(model.lastReasoningEffort());
     }
 
+    pub fn settings_page_general(model: *const Model) bool {
+        return model.settings_page == .general;
+    }
+
+    pub fn settings_page_skills(model: *const Model) bool {
+        return model.settings_page == .skills;
+    }
+
+    pub fn skills_filter(model: *const Model) []const u8 {
+        return model.skills_filter_buffer.text();
+    }
+
+    pub fn skill_rows(model: *const Model, arena: std.mem.Allocator) []const SkillRow {
+        if (model.settings_page != .skills) return &.{};
+        const query = std.mem.trim(u8, model.skills_filter(), " \t\r\n");
+        var count: usize = 0;
+        var i: usize = 0;
+        while (i < model.skill_count) : (i += 1) {
+            if (!skillRowMatches(&model.skill_store[i], query)) continue;
+            count += 1;
+        }
+        const out = arena.alloc(SkillRow, count) catch return &.{};
+        var n: usize = 0;
+        i = 0;
+        while (i < model.skill_count) : (i += 1) {
+            if (!skillRowMatches(&model.skill_store[i], query)) continue;
+            const id = skills.skillId(i);
+            out[n] = .{
+                .id = id,
+                .name = model.skill_store[i].name(),
+                .path = model.skill_store[i].path(),
+                .selected = model.skill_selected_id == id,
+            };
+            n += 1;
+        }
+        return out;
+    }
+
+    pub fn skills_empty(model: *const Model) bool {
+        if (model.settings_page != .skills) return false;
+        if (skills.emptyHint(model).len == 0) return false;
+        const query = std.mem.trim(u8, model.skills_filter(), " \t\r\n");
+        if (model.skill_count == 0) return true;
+        if (query.len == 0) return false;
+        var i: usize = 0;
+        while (i < model.skill_count) : (i += 1) {
+            if (skillRowMatches(&model.skill_store[i], query)) return false;
+        }
+        return true;
+    }
+
+    pub fn skills_empty_hint(model: *const Model) []const u8 {
+        return skills.emptyHint(model);
+    }
+
+    pub fn has_skill_body(model: *const Model) bool {
+        return model.settings_page == .skills and model.skill_body_len > 0;
+    }
+
+    pub fn skill_body(model: *const Model) []const u8 {
+        return model.skill_body_storage[0..model.skill_body_len];
+    }
+
+    pub fn applySkillsFilter(model: *Model, edit: canvas.TextInputEvent) void {
+        model.skills_filter_buffer.apply(edit);
+    }
+
     pub fn openSettings(model: *Model) void {
         model.closeProjectEdit();
         model.closeImageAttach();
@@ -2282,6 +2393,7 @@ pub const Model = struct {
         model.environment_summary_open = false;
         model.review_diff_active = false;
         model.settings_open = true;
+        model.settings_page = .general;
         model.settings_model_buffer.set(model.lastModel());
         model.settings_project_buffer.set(model.lastProjectPath());
         model.settings_daemon_buffer.set(model.lastDaemonAddress());
@@ -2290,6 +2402,7 @@ pub const Model = struct {
     pub fn closeSettings(model: *Model) void {
         model.closeSettingsEffortPicker();
         model.settings_open = false;
+        model.settings_page = .general;
     }
 
     pub fn toggleSettings(model: *Model) void {
@@ -3649,6 +3762,11 @@ fn hasFileMentionMatch(model: *const Model, query: []const u8) bool {
         if (composer.fileMentionScore(item.text(), query) > 0) return true;
     }
     return false;
+}
+
+fn skillRowMatches(skill: *const skills.CachedSkill, query: []const u8) bool {
+    if (query.len == 0) return true;
+    return main.asciiContainsIgnoreCase(skill.name(), query) or main.asciiContainsIgnoreCase(skill.path(), query);
 }
 
 

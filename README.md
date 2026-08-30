@@ -58,7 +58,8 @@ live-streaming (same `is_streaming` / composer Stop /
 `stopStream` path; omitted when idle; Faku-side stream state
 only, not a daemon BackgroundWork registry); leftovers
 are a fuller background registry / settled rows /
-multi-kind Process·Monitor·Subagent, Skills settings page, and daemon
+multi-kind Process·Monitor·Subagent, enable-wire Skills into prompts,
+richer settings multi-page, and daemon
 WorkspaceOperation (not transcript checkpoint +/-; not force
 push — Waku `git_commit::push` has no `--force`; not prune-alone —
 Waku fetch is already `git fetch --prune` and has no separate prune).
@@ -203,7 +204,8 @@ plus porcelain XY `has_staged` / `has_unstaged`) live in
 `src/git_ahead_behind.zig`. Composer git show-toplevel occupancy
 helpers live in `src/git_toplevel.zig`. Composer git-common-dir nest
 helpers live in `src/git_common_dir.zig`. Composer `@` file-mention probe helpers live in
-`src/file_mention.zig`. First-cut right panel Files + Diff helpers live in
+`src/file_mention.zig`. Settings Skills first-cut scan helpers live in
+`src/skills.zig`. First-cut right panel Files + Diff helpers live in
 `src/right_panel.zig`. Boot fx-probe spawn/exit lives in
 `src/fx_probe.zig`. Folder/chip persist helpers live in
 `src/persist.zig`. Session / folder / title-edit update helpers live
@@ -571,8 +573,8 @@ that path; Uncommitted `?` rows one-shot
 Background Stop is Faku-side `is_streaming` / composer Stop
 only. Copy agent CLI thread ID is omitted unless the selected
 session has a non-empty `fx_session_id`. Leftovers: fuller BackgroundWork registry / settled
-rows / multi-kind Process·Monitor·Subagent, Skills settings page,
-daemon `WorkspaceOperation`. Not a
+rows / multi-kind Process·Monitor·Subagent, enable-wire Skills into prompts,
+richer settings multi-page, daemon `WorkspaceOperation`. Not a
 Waku BackgroundWorkRegistry. Not transcript checkpoint +/-.
 Not force push (Waku `git_commit::push` has no `--force`).
 Not prune-alone (not in Waku).
@@ -637,7 +639,8 @@ cut (Waku keeps `expanded_paths` on in-memory per-session
 compact File editor, BackgroundWork tabs, daemon
 `WorkspaceOperation::listTree` / browseDirectory / readTextFile, or
 Waku's 50k-file index. Leftovers: fuller BackgroundWork registry,
-Skills settings page, daemon WorkspaceOperation.
+enable-wire Skills into prompts, richer settings multi-page,
+daemon WorkspaceOperation.
 
 A stdout ACP `session/new` result with `sessionId` updates the stored
 id and is not appended to the assistant turn. `fx ask --json` lines
@@ -740,7 +743,14 @@ click on a folder already holding the selected session edits its title.
 Deleting a folder unassigns its sessions (`folder_id` 0); it does not
 remove them.
 The sidebar settings gear
-opens a panel that edits those persisted defaults. Composer chips are the
+opens a panel that edits those persisted defaults. A runtime-only
+General | Skills switch (default General) lists project `SKILL.md`
+files from a bounded one-shot `find` (selected session `project_path`,
+else last project path; skip `node_modules` / `target` / `dist` /
+`build` / `out` / `vendor` / `__pycache__`; cap 64). Name is YAML
+`name:` when present, else the parent folder. Selecting a row shows
+the body with frontmatter stripped. Refresh on open / Refresh. Not
+persisted, not a live watch, not wired into prompts. Composer chips are the
 quick session toggle: the access chip is a Native select listing
 `ask` / `auto` / `fullAccess` (Ask, Auto, Full access), Build
 cycles `build` / `plan`, and the model chip is a Native select whose

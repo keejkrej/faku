@@ -158,7 +158,38 @@
           <spacer grow="1" />
         </row>
         <separator />
+        <row height="40" padding="14" gap="8" cross="center">
+          <button variant="ghost" size="sm" selected="{settings_page_general}" on-press="set_settings_page_general">General</button>
+          <button variant="ghost" size="sm" selected="{settings_page_skills}" on-press="set_settings_page_skills">Skills</button>
+          <spacer grow="1" />
+          <if test="{settings_page_skills}">
+            <button variant="ghost" size="sm" on-press="refresh_skills">Refresh</button>
+          </if>
+        </row>
+        <separator />
         <scroll grow="1">
+          <if test="{settings_page_skills}">
+            <row grow="1" main="center">
+              <column grow="1" max-width="720" gap="10" padding="14">
+                <text-field text="{skills_filter}" placeholder="Filter skills" on-input="skills_filter_edit" />
+                <if test="{skills_empty}">
+                  <text foreground="text_muted">{skills_empty_hint}</text>
+                </if>
+                <for each="skill_rows" key="id" as="k">
+                  <list-item height="44" padding="8" gap="4" cross="center" selected="{k.selected}" on-press="select_skill:{k.id}" label="{k.name}">
+                    <column gap="2" grow="1">
+                      <text wrap="false" overflow="ellipsis">{k.name}</text>
+                      <text wrap="false" overflow="ellipsis" foreground="text_muted">{k.path}</text>
+                    </column>
+                  </list-item>
+                </for>
+                <if test="{has_skill_body}">
+                  <text wrap="true">{skill_body}</text>
+                </if>
+              </column>
+            </row>
+          </if>
+          <else>
           <row grow="1" main="center">
             <column grow="1" max-width="720" gap="10" padding="14">
               <text>Default model</text>
@@ -191,6 +222,7 @@
               <text-field text="{settings_daemon}" placeholder="host:port" on-input="settings_daemon_edit" />
             </column>
           </row>
+          </else>
         </scroll>
       </if>
       <else>
