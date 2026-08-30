@@ -26,7 +26,7 @@
 //! `prepareTurnDiffBase` names `turn-diff-{n}`; Compare uses
 //! stored shas, not the refs); rewind `<sha>...HEAD`
 //! fallback; not `refs/waku/`; not HEAD~1. Leftovers:
-//! force, fuller background registry / settled rows /
+//! force push, fuller background registry / settled rows /
 //! multi-kind Process·Monitor·Subagent, daemon
 //! WorkspaceOperation. Not a Waku BackgroundWorkRegistry.
 //! Not transcript checkpoint +/-.

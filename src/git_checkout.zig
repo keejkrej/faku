@@ -1,5 +1,5 @@
 //! First-cut local + remote-tracking branch list, checkout, create,
-//! safe delete, fetch, push, and New worktree… for the composer
+//! safe/force delete, fetch, push, and New worktree… for the composer
 //! project row.
 //!
 //! Native has no git/workspace effect. When the selected session has a
@@ -14,7 +14,7 @@
 //! the session `project_path` / list-probe cwd — `project_path` may
 //! be a subdirectory of that worktree). Occupied locals stay in the
 //! picker with a short label marker and are refused for checkout and
-//! safe-delete. Remotes are never occupied. Empty `%(worktreepath)`
+//! delete. Remotes are never occupied. Empty `%(worktreepath)`
 //! is not occupied. Ready toplevel compares `worktreepath` equal to
 //! that root; otherwise today's path-prefix heuristic.
 //! Checking out a listed local name one-shots `git checkout <name>`
@@ -23,8 +23,11 @@
 //! `git checkout --track <name>` the same way (`--track` and the name
 //! each their own slot; same checkout key band). New branch…
 //! one-shots `git checkout -b <name>` from current HEAD. Delete
-//! branch… one-shots `git branch -d <name>` for listed local heads
-//! that are not occupied (safe delete; never `-D`; never `origin/…`).
+//! branch… one-shots `git branch -d <name>` (or `git branch -D
+//! <name>` when the first-cut Force ghost toggle is on) for listed
+//! local heads that are not occupied (never `origin/…`; Force is
+//! runtime-only, default off, reset when the card opens, not
+//! persisted; `-d` / `-D` each their own argv slot).
 //! Fetch… one-shots `git fetch --prune` (`--prune` its own argv
 //! slot; never interpolated into the `-c` script). Push… is offered
 //! only when Waku `can_push` would be true: ahead of `@{upstream}`,
@@ -68,17 +71,17 @@
 //! the next free candidate the same way. Exhausted candidates set
 //! status and leave `project_path` alone. Success retargets the
 //! selected session `project_path` to the dest actually used. Not
-//! force, not daemon `WorkspaceOperation::Push` / `NewWorktree`,
+//! force push, not daemon `WorkspaceOperation::Push` / `NewWorktree`,
 //! not `InspectCommit` / `Commit`. Cap is 64 local heads plus 32
 //! remote-tracking names that have no local counterpart (skip
 //! symbolic `*/HEAD`), sorted lexicographically. Not Waku's daemon
 //! `InspectBranches` picker, live watch, `waku/` prefix /
 //! `~/.waku/worktrees/{project_id}` UUID nest, defer-until-Send
 //! workspace mode, base-ref picker UI, prune-alone, stash, merge,
-//! force delete, or Environment Summary. Composer Push… still
+//! or Environment Summary. Composer Push… still
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
-//! Leftovers: force / daemon `WorkspaceOperation`.
+//! Leftovers: force push / prune-alone / daemon `WorkspaceOperation`.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
 //! (app.zon is macos/linux; no Windows spawn path).
@@ -124,11 +127,13 @@ pub const git_checkout_key_first: u64 = 275;
 /// 290+ (below dirty 300+).
 pub const git_create_key_first: u64 = 290;
 
-/// One-shot `git branch -d <name>`. Distinct from list (250+),
-/// checkout (275+), create (290+), git_dirty (300+), git_fetch
-/// (340+), git_numstat (350+), git_push (360+),
-/// git_ahead_behind (380+), and file_mention (400+). Band is
-/// 320+ (between dirty 300+ and fetch 340+).
+/// One-shot `git branch -d <name>` or `git branch -D <name>`.
+/// Distinct from list (250+), checkout (275+), create (290+),
+/// git_dirty (300+), git_fetch (340+), git_numstat (350+),
+/// git_push (360+), git_ahead_behind (380+), and file_mention
+/// (400+). Band is 320+ (between dirty 300+ and fetch 340+).
+/// Force reuses this band; `-d` / `-D` are argv slots, not a
+/// new key family.
 pub const git_delete_key_first: u64 = 320;
 
 /// One-shot `git fetch --prune`. Distinct from list (250+),
@@ -198,6 +203,7 @@ pub const git_track_flag = "--track";
 pub const git_create_b_flag = "-b";
 pub const git_branch_cmd = git_branch.git_branch_cmd;
 pub const git_delete_d_flag = "-d";
+pub const git_delete_force_flag = "-D";
 pub const git_fetch_cmd = "fetch";
 pub const git_prune_flag = "--prune";
 pub const git_push_cmd = "push";
@@ -385,10 +391,7 @@ pub fn isGitCreateArgv(argv: []const []const u8) bool {
     return git_branch.isPlausibleBranchName(argv[8]);
 }
 
-/// `git branch -d <name>` with the name as a trailing argv slot.
-/// Rejects names that fail `isPlausibleBranchName` so a raw string
-/// never reaches the shell script. Never emits `-D`.
-pub fn deleteArgvFor(cwd: []const u8, name: []const u8, buf: *[delete_argv_len][]const u8) ?[]const []const u8 {
+fn deleteArgvWithFlag(cwd: []const u8, name: []const u8, flag: []const u8, buf: *[delete_argv_len][]const u8) ?[]const []const u8 {
     if (!git_branch.isPlausibleBranchName(name)) return null;
     buf.* = .{
         sh_bin,
@@ -398,21 +401,42 @@ pub fn deleteArgvFor(cwd: []const u8, name: []const u8, buf: *[delete_argv_len][
         cwd,
         git_bin,
         git_branch_cmd,
-        git_delete_d_flag,
+        flag,
         name,
     };
     return buf;
 }
 
-pub fn isGitDeleteArgv(argv: []const []const u8) bool {
+fn isGitDeleteArgvWithFlag(argv: []const []const u8, flag: []const u8) bool {
     if (argv.len != delete_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_branch_cmd)) return false;
-    if (!std.mem.eql(u8, argv[7], git_delete_d_flag)) return false;
+    if (!std.mem.eql(u8, argv[7], flag)) return false;
     return git_branch.isPlausibleBranchName(argv[8]);
+}
+
+/// `git branch -d <name>` with the name as a trailing argv slot.
+/// Rejects names that fail `isPlausibleBranchName` so a raw string
+/// never reaches the shell script. Never emits `-D`.
+pub fn deleteArgvFor(cwd: []const u8, name: []const u8, buf: *[delete_argv_len][]const u8) ?[]const []const u8 {
+    return deleteArgvWithFlag(cwd, name, git_delete_d_flag, buf);
+}
+
+pub fn isGitDeleteArgv(argv: []const []const u8) bool {
+    return isGitDeleteArgvWithFlag(argv, git_delete_d_flag);
+}
+
+/// `git branch -D <name>` with the name as a trailing argv slot.
+/// Same plausibility gate as `deleteArgvFor`. `-D` is its own slot.
+pub fn deleteForceArgvFor(cwd: []const u8, name: []const u8, buf: *[delete_argv_len][]const u8) ?[]const []const u8 {
+    return deleteArgvWithFlag(cwd, name, git_delete_force_flag, buf);
+}
+
+pub fn isGitDeleteForceArgv(argv: []const []const u8) bool {
+    return isGitDeleteArgvWithFlag(argv, git_delete_force_flag);
 }
 
 /// `git fetch --prune` with `--prune` as its own argv slot — never
@@ -1126,6 +1150,7 @@ pub fn closeDelete(model: *Model) void {
     model.git_branch_delete_active = false;
     model.git_branch_delete_picker_open = false;
     model.git_branch_delete_len = 0;
+    model.git_branch_delete_force = false;
 }
 
 /// Dismiss the select list and open the runtime-only create card.
@@ -1159,7 +1184,7 @@ pub fn startWorktreeCreate(model: *Model) void {
 
 /// Dismiss the select list and open the runtime-only delete card of
 /// non-current, unoccupied listed local heads. Selected name is not
-/// persisted.
+/// persisted. Resets Force to off.
 pub fn startDelete(model: *Model) void {
     closePicker(model);
     closeCreate(model);
@@ -1169,6 +1194,7 @@ pub fn startDelete(model: *Model) void {
     model.git_branch_delete_active = true;
     model.git_branch_delete_picker_open = false;
     model.git_branch_delete_len = 0;
+    model.git_branch_delete_force = false;
 }
 
 pub fn closeDeletePicker(model: *Model) void {
@@ -1188,6 +1214,14 @@ pub fn pickDeleteName(model: *Model, name: []const u8) void {
     model.git_branch_delete_picker_open = false;
     if (!isListedNonCurrent(model, name)) return;
     writeFixed(&model.git_branch_delete_storage, &model.git_branch_delete_len, name);
+}
+
+/// Runtime-only Delete branch… Force toggle. Default off. Not
+/// persisted. No-op while a delete spawn is in flight.
+pub fn toggleDeleteForce(model: *Model, fx: *Effects) void {
+    _ = fx;
+    if (model.git_delete_key != 0) return;
+    model.git_branch_delete_force = !model.git_branch_delete_force;
 }
 
 fn appendListedBranch(model: *Model, name: []const u8, remote: bool, occupied: bool) void {
@@ -1680,9 +1714,10 @@ pub fn handleCreateExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
 }
 
 /// Confirm the delete card: a listed non-current, unoccupied name
-/// one-shots `git branch -d`. Empty / current / occupied /
-/// implausible names do not spawn and keep the card open. Busy
-/// session or in-flight checkout/create/delete/fetch/push is a no-op.
+/// one-shots `git branch -d`, or `git branch -D` when Force is on.
+/// Empty / current / occupied / implausible names do not spawn and
+/// keep the card open. Busy session or in-flight
+/// checkout/create/delete/fetch/push is a no-op.
 pub fn confirmDelete(model: *Model, fx: *Effects) void {
     if (gitMutationInFlight(model)) return;
     if (model.is_streaming()) return;
@@ -1693,7 +1728,10 @@ pub fn confirmDelete(model: *Model, fx: *Effects) void {
     if (cwd.len == 0) return;
 
     var argv_buf: [delete_argv_len][]const u8 = undefined;
-    const argv = deleteArgvFor(cwd, name, &argv_buf) orelse return;
+    const argv = if (model.git_branch_delete_force)
+        deleteForceArgvFor(cwd, name, &argv_buf) orelse return
+    else
+        deleteArgvFor(cwd, name, &argv_buf) orelse return;
 
     const key = model.next_git_delete_key;
     model.next_git_delete_key = key + 1;
@@ -2083,6 +2121,14 @@ pub fn handleWorktreeAddExit(model: *Model, fx: *Effects, exit: native_sdk.Effec
     return false;
 }
 
+fn pendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key) return spawn;
+    }
+    return null;
+}
+
 test "list argv is chdir script plus for-each-ref refs/heads and refs/remotes" {
     var buf: [list_argv_len][]const u8 = undefined;
     const argv = listArgvFor("/tmp/faku-heads", &buf);
@@ -2253,6 +2299,7 @@ test "delete argv is branch -d with the name as its own slot and rejects implaus
     try std.testing.expectEqualStrings(git_delete_d_flag, argv[7]);
     try std.testing.expectEqualStrings("feat/old-branch", argv[8]);
     try std.testing.expect(isGitDeleteArgv(argv));
+    try std.testing.expect(!isGitDeleteForceArgv(argv));
     try std.testing.expect(!isGitCreateArgv(argv));
     try std.testing.expect(!isGitCheckoutArgv(argv));
     try std.testing.expect(!isGitTrackCheckoutArgv(argv));
@@ -2283,6 +2330,149 @@ test "delete argv is branch -d with the name as its own slot and rejects implaus
         "-D",
         "feat/old-branch",
     }));
+}
+
+test "force delete argv is branch -D with the name as its own slot and rejects implausible names" {
+    var buf: [delete_argv_len][]const u8 = undefined;
+    const argv = deleteForceArgvFor("/tmp/faku-del", "feat/old-branch", &buf).?;
+    try std.testing.expectEqualStrings(sh_bin, argv[0]);
+    try std.testing.expectEqualStrings("-c", argv[1]);
+    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings("sh", argv[3]);
+    try std.testing.expectEqualStrings("/tmp/faku-del", argv[4]);
+    try std.testing.expectEqualStrings(git_bin, argv[5]);
+    try std.testing.expectEqualStrings(git_branch_cmd, argv[6]);
+    try std.testing.expectEqualStrings(git_delete_force_flag, argv[7]);
+    try std.testing.expectEqualStrings("feat/old-branch", argv[8]);
+    try std.testing.expect(isGitDeleteForceArgv(argv));
+    try std.testing.expect(!isGitDeleteArgv(argv));
+    try std.testing.expect(!isGitCreateArgv(argv));
+    try std.testing.expect(!isGitCheckoutArgv(argv));
+    try std.testing.expect(!isGitTrackCheckoutArgv(argv));
+    try std.testing.expect(!isGitBranchListArgv(argv));
+    try std.testing.expect(!isGitFetchArgv(argv));
+    try std.testing.expect(!isGitPushArgv(argv));
+    try std.testing.expect(!isGitWorktreeAddArgv(argv));
+    try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], "feat/old-branch") == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_delete_force_flag) == null);
+    try std.testing.expect(!std.mem.eql(u8, argv[7], git_delete_d_flag));
+
+    try std.testing.expect(deleteForceArgvFor("/tmp/faku-del", "not a branch", &buf) == null);
+    try std.testing.expect(deleteForceArgvFor("/tmp/faku-del", "../escape", &buf) == null);
+    try std.testing.expect(deleteForceArgvFor("/tmp/faku-del", "/abs", &buf) == null);
+    try std.testing.expect(deleteForceArgvFor("/tmp/faku-del", ".hidden", &buf) == null);
+    try std.testing.expect(deleteForceArgvFor("/tmp/faku-del", "trailing.", &buf) == null);
+    try std.testing.expect(deleteForceArgvFor("/tmp/faku-del", "@", &buf) == null);
+    try std.testing.expect(deleteForceArgvFor("/tmp/faku-del", "foo@{bar", &buf) == null);
+    try std.testing.expect(deleteForceArgvFor("/tmp/faku-del", "", &buf) == null);
+    try std.testing.expect(!isGitDeleteForceArgv(&.{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-del",
+        git_bin,
+        git_branch_cmd,
+        git_delete_d_flag,
+        "feat/old-branch",
+    }));
+}
+
+test "startDelete resets Force to off" {
+    var model = Model{};
+    model.git_branch_delete_force = true;
+    startDelete(&model);
+    try std.testing.expect(model.git_branch_delete_active);
+    try std.testing.expect(!model.git_branch_delete_force);
+    try std.testing.expectEqual(@as(usize, 0), model.git_branch_delete_len);
+}
+
+test "toggleDeleteForce defaults off, flips, and no-ops while delete is in flight" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    try std.testing.expect(!model.git_branch_delete_force);
+    startDelete(&model);
+    try std.testing.expect(!model.git_branch_delete_force);
+    toggleDeleteForce(&model, &fx);
+    try std.testing.expect(model.git_branch_delete_force);
+    toggleDeleteForce(&model, &fx);
+    try std.testing.expect(!model.git_branch_delete_force);
+    toggleDeleteForce(&model, &fx);
+    try std.testing.expect(model.git_branch_delete_force);
+
+    model.git_delete_key = git_delete_key_first;
+    toggleDeleteForce(&model, &fx);
+    try std.testing.expect(model.git_branch_delete_force);
+    model.git_delete_key = 0;
+    toggleDeleteForce(&model, &fx);
+    try std.testing.expect(!model.git_branch_delete_force);
+
+    model.git_branch_delete_force = true;
+    closeDelete(&model);
+    try std.testing.expect(!model.git_branch_delete_active);
+    try std.testing.expect(!model.git_branch_delete_force);
+}
+
+test "confirmDelete picks -d vs -D from the Force toggle" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-del-force", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("delete force", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    model.git_branch_list_store[0].set("feat/old", false, false);
+    model.git_branch_list_store[1].set("main", false, false);
+    model.git_branch_list_count = 2;
+
+    startDelete(&model);
+    try std.testing.expect(!model.git_branch_delete_force);
+    pickDeleteName(&model, "feat/old");
+    confirmDelete(&model, &fx);
+    const safe = pendingSpawnKey(&fx, model.git_delete_key) orelse return error.MissingGitDeleteSpawn;
+    try std.testing.expect(isGitDeleteArgv(safe.argv));
+    try std.testing.expect(!isGitDeleteForceArgv(safe.argv));
+    try std.testing.expectEqualStrings(git_delete_d_flag, safe.argv[7]);
+    try std.testing.expectEqualStrings("feat/old", safe.argv[8]);
+    try std.testing.expect(std.mem.indexOf(u8, safe.argv[2], git_delete_d_flag) == null);
+    try std.testing.expect(safe.key >= git_delete_key_first);
+    try std.testing.expect(safe.key < git_fetch_key_first);
+
+    handleDeleteExit(&model, &fx, .{ .key = safe.key, .reason = .exited, .code = 1 });
+    try std.testing.expectEqual(@as(u64, 0), model.git_delete_key);
+    try std.testing.expect(model.git_branch_delete_active);
+    try std.testing.expectEqualStrings(delete_failed_status, model.attach_status());
+
+    toggleDeleteForce(&model, &fx);
+    try std.testing.expect(model.git_branch_delete_force);
+    confirmDelete(&model, &fx);
+    const forced = pendingSpawnKey(&fx, model.git_delete_key) orelse return error.MissingGitDeleteForceSpawn;
+    try std.testing.expect(isGitDeleteForceArgv(forced.argv));
+    try std.testing.expect(!isGitDeleteArgv(forced.argv));
+    try std.testing.expectEqualStrings(git_delete_force_flag, forced.argv[7]);
+    try std.testing.expectEqualStrings("feat/old", forced.argv[8]);
+    try std.testing.expect(std.mem.indexOf(u8, forced.argv[2], git_delete_force_flag) == null);
+    try std.testing.expect(forced.key >= git_delete_key_first);
+    try std.testing.expect(forced.key < git_fetch_key_first);
+    try std.testing.expect(forced.key != safe.key);
+
+    handleDeleteExit(&model, &fx, .{ .key = forced.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.git_delete_key);
+    try std.testing.expect(!model.git_branch_delete_active);
+    try std.testing.expect(!model.git_branch_delete_force);
 }
 
 test "fetch argv is fetch --prune as its own slot and is not fetch-without-prune" {

@@ -308,6 +308,10 @@ pub fn handleCancelGitBranchDelete(model: *Model) void {
     git_checkout.closeDelete(model);
 }
 
+pub fn handleToggleGitBranchDeleteForce(model: *Model, fx: *Effects) void {
+    git_checkout.toggleDeleteForce(model, fx);
+}
+
 pub fn handleStartGitFetch(model: *Model, fx: *Effects) void {
     git_checkout.startFetch(model, fx);
 }

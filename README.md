@@ -53,7 +53,7 @@ first-cut Background Stop row when the selected session is
 live-streaming (same `is_streaming` / composer Stop /
 `stopStream` path; omitted when idle; Faku-side stream state
 only, not a daemon BackgroundWork registry); leftovers
-are force, a fuller background registry / settled rows /
+are force push, a fuller background registry / settled rows /
 multi-kind Process·Monitor·Subagent, and daemon
 WorkspaceOperation (not transcript checkpoint +/-).
 Header, sidebar, and Ctrl-Tab switcher titles stay on one line with
@@ -118,7 +118,9 @@ Amend is off and first-push remotes are OK — known upstream, or a `git remote`
 probe found at least one remote; Push on that card is a
 first-cut Waku `CommitAction::Push` that reuses Push… and is
 offered only when Amend is off and `can_push`)
-or safe-delete a non-current, unoccupied local head (`git branch -d`)
+or delete a non-current, unoccupied local head (`git branch -d`, or
+`git branch -D` when the first-cut Force ghost toggle is on;
+default off; reset when the card opens; not persisted)
 or fetch remotes via `git fetch --prune`
 or push the current branch via `git push` when it has an upstream,
 or `git push --set-upstream <remote> <branch>` when it does not
@@ -131,7 +133,7 @@ text-line counts on the + side, and muted ahead/behind vs
 `@{upstream}` (`↑A ↓B`) when that name exists (not Waku's daemon
 InspectBranches live watch / `{project_id}` UUID nest /
 background work /
-force delete / prune-alone / base-ref picker;
+force push / prune-alone / base-ref picker;
 Native still has no git
 effect);
 typing `@` in the composer (last whitespace token; caret assumed at
@@ -173,7 +175,7 @@ stdout / ACP / daemon line handlers and fx-exit routing live in
 `src/open_editor.zig`. Composer git-branch probe helpers live in
 `src/git_branch.zig`. Composer branch list / checkout helpers live in
 `src/git_checkout.zig` (list, local checkout, remote-tracking `--track`,
-create-and-checkout, safe delete, fetch, push, and New worktree…
+create-and-checkout, safe/force delete, fetch, push, and New worktree…
 slug-prefill plus default-base probe, collision suffixes, and
 git-common-dir nest). Composer include-unstaged Commit… / Commit and Push /
 first-cut Amend / first-cut CommitSnapshot numstat /
@@ -411,8 +413,11 @@ prefix, `~/.waku/worktrees/{project_id}` UUID nest, daemon
 or a base-ref picker UI.
 Delete branch… opens a runtime-only delete card of non-current,
 unoccupied listed local heads and one-shots `git branch -d <name>`
-(safe delete only; never `-D` / force; never `origin/…`; occupied
-locals are omitted because `-d` of a worktree checkout fails).
+when Force is off, or `git branch -D <name>` when the first-cut
+Force ghost toggle is on (`-d` / `-D` each their own argv slot;
+default off; reset when the card opens; not persisted; never
+`origin/…`; occupied locals are omitted because delete of a
+worktree checkout fails).
 Fetch… on that picker one-shots `git fetch --prune` (`--prune` its
 own argv slot). Commit… opens a runtime-only message card with an
 Include unstaged ghost toggle (default on; not persisted) and
@@ -521,8 +526,7 @@ does not invent "clean". This is not Waku's daemon
 nesting / `waku/` prefix, not defer-until-Send
 workspace mode, not a worktree base-ref picker UI, not
 background-work rows,
-not force delete (`git branch -D`), not
-force push, and not prune-alone (`git prune` without fetch).
+not force push, and not prune-alone (`git prune` without fetch).
 Environment Compare Review is a first-cut Branch + Uncommitted +
 Staged + Unstaged + Committed + LastTurn name-status file list
 (Uncommitted
@@ -552,7 +556,7 @@ tracked file one-shots `git diff` for
 that path; Uncommitted `?` rows one-shot
 `git diff --no-index -- /dev/null <path>`). First-cut
 Background Stop is Faku-side `is_streaming` / composer Stop
-only. Leftovers: force, fuller background registry / settled
+only. Leftovers: force push, fuller background registry / settled
 rows / multi-kind Process·Monitor·Subagent, daemon
 `WorkspaceOperation`. Not a Waku BackgroundWorkRegistry. Not
 transcript checkpoint +/-.
