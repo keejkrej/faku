@@ -29,26 +29,27 @@ HEAD` plus untracked `git ls-files --others --exclude-standard`
 index `git diff --name-status` (tracked only); Committed is
 `git diff --name-status origin/HEAD...HEAD`, then local
 `main...HEAD` / `master...HEAD` if that probe exits non-zero;
-LastTurn prefers start…end (`git diff --name-status
-<40-hex>..<40-hex>`, two-dot, Waku `git diff from to`) when both send-time
+LastTurn prefers turn-diff…end (`git diff --name-status
+<40-hex>..<40-hex>`, two-dot, Waku `git diff from to`) when both finish-time
+`worktree_turn_diff_sha` and `worktree_turn_end_sha` exist,
+else start…end when both send-time
 `worktree_snapshot_sha` and finish-time
 `worktree_turn_end_sha` exist (isolated temp index,
 dangling commits named
 `refs/faku/session-{id}-turn-start-{n}` via
 `git update-ref`, plus `turn-{n-1}` when that
-baseline is missing, and finish `turn-{n}`; Compare
+baseline is missing, finish `turn-{n}`, and
+`prepareTurnDiffBase` `turn-diff-{n}`; Compare
 uses the stored shas, not the refs); else send-time
 bare 40-hex two-dot vs the live worktree; rewind
 `<sha>...HEAD` fallback; not `refs/waku/`; not
-HEAD~1; not `refs/faku/...-turn-diff-{n}`);
+HEAD~1);
 cap 64; empty is
 `No changes to compare`; clicking a tracked file one-shots
 that path's unified diff; Uncommitted `?` rows one-shot
 `git diff --no-index -- /dev/null <path>`), and
 Copy task ID (local session id via `fx.writeClipboard`); leftovers
-are `prepare_turn_diff_base` /
-`refs/faku/session-{id}-turn-diff-{n}` for branch-switch
-LastTurn, force, background-work rows, and daemon
+are force, background-work rows, and daemon
 WorkspaceOperation (not transcript checkpoint +/-).
 Header, sidebar, and Ctrl-Tab switcher titles stay on one line with
 Native ellipsis; the full name remains the accessible list-item
@@ -526,25 +527,26 @@ index vs HEAD `git diff --name-status --cached`; Unstaged =
 worktree vs index `git diff --name-status`, tracked only;
 Committed = `git diff --name-status origin/HEAD...HEAD`, then
 local `main...HEAD` / `master...HEAD` if that probe exits
-non-zero; LastTurn prefers start…end
+non-zero; LastTurn prefers turn-diff…end
 (`git diff --name-status <40-hex>..<40-hex>`, two-dot,
-Waku `git diff from to`) when both
+Waku `git diff from to`) when both finish-time
+`worktree_turn_diff_sha` and `worktree_turn_end_sha`
+exist, else start…end when both
 send-time `worktree_snapshot_sha` and finish-time
 `worktree_turn_end_sha` exist (isolated temp index,
 dangling commits named
 `refs/faku/session-{id}-turn-start-{n}` via
 `git update-ref`, plus `turn-{n-1}` when that
-baseline is missing, and finish `turn-{n}`; Compare
+baseline is missing, finish `turn-{n}`, and
+`prepareTurnDiffBase` `turn-diff-{n}`; Compare
 uses the stored shas, not the refs); else send-time
 bare 40-hex two-dot vs the live worktree; rewind
 `<sha>...HEAD` fallback; not `refs/waku/`; not
-HEAD~1; not `refs/faku/...-turn-diff-{n}`); clicking a
+HEAD~1); clicking a
 tracked file one-shots `git diff` for
 that path; Uncommitted `?` rows one-shot
 `git diff --no-index -- /dev/null <path>`). Leftovers:
-`prepare_turn_diff_base` /
-`refs/faku/session-{id}-turn-diff-{n}` for branch-switch
-LastTurn, force, daemon `WorkspaceOperation`, background
+force, daemon `WorkspaceOperation`, background
 work. Not transcript checkpoint +/-.
 Native still has no git effect. The branch, dirty count,
 +/-, ahead/behind, remotes-ready bit, show-toplevel path, and
@@ -759,7 +761,7 @@ via `git update-ref`, plus `turn-{n-1}` when that baseline
 is missing; `{n}` is the 1-based prompt ordinal
 `turnCount/2 + 1` at Send; the ref is not stored on
 `sessions.json`; a new start snapshot clears
-`worktree_turn_end_sha`; the start commit message is
+`worktree_turn_end_sha` and `worktree_turn_diff_sha`; the start commit message is
 `Faku turn start snapshot` plus a `Faku-Turn-Start: `
 JSON line of `head` / `branch` / `refs`, and
 `commit-tree` gets `-p` for HEAD then unique
@@ -767,15 +769,18 @@ JSON line of `head` / `branch` / `refs`, and
 snapshot as `refs/faku/session-{id}-turn-{n}` (`turnCount/2`
 after the user+assistant pair is appended; message
 `Faku worktree snapshot`, empty parents), stores that 40-hex
-as `worktree_turn_end_sha`, and does not
+as `worktree_turn_end_sha`, then `prepareTurnDiffBase` names
+`refs/faku/session-{id}-turn-diff-{n}` and stores that 40-hex
+as `worktree_turn_diff_sha`, and does not
 overwrite `worktree_snapshot_sha`. Failed update-ref is quiet
 and does not clear the stored sha. LastTurn prefers
-start…end (`start..end`, two-dot) when both shas exist;
+turn-diff…end (`diff..end`, two-dot) when both those shas exist,
+else start…end when both start and end exist;
 bare snapshot and rewind remain fallbacks. Rewind undoes the last turn's files and those chat turns. When a
 worktree snapshot is stored, Rewind `restoreRef`s that 40-hex
 (`git restore --source <sha> --worktree --staged -- .`,
 `git clean -fd -- .`, then `git reset --quiet -- .` when HEAD
-exists; HEAD stays; the snapshot slot and finish-time end sha are then cleared). When no
+exists; HEAD stays; the snapshot slot, finish-time end sha, and turn-diff sha are then cleared). When no
 snapshot is stored, Rewind `git reset --hard`s the latest
 Send-time HEAD and pops it. Failed restore is a no-op. Not a
 provider session fork. `fx_session_id` stays.

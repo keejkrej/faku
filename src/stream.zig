@@ -5,8 +5,8 @@
 //! one-shots live here. Successful `finishStream` (`drain == true`)
 //! captures turn-end `refs/faku/session-{id}-turn-{n}` via
 //! `fork.recordTurnEndIfPossible` (stores
-//! `worktree_turn_end_sha`; does not overwrite
-//! `worktree_snapshot_sha`) after streaming state is
+//! `worktree_turn_end_sha` and `worktree_turn_diff_sha`; does
+//! not overwrite `worktree_snapshot_sha`) after streaming state is
 //! cleared and before persist / queued restart. Cancel /
 //! `stopStream` does not. Prompt spawn stays in `spawn.zig`. Line
 //! handlers live in `lines.zig`. Behavior is unchanged from the

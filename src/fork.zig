@@ -4,7 +4,8 @@
 //! (`captureHead` / `resetHard`) stays in `rewind.zig`. Worktree
 //! snapshot plumbing (`captureTurnStartCommit` /
 //! `captureWorktreeCommit` / `captureTurnStart` /
-//! `captureTurnEnd` / `updateFakuRef` / `restoreRef`) stays in
+//! `captureTurnEnd` / `prepareTurnDiffBase` /
+//! `updateFakuRef` / `restoreRef`) stays in
 //! `checkpoint.zig`. Msg routing and Model fields stay in
 //! `main.zig`. Behavior is unchanged from the former `main` fork
 //! and rewind helpers.
@@ -31,9 +32,10 @@ pub fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
     if (checkpoint.captureTurnStartCommit(std.heap.page_allocator, io, session.projectPath(), &snap_buf)) |sha| {
         session.setWorktreeSnapshotSha(sha);
         // New start snapshot: this turn has no finish-time
-        // end yet. LastTurn falls back to two-dot until
-        // recordTurnEndIfPossible stores one.
+        // end or turn-diff base yet. LastTurn falls back to
+        // two-dot until recordTurnEndIfPossible stores them.
         session.clearWorktreeTurnEndSha();
+        session.clearWorktreeTurnDiffSha();
         // turn-start-N is this Send's 1-based prompt ordinal
         // (turnCount/2+1 before the user+assistant pair is
         // appended). Seeds turn-{N-1} when that baseline is
@@ -56,9 +58,12 @@ pub fn recordRewindRefIfPossible(model: *Model, session_id: u32) void {
 /// user+assistant pair is already appended (same ordinal as
 /// Send's `turnCount/2+1` before append). Stores the finish
 /// sha as `worktree_turn_end_sha` (same 40-hex rules as
-/// start). Does not write `worktree_snapshot_sha` (LastTurn /
-/// Header Rewind keep the send-time sha). Failed capture is
-/// quiet. Failed update-ref does not clear the stored end sha.
+/// start). Then `prepareTurnDiffBase` names `turn-diff-{n}`
+/// and stores that 40-hex as `worktree_turn_diff_sha`. Does
+/// not write `worktree_snapshot_sha` (LastTurn / Header
+/// Rewind keep the send-time sha). Failed capture is quiet.
+/// Failed update-ref does not clear the stored shas. Not
+/// called on stop/cancel.
 pub fn recordTurnEndIfPossible(model: *Model, session_id: u32) void {
     const io = model.store_io orelse return;
     const session = model.sessionById(session_id) orelse return;
@@ -70,14 +75,26 @@ pub fn recordTurnEndIfPossible(model: *Model, session_id: u32) void {
         &snap_buf,
     ) orelse return;
     session.setWorktreeTurnEndSha(sha);
+    const turn_n = checkpoint.fakuFinishTurn(model.turnCount(session_id));
     _ = checkpoint.captureTurnEnd(
         std.heap.page_allocator,
         io,
         session.projectPath(),
         session.id,
-        checkpoint.fakuFinishTurn(model.turnCount(session_id)),
+        turn_n,
         sha,
     );
+    var diff_buf: [rewind.stored_sha_len]u8 = undefined;
+    if (checkpoint.prepareTurnDiffBase(
+        std.heap.page_allocator,
+        io,
+        session.projectPath(),
+        session.id,
+        turn_n,
+        &diff_buf,
+    )) |diff_sha| {
+        session.setWorktreeTurnDiffSha(diff_sha);
+    }
 }
 
 /// Header Fork: local catalog clone through the last turn.
@@ -140,6 +157,7 @@ pub fn forkSelectedThrough(model: *Model, fx: *Effects, through_index: u32) void
             }
             session.setWorktreeSnapshotSha(from.worktreeSnapshotSha());
             session.setWorktreeTurnEndSha(from.worktreeTurnEndSha());
+            session.setWorktreeTurnDiffSha(from.worktreeTurnDiffSha());
         }
     }
 
@@ -162,11 +180,12 @@ pub fn forkSelectedThrough(model: *Model, fx: *Effects, through_index: u32) void
 /// Restore the last Send-time workspace and drop that prompt's
 /// turns. Prefers `restoreRef(worktree_snapshot_sha)` when a
 /// snapshot is stored (does not `reset --hard`; HEAD stays).
-/// On snapshot success, clear that single slot so a second
-/// Rewind does not replay the same tree. When no snapshot is
-/// stored, `reset --hard` the latest Send-time HEAD. Failed
-/// git is a no-op (ref, snapshot, and transcript stay). Does
-/// not change `fx_session_id`.
+/// On snapshot success, clear the start, turn-end, and
+/// turn-diff slots so a second Rewind does not replay the
+/// same tree. When no snapshot is stored, `reset --hard`
+/// the latest Send-time HEAD. Failed git is a no-op (ref,
+/// snapshot, and transcript stay). Does not change
+/// `fx_session_id`.
 pub fn applyRewindIfPossible(model: *Model, fx: *Effects) void {
     const io = model.store_io orelse return;
     const session = model.sessionById(model.selected) orelse return;
@@ -176,6 +195,7 @@ pub fn applyRewindIfPossible(model: *Model, fx: *Effects) void {
         if (!checkpoint.restoreRef(std.heap.page_allocator, io, session.projectPath(), snapshot)) return;
         session.clearWorktreeSnapshotSha();
         session.clearWorktreeTurnEndSha();
+        session.clearWorktreeTurnDiffSha();
     } else if (!rewind.resetHard(std.heap.page_allocator, io, session.projectPath(), sha)) {
         return;
     }

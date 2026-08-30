@@ -11,21 +11,20 @@
 //! First-cut per-file hunks live on the Review card (tracked
 //! `git diff`; Uncommitted `?` rows one-shot
 //! `git diff --no-index -- /dev/null <path>`). LastTurn
-//! prefers start…end two-dot `start..end` (Waku `git diff
-//! from to`) when both send-time
-//! (`worktree_snapshot_sha`) and finish-time
-//! (`worktree_turn_end_sha`) 40-hex exist; else send-time
-//! `git diff --name-status <40-hex>` (isolated index,
-//! dangling commit named
+//! prefers turn-diff…end two-dot `diff..end` when both
+//! finish-time (`worktree_turn_diff_sha` and
+//! `worktree_turn_end_sha`) 40-hex exist; else start…end
+//! when send-time (`worktree_snapshot_sha`) and finish-time
+//! end exist; else send-time `git diff --name-status
+//! <40-hex>` (isolated index, dangling commit named
 //! `refs/faku/session-{id}-turn-start-{n}`, plus
-//! `turn-{n-1}` when that baseline is missing; successful finish
-//! also names a NEW snapshot `turn-{n}`; Compare uses stored
-//! shas, not the refs); rewind `<sha>...HEAD` fallback; not
-//! `refs/waku/`; not HEAD~1; not
-//! `refs/faku/...-turn-diff-{n}`). Leftovers:
-//! `prepare_turn_diff_base` / turn-diff refs for
-//! branch-switch LastTurn, force, background work, daemon
-//! WorkspaceOperation. Not transcript checkpoint +/-.
+//! `turn-{n-1}` when that baseline is missing; successful
+//! finish also names a NEW snapshot `turn-{n}` and
+//! `prepareTurnDiffBase` names `turn-diff-{n}`; Compare uses
+//! stored shas, not the refs); rewind `<sha>...HEAD`
+//! fallback; not `refs/waku/`; not HEAD~1. Leftovers:
+//! force, background work, daemon WorkspaceOperation. Not
+//! transcript checkpoint +/-.
 
 const std = @import("std");
 const main = @import("main.zig");

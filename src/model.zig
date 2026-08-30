@@ -514,6 +514,7 @@ pub const Model = struct {
     /// first-cut `origin/HEAD...HEAD`, then local `main...HEAD`
     /// / `master...HEAD` on a still-current non-zero exit.
     /// LastTurn is first-cut last-completed-turn
+    /// `diff..end` when turn-diff and turn-end exist, else
     /// `start..end` when both snapshots exist, else send-time
     /// `<40-hex>` (rewind `<sha>...HEAD` fallback; not HEAD~1).
     /// Not persisted to sessions.json.
@@ -521,10 +522,10 @@ pub const Model = struct {
     /// Runtime-only Committed range probe. Compare / source
     /// switch / close reset to origin. Not persisted.
     review_diff_committed_range: review_diff.CommittedRange = .origin,
-    /// Runtime-only LastTurn `start..end`, snapshot `40-hex`,
-    /// or rewind `<40-hex>...HEAD` captured when that probe
-    /// starts. Hunk clicks reuse this slot if later snapshots
-    /// or rewind_refs change. Not persisted.
+    /// Runtime-only LastTurn `diff..end` / `start..end`,
+    /// snapshot `40-hex`, or rewind `<40-hex>...HEAD` captured
+    /// when that probe starts. Hunk clicks reuse this slot if
+    /// later snapshots or rewind_refs change. Not persisted.
     review_diff_last_turn_range_storage: [review_diff.last_turn_range_len]u8 = [_]u8{0} ** review_diff.last_turn_range_len,
     review_diff_last_turn_range_len: usize = 0,
     /// Runtime-only Delete branch… card. Selected name is not persisted.
