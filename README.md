@@ -45,8 +45,10 @@ best-effort sidecars: the desktop update loop never holds a socket.
 still uses the demo timer. Available Claude is one-shot
 `claude -p --output-format text` (not ACP). Available Codex is
 one-shot `codex exec {prompt}` (not ACP; documented `--image {path}`
-after the prompt when a composer image is attached). Available Amp is one-shot
-`amp -x {prompt}` (not ACP). Available Pi is one-shot `pi -p {prompt}`
+after the prompt when a composer image is attached). Available Amp is
+one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x`
+prompt when a composer image is attached). Available Pi is one-shot
+`pi -p {prompt}`
 (not ACP; documented `@{path}` after `-p` when a composer image is
 attached). Unavailable cursor / opencode / grok / claude / codex /
 amp / pi stay demo.
@@ -87,7 +89,8 @@ non-interactive `codex exec {prompt}` (stdout is the same non-ACP
 fx line path; not ACP; documented `--image {path}` after the prompt
 when a composer image is attached), first-cut live Send for Available Amp via
 official execute mode (`amp -x {prompt}`; stdout is the same
-non-ACP fx line path; not ACP), first-cut live Send for Available
+non-ACP fx line path; not ACP; documented `@{path}` in the `-x`
+prompt when a composer image is attached), first-cut live Send for Available
 Pi via official print mode (`pi -p {prompt}`; stdout is the same
 non-ACP fx line path; not ACP; documented `@{path}` after `-p` when
 a composer image is attached),
@@ -97,7 +100,7 @@ sidecar, provider id `"fx"`, Environment Summary Background kind
 chrome (Process / Monitor / Subagent labels) with Process rows from
 window-side stream/settle.
 
-Later: Pi ACP / `--mode json` / RPC, Amp / Claude
+Later: Pi ACP / `--mode json` / RPC, Claude
 image attach, Claude ACP / stream-json, full onboarding /
 OAuth / auto-install, a long-lived daemon socket in the update loop
 (not this cut), a long-lived ACP loop once a window-side stdin-write
