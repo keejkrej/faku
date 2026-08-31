@@ -50,9 +50,10 @@ one-shot `codex exec {prompt}` (not ACP; documented `--image {path}`
 after the prompt when a composer image is attached). Available Amp is
 one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x`
 prompt when a composer image is attached). Available Pi is one-shot
-`pi -p {prompt}`
-(not ACP; documented `@{path}` after `-p` when a composer image is
-attached). Unavailable cursor / opencode / grok / claude / codex /
+`pi --mode json {prompt}`
+(not ACP, not `--mode rpc`; documented `@{path}` after json when a
+composer image is attached; stdout is JSON events with live
+`text_delta` into the transcript). Unavailable cursor / opencode / grok / claude / codex /
 amp / pi stay demo.
 Apply on Settings →
 Providers sets `session.provider`. fx missing copies the verified
@@ -94,16 +95,17 @@ when a composer image is attached), first-cut live Send for Available Amp via
 official execute mode (`amp -x {prompt}`; stdout is the same
 non-ACP fx line path; not ACP; documented `@{path}` in the `-x`
 prompt when a composer image is attached), first-cut live Send for Available
-Pi via official print mode (`pi -p {prompt}`; stdout is the same
-non-ACP fx line path; not ACP; documented `@{path}` after `-p` when
-a composer image is attached),
+Pi via official JSON event-stream mode (`pi --mode json {prompt}`;
+stdout is parsed as JSON lines — live `text_delta` into the
+assistant turn, not a dump of raw JSON or print-mode prose; not ACP;
+documented `@{path}` after json when a composer image is attached),
 `fx ask --image` / `fx ask` fallback, local session catalog + hydrate,
 waku-protocol v4 JSON builders + server-frame parser, one-shot daemon
 sidecar, provider id `"fx"`, Environment Summary Background kind
 chrome (Process / Monitor / Subagent labels) with Process rows from
 window-side stream/settle.
 
-Later: Pi ACP / `--mode json` / RPC, Claude ACP / stream-json, full
+Later: Pi ACP / `--mode rpc`, Claude ACP / stream-json, full
 onboarding / OAuth / auto-install, a long-lived daemon socket in the
 update loop
 (not this cut), a long-lived ACP loop once a window-side stdin-write

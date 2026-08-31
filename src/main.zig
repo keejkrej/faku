@@ -17,8 +17,10 @@
 //! is attached; Available Amp uses one-shot `amp -x {prompt}` (not ACP),
 //! with a documented `@{path}` mention in that `-x` prompt when a
 //! composer image is attached; Available Pi uses one-shot
-//! `pi -p {prompt}` (not ACP), with documented `@{path}` after `-p`
-//! when a composer image is attached; cursor / opencode / grok image
+//! `pi --mode json {prompt}` (not ACP, not `--mode rpc`), with
+//! documented `@{path}` after `--mode json` when a composer image
+//! is attached (stdout is JSON events: live `text_delta` into the
+//! transcript, not a prose dump); cursor / opencode / grok image
 //! attach stays the demo timer.
 //! When `WAKU_DAEMON_ADDRESS` is set, Send instead
 //! spawns a one-shot `daemon-proxy` sidecar (hello + attachSession +

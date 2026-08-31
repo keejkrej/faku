@@ -1,11 +1,12 @@
 //! Sidecar stdout / ACP / daemon line handlers and fx-exit routing.
 //!
-//! `handleFxLine` / `handleAcpLine` / `handleDaemonLine`, ACP apply
-//! helpers, daemon goalUpdated apply, and `handleFxExit` live here.
-//! Maximize spawn/exit helpers live in `maximize_window.zig`. Probe
-//! helpers live in `fx_probe.zig`. Stream finish still comes from
-//! `stream.zig`. Behavior is unchanged from the former `main` line
-//! handlers.
+//! `handleFxLine` / `handleAcpLine` / `handlePiJsonLine` /
+//! `handleDaemonLine`, ACP apply helpers, daemon goalUpdated apply,
+//! and `handleFxExit` live here. Maximize spawn/exit helpers live in
+//! `maximize_window.zig`. Probe helpers live in `fx_probe.zig`. Stream
+//! finish still comes from `stream.zig`. Behavior is unchanged from
+//! the former `main` line handlers except Pi `--mode json` stdout,
+//! which is parsed as JSON events instead of appended as prose.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -151,6 +152,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         handleAcpLine(model, fx, line);
         return;
     }
+    if (model.fx_spawn_pi_json) {
+        handlePiJsonLine(model, fx, line);
+        return;
+    }
     const keep = line.line[0..@min(line.line.len, max_line_keep)];
     var id_buf: [max_fx_session_id]u8 = undefined;
     if (takeFxAskSessionId(keep, &id_buf)) |session_id| {
@@ -219,6 +224,159 @@ fn handleAcpLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void 
         const drain = acp.promptSucceeded(parsed);
         if (model.fx_spawn_key != 0) fx.cancel(model.fx_spawn_key);
         turn_stream.finishStream(model, fx, drain);
+    }
+}
+
+const PiJsonKind = enum { ignore, session, text_delta, message_end };
+
+const PiJsonParsed = struct {
+    kind: PiJsonKind = .ignore,
+    session_id: []const u8 = "",
+    text: []const u8 = "",
+};
+
+/// Official Pi `--mode json` event line. Documented at
+/// earendil-works/pi `packages/coding-agent/docs/json.md`. Unknown
+/// types, malformed JSON, and non-objects are `.ignore` (never
+/// assistant prose). `text_delta` is the live stream.
+/// `message_end` carries the authoritative assistant message for
+/// fallback when no deltas arrived. `session.id` reuses the existing
+/// `fx_session_id` slot.
+fn parsePiJsonLine(line: []const u8, allocator: std.mem.Allocator) PiJsonParsed {
+    const trimmed = std.mem.trim(u8, line, " \t\r\n");
+    if (trimmed.len < 2 or trimmed[0] != '{') return .{};
+    const root = std.json.parseFromSliceLeaky(std.json.Value, allocator, trimmed, .{}) catch return .{};
+    const obj = switch (root) {
+        .object => |o| o,
+        else => return .{},
+    };
+    const type_val = obj.get("type") orelse return .{};
+    const type_str = switch (type_val) {
+        .string => |s| s,
+        else => return .{},
+    };
+    if (std.mem.eql(u8, type_str, "session")) {
+        const id_val = obj.get("id") orelse return .{};
+        const id = switch (id_val) {
+            .string => |s| s,
+            else => return .{},
+        };
+        if (id.len == 0) return .{};
+        return .{ .kind = .session, .session_id = id };
+    }
+    if (std.mem.eql(u8, type_str, "message_update")) {
+        const ev_val = obj.get("assistantMessageEvent") orelse return .{};
+        const ev = switch (ev_val) {
+            .object => |o| o,
+            else => return .{},
+        };
+        const ev_type_val = ev.get("type") orelse return .{};
+        const ev_type = switch (ev_type_val) {
+            .string => |s| s,
+            else => return .{},
+        };
+        if (!std.mem.eql(u8, ev_type, "text_delta")) return .{};
+        const delta_val = ev.get("delta") orelse return .{};
+        const delta = switch (delta_val) {
+            .string => |s| s,
+            else => return .{},
+        };
+        if (delta.len == 0) return .{};
+        return .{ .kind = .text_delta, .text = delta };
+    }
+    if (std.mem.eql(u8, type_str, "message_end")) {
+        const message = obj.get("message") orelse return .{};
+        const text = extractPiAssistantText(message, allocator);
+        if (text.len == 0) return .{};
+        return .{ .kind = .message_end, .text = text };
+    }
+    return .{};
+}
+
+fn extractPiAssistantText(message: std.json.Value, allocator: std.mem.Allocator) []const u8 {
+    const obj = switch (message) {
+        .object => |o| o,
+        else => return "",
+    };
+    if (obj.get("role")) |role_val| {
+        const role = switch (role_val) {
+            .string => |s| s,
+            else => return "",
+        };
+        if (!std.mem.eql(u8, role, "assistant")) return "";
+    }
+    const content = obj.get("content") orelse return "";
+    switch (content) {
+        .string => |s| return s,
+        .array => |arr| {
+            var parts: [8][]const u8 = undefined;
+            var n: usize = 0;
+            var total: usize = 0;
+            for (arr.items) |item| {
+                const part = piTextContent(item);
+                if (part.len == 0) continue;
+                if (n >= parts.len) break;
+                parts[n] = part;
+                n += 1;
+                total += part.len;
+            }
+            if (n == 0) return "";
+            if (n == 1) return parts[0];
+            const out = allocator.alloc(u8, total) catch return "";
+            var i: usize = 0;
+            for (parts[0..n]) |part| {
+                @memcpy(out[i..][0..part.len], part);
+                i += part.len;
+            }
+            return out;
+        },
+        else => return "",
+    }
+}
+
+fn piTextContent(item: std.json.Value) []const u8 {
+    const obj = switch (item) {
+        .object => |o| o,
+        else => return "",
+    };
+    const type_val = obj.get("type") orelse return "";
+    const type_str = switch (type_val) {
+        .string => |s| s,
+        else => return "",
+    };
+    if (!std.mem.eql(u8, type_str, "text")) return "";
+    const text_val = obj.get("text") orelse return "";
+    return switch (text_val) {
+        .string => |s| s,
+        else => "",
+    };
+}
+
+fn handlePiJsonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
+    const keep = line.line[0..@min(line.line.len, max_line_keep)];
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = parsePiJsonLine(keep, arena_state.allocator());
+    switch (parsed.kind) {
+        .ignore => {},
+        .session => {
+            if (parsed.session_id.len == 0) return;
+            if (model.sessionById(model.streaming_session)) |session| {
+                session.setFxSessionId(parsed.session_id);
+                store.persistIfPossible(model, session.id, fx);
+            }
+        },
+        .text_delta => {
+            if (parsed.text.len == 0) return;
+            model.appendToTurn(model.stream_turn_id, parsed.text);
+        },
+        .message_end => {
+            if (parsed.text.len == 0) return;
+            if (model.turnById(model.stream_turn_id)) |turn| {
+                if (turn.body_len > 0) return;
+            }
+            model.appendToTurn(model.stream_turn_id, parsed.text);
+        },
     }
 }
 
@@ -560,4 +718,141 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     if (model.phase != .streaming) return;
     const success = exit.reason == .exited and exit.code == 0;
     turn_stream.finishStream(model, fx, success);
+}
+
+fn piJsonTurnText(model: *Model, turn_id: u32) []const u8 {
+    const turn = model.turnById(turn_id) orelse return "";
+    return turn.text();
+}
+
+test "pi json parser: text_delta extracts; unknown and malformed ignored" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const alloc = arena_state.allocator();
+
+    const delta = parsePiJsonLine(
+        "{\"type\":\"message_update\",\"usage\":{},\"assistantMessageEvent\":{\"type\":\"text_delta\",\"contentIndex\":0,\"delta\":\"Hello\"}}",
+        alloc,
+    );
+    try testing.expectEqual(PiJsonKind.text_delta, delta.kind);
+    try testing.expectEqualStrings("Hello", delta.text);
+
+    const unknown = parsePiJsonLine("{\"type\":\"agent_start\"}", alloc);
+    try testing.expectEqual(PiJsonKind.ignore, unknown.kind);
+    try testing.expectEqualStrings("", unknown.text);
+
+    const turn_start = parsePiJsonLine("{\"type\":\"turn_start\"}", alloc);
+    try testing.expectEqual(PiJsonKind.ignore, turn_start.kind);
+
+    const tool = parsePiJsonLine("{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"bash\",\"args\":{}}", alloc);
+    try testing.expectEqual(PiJsonKind.ignore, tool.kind);
+
+    const thinking = parsePiJsonLine(
+        "{\"type\":\"message_update\",\"assistantMessageEvent\":{\"type\":\"thinking_delta\",\"delta\":\"secret\"}}",
+        alloc,
+    );
+    try testing.expectEqual(PiJsonKind.ignore, thinking.kind);
+
+    const malformed = parsePiJsonLine("not json {", alloc);
+    try testing.expectEqual(PiJsonKind.ignore, malformed.kind);
+
+    const raw_object = parsePiJsonLine("{\"type\":\"agent_end\",\"messages\":[]}", alloc);
+    try testing.expectEqual(PiJsonKind.ignore, raw_object.kind);
+}
+
+test "pi json parser: session id and message_end assistant text" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const alloc = arena_state.allocator();
+
+    const session = parsePiJsonLine(
+        "{\"type\":\"session\",\"version\":3,\"id\":\"11111111-2222-3333-4444-555555555555\",\"timestamp\":\"t\",\"cwd\":\"/tmp\"}",
+        alloc,
+    );
+    try testing.expectEqual(PiJsonKind.session, session.kind);
+    try testing.expectEqualStrings("11111111-2222-3333-4444-555555555555", session.session_id);
+
+    const empty_id = parsePiJsonLine("{\"type\":\"session\",\"id\":\"\"}", alloc);
+    try testing.expectEqual(PiJsonKind.ignore, empty_id.kind);
+
+    const ended = parsePiJsonLine(
+        "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"final answer\"}]}}",
+        alloc,
+    );
+    try testing.expectEqual(PiJsonKind.message_end, ended.kind);
+    try testing.expectEqualStrings("final answer", ended.text);
+
+    const user_end = parsePiJsonLine(
+        "{\"type\":\"message_end\",\"message\":{\"role\":\"user\",\"content\":\"hello\"}}",
+        alloc,
+    );
+    try testing.expectEqual(PiJsonKind.ignore, user_end.kind);
+}
+
+test "pi json apply: text_delta appends; raw JSON is not assistant prose" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const sid = model.addSession("pi json", .pi);
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    model.fx_spawn_pi_json = true;
+
+    handleFxLine(&model, &fx, .{ .key = fx_ask_key, .line = "{\"type\":\"agent_start\"}" });
+    try testing.expectEqualStrings("", piJsonTurnText(&model, turn_id));
+
+    handleFxLine(&model, &fx, .{ .key = fx_ask_key, .line = "not json" });
+    try testing.expectEqualStrings("", piJsonTurnText(&model, turn_id));
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"message_update\",\"assistantMessageEvent\":{\"type\":\"text_delta\",\"delta\":\"Hel\"}}",
+    });
+    try testing.expectEqualStrings("Hel", piJsonTurnText(&model, turn_id));
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"message_update\",\"assistantMessageEvent\":{\"type\":\"text_delta\",\"delta\":\"lo\"}}",
+    });
+    try testing.expectEqualStrings("Hello", piJsonTurnText(&model, turn_id));
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Hello world\"}]}}",
+    });
+    try testing.expectEqualStrings("Hello", piJsonTurnText(&model, turn_id));
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"session\",\"id\":\"pi-sess-1\"}",
+    });
+    try testing.expectEqualStrings("pi-sess-1", model.sessionById(sid).?.fxSessionId());
+}
+
+test "pi json apply: message_end fallback only when no text_delta" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const sid = model.addSession("pi fallback", .pi);
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    model.fx_spawn_pi_json = true;
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"only end\"}]}}",
+    });
+    try testing.expectEqualStrings("only end", piJsonTurnText(&model, turn_id));
 }
