@@ -18,12 +18,13 @@
 //! `--image {path}` after the prompt when a composer image exists.
 //! Available Amp with
 //! no image attach is one-shot `{binary} -x {prompt}` (empty stdin,
-//! not ACP, not acp-proxy). Available Pi with no image attach is
-//! one-shot `{binary} -p {prompt}` (empty stdin, not ACP, not
-//! acp-proxy; `--print` is the long form). `reply_path` stays `.fx`
-//! with `fx_spawn_acp = false` so stdout lines use the existing
-//! non-ACP `handleFxLine` path. Image attach on cursor / opencode /
-//! grok / claude / amp / pi stays demo.
+//! not ACP, not acp-proxy). Available Pi is one-shot `{binary} -p
+//! {prompt}` (empty stdin, not ACP, not acp-proxy; `--print` is the
+//! long form), with documented `@{path}` after `-p` when a composer
+//! image exists (`pi -p @screenshot.png "What's in this image?"`).
+//! `reply_path` stays `.fx` with `fx_spawn_acp = false` so stdout
+//! lines use the existing non-ACP `handleFxLine` path. Image attach
+//! on cursor / opencode / grok / claude / amp stays demo.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -128,13 +129,13 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
     }
     if (session.provider == .pi and providers.isAvailable(model, .pi)) {
         // Pi is not ACP. Official print mode is one-shot
-        // `pi -p {prompt}` (`--print` is the long form). Image
-        // attach stays demo.
-        if (model.resolveSpawnImage().len == 0) {
-            if (startPiPrint(model, fx, session, text)) {
-                model.reply_path = .fx;
-                return;
-            }
+        // `pi -p {prompt}` (`--print` is the long form). Documented
+        // `@{path}` after `-p` when a composer image exists
+        // (`pi -p @screenshot.png "What's in this image?"`). There is
+        // no `--image` flag. Unavailable Pi stays demo.
+        if (startPiPrint(model, fx, session, text)) {
+            model.reply_path = .fx;
+            return;
         }
     }
     model.reply_path = .demo;
@@ -539,22 +540,33 @@ pub fn startAmpExecute(model: *Model, fx: *Effects, session: *const Session, pro
     return true;
 }
 
-/// One-shot official Pi print mode: `{binary} -p {prompt}`. Prompt
-/// is an argv slot (documented `pi -p "query"`; `--print` is the
-/// long form). Empty stdin. Print mode prints the response and
-/// exits, so the existing non-ACP `handleFxLine` path is safe. Not
-/// ACP, not acp-proxy, not `--mode json`, not RPC, not `-a` /
-/// `--approve` / invented dangerously-* flags. Caller sets
-/// `reply_path` to `.fx` on success; `fx_spawn_acp` stays false.
-/// Project cwd reuses `fx_ask_chdir_script` (Native SpawnOptions
-/// has no cwd field). Empty binary is a no-op (PATH default is
-/// `pi`).
+/// One-shot official Pi print mode: `{binary} -p {prompt}`, or
+/// `{binary} -p @{image_path} {prompt}` when a composer image exists.
+/// Prompt is an argv slot (documented `pi -p "query"`; `--print`
+/// is the long form). File/image args are documented `@path` prefixes
+/// (`pi -p @screenshot.png "What's in this image?"`); there is no
+/// `--image` flag. The `@` + path slot is a stack buffer sized for
+/// `@` + `max_project_path` (same cap as the draft image store).
+/// Empty stdin. Print mode prints the response and exits, so the
+/// existing non-ACP `handleFxLine` path is safe. Not ACP, not
+/// acp-proxy, not `--mode json`, not RPC, not `-a` / `--approve` /
+/// invented dangerously-* flags. Caller sets `reply_path` to `.fx`
+/// on success; `fx_spawn_acp` stays false. Project cwd reuses
+/// `fx_ask_chdir_script` (Native SpawnOptions has no cwd field).
+/// Empty binary is a no-op (PATH default is `pi`).
 pub fn startPiPrint(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) bool {
     const binary = providers.binaryFor(model, .pi);
     if (binary.len == 0) return false;
     const cwd = model.resolveSpawnCwd(session);
+    const image_path = model.resolveSpawnImage();
     model.setLastSpawnCwd(cwd);
-    model.setLastSpawnImagePath("");
+    model.setLastSpawnImagePath(image_path);
+
+    var at_path_buf: [1 + main.max_project_path]u8 = undefined;
+    const at_path = if (image_path.len > 0)
+        std.fmt.bufPrint(&at_path_buf, "@{s}", .{image_path}) catch ""
+    else
+        "";
 
     var argv_buf: [16][]const u8 = undefined;
     var n: usize = 0;
@@ -574,6 +586,10 @@ pub fn startPiPrint(model: *Model, fx: *Effects, session: *const Session, prompt
     n += 1;
     argv_buf[n] = "-p";
     n += 1;
+    if (at_path.len > 0) {
+        argv_buf[n] = at_path;
+        n += 1;
+    }
     argv_buf[n] = prompt;
     n += 1;
 
@@ -1186,7 +1202,9 @@ test "pi + cli_available selects print-mode pi -p {prompt}" {
     try testing.expect(!testArgvHas(request.argv, "--dangerously-skip-permissions"));
     try testing.expect(!testArgvHas(request.argv, "--dangerously-allow-all"));
     try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(!testArgvHas(request.argv, "--image"));
     try testing.expectEqualStrings("", request.stdin);
+    try testing.expectEqualStrings("", model.lastSpawnImagePath());
     const binary_at = testArgvIndex(request.argv, "pi") orelse return error.MissingBinary;
     const p_at = testArgvIndex(request.argv, "-p") orelse return error.MissingPrint;
     const prompt_at = testArgvIndex(request.argv, "hello pi") orelse return error.MissingPrompt;
@@ -1251,13 +1269,15 @@ test "fx session stays demo when fx is missing even if pi is available" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "pi image attach stays demo" {
+test "pi image attach uses print @path" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
     var image_buf: [256]u8 = undefined;
     const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/pi-shot.png", .{tmp.sub_path[0..]});
     try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+    var at_buf: [257]u8 = undefined;
+    const at_image = try std.fmt.bufPrint(&at_buf, "@{s}", .{image});
 
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
@@ -1268,6 +1288,52 @@ test "pi image attach stays demo" {
     model.setSidecarPath("faku");
     model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
     const id = model.addSession("pi image", .pi);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    try testing.expectEqualStrings(image, model.lastSpawnImagePath());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "pi"));
+    try testing.expect(testArgvHas(request.argv, "-p"));
+    try testing.expect(testArgvHas(request.argv, at_image));
+    try testing.expect(testArgvHas(request.argv, "describe this"));
+    try testing.expect(!testArgvHas(request.argv, image));
+    try testing.expect(!testArgvHas(request.argv, "--image"));
+    try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+    try testing.expect(!testArgvHas(request.argv, "fx"));
+    try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expectEqualStrings("", request.stdin);
+    const binary_at = testArgvIndex(request.argv, "pi") orelse return error.MissingBinary;
+    const p_at = testArgvIndex(request.argv, "-p") orelse return error.MissingPrint;
+    const at_at = testArgvIndex(request.argv, at_image) orelse return error.MissingAtPath;
+    const prompt_at = testArgvIndex(request.argv, "describe this") orelse return error.MissingPrompt;
+    try testing.expectEqual(binary_at + 1, p_at);
+    try testing.expectEqual(p_at + 1, at_at);
+    try testing.expectEqual(at_at + 1, prompt_at);
+}
+
+test "pi unavailable image attach stays demo" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/pi-missing-shot.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("pi missing image", .pi);
     model.selected = id;
     model.setDraftImagePath(image);
 

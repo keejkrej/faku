@@ -229,7 +229,8 @@ pub const ProviderId = enum {
     /// exec (that is a separate one-shot `codex exec {prompt}` spawn,
     /// not ACP). Not Amp execute-mode (that is a separate one-shot
     /// `amp -x {prompt}` spawn, not ACP). Not Pi print-mode (that is
-    /// a separate one-shot `pi -p {prompt}` spawn, not ACP). Not
+    /// a separate one-shot `pi -p {prompt}` spawn, documented
+    /// `@{path}` after `-p` when attached, not ACP). Not
     /// Grok `agent stdio`. Kimi is not in this enum. Easy to extend
     /// later.
     pub fn speaksBareAcp(id: ProviderId) bool {
