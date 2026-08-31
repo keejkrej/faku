@@ -47,7 +47,8 @@ still uses the demo timer. Available Claude is one-shot
 one-shot `codex exec {prompt}` (not ACP; documented `--image {path}`
 after the prompt when a composer image is attached). Available Amp is one-shot
 `amp -x {prompt}` (not ACP). Available Pi is one-shot `pi -p {prompt}`
-(not ACP). Unavailable cursor / opencode / grok / claude / codex /
+(not ACP; documented `@{path}` after `-p` when a composer image is
+attached). Unavailable cursor / opencode / grok / claude / codex /
 amp / pi stay demo.
 Apply on Settings →
 Providers sets `session.provider`. fx missing copies the verified
@@ -88,14 +89,15 @@ when a composer image is attached), first-cut live Send for Available Amp via
 official execute mode (`amp -x {prompt}`; stdout is the same
 non-ACP fx line path; not ACP), first-cut live Send for Available
 Pi via official print mode (`pi -p {prompt}`; stdout is the same
-non-ACP fx line path; not ACP),
+non-ACP fx line path; not ACP; documented `@{path}` after `-p` when
+a composer image is attached),
 `fx ask --image` / `fx ask` fallback, local session catalog + hydrate,
 waku-protocol v4 JSON builders + server-frame parser, one-shot daemon
 sidecar, provider id `"fx"`, Environment Summary Background kind
 chrome (Process / Monitor / Subagent labels) with Process rows from
 window-side stream/settle.
 
-Later: Pi image attach / ACP / `--mode json` / RPC, Amp / Claude
+Later: Pi ACP / `--mode json` / RPC, Amp / Claude
 image attach, Claude ACP / stream-json, full onboarding /
 OAuth / auto-install, a long-lived daemon socket in the update loop
 (not this cut), a long-lived ACP loop once a window-side stdin-write

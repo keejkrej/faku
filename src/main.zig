@@ -13,7 +13,8 @@
 //! Codex uses one-shot `codex exec {prompt}` (not ACP), with documented
 //! `--image {path}` after the prompt when a composer image is attached; Available Amp
 //! uses one-shot `amp -x {prompt}` (not ACP); Available Pi uses
-//! one-shot `pi -p {prompt}` (not ACP); other non-fx image attach stays
+//! one-shot `pi -p {prompt}` (not ACP), with documented `@{path}` after
+//! `-p` when a composer image is attached; other non-fx image attach stays
 //! the demo timer.
 //! When `WAKU_DAEMON_ADDRESS` is set, Send instead
 //! spawns a one-shot `daemon-proxy` sidecar (hello + attachSession +
