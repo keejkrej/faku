@@ -1,16 +1,16 @@
 //! Prompt-start and provider-spawn helpers.
 //!
 //! `startPrompt` path selection (daemon / fx acp / fx ask / probed
-//! ACP `acp` via acp-proxy / demo), StartOptions mapping, and
+//! ACP stdio via acp-proxy / demo), StartOptions mapping, and
 //! `takeFxAskSessionId` live here. Stream lifecycle lives in
 //! `stream.zig`. Line handlers live in `lines.zig`.
 //!
-//! Non-fx live Send this cut: `ProviderId.speaksBareAcp` (cursor,
-//! opencode) when `providers.isAvailable`. Same one-shot `faku acp-proxy
-//! -- {binary} acp` as fx. `reply_path` stays `.fx` so ACP stream
-//! parsing (`fx_spawn_acp` / `fx_line` / `fx_exit`) is unchanged.
-//! Image attach on non-fx stays demo. Claude/Codex/Amp/Pi/Grok stay
-//! demo.
+//! Non-fx live Send this cut: `ProviderId.speaksAcpStdio` (cursor /
+//! opencode bare `acp`, grok `agent stdio`) when
+//! `providers.isAvailable`. Same one-shot `faku acp-proxy -- {binary}
+//! …transport…` as fx. `reply_path` stays `.fx` so ACP stream parsing
+//! (`fx_spawn_acp` / `fx_line` / `fx_exit`) is unchanged. Image attach
+//! on non-fx stays demo. Claude/Codex/Amp/Pi stay demo.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -72,7 +72,7 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
         }
         return;
     }
-    if (session.provider.speaksBareAcp() and providers.isAvailable(model, session.provider)) {
+    if (session.provider.speaksAcpStdio() and providers.isAvailable(model, session.provider)) {
         // ACP has no image blocks this cut; non-fx image attach stays demo.
         if (model.resolveSpawnImage().len == 0) {
             const binary = providers.binaryFor(model, session.provider);
@@ -159,12 +159,17 @@ pub fn startFxAcp(model: *Model, fx: *Effects, session: *const Session, prompt: 
     return startAcpProxy(model, fx, session, model.fxPath(), prompt);
 }
 
-/// One-shot `faku acp-proxy -- {binary} acp` with the existing ACP
-/// stdin batch. fx still prefixes `FX_MODEL` / `FX_PERMISSION_MODE`
-/// via `/usr/bin/env` (same as before). Permission also rides
-/// `session/set_mode` in the batch. Empty binary is a no-op.
+/// One-shot `faku acp-proxy -- {binary} …transport…` with the
+/// existing ACP stdin batch. Transport comes from
+/// `ProviderId.acpTransportArgv` (`acp` for fx / cursor / opencode,
+/// `agent stdio` for grok). fx still prefixes `FX_MODEL` /
+/// `FX_PERMISSION_MODE` via `/usr/bin/env` (same as before).
+/// Permission also rides `session/set_mode` in the batch. Empty
+/// binary or empty transport is a no-op.
 pub fn startAcpProxy(model: *Model, fx: *Effects, session: *const Session, binary: []const u8, prompt: []const u8) bool {
     if (binary.len == 0) return false;
+    const transport = session.provider.acpTransportArgv();
+    if (transport.len == 0) return false;
     const cwd = model.resolveAcpCwd(session);
     const resume_id = session.fxSessionId();
     const model_id = session.model();
@@ -216,8 +221,10 @@ pub fn startAcpProxy(model: *Model, fx: *Effects, session: *const Session, binar
     }
     argv_buf[n] = binary;
     n += 1;
-    argv_buf[n] = "acp";
-    n += 1;
+    for (transport) |arg| {
+        argv_buf[n] = arg;
+        n += 1;
+    }
 
     model.fx_spawn_acp = true;
     fx.spawn(.{
@@ -441,7 +448,7 @@ test "opencode unavailable stays demo" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "speaksBareAcp is true for cursor and opencode; false for claude grok and others" {
+test "speaksBareAcp is true for cursor and opencode; speaksAcpStdio also covers grok" {
     const testing = std.testing;
     try testing.expect(protocol.ProviderId.cursor.speaksBareAcp());
     try testing.expect(protocol.ProviderId.opencode.speaksBareAcp());
@@ -451,6 +458,14 @@ test "speaksBareAcp is true for cursor and opencode; false for claude grok and o
     try testing.expect(!protocol.ProviderId.amp.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.grok.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.pi.speaksBareAcp());
+    try testing.expect(protocol.ProviderId.cursor.speaksAcpStdio());
+    try testing.expect(protocol.ProviderId.opencode.speaksAcpStdio());
+    try testing.expect(protocol.ProviderId.grok.speaksAcpStdio());
+    try testing.expect(!protocol.ProviderId.fx.speaksAcpStdio());
+    try testing.expect(!protocol.ProviderId.claude.speaksAcpStdio());
+    try testing.expectEqual(@as(usize, 2), protocol.ProviderId.grok.acpTransportArgv().len);
+    try testing.expectEqualStrings("agent", protocol.ProviderId.grok.acpTransportArgv()[0]);
+    try testing.expectEqualStrings("stdio", protocol.ProviderId.grok.acpTransportArgv()[1]);
 }
 
 test "cursor unavailable or non-ACP provider stays demo" {
@@ -481,18 +496,64 @@ test "cursor unavailable or non-ACP provider stays demo" {
         try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
         try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
     }
+}
 
-    {
-        var fx = Effects.init(testing.allocator);
-        defer fx.deinit();
-        fx.executor = .fake;
-        var model = Model{};
-        model.cli_available[@intFromEnum(protocol.ProviderId.grok)] = true;
-        const grok_id = model.addSession("grok demo", .grok);
-        startPrompt(&model, &fx, grok_id, "no grok driver");
-        try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
-        try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
-    }
+test "grok + cli_available selects acp-proxy grok agent stdio" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    const id = model.addSession("grok thread", .grok);
+    model.cli_available[@intFromEnum(protocol.ProviderId.grok)] = true;
+
+    startPrompt(&model, &fx, id, "hello grok");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(testArgvHas(request.argv, "--"));
+    try testing.expect(testArgvHas(request.argv, "grok"));
+    try testing.expect(testArgvHas(request.argv, "agent"));
+    try testing.expect(testArgvHas(request.argv, "stdio"));
+    try testing.expect(!testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "--always-approve"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+    try testing.expect(!testArgvHas(request.argv, "fx"));
+    try testing.expect(!testArgvHas(request.argv, "cursor-agent"));
+    try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    const dash = testArgvIndex(request.argv, "--") orelse return error.MissingDash;
+    const binary_at = testArgvIndex(request.argv, "grok") orelse return error.MissingBinary;
+    const agent_at = testArgvIndex(request.argv, "agent") orelse return error.MissingAgent;
+    const stdio_at = testArgvIndex(request.argv, "stdio") orelse return error.MissingStdio;
+    try testing.expect(dash < binary_at);
+    try testing.expectEqual(binary_at + 1, agent_at);
+    try testing.expectEqual(agent_at + 1, stdio_at);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"initialize\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/new\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/set_mode\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "hello grok") != null);
+}
+
+test "grok unavailable stays demo" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    const id = model.addSession("grok missing", .grok);
+    startPrompt(&model, &fx, id, "no grok");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
 test "fx path stays preferred when provider is fx even if cursor is available" {
@@ -538,6 +599,33 @@ test "cursor image attach stays demo" {
     model.setSidecarPath("faku");
     model.cli_available[@intFromEnum(protocol.ProviderId.cursor)] = true;
     const id = model.addSession("cursor image", .cursor);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "grok image attach stays demo" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/grok-shot.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.grok)] = true;
+    const id = model.addSession("grok image", .grok);
     model.selected = id;
     model.setDraftImagePath(image);
 

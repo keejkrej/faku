@@ -8,19 +8,19 @@
 //! re-runs fx_probe and every non-fx probe. Selecting a row highlights
 //! and shows detail; Apply ("Use for this session") sets the selected
 //! chat session's `provider` and persists via `sessions.json`. New
-//! sessions stay `.fx`. Live Send for probed ACP `acp` providers
-//! (cursor, opencode) is `spawn.startPrompt`; other non-fx ids stay demo.
-//! fx Not found copies the verified `https://fx.sh` install command
-//! via `fx.writeClipboard` (never auto-runs `setup.sh`). fx Available
-//! copies `fx login` the same way — convenience copy, not auth-state
-//! detection or OAuth UI. Other missing CLIs get a muted PATH hint
-//! only (no invented install URLs). Tests do not need a live daemon
-//! or any real CLI install.
+//! sessions stay `.fx`. Live Send for probed ACP stdio providers
+//! (cursor, opencode, grok) is `spawn.startPrompt`; other non-fx ids
+//! stay demo. fx Not found copies the verified `https://fx.sh` install
+//! command via `fx.writeClipboard` (never auto-runs `setup.sh`). fx
+//! Available copies `fx login` the same way — convenience copy, not
+//! auth-state detection or OAuth UI. Other missing CLIs get a muted
+//! PATH hint only (no invented install URLs). Tests do not need a live
+//! daemon or any real CLI install.
 //!
 //! Leftovers: full onboarding / OAuth / auto-install; Claude /
-//! Codex / Amp / Pi native drivers, Grok `agent … stdio`. Appearance
-//! theme, Usage, and Computer Use first-cut pages ship (Computer Use
-//! is Unavailable / Off; no Native helper). Not Waku install/auth.
+//! Codex / Amp / Pi native drivers. Appearance theme, Usage, and
+//! Computer Use first-cut pages ship (Computer Use is Unavailable /
+//! Off; no Native helper). Not Waku install/auth.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -40,6 +40,7 @@ pub const catalog_detail_note = "Status is a PATH --help probe. Send stays demo 
 pub const first_party_label = "First-party default";
 pub const fx_transport_note = "Live path is one-shot fx acp via acp-proxy.";
 pub const acp_transport_note = "Live Send is one-shot acp via acp-proxy when Available.";
+pub const grok_transport_note = "Live Send is one-shot grok agent stdio via acp-proxy when Available.";
 pub const apply_session_label = "Use for this session";
 /// Verified from https://fx.sh and vercel-labs/fx README. Copied
 /// to the clipboard; never spawned as a shell that runs setup.sh.
@@ -144,11 +145,17 @@ pub fn detailText(model: *const Model, arena: std.mem.Allocator) []const u8 {
             fx_transport_note,
         }) catch "";
     }
+    const note = if (id == .grok)
+        grok_transport_note
+    else if (id.speaksBareAcp())
+        acp_transport_note
+    else
+        catalog_detail_note;
     return std.fmt.allocPrint(arena, "{s}\nBinary: {s}\n{s}\n{s}", .{
         id.wireName(),
         id.defaultBinary(),
         statusFor(model, id),
-        if (id.speaksBareAcp()) acp_transport_note else catalog_detail_note,
+        note,
     }) catch "";
 }
 
@@ -346,11 +353,25 @@ test "selectProvider; detail names binary, fx path, probe status, and one-shot a
     try testing.expect(std.mem.indexOf(u8, opencode_detail, catalog_detail_note) == null);
     try testing.expect(std.mem.indexOf(u8, opencode_detail, fx_transport_note) == null);
 
+    model.cli_available[@intFromEnum(protocol.ProviderId.grok)] = true;
+    selectProvider(&model, rowId(.grok));
+    try testing.expectEqual(rowId(.grok), model.provider_selected_id);
+    const grok_detail = detailText(&model, testing.allocator);
+    defer if (grok_detail.len > 0) testing.allocator.free(grok_detail);
+    try testing.expect(std.mem.indexOf(u8, grok_detail, "grok") != null);
+    try testing.expect(std.mem.indexOf(u8, grok_detail, available_status) != null);
+    try testing.expect(std.mem.indexOf(u8, grok_detail, grok_transport_note) != null);
+    try testing.expect(std.mem.indexOf(u8, grok_detail, catalog_detail_note) == null);
+    try testing.expect(std.mem.indexOf(u8, grok_detail, acp_transport_note) == null);
+    try testing.expect(std.mem.indexOf(u8, grok_detail, fx_transport_note) == null);
+
     try testing.expect(protocol.ProviderId.cursor.speaksBareAcp());
     try testing.expect(protocol.ProviderId.opencode.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.claude.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.fx.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.grok.speaksBareAcp());
+    try testing.expect(protocol.ProviderId.grok.speaksAcpStdio());
+    try testing.expect(protocol.ProviderId.cursor.speaksAcpStdio());
 
     selectProvider(&model, 99);
     try testing.expectEqual(@as(u32, 0), model.provider_selected_id);

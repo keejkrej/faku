@@ -32,17 +32,18 @@ Protocol over stdio), `fx resume`.
 ## Live path
 
 When the fx CLI is installed, Send on an fx session spawns a one-shot
-`faku acp-proxy -- {fx_path} acp`. Send on a probed ACP `acp` provider
-(cursor, PATH `cursor-agent`; OpenCode, PATH `opencode`) uses the same
-sidecar: `faku acp-proxy -- {binary} acp`. Native `fx.spawn` writes
-**one stdin buffer and then closes stdin**. This is not a long-lived
-ACP or WebSocket loop.
+`faku acp-proxy -- {fx_path} acp`. Send on a probed ACP stdio provider
+(cursor, PATH `cursor-agent`; OpenCode, PATH `opencode`; grok, PATH
+`grok`) uses the same sidecar: `faku acp-proxy -- {binary} acp` for
+bare-`acp` ids, or `faku acp-proxy -- grok agent stdio`. Native
+`fx.spawn` writes **one stdin buffer and then closes stdin**. This is
+not a long-lived ACP or WebSocket loop.
 
 The local catalog `sessions.json` is canonical. Daemon and ACP are
 best-effort sidecars: the desktop update loop never holds a socket.
 `WAKU_DAEMON_ADDRESS` still selects the daemon sidecar. Missing fx
-still uses the demo timer. Other providers (claude, codex, amp, grok,
-pi) and unavailable cursor / opencode stay demo. Apply on Settings →
+still uses the demo timer. Other providers (claude, codex, amp, pi)
+and unavailable cursor / opencode / grok stay demo. Apply on Settings →
 Providers sets `session.provider`. fx missing copies the verified
 install command; fx available copies `fx login`. Other missing CLIs
 get a PATH hint. Not OAuth or auto-install.
@@ -70,15 +71,16 @@ are not written until they have real content.
 
 Ready: desktop shell, demo sessions + timer fallback, one-shot `fx acp`
 when the CLI is present (via `acp-proxy`, which auto-answers
-`session/request_permission`), first-cut live Send for probed ACP `acp`
-providers (cursor, OpenCode), `fx ask --image` / `fx ask` fallback,
-local session catalog + hydrate, waku-protocol v4 JSON builders +
-server-frame parser, one-shot daemon sidecar, provider id `"fx"`.
+`session/request_permission`), first-cut live Send for probed ACP
+stdio providers (cursor / OpenCode `acp`, grok `agent stdio`),
+`fx ask --image` / `fx ask` fallback, local session catalog + hydrate,
+waku-protocol v4 JSON builders + server-frame parser, one-shot daemon
+sidecar, provider id `"fx"`.
 
-Later: Claude / Codex / Amp / Pi native drivers, Grok `agent stdio`,
-full onboarding / OAuth / auto-install, a long-lived daemon socket in
-the update loop (not this cut), a long-lived ACP loop once a
-window-side stdin-write effect exists.
+Later: Claude / Codex / Amp / Pi native drivers, full onboarding /
+OAuth / auto-install, a long-lived daemon socket in the update loop
+(not this cut), a long-lived ACP loop once a window-side stdin-write
+effect exists.
 
 No `listSessions` / `createSession`. Catalog is `loadTaskState` (local
 JSON today). New session is a client-built session saved after first
