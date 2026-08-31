@@ -3781,8 +3781,9 @@ pub const Model = struct {
         writeFixed(&model.sidecar_path_storage, &model.sidecar_path_len, path);
     }
 
-    /// `fx ask --image` path when the draft has a non-empty path that exists.
-    /// Missing files omit the flag; Native spawn has no attachment/blob API.
+    /// Composer image path when the draft has a non-empty path that exists.
+    /// Used as `fx ask --image` and `codex exec --image`. Missing files omit
+    /// the flag; Native spawn has no attachment/blob API.
     pub fn resolveSpawnImage(model: *const Model) []const u8 {
         const path = model.draftImagePath();
         if (path.len == 0) return "";
