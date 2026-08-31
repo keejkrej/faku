@@ -44,11 +44,12 @@ best-effort sidecars: the desktop update loop never holds a socket.
 `WAKU_DAEMON_ADDRESS` still selects the daemon sidecar. Missing fx
 still uses the demo timer. Available Claude is one-shot
 `claude -p --output-format stream-json --verbose
---include-partial-messages` (not ACP; later Sends pass documented
-`--resume {fx_session_id}` when that field is non-empty; first Send
-and Fork omit it; not `--continue`; documented image path
-inside that `-p` prompt when a composer image is attached; stdout
-is NDJSON with live `text_delta` into the transcript). Available
+--include-partial-messages --forward-subagent-text` (not ACP; later
+Sends pass documented `--resume {fx_session_id}` when that field is
+non-empty; first Send and Fork omit it; not `--continue`; documented
+image path inside that `-p` prompt when a composer image is attached;
+stdout is NDJSON with live `text_delta` into the transcript; live
+Subagent Background from real `parent_tool_use_id`). Available
 Codex is
 one-shot `codex exec {prompt}` (not ACP; documented `--image {path}`
 after the prompt when a composer image is attached). Available Amp is
@@ -91,10 +92,11 @@ when the CLI is present (via `acp-proxy`, which auto-answers
 stdio providers (cursor / OpenCode `acp`, grok `agent stdio`),
 first-cut live Send for Available Claude via official print-mode
 stream-json (`claude -p --output-format stream-json --verbose
---include-partial-messages`; later Sends pass documented `--resume
-{fx_session_id}` when that field is non-empty; first Send and Fork
-omit it; stdout is parsed as NDJSON — live
+--include-partial-messages --forward-subagent-text`; later Sends pass
+documented `--resume {fx_session_id}` when that field is non-empty;
+first Send and Fork omit it; stdout is parsed as NDJSON — live
 `text_delta` into the assistant turn, not a dump of raw JSON;
+non-empty `parent_tool_use_id` does not append into that turn;
 documented image path in the `-p` prompt when a composer
 image is attached), first-cut live Send for Available Codex via official
 non-interactive `codex exec {prompt}` (stdout is the same non-ACP
@@ -111,14 +113,14 @@ documented `@{path}` after json when a composer image is attached),
 waku-protocol v4 JSON builders + server-frame parser, one-shot daemon
 sidecar, provider id `"fx"`, Environment Summary Background kind
 chrome (Process / Monitor / Subagent labels) with Process rows from
-window-side stream/settle.
+window-side stream/settle and live Subagent rows from real Claude
+`parent_tool_use_id` / Agent `tool_use` signals while streaming.
 
 Later: Pi ACP / `--mode rpc`, Claude ACP, `--continue`,
-`--forward-subagent-text`, full
-onboarding / OAuth / auto-install, a long-lived daemon socket in the
-update loop
+full onboarding / OAuth / auto-install, a long-lived daemon socket in
+the update loop
 (not this cut), a long-lived ACP loop once a window-side stdin-write
-effect exists, live Monitor / Subagent Background population,
+effect exists, live Monitor Background population,
 daemon `refreshBackgroundWork`, right-panel BackgroundWork tab.
 
 No `listSessions` / `createSession`. Catalog is `loadTaskState` (local

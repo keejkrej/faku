@@ -37,7 +37,7 @@ send circle.
 | **hydrateSession** | Daemon transcript fill when the local transcript is empty. Local turns win. |
 | **argv slot** | Every flag and operand is its own spawn argument. Never interpolate into the chdir `-c` script. |
 | **right panel** | First-cut Files + Diff pane to the right of the conversation. Default closed. |
-| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx; Available Claude is one-shot `claude -p --output-format stream-json --verbose --include-partial-messages` (not ACP; later Sends pass documented `--resume {fx_session_id}` when that field is non-empty; first Send and Fork omit it; not `--continue`; documented image path inside that `-p` prompt when a composer image is attached; stdout is NDJSON with live `text_delta`); Available Codex is one-shot `codex exec {prompt}` (not ACP; documented `--image {path}` after the prompt when a composer image is attached); Available Amp is one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x` prompt when a composer image is attached); Available Pi is one-shot `pi --mode json {prompt}` (not ACP, not `--mode rpc`; documented `@{path}` after json when a composer image is attached; stdout is JSON events with live `text_delta`). fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
+| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx; Available Claude is one-shot `claude -p --output-format stream-json --verbose --include-partial-messages --forward-subagent-text` (not ACP; later Sends pass documented `--resume {fx_session_id}` when that field is non-empty; first Send and Fork omit it; not `--continue`; documented image path inside that `-p` prompt when a composer image is attached; stdout is NDJSON with live `text_delta`; live Subagent Background from `parent_tool_use_id`); Available Codex is one-shot `codex exec {prompt}` (not ACP; documented `--image {path}` after the prompt when a composer image is attached); Available Amp is one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x` prompt when a composer image is attached); Available Pi is one-shot `pi --mode json {prompt}` (not ACP, not `--mode rpc`; documented `@{path}` after json when a composer image is attached; stdout is JSON events with live `text_delta`). fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
 | **Settings Appearance** | Settings page for chrome theme and language. Theme: System (follow OS `on_appearance`), Light, or Dark. Default System. Language: System / English / 简体中文 / 日本語. Default System. System language follows process `LC_ALL` / `LC_MESSAGES` / `LANG` (Native has no locale API). Explicit language chips are autonyms in every locale. Persists `theme_preference` and `language_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. Settings chrome strings (title, nav, Appearance Theme / Language) follow the resolved locale this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
 | **Settings Usage** | Settings page showing the selected session's local context window (`context_used` / `context_size` from ACP `usage_update`) and thread-goal tokens (`threadGoalUsageLabel`). Read-only. Not daemon `LoadUsageHistory`, not a cost chart, not Daily / Monthly / Projects. |
@@ -103,11 +103,14 @@ Not a long-lived ACP loop.
 ACP stdio branches, Send on `ProviderId.claude` when
 `providers.isAvailable` spawns one-shot
 `{binary} -p --output-format stream-json --verbose
---include-partial-messages {prompt}` (argv slots; empty stdin).
-When `session.fx_session_id` is non-empty, documented `--resume
-{fx_session_id}` is two argv slots after `--include-partial-messages`
-and before the prompt (code.claude.com/docs/en/headless "Continue
-conversations"). First Send and Fork omit both slots — never a
+--include-partial-messages --forward-subagent-text {prompt}` (argv
+slots; empty stdin). `--forward-subagent-text` is always its own slot
+after `--include-partial-messages` (code.claude.com/docs/en/cli-reference;
+prefer the argv flag). When `session.fx_session_id` is non-empty,
+documented `--resume {fx_session_id}` is two argv slots after
+`--forward-subagent-text` and before the prompt
+(code.claude.com/docs/en/headless "Continue conversations"). First
+Send and Fork omit both resume slots — never a
 bare `--resume`. Not `--continue` / `-c` (that is most-recent in the
 current directory). Composer image attach adds the documented
 filesystem path inside that single `-p` prompt (`claude -p 'Analyze
@@ -118,12 +121,14 @@ overflow fails closed to demo rather than truncating. `reply_path`
 stays `.fx` with `fx_spawn_acp = false` and `fx_spawn_claude_json` so
 stdout lines use the Claude JSON parser in `lines.zig` (live
 `stream_event` / `event.delta.type == text_delta`, not a prose dump of
-raw NDJSON). If no deltas arrived, the final `result` text is the
+raw NDJSON). Non-empty `parent_tool_use_id` is subagent traffic: it
+does not `appendToTurn` on the main stream, and it (plus Agent
+`tool_use`) fills live Subagent Background rows while streaming.
+If no deltas arrived, the final `result` text is the
 fallback. `session_id` from a `result` or `system`/`init` event reuses
 `fx_session_id` when that documented field is present. Project cwd
 reuses `fx_ask_chdir_script`. Not ACP, not `claude acp`, not
-`--input-format stream-json`, not `--mode rpc`, not
-`--forward-subagent-text`, not `--bare`, not
+`--input-format stream-json`, not `--mode rpc`, not `--bare`, not
 permissions bypass, not acp-proxy. Unavailable claude stays demo.
 
 **Codex exec (first-cut live non-ACP).** After the Claude branch, Send
@@ -254,11 +259,14 @@ Uncommitted, Staged, Unstaged, Committed, LastTurn). Not Browser,
 Terminal (no Native PTY), compact File editor, or BackgroundWork tabs.
 Not daemon `WorkspaceOperation`. Environment Summary Background is
 Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
-runtime-only multi-row registry. This cut only populates Process
+runtime-only multi-row registry. This cut populates Process
 ("Agent turn") from window-side `is_streaming`, plus Stop agent,
 and one last-turn settle (Completed / Stopped / Failed, cap 1).
-Not a Waku BackgroundWorkRegistry, not daemon
-`refreshBackgroundWork`, not live Monitor / Subagent population.
+Live Subagent rows come from real Claude stream-json
+`parent_tool_use_id` / Agent `tool_use` while streaming (cleared
+when the turn settles; not sessions.json). Not a Waku
+BackgroundWorkRegistry, not daemon `refreshBackgroundWork`, not
+live Monitor population.
 
 ## Settings Providers
 
@@ -277,11 +285,12 @@ Selecting a row highlights and shows a short blurb (name, binary, fx
 path when applicable, probe status, and that live Send is one-shot
 `acp` via acp-proxy for fx and probed ACP `acp` providers (cursor,
 opencode), or one-shot `grok agent stdio` via acp-proxy when grok
-is Available, or one-shot `claude -p --output-format stream-json` when
-claude is Available (later Sends pass documented `--resume
-{fx_session_id}` when that field is non-empty; first Send and Fork
-omit it; documented image path in the `-p` prompt when a
-composer image is attached; stdout is NDJSON with live `text_delta`), or one-shot `codex exec {prompt}` when Codex
+is Available, or one-shot `claude -p --output-format stream-json
+--forward-subagent-text` when claude is Available (later Sends pass
+documented `--resume {fx_session_id}` when that field is non-empty;
+first Send and Fork omit it; documented image path in the `-p`
+prompt when a composer image is attached; stdout is NDJSON with live
+`text_delta`; live Subagent Background from `parent_tool_use_id`), or one-shot `codex exec {prompt}` when Codex
 is Available (documented `--image {path}` after the prompt when a
 composer image is attached), or one-shot `amp -x` / `--execute` when Amp is
 Available (documented `@{path}` in the `-x` prompt when a composer
@@ -381,19 +390,20 @@ Honest gaps this cut does not implement:
   composer image is attached, ships; stdout is parsed as JSON events
   with live `text_delta`, not dumped as prose). Claude print-mode
   stream-json one-shot (`claude -p --output-format stream-json
-  --verbose --include-partial-messages`, documented `--resume
-  {fx_session_id}` on later Sends when that field is non-empty;
-  first Send and Fork omit it; documented image path in the
-  `-p` prompt when a composer image is attached, ships; stdout is
-  parsed as NDJSON — live `text_delta`, not dumped as prose). Codex exec
+  --verbose --include-partial-messages --forward-subagent-text`,
+  documented `--resume {fx_session_id}` on later Sends when that
+  field is non-empty; first Send and Fork omit it; documented image
+  path in the `-p` prompt when a composer image is attached, ships;
+  stdout is parsed as NDJSON — live `text_delta`, not dumped as
+  prose; live Subagent Background from `parent_tool_use_id`). Codex exec
   one-shot (`codex exec {prompt}`, documented `--image {path}` after
   the prompt when a composer image is attached) ships; Amp execute-mode
   one-shot (`amp -x {prompt}`, documented `@{path}` in the `-x` prompt
   when a composer image is attached) ships. Claude, Codex, Amp, and
   Pi are not ACP / a long-lived SDK session (Claude stream-json and
   Pi json-mode are one-shot JSON lines; Claude later Sends pass
-  `--resume {fx_session_id}` when stored. Not `--continue`, not
-  `--forward-subagent-text`, not `--input-format stream-json`, not
+  `--resume {fx_session_id}` when stored. `--forward-subagent-text`
+  always. Not `--continue`, not `--input-format stream-json`, not
   `--mode rpc`). Kimi is
   not in `ProviderId`
 - Usage history from daemon `LoadUsageHistory`, cost / dollar chart,
@@ -406,10 +416,11 @@ Honest gaps this cut does not implement:
   dates, Native locale / NSLocale API (Appearance language selector
   ships: System / English / 简体中文 / 日本語; Settings chrome follows
   the resolved locale)
-- Live Monitor / Subagent Background population, daemon
+- Live Monitor Background population, daemon
   `refreshBackgroundWork`, right-panel BackgroundWork tab
   (Environment Summary ships Process / Monitor / Subagent kind
-  chrome and a Process-only registry from stream/settle; not
+  chrome, a Process registry from stream/settle, and live Subagent
+  rows from Claude `parent_tool_use_id`; not
   Waku BackgroundWorkRegistry parity)
 - Further `main.zig` extract (`update` / `initFx` / `initialModel`
   still live there)

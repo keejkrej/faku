@@ -13,18 +13,22 @@
 //! empty), and a first-cut Background section with Process /
 //! Monitor / Subagent kind chrome. Visible rows come from a
 //! runtime-only multi-row registry (cap 8) rendered via Native
-//! `background_rows`. This cut only *populates* Process from
+//! `background_rows`. This cut populates Process from
 //! window-side stream/settle: a live "Agent turn" row plus
 //! Stop agent while `is_streaming` (same composer Stop /
 //! `stopStream` path), and one last-turn settle when idle
 //! (Completed on successful `finishStream` drain with no
 //! queued restart, Stopped on `stopStream`, Failed on
 //! drain=false paths that already end the stream; cap 1,
-//! overwrite). Settled is keyed by session id so switching
-//! hides another session's row without clearing it; a new
+//! overwrite). Live Subagent rows come from real Claude
+//! stream-json `parent_tool_use_id` / Agent `tool_use`
+//! signals while streaming (runtime-only; cleared when the
+//! turn settles or the stream ends; not sessions.json).
+//! Settled is keyed by session id so switching hides
+//! another session's row without clearing it; a new
 //! settle overwrites; remove session clears that row. Not
 //! persisted to sessions.json / drafts.json. No live Monitor
-//! or Subagent rows this cut (no placeholders). Header info
+//! rows this cut (no placeholders). Header info
 //! trigger uses button `selected` while the dropdown is open
 //! or this section would show.
 //! Header +N −M reuses the composer project-row numstat probe
@@ -45,9 +49,10 @@
 //! `prepareTurnDiffBase` names `turn-diff-{n}`; Compare uses
 //! stored shas, not the refs); rewind `<sha>...HEAD`
 //! fallback; not `refs/waku/`; not HEAD~1. Leftovers:
-//! prune-alone, live Monitor / Subagent population, daemon
+//! prune-alone, live Monitor population, daemon
 //! `refreshBackgroundWork` / WorkspaceOperation, right-panel
-//! BackgroundWork tab. Kind chrome and the Process registry
+//! BackgroundWork tab. Kind chrome, Process registry, and
+//! first-cut live Subagent rows from Claude `parent_tool_use_id`
 //! ship; not a Waku BackgroundWorkRegistry.
 //! Not transcript checkpoint +/-. Not force push (Waku
 //! `git_commit::push` has no `--force`).
@@ -74,7 +79,9 @@ var header_numstat_buf: [git_numstat.max_git_numstat_label]u8 = undefined;
 pub const SettledStatus = enum { none, completed, stopped, failed };
 
 /// Background kind chrome. Stable labels match Waku's Process ·
-/// Monitor · Subagent grouping. This cut only fills Process.
+/// Monitor · Subagent grouping. This cut fills Process plus
+/// live Subagent from Claude stream-json signals. Monitor stays
+/// unused (no fake rows).
 pub const BackgroundKind = enum {
     process,
     monitor,
@@ -85,12 +92,43 @@ pub const kind_process_label = "Process";
 pub const kind_monitor_label = "Monitor";
 pub const kind_subagent_label = "Subagent";
 
-/// Bounded visible registry. Extra slots are for later Monitor /
-/// Subagent population; this cut emits at most one Process row.
+/// Bounded visible registry. Process takes one slot; remaining
+/// slots are live Subagent rows (Monitor unused this cut).
 pub const max_background_rows: usize = 8;
 
 /// Stable Native `for` key for the Process row (live or settled).
 pub const process_row_id: u32 = 1;
+
+/// First Native `for` key for live Subagent rows (`id` 2…).
+pub const subagent_row_id_first: u32 = 2;
+
+/// Live Subagent cap: leave one slot for Process.
+pub const max_live_subagents: usize = max_background_rows - 1;
+
+/// `parent_tool_use_id` / Agent `tool_use` id. Same cap as ACP
+/// tool-call ids (documented Claude ids are `toolu_…`).
+pub const max_subagent_id: usize = 128;
+
+/// Subagent row title. First-cut stable label is `Subagent`.
+pub const max_subagent_title: usize = 32;
+
+/// Runtime-only live Subagent slot. Keyed by
+/// `parent_tool_use_id` / Agent `tool_use` id. Not persisted.
+pub const LiveSubagent = struct {
+    id_storage: [max_subagent_id]u8 = [_]u8{0} ** max_subagent_id,
+    id_len: usize = 0,
+    title_storage: [max_subagent_title]u8 = [_]u8{0} ** max_subagent_title,
+    title_len: usize = 0,
+
+    pub fn parentId(self: *const LiveSubagent) []const u8 {
+        return self.id_storage[0..self.id_len];
+    }
+
+    pub fn title(self: *const LiveSubagent) []const u8 {
+        if (self.title_len == 0) return kind_subagent_label;
+        return self.title_storage[0..self.title_len];
+    }
+};
 
 /// Process-kind row title. Honest about Faku-side stream state
 /// (not an OS process watch).
@@ -142,6 +180,37 @@ pub fn clearSettledIfSession(model: *Model, session_id: u32) void {
     if (model.background_settled_session == session_id) clearSettled(model);
 }
 
+/// Drop live Subagent rows. Called when a turn starts, settles,
+/// or is stopped. Runtime-only; nothing to persist.
+pub fn clearLiveSubagents(model: *Model) void {
+    model.background_subagent_count = 0;
+}
+
+/// Register a live Subagent keyed by non-empty
+/// `parent_tool_use_id` / Agent `tool_use` id. Duplicate ids are
+/// a no-op. Cap `max_live_subagents` (Process keeps a slot).
+/// Title is the stable `Subagent` label this cut.
+pub fn noteLiveSubagent(model: *Model, parent_id: []const u8) void {
+    if (parent_id.len == 0) return;
+    var i: u32 = 0;
+    while (i < model.background_subagent_count) : (i += 1) {
+        if (std.mem.eql(u8, model.background_subagents[i].parentId(), parent_id)) return;
+    }
+    if (model.background_subagent_count >= max_live_subagents) return;
+    const slot = &model.background_subagents[model.background_subagent_count];
+    const writeFixed = main.writeFixed;
+    writeFixed(&slot.id_storage, &slot.id_len, parent_id);
+    writeFixed(&slot.title_storage, &slot.title_len, kind_subagent_label);
+    model.background_subagent_count += 1;
+}
+
+/// Live Subagent rows exist only while streaming. Idle settle is
+/// Process-only this cut.
+pub fn liveSubagentCount(model: *const Model) u32 {
+    if (!model.is_streaming()) return 0;
+    return @min(model.background_subagent_count, @as(u32, @intCast(max_live_subagents)));
+}
+
 /// Visible settled row for the selected session. Hidden while
 /// `is_streaming` so a queued restart stays on the Process row
 /// instead of flashing Completed.
@@ -171,8 +240,9 @@ pub fn settledStatusLabel(model: *const Model) []const u8 {
 
 /// Project the runtime registry into `out` (cap `max_background_rows`).
 /// Streaming wins so a queued `finishStream` restart stays on the
-/// live Process row instead of flashing Completed. Monitor /
-/// Subagent kinds are never emitted from current signals.
+/// live Process row instead of flashing Completed. Live Subagent
+/// rows follow Process while `parent_tool_use_id` / Agent
+/// `tool_use` signals exist. Monitor is never emitted this cut.
 pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]BackgroundRow) []const BackgroundRow {
     if (!hasBackgroundSection(model)) return out[0..0];
     const live = model.is_streaming();
@@ -187,7 +257,24 @@ pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]Backgr
         .has_status = status.len > 0,
         .settled_status = status,
     };
-    return out[0..1];
+    var n: usize = 1;
+    const sub_n = liveSubagentCount(model);
+    var i: u32 = 0;
+    while (i < sub_n and n < max_background_rows) : (i += 1) {
+        const slot = &model.background_subagents[i];
+        out[n] = .{
+            .id = subagent_row_id_first + i,
+            .kind = .subagent,
+            .kind_label = backgroundKindLabel(.subagent),
+            .title = slot.title(),
+            .live = true,
+            .can_stop = false,
+            .has_status = false,
+            .settled_status = "",
+        };
+        n += 1;
+    }
+    return out[0..n];
 }
 
 /// Arena copy of `fillBackgroundRows` for Native `background_rows`.
@@ -920,7 +1007,7 @@ test "backgroundKindLabel is stable for Process Monitor Subagent" {
     try std.testing.expectEqualStrings("Subagent", backgroundKindLabel(.subagent));
 }
 
-test "background registry never emits Monitor or Subagent from stream or settle" {
+test "background registry never emits Monitor or Subagent from stream or settle without signals" {
     var model = Model{};
     const id = model.addSession("env kinds only process", .fx);
     model.selected = id;
@@ -951,3 +1038,77 @@ test "background registry never emits Monitor or Subagent from stream or settle"
     try std.testing.expectEqual(@as(usize, 1), via_model.len);
     try std.testing.expectEqualStrings(kind_process_label, via_model[0].kind_label);
 }
+
+test "fillBackgroundRows emits Subagent while live parent_tool_use_id signals exist" {
+    var model = Model{};
+    const id = model.addSession("env live subagent", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    try expectLiveProcessRow(&model);
+
+    noteLiveSubagent(&model, "");
+    try expectLiveProcessRow(&model);
+
+    noteLiveSubagent(&model, "toolu_agent_1");
+    noteLiveSubagent(&model, "toolu_agent_1");
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    var rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 2), rows.len);
+    try std.testing.expectEqual(BackgroundKind.process, rows[0].kind);
+    try std.testing.expectEqualStrings(process_row_label, rows[0].title);
+    try std.testing.expect(rows[0].live);
+    try std.testing.expect(rows[0].can_stop);
+    try std.testing.expectEqual(subagent_row_id_first, rows[1].id);
+    try std.testing.expectEqual(BackgroundKind.subagent, rows[1].kind);
+    try std.testing.expectEqualStrings(kind_subagent_label, rows[1].kind_label);
+    try std.testing.expectEqualStrings(kind_subagent_label, rows[1].title);
+    try std.testing.expect(rows[1].live);
+    try std.testing.expect(!rows[1].can_stop);
+    try std.testing.expect(!rows[1].has_status);
+    try std.testing.expect(rows[1].kind != .monitor);
+
+    noteLiveSubagent(&model, "toolu_agent_2");
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 3), rows.len);
+    try std.testing.expectEqual(BackgroundKind.subagent, rows[2].kind);
+    try std.testing.expectEqual(subagent_row_id_first + 1, rows[2].id);
+
+    model.phase = .idle;
+    model.streaming_session = 0;
+    settle(&model, id, .completed);
+    try expectSettledProcessRow(&model, settled_completed_label);
+
+    clearLiveSubagents(&model);
+    try std.testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    try expectSettledProcessRow(&model, settled_completed_label);
+}
+
+test "finishStream and stopStream clear live Subagent rows" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env clear subagent", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    noteLiveSubagent(&model, "toolu_clear_1");
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    try std.testing.expectEqual(@as(usize, 2), fillBackgroundRows(&model, &buf).len);
+
+    turn_stream.finishStream(&model, &fx, true);
+    try std.testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    try expectSettledProcessRow(&model, settled_completed_label);
+
+    model.phase = .streaming;
+    model.streaming_session = id;
+    if (model.sessionById(id)) |session| session.busy = true;
+    noteLiveSubagent(&model, "toolu_clear_2");
+    try std.testing.expectEqual(@as(usize, 2), fillBackgroundRows(&model, &buf).len);
+    turn_stream.stopStream(&model, &fx);
+    try std.testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    try expectSettledProcessRow(&model, settled_stopped_label);
+}
+

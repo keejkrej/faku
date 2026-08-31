@@ -11,11 +11,13 @@
 //! sessions stay `.fx`. Live Send for probed ACP stdio providers
 //! (cursor, opencode, grok) is `spawn.startPrompt`; Available Claude
 //! is one-shot print-mode stream-json (`claude -p --output-format
-//! stream-json --verbose --include-partial-messages`; documented
+//! stream-json --verbose --include-partial-messages
+//! --forward-subagent-text`; documented
 //! `--resume {fx_session_id}` on later Sends when that field is
 //! non-empty; first Send and Fork omit it; not `--continue`;
 //! documented image path inside that `-p` prompt when a composer image is
-//! attached; stdout is NDJSON with live `text_delta`); Available Codex is one-shot `codex exec {prompt}`
+//! attached; stdout is NDJSON with live `text_delta`; live Subagent
+//! Background from `parent_tool_use_id`); Available Codex is one-shot `codex exec {prompt}`
 //! (documented `--image {path}` after the prompt when a composer image
 //! is attached); Available Amp is
 //! one-shot `amp -x {prompt}` (`--execute` is the long form; documented
@@ -31,10 +33,11 @@
 //! daemon or any real CLI install.
 //!
 //! Leftovers: full onboarding / OAuth / auto-install; Pi ACP /
-//! `--mode rpc`; Claude ACP; `--continue`; `--forward-subagent-text`.
+//! `--mode rpc`; Claude ACP; `--continue`.
 //! Claude print-mode stream-json (later Sends pass documented
 //! `--resume {fx_session_id}` when that field is non-empty; first
-//! Send and Fork omit it; image path in the `-p` prompt when
+//! Send and Fork omit it; `--forward-subagent-text` always;
+//! image path in the `-p` prompt when
 //! attached),
 //! Codex exec (`--image` when attached), Amp
 //! execute-mode (`@path` when attached), and Pi json-mode (`@path`
@@ -62,7 +65,7 @@ pub const first_party_label = "First-party default";
 pub const fx_transport_note = "Live path is one-shot fx acp via acp-proxy.";
 pub const acp_transport_note = "Live Send is one-shot acp via acp-proxy when Available.";
 pub const grok_transport_note = "Live Send is one-shot grok agent stdio via acp-proxy when Available.";
-pub const claude_transport_note = "Live Send is one-shot claude -p --output-format stream-json when Available (later Sends --resume {fx_session_id} when stored; image path in the -p prompt when attached).";
+pub const claude_transport_note = "Live Send is one-shot claude -p --output-format stream-json --forward-subagent-text when Available (later Sends --resume {fx_session_id} when stored; image path in the -p prompt when attached).";
 pub const codex_transport_note = "Live Send is one-shot codex exec when Available (`--image` when attached).";
 pub const amp_transport_note = "Live Send is one-shot amp -x / --execute when Available (`@path` when attached).";
 pub const pi_transport_note = "Live Send is one-shot pi --mode json when Available (`@path` when attached).";

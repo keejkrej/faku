@@ -8,7 +8,8 @@
 //! `stream.zig`. Behavior is unchanged from the former `main` line
 //! handlers except Pi `--mode json` and Claude `--output-format
 //! stream-json` stdout, which are parsed as JSON events instead of
-//! appended as prose.
+//! appended as prose. Claude `parent_tool_use_id` is subagent
+//! traffic (not main-turn append; live Subagent Background).
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -33,6 +34,7 @@ const git_commit = @import("git_commit.zig");
 const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const skills = @import("skills.zig");
+const environment_summary = @import("environment_summary.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
@@ -392,6 +394,13 @@ const ClaudeJsonParsed = struct {
     kind: ClaudeJsonKind = .ignore,
     session_id: []const u8 = "",
     text: []const u8 = "",
+    /// Non-empty documented `parent_tool_use_id` (Agent tool_use id
+    /// that spawned this subagent). Empty when absent, JSON null, or
+    /// not a string (fail closed).
+    parent_tool_use_id: []const u8 = "",
+    /// First `message.content[]` / `content_block` `tool_use` whose
+    /// `name` is `Agent`. Empty when absent.
+    agent_tool_use_id: []const u8 = "",
 };
 
 fn jsonStringField(obj: anytype, key: []const u8) ?[]const u8 {
@@ -410,6 +419,52 @@ fn jsonObjectField(obj: anytype, key: []const u8) ?@TypeOf(obj) {
     };
 }
 
+/// Documented on Claude stream-json `assistant` / `user` messages
+/// (code.claude.com/docs/en/headless "Follow subagent messages").
+/// Main conversation is JSON `null` or absent. Non-empty string is
+/// subagent traffic. Any other JSON type fails closed to main.
+fn jsonParentToolUseId(obj: anytype) []const u8 {
+    const val = obj.get("parent_tool_use_id") orelse return "";
+    return switch (val) {
+        .string => |s| s,
+        else => "",
+    };
+}
+
+fn jsonAgentToolUseIdFromBlock(block: anytype) []const u8 {
+    const block_type = jsonStringField(block, "type") orelse return "";
+    if (!std.mem.eql(u8, block_type, "tool_use")) return "";
+    const name = jsonStringField(block, "name") orelse return "";
+    if (!std.mem.eql(u8, name, "Agent")) return "";
+    const id = jsonStringField(block, "id") orelse return "";
+    return id;
+}
+
+fn jsonAgentToolUseIdFromMessage(obj: anytype) []const u8 {
+    const message = jsonObjectField(obj, "message") orelse return "";
+    const content_val = message.get("content") orelse return "";
+    const items = switch (content_val) {
+        .array => |arr| arr.items,
+        else => return "",
+    };
+    for (items) |item| {
+        const block = switch (item) {
+            .object => |o| o,
+            else => continue,
+        };
+        const id = jsonAgentToolUseIdFromBlock(block);
+        if (id.len > 0) return id;
+    }
+    return "";
+}
+
+fn jsonStreamEventAgentToolUseId(event: anytype) []const u8 {
+    const event_type = jsonStringField(event, "type") orelse return "";
+    if (!std.mem.eql(u8, event_type, "content_block_start")) return "";
+    const block = jsonObjectField(event, "content_block") orelse return "";
+    return jsonAgentToolUseIdFromBlock(block);
+}
+
 /// Official Claude `--output-format stream-json` NDJSON line.
 /// Documented at code.claude.com/docs/en/headless (streaming recipe
 /// plus jq filter
@@ -419,6 +474,9 @@ fn jsonObjectField(obj: anytype, key: []const u8) ?@TypeOf(obj) {
 /// carries the final response text for fallback when no deltas
 /// arrived. `session_id` from a `result` or `system`/`init` event
 /// reuses the existing `fx_session_id` slot when the field is present.
+/// Non-empty `parent_tool_use_id` marks subagent traffic (do not
+/// append into the main turn). Agent `tool_use` id is the spawn key
+/// for live Subagent Background rows.
 fn parseClaudeJsonLine(line: []const u8, allocator: std.mem.Allocator) ClaudeJsonParsed {
     const trimmed = std.mem.trim(u8, line, " \t\r\n");
     if (trimmed.len < 2 or trimmed[0] != '{') return .{};
@@ -428,14 +486,32 @@ fn parseClaudeJsonLine(line: []const u8, allocator: std.mem.Allocator) ClaudeJso
         else => return .{},
     };
     const type_str = jsonStringField(obj, "type") orelse return .{};
+    const parent = jsonParentToolUseId(obj);
+    var agent_id = jsonAgentToolUseIdFromMessage(obj);
     if (std.mem.eql(u8, type_str, "stream_event")) {
-        const event = jsonObjectField(obj, "event") orelse return .{};
-        const delta = jsonObjectField(event, "delta") orelse return .{};
-        const delta_type = jsonStringField(delta, "type") orelse return .{};
-        if (!std.mem.eql(u8, delta_type, "text_delta")) return .{};
-        const text = jsonStringField(delta, "text") orelse return .{};
-        if (text.len == 0) return .{};
-        return .{ .kind = .text_delta, .text = text };
+        const event = jsonObjectField(obj, "event") orelse {
+            if (parent.len == 0 and agent_id.len == 0) return .{};
+            return .{ .parent_tool_use_id = parent, .agent_tool_use_id = agent_id };
+        };
+        const stream_agent = jsonStreamEventAgentToolUseId(event);
+        if (stream_agent.len > 0) agent_id = stream_agent;
+        const delta = jsonObjectField(event, "delta");
+        if (delta) |d| {
+            const delta_type = jsonStringField(d, "type") orelse "";
+            if (std.mem.eql(u8, delta_type, "text_delta")) {
+                const text = jsonStringField(d, "text") orelse "";
+                if (text.len > 0) {
+                    return .{
+                        .kind = .text_delta,
+                        .text = text,
+                        .parent_tool_use_id = parent,
+                        .agent_tool_use_id = agent_id,
+                    };
+                }
+            }
+        }
+        if (parent.len == 0 and agent_id.len == 0) return .{};
+        return .{ .parent_tool_use_id = parent, .agent_tool_use_id = agent_id };
     }
     if (std.mem.eql(u8, type_str, "system")) {
         const subtype = jsonStringField(obj, "subtype") orelse return .{};
@@ -448,7 +524,16 @@ fn parseClaudeJsonLine(line: []const u8, allocator: std.mem.Allocator) ClaudeJso
         const session_id = jsonStringField(obj, "session_id") orelse "";
         const text = jsonStringField(obj, "result") orelse "";
         if (session_id.len == 0 and text.len == 0) return .{};
-        return .{ .kind = .result, .session_id = session_id, .text = text };
+        return .{
+            .kind = .result,
+            .session_id = session_id,
+            .text = text,
+            .parent_tool_use_id = parent,
+        };
+    }
+    if (std.mem.eql(u8, type_str, "assistant") or std.mem.eql(u8, type_str, "user")) {
+        if (parent.len == 0 and agent_id.len == 0) return .{};
+        return .{ .parent_tool_use_id = parent, .agent_tool_use_id = agent_id };
     }
     return .{};
 }
@@ -464,13 +549,22 @@ fn handleClaudeJsonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine
             store.persistIfPossible(model, session.id, fx);
         }
     }
+    if (parsed.parent_tool_use_id.len > 0) {
+        environment_summary.noteLiveSubagent(model, parsed.parent_tool_use_id);
+    }
+    if (parsed.agent_tool_use_id.len > 0) {
+        environment_summary.noteLiveSubagent(model, parsed.agent_tool_use_id);
+    }
+    const subagent = parsed.parent_tool_use_id.len > 0;
     switch (parsed.kind) {
         .ignore, .session => {},
         .text_delta => {
+            if (subagent) return;
             if (parsed.text.len == 0) return;
             model.appendToTurn(model.stream_turn_id, parsed.text);
         },
         .result => {
+            if (subagent) return;
             if (parsed.text.len == 0) return;
             if (model.turnById(model.stream_turn_id)) |turn| {
                 if (turn.body_len > 0) return;
@@ -1122,3 +1216,113 @@ test "claude json apply: result fallback only when no text_delta" {
     try testing.expectEqualStrings("only result", piJsonTurnText(&model, turn_id));
     try testing.expectEqualStrings("claude-fb-1", model.sessionById(sid).?.fxSessionId());
 }
+
+test "claude json parser: parent_tool_use_id does not append to main turn" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const delta = parseClaudeJsonLine(
+        "{\"type\":\"stream_event\",\"parent_tool_use_id\":\"toolu_sub_1\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"child hello\"}}}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.text_delta, delta.kind);
+    try testing.expectEqualStrings("child hello", delta.text);
+    try testing.expectEqualStrings("toolu_sub_1", delta.parent_tool_use_id);
+
+    const null_parent = parseClaudeJsonLine(
+        "{\"type\":\"stream_event\",\"parent_tool_use_id\":null,\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"main hello\"}}}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.text_delta, null_parent.kind);
+    try testing.expectEqualStrings("main hello", null_parent.text);
+    try testing.expectEqualStrings("", null_parent.parent_tool_use_id);
+
+    const assistant = parseClaudeJsonLine(
+        "{\"type\":\"assistant\",\"parent_tool_use_id\":\"toolu_sub_1\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"secret\"}]}}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.ignore, assistant.kind);
+    try testing.expectEqualStrings("toolu_sub_1", assistant.parent_tool_use_id);
+    try testing.expectEqualStrings("", assistant.text);
+
+    const agent = parseClaudeJsonLine(
+        "{\"type\":\"assistant\",\"parent_tool_use_id\":null,\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_agent_1\",\"name\":\"Agent\",\"input\":{}}]}}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.ignore, agent.kind);
+    try testing.expectEqualStrings("", agent.parent_tool_use_id);
+    try testing.expectEqualStrings("toolu_agent_1", agent.agent_tool_use_id);
+
+    const stream_agent = parseClaudeJsonLine(
+        "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_agent_2\",\"name\":\"Agent\"}}}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.ignore, stream_agent.kind);
+    try testing.expectEqualStrings("toolu_agent_2", stream_agent.agent_tool_use_id);
+
+    const bash = parseClaudeJsonLine(
+        "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_bash\",\"name\":\"Bash\"}]}}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.ignore, bash.kind);
+    try testing.expectEqualStrings("", bash.agent_tool_use_id);
+}
+
+test "claude json apply: parent_tool_use_id stays off the main turn and fills Subagent rows" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const sid = model.addSession("claude subagent", .claude);
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    model.fx_spawn_claude_json = true;
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"stream_event\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"Hel\"}}}",
+    });
+    try testing.expectEqualStrings("Hel", piJsonTurnText(&model, turn_id));
+    try testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"stream_event\",\"parent_tool_use_id\":\"toolu_sub_1\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"child\"}}}",
+    });
+    try testing.expectEqualStrings("Hel", piJsonTurnText(&model, turn_id));
+    try testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    try testing.expectEqualStrings("toolu_sub_1", model.background_subagents[0].parentId());
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"parent_tool_use_id\":\"toolu_sub_1\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"nope\"}]}}",
+    });
+    try testing.expectEqualStrings("Hel", piJsonTurnText(&model, turn_id));
+    try testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_agent_1\",\"name\":\"Agent\"}]}}",
+    });
+    try testing.expectEqualStrings("Hel", piJsonTurnText(&model, turn_id));
+    try testing.expectEqual(@as(u32, 2), model.background_subagent_count);
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"stream_event\",\"parent_tool_use_id\":null,\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}}",
+    });
+    try testing.expectEqualStrings("Hello", piJsonTurnText(&model, turn_id));
+
+    var buf: [environment_summary.max_background_rows]environment_summary.BackgroundRow = undefined;
+    const rows = environment_summary.fillBackgroundRows(&model, &buf);
+    try testing.expectEqual(@as(usize, 3), rows.len);
+    try testing.expectEqual(environment_summary.BackgroundKind.process, rows[0].kind);
+    try testing.expectEqual(environment_summary.BackgroundKind.subagent, rows[1].kind);
+    try testing.expectEqual(environment_summary.BackgroundKind.subagent, rows[2].kind);
+    try testing.expectEqualStrings(environment_summary.kind_subagent_label, rows[1].title);
+}
+
