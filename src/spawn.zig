@@ -2,7 +2,7 @@
 //!
 //! `startPrompt` path selection (daemon / fx acp / fx ask / probed
 //! ACP stdio via acp-proxy / Claude print-mode / Codex exec / Amp
-//! execute-mode / demo), StartOptions mapping, and
+//! execute-mode / Pi print-mode / demo), StartOptions mapping, and
 //! `takeFxAskSessionId` live here. Stream lifecycle lives in
 //! `stream.zig`. Line handlers live in `lines.zig`.
 //!
@@ -16,10 +16,12 @@
 //! not acp-proxy). Available Codex with no image attach is one-shot
 //! `{binary} exec {prompt}` (empty stdin, not ACP, not acp-proxy).
 //! Available Amp with no image attach is one-shot `{binary} -x
-//! {prompt}` (empty stdin, not ACP, not acp-proxy). `reply_path`
-//! stays `.fx` with `fx_spawn_acp = false` so stdout lines use the
-//! existing non-ACP `handleFxLine` path. Image attach on non-fx stays
-//! demo. Pi stays demo.
+//! {prompt}` (empty stdin, not ACP, not acp-proxy). Available Pi
+//! with no image attach is one-shot `{binary} -p {prompt}` (empty
+//! stdin, not ACP, not acp-proxy; `--print` is the long form).
+//! `reply_path` stays `.fx` with `fx_spawn_acp = false` so stdout
+//! lines use the existing non-ACP `handleFxLine` path. Image attach
+//! on non-fx stays demo.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -116,6 +118,17 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
         // `amp -x {prompt}`. Image attach stays demo.
         if (model.resolveSpawnImage().len == 0) {
             if (startAmpExecute(model, fx, session, text)) {
+                model.reply_path = .fx;
+                return;
+            }
+        }
+    }
+    if (session.provider == .pi and providers.isAvailable(model, .pi)) {
+        // Pi is not ACP. Official print mode is one-shot
+        // `pi -p {prompt}` (`--print` is the long form). Image
+        // attach stays demo.
+        if (model.resolveSpawnImage().len == 0) {
+            if (startPiPrint(model, fx, session, text)) {
                 model.reply_path = .fx;
                 return;
             }
@@ -495,6 +508,55 @@ pub fn startAmpExecute(model: *Model, fx: *Effects, session: *const Session, pro
     argv_buf[n] = binary;
     n += 1;
     argv_buf[n] = "-x";
+    n += 1;
+    argv_buf[n] = prompt;
+    n += 1;
+
+    model.fx_spawn_acp = false;
+    fx.spawn(.{
+        .key = allocateFxSpawnKey(model),
+        .argv = argv_buf[0..n],
+        .stdin = "",
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
+/// One-shot official Pi print mode: `{binary} -p {prompt}`. Prompt
+/// is an argv slot (documented `pi -p "query"`; `--print` is the
+/// long form). Empty stdin. Print mode prints the response and
+/// exits, so the existing non-ACP `handleFxLine` path is safe. Not
+/// ACP, not acp-proxy, not `--mode json`, not RPC, not `-a` /
+/// `--approve` / invented dangerously-* flags. Caller sets
+/// `reply_path` to `.fx` on success; `fx_spawn_acp` stays false.
+/// Project cwd reuses `fx_ask_chdir_script` (Native SpawnOptions
+/// has no cwd field). Empty binary is a no-op (PATH default is
+/// `pi`).
+pub fn startPiPrint(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) bool {
+    const binary = providers.binaryFor(model, .pi);
+    if (binary.len == 0) return false;
+    const cwd = model.resolveSpawnCwd(session);
+    model.setLastSpawnCwd(cwd);
+    model.setLastSpawnImagePath("");
+
+    var argv_buf: [16][]const u8 = undefined;
+    var n: usize = 0;
+    if (cwd.len > 0) {
+        argv_buf[n] = "/bin/sh";
+        n += 1;
+        argv_buf[n] = "-c";
+        n += 1;
+        argv_buf[n] = fx_ask_chdir_script;
+        n += 1;
+        argv_buf[n] = "sh";
+        n += 1;
+        argv_buf[n] = cwd;
+        n += 1;
+    }
+    argv_buf[n] = binary;
+    n += 1;
+    argv_buf[n] = "-p";
     n += 1;
     argv_buf[n] = prompt;
     n += 1;
@@ -903,21 +965,6 @@ test "codex unavailable stays demo" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "available pi stays demo" {
-    const testing = std.testing;
-    var fx = Effects.init(testing.allocator);
-    defer fx.deinit();
-    fx.executor = .fake;
-    var model = Model{};
-    model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
-    const session_id = model.addSession("still demo", .pi);
-    startPrompt(&model, &fx, session_id, "stay demo");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
-    try testing.expect(!model.fx_spawn_acp);
-    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
-    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
-}
-
 test "amp + cli_available selects execute-mode amp -x {prompt}" {
     const testing = std.testing;
     var fx = Effects.init(testing.allocator);
@@ -1079,6 +1126,174 @@ test "amp execute-mode reuses fx_ask_chdir_script when project cwd exists" {
     try testing.expect(binary_at > 0);
     try testing.expectEqual(binary_at + 1, x_at);
     try testing.expectEqual(x_at + 1, prompt_at);
+    try testing.expectEqualStrings(project, request.argv[binary_at - 1]);
+}
+
+test "pi + cli_available selects print-mode pi -p {prompt}" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    const id = model.addSession("pi thread", .pi);
+    model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
+
+    startPrompt(&model, &fx, id, "hello pi");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(testArgvHas(request.argv, "pi"));
+    try testing.expect(testArgvHas(request.argv, "-p"));
+    try testing.expect(testArgvHas(request.argv, "hello pi"));
+    try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(!testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "agent"));
+    try testing.expect(!testArgvHas(request.argv, "stdio"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+    try testing.expect(!testArgvHas(request.argv, "fx"));
+    try testing.expect(!testArgvHas(request.argv, "-x"));
+    try testing.expect(!testArgvHas(request.argv, "exec"));
+    try testing.expect(!testArgvHas(request.argv, "--print"));
+    try testing.expect(!testArgvHas(request.argv, "--output-format"));
+    try testing.expect(!testArgvHas(request.argv, "--mode"));
+    try testing.expect(!testArgvHas(request.argv, "json"));
+    try testing.expect(!testArgvHas(request.argv, "rpc"));
+    try testing.expect(!testArgvHas(request.argv, "-a"));
+    try testing.expect(!testArgvHas(request.argv, "--approve"));
+    try testing.expect(!testArgvHas(request.argv, "--dangerously-skip-permissions"));
+    try testing.expect(!testArgvHas(request.argv, "--dangerously-allow-all"));
+    try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expectEqualStrings("", request.stdin);
+    const binary_at = testArgvIndex(request.argv, "pi") orelse return error.MissingBinary;
+    const p_at = testArgvIndex(request.argv, "-p") orelse return error.MissingPrint;
+    const prompt_at = testArgvIndex(request.argv, "hello pi") orelse return error.MissingPrompt;
+    try testing.expectEqual(binary_at + 1, p_at);
+    try testing.expectEqual(p_at + 1, prompt_at);
+}
+
+test "pi unavailable stays demo" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    const id = model.addSession("pi missing", .pi);
+    startPrompt(&model, &fx, id, "no pi");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "fx path stays preferred when provider is fx even if pi is available" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
+    const id = model.addSession("fx first", .fx);
+
+    startPrompt(&model, &fx, id, "keep fx");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(testArgvHas(request.argv, "fx"));
+    try testing.expect(testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "pi"));
+    try testing.expect(!testArgvHas(request.argv, "-p"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+}
+
+test "fx session stays demo when fx is missing even if pi is available" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
+    const id = model.addSession("fx missing", .fx);
+    startPrompt(&model, &fx, id, "not pi");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "pi image attach stays demo" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/pi-shot.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
+    const id = model.addSession("pi image", .pi);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "pi print-mode reuses fx_ask_chdir_script when project cwd exists" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/pi-cwd", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("pi cwd", .pi);
+    model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    startPrompt(&model, &fx, id, "in project");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "/bin/sh"));
+    try testing.expect(testArgvHas(request.argv, "-c"));
+    try testing.expect(testArgvHas(request.argv, fx_ask_chdir_script));
+    try testing.expect(testArgvHas(request.argv, project));
+    const binary_at = testArgvIndex(request.argv, "pi") orelse return error.MissingBinary;
+    const p_at = testArgvIndex(request.argv, "-p") orelse return error.MissingPrint;
+    const prompt_at = testArgvIndex(request.argv, "in project") orelse return error.MissingPrompt;
+    try testing.expect(binary_at > 0);
+    try testing.expectEqual(binary_at + 1, p_at);
+    try testing.expectEqual(p_at + 1, prompt_at);
     try testing.expectEqualStrings(project, request.argv[binary_at - 1]);
 }
 

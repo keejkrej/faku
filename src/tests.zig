@@ -11234,7 +11234,8 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
 
     main.update(&model, .{ .select_provider = providers.rowId(.pi) }, &fx);
     tree = try buildTree(arena, &model);
-    try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.pi_transport_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) == null);
     try testing.expect(findTextContaining(tree.root, providers.amp_transport_note) == null);
     try testing.expect(findTextContaining(tree.root, providers.codex_transport_note) == null);
 
