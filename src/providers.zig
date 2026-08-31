@@ -8,13 +8,13 @@
 //! re-runs fx_probe and every non-fx probe. Selecting a row highlights
 //! and shows detail; Apply ("Use for this session") sets the selected
 //! chat session's `provider` and persists via `sessions.json`. New
-//! sessions stay `.fx`. Tests do not need a live daemon or any real
-//! CLI install.
+//! sessions stay `.fx`. Live Send for probed ACP `acp` providers
+//! (cursor today) is `spawn.startPrompt`; other non-fx ids stay demo.
+//! Tests do not need a live daemon or any real CLI install.
 //!
-//! Leftovers: install / sign-in / auto-detect onboarding; a live
-//! non-fx Send driver (`spawn.startPrompt` still falls through to the
-//! demo timer for non-fx); Appearance / Usage / Computer Use settings
-//! pages. Not Waku install/auth.
+//! Leftovers: install / sign-in / auto-detect onboarding; Claude /
+//! Codex / Amp / Pi / Grok / OpenCode native drivers; Appearance /
+//! Usage / Computer Use settings pages. Not Waku install/auth.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -29,9 +29,10 @@ pub const available_status = "Available";
 pub const missing_status = "Not found";
 pub const fx_available_status = available_status;
 pub const fx_missing_status = missing_status;
-pub const catalog_detail_note = "Status is a PATH --help probe. Not a live driver this cut.";
+pub const catalog_detail_note = "Status is a PATH --help probe. Send stays demo this cut.";
 pub const first_party_label = "First-party default";
 pub const fx_transport_note = "Live path is one-shot fx acp via acp-proxy.";
+pub const acp_transport_note = "Live Send is one-shot acp via acp-proxy when Available.";
 pub const apply_session_label = "Use for this session";
 
 /// Settings Providers row. `id` is 1-based `@intFromEnum(ProviderId)`
@@ -130,7 +131,7 @@ pub fn detailText(model: *const Model, arena: std.mem.Allocator) []const u8 {
         id.wireName(),
         id.defaultBinary(),
         statusFor(model, id),
-        catalog_detail_note,
+        if (id.speaksBareAcp()) acp_transport_note else catalog_detail_note,
     }) catch "";
 }
 
@@ -151,7 +152,7 @@ pub fn canApplyToSession(model: *const Model) bool {
 
 /// Sets the selected session's `provider` from the highlighted
 /// Providers row. No-op when there is no selected session or the row
-/// id is unknown. Does not start a live non-fx Send driver.
+/// id is unknown. Does not spawn; Send path is `spawn.startPrompt`.
 pub fn applyToSession(model: *Model) bool {
     const id = fromRowId(model.provider_selected_id) orelse return false;
     const session = model.sessionById(model.selected) orelse return false;
@@ -272,6 +273,21 @@ test "selectProvider; detail names binary, fx path, probe status, and one-shot a
     defer if (claude_ok.len > 0) testing.allocator.free(claude_ok);
     try testing.expect(std.mem.indexOf(u8, claude_ok, available_status) != null);
     try testing.expect(std.mem.indexOf(u8, claude_ok, catalog_detail_note) != null);
+    try testing.expect(std.mem.indexOf(u8, claude_ok, acp_transport_note) == null);
+
+    selectProvider(&model, rowId(.cursor));
+    try testing.expectEqual(rowId(.cursor), model.provider_selected_id);
+    const cursor_detail = detailText(&model, testing.allocator);
+    defer if (cursor_detail.len > 0) testing.allocator.free(cursor_detail);
+    try testing.expect(std.mem.indexOf(u8, cursor_detail, "cursor") != null);
+    try testing.expect(std.mem.indexOf(u8, cursor_detail, "cursor-agent") != null);
+    try testing.expect(std.mem.indexOf(u8, cursor_detail, acp_transport_note) != null);
+    try testing.expect(std.mem.indexOf(u8, cursor_detail, catalog_detail_note) == null);
+    try testing.expect(std.mem.indexOf(u8, cursor_detail, fx_transport_note) == null);
+
+    try testing.expect(protocol.ProviderId.cursor.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.claude.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.fx.speaksBareAcp());
 
     selectProvider(&model, 99);
     try testing.expectEqual(@as(u32, 0), model.provider_selected_id);

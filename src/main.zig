@@ -6,7 +6,10 @@
 //! set model/mode, session/prompt). The sidecar keeps fx stdin open and
 //! auto-answers `session/request_permission` from that run's access
 //! mode. Draft `image_path` still uses `fx ask --image` (ACP rejects
-//! image blocks). When `WAKU_DAEMON_ADDRESS` is set, Send instead
+//! image blocks). After the fx branch, probed ACP `acp` providers
+//! (cursor today) use the same acp-proxy path when `--help` is
+//! available; other non-fx ids and image attach stay the demo timer.
+//! When `WAKU_DAEMON_ADDRESS` is set, Send instead
 //! spawns a one-shot `daemon-proxy` sidecar (hello + attachSession +
 //! start + prompt when no runtime id; later sends keep attach + prompt).
 //! Stop / Esc of that daemon turn `fx.cancel`s the prompt spawn and

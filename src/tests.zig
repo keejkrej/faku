@@ -1248,6 +1248,80 @@ test "send with fx_available spawns one-shot fx acp and streams session/update t
     try testing.expect(!model.is_streaming());
 }
 
+test "send with cursor cli_available spawns acp-proxy cursor-agent acp and streams session/update" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.cursor)] = true;
+    const id = model.addSession("cursor send", .cursor);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "what does this repo do" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(argvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(request.argv, "--"));
+    try testing.expect(argvHas(request.argv, "cursor-agent"));
+    try testing.expect(argvHas(request.argv, "acp"));
+    try testing.expect(!argvHas(request.argv, "ask"));
+    try testing.expect(!argvHas(request.argv, "fx"));
+    try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    const binary_at = argvIndex(request.argv, "cursor-agent") orelse return error.MissingBinary;
+    const acp_at = argvIndex(request.argv, "acp") orelse return error.MissingAcp;
+    try testing.expectEqual(binary_at + 1, acp_at);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"initialize\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/new\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/set_mode\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "what does this repo do") != null);
+
+    const before_len = lastAssistant(&model).len;
+    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello from cursor acp\"}}}}");
+    drainEffects(&model, &fx);
+    try testing.expect(lastAssistant(&model).len > before_len);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from cursor acp") != null);
+
+    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+}
+
+test "send with cursor unavailable or claude available still starts the demo timer" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const cursor_id = model.addSession("cursor missing", .cursor);
+    model.selected = cursor_id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "no cursor-agent" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+
+    main.update(&model, .stop, &fx);
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    const claude_id = model.addSession("claude demo", .claude);
+    model.selected = claude_id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "stay demo" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
 test "fx acp session/new cwd is session project_path when it exists" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -10312,6 +10386,13 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     tree = try buildTree(arena, &model);
     try testing.expect(findTextContaining(tree.root, providers.available_status) != null);
     try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.acp_transport_note) == null);
+
+    main.update(&model, .{ .select_provider = providers.rowId(.cursor) }, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findTextContaining(tree.root, providers.acp_transport_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) == null);
     try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) == null);
 
     const refresh = try expectButtonMsg(tree, "Refresh", .refresh_providers);

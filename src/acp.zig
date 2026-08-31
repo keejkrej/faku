@@ -1,4 +1,5 @@
-//! Agent Client Protocol (ACP) JSON-RPC 2.0 helpers for one-shot `fx acp`.
+//! Agent Client Protocol (ACP) JSON-RPC 2.0 helpers for one-shot ACP
+//! via `acp-proxy` (`fx acp`, probed `cursor-agent acp`).
 //!
 //! Official methods (https://fx.sh/docs/using-fx/acp): initialize,
 //! session/new, session/load, session/resume, session/close, session/list,
@@ -7,7 +8,7 @@
 //! and one active prompt.
 //!
 //! Native `fx.spawn` writes one stdin buffer and closes it, so Send
-//! spawns `faku acp-proxy -- … fx acp`. The sidecar writes that same
+//! spawns `faku acp-proxy -- … {binary} acp`. The sidecar writes that same
 //! NDJSON batch (initialize, session/new or session/resume, then
 //! session/set_mode and/or session/set_config_option, then
 //! session/prompt) and keeps fx stdin open. Official ACP v1
