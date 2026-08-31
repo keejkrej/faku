@@ -10331,6 +10331,10 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) == null);
     try testing.expect(findByText(tree.root, .text, "Install") == null);
     try testing.expect(findByText(tree.root, .text, "Sign in") == null);
+    try testing.expect(findByText(tree.root, .button, providers.copy_install_label) == null);
+    try testing.expect(findByText(tree.root, .button, providers.copy_login_label) == null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_install_command) == null);
+    try testing.expect(findTextContaining(tree.root, providers.other_install_hint) == null);
     try testing.expect(findByText(tree.root, .text, "Catalog id only") == null);
     try testing.expect(findByText(tree.root, .button, providers.apply_session_label) == null);
 
@@ -10380,6 +10384,13 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     try testing.expect(findTextContaining(tree.root, "/home/probe/.local/bin/fx") != null);
     try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) == null);
     _ = try expectButtonMsg(tree, providers.apply_session_label, .apply_session_provider);
+    _ = try expectButtonMsg(tree, providers.copy_login_label, .copy_fx_login);
+    try testing.expect(findByText(tree.root, .button, providers.copy_install_label) == null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_login_command) != null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_login_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_login_codex_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_install_command) == null);
+    try testing.expect(findTextContaining(tree.root, providers.other_install_hint) == null);
 
     main.update(&model, .{ .select_provider = 2 }, &fx);
     try testing.expectEqual(@as(u32, 2), model.provider_selected_id);
@@ -10390,12 +10401,18 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) != null);
     try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) == null);
     try testing.expect(findTextContaining(tree.root, providers.acp_transport_note) == null);
+    try testing.expect(findByText(tree.root, .button, providers.copy_install_label) == null);
+    try testing.expect(findByText(tree.root, .button, providers.copy_login_label) == null);
+    try testing.expect(findTextContaining(tree.root, providers.other_install_hint) == null);
 
     main.update(&model, .{ .select_provider = providers.rowId(.cursor) }, &fx);
     tree = try buildTree(arena, &model);
     try testing.expect(findTextContaining(tree.root, providers.acp_transport_note) != null);
     try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) == null);
     try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.other_install_hint) != null);
+    try testing.expect(findByText(tree.root, .button, providers.copy_install_label) == null);
+    try testing.expect(findByText(tree.root, .button, providers.copy_login_label) == null);
 
     const refresh = try expectButtonMsg(tree, "Refresh", .refresh_providers);
     main.update(&model, tree.msgForPointer(refresh.id, .up).?, &fx);
@@ -10481,6 +10498,83 @@ test "settings Providers Use for this session applies to selected session and pe
     main.update(&model, .apply_session_provider, &fx);
     try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
     try testing.expectEqual(main.Provider.claude, model.session_store[1].provider);
+}
+
+test "settings Providers fx copy install when missing, copy login when available; other missing is PATH hint" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expect(!model.fx_available);
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_providers, &fx);
+    const probes_after_open = fx.pendingSpawnCount();
+
+    main.update(&model, .{ .select_provider = 1 }, &fx);
+    try testing.expect(model.can_copy_fx_install());
+    try testing.expect(!model.can_copy_fx_login());
+    try testing.expect(!model.has_other_install_hint());
+    try testing.expect(model.can_apply_session_provider());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, providers.copy_install_label, .copy_fx_install);
+    try testing.expect(findByText(tree.root, .button, providers.copy_login_label) == null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_install_command) != null);
+    try testing.expect(findTextContaining(tree.root, providers.other_install_hint) == null);
+    _ = try expectButtonMsg(tree, providers.apply_session_label, .apply_session_provider);
+
+    const install = try expectButtonMsg(tree, providers.copy_install_label, .copy_fx_install);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    main.update(&model, tree.msgForPointer(install.id, .up).?, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try testing.expectEqual(probes_after_open, fx.pendingSpawnCount());
+    const written_install = fx.pendingClipboardAt(0).?;
+    try testing.expectEqual(main.copy_turn_key, written_install.key);
+    try testing.expectEqual(native_sdk.EffectClipboardOp.write, written_install.op);
+    try testing.expectEqualStrings("curl -fsSL https://fx.sh/setup.sh | bash", written_install.text);
+    try testing.expectEqualStrings(providers.fx_install_command, written_install.text);
+
+    model.fx_available = true;
+    model.setFxPath("/tmp/faku-fx-login");
+    try testing.expect(!model.can_copy_fx_install());
+    try testing.expect(model.can_copy_fx_login());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, providers.copy_login_label, .copy_fx_login);
+    try testing.expect(findByText(tree.root, .button, providers.copy_install_label) == null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_login_command) != null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_login_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_login_codex_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_install_command) == null);
+    _ = try expectButtonMsg(tree, providers.apply_session_label, .apply_session_provider);
+
+    var login_fx = Effects.init(testing.allocator);
+    defer login_fx.deinit();
+    login_fx.executor = .fake;
+    const login = try expectButtonMsg(tree, providers.copy_login_label, .copy_fx_login);
+    main.update(&model, tree.msgForPointer(login.id, .up).?, &login_fx);
+    try testing.expectEqual(@as(usize, 1), login_fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), login_fx.pendingSpawnCount());
+    const written_login = login_fx.pendingClipboardAt(0).?;
+    try testing.expectEqual(main.copy_turn_key, written_login.key);
+    try testing.expectEqual(native_sdk.EffectClipboardOp.write, written_login.op);
+    try testing.expectEqualStrings("fx login", written_login.text);
+    try testing.expectEqualStrings(providers.fx_login_command, written_login.text);
+
+    main.update(&model, .{ .select_provider = providers.rowId(.codex) }, &fx);
+    try testing.expect(!model.can_copy_fx_install());
+    try testing.expect(!model.can_copy_fx_login());
+    try testing.expect(model.has_other_install_hint());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, providers.copy_install_label) == null);
+    try testing.expect(findByText(tree.root, .button, providers.copy_login_label) == null);
+    try testing.expect(findTextContaining(tree.root, providers.other_install_hint) != null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_install_command) == null);
+    _ = try expectButtonMsg(tree, providers.apply_session_label, .apply_session_provider);
 }
 
 test "settings edits persist model access and daemon address and reload" {

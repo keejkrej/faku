@@ -231,6 +231,14 @@ pub fn handleApplySessionProvider(model: *Model, fx: *Effects) void {
     store.persistIfPossible(model, model.selected, fx);
 }
 
+pub fn handleCopyFxInstall(model: *Model, fx: *Effects) void {
+    providers.copyFxInstall(model, fx);
+}
+
+pub fn handleCopyFxLogin(model: *Model, fx: *Effects) void {
+    providers.copyFxLogin(model, fx);
+}
+
 pub fn handleSkillsFilterEdit(model: *Model, edit: canvas.TextInputEvent) void {
     model.applySkillsFilter(edit);
 }

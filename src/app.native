@@ -215,6 +215,19 @@
                 </for>
                 <if test="{has_provider_detail}">
                   <text wrap="true">{provider_detail}</text>
+                  <if test="{can_copy_fx_install}">
+                    <text wrap="true" foreground="text_muted">{fx_install_command}</text>
+                    <button variant="ghost" size="sm" on-press="copy_fx_install">Copy install command</button>
+                  </if>
+                  <if test="{can_copy_fx_login}">
+                    <text wrap="true" foreground="text_muted">{fx_login_command}</text>
+                    <text wrap="true" foreground="text_muted">{fx_login_note}</text>
+                    <text wrap="true" foreground="text_muted">{fx_login_codex_note}</text>
+                    <button variant="ghost" size="sm" on-press="copy_fx_login">Copy login command</button>
+                  </if>
+                  <if test="{has_other_install_hint}">
+                    <text wrap="true" foreground="text_muted">{other_install_hint}</text>
+                  </if>
                   <if test="{can_apply_session_provider}">
                     <button variant="ghost" size="sm" on-press="apply_session_provider">Use for this session</button>
                   </if>

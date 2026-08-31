@@ -409,6 +409,10 @@ pub const Msg = union(enum) {
     select_skill: u32,
     select_provider: u32,
     apply_session_provider,
+    /// Settings Providers: copy verified fx install command. Clipboard only.
+    copy_fx_install,
+    /// Settings Providers: copy `fx login`. Clipboard only; not OAuth.
+    copy_fx_login,
     cycle_access,
     cycle_interaction,
     cycle_effort,
@@ -2429,6 +2433,43 @@ pub const Model = struct {
 
     pub fn can_apply_session_provider(model: *const Model) bool {
         return model.settings_page == .providers and providers.canApplyToSession(model);
+    }
+
+    pub fn can_copy_fx_install(model: *const Model) bool {
+        return model.settings_page == .providers and providers.canCopyFxInstall(model);
+    }
+
+    pub fn can_copy_fx_login(model: *const Model) bool {
+        return model.settings_page == .providers and providers.canCopyFxLogin(model);
+    }
+
+    pub fn has_other_install_hint(model: *const Model) bool {
+        return model.settings_page == .providers and providers.showsOtherInstallHint(model);
+    }
+
+    pub fn fx_install_command(model: *const Model) []const u8 {
+        _ = model;
+        return providers.fx_install_command;
+    }
+
+    pub fn fx_login_command(model: *const Model) []const u8 {
+        _ = model;
+        return providers.fx_login_command;
+    }
+
+    pub fn fx_login_note(model: *const Model) []const u8 {
+        _ = model;
+        return providers.fx_login_note;
+    }
+
+    pub fn fx_login_codex_note(model: *const Model) []const u8 {
+        _ = model;
+        return providers.fx_login_codex_note;
+    }
+
+    pub fn other_install_hint(model: *const Model) []const u8 {
+        _ = model;
+        return providers.other_install_hint;
     }
 
     pub fn provider_detail(model: *const Model, arena: std.mem.Allocator) []const u8 {

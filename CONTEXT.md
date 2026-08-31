@@ -37,7 +37,7 @@ send circle.
 | **hydrateSession** | Daemon transcript fill when the local transcript is empty. Local turns win. |
 | **argv slot** | Every flag and operand is its own spawn argument. Never interpolate into the chdir `-c` script. |
 | **right panel** | First-cut Files + Diff pane to the right of the conversation. Default closed. |
-| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP `acp` providers (cursor today) uses the same one-shot acp-proxy as fx; other ids stay demo. Not Waku install/auth/onboarding. |
+| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP `acp` providers (cursor today) uses the same one-shot acp-proxy as fx; other ids stay demo. fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
 
 Avoid: calling ACP a live WebSocket; treating the daemon as the catalog
@@ -195,11 +195,18 @@ opencode, cursor, pi). fx is the first-party default: status is
 PATH `{defaultBinary()} --help` (no `~/.local/bin/<binary>` fallback
 this cut) and show `Available` / `Not found` when that exit lands.
 Refresh re-runs the fx probe and every non-fx probe. Open starts
-non-fx probes only. Not install/sign-in, not Send enable toggles.
+non-fx probes only. Not full onboarding / OAuth / auto-install, not
+Send enable toggles.
+
 Selecting a row highlights and shows a short blurb (name, binary, fx
 path when applicable, probe status, and that live Send is one-shot
 `acp` via acp-proxy for fx and probed ACP `acp` providers; other ids
-stay demo). Apply ("Use for this session") sets the selected chat
+stay demo). fx Not found shows **Copy install command** (clipboard
+`curl -fsSL https://fx.sh/setup.sh | bash`; never auto-run). fx
+Available shows **Copy login command** (`fx login`; Faku does not
+detect auth from `--help`; optional note `fx login codex`). Other
+ids when Not found show a muted PATH hint only (no invented install
+URLs). Apply ("Use for this session") sets the selected chat
 session's `provider` and persists via `sessions.json`. New sessions
 stay fx. Runtime-only catalog.
 
@@ -236,7 +243,8 @@ live watch.
 
 Honest gaps this cut does not implement:
 
-- Install / sign-in / onboarding for any provider
+- Full onboarding / OAuth / auto-install (fx install/login copy
+  ships; other CLIs get a PATH hint only)
 - Native drivers for Claude, Codex, Amp, Pi (non-ACP in Waku), Grok
   (`agent … stdio`), OpenCode (HTTP/SSE). Kimi is not in `ProviderId`
 - Appearance / Usage / Computer Use settings pages

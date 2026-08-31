@@ -541,6 +541,8 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .select_skill => |id| settings_actions.handleSelectSkill(model, id),
         .select_provider => |id| settings_actions.handleSelectProvider(model, id),
         .apply_session_provider => settings_actions.handleApplySessionProvider(model, fx),
+        .copy_fx_install => settings_actions.handleCopyFxInstall(model, fx),
+        .copy_fx_login => settings_actions.handleCopyFxLogin(model, fx),
         .cycle_access => settings_actions.handleCycleAccess(model, fx),
         .cycle_interaction => settings_actions.handleCycleInteraction(model, fx),
         .cycle_effort => settings_actions.handleCycleEffort(model, fx),
