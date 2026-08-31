@@ -9,16 +9,18 @@
 //! and shows detail; Apply ("Use for this session") sets the selected
 //! chat session's `provider` and persists via `sessions.json`. New
 //! sessions stay `.fx`. Live Send for probed ACP stdio providers
-//! (cursor, opencode, grok) is `spawn.startPrompt`; other non-fx ids
-//! stay demo. fx Not found copies the verified `https://fx.sh` install
+//! (cursor, opencode, grok) is `spawn.startPrompt`; Available Claude
+//! is one-shot print-mode (`claude -p --output-format text`). Other
+//! non-fx ids stay demo. fx Not found copies the verified `https://fx.sh` install
 //! command via `fx.writeClipboard` (never auto-runs `setup.sh`). fx
 //! Available copies `fx login` the same way — convenience copy, not
 //! auth-state detection or OAuth UI. Other missing CLIs get a muted
 //! PATH hint only (no invented install URLs). Tests do not need a live
 //! daemon or any real CLI install.
 //!
-//! Leftovers: full onboarding / OAuth / auto-install; Claude /
-//! Codex / Amp / Pi native drivers. Appearance theme, Usage, and
+//! Leftovers: full onboarding / OAuth / auto-install; Codex /
+//! Amp / Pi native drivers. Claude print-mode ships this cut (not ACP,
+//! not stream-json, not permissions bypass). Appearance theme, Usage, and
 //! Computer Use first-cut pages ship (Computer Use is Unavailable /
 //! Off; no Native helper). Not Waku install/auth.
 
@@ -41,6 +43,7 @@ pub const first_party_label = "First-party default";
 pub const fx_transport_note = "Live path is one-shot fx acp via acp-proxy.";
 pub const acp_transport_note = "Live Send is one-shot acp via acp-proxy when Available.";
 pub const grok_transport_note = "Live Send is one-shot grok agent stdio via acp-proxy when Available.";
+pub const claude_transport_note = "Live Send is one-shot claude -p --output-format text when Available.";
 pub const apply_session_label = "Use for this session";
 /// Verified from https://fx.sh and vercel-labs/fx README. Copied
 /// to the clipboard; never spawned as a shell that runs setup.sh.
@@ -147,6 +150,8 @@ pub fn detailText(model: *const Model, arena: std.mem.Allocator) []const u8 {
     }
     const note = if (id == .grok)
         grok_transport_note
+    else if (id == .claude)
+        claude_transport_note
     else if (id.speaksBareAcp())
         acp_transport_note
     else
@@ -322,14 +327,17 @@ test "selectProvider; detail names binary, fx path, probe status, and one-shot a
     defer if (claude_detail.len > 0) testing.allocator.free(claude_detail);
     try testing.expect(std.mem.indexOf(u8, claude_detail, "claude") != null);
     try testing.expect(std.mem.indexOf(u8, claude_detail, missing_status) != null);
-    try testing.expect(std.mem.indexOf(u8, claude_detail, catalog_detail_note) != null);
+    try testing.expect(std.mem.indexOf(u8, claude_detail, claude_transport_note) != null);
+    try testing.expect(std.mem.indexOf(u8, claude_detail, catalog_detail_note) == null);
     try testing.expect(std.mem.indexOf(u8, claude_detail, fx_transport_note) == null);
+    try testing.expect(std.mem.indexOf(u8, claude_detail, acp_transport_note) == null);
 
     model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
     const claude_ok = detailText(&model, testing.allocator);
     defer if (claude_ok.len > 0) testing.allocator.free(claude_ok);
     try testing.expect(std.mem.indexOf(u8, claude_ok, available_status) != null);
-    try testing.expect(std.mem.indexOf(u8, claude_ok, catalog_detail_note) != null);
+    try testing.expect(std.mem.indexOf(u8, claude_ok, claude_transport_note) != null);
+    try testing.expect(std.mem.indexOf(u8, claude_ok, catalog_detail_note) == null);
     try testing.expect(std.mem.indexOf(u8, claude_ok, acp_transport_note) == null);
 
     selectProvider(&model, rowId(.cursor));
@@ -364,6 +372,7 @@ test "selectProvider; detail names binary, fx path, probe status, and one-shot a
     try testing.expect(std.mem.indexOf(u8, grok_detail, catalog_detail_note) == null);
     try testing.expect(std.mem.indexOf(u8, grok_detail, acp_transport_note) == null);
     try testing.expect(std.mem.indexOf(u8, grok_detail, fx_transport_note) == null);
+    try testing.expect(std.mem.indexOf(u8, grok_detail, claude_transport_note) == null);
 
     try testing.expect(protocol.ProviderId.cursor.speaksBareAcp());
     try testing.expect(protocol.ProviderId.opencode.speaksBareAcp());

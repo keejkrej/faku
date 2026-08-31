@@ -1444,7 +1444,7 @@ test "send with grok unavailable still starts the demo timer" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "send with cursor unavailable or claude available still starts the demo timer" {
+test "send with cursor unavailable still starts the demo timer" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -1460,15 +1460,64 @@ test "send with cursor unavailable or claude available still starts the demo tim
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
 
-    main.update(&model, .stop, &fx);
+test "send with claude cli_available spawns print-mode and streams stdout as assistant text" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setSidecarPath("faku");
     model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
-    const claude_id = model.addSession("claude demo", .claude);
-    model.selected = claude_id;
-    main.update(&model, .{ .draft_edit = .{ .insert_text = "stay demo" } }, &fx);
+    const id = model.addSession("claude send", .claude);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "what does this repo do" } }, &fx);
     main.update(&model, .send, &fx);
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
-    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(argvHas(request.argv, "claude"));
+    try testing.expect(argvHas(request.argv, "-p"));
+    try testing.expect(argvHas(request.argv, "--output-format"));
+    try testing.expect(argvHas(request.argv, "text"));
+    try testing.expect(argvHas(request.argv, "what does this repo do"));
+    try testing.expect(!argvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(!argvHas(request.argv, "acp"));
+    try testing.expect(!argvHas(request.argv, "agent"));
+    try testing.expect(!argvHas(request.argv, "stdio"));
+    try testing.expect(!argvHas(request.argv, "ask"));
+    try testing.expect(!argvHas(request.argv, "fx"));
+    try testing.expect(!argvHas(request.argv, "--dangerously-skip-permissions"));
+    try testing.expect(!argvHas(request.argv, "--always-approve"));
+    try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expectEqualStrings("", request.stdin);
+    const binary_at = argvIndex(request.argv, "claude") orelse return error.MissingBinary;
+    const p_at = argvIndex(request.argv, "-p") orelse return error.MissingPrint;
+    const format_at = argvIndex(request.argv, "--output-format") orelse return error.MissingFormat;
+    const text_at = argvIndex(request.argv, "text") orelse return error.MissingText;
+    const prompt_at = argvIndex(request.argv, "what does this repo do") orelse return error.MissingPrompt;
+    try testing.expectEqual(binary_at + 1, p_at);
+    try testing.expectEqual(p_at + 1, format_at);
+    try testing.expectEqual(format_at + 1, text_at);
+    try testing.expectEqual(text_at + 1, prompt_at);
+
+    const before_len = lastAssistant(&model).len;
+    try fx.feedLine(main.fx_ask_key, "hello from claude print-mode");
+    drainEffects(&model, &fx);
+    try testing.expect(lastAssistant(&model).len > before_len);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from claude print-mode") != null);
+
+    try fx.feedExit(main.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
 }
 
 test "fx acp session/new cwd is session project_path when it exists" {
@@ -11011,7 +11060,8 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     try testing.expectEqualStrings("fx", model.selected_provider());
     tree = try buildTree(arena, &model);
     try testing.expect(findTextContaining(tree.root, providers.available_status) != null);
-    try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.claude_transport_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) == null);
     try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) == null);
     try testing.expect(findTextContaining(tree.root, providers.acp_transport_note) == null);
     try testing.expect(findByText(tree.root, .button, providers.copy_install_label) == null);

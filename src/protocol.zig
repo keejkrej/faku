@@ -224,9 +224,10 @@ pub const ProviderId = enum {
 
     /// True when this id speaks ACP stdio with a bare `acp` subcommand
     /// (`cursor-agent acp`, official `opencode acp`). fx stays on the
-    /// first-party branch. Not Claude/Codex/Amp/Pi native drivers, not
-    /// Grok `agent stdio`. Kimi is not in this enum. Easy to extend
-    /// later.
+    /// first-party branch. Not Claude print-mode (that is a separate
+    /// one-shot `-p --output-format text` spawn, not ACP). Not
+    /// Codex/Amp/Pi native drivers, not Grok `agent stdio`. Kimi is
+    /// not in this enum. Easy to extend later.
     pub fn speaksBareAcp(id: ProviderId) bool {
         return switch (id) {
             .cursor, .opencode => true,
