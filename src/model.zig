@@ -427,6 +427,7 @@ pub const Msg = union(enum) {
     set_settings_page_appearance,
     set_settings_page_providers,
     set_settings_page_skills,
+    set_settings_page_usage,
     settings_theme_system,
     settings_theme_light,
     settings_theme_dark,
@@ -695,8 +696,8 @@ pub const Model = struct {
     right_panel_expanded_store: [file_mention.max_file_mention_dirs]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** file_mention.max_file_mention_dirs,
     right_panel_expanded_count: u32 = 0,
     settings_open: bool = false,
-    /// Runtime-only Settings General | Appearance | Providers | Skills
-    /// page. Default General. Not persisted to sessions.json.
+    /// Runtime-only Settings General | Appearance | Providers | Skills |
+    /// Usage page. Default General. Not persisted to sessions.json.
     settings_page: skills.Page = .general,
     /// Persisted chrome theme. Default System (OS-follow).
     theme_preference: ThemePreference = .system,
@@ -2458,6 +2459,10 @@ pub const Model = struct {
         return model.settings_page == .skills;
     }
 
+    pub fn settings_page_usage(model: *const Model) bool {
+        return model.settings_page == .usage;
+    }
+
     pub fn theme_system(model: *const Model) bool {
         return model.theme_preference == .system;
     }
@@ -3069,6 +3074,23 @@ pub const Model = struct {
     pub fn has_context_usage(model: *const Model) bool {
         const session = model.sessionByIdConst(model.selected) orelse return false;
         return session.context_size > 0;
+    }
+
+    /// Settings Usage context window. Empty with no selected session or
+    /// when `context_size == 0` (ACP has not reported a window).
+    pub fn context_usage_label(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        const session = model.sessionByIdConst(model.selected) orelse return "";
+        var buf: [48]u8 = undefined;
+        const label = session.contextUsageLabel(&buf);
+        if (label.len == 0) return "";
+        const out = arena.alloc(u8, label.len) catch return "";
+        @memcpy(out, label);
+        return out;
+    }
+
+    /// Settings Usage identity. Same untitled chrome as the header.
+    pub fn settings_usage_session_label(model: *const Model) []const u8 {
+        return model.header_title();
     }
 
     /// Send circle is primary only while there is something to send.

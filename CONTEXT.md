@@ -40,6 +40,7 @@ send circle.
 | **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP `acp` providers (cursor today) uses the same one-shot acp-proxy as fx; other ids stay demo. fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
 | **Settings Appearance** | Settings page for chrome theme preference: System (follow OS `on_appearance`), Light, or Dark. Default System. Persists `theme_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. No language selector this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
+| **Settings Usage** | Settings page showing the selected session's local context window (`context_used` / `context_size` from ACP `usage_update`) and thread-goal tokens (`threadGoalUsageLabel`). Read-only. Not daemon `LoadUsageHistory`, not a cost chart, not Daily / Monthly / Projects. |
 
 Avoid: calling ACP a live WebSocket; treating the daemon as the catalog
 of record; inventing Native git / pick-file / maximize / caret / PTY /
@@ -188,7 +189,7 @@ Monitor / Subagent kinds.
 
 ## Settings Providers
 
-The settings gear chrome is General | Appearance | Providers | Skills. Providers
+The settings gear chrome is General | Appearance | Providers | Skills | Usage. Providers
 lists every `protocol.ProviderId` (fx, claude, codex, amp, grok,
 opencode, cursor, pi). fx is the first-party default: status is
 `Available` + probed path or `Not found` from the existing boot
@@ -221,10 +222,22 @@ pixel-snap geometry stays off. Preference persists as
 `theme_preference` on `sessions.json` extras (`system` / `light` /
 `dark`). Missing or unknown loads as System. No language selector.
 
+## Settings Usage
+
+First-cut local meters for the selected session only. Context window
+uses `Session.context_used` / `Session.context_size` (ACP
+`usage_update`; compact `12.4k / 200k`). `context_size == 0` is an
+honest empty: "No context usage reported yet". Thread goal tokens
+reuse `threadGoalUsageLabel()` (`12k/100k · 3m`); missing fields stay
+"No thread goal usage". Identity is the session header title. Persist
+is already on `sessions.json`; this page is display-only. Not daemon
+`LoadUsageHistory`, not a dollar chart, not Daily / Monthly / Projects
+tabs.
+
 ## Settings Skills scan
 
 The settings gear opens a panel for persisted defaults. A runtime-only
-General | Appearance | Providers | Skills switch lists project `SKILL.md` files from
+General | Appearance | Providers | Skills | Usage switch lists project `SKILL.md` files from
 a bounded one-shot `find` (selected session `project_path`, else last
 project path). Name is YAML `name:` when present, else the parent
 folder. Selecting a row shows the body with frontmatter stripped.
@@ -258,8 +271,11 @@ Honest gaps this cut does not implement:
   ships; other CLIs get a PATH hint only)
 - Native drivers for Claude, Codex, Amp, Pi (non-ACP in Waku), Grok
   (`agent … stdio`), OpenCode (HTTP/SSE). Kimi is not in `ProviderId`
-- Usage / Computer Use settings pages; language selector (Appearance
-  theme preference ships: System / Light / Dark)
+- Usage history from daemon `LoadUsageHistory`, cost / dollar chart,
+  Daily / Monthly / Projects tabs (Settings Usage ships local context
+  + thread-goal tokens for the selected session). Computer Use
+  settings page; language selector (Appearance theme preference ships:
+  System / Light / Dark)
 - Monitor / Subagent Background (Environment Summary is Process +
   last-turn settle only)
 - Further `main.zig` extract (`update` / `initFx` / `initialModel`
