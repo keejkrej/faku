@@ -626,11 +626,11 @@ pub const Model = struct {
     git_commit_active: bool = false,
     /// Runtime-only header Environment dropdown. Not persisted.
     environment_summary_open: bool = false,
-    /// Cap-1 last-turn Background settle. Runtime-only; not
-    /// sessions.json / drafts.json. Keyed by session id so
-    /// switching hides another session's row without clearing
-    /// it; a new settle overwrites. Cleared when that session
-    /// is removed.
+    /// Cap-1 last-turn Background Process settle. Runtime-only; not
+    /// sessions.json / drafts.json. Feeds the Process slot of
+    /// `background_rows`. Keyed by session id so switching hides
+    /// another session's row without clearing it; a new settle
+    /// overwrites. Cleared when that session is removed.
     background_settled: environment_summary.SettledStatus = .none,
     background_settled_session: u32 = 0,
     /// Runtime-only Environment Compare Review card. Not persisted.
@@ -1151,6 +1151,7 @@ pub const Model = struct {
         "background_settled",
         "background_settled_session",
         "has_settled_background",
+        "background_settled_status",
         "queued_store",
         "queued_count",
         "next_queued_id",
@@ -3055,6 +3056,12 @@ pub const Model = struct {
     /// (`is_streaming`) or the selected session's last-turn settle.
     pub fn has_background_section(model: *const Model) bool {
         return environment_summary.hasBackgroundSection(model);
+    }
+
+    /// Visible Background registry rows (Process from stream/settle
+    /// this cut). Native `for each="background_rows"`.
+    pub fn background_rows(model: *const Model, arena: std.mem.Allocator) []const environment_summary.BackgroundRow {
+        return environment_summary.backgroundRows(model, arena);
     }
 
     /// Visible settled last-turn row (idle, selected session).

@@ -19165,12 +19165,17 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     try testing.expect(findByText(tree.root, .menu_item, "Copy agent CLI thread ID") == null);
     try testing.expect(findByText(tree.root, .text, "Background") == null);
     try testing.expect(findByText(tree.root, .text, "Agent turn") == null);
+    try testing.expect(findByText(tree.root, .text, "Process") == null);
+    try testing.expect(findByText(tree.root, .text, "Monitor") == null);
+    try testing.expect(findByText(tree.root, .text, "Subagent") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Compare branch") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_commit_or_push").? < std.mem.indexOf(u8, main.app_markup, "menu-item on-press=\"environment_compare\"").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "menu-item on-press=\"environment_compare\"").? < std.mem.indexOf(u8, main.app_markup, "environment_copy_task_id").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_copy_task_id").? < std.mem.indexOf(u8, main.app_markup, "environment_copy_agent_thread_id").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_copy_agent_thread_id").? < std.mem.indexOf(u8, main.app_markup, "environment_stop_background").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "for each=\"background_rows\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.kind_label}").? < std.mem.indexOf(u8, main.app_markup, "{b.title}").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"environment_compare\">{header_git_numstat_label}").? < std.mem.indexOf(u8, main.app_markup, "menu-item on-press=\"environment_compare\"").?);
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
@@ -19206,6 +19211,9 @@ test "Environment Background Stop appears while streaming and reuses composer St
     var tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "Background") == null);
     try testing.expect(findByText(tree.root, .text, "Agent turn") == null);
+    try testing.expect(findByText(tree.root, .text, "Process") == null);
+    try testing.expect(findByText(tree.root, .text, "Monitor") == null);
+    try testing.expect(findByText(tree.root, .text, "Subagent") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
     main.update(&model, .close_environment_summary, &fx);
 
@@ -19226,11 +19234,14 @@ test "Environment Background Stop appears while streaming and reuses composer St
     try testing.expect(model.environment_summary_open);
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Background");
+    _ = try expectByText(tree.root, .text, "Process");
     _ = try expectByText(tree.root, .text, "Agent turn");
     const stop_agent = try expectByText(tree.root, .menu_item, "Stop agent");
     try testing.expectEqual(Msg.environment_stop_background, tree.msgForPointer(stop_agent.id, .up).?);
     _ = try expectByText(tree.root, .menu_item, "Copy task ID");
     try testing.expect(findByText(tree.root, .menu_item, "Copy agent CLI thread ID") == null);
+    try testing.expect(findByText(tree.root, .text, "Monitor") == null);
+    try testing.expect(findByText(tree.root, .text, "Subagent") == null);
 
     main.update(&model, tree.msgForPointer(stop_agent.id, .up).?, &fx);
     try testing.expect(!model.environment_summary_open);
@@ -19250,9 +19261,12 @@ test "Environment Background Stop appears while streaming and reuses composer St
     main.update(&model, .toggle_environment_summary, &fx);
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Background");
+    _ = try expectByText(tree.root, .text, "Process");
     _ = try expectByText(tree.root, .text, "Agent turn");
     _ = try expectByText(tree.root, .text, "Stopped");
     try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
+    try testing.expect(findByText(tree.root, .text, "Monitor") == null);
+    try testing.expect(findByText(tree.root, .text, "Subagent") == null);
 }
 
 test "Environment Background settles Completed on a finished turn with no queue" {
@@ -19280,9 +19294,12 @@ test "Environment Background settles Completed on a finished turn with no queue"
     main.update(&model, .toggle_environment_summary, &fx);
     const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Background");
+    _ = try expectByText(tree.root, .text, "Process");
     _ = try expectByText(tree.root, .text, "Agent turn");
     _ = try expectByText(tree.root, .text, "Completed");
     try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
+    try testing.expect(findByText(tree.root, .text, "Monitor") == null);
+    try testing.expect(findByText(tree.root, .text, "Subagent") == null);
 }
 
 test "Environment Commit or Push opens the commit card on a clean tree; composer Commit… stays gated" {
