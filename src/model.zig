@@ -1082,6 +1082,12 @@ pub const Model = struct {
     /// prose. When true, `handleFxLine` routes to the Pi JSON parser
     /// (live `text_delta`; raw JSON is not dumped into the transcript).
     fx_spawn_pi_json: bool = false,
+    /// Claude print-mode `--output-format stream-json` stdout is NDJSON
+    /// events, not assistant prose. When true, `handleFxLine` routes to
+    /// the Claude JSON parser (live `stream_event` / `text_delta`; raw
+    /// JSON is not dumped into the transcript). Distinct from
+    /// `fx_spawn_pi_json` — Claude's wire format is not Pi's.
+    fx_spawn_claude_json: bool = false,
     /// Journaled wall-clock ms from `fx.wallMs` (or a test pin). 0 means
     /// grouping treats missing `updated_at` as Today and relative-time
     /// labels stay omitted.
@@ -1552,6 +1558,7 @@ pub const Model = struct {
         "fx_spawn_live",
         "fx_spawn_acp",
         "fx_spawn_pi_json",
+        "fx_spawn_claude_json",
         "daemonAddress",
         "setDaemonAddress",
         "lastDaemonAddress",

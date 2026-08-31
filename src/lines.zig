@@ -1,12 +1,14 @@
 //! Sidecar stdout / ACP / daemon line handlers and fx-exit routing.
 //!
 //! `handleFxLine` / `handleAcpLine` / `handlePiJsonLine` /
-//! `handleDaemonLine`, ACP apply helpers, daemon goalUpdated apply,
-//! and `handleFxExit` live here. Maximize spawn/exit helpers live in
-//! `maximize_window.zig`. Probe helpers live in `fx_probe.zig`. Stream
-//! finish still comes from `stream.zig`. Behavior is unchanged from
-//! the former `main` line handlers except Pi `--mode json` stdout,
-//! which is parsed as JSON events instead of appended as prose.
+//! `handleClaudeJsonLine` / `handleDaemonLine`, ACP apply helpers,
+//! daemon goalUpdated apply, and `handleFxExit` live here. Maximize
+//! spawn/exit helpers live in `maximize_window.zig`. Probe helpers
+//! live in `fx_probe.zig`. Stream finish still comes from
+//! `stream.zig`. Behavior is unchanged from the former `main` line
+//! handlers except Pi `--mode json` and Claude `--output-format
+//! stream-json` stdout, which are parsed as JSON events instead of
+//! appended as prose.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -154,6 +156,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
     }
     if (model.fx_spawn_pi_json) {
         handlePiJsonLine(model, fx, line);
+        return;
+    }
+    if (model.fx_spawn_claude_json) {
+        handleClaudeJsonLine(model, fx, line);
         return;
     }
     const keep = line.line[0..@min(line.line.len, max_line_keep)];
@@ -371,6 +377,100 @@ fn handlePiJsonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
             model.appendToTurn(model.stream_turn_id, parsed.text);
         },
         .message_end => {
+            if (parsed.text.len == 0) return;
+            if (model.turnById(model.stream_turn_id)) |turn| {
+                if (turn.body_len > 0) return;
+            }
+            model.appendToTurn(model.stream_turn_id, parsed.text);
+        },
+    }
+}
+
+const ClaudeJsonKind = enum { ignore, session, text_delta, result };
+
+const ClaudeJsonParsed = struct {
+    kind: ClaudeJsonKind = .ignore,
+    session_id: []const u8 = "",
+    text: []const u8 = "",
+};
+
+fn jsonStringField(obj: anytype, key: []const u8) ?[]const u8 {
+    const val = obj.get(key) orelse return null;
+    return switch (val) {
+        .string => |s| s,
+        else => null,
+    };
+}
+
+fn jsonObjectField(obj: anytype, key: []const u8) ?@TypeOf(obj) {
+    const val = obj.get(key) orelse return null;
+    return switch (val) {
+        .object => |o| o,
+        else => null,
+    };
+}
+
+/// Official Claude `--output-format stream-json` NDJSON line.
+/// Documented at code.claude.com/docs/en/headless (streaming recipe
+/// plus jq filter
+/// `select(.type == "stream_event" and .event.delta.type? == "text_delta") | .event.delta.text`).
+/// Unknown types, malformed JSON, and non-objects are `.ignore`
+/// (never assistant prose). `text_delta` is the live stream. `result`
+/// carries the final response text for fallback when no deltas
+/// arrived. `session_id` from a `result` or `system`/`init` event
+/// reuses the existing `fx_session_id` slot when the field is present.
+fn parseClaudeJsonLine(line: []const u8, allocator: std.mem.Allocator) ClaudeJsonParsed {
+    const trimmed = std.mem.trim(u8, line, " \t\r\n");
+    if (trimmed.len < 2 or trimmed[0] != '{') return .{};
+    const root = std.json.parseFromSliceLeaky(std.json.Value, allocator, trimmed, .{}) catch return .{};
+    const obj = switch (root) {
+        .object => |o| o,
+        else => return .{},
+    };
+    const type_str = jsonStringField(obj, "type") orelse return .{};
+    if (std.mem.eql(u8, type_str, "stream_event")) {
+        const event = jsonObjectField(obj, "event") orelse return .{};
+        const delta = jsonObjectField(event, "delta") orelse return .{};
+        const delta_type = jsonStringField(delta, "type") orelse return .{};
+        if (!std.mem.eql(u8, delta_type, "text_delta")) return .{};
+        const text = jsonStringField(delta, "text") orelse return .{};
+        if (text.len == 0) return .{};
+        return .{ .kind = .text_delta, .text = text };
+    }
+    if (std.mem.eql(u8, type_str, "system")) {
+        const subtype = jsonStringField(obj, "subtype") orelse return .{};
+        if (!std.mem.eql(u8, subtype, "init")) return .{};
+        const session_id = jsonStringField(obj, "session_id") orelse return .{};
+        if (session_id.len == 0) return .{};
+        return .{ .kind = .session, .session_id = session_id };
+    }
+    if (std.mem.eql(u8, type_str, "result")) {
+        const session_id = jsonStringField(obj, "session_id") orelse "";
+        const text = jsonStringField(obj, "result") orelse "";
+        if (session_id.len == 0 and text.len == 0) return .{};
+        return .{ .kind = .result, .session_id = session_id, .text = text };
+    }
+    return .{};
+}
+
+fn handleClaudeJsonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
+    const keep = line.line[0..@min(line.line.len, max_line_keep)];
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = parseClaudeJsonLine(keep, arena_state.allocator());
+    if (parsed.session_id.len > 0) {
+        if (model.sessionById(model.streaming_session)) |session| {
+            session.setFxSessionId(parsed.session_id);
+            store.persistIfPossible(model, session.id, fx);
+        }
+    }
+    switch (parsed.kind) {
+        .ignore, .session => {},
+        .text_delta => {
+            if (parsed.text.len == 0) return;
+            model.appendToTurn(model.stream_turn_id, parsed.text);
+        },
+        .result => {
             if (parsed.text.len == 0) return;
             if (model.turnById(model.stream_turn_id)) |turn| {
                 if (turn.body_len > 0) return;
@@ -855,4 +955,170 @@ test "pi json apply: message_end fallback only when no text_delta" {
         .line = "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"only end\"}]}}",
     });
     try testing.expectEqualStrings("only end", piJsonTurnText(&model, turn_id));
+}
+
+test "claude json parser: stream_event text_delta extracts; unknown and malformed ignored" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const alloc = arena_state.allocator();
+
+    const delta = parseClaudeJsonLine(
+        "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.text_delta, delta.kind);
+    try testing.expectEqualStrings("Hello", delta.text);
+
+    const thinking = parseClaudeJsonLine(
+        "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"secret\"}}}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.ignore, thinking.kind);
+
+    const message_start = parseClaudeJsonLine(
+        "{\"type\":\"stream_event\",\"event\":{\"type\":\"message_start\",\"message\":{\"role\":\"assistant\"}}}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.ignore, message_start.kind);
+
+    const assistant = parseClaudeJsonLine(
+        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"full\"}]}}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.ignore, assistant.kind);
+    try testing.expectEqualStrings("", assistant.text);
+
+    const system_retry = parseClaudeJsonLine(
+        "{\"type\":\"system\",\"subtype\":\"api_retry\",\"session_id\":\"retry-sess\",\"attempt\":1}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.ignore, system_retry.kind);
+    try testing.expectEqualStrings("", system_retry.session_id);
+
+    const malformed = parseClaudeJsonLine("not json {", alloc);
+    try testing.expectEqual(ClaudeJsonKind.ignore, malformed.kind);
+
+    const array_line = parseClaudeJsonLine("[{\"type\":\"stream_event\"}]", alloc);
+    try testing.expectEqual(ClaudeJsonKind.ignore, array_line.kind);
+
+    const empty_delta = parseClaudeJsonLine(
+        "{\"type\":\"stream_event\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"\"}}}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.ignore, empty_delta.kind);
+}
+
+test "claude json parser: result fallback text and init/result session_id" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const alloc = arena_state.allocator();
+
+    const init = parseClaudeJsonLine(
+        "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"claude-sess-1\",\"cwd\":\"/tmp\",\"model\":\"claude-sonnet\"}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.session, init.kind);
+    try testing.expectEqualStrings("claude-sess-1", init.session_id);
+
+    const init_empty = parseClaudeJsonLine(
+        "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"\"}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.ignore, init_empty.kind);
+
+    const init_no_id = parseClaudeJsonLine(
+        "{\"type\":\"system\",\"subtype\":\"init\",\"cwd\":\"/tmp\"}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.ignore, init_no_id.kind);
+
+    const ended = parseClaudeJsonLine(
+        "{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"final answer\",\"session_id\":\"claude-sess-2\",\"total_cost_usd\":0.01}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.result, ended.kind);
+    try testing.expectEqualStrings("final answer", ended.text);
+    try testing.expectEqualStrings("claude-sess-2", ended.session_id);
+
+    const result_no_text = parseClaudeJsonLine(
+        "{\"type\":\"result\",\"session_id\":\"claude-sess-3\"}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.result, result_no_text.kind);
+    try testing.expectEqualStrings("", result_no_text.text);
+    try testing.expectEqualStrings("claude-sess-3", result_no_text.session_id);
+
+    const result_empty = parseClaudeJsonLine("{\"type\":\"result\"}", alloc);
+    try testing.expectEqual(ClaudeJsonKind.ignore, result_empty.kind);
+}
+
+test "claude json apply: text_delta appends; raw JSON is not assistant prose" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const sid = model.addSession("claude json", .claude);
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    model.fx_spawn_claude_json = true;
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"claude-init-1\"}",
+    });
+    try testing.expectEqualStrings("", piJsonTurnText(&model, turn_id));
+    try testing.expectEqualStrings("claude-init-1", model.sessionById(sid).?.fxSessionId());
+
+    handleFxLine(&model, &fx, .{ .key = fx_ask_key, .line = "{\"type\":\"assistant\",\"message\":{}}" });
+    try testing.expectEqualStrings("", piJsonTurnText(&model, turn_id));
+
+    handleFxLine(&model, &fx, .{ .key = fx_ask_key, .line = "not json" });
+    try testing.expectEqualStrings("", piJsonTurnText(&model, turn_id));
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"stream_event\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"Hel\"}}}",
+    });
+    try testing.expectEqualStrings("Hel", piJsonTurnText(&model, turn_id));
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"stream_event\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}}",
+    });
+    try testing.expectEqualStrings("Hello", piJsonTurnText(&model, turn_id));
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"result\",\"result\":\"Hello world\",\"session_id\":\"claude-result-1\"}",
+    });
+    try testing.expectEqualStrings("Hello", piJsonTurnText(&model, turn_id));
+    try testing.expectEqualStrings("claude-result-1", model.sessionById(sid).?.fxSessionId());
+}
+
+test "claude json apply: result fallback only when no text_delta" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const sid = model.addSession("claude fallback", .claude);
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    model.fx_spawn_claude_json = true;
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"result\",\"result\":\"only result\",\"session_id\":\"claude-fb-1\"}",
+    });
+    try testing.expectEqualStrings("only result", piJsonTurnText(&model, turn_id));
+    try testing.expectEqualStrings("claude-fb-1", model.sessionById(sid).?.fxSessionId());
 }

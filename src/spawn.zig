@@ -11,24 +11,27 @@
 //! `providers.isAvailable`. Same one-shot `faku acp-proxy -- {binary}
 //! …transport…` as fx. `reply_path` stays `.fx` so ACP stream parsing
 //! (`fx_spawn_acp` / `fx_line` / `fx_exit`) is unchanged. After that,
-//! Available Claude is one-shot `{binary} -p --output-format text
-//! {prompt}` (empty stdin, not ACP, not acp-proxy), with the
-//! documented image path inside that single `-p` prompt when a
-//! composer image exists (code.claude.com/docs/en/common-workflows
-//! "Work with images": `Analyze this image: {path}` then the user
-//! prompt). There is no `--image` flag (code.claude.com/docs/en/
-//! cli-reference). Available Codex is one-shot `{binary} exec
-//! {prompt}` (empty stdin, not ACP, not acp-proxy), with documented
-//! `--image {path}` after the prompt when a composer image exists.
-//! Available Amp is one-shot `{binary} -x {prompt}` (empty stdin,
-//! not ACP, not acp-proxy; `--execute` is the long form), with a
-//! documented `@{path}` mention inside that single `-x` prompt when
-//! a composer image exists. There is no `--image` flag. Available Pi
-//! is one-shot `{binary} --mode json {prompt}` (empty stdin, not ACP,
-//! not acp-proxy, not `--mode rpc`), with documented `@{path}` after
-//! `--mode json` when a composer image exists
+//! Available Claude is one-shot `{binary} -p --output-format
+//! stream-json --verbose --include-partial-messages {prompt}`
+//! (empty stdin, not ACP, not acp-proxy), with the documented image
+//! path inside that single `-p` prompt when a composer image exists
+//! (code.claude.com/docs/en/common-workflows "Work with images":
+//! `Analyze this image: {path}` then the user prompt). There is no
+//! `--image` flag (code.claude.com/docs/en/cli-reference).
+//! `fx_spawn_claude_json` routes stdout through the Claude JSON
+//! parser in `lines.zig` (live `stream_event` / `text_delta`, not a
+//! prose dump of raw NDJSON). Available Codex is one-shot `{binary}
+//! exec {prompt}` (empty stdin, not ACP, not acp-proxy), with
+//! documented `--image {path}` after the prompt when a composer
+//! image exists. Available Amp is one-shot `{binary} -x {prompt}`
+//! (empty stdin, not ACP, not acp-proxy; `--execute` is the long
+//! form), with a documented `@{path}` mention inside that single `-x`
+//! prompt when a composer image exists. There is no `--image` flag.
+//! Available Pi is one-shot `{binary} --mode json {prompt}` (empty
+//! stdin, not ACP, not acp-proxy, not `--mode rpc`), with documented
+//! `@{path}` after `--mode json` when a composer image exists
 //! (`pi --mode json @screenshot.png "What's in this image?"`).
-//! `reply_path` stays `.fx` with `fx_spawn_acp = false` and
+//! `reply_path` stays `.fx` with `fx_spawn_acp = false`. Pi sets
 //! `fx_spawn_pi_json = true` so stdout lines use the Pi JSON parser
 //! in `lines.zig` (live `text_delta`, not prose / raw JSON dump).
 //! Image attach on cursor / opencode / grok stays demo.
@@ -77,6 +80,7 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
     model.stream_turn_id = assistant_id;
     model.streaming_session = session.id;
     model.fx_spawn_pi_json = false;
+    model.fx_spawn_claude_json = false;
     if (model.daemonAddress().len > 0) {
         model.reply_path = .daemon;
         startDaemonProxy(model, fx, session, text);
@@ -106,13 +110,15 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
         }
     }
     if (session.provider == .claude and providers.isAvailable(model, .claude)) {
-        // Claude Code is not ACP. Official print mode is one-shot
-        // `claude -p --output-format text`. Documented image attach is
-        // the filesystem path inside that single `-p` prompt
-        // (`Analyze this image: {path}` then the user prompt;
-        // code.claude.com/docs/en/common-workflows). There is no
-        // `--image` flag. Join overflow fails closed to demo rather
-        // than truncating. Unavailable Claude stays demo.
+        // Claude Code is not ACP. Official print-mode streaming is
+        // one-shot `claude -p --output-format stream-json --verbose
+        // --include-partial-messages` (code.claude.com/docs/en/
+        // headless). Documented image attach is the filesystem path
+        // inside that single `-p` prompt (`Analyze this image: {path}`
+        // then the user prompt; code.claude.com/docs/en/
+        // common-workflows). There is no `--image` flag. Join overflow
+        // fails closed to demo rather than truncating. Unavailable
+        // Claude stays demo.
         if (startClaudePrint(model, fx, session, text)) {
             model.reply_path = .fx;
             return;
@@ -397,24 +403,31 @@ pub fn startFxAsk(model: *Model, fx: *Effects, session: *const Session, prompt: 
 /// prompt argv, not a sibling slot.
 const claude_image_prompt_prefix = "Analyze this image: ";
 
-/// One-shot official Claude Code print mode:
-/// `{binary} -p --output-format text {prompt}`, or
-/// `{binary} -p 'Analyze this image: {path}\n{prompt}'` when a
-/// composer image exists. Prompt is an argv slot (documented
-/// `claude -p "query"`). Composer images are documented as a path
-/// inside that prompt (code.claude.com/docs/en/common-workflows
-/// "Work with images"); there is no `--image` / `-i` flag
-/// (code.claude.com/docs/en/cli-reference). The join is a stack
-/// buffer sized for the documented prefix + `max_project_path` +
-/// newline + `max_draft` (same caps as the draft image / prompt
-/// stores). Overflow returns false so Send fails closed to demo
-/// rather than truncating into a wrong command. Empty stdin. Not
-/// ACP, not `claude acp`, not stream-json, not `--input-format`,
-/// not permissions bypass, not acp-proxy. Caller sets `reply_path`
-/// to `.fx` on success; `fx_spawn_acp` stays false so stdout lines
-/// reuse non-ACP `handleFxLine` / `handleFxExit`. Project cwd
-/// reuses `fx_ask_chdir_script` (Native SpawnOptions has no cwd
-/// field). Empty binary is a no-op (PATH default is `claude`).
+/// One-shot official Claude Code print-mode stream-json:
+/// `{binary} -p --output-format stream-json --verbose
+/// --include-partial-messages {prompt}`, or the same flags with
+/// `'Analyze this image: {path}\n{prompt}'` when a composer image
+/// exists. Prompt is an argv slot after the flags (documented
+/// `claude -p "query"`; streaming recipe at
+/// code.claude.com/docs/en/headless). `--include-partial-messages`
+/// requires `--print` (`-p`) and `--output-format stream-json`
+/// (code.claude.com/docs/en/cli-reference). Composer images are
+/// documented as a path inside that prompt
+/// (code.claude.com/docs/en/common-workflows "Work with images");
+/// there is no `--image` / `-i` flag. The join is a stack buffer
+/// sized for the documented prefix + `max_project_path` + newline +
+/// `max_draft` (same caps as the draft image / prompt stores).
+/// Overflow returns false so Send fails closed to demo rather than
+/// truncating into a wrong command. Empty stdin. Stream-json stdout
+/// is NDJSON; `fx_spawn_claude_json` routes it through the Claude
+/// parser (live `stream_event` / `event.delta.type == text_delta`,
+/// not a prose dump). Not ACP, not `claude acp`, not
+/// `--input-format stream-json`, not `--mode rpc`, not `--continue`
+/// / `--resume`, not `--forward-subagent-text`, not `--bare`, not
+/// permissions bypass, not acp-proxy. Caller sets `reply_path` to
+/// `.fx` on success; `fx_spawn_acp` stays false. Project cwd reuses
+/// `fx_ask_chdir_script` (Native SpawnOptions has no cwd field).
+/// Empty binary is a no-op (PATH default is `claude`).
 pub fn startClaudePrint(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) bool {
     const binary = providers.binaryFor(model, .claude);
     if (binary.len == 0) return false;
@@ -454,12 +467,17 @@ pub fn startClaudePrint(model: *Model, fx: *Effects, session: *const Session, pr
     n += 1;
     argv_buf[n] = "--output-format";
     n += 1;
-    argv_buf[n] = "text";
+    argv_buf[n] = "stream-json";
+    n += 1;
+    argv_buf[n] = "--verbose";
+    n += 1;
+    argv_buf[n] = "--include-partial-messages";
     n += 1;
     argv_buf[n] = print_prompt;
     n += 1;
 
     model.fx_spawn_acp = false;
+    model.fx_spawn_claude_json = true;
     fx.spawn(.{
         .key = allocateFxSpawnKey(model),
         .argv = argv_buf[0..n],
@@ -958,7 +976,7 @@ test "cursor image attach stays demo" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "claude + cli_available selects print-mode claude -p --output-format text" {
+test "claude + cli_available selects print-mode claude -p --output-format stream-json" {
     const testing = std.testing;
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
@@ -972,6 +990,8 @@ test "claude + cli_available selects print-mode claude -p --output-format text" 
     startPrompt(&model, &fx, id, "hello claude");
     try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(model.fx_spawn_claude_json);
+    try testing.expect(!model.fx_spawn_pi_json);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
@@ -980,8 +1000,11 @@ test "claude + cli_available selects print-mode claude -p --output-format text" 
     try testing.expect(testArgvHas(request.argv, "claude"));
     try testing.expect(testArgvHas(request.argv, "-p"));
     try testing.expect(testArgvHas(request.argv, "--output-format"));
-    try testing.expect(testArgvHas(request.argv, "text"));
+    try testing.expect(testArgvHas(request.argv, "stream-json"));
+    try testing.expect(testArgvHas(request.argv, "--verbose"));
+    try testing.expect(testArgvHas(request.argv, "--include-partial-messages"));
     try testing.expect(testArgvHas(request.argv, "hello claude"));
+    try testing.expect(!testArgvHas(request.argv, "text"));
     try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(!testArgvHas(request.argv, "acp"));
     try testing.expect(!testArgvHas(request.argv, "agent"));
@@ -992,19 +1015,28 @@ test "claude + cli_available selects print-mode claude -p --output-format text" 
     try testing.expect(!testArgvHas(request.argv, "--always-approve"));
     try testing.expect(!testArgvHas(request.argv, "--image"));
     try testing.expect(!testArgvHas(request.argv, "--input-format"));
-    try testing.expect(!testArgvHas(request.argv, "stream-json"));
+    try testing.expect(!testArgvHas(request.argv, "--continue"));
+    try testing.expect(!testArgvHas(request.argv, "--resume"));
+    try testing.expect(!testArgvHas(request.argv, "--bare"));
+    try testing.expect(!testArgvHas(request.argv, "--forward-subagent-text"));
+    try testing.expect(!testArgvHas(request.argv, "--allowedTools"));
+    try testing.expect(!testArgvHas(request.argv, "--permission-mode"));
     try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
     try testing.expectEqualStrings("", request.stdin);
     try testing.expectEqualStrings("", model.lastSpawnImagePath());
     const binary_at = testArgvIndex(request.argv, "claude") orelse return error.MissingBinary;
     const p_at = testArgvIndex(request.argv, "-p") orelse return error.MissingPrint;
     const format_at = testArgvIndex(request.argv, "--output-format") orelse return error.MissingFormat;
-    const text_at = testArgvIndex(request.argv, "text") orelse return error.MissingText;
+    const stream_at = testArgvIndex(request.argv, "stream-json") orelse return error.MissingStreamJson;
+    const verbose_at = testArgvIndex(request.argv, "--verbose") orelse return error.MissingVerbose;
+    const partial_at = testArgvIndex(request.argv, "--include-partial-messages") orelse return error.MissingPartial;
     const prompt_at = testArgvIndex(request.argv, "hello claude") orelse return error.MissingPrompt;
     try testing.expectEqual(binary_at + 1, p_at);
     try testing.expectEqual(p_at + 1, format_at);
-    try testing.expectEqual(format_at + 1, text_at);
-    try testing.expectEqual(text_at + 1, prompt_at);
+    try testing.expectEqual(format_at + 1, stream_at);
+    try testing.expectEqual(stream_at + 1, verbose_at);
+    try testing.expectEqual(verbose_at + 1, partial_at);
+    try testing.expectEqual(partial_at + 1, prompt_at);
 }
 
 test "claude unavailable stays demo" {
@@ -1017,6 +1049,7 @@ test "claude unavailable stays demo" {
     startPrompt(&model, &fx, id, "no claude");
     try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
@@ -1313,6 +1346,7 @@ test "pi + cli_available selects json-mode pi --mode json {prompt}" {
     try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(model.fx_spawn_pi_json);
+    try testing.expect(!model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
@@ -1561,6 +1595,7 @@ test "fx path stays preferred when provider is fx even if claude is available" {
     startPrompt(&model, &fx, id, "keep fx");
     try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
     try testing.expect(model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const request = fx.pendingSpawnAt(0).?;
     try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
@@ -1583,6 +1618,7 @@ test "fx session stays demo when fx is missing even if claude is available" {
     startPrompt(&model, &fx, id, "not claude");
     try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
@@ -1610,6 +1646,8 @@ test "claude image attach uses print-mode path in the -p prompt" {
     startPrompt(&model, &fx, id, "describe this");
     try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(model.fx_spawn_claude_json);
+    try testing.expect(!model.fx_spawn_pi_json);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     try testing.expectEqualStrings(image, model.lastSpawnImagePath());
@@ -1618,13 +1656,15 @@ test "claude image attach uses print-mode path in the -p prompt" {
     try testing.expect(testArgvHas(request.argv, "claude"));
     try testing.expect(testArgvHas(request.argv, "-p"));
     try testing.expect(testArgvHas(request.argv, "--output-format"));
-    try testing.expect(testArgvHas(request.argv, "text"));
+    try testing.expect(testArgvHas(request.argv, "stream-json"));
+    try testing.expect(testArgvHas(request.argv, "--verbose"));
+    try testing.expect(testArgvHas(request.argv, "--include-partial-messages"));
+    try testing.expect(!testArgvHas(request.argv, "text"));
     try testing.expect(!testArgvHas(request.argv, image));
     try testing.expect(!testArgvHas(request.argv, "describe this"));
     try testing.expect(!testArgvHas(request.argv, "--image"));
     try testing.expect(!testArgvHas(request.argv, "-i"));
     try testing.expect(!testArgvHas(request.argv, "--input-format"));
-    try testing.expect(!testArgvHas(request.argv, "stream-json"));
     try testing.expect(!testArgvHas(request.argv, "acp"));
     try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(!testArgvHas(request.argv, "ask"));
@@ -1634,17 +1674,21 @@ test "claude image attach uses print-mode path in the -p prompt" {
     const binary_at = testArgvIndex(request.argv, "claude") orelse return error.MissingBinary;
     const p_at = testArgvIndex(request.argv, "-p") orelse return error.MissingPrint;
     const format_at = testArgvIndex(request.argv, "--output-format") orelse return error.MissingFormat;
-    const text_at = testArgvIndex(request.argv, "text") orelse return error.MissingText;
+    const stream_at = testArgvIndex(request.argv, "stream-json") orelse return error.MissingStreamJson;
+    const verbose_at = testArgvIndex(request.argv, "--verbose") orelse return error.MissingVerbose;
+    const partial_at = testArgvIndex(request.argv, "--include-partial-messages") orelse return error.MissingPartial;
     try testing.expectEqual(binary_at + 1, p_at);
     try testing.expectEqual(p_at + 1, format_at);
-    try testing.expectEqual(format_at + 1, text_at);
-    try testing.expect(text_at + 1 < request.argv.len);
-    const print_prompt = request.argv[text_at + 1];
+    try testing.expectEqual(format_at + 1, stream_at);
+    try testing.expectEqual(stream_at + 1, verbose_at);
+    try testing.expectEqual(verbose_at + 1, partial_at);
+    try testing.expect(partial_at + 1 < request.argv.len);
+    const print_prompt = request.argv[partial_at + 1];
     try testing.expect(std.mem.indexOf(u8, print_prompt, claude_image_prompt_prefix) != null);
     try testing.expect(std.mem.indexOf(u8, print_prompt, image) != null);
     try testing.expect(std.mem.indexOf(u8, print_prompt, "describe this") != null);
     try testing.expect(std.mem.startsWith(u8, print_prompt, claude_image_prompt_prefix));
-    try testing.expectEqual(text_at + 2, request.argv.len);
+    try testing.expectEqual(partial_at + 2, request.argv.len);
 }
 
 test "claude unavailable image attach stays demo" {
@@ -1668,6 +1712,7 @@ test "claude unavailable image attach stays demo" {
     startPrompt(&model, &fx, id, "describe this");
     try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
@@ -1697,6 +1742,7 @@ test "claude image attach overflow stays demo" {
     startPrompt(&model, &fx, id, &long_prompt);
     try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
     try testing.expectEqual(@as(usize, 0), model.lastSpawnImagePath().len);
@@ -1723,12 +1769,16 @@ test "claude print-mode reuses fx_ask_chdir_script when project cwd exists" {
     startPrompt(&model, &fx, id, "in project");
     try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
     const request = fx.pendingSpawnAt(0).?;
     try testing.expect(testArgvHas(request.argv, "/bin/sh"));
     try testing.expect(testArgvHas(request.argv, "-c"));
     try testing.expect(testArgvHas(request.argv, fx_ask_chdir_script));
     try testing.expect(testArgvHas(request.argv, project));
+    try testing.expect(testArgvHas(request.argv, "stream-json"));
+    try testing.expect(testArgvHas(request.argv, "--verbose"));
+    try testing.expect(testArgvHas(request.argv, "--include-partial-messages"));
     const binary_at = testArgvIndex(request.argv, "claude") orelse return error.MissingBinary;
     const p_at = testArgvIndex(request.argv, "-p") orelse return error.MissingPrint;
     try testing.expect(binary_at > 0);
