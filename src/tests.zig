@@ -1520,6 +1520,78 @@ test "send with claude cli_available spawns print-mode and streams stdout as ass
     try testing.expect(!model.is_streaming());
 }
 
+test "send with codex cli_available spawns exec and streams stdout as assistant text" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.codex)] = true;
+    const id = model.addSession("codex send", .codex);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "what does this repo do" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(argvHas(request.argv, "codex"));
+    try testing.expect(argvHas(request.argv, "exec"));
+    try testing.expect(argvHas(request.argv, "what does this repo do"));
+    try testing.expect(!argvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(!argvHas(request.argv, "acp"));
+    try testing.expect(!argvHas(request.argv, "agent"));
+    try testing.expect(!argvHas(request.argv, "stdio"));
+    try testing.expect(!argvHas(request.argv, "ask"));
+    try testing.expect(!argvHas(request.argv, "fx"));
+    try testing.expect(!argvHas(request.argv, "-p"));
+    try testing.expect(!argvHas(request.argv, "--full-auto"));
+    try testing.expect(!argvHas(request.argv, "--sandbox"));
+    try testing.expect(!argvHas(request.argv, "--ask-for-approval"));
+    try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expectEqualStrings("", request.stdin);
+    const binary_at = argvIndex(request.argv, "codex") orelse return error.MissingBinary;
+    const exec_at = argvIndex(request.argv, "exec") orelse return error.MissingExec;
+    const prompt_at = argvIndex(request.argv, "what does this repo do") orelse return error.MissingPrompt;
+    try testing.expectEqual(binary_at + 1, exec_at);
+    try testing.expectEqual(exec_at + 1, prompt_at);
+
+    const before_len = lastAssistant(&model).len;
+    try fx.feedLine(main.fx_ask_key, "hello from codex exec");
+    drainEffects(&model, &fx);
+    try testing.expect(lastAssistant(&model).len > before_len);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from codex exec") != null);
+
+    try fx.feedExit(main.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+}
+
+test "send with codex unavailable still starts the demo timer" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    const id = model.addSession("codex missing", .codex);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "no codex" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
 test "fx acp session/new cwd is session project_path when it exists" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -11067,6 +11139,15 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     try testing.expect(findByText(tree.root, .button, providers.copy_install_label) == null);
     try testing.expect(findByText(tree.root, .button, providers.copy_login_label) == null);
     try testing.expect(findTextContaining(tree.root, providers.other_install_hint) == null);
+
+    main.update(&model, .{ .select_provider = providers.rowId(.codex) }, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findTextContaining(tree.root, providers.codex_transport_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.claude_transport_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.acp_transport_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.other_install_hint) != null);
 
     main.update(&model, .{ .select_provider = providers.rowId(.cursor) }, &fx);
     tree = try buildTree(arena, &model);

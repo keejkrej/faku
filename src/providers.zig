@@ -10,19 +10,20 @@
 //! chat session's `provider` and persists via `sessions.json`. New
 //! sessions stay `.fx`. Live Send for probed ACP stdio providers
 //! (cursor, opencode, grok) is `spawn.startPrompt`; Available Claude
-//! is one-shot print-mode (`claude -p --output-format text`). Other
-//! non-fx ids stay demo. fx Not found copies the verified `https://fx.sh` install
+//! is one-shot print-mode (`claude -p --output-format text`); Available
+//! Codex is one-shot `codex exec {prompt}`. Amp / Pi stay demo. fx Not
+//! found copies the verified `https://fx.sh` install
 //! command via `fx.writeClipboard` (never auto-runs `setup.sh`). fx
 //! Available copies `fx login` the same way — convenience copy, not
 //! auth-state detection or OAuth UI. Other missing CLIs get a muted
 //! PATH hint only (no invented install URLs). Tests do not need a live
 //! daemon or any real CLI install.
 //!
-//! Leftovers: full onboarding / OAuth / auto-install; Codex /
-//! Amp / Pi native drivers. Claude print-mode ships this cut (not ACP,
-//! not stream-json, not permissions bypass). Appearance theme, Usage, and
-//! Computer Use first-cut pages ship (Computer Use is Unavailable /
-//! Off; no Native helper). Not Waku install/auth.
+//! Leftovers: full onboarding / OAuth / auto-install; Amp / Pi
+//! native drivers. Claude print-mode and Codex exec ship this cut
+//! (not ACP, not stream-json, not permissions bypass). Appearance
+//! theme, Usage, and Computer Use first-cut pages ship (Computer Use
+//! is Unavailable / Off; no Native helper). Not Waku install/auth.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -44,6 +45,7 @@ pub const fx_transport_note = "Live path is one-shot fx acp via acp-proxy.";
 pub const acp_transport_note = "Live Send is one-shot acp via acp-proxy when Available.";
 pub const grok_transport_note = "Live Send is one-shot grok agent stdio via acp-proxy when Available.";
 pub const claude_transport_note = "Live Send is one-shot claude -p --output-format text when Available.";
+pub const codex_transport_note = "Live Send is one-shot codex exec when Available.";
 pub const apply_session_label = "Use for this session";
 /// Verified from https://fx.sh and vercel-labs/fx README. Copied
 /// to the clipboard; never spawned as a shell that runs setup.sh.
@@ -152,6 +154,8 @@ pub fn detailText(model: *const Model, arena: std.mem.Allocator) []const u8 {
         grok_transport_note
     else if (id == .claude)
         claude_transport_note
+    else if (id == .codex)
+        codex_transport_note
     else if (id.speaksBareAcp())
         acp_transport_note
     else
@@ -340,6 +344,38 @@ test "selectProvider; detail names binary, fx path, probe status, and one-shot a
     try testing.expect(std.mem.indexOf(u8, claude_ok, catalog_detail_note) == null);
     try testing.expect(std.mem.indexOf(u8, claude_ok, acp_transport_note) == null);
 
+    selectProvider(&model, rowId(.codex));
+    try testing.expectEqual(rowId(.codex), model.provider_selected_id);
+    const codex_detail = detailText(&model, testing.allocator);
+    defer if (codex_detail.len > 0) testing.allocator.free(codex_detail);
+    try testing.expect(std.mem.indexOf(u8, codex_detail, "codex") != null);
+    try testing.expect(std.mem.indexOf(u8, codex_detail, missing_status) != null);
+    try testing.expect(std.mem.indexOf(u8, codex_detail, codex_transport_note) != null);
+    try testing.expect(std.mem.indexOf(u8, codex_detail, catalog_detail_note) == null);
+    try testing.expect(std.mem.indexOf(u8, codex_detail, fx_transport_note) == null);
+    try testing.expect(std.mem.indexOf(u8, codex_detail, acp_transport_note) == null);
+    try testing.expect(std.mem.indexOf(u8, codex_detail, claude_transport_note) == null);
+
+    model.cli_available[@intFromEnum(protocol.ProviderId.codex)] = true;
+    const codex_ok = detailText(&model, testing.allocator);
+    defer if (codex_ok.len > 0) testing.allocator.free(codex_ok);
+    try testing.expect(std.mem.indexOf(u8, codex_ok, available_status) != null);
+    try testing.expect(std.mem.indexOf(u8, codex_ok, codex_transport_note) != null);
+    try testing.expect(std.mem.indexOf(u8, codex_ok, catalog_detail_note) == null);
+    try testing.expect(std.mem.indexOf(u8, codex_ok, acp_transport_note) == null);
+
+    selectProvider(&model, rowId(.amp));
+    const amp_detail = detailText(&model, testing.allocator);
+    defer if (amp_detail.len > 0) testing.allocator.free(amp_detail);
+    try testing.expect(std.mem.indexOf(u8, amp_detail, catalog_detail_note) != null);
+    try testing.expect(std.mem.indexOf(u8, amp_detail, codex_transport_note) == null);
+
+    selectProvider(&model, rowId(.pi));
+    const pi_detail = detailText(&model, testing.allocator);
+    defer if (pi_detail.len > 0) testing.allocator.free(pi_detail);
+    try testing.expect(std.mem.indexOf(u8, pi_detail, catalog_detail_note) != null);
+    try testing.expect(std.mem.indexOf(u8, pi_detail, codex_transport_note) == null);
+
     selectProvider(&model, rowId(.cursor));
     try testing.expectEqual(rowId(.cursor), model.provider_selected_id);
     const cursor_detail = detailText(&model, testing.allocator);
@@ -373,6 +409,7 @@ test "selectProvider; detail names binary, fx path, probe status, and one-shot a
     try testing.expect(std.mem.indexOf(u8, grok_detail, acp_transport_note) == null);
     try testing.expect(std.mem.indexOf(u8, grok_detail, fx_transport_note) == null);
     try testing.expect(std.mem.indexOf(u8, grok_detail, claude_transport_note) == null);
+    try testing.expect(std.mem.indexOf(u8, grok_detail, codex_transport_note) == null);
 
     try testing.expect(protocol.ProviderId.cursor.speaksBareAcp());
     try testing.expect(protocol.ProviderId.opencode.speaksBareAcp());
