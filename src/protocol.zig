@@ -223,6 +223,10 @@ pub const ProviderId = enum {
     }
 };
 
+/// Tag count for `ProviderId`. Model probe slots are this long;
+/// index is `@intFromEnum` (slot 0 is fx and unused by non-fx probes).
+pub const provider_id_count = std.meta.tags(ProviderId).len;
+
 /// Start options on `command: { type: "start", options }`.
 /// `mode`: ask | autoAcceptEdits | auto | fullAccess
 /// `interaction_mode`: build | plan

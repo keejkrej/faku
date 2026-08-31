@@ -39,6 +39,7 @@ const prompt_spawn = @import("spawn.zig");
 const turn_stream = @import("stream.zig");
 const sidecar_lines = @import("lines.zig");
 const fx_probe = @import("fx_probe.zig");
+const cli_probe = @import("cli_probe.zig");
 const palette_run = @import("palette_run.zig");
 const persist = @import("persist.zig");
 const session_actions = @import("session_actions.zig");
@@ -345,6 +346,10 @@ pub const review_diff_hunk_key_first = review_diff.review_diff_hunk_key_first;
 /// review hunk (520+). Band is 530+. Incremented per scan from
 /// `skills_key_first`.
 pub const skills_key_first = skills.skills_key_first;
+/// One-shot Settings Providers non-fx `{binary} --help` probes.
+/// Distinct from skills (530+). Band is 600+ `@intFromEnum(id)`
+/// so claude=601 … pi=607. fx stays on `fx_probe_key` (3).
+pub const cli_probe_key_first = cli_probe.cli_probe_key_first;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
 pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_status;
@@ -525,7 +530,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .close_settings_effort_picker => model.closeSettingsEffortPicker(),
         .pick_settings_effort => |id| settings_actions.handlePickSettingsEffort(model, id),
         .set_settings_page_general => settings_actions.handleSetSettingsPageGeneral(model),
-        .set_settings_page_providers => settings_actions.handleSetSettingsPageProviders(model),
+        .set_settings_page_providers => settings_actions.handleSetSettingsPageProviders(model, fx),
         .set_settings_page_skills => settings_actions.handleSetSettingsPageSkills(model, fx),
         .refresh_skills => settings_actions.handleRefreshSkills(model, fx),
         .refresh_providers => settings_actions.handleRefreshProviders(model, fx),
@@ -697,6 +702,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .fx_line => |line| sidecar_lines.handleFxLine(model, fx, line),
         .fx_exit => |exit| sidecar_lines.handleFxExit(model, fx, exit),
         .fx_probe_exit => |exit| fx_probe.handleFxProbeExit(model, fx, exit),
+        .cli_probe_exit => |exit| cli_probe.handleCliProbeExit(model, exit),
     }
 }
 
@@ -854,6 +860,7 @@ test {
     _ = @import("stream.zig");
     _ = @import("lines.zig");
     _ = @import("fx_probe.zig");
+    _ = @import("cli_probe.zig");
     _ = @import("palette_run.zig");
     _ = @import("persist.zig");
     _ = @import("session_actions.zig");
