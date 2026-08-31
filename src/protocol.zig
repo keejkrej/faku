@@ -227,8 +227,10 @@ pub const ProviderId = enum {
     /// first-party branch. Not Claude print-mode (that is a separate
     /// one-shot `-p --output-format text` spawn, not ACP). Not Codex
     /// exec (that is a separate one-shot `codex exec {prompt}` spawn,
-    /// not ACP). Not Amp/Pi native drivers, not Grok `agent stdio`.
-    /// Kimi is not in this enum. Easy to extend later.
+    /// not ACP). Not Amp execute-mode (that is a separate one-shot
+    /// `amp -x {prompt}` spawn, not ACP). Not Pi native driver, not
+    /// Grok `agent stdio`. Kimi is not in this enum. Easy to extend
+    /// later.
     pub fn speaksBareAcp(id: ProviderId) bool {
         return switch (id) {
             .cursor, .opencode => true,
@@ -1254,6 +1256,8 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expect(ProviderId.grok.speaksAcpStdio());
     try std.testing.expect(!ProviderId.fx.speaksAcpStdio());
     try std.testing.expect(!ProviderId.claude.speaksAcpStdio());
+    try std.testing.expect(!ProviderId.codex.speaksAcpStdio());
+    try std.testing.expect(!ProviderId.amp.speaksAcpStdio());
     try std.testing.expectEqualStrings("acp", ProviderId.cursor.acpTransportArgv()[0]);
     try std.testing.expectEqual(@as(usize, 1), ProviderId.cursor.acpTransportArgv().len);
     try std.testing.expectEqualStrings("acp", ProviderId.opencode.acpTransportArgv()[0]);
@@ -1262,6 +1266,8 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expectEqualStrings("agent", ProviderId.grok.acpTransportArgv()[0]);
     try std.testing.expectEqualStrings("stdio", ProviderId.grok.acpTransportArgv()[1]);
     try std.testing.expectEqual(@as(usize, 0), ProviderId.claude.acpTransportArgv().len);
+    try std.testing.expectEqual(@as(usize, 0), ProviderId.codex.acpTransportArgv().len);
+    try std.testing.expectEqual(@as(usize, 0), ProviderId.amp.acpTransportArgv().len);
     try std.testing.expectEqualStrings("agent", GROK_ACP_TRANSPORT[0]);
     try std.testing.expectEqualStrings("stdio", GROK_ACP_TRANSPORT[1]);
 }
