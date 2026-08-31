@@ -163,6 +163,7 @@
           <button variant="ghost" size="sm" selected="{settings_page_appearance}" on-press="set_settings_page_appearance">Appearance</button>
           <button variant="ghost" size="sm" selected="{settings_page_providers}" on-press="set_settings_page_providers">Providers</button>
           <button variant="ghost" size="sm" selected="{settings_page_skills}" on-press="set_settings_page_skills">Skills</button>
+          <button variant="ghost" size="sm" selected="{settings_page_usage}" on-press="set_settings_page_usage">Usage</button>
           <spacer grow="1" />
           <if test="{settings_page_skills}">
             <button variant="ghost" size="sm" on-press="refresh_skills">Refresh</button>
@@ -255,6 +256,37 @@
             </row>
           </if>
           <else>
+          <if test="{settings_page_usage}">
+            <row grow="1" main="center">
+              <column grow="1" max-width="720" gap="10" padding="14">
+                <text wrap="false" overflow="ellipsis" foreground="text_muted">{settings_usage_session_label}</text>
+                <card size="sm" padding="10">
+                  <column gap="8">
+                    <text>Context window</text>
+                    <if test="{has_context_usage}">
+                      <text wrap="false" overflow="ellipsis">{context_usage_label}</text>
+                      <progress value="{context_usage}" width="48" height="6" label="Context usage" />
+                    </if>
+                    <else>
+                      <text wrap="true" foreground="text_muted">No context usage reported yet</text>
+                    </else>
+                  </column>
+                </card>
+                <card size="sm" padding="10">
+                  <column gap="8">
+                    <text>Thread goal tokens</text>
+                    <if test="{has_goal_usage}">
+                      <text wrap="false" overflow="ellipsis">{goal_usage_label}</text>
+                    </if>
+                    <else>
+                      <text wrap="true" foreground="text_muted">No thread goal usage</text>
+                    </else>
+                  </column>
+                </card>
+              </column>
+            </row>
+          </if>
+          <else>
           <if test="{settings_page_general}">
           <row grow="1" main="center">
             <column grow="1" max-width="720" gap="10" padding="14">
@@ -289,6 +321,7 @@
             </column>
           </row>
           </if>
+          </else>
           </else>
           </else>
           </else>

@@ -216,6 +216,10 @@ pub fn handleSetSettingsPageSkills(model: *Model, fx: *Effects) void {
     skills.refresh(model, fx);
 }
 
+pub fn handleSetSettingsPageUsage(model: *Model) void {
+    model.settings_page = .usage;
+}
+
 pub fn handleSettingsThemeSystem(model: *Model) void {
     model.setThemePreference(.system);
     store.persistSettingsIfPossible(model);

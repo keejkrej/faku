@@ -5998,6 +5998,9 @@ test "goal usage meter formats used/budget time and tokensUsed-only" {
     try testing.expectEqualStrings("3m", goal.formatThreadGoalUsage(&buf, null, null, 180).?);
     try testing.expectEqualStrings("45s", goal.formatThreadGoalUsage(&buf, null, null, 45).?);
     try testing.expect(goal.formatThreadGoalUsage(&buf, null, null, null) == null);
+    try testing.expectEqualStrings("12.4k / 200k", goal.formatContextUsage(&buf, 12_400, 200_000).?);
+    try testing.expectEqualStrings("53k / 200k", goal.formatContextUsage(&buf, 53_000, 200_000).?);
+    try testing.expect(goal.formatContextUsage(&buf, 12_400, 0) == null);
 }
 
 test "goal composer row shows a muted one-line usage meter when usage is known" {
@@ -10158,6 +10161,7 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(!model.settings_page_skills());
     try testing.expect(!model.settings_page_providers());
     try testing.expect(!model.settings_page_appearance());
+    try testing.expect(!model.settings_page_usage());
 
     var tree = try buildTree(arena, &model);
     const general = try expectButtonMsg(tree, "General", .set_settings_page_general);
@@ -10168,11 +10172,15 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(!providers_tab.state.selected);
     const skills_tab = try expectButtonMsg(tree, "Skills", .set_settings_page_skills);
     try testing.expect(!skills_tab.state.selected);
+    const usage_tab = try expectButtonMsg(tree, "Usage", .set_settings_page_usage);
+    try testing.expect(!usage_tab.state.selected);
     try testing.expect(pressableAppearsBefore(tree.root, "General", "Appearance"));
     try testing.expect(pressableAppearsBefore(tree.root, "Appearance", "Providers"));
     try testing.expect(pressableAppearsBefore(tree.root, "Providers", "Skills"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Skills", "Usage"));
     _ = try expectByText(tree.root, .text, "Default model");
     try testing.expect(findByText(tree.root, .text, "Theme") == null);
+    try testing.expect(findByText(tree.root, .text, "Context window") == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
     try testing.expect(findByText(tree.root, .button, "Refresh") == null);
     try testing.expect(findByText(tree.root, .text, "Open a project") == null);
@@ -10184,6 +10192,7 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(!model.settings_page_general());
     try testing.expect(!model.settings_page_providers());
     try testing.expect(!model.settings_page_appearance());
+    try testing.expect(!model.settings_page_usage());
     try testing.expectEqual(@as(u32, 0), model.skill_count);
 
     tree = try buildTree(arena, &model);
@@ -10243,6 +10252,7 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expect(pressableAppearsBefore(tree.root, "General", "Appearance"));
     try testing.expect(pressableAppearsBefore(tree.root, "Appearance", "Providers"));
     try testing.expect(pressableAppearsBefore(tree.root, "Providers", "Skills"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Skills", "Usage"));
     const appearance_tab = try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance);
     try testing.expect(!appearance_tab.state.selected);
     _ = try expectByText(tree.root, .text, "Default model");
@@ -10253,6 +10263,7 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expect(!model.settings_page_general());
     try testing.expect(!model.settings_page_providers());
     try testing.expect(!model.settings_page_skills());
+    try testing.expect(!model.settings_page_usage());
 
     tree = try buildTree(arena, &model);
     try testing.expect((try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance)).state.selected);
@@ -10261,6 +10272,7 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
     try testing.expect(findByText(tree.root, .list_item, "fx") == null);
     try testing.expect(findByText(tree.root, .button, "Refresh") == null);
+    try testing.expect(findByText(tree.root, .text, "Context window") == null);
     _ = try expectByText(tree.root, .text, "Theme");
     const system_chip = try expectButtonMsg(tree, "System", .settings_theme_system);
     try testing.expect(system_chip.state.selected);
@@ -10291,6 +10303,100 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
     try testing.expectEqual(main.ThemePreference.dark, loaded.theme_preference);
     try testing.expect(loaded.theme_dark());
+}
+
+test "settings Usage tab sits after Skills; local context and thread-goal labels" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var empty = Model{};
+    try testing.expectEqual(skills.Page.general, empty.settings_page);
+    try testing.expect(empty.settings_page_general());
+    try testing.expect(!empty.settings_page_usage());
+    try testing.expectEqual(@as(usize, 0), empty.context_usage_label(arena).len);
+    try testing.expectEqual(@as(usize, 0), empty.goal_usage_label().len);
+    try testing.expect(!empty.has_context_usage());
+    try testing.expect(!empty.has_goal_usage());
+    try testing.expectEqualStrings("New task", empty.settings_usage_session_label());
+
+    var model = main.initialModel();
+    try testing.expectEqualStrings("port waku to zig", model.settings_usage_session_label());
+    try testing.expectEqual(@as(usize, 0), model.context_usage_label(arena).len);
+    try testing.expectEqual(@as(usize, 0), model.goal_usage_label().len);
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_page_general());
+    var tree = try buildTree(arena, &model);
+    try testing.expect(pressableAppearsBefore(tree.root, "Skills", "Usage"));
+    const usage_tab = try expectButtonMsg(tree, "Usage", .set_settings_page_usage);
+    try testing.expect(!usage_tab.state.selected);
+    _ = try expectByText(tree.root, .text, "Default model");
+    try testing.expect(findByText(tree.root, .text, "Context window") == null);
+    try testing.expect(findByText(tree.root, .text, "Thread goal tokens") == null);
+
+    main.update(&model, tree.msgForPointer(usage_tab.id, .up).?, &fx);
+    try testing.expect(model.settings_page_usage());
+    try testing.expect(!model.settings_page_general());
+    try testing.expect(!model.settings_page_appearance());
+    try testing.expect(!model.settings_page_providers());
+    try testing.expect(!model.settings_page_skills());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Usage", .set_settings_page_usage)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "General", .set_settings_page_general)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Providers", .set_settings_page_providers)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Skills", .set_settings_page_skills)).state.selected);
+    try testing.expect(findByText(tree.root, .text, "Default model") == null);
+    try testing.expect(findByText(tree.root, .text, "Theme") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
+    try testing.expect(findByText(tree.root, .list_item, "fx") == null);
+    try testing.expect(findByText(tree.root, .button, "Refresh") == null);
+    _ = try expectByText(tree.root, .text, "port waku to zig");
+    _ = try expectByText(tree.root, .text, "Context window");
+    _ = try expectByText(tree.root, .text, "No context usage reported yet");
+    _ = try expectByText(tree.root, .text, "Thread goal tokens");
+    _ = try expectByText(tree.root, .text, "No thread goal usage");
+    try expectNoContextProgress(tree.root);
+
+    const id = model.selected;
+    if (model.sessionById(id)) |session| {
+        session.setContextUsage(12_400, 200_000);
+    }
+    try testing.expect(model.has_context_usage());
+    try testing.expectEqualStrings("12.4k / 200k", model.context_usage_label(arena));
+    if (model.sessionById(id)) |session| {
+        session.setContextUsage(53_000, 200_000);
+        session.setThreadGoalUsage(100_000, 12_000, 180);
+    }
+    try testing.expect(model.has_goal_usage());
+    try testing.expectEqualStrings("53k / 200k", model.context_usage_label(arena));
+    try testing.expectEqualStrings("12k/100k · 3m", model.goal_usage_label());
+    try testing.expectApproxEqAbs(@as(f32, 0.265), model.context_usage(), 0.0001);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "53k / 200k");
+    _ = try expectByText(tree.root, .text, "12k/100k · 3m");
+    try testing.expect(findByText(tree.root, .text, "No context usage reported yet") == null);
+    try testing.expect(findByText(tree.root, .text, "No thread goal usage") == null);
+    _ = try expectContextProgress(tree.root, 0.265);
+
+    main.update(&model, .set_settings_page_appearance, &fx);
+    try testing.expect(model.settings_page_appearance());
+    try testing.expect(!model.settings_page_usage());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Theme");
+    try testing.expect(findByText(tree.root, .text, "Context window") == null);
+    try testing.expect(findByText(tree.root, .text, "53k / 200k") == null);
+
+    if (model.sessionById(id)) |session| session.setContextUsage(0, 0);
+    try testing.expectEqual(@as(usize, 0), model.context_usage_label(arena).len);
+    try testing.expect(!model.has_context_usage());
 }
 
 test "theme preference defaults to System; Light/Dark force scheme regardless of OS" {
@@ -10440,6 +10546,7 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     try testing.expect(!(try expectButtonMsg(tree, "General", .set_settings_page_general)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Skills", .set_settings_page_skills)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Usage", .set_settings_page_usage)).state.selected);
     _ = try expectButtonMsg(tree, "Refresh", .refresh_providers);
     try testing.expect(findByText(tree.root, .text, "Default model") == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);

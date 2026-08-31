@@ -69,9 +69,9 @@ pub const find_skills_script =
 const walk_argv_len: usize = 8;
 
 /// Runtime-only Settings page. Chrome is General | Appearance |
-/// Providers | Skills. Usage / Computer Use are leftovers. Language
+/// Providers | Skills | Usage. Computer Use is leftover. Language
 /// selector is leftover (English-only this cut).
-pub const Page = enum { general, appearance, providers, skills };
+pub const Page = enum { general, appearance, providers, skills, usage };
 
 pub const CachedSkill = struct {
     path_storage: [max_skill_path]u8 = [_]u8{0} ** max_skill_path,
@@ -547,13 +547,18 @@ test "hydrate name from SKILL.md frontmatter in a temp project" {
     try std.testing.expectEqualStrings("Do the thing.", model.skill_body_storage[0..model.skill_body_len]);
 }
 
-test "Page includes appearance; default settings page stays general" {
+test "Page includes appearance and usage; default settings page stays general" {
     var model = Model{};
     try std.testing.expectEqual(Page.general, model.settings_page);
     model.settings_page = .appearance;
     try std.testing.expectEqual(Page.appearance, model.settings_page);
     try std.testing.expect(model.settings_page != .providers);
     try std.testing.expect(model.settings_page != .skills);
+    try std.testing.expect(model.settings_page != .usage);
+    model.settings_page = .usage;
+    try std.testing.expectEqual(Page.usage, model.settings_page);
+    try std.testing.expect(model.settings_page != .appearance);
+    try std.testing.expect(model.settings_page != .general);
 }
 
 test "ensureScanned one-shots find when the probe path is empty; no-op when current" {

@@ -14,6 +14,7 @@ const rewind = @import("rewind.zig");
 const goal = @import("goal.zig");
 
 const formatThreadGoalUsage = goal.formatThreadGoalUsage;
+const formatContextUsage = goal.formatContextUsage;
 
 pub const max_title = 64;
 pub const max_project_path = 512;
@@ -293,6 +294,12 @@ pub const Session = struct {
     pub fn setContextUsage(self: *Session, used: u64, size: u64) void {
         self.context_used = used;
         self.context_size = size;
+    }
+
+    /// Compact `12.4k / 200k`. Empty when `context_size == 0`.
+    pub fn contextUsageLabel(self: *const Session, buf: []u8) []const u8 {
+        if (self.context_size == 0) return "";
+        return formatContextUsage(buf, self.context_used, self.context_size) orelse "";
     }
 
     pub fn availableCommands(self: *const Session) []const AvailableCommand {

@@ -55,7 +55,19 @@ pub fn formatThreadGoalUsage(
     return null;
 }
 
-fn formatCompactTokens(buf: []u8, value: u64) ?[]const u8 {
+/// Context window meter: `12.4k / 200k`. `size == 0` is unknown — omit.
+pub fn formatContextUsage(buf: []u8, used: u64, size: u64) ?[]const u8 {
+    if (size == 0) return null;
+    var used_buf: [16]u8 = undefined;
+    var size_buf: [16]u8 = undefined;
+    const used_s = formatCompactTokens(&used_buf, used) orelse return null;
+    const size_s = formatCompactTokens(&size_buf, size) orelse return null;
+    return std.fmt.bufPrint(buf, "{s} / {s}", .{ used_s, size_s }) catch null;
+}
+
+/// Compact token counts for Settings Usage / composer meters: `12.4k`,
+/// `200k`, `1.2M`. Callers join with ` / ` or `/` as needed.
+pub fn formatCompactTokens(buf: []u8, value: u64) ?[]const u8 {
     if (value >= 1_000_000) {
         const m = value / 1_000_000;
         const rem = value % 1_000_000;
