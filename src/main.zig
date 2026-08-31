@@ -49,6 +49,7 @@ const session_actions = @import("session_actions.zig");
 const settings_actions = @import("settings_actions.zig");
 const session_mod = @import("session.zig");
 const model_mod = @import("model.zig");
+const i18n = @import("i18n.zig");
 const git_branch = @import("git_branch.zig");
 const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
@@ -421,6 +422,7 @@ pub const ProviderRow = model_mod.ProviderRow;
 pub const Msg = model_mod.Msg;
 pub const Model = model_mod.Model;
 pub const ThemePreference = model_mod.ThemePreference;
+pub const LanguagePreference = i18n.LanguagePreference;
 
 pub const writeFixed = session_mod.writeFixed;
 
@@ -542,6 +544,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .settings_theme_system => settings_actions.handleSettingsThemeSystem(model),
         .settings_theme_light => settings_actions.handleSettingsThemeLight(model),
         .settings_theme_dark => settings_actions.handleSettingsThemeDark(model),
+        .settings_language_system => settings_actions.handleSettingsLanguageSystem(model),
+        .settings_language_english => settings_actions.handleSettingsLanguageEnglish(model),
+        .settings_language_simplified_chinese => settings_actions.handleSettingsLanguageSimplifiedChinese(model),
+        .settings_language_japanese => settings_actions.handleSettingsLanguageJapanese(model),
         .refresh_skills => settings_actions.handleRefreshSkills(model, fx),
         .refresh_providers => settings_actions.handleRefreshProviders(model, fx),
         .skills_filter_edit => |edit| settings_actions.handleSkillsFilterEdit(model, edit),
@@ -836,6 +842,11 @@ pub fn main(init: std.process.Init) !void {
         store.bindDefaultDir(&app_state.model, home, init.environ_map.get("XDG_DATA_HOME"));
     }
     util.bindDaemonEnv(&app_state.model, init);
+    app_state.model.setSystemLocaleId(i18n.pickSystemLocaleId(
+        init.environ_map.get("LC_ALL") orelse "",
+        init.environ_map.get("LC_MESSAGES") orelse "",
+        init.environ_map.get("LANG") orelse "",
+    ));
     _ = store.boot(&app_state.model, std.heap.page_allocator, init.io);
     if (init.environ_map.get(protocol.DAEMON_ADDRESS_ENV)) |addr| {
         app_state.model.setDaemonAddress(addr);
@@ -892,6 +903,7 @@ test {
     _ = @import("settings_actions.zig");
     _ = @import("session.zig");
     _ = @import("model.zig");
+    _ = @import("i18n.zig");
     _ = @import("git_branch.zig");
     _ = @import("git_checkout.zig");
     _ = @import("git_dirty.zig");

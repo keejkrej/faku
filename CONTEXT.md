@@ -38,7 +38,7 @@ send circle.
 | **argv slot** | Every flag and operand is its own spawn argument. Never interpolate into the chdir `-c` script. |
 | **right panel** | First-cut Files + Diff pane to the right of the conversation. Default closed. |
 | **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP `acp` providers (cursor today) uses the same one-shot acp-proxy as fx; other ids stay demo. fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
-| **Settings Appearance** | Settings page for chrome theme preference: System (follow OS `on_appearance`), Light, or Dark. Default System. Persists `theme_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. No language selector this cut. |
+| **Settings Appearance** | Settings page for chrome theme and language. Theme: System (follow OS `on_appearance`), Light, or Dark. Default System. Language: System / English / 简体中文 / 日本語. Default System. System language follows process `LC_ALL` / `LC_MESSAGES` / `LANG` (Native has no locale API). Explicit language chips are autonyms in every locale. Persists `theme_preference` and `language_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. Settings chrome strings (title, nav, Appearance Theme / Language) follow the resolved locale this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
 | **Settings Usage** | Settings page showing the selected session's local context window (`context_used` / `context_size` from ACP `usage_update`) and thread-goal tokens (`threadGoalUsageLabel`). Read-only. Not daemon `LoadUsageHistory`, not a cost chart, not Daily / Monthly / Projects. |
 | **Settings Computer Use** | Settings page for Waku-nav parity. First-cut is Unavailable / Off / empty always-allowed apps. Native has no Screen Recording or Accessibility APIs; no Swift helper, permission probe, or app grants this cut. |
@@ -215,13 +215,25 @@ stay fx. Runtime-only catalog.
 
 ## Settings Appearance
 
-First-cut theme preference only. System follows OS `on_appearance`
-(`model.appearance.color_scheme`). Light / Dark force that scheme in
-`designTokens` / `DesignTokens.themeWithOverrides`. House pack,
-high contrast, and reduce motion still come from OS appearance;
+First-cut theme preference plus language selector. System theme follows
+OS `on_appearance` (`model.appearance.color_scheme`). Light / Dark force
+that scheme in `designTokens` / `DesignTokens.themeWithOverrides`. House
+pack, high contrast, and reduce motion still come from OS appearance;
 pixel-snap geometry stays off. Preference persists as
 `theme_preference` on `sessions.json` extras (`system` / `light` /
-`dark`). Missing or unknown loads as System. No language selector.
+`dark`). Missing or unknown loads as System.
+
+Language is System / English / 简体中文 / 日本語 chips under Theme.
+Default System. Explicit labels stay autonyms in every locale; the
+System chip follows the resolved locale. System resolution reads
+process `LC_ALL`, else `LC_MESSAGES`, else `LANG` (take the part before
+`.`, `_` → `-`, lowercase; `zh-cn` / `zh-sg` / `zh-hans*` → Simplified
+Chinese; `ja` / `ja-*` → Japanese; else English, including
+`zh-hant` / `zh-tw`). Native has no locale / NSLocale API this cut.
+Preference persists as `language_preference` (`system` / `english` /
+`simplified-chinese` / `japanese`). Missing or unknown loads as System.
+Resolved locale re-labels Settings chrome (title, nav, Appearance Theme
+/ Language, theme chips, OS caption). Not full-app catalogs.
 
 ## Settings Usage
 
@@ -272,6 +284,7 @@ live watch.
 | Skills scan | `src/skills.zig` |
 | Providers catalog | `src/providers.zig`, `src/cli_probe.zig` |
 | Composer / attach | `src/composer.zig`, `src/attach.zig` |
+| Settings chrome i18n | `src/i18n.zig` |
 
 ## Leftovers
 
@@ -287,8 +300,10 @@ Honest gaps this cut does not implement:
 - Real Computer Use: Native Screen Recording / Accessibility APIs,
   macOS helper, permission probe, always-allowed app picker (Settings
   Computer Use first-cut is nav + Unavailable / Off / empty apps)
-- Language selector (Appearance theme preference ships: System /
-  Light / Dark)
+- Full-app i18n catalogs / rust_i18n-style YAML, east-asian sidebar
+  dates, Native locale / NSLocale API (Appearance language selector
+  ships: System / English / 简体中文 / 日本語; Settings chrome follows
+  the resolved locale)
 - Monitor / Subagent Background (Environment Summary is Process +
   last-turn settle only)
 - Further `main.zig` extract (`update` / `initFx` / `initialModel`

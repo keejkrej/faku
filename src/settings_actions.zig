@@ -239,6 +239,26 @@ pub fn handleSettingsThemeDark(model: *Model) void {
     store.persistSettingsIfPossible(model);
 }
 
+pub fn handleSettingsLanguageSystem(model: *Model) void {
+    model.setLanguagePreference(.system);
+    store.persistSettingsIfPossible(model);
+}
+
+pub fn handleSettingsLanguageEnglish(model: *Model) void {
+    model.setLanguagePreference(.english);
+    store.persistSettingsIfPossible(model);
+}
+
+pub fn handleSettingsLanguageSimplifiedChinese(model: *Model) void {
+    model.setLanguagePreference(.simplified_chinese);
+    store.persistSettingsIfPossible(model);
+}
+
+pub fn handleSettingsLanguageJapanese(model: *Model) void {
+    model.setLanguagePreference(.japanese);
+    store.persistSettingsIfPossible(model);
+}
+
 pub fn handleRefreshSkills(model: *Model, fx: *Effects) void {
     if (model.settings_page != .skills) return;
     skills.refresh(model, fx);

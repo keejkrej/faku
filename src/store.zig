@@ -17,7 +17,8 @@
 //! Diff pane (default closed; Waku file-tree 184px; Diff tab is runtime-only),
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
-//! `last_project_path` / `last_daemon_address` / `theme_preference` so the settings gear and
+//! `last_project_path` / `last_daemon_address` / `theme_preference` /
+//! `language_preference` so the settings gear and
 //! composer chips can edit persisted defaults, and `folders` /
 //! `collapsed_folder_ids` so New folder groups persist. A session
 //! `folder_id` of 0 (or omitted) stays in the ungrouped date buckets
@@ -240,6 +241,7 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.last_reasoning_effort = lastReasoningEffortForSave(model, session);
     document.last_daemon_address = lastDaemonAddressForSave(model);
     document.theme_preference = model.theme_preference;
+    document.language_preference = model.language_preference;
     applySidebarExtras(&document, model);
     try applyFolderExtras(&document, arena, model);
     try writeDocument(allocator, io, dir, document);
@@ -278,6 +280,7 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     document.last_reasoning_effort = model.lastReasoningEffort();
     document.last_daemon_address = lastDaemonAddressForSave(model);
     document.theme_preference = model.theme_preference;
+    document.language_preference = model.language_preference;
     applySidebarExtras(&document, model);
     try applyFolderExtras(&document, arena, model);
     try writeDocument(allocator, io, dir, document);
@@ -321,7 +324,7 @@ pub fn persistLayoutIfPossible(model: *const Model) void {
 
 /// Merge-only write of settings extras (`last_model`, `last_access_mode`,
 /// `last_interaction_mode`, `last_reasoning_effort`, `last_project_path`, `last_daemon_address`,
-/// `theme_preference`).
+/// `theme_preference`, `language_preference`).
 /// Same first-run rule as sidebar collapse: does not create `sessions.json`
 /// and does not spawn a daemon sidecar. Missing / corrupt catalogs are a no-op.
 pub fn persistSettingsIfPossible(model: *const Model) void {
@@ -375,6 +378,7 @@ fn applySettingsExtras(document: *Document, model: *const Model) void {
     document.last_reasoning_effort = model.lastReasoningEffort();
     document.last_daemon_address = model.lastDaemonAddress();
     document.theme_preference = model.theme_preference;
+    document.language_preference = model.language_preference;
 }
 
 fn applyFolderExtras(document: *Document, arena: std.mem.Allocator, model: *const Model) !void {
@@ -837,6 +841,7 @@ const Document = struct {
     last_reasoning_effort: []const u8 = "",
     last_daemon_address: []const u8 = "",
     theme_preference: main.ThemePreference = .system,
+    language_preference: main.LanguagePreference = .system,
     sidebar_collapsed: bool = false,
     sidebar_width: u32 = 0,
     right_panel_open: bool = false,
@@ -859,6 +864,7 @@ const Document = struct {
             .last_reasoning_effort = model.lastReasoningEffort(),
             .last_daemon_address = lastDaemonAddressForSave(model),
             .theme_preference = model.theme_preference,
+            .language_preference = model.language_preference,
             .sidebar_collapsed = model.sidebar_collapsed,
             .sidebar_width = model.sidebarWidthPixels(),
             .right_panel_open = model.right_panel_open,
@@ -916,6 +922,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.setLastReasoningEffort(document.last_reasoning_effort);
     model.setLastDaemonAddress(document.last_daemon_address);
     model.theme_preference = document.theme_preference;
+    model.language_preference = document.language_preference;
     model.sidebar_collapsed = document.sidebar_collapsed;
     model.applySidebarWidth(document.sidebar_width);
     model.right_panel_open = document.right_panel_open;
@@ -1192,6 +1199,7 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .last_reasoning_effort = jsonString(obj.get("last_reasoning_effort")) orelse "",
         .last_daemon_address = jsonString(obj.get("last_daemon_address")) orelse "",
         .theme_preference = main.ThemePreference.fromPersist(jsonString(obj.get("theme_preference")) orelse ""),
+        .language_preference = main.LanguagePreference.fromPersist(jsonString(obj.get("language_preference")) orelse ""),
         .sidebar_collapsed = jsonBool(obj.get("sidebar_collapsed")) orelse false,
         .sidebar_width = jsonUint(obj.get("sidebar_width")) orelse 0,
         .right_panel_open = jsonBool(obj.get("right_panel_open")) orelse false,
@@ -1483,6 +1491,8 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try appendJsonString(&out, allocator, document.last_daemon_address);
     try out.appendSlice(allocator, ",\"theme_preference\":");
     try appendJsonString(&out, allocator, document.theme_preference.persistName());
+    try out.appendSlice(allocator, ",\"language_preference\":");
+    try appendJsonString(&out, allocator, document.language_preference.persistName());
     try out.appendSlice(allocator, ",\"sidebar_collapsed\":");
     try out.appendSlice(allocator, if (document.sidebar_collapsed) "true" else "false");
     try out.appendSlice(allocator, ",\"sidebar_width\":");
@@ -2154,6 +2164,7 @@ test "settings extras persist last_model access path and daemon; missing catalog
     source.setLastProjectPath("/tmp/faku-settings");
     source.setLastDaemonAddress("127.0.0.1:8787");
     source.theme_preference = .light;
+    source.language_preference = .japanese;
     persistSettingsIfPossible(&source);
 
     var loaded = Model{};
@@ -2167,6 +2178,7 @@ test "settings extras persist last_model access path and daemon; missing catalog
     try testing.expectEqualStrings("/tmp/faku-settings", loaded.lastProjectPath());
     try testing.expectEqualStrings("127.0.0.1:8787", loaded.lastDaemonAddress());
     try testing.expectEqual(main.ThemePreference.light, loaded.theme_preference);
+    try testing.expectEqual(main.LanguagePreference.japanese, loaded.language_preference);
     try testing.expectEqual(@as(usize, 0), loaded.daemonAddress().len);
 
     const inherited = loaded.addSession("next", .fx);
@@ -2186,6 +2198,7 @@ test "settings extras persist last_model access path and daemon; missing catalog
     try testing.expectEqualStrings("plan", cleared.lastInteractionMode());
     try testing.expectEqualStrings("high", cleared.lastReasoningEffort());
     try testing.expectEqual(main.ThemePreference.light, cleared.theme_preference);
+    try testing.expectEqual(main.LanguagePreference.japanese, cleared.language_preference);
 }
 
 test "theme_preference missing or unknown loads as System" {
@@ -2220,6 +2233,61 @@ test "theme_preference missing or unknown loads as System" {
     dark.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&dark, allocator, io));
     try testing.expectEqual(main.ThemePreference.dark, dark.theme_preference);
+}
+
+test "language_preference missing or unknown loads as System; extras roundtrip" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var missing = Model{};
+    missing.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&missing, allocator, io));
+    try testing.expectEqual(main.LanguagePreference.system, missing.language_preference);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"language_preference":"nope","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var unknown = Model{};
+    unknown.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&unknown, allocator, io));
+    try testing.expectEqual(main.LanguagePreference.system, unknown.language_preference);
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("language later", .fx);
+    _ = source.appendTurn(id, .user, "remember language");
+    try saveSession(&source, id, allocator, io);
+
+    source.language_preference = .english;
+    persistSettingsIfPossible(&source);
+    var english = Model{};
+    english.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&english, allocator, io));
+    try testing.expectEqual(main.LanguagePreference.english, english.language_preference);
+
+    source.language_preference = .simplified_chinese;
+    persistSettingsIfPossible(&source);
+    var zh = Model{};
+    zh.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&zh, allocator, io));
+    try testing.expectEqual(main.LanguagePreference.simplified_chinese, zh.language_preference);
+
+    source.language_preference = .japanese;
+    persistSettingsIfPossible(&source);
+    var ja = Model{};
+    ja.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&ja, allocator, io));
+    try testing.expectEqual(main.LanguagePreference.japanese, ja.language_preference);
 }
 
 test "folder extras persist untitled folders; missing catalog is not created" {

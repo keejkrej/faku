@@ -33,6 +33,7 @@ const open_terminal = @import("open_terminal.zig");
 const copy_helpers = @import("copy.zig");
 const open_editor = @import("open_editor.zig");
 const right_panel = @import("right_panel.zig");
+const i18n = @import("i18n.zig");
 
 const canvas = native_sdk.canvas;
 const main = @import("main.zig");
@@ -81,6 +82,7 @@ pub const max_tool_status = 32;
 pub const max_daemon_address = 128;
 pub const max_daemon_token = 256;
 pub const max_sidecar_path = 512;
+pub const max_locale_id = 128;
 
 // Field-default copies of shell / key constants that stay defined in
 // `main` / `switcher` / `attach`. Values must stay in sync.
@@ -132,6 +134,8 @@ pub const ThemePreference = enum {
         return .system;
     }
 };
+
+pub const LanguagePreference = i18n.LanguagePreference;
 
 pub const Turn = struct {
     id: u32 = 0,
@@ -432,6 +436,10 @@ pub const Msg = union(enum) {
     settings_theme_system,
     settings_theme_light,
     settings_theme_dark,
+    settings_language_system,
+    settings_language_english,
+    settings_language_simplified_chinese,
+    settings_language_japanese,
     refresh_skills,
     refresh_providers,
     skills_filter_edit: canvas.TextInputEvent,
@@ -702,6 +710,12 @@ pub const Model = struct {
     settings_page: skills.Page = .general,
     /// Persisted chrome theme. Default System (OS-follow).
     theme_preference: ThemePreference = .system,
+    /// Persisted chrome language. Default System (LC_ALL / LC_MESSAGES / LANG).
+    language_preference: LanguagePreference = .system,
+    /// Process locale id for System language. Copied at boot from LC_ALL /
+    /// LC_MESSAGES / LANG. Empty → english. Not persisted.
+    system_locale_id_storage: [max_locale_id]u8 = [_]u8{0} ** max_locale_id,
+    system_locale_id_len: usize = 0,
     /// Runtime-only selected Providers row (1-based). Not persisted.
     provider_selected_id: u32 = 0,
     /// Runtime-only Ctrl-Tab overlay. Not persisted to sessions.json.
@@ -1155,6 +1169,13 @@ pub const Model = struct {
         "settings_page",
         "theme_preference",
         "setThemePreference",
+        "language_preference",
+        "setLanguagePreference",
+        "settingsChrome",
+        "system_locale_id_storage",
+        "system_locale_id_len",
+        "setSystemLocaleId",
+        "systemLocaleId",
         "provider_selected_id",
         "skills_filter_buffer",
         "skill_store",
@@ -2509,17 +2530,121 @@ pub const Model = struct {
         return model.theme_preference == .dark;
     }
 
+    pub fn language_system(model: *const Model) bool {
+        return model.language_preference == .system;
+    }
+
+    pub fn language_english(model: *const Model) bool {
+        return model.language_preference == .english;
+    }
+
+    pub fn language_simplified_chinese(model: *const Model) bool {
+        return model.language_preference == .simplified_chinese;
+    }
+
+    pub fn language_japanese(model: *const Model) bool {
+        return model.language_preference == .japanese;
+    }
+
+    fn settingsChrome(model: *const Model) i18n.Chrome {
+        return i18n.chromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    pub fn systemLocaleId(model: *const Model) []const u8 {
+        return model.system_locale_id_storage[0..model.system_locale_id_len];
+    }
+
+    pub fn setSystemLocaleId(model: *Model, value: []const u8) void {
+        writeFixed(&model.system_locale_id_storage, &model.system_locale_id_len, value);
+    }
+
+    pub fn settings_title(model: *const Model) []const u8 {
+        return model.settingsChrome().settings;
+    }
+
+    pub fn settings_nav_general(model: *const Model) []const u8 {
+        return model.settingsChrome().general;
+    }
+
+    pub fn settings_nav_appearance(model: *const Model) []const u8 {
+        return model.settingsChrome().appearance;
+    }
+
+    pub fn settings_nav_providers(model: *const Model) []const u8 {
+        return model.settingsChrome().providers;
+    }
+
+    pub fn settings_nav_skills(model: *const Model) []const u8 {
+        return model.settingsChrome().skills;
+    }
+
+    pub fn settings_nav_usage(model: *const Model) []const u8 {
+        return model.settingsChrome().usage;
+    }
+
+    pub fn settings_nav_computer_use(model: *const Model) []const u8 {
+        return model.settingsChrome().computer_use;
+    }
+
+    pub fn appearance_theme_title(model: *const Model) []const u8 {
+        return model.settingsChrome().theme;
+    }
+
+    pub fn appearance_theme_system(model: *const Model) []const u8 {
+        return model.settingsChrome().system;
+    }
+
+    pub fn appearance_theme_light(model: *const Model) []const u8 {
+        return model.settingsChrome().light;
+    }
+
+    pub fn appearance_theme_dark(model: *const Model) []const u8 {
+        return model.settingsChrome().dark;
+    }
+
+    pub fn appearance_language_title(model: *const Model) []const u8 {
+        return model.settingsChrome().language;
+    }
+
+    pub fn appearance_language_description(model: *const Model) []const u8 {
+        return model.settingsChrome().language_description;
+    }
+
+    pub fn appearance_language_system(model: *const Model) []const u8 {
+        return model.settingsChrome().system;
+    }
+
+    pub fn appearance_language_english(model: *const Model) []const u8 {
+        _ = model;
+        return i18n.english_autonym;
+    }
+
+    pub fn appearance_language_simplified_chinese(model: *const Model) []const u8 {
+        _ = model;
+        return i18n.simplified_chinese_autonym;
+    }
+
+    pub fn appearance_language_japanese(model: *const Model) []const u8 {
+        _ = model;
+        return i18n.japanese_autonym;
+    }
+
     pub fn appearance_os_caption(model: *const Model) []const u8 {
+        const chrome = model.settingsChrome();
         const hc = model.appearance.high_contrast;
         const rm = model.appearance.reduce_motion;
-        if (hc and rm) return "High contrast on, reduce motion on. These follow the OS.";
-        if (hc) return "High contrast on, reduce motion off. These follow the OS.";
-        if (rm) return "High contrast off, reduce motion on. These follow the OS.";
-        return "High contrast off, reduce motion off. These follow the OS.";
+        if (hc and rm) return chrome.os_caption_hc_on_rm_on;
+        if (hc) return chrome.os_caption_hc_on_rm_off;
+        if (rm) return chrome.os_caption_hc_off_rm_on;
+        return chrome.os_caption_hc_off_rm_off;
     }
 
     pub fn setThemePreference(model: *Model, preference: ThemePreference) void {
         model.theme_preference = preference;
+    }
+
+    pub fn setLanguagePreference(model: *Model, preference: LanguagePreference) void {
+        model.language_preference = preference;
     }
 
     pub fn provider_rows(model: *const Model, arena: std.mem.Allocator) []const ProviderRow {
