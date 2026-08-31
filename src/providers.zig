@@ -10,9 +10,11 @@
 //! chat session's `provider` and persists via `sessions.json`. New
 //! sessions stay `.fx`. Live Send for probed ACP stdio providers
 //! (cursor, opencode, grok) is `spawn.startPrompt`; Available Claude
-//! is one-shot print-mode (`claude -p --output-format text`); Available
-//! Codex is one-shot `codex exec {prompt}` (documented `--image {path}`
-//! after the prompt when a composer image is attached); Available Amp is
+//! is one-shot print-mode (`claude -p --output-format text`; documented
+//! image path inside that `-p` prompt when a composer image is
+//! attached); Available Codex is one-shot `codex exec {prompt}`
+//! (documented `--image {path}` after the prompt when a composer image
+//! is attached); Available Amp is
 //! one-shot `amp -x {prompt}` (`--execute` is the long form; documented
 //! `@{path}` in the `-x` prompt when a composer image is attached);
 //! Available Pi is
@@ -26,8 +28,9 @@
 //! daemon or any real CLI install.
 //!
 //! Leftovers: full onboarding / OAuth / auto-install; Pi ACP /
-//! `--mode json` / RPC; Claude image attach.
-//! Claude print-mode, Codex exec (`--image` when attached), Amp
+//! `--mode json` / RPC; Claude ACP / stream-json.
+//! Claude print-mode (image path in the `-p` prompt when attached),
+//! Codex exec (`--image` when attached), Amp
 //! execute-mode (`@path` when attached), and Pi print-mode (`@path`
 //! when attached) ship this cut (not ACP, not stream-json, not
 //! permissions bypass). Appearance theme,
@@ -53,7 +56,7 @@ pub const first_party_label = "First-party default";
 pub const fx_transport_note = "Live path is one-shot fx acp via acp-proxy.";
 pub const acp_transport_note = "Live Send is one-shot acp via acp-proxy when Available.";
 pub const grok_transport_note = "Live Send is one-shot grok agent stdio via acp-proxy when Available.";
-pub const claude_transport_note = "Live Send is one-shot claude -p --output-format text when Available.";
+pub const claude_transport_note = "Live Send is one-shot claude -p --output-format text when Available (image path in the -p prompt when attached).";
 pub const codex_transport_note = "Live Send is one-shot codex exec when Available (`--image` when attached).";
 pub const amp_transport_note = "Live Send is one-shot amp -x / --execute when Available (`@path` when attached).";
 pub const pi_transport_note = "Live Send is one-shot pi -p / --print when Available (`@path` when attached).";

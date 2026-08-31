@@ -3782,9 +3782,10 @@ pub const Model = struct {
     }
 
     /// Composer image path when the draft has a non-empty path that exists.
-    /// Used as `fx ask --image`, `codex exec --image`, and Pi print-mode
-    /// `@{path}`. Missing files omit the attach; Native spawn has no
-    /// attachment/blob API.
+    /// Used as `fx ask --image`, `codex exec --image`, Amp execute-mode
+    /// `@{path}` in the `-x` prompt, Pi print-mode `@{path}`, and Claude
+    /// print-mode path-in-prompt. Missing files omit the attach; Native
+    /// spawn has no attachment/blob API.
     pub fn resolveSpawnImage(model: *const Model) []const u8 {
         const path = model.draftImagePath();
         if (path.len == 0) return "";
