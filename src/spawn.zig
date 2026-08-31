@@ -16,15 +16,17 @@
 //! not acp-proxy). Available Codex is one-shot `{binary} exec
 //! {prompt}` (empty stdin, not ACP, not acp-proxy), with documented
 //! `--image {path}` after the prompt when a composer image exists.
-//! Available Amp with
-//! no image attach is one-shot `{binary} -x {prompt}` (empty stdin,
-//! not ACP, not acp-proxy). Available Pi is one-shot `{binary} -p
-//! {prompt}` (empty stdin, not ACP, not acp-proxy; `--print` is the
-//! long form), with documented `@{path}` after `-p` when a composer
-//! image exists (`pi -p @screenshot.png "What's in this image?"`).
-//! `reply_path` stays `.fx` with `fx_spawn_acp = false` so stdout
-//! lines use the existing non-ACP `handleFxLine` path. Image attach
-//! on cursor / opencode / grok / claude / amp stays demo.
+//! Available Amp is one-shot `{binary} -x {prompt}` (empty stdin,
+//! not ACP, not acp-proxy; `--execute` is the long form), with a
+//! documented `@{path}` mention inside that single `-x` prompt when
+//! a composer image exists. There is no `--image` flag. Available Pi
+//! is one-shot `{binary} -p {prompt}` (empty stdin, not ACP, not
+//! acp-proxy; `--print` is the long form), with documented `@{path}`
+//! after `-p` when a composer image exists (`pi -p @screenshot.png
+//! "What's in this image?"`). `reply_path` stays `.fx` with
+//! `fx_spawn_acp = false` so stdout lines use the existing non-ACP
+//! `handleFxLine` path. Image attach on cursor / opencode / grok /
+//! claude stays demo.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -119,12 +121,13 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
     }
     if (session.provider == .amp and providers.isAvailable(model, .amp)) {
         // Amp is not ACP. Official execute mode is one-shot
-        // `amp -x {prompt}`. Image attach stays demo.
-        if (model.resolveSpawnImage().len == 0) {
-            if (startAmpExecute(model, fx, session, text)) {
-                model.reply_path = .fx;
-                return;
-            }
+        // `amp -x {prompt}` (`--execute` is the long form). Documented
+        // image attach is an `@path` mention inside that single `-x`
+        // prompt (`amp -x '@{path}\n{prompt}'`). There is no `--image`
+        // flag. Unavailable Amp stays demo.
+        if (startAmpExecute(model, fx, session, text)) {
+            model.reply_path = .fx;
+            return;
         }
     }
     if (session.provider == .pi and providers.isAvailable(model, .pi)) {
@@ -490,23 +493,43 @@ pub fn startCodexExec(model: *Model, fx: *Effects, session: *const Session, prom
     return true;
 }
 
-/// One-shot official Amp execute mode: `{binary} -x {prompt}`.
-/// Prompt is an argv slot (documented `amp -x "query"`; `--execute`
-/// is the long form). Empty stdin. Execute mode sends the message,
-/// waits until the agent ends its turn, prints its final message,
-/// and exits, so the existing non-ACP `handleFxLine` path is safe.
-/// Not ACP, not `amp acp`, not acp-proxy, not `--stream-json`, not
-/// `--dangerously-allow-all` / `dangerouslyAllowAll`. Caller sets
-/// `reply_path` to `.fx` on success; `fx_spawn_acp` stays false.
-/// Project cwd reuses `fx_ask_chdir_script` (Native SpawnOptions
-/// has no cwd field). Empty binary is a no-op (PATH default is
-/// `amp`).
+/// One-shot official Amp execute mode: `{binary} -x {prompt}`, or
+/// `{binary} -x '@{image_path}\n{prompt}'` when a composer image
+/// exists. Prompt is an argv slot (documented `amp -x "query"`;
+/// `--execute` is the long form). Composer images are documented
+/// `@path` mentions by file path (ampcode.com/docs/prompting
+/// "Attaching Images"; ampcode.com/news/cli-image-support); there
+/// is no `--image` / `-i` flag. The mention lives inside the single
+/// `-x` prompt argv, not as a separate undocumented slot. The `@` +
+/// path is a stack buffer sized for `@` + `max_project_path` (same
+/// cap as the draft image store). Empty stdin. Execute mode sends
+/// the message, waits until the agent ends its turn, prints its
+/// final message, and exits, so the existing non-ACP `handleFxLine`
+/// path is safe. Not ACP, not `amp acp`, not acp-proxy, not
+/// `--stream-json`, not `--dangerously-allow-all` /
+/// `dangerouslyAllowAll`. Caller sets `reply_path` to `.fx` on
+/// success; `fx_spawn_acp` stays false. Project cwd reuses
+/// `fx_ask_chdir_script` (Native SpawnOptions has no cwd field).
+/// Empty binary is a no-op (PATH default is `amp`).
 pub fn startAmpExecute(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) bool {
     const binary = providers.binaryFor(model, .amp);
     if (binary.len == 0) return false;
     const cwd = model.resolveSpawnCwd(session);
+    const image_path = model.resolveSpawnImage();
     model.setLastSpawnCwd(cwd);
-    model.setLastSpawnImagePath("");
+    model.setLastSpawnImagePath(image_path);
+
+    var at_path_buf: [1 + main.max_project_path]u8 = undefined;
+    const at_path = if (image_path.len > 0)
+        std.fmt.bufPrint(&at_path_buf, "@{s}", .{image_path}) catch ""
+    else
+        "";
+
+    var execute_prompt_buf: [1 + main.max_project_path + 1 + main.max_draft]u8 = undefined;
+    const execute_prompt = if (at_path.len > 0)
+        std.fmt.bufPrint(&execute_prompt_buf, "{s}\n{s}", .{ at_path, prompt }) catch prompt
+    else
+        prompt;
 
     var argv_buf: [16][]const u8 = undefined;
     var n: usize = 0;
@@ -526,7 +549,7 @@ pub fn startAmpExecute(model: *Model, fx: *Effects, session: *const Session, pro
     n += 1;
     argv_buf[n] = "-x";
     n += 1;
-    argv_buf[n] = prompt;
+    argv_buf[n] = execute_prompt;
     n += 1;
 
     model.fx_spawn_acp = false;
@@ -1033,8 +1056,10 @@ test "amp + cli_available selects execute-mode amp -x {prompt}" {
     try testing.expect(!testArgvHas(request.argv, "--dangerously-allow-all"));
     try testing.expect(!testArgvHas(request.argv, "dangerouslyAllowAll"));
     try testing.expect(!testArgvHas(request.argv, "--dangerously-skip-permissions"));
+    try testing.expect(!testArgvHas(request.argv, "--image"));
     try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
     try testing.expectEqualStrings("", request.stdin);
+    try testing.expectEqualStrings("", model.lastSpawnImagePath());
     const binary_at = testArgvIndex(request.argv, "amp") orelse return error.MissingBinary;
     const x_at = testArgvIndex(request.argv, "-x") orelse return error.MissingExecute;
     const prompt_at = testArgvIndex(request.argv, "hello amp") orelse return error.MissingPrompt;
@@ -1099,13 +1124,15 @@ test "fx session stays demo when fx is missing even if amp is available" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "amp image attach stays demo" {
+test "amp image attach uses execute @path in the -x prompt" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
     var image_buf: [256]u8 = undefined;
     const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/amp-shot.png", .{tmp.sub_path[0..]});
     try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+    var at_buf: [257]u8 = undefined;
+    const at_image = try std.fmt.bufPrint(&at_buf, "@{s}", .{image});
 
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
@@ -1116,6 +1143,55 @@ test "amp image attach stays demo" {
     model.setSidecarPath("faku");
     model.cli_available[@intFromEnum(protocol.ProviderId.amp)] = true;
     const id = model.addSession("amp image", .amp);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    try testing.expectEqualStrings(image, model.lastSpawnImagePath());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "amp"));
+    try testing.expect(testArgvHas(request.argv, "-x"));
+    try testing.expect(!testArgvHas(request.argv, at_image));
+    try testing.expect(!testArgvHas(request.argv, "describe this"));
+    try testing.expect(!testArgvHas(request.argv, "--image"));
+    try testing.expect(!testArgvHas(request.argv, "--execute"));
+    try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+    try testing.expect(!testArgvHas(request.argv, "fx"));
+    try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expectEqualStrings("", request.stdin);
+    const binary_at = testArgvIndex(request.argv, "amp") orelse return error.MissingBinary;
+    const x_at = testArgvIndex(request.argv, "-x") orelse return error.MissingExecute;
+    try testing.expectEqual(binary_at + 1, x_at);
+    try testing.expect(x_at + 1 < request.argv.len);
+    const execute_prompt = request.argv[x_at + 1];
+    try testing.expect(std.mem.indexOf(u8, execute_prompt, at_image) != null);
+    try testing.expect(std.mem.indexOf(u8, execute_prompt, image) != null);
+    try testing.expect(std.mem.indexOf(u8, execute_prompt, "describe this") != null);
+    try testing.expect(std.mem.startsWith(u8, execute_prompt, at_image));
+    try testing.expectEqual(x_at + 2, request.argv.len);
+}
+
+test "amp unavailable image attach stays demo" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/amp-missing-shot.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("amp missing image", .amp);
     model.selected = id;
     model.setDraftImagePath(image);
 

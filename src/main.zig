@@ -11,11 +11,12 @@
 //! path when `--help` is available; Available Claude uses one-shot
 //! print-mode (`claude -p --output-format text`, not ACP); Available
 //! Codex uses one-shot `codex exec {prompt}` (not ACP), with documented
-//! `--image {path}` after the prompt when a composer image is attached; Available Amp
-//! uses one-shot `amp -x {prompt}` (not ACP); Available Pi uses
-//! one-shot `pi -p {prompt}` (not ACP), with documented `@{path}` after
-//! `-p` when a composer image is attached; other non-fx image attach stays
-//! the demo timer.
+//! `--image {path}` after the prompt when a composer image is attached;
+//! Available Amp uses one-shot `amp -x {prompt}` (not ACP), with a
+//! documented `@{path}` mention in that `-x` prompt when a composer
+//! image is attached; Available Pi uses one-shot `pi -p {prompt}`
+//! (not ACP), with documented `@{path}` after `-p` when a composer
+//! image is attached; other non-fx image attach stays the demo timer.
 //! When `WAKU_DAEMON_ADDRESS` is set, Send instead
 //! spawns a one-shot `daemon-proxy` sidecar (hello + attachSession +
 //! start + prompt when no runtime id; later sends keep attach + prompt).
