@@ -43,8 +43,9 @@ The local catalog `sessions.json` is canonical. Daemon and ACP are
 best-effort sidecars: the desktop update loop never holds a socket.
 `WAKU_DAEMON_ADDRESS` still selects the daemon sidecar. Missing fx
 still uses the demo timer. Available Claude is one-shot
-`claude -p --output-format text` (not ACP). Other providers (codex,
-amp, pi) and unavailable cursor / opencode / grok / claude stay demo.
+`claude -p --output-format text` (not ACP). Available Codex is
+one-shot `codex exec {prompt}` (not ACP). Amp / Pi and unavailable
+cursor / opencode / grok / claude / codex stay demo.
 Apply on Settings →
 Providers sets `session.provider`. fx missing copies the verified
 install command; fx available copies `fx login`. Other missing CLIs
@@ -77,13 +78,15 @@ when the CLI is present (via `acp-proxy`, which auto-answers
 stdio providers (cursor / OpenCode `acp`, grok `agent stdio`),
 first-cut live Send for Available Claude via official print mode
 (`claude -p --output-format text`; stdout is the non-ACP fx line
-path),
+path), first-cut live Send for Available Codex via official
+non-interactive `codex exec {prompt}` (stdout is the same non-ACP
+fx line path; not ACP),
 `fx ask --image` / `fx ask` fallback, local session catalog + hydrate,
 waku-protocol v4 JSON builders + server-frame parser, one-shot daemon
 sidecar, provider id `"fx"`.
 
-Later: Codex / Amp / Pi native drivers, Claude image attach / ACP /
-stream-json, full onboarding /
+Later: Amp / Pi native drivers, Claude image attach / ACP /
+stream-json, Codex image attach, full onboarding /
 OAuth / auto-install, a long-lived daemon socket in the update loop
 (not this cut), a long-lived ACP loop once a window-side stdin-write
 effect exists.
