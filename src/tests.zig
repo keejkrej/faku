@@ -1371,6 +1371,79 @@ test "send with opencode unavailable still starts the demo timer" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
+test "send with grok cli_available spawns acp-proxy grok agent stdio and streams session/update" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.grok)] = true;
+    const id = model.addSession("grok send", .grok);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "what does this repo do" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(argvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(request.argv, "--"));
+    try testing.expect(argvHas(request.argv, "grok"));
+    try testing.expect(argvHas(request.argv, "agent"));
+    try testing.expect(argvHas(request.argv, "stdio"));
+    try testing.expect(!argvHas(request.argv, "acp"));
+    try testing.expect(!argvHas(request.argv, "--always-approve"));
+    try testing.expect(!argvHas(request.argv, "ask"));
+    try testing.expect(!argvHas(request.argv, "fx"));
+    try testing.expect(!argvHas(request.argv, "cursor-agent"));
+    try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    const binary_at = argvIndex(request.argv, "grok") orelse return error.MissingBinary;
+    const agent_at = argvIndex(request.argv, "agent") orelse return error.MissingAgent;
+    const stdio_at = argvIndex(request.argv, "stdio") orelse return error.MissingStdio;
+    try testing.expectEqual(binary_at + 1, agent_at);
+    try testing.expectEqual(agent_at + 1, stdio_at);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"initialize\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/new\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/set_mode\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "what does this repo do") != null);
+
+    const before_len = lastAssistant(&model).len;
+    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello from grok agent stdio\"}}}}");
+    drainEffects(&model, &fx);
+    try testing.expect(lastAssistant(&model).len > before_len);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from grok agent stdio") != null);
+
+    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+}
+
+test "send with grok unavailable still starts the demo timer" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    const id = model.addSession("grok missing", .grok);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "no grok" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
 test "send with cursor unavailable or claude available still starts the demo timer" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();

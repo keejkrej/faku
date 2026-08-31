@@ -8,11 +8,11 @@
 //!
 //! First-party provider (this port's differentiator; Waku does not ship
 //! it): Vercel `fx` (https://fx.sh). Live first path is one-shot
-//! `fx acp` (see main.zig / acp.zig). Probed ACP `acp` providers
-//! (cursor, opencode) reuse that sidecar. Native stdin is one buffer at spawn
-//! time; this is not a long-lived ACP loop. `fx ask --image` stays the
-//! image path. Probe `~/.local/bin/fx` then PATH. Missing binary keeps
-//! the demo timer.
+//! `fx acp` (see main.zig / acp.zig). Probed ACP stdio providers
+//! (cursor / opencode `acp`, grok `agent stdio`) reuse that sidecar.
+//! Native stdin is one buffer at spawn time; this is not a long-lived
+//! ACP loop. `fx ask --image` stays the image path. Probe
+//! `~/.local/bin/fx` then PATH. Missing binary keeps the demo timer.
 //!
 //! Catalog is `loadTaskState`. There is no `listSessions` / `createSession`
 //! RPC. A new session is a client-built AgentSession persisted with
@@ -159,6 +159,12 @@ pub const FX_BINARY = "fx";
 /// ACP stdio surface — the right embed path (same family as cursor-agent / grok).
 pub const FX_TRANSPORT = "acp";
 pub const FX_ACP_ARGV = [_][]const u8{ "fx", "acp" };
+/// Bare `acp` after the binary — fx, cursor-agent, opencode.
+pub const BARE_ACP_TRANSPORT = [_][]const u8{FX_TRANSPORT};
+/// Official Grok ACP stdio. Not `grok acp`. Permission mode rides
+/// `session/set_mode` / `FX_PERMISSION_MODE` like the other ACP
+/// ids; this cut does not pass `--always-approve`.
+pub const GROK_ACP_TRANSPORT = [_][]const u8{ "agent", "stdio" };
 pub const FX_ASK_ARGV_HEAD = [_][]const u8{ "fx", "ask" };
 /// Install: `curl -fsSL https://fx.sh/setup.sh | bash` → ~/.local/bin/fx
 pub const FX_PROBE_PATHS = [_][]const u8{ "~/.local/bin/fx", "fx" };
@@ -219,12 +225,30 @@ pub const ProviderId = enum {
     /// True when this id speaks ACP stdio with a bare `acp` subcommand
     /// (`cursor-agent acp`, official `opencode acp`). fx stays on the
     /// first-party branch. Not Claude/Codex/Amp/Pi native drivers, not
-    /// Grok `agent … stdio`. Kimi is not in this enum. Easy to extend
+    /// Grok `agent stdio`. Kimi is not in this enum. Easy to extend
     /// later.
     pub fn speaksBareAcp(id: ProviderId) bool {
         return switch (id) {
             .cursor, .opencode => true,
             else => false,
+        };
+    }
+
+    /// True when Faku can spawn one-shot ACP stdio for this id after
+    /// the daemon/fx branches. Bare `acp` (cursor, opencode) plus Grok
+    /// `agent stdio`. fx stays on the first-party branch.
+    pub fn speaksAcpStdio(id: ProviderId) bool {
+        return id.speaksBareAcp() or id == .grok;
+    }
+
+    /// Transport argv after the binary. Bare-acp ids and fx get
+    /// `acp`; grok gets `agent stdio`. Empty for ids that do not
+    /// speak ACP stdio this cut.
+    pub fn acpTransportArgv(id: ProviderId) []const []const u8 {
+        return switch (id) {
+            .fx, .cursor, .opencode => &BARE_ACP_TRANSPORT,
+            .grok => &GROK_ACP_TRANSPORT,
+            else => &.{},
         };
     }
 
@@ -1223,6 +1247,21 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expect(!ProviderId.amp.speaksBareAcp());
     try std.testing.expect(!ProviderId.grok.speaksBareAcp());
     try std.testing.expect(!ProviderId.pi.speaksBareAcp());
+    try std.testing.expect(ProviderId.cursor.speaksAcpStdio());
+    try std.testing.expect(ProviderId.opencode.speaksAcpStdio());
+    try std.testing.expect(ProviderId.grok.speaksAcpStdio());
+    try std.testing.expect(!ProviderId.fx.speaksAcpStdio());
+    try std.testing.expect(!ProviderId.claude.speaksAcpStdio());
+    try std.testing.expectEqualStrings("acp", ProviderId.cursor.acpTransportArgv()[0]);
+    try std.testing.expectEqual(@as(usize, 1), ProviderId.cursor.acpTransportArgv().len);
+    try std.testing.expectEqualStrings("acp", ProviderId.opencode.acpTransportArgv()[0]);
+    try std.testing.expectEqualStrings("acp", ProviderId.fx.acpTransportArgv()[0]);
+    try std.testing.expectEqual(@as(usize, 2), ProviderId.grok.acpTransportArgv().len);
+    try std.testing.expectEqualStrings("agent", ProviderId.grok.acpTransportArgv()[0]);
+    try std.testing.expectEqualStrings("stdio", ProviderId.grok.acpTransportArgv()[1]);
+    try std.testing.expectEqual(@as(usize, 0), ProviderId.claude.acpTransportArgv().len);
+    try std.testing.expectEqualStrings("agent", GROK_ACP_TRANSPORT[0]);
+    try std.testing.expectEqualStrings("stdio", GROK_ACP_TRANSPORT[1]);
 }
 
 test "writeStart includes reasoningEffort when set and omits when empty" {
