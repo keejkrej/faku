@@ -43,8 +43,10 @@ The local catalog `sessions.json` is canonical. Daemon and ACP are
 best-effort sidecars: the desktop update loop never holds a socket.
 `WAKU_DAEMON_ADDRESS` still selects the daemon sidecar. Missing fx
 still uses the demo timer. Available Claude is one-shot
-`claude -p --output-format text` (not ACP; documented image path
-inside that `-p` prompt when a composer image is attached). Available
+`claude -p --output-format stream-json --verbose
+--include-partial-messages` (not ACP; documented image path
+inside that `-p` prompt when a composer image is attached; stdout
+is NDJSON with live `text_delta` into the transcript). Available
 Codex is
 one-shot `codex exec {prompt}` (not ACP; documented `--image {path}`
 after the prompt when a composer image is attached). Available Amp is
@@ -85,9 +87,11 @@ Ready: desktop shell, demo sessions + timer fallback, one-shot `fx acp`
 when the CLI is present (via `acp-proxy`, which auto-answers
 `session/request_permission`), first-cut live Send for probed ACP
 stdio providers (cursor / OpenCode `acp`, grok `agent stdio`),
-first-cut live Send for Available Claude via official print mode
-(`claude -p --output-format text`; stdout is the non-ACP fx line
-path; documented image path in the `-p` prompt when a composer
+first-cut live Send for Available Claude via official print-mode
+stream-json (`claude -p --output-format stream-json --verbose
+--include-partial-messages`; stdout is parsed as NDJSON — live
+`text_delta` into the assistant turn, not a dump of raw JSON;
+documented image path in the `-p` prompt when a composer
 image is attached), first-cut live Send for Available Codex via official
 non-interactive `codex exec {prompt}` (stdout is the same non-ACP
 fx line path; not ACP; documented `--image {path}` after the prompt
@@ -105,7 +109,8 @@ sidecar, provider id `"fx"`, Environment Summary Background kind
 chrome (Process / Monitor / Subagent labels) with Process rows from
 window-side stream/settle.
 
-Later: Pi ACP / `--mode rpc`, Claude ACP / stream-json, full
+Later: Pi ACP / `--mode rpc`, Claude ACP / `--continue` / `--resume` /
+`--forward-subagent-text`, full
 onboarding / OAuth / auto-install, a long-lived daemon socket in the
 update loop
 (not this cut), a long-lived ACP loop once a window-side stdin-write

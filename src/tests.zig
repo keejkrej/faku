@@ -1462,7 +1462,7 @@ test "send with cursor unavailable still starts the demo timer" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "send with claude cli_available spawns print-mode and streams stdout as assistant text" {
+test "send with claude cli_available spawns stream-json print-mode and streams text_delta as assistant text" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -1479,6 +1479,8 @@ test "send with claude cli_available spawns print-mode and streams stdout as ass
     try testing.expect(model.is_streaming());
     try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(model.fx_spawn_claude_json);
+    try testing.expect(!model.fx_spawn_pi_json);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
@@ -1487,8 +1489,11 @@ test "send with claude cli_available spawns print-mode and streams stdout as ass
     try testing.expect(argvHas(request.argv, "claude"));
     try testing.expect(argvHas(request.argv, "-p"));
     try testing.expect(argvHas(request.argv, "--output-format"));
-    try testing.expect(argvHas(request.argv, "text"));
+    try testing.expect(argvHas(request.argv, "stream-json"));
+    try testing.expect(argvHas(request.argv, "--verbose"));
+    try testing.expect(argvHas(request.argv, "--include-partial-messages"));
     try testing.expect(argvHas(request.argv, "what does this repo do"));
+    try testing.expect(!argvHas(request.argv, "text"));
     try testing.expect(!argvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(!argvHas(request.argv, "acp"));
     try testing.expect(!argvHas(request.argv, "agent"));
@@ -1497,23 +1502,43 @@ test "send with claude cli_available spawns print-mode and streams stdout as ass
     try testing.expect(!argvHas(request.argv, "fx"));
     try testing.expect(!argvHas(request.argv, "--dangerously-skip-permissions"));
     try testing.expect(!argvHas(request.argv, "--always-approve"));
+    try testing.expect(!argvHas(request.argv, "--input-format"));
+    try testing.expect(!argvHas(request.argv, "--continue"));
+    try testing.expect(!argvHas(request.argv, "--resume"));
+    try testing.expect(!argvHas(request.argv, "--bare"));
+    try testing.expect(!argvHas(request.argv, "--forward-subagent-text"));
     try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
     try testing.expectEqualStrings("", request.stdin);
     const binary_at = argvIndex(request.argv, "claude") orelse return error.MissingBinary;
     const p_at = argvIndex(request.argv, "-p") orelse return error.MissingPrint;
     const format_at = argvIndex(request.argv, "--output-format") orelse return error.MissingFormat;
-    const text_at = argvIndex(request.argv, "text") orelse return error.MissingText;
+    const stream_at = argvIndex(request.argv, "stream-json") orelse return error.MissingStreamJson;
+    const verbose_at = argvIndex(request.argv, "--verbose") orelse return error.MissingVerbose;
+    const partial_at = argvIndex(request.argv, "--include-partial-messages") orelse return error.MissingPartial;
     const prompt_at = argvIndex(request.argv, "what does this repo do") orelse return error.MissingPrompt;
     try testing.expectEqual(binary_at + 1, p_at);
     try testing.expectEqual(p_at + 1, format_at);
-    try testing.expectEqual(format_at + 1, text_at);
-    try testing.expectEqual(text_at + 1, prompt_at);
+    try testing.expectEqual(format_at + 1, stream_at);
+    try testing.expectEqual(stream_at + 1, verbose_at);
+    try testing.expectEqual(verbose_at + 1, partial_at);
+    try testing.expectEqual(partial_at + 1, prompt_at);
+
+    try fx.feedLine(main.fx_ask_key, "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"claude-sess-send\"}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("claude-sess-send", model.sessionById(id).?.fxSessionId());
+    try testing.expectEqualStrings("", lastAssistant(&model));
+
+    try fx.feedLine(main.fx_ask_key, "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\"}}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("", lastAssistant(&model));
 
     const before_len = lastAssistant(&model).len;
-    try fx.feedLine(main.fx_ask_key, "hello from claude print-mode");
+    try fx.feedLine(main.fx_ask_key, "{\"type\":\"stream_event\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"hello from claude stream-json\"}}}");
     drainEffects(&model, &fx);
     try testing.expect(lastAssistant(&model).len > before_len);
-    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from claude print-mode") != null);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from claude stream-json") != null);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "assistant") == null);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "stream_event") == null);
 
     try fx.feedExit(main.fx_ask_key, 0);
     drainEffects(&model, &fx);
@@ -1683,6 +1708,7 @@ test "send with pi cli_available spawns json-mode and streams text_delta as assi
     try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
     try testing.expect(!model.fx_spawn_acp);
     try testing.expect(model.fx_spawn_pi_json);
+    try testing.expect(!model.fx_spawn_claude_json);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
 
