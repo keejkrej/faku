@@ -44,8 +44,8 @@ best-effort sidecars: the desktop update loop never holds a socket.
 `WAKU_DAEMON_ADDRESS` still selects the daemon sidecar. Missing fx
 still uses the demo timer. Available Claude is one-shot
 `claude -p --output-format text` (not ACP). Available Codex is
-one-shot `codex exec {prompt}` (not ACP; documented `--image` when a
-composer image is attached). Available Amp is one-shot
+one-shot `codex exec {prompt}` (not ACP; documented `--image {path}`
+after the prompt when a composer image is attached). Available Amp is one-shot
 `amp -x {prompt}` (not ACP). Available Pi is one-shot `pi -p {prompt}`
 (not ACP). Unavailable cursor / opencode / grok / claude / codex /
 amp / pi stay demo.
@@ -83,8 +83,8 @@ first-cut live Send for Available Claude via official print mode
 (`claude -p --output-format text`; stdout is the non-ACP fx line
 path), first-cut live Send for Available Codex via official
 non-interactive `codex exec {prompt}` (stdout is the same non-ACP
-fx line path; not ACP; documented `--image` when a composer image
-is attached), first-cut live Send for Available Amp via
+fx line path; not ACP; documented `--image {path}` after the prompt
+when a composer image is attached), first-cut live Send for Available Amp via
 official execute mode (`amp -x {prompt}`; stdout is the same
 non-ACP fx line path; not ACP), first-cut live Send for Available
 Pi via official print mode (`pi -p {prompt}`; stdout is the same

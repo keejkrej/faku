@@ -15,7 +15,8 @@
 //! `{binary} -p --output-format text {prompt}` (empty stdin, not ACP,
 //! not acp-proxy). Available Codex is one-shot `{binary} exec
 //! {prompt}` (empty stdin, not ACP, not acp-proxy), with documented
-//! `--image {path}` when a composer image exists. Available Amp with
+//! `--image {path}` after the prompt when a composer image exists.
+//! Available Amp with
 //! no image attach is one-shot `{binary} -x {prompt}` (empty stdin,
 //! not ACP, not acp-proxy). Available Pi with no image attach is
 //! one-shot `{binary} -p {prompt}` (empty stdin, not ACP, not
@@ -106,8 +107,10 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
     }
     if (session.provider == .codex and providers.isAvailable(model, .codex)) {
         // Codex is not ACP. Official non-interactive mode is one-shot
-        // `codex exec {prompt}`. Documented `--image` when a composer
-        // image exists. Unavailable Codex stays demo.
+        // `codex exec {prompt}`. Documented `--image {path}` after the
+        // prompt when a composer image exists (`--image` is clap
+        // `num_args = 1..`, so a following prompt would be eaten as
+        // another image path). Unavailable Codex stays demo.
         if (startCodexExec(model, fx, session, text)) {
             model.reply_path = .fx;
             return;
@@ -425,15 +428,17 @@ pub fn startClaudePrint(model: *Model, fx: *Effects, session: *const Session, pr
 }
 
 /// One-shot official Codex non-interactive mode:
-/// `{binary} exec {prompt}`, or `{binary} exec --image {path}
-/// {prompt}` when a composer image exists. Prompt is an argv slot
-/// (documented `codex exec [OPTIONS] [PROMPT]`). `--image` / `-i`
-/// is documented on `codex exec`; this cut uses the long form and
-/// one path (same argv-slot pattern as `fx ask --image`). Not
-/// path-in-prompt. Empty stdin. Progress streams to stderr; the
-/// final agent message prints to stdout, so the existing non-ACP
-/// `handleFxLine` path is safe. Not ACP, not acp-proxy, not
-/// stream-json, not `--full-auto` / sandbox bypass /
+/// `{binary} exec {prompt}`, or `{binary} exec {prompt} --image {path}`
+/// when a composer image exists. Prompt is an argv slot (documented
+/// `codex exec [OPTIONS] [PROMPT]`). `--image` / `-i` is documented
+/// on `codex exec` (clap `num_args = 1..`); this cut uses the long
+/// form and one path. The flag must follow the positional prompt —
+/// `codex exec --image {path} {prompt}` makes clap treat the prompt
+/// as another image path. Same argv-slot pattern as `fx ask --image`
+/// (flag then path), not path-in-prompt. Empty stdin. Progress
+/// streams to stderr; the final agent message prints to stdout, so
+/// the existing non-ACP `handleFxLine` path is safe. Not ACP, not
+/// acp-proxy, not stream-json, not `--full-auto` / sandbox bypass /
 /// `--ask-for-approval never`. Caller sets `reply_path` to `.fx` on
 /// success; `fx_spawn_acp` stays false. Project cwd reuses
 /// `fx_ask_chdir_script` (Native SpawnOptions has no cwd field).
@@ -464,14 +469,14 @@ pub fn startCodexExec(model: *Model, fx: *Effects, session: *const Session, prom
     n += 1;
     argv_buf[n] = "exec";
     n += 1;
+    argv_buf[n] = prompt;
+    n += 1;
     if (image_path.len > 0) {
         argv_buf[n] = "--image";
         n += 1;
         argv_buf[n] = image_path;
         n += 1;
     }
-    argv_buf[n] = prompt;
-    n += 1;
 
     model.fx_spawn_acp = false;
     fx.spawn(.{
@@ -1503,10 +1508,10 @@ test "codex image attach uses exec --image" {
     const image_at = testArgvIndex(request.argv, "--image") orelse return error.MissingImage;
     const prompt_at = testArgvIndex(request.argv, "describe this") orelse return error.MissingPrompt;
     try testing.expectEqual(binary_at + 1, exec_at);
-    try testing.expectEqual(exec_at + 1, image_at);
-    try testing.expectEqualStrings(image, request.argv[image_at + 1]);
-    try testing.expectEqual(image_at + 2, prompt_at);
+    try testing.expectEqual(exec_at + 1, prompt_at);
     try testing.expectEqualStrings("describe this", request.argv[prompt_at]);
+    try testing.expectEqual(prompt_at + 1, image_at);
+    try testing.expectEqualStrings(image, request.argv[image_at + 1]);
 }
 
 test "codex unavailable image attach stays demo" {

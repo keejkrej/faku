@@ -11,8 +11,8 @@
 //! sessions stay `.fx`. Live Send for probed ACP stdio providers
 //! (cursor, opencode, grok) is `spawn.startPrompt`; Available Claude
 //! is one-shot print-mode (`claude -p --output-format text`); Available
-//! Codex is one-shot `codex exec {prompt}` (documented `--image` when a
-//! composer image is attached); Available Amp is one-shot
+//! Codex is one-shot `codex exec {prompt}` (documented `--image {path}`
+//! after the prompt when a composer image is attached); Available Amp is one-shot
 //! `amp -x {prompt}` (`--execute` is the long form); Available Pi is
 //! one-shot `pi -p {prompt}` (`--print` is the long form). fx
 //! Not found copies the verified `https://fx.sh` install

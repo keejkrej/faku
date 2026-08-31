@@ -11,7 +11,7 @@
 //! path when `--help` is available; Available Claude uses one-shot
 //! print-mode (`claude -p --output-format text`, not ACP); Available
 //! Codex uses one-shot `codex exec {prompt}` (not ACP), with documented
-//! `--image` when a composer image is attached; Available Amp
+//! `--image {path}` after the prompt when a composer image is attached; Available Amp
 //! uses one-shot `amp -x {prompt}` (not ACP); Available Pi uses
 //! one-shot `pi -p {prompt}` (not ACP); other non-fx image attach stays
 //! the demo timer.
