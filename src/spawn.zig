@@ -5,12 +5,12 @@
 //! `takeFxAskSessionId` live here. Stream lifecycle lives in
 //! `stream.zig`. Line handlers live in `lines.zig`.
 //!
-//! Non-fx live Send this cut: `ProviderId.speaksBareAcp` (cursor
-//! today) when `providers.isAvailable`. Same one-shot `faku acp-proxy
+//! Non-fx live Send this cut: `ProviderId.speaksBareAcp` (cursor,
+//! opencode) when `providers.isAvailable`. Same one-shot `faku acp-proxy
 //! -- {binary} acp` as fx. `reply_path` stays `.fx` so ACP stream
 //! parsing (`fx_spawn_acp` / `fx_line` / `fx_exit`) is unchanged.
-//! Image attach on non-fx stays demo. Claude/Codex/Amp/Pi/Grok/
-//! OpenCode stay demo.
+//! Image attach on non-fx stays demo. Claude/Codex/Amp/Pi/Grok stay
+//! demo.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -386,6 +386,71 @@ test "cursor + cli_available selects acp-proxy cursor-agent acp" {
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/set_mode\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "hello cursor") != null);
+}
+
+test "opencode + cli_available selects acp-proxy opencode acp" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    const id = model.addSession("opencode thread", .opencode);
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode)] = true;
+
+    startPrompt(&model, &fx, id, "hello opencode");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(testArgvHas(request.argv, "--"));
+    try testing.expect(testArgvHas(request.argv, "opencode"));
+    try testing.expect(testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+    try testing.expect(!testArgvHas(request.argv, "fx"));
+    try testing.expect(!testArgvHas(request.argv, "cursor-agent"));
+    try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    const dash = testArgvIndex(request.argv, "--") orelse return error.MissingDash;
+    const binary_at = testArgvIndex(request.argv, "opencode") orelse return error.MissingBinary;
+    const acp_at = testArgvIndex(request.argv, "acp") orelse return error.MissingAcp;
+    try testing.expect(dash < binary_at);
+    try testing.expectEqual(binary_at + 1, acp_at);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"initialize\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/new\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/set_mode\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "hello opencode") != null);
+}
+
+test "opencode unavailable stays demo" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    const id = model.addSession("opencode missing", .opencode);
+    startPrompt(&model, &fx, id, "no opencode");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "speaksBareAcp is true for cursor and opencode; false for claude grok and others" {
+    const testing = std.testing;
+    try testing.expect(protocol.ProviderId.cursor.speaksBareAcp());
+    try testing.expect(protocol.ProviderId.opencode.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.fx.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.claude.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.codex.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.amp.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.grok.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.pi.speaksBareAcp());
 }
 
 test "cursor unavailable or non-ACP provider stays demo" {

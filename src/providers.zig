@@ -9,7 +9,7 @@
 //! and shows detail; Apply ("Use for this session") sets the selected
 //! chat session's `provider` and persists via `sessions.json`. New
 //! sessions stay `.fx`. Live Send for probed ACP `acp` providers
-//! (cursor today) is `spawn.startPrompt`; other non-fx ids stay demo.
+//! (cursor, opencode) is `spawn.startPrompt`; other non-fx ids stay demo.
 //! fx Not found copies the verified `https://fx.sh` install command
 //! via `fx.writeClipboard` (never auto-runs `setup.sh`). fx Available
 //! copies `fx login` the same way — convenience copy, not auth-state
@@ -18,7 +18,7 @@
 //! or any real CLI install.
 //!
 //! Leftovers: full onboarding / OAuth / auto-install; Claude /
-//! Codex / Amp / Pi / Grok / OpenCode native drivers. Appearance
+//! Codex / Amp / Pi native drivers, Grok `agent … stdio`. Appearance
 //! theme, Usage, and Computer Use first-cut pages ship (Computer Use
 //! is Unavailable / Off; no Native helper). Not Waku install/auth.
 
@@ -335,9 +335,22 @@ test "selectProvider; detail names binary, fx path, probe status, and one-shot a
     try testing.expect(std.mem.indexOf(u8, cursor_detail, catalog_detail_note) == null);
     try testing.expect(std.mem.indexOf(u8, cursor_detail, fx_transport_note) == null);
 
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode)] = true;
+    selectProvider(&model, rowId(.opencode));
+    try testing.expectEqual(rowId(.opencode), model.provider_selected_id);
+    const opencode_detail = detailText(&model, testing.allocator);
+    defer if (opencode_detail.len > 0) testing.allocator.free(opencode_detail);
+    try testing.expect(std.mem.indexOf(u8, opencode_detail, "opencode") != null);
+    try testing.expect(std.mem.indexOf(u8, opencode_detail, available_status) != null);
+    try testing.expect(std.mem.indexOf(u8, opencode_detail, acp_transport_note) != null);
+    try testing.expect(std.mem.indexOf(u8, opencode_detail, catalog_detail_note) == null);
+    try testing.expect(std.mem.indexOf(u8, opencode_detail, fx_transport_note) == null);
+
     try testing.expect(protocol.ProviderId.cursor.speaksBareAcp());
+    try testing.expect(protocol.ProviderId.opencode.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.claude.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.fx.speaksBareAcp());
+    try testing.expect(!protocol.ProviderId.grok.speaksBareAcp());
 
     selectProvider(&model, 99);
     try testing.expectEqual(@as(u32, 0), model.provider_selected_id);
