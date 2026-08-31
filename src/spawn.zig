@@ -1,9 +1,10 @@
 //! Prompt-start and provider-spawn helpers.
 //!
 //! `startPrompt` path selection (daemon / fx acp / fx ask / probed
-//! ACP stdio via acp-proxy / Claude print-mode / Codex exec / demo),
-//! StartOptions mapping, and `takeFxAskSessionId` live here. Stream
-//! lifecycle lives in `stream.zig`. Line handlers live in `lines.zig`.
+//! ACP stdio via acp-proxy / Claude print-mode / Codex exec / Amp
+//! execute-mode / demo), StartOptions mapping, and
+//! `takeFxAskSessionId` live here. Stream lifecycle lives in
+//! `stream.zig`. Line handlers live in `lines.zig`.
 //!
 //! Non-fx live Send this cut: `ProviderId.speaksAcpStdio` (cursor /
 //! opencode bare `acp`, grok `agent stdio`) when
@@ -14,9 +15,11 @@
 //! `{binary} -p --output-format text {prompt}` (empty stdin, not ACP,
 //! not acp-proxy). Available Codex with no image attach is one-shot
 //! `{binary} exec {prompt}` (empty stdin, not ACP, not acp-proxy).
-//! `reply_path` stays `.fx` with `fx_spawn_acp = false` so stdout
-//! lines use the existing non-ACP `handleFxLine` path. Image attach
-//! on non-fx stays demo. Amp/Pi stay demo.
+//! Available Amp with no image attach is one-shot `{binary} -x
+//! {prompt}` (empty stdin, not ACP, not acp-proxy). `reply_path`
+//! stays `.fx` with `fx_spawn_acp = false` so stdout lines use the
+//! existing non-ACP `handleFxLine` path. Image attach on non-fx stays
+//! demo. Pi stays demo.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -103,6 +106,16 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
         // `codex exec {prompt}`. Image attach stays demo.
         if (model.resolveSpawnImage().len == 0) {
             if (startCodexExec(model, fx, session, text)) {
+                model.reply_path = .fx;
+                return;
+            }
+        }
+    }
+    if (session.provider == .amp and providers.isAvailable(model, .amp)) {
+        // Amp is not ACP. Official execute mode is one-shot
+        // `amp -x {prompt}`. Image attach stays demo.
+        if (model.resolveSpawnImage().len == 0) {
+            if (startAmpExecute(model, fx, session, text)) {
                 model.reply_path = .fx;
                 return;
             }
@@ -447,6 +460,56 @@ pub fn startCodexExec(model: *Model, fx: *Effects, session: *const Session, prom
     return true;
 }
 
+/// One-shot official Amp execute mode: `{binary} -x {prompt}`.
+/// Prompt is an argv slot (documented `amp -x "query"`; `--execute`
+/// is the long form). Empty stdin. Execute mode sends the message,
+/// waits until the agent ends its turn, prints its final message,
+/// and exits, so the existing non-ACP `handleFxLine` path is safe.
+/// Not ACP, not `amp acp`, not acp-proxy, not `--stream-json`, not
+/// `--dangerously-allow-all` / `dangerouslyAllowAll`. Caller sets
+/// `reply_path` to `.fx` on success; `fx_spawn_acp` stays false.
+/// Project cwd reuses `fx_ask_chdir_script` (Native SpawnOptions
+/// has no cwd field). Empty binary is a no-op (PATH default is
+/// `amp`).
+pub fn startAmpExecute(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) bool {
+    const binary = providers.binaryFor(model, .amp);
+    if (binary.len == 0) return false;
+    const cwd = model.resolveSpawnCwd(session);
+    model.setLastSpawnCwd(cwd);
+    model.setLastSpawnImagePath("");
+
+    var argv_buf: [16][]const u8 = undefined;
+    var n: usize = 0;
+    if (cwd.len > 0) {
+        argv_buf[n] = "/bin/sh";
+        n += 1;
+        argv_buf[n] = "-c";
+        n += 1;
+        argv_buf[n] = fx_ask_chdir_script;
+        n += 1;
+        argv_buf[n] = "sh";
+        n += 1;
+        argv_buf[n] = cwd;
+        n += 1;
+    }
+    argv_buf[n] = binary;
+    n += 1;
+    argv_buf[n] = "-x";
+    n += 1;
+    argv_buf[n] = prompt;
+    n += 1;
+
+    model.fx_spawn_acp = false;
+    fx.spawn(.{
+        .key = allocateFxSpawnKey(model),
+        .argv = argv_buf[0..n],
+        .stdin = "",
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
 /// A stdout line that is a JSON object with a non-empty `session_id`.
 /// Copies the id into `dest` and returns the copied slice.
 pub fn takeFxAskSessionId(line: []const u8, dest: []u8) ?[]const u8 {
@@ -590,6 +653,8 @@ test "speaksBareAcp is true for cursor and opencode; speaksAcpStdio also covers 
     try testing.expect(protocol.ProviderId.grok.speaksAcpStdio());
     try testing.expect(!protocol.ProviderId.fx.speaksAcpStdio());
     try testing.expect(!protocol.ProviderId.claude.speaksAcpStdio());
+    try testing.expect(!protocol.ProviderId.amp.speaksAcpStdio());
+    try testing.expectEqual(@as(usize, 0), protocol.ProviderId.amp.acpTransportArgv().len);
     try testing.expectEqual(@as(usize, 2), protocol.ProviderId.grok.acpTransportArgv().len);
     try testing.expectEqualStrings("agent", protocol.ProviderId.grok.acpTransportArgv()[0]);
     try testing.expectEqualStrings("stdio", protocol.ProviderId.grok.acpTransportArgv()[1]);
@@ -838,22 +903,183 @@ test "codex unavailable stays demo" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "available amp and pi stay demo" {
+test "available pi stays demo" {
     const testing = std.testing;
-    const ids = [_]protocol.ProviderId{ .amp, .pi };
-    for (ids) |id| {
-        var fx = Effects.init(testing.allocator);
-        defer fx.deinit();
-        fx.executor = .fake;
-        var model = Model{};
-        model.cli_available[@intFromEnum(id)] = true;
-        const session_id = model.addSession("still demo", id);
-        startPrompt(&model, &fx, session_id, "stay demo");
-        try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
-        try testing.expect(!model.fx_spawn_acp);
-        try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
-        try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
-    }
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
+    const session_id = model.addSession("still demo", .pi);
+    startPrompt(&model, &fx, session_id, "stay demo");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "amp + cli_available selects execute-mode amp -x {prompt}" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    const id = model.addSession("amp thread", .amp);
+    model.cli_available[@intFromEnum(protocol.ProviderId.amp)] = true;
+
+    startPrompt(&model, &fx, id, "hello amp");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(testArgvHas(request.argv, "amp"));
+    try testing.expect(testArgvHas(request.argv, "-x"));
+    try testing.expect(testArgvHas(request.argv, "hello amp"));
+    try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(!testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "agent"));
+    try testing.expect(!testArgvHas(request.argv, "stdio"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+    try testing.expect(!testArgvHas(request.argv, "fx"));
+    try testing.expect(!testArgvHas(request.argv, "-p"));
+    try testing.expect(!testArgvHas(request.argv, "exec"));
+    try testing.expect(!testArgvHas(request.argv, "--execute"));
+    try testing.expect(!testArgvHas(request.argv, "--stream-json"));
+    try testing.expect(!testArgvHas(request.argv, "--dangerously-allow-all"));
+    try testing.expect(!testArgvHas(request.argv, "dangerouslyAllowAll"));
+    try testing.expect(!testArgvHas(request.argv, "--dangerously-skip-permissions"));
+    try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expectEqualStrings("", request.stdin);
+    const binary_at = testArgvIndex(request.argv, "amp") orelse return error.MissingBinary;
+    const x_at = testArgvIndex(request.argv, "-x") orelse return error.MissingExecute;
+    const prompt_at = testArgvIndex(request.argv, "hello amp") orelse return error.MissingPrompt;
+    try testing.expectEqual(binary_at + 1, x_at);
+    try testing.expectEqual(x_at + 1, prompt_at);
+}
+
+test "amp unavailable stays demo" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    const id = model.addSession("amp missing", .amp);
+    startPrompt(&model, &fx, id, "no amp");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "fx path stays preferred when provider is fx even if amp is available" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.amp)] = true;
+    const id = model.addSession("fx first", .fx);
+
+    startPrompt(&model, &fx, id, "keep fx");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(testArgvHas(request.argv, "fx"));
+    try testing.expect(testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "amp"));
+    try testing.expect(!testArgvHas(request.argv, "-x"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+}
+
+test "fx session stays demo when fx is missing even if amp is available" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.cli_available[@intFromEnum(protocol.ProviderId.amp)] = true;
+    const id = model.addSession("fx missing", .fx);
+    startPrompt(&model, &fx, id, "not amp");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "amp image attach stays demo" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/amp-shot.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.amp)] = true;
+    const id = model.addSession("amp image", .amp);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "amp execute-mode reuses fx_ask_chdir_script when project cwd exists" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/amp-cwd", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("amp cwd", .amp);
+    model.cli_available[@intFromEnum(protocol.ProviderId.amp)] = true;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    startPrompt(&model, &fx, id, "in project");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "/bin/sh"));
+    try testing.expect(testArgvHas(request.argv, "-c"));
+    try testing.expect(testArgvHas(request.argv, fx_ask_chdir_script));
+    try testing.expect(testArgvHas(request.argv, project));
+    const binary_at = testArgvIndex(request.argv, "amp") orelse return error.MissingBinary;
+    const x_at = testArgvIndex(request.argv, "-x") orelse return error.MissingExecute;
+    const prompt_at = testArgvIndex(request.argv, "in project") orelse return error.MissingPrompt;
+    try testing.expect(binary_at > 0);
+    try testing.expectEqual(binary_at + 1, x_at);
+    try testing.expectEqual(x_at + 1, prompt_at);
+    try testing.expectEqualStrings(project, request.argv[binary_at - 1]);
 }
 
 test "fx path stays preferred when provider is fx even if claude is available" {

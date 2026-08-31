@@ -1592,6 +1592,79 @@ test "send with codex unavailable still starts the demo timer" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
+test "send with amp cli_available spawns execute-mode and streams stdout as assistant text" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.amp)] = true;
+    const id = model.addSession("amp send", .amp);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "what files are markdown" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(argvHas(request.argv, "amp"));
+    try testing.expect(argvHas(request.argv, "-x"));
+    try testing.expect(argvHas(request.argv, "what files are markdown"));
+    try testing.expect(!argvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(!argvHas(request.argv, "acp"));
+    try testing.expect(!argvHas(request.argv, "agent"));
+    try testing.expect(!argvHas(request.argv, "stdio"));
+    try testing.expect(!argvHas(request.argv, "ask"));
+    try testing.expect(!argvHas(request.argv, "fx"));
+    try testing.expect(!argvHas(request.argv, "-p"));
+    try testing.expect(!argvHas(request.argv, "exec"));
+    try testing.expect(!argvHas(request.argv, "--execute"));
+    try testing.expect(!argvHas(request.argv, "--stream-json"));
+    try testing.expect(!argvHas(request.argv, "--dangerously-allow-all"));
+    try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expectEqualStrings("", request.stdin);
+    const binary_at = argvIndex(request.argv, "amp") orelse return error.MissingBinary;
+    const x_at = argvIndex(request.argv, "-x") orelse return error.MissingExecute;
+    const prompt_at = argvIndex(request.argv, "what files are markdown") orelse return error.MissingPrompt;
+    try testing.expectEqual(binary_at + 1, x_at);
+    try testing.expectEqual(x_at + 1, prompt_at);
+
+    const before_len = lastAssistant(&model).len;
+    try fx.feedLine(main.fx_ask_key, "hello from amp execute-mode");
+    drainEffects(&model, &fx);
+    try testing.expect(lastAssistant(&model).len > before_len);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from amp execute-mode") != null);
+
+    try fx.feedExit(main.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+}
+
+test "send with amp unavailable still starts the demo timer" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    const id = model.addSession("amp missing", .amp);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "no amp" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
 test "fx acp session/new cwd is session project_path when it exists" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -11148,6 +11221,22 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) == null);
     try testing.expect(findTextContaining(tree.root, providers.acp_transport_note) == null);
     try testing.expect(findTextContaining(tree.root, providers.other_install_hint) != null);
+
+    main.update(&model, .{ .select_provider = providers.rowId(.amp) }, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findTextContaining(tree.root, providers.amp_transport_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.codex_transport_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.claude_transport_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.acp_transport_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.other_install_hint) != null);
+
+    main.update(&model, .{ .select_provider = providers.rowId(.pi) }, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.amp_transport_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.codex_transport_note) == null);
 
     main.update(&model, .{ .select_provider = providers.rowId(.cursor) }, &fx);
     tree = try buildTree(arena, &model);

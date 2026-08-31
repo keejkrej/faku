@@ -37,7 +37,7 @@ send circle.
 | **hydrateSession** | Daemon transcript fill when the local transcript is empty. Local turns win. |
 | **argv slot** | Every flag and operand is its own spawn argument. Never interpolate into the chdir `-c` script. |
 | **right panel** | First-cut Files + Diff pane to the right of the conversation. Default closed. |
-| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx; Available Claude is one-shot `claude -p --output-format text` (not ACP); Available Codex is one-shot `codex exec {prompt}` (not ACP); Amp / Pi stay demo. fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
+| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx; Available Claude is one-shot `claude -p --output-format text` (not ACP); Available Codex is one-shot `codex exec {prompt}` (not ACP); Available Amp is one-shot `amp -x {prompt}` (not ACP); Pi stays demo. fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
 | **Settings Appearance** | Settings page for chrome theme and language. Theme: System (follow OS `on_appearance`), Light, or Dark. Default System. Language: System / English / 简体中文 / 日本語. Default System. System language follows process `LC_ALL` / `LC_MESSAGES` / `LANG` (Native has no locale API). Explicit language chips are autonyms in every locale. Persists `theme_preference` and `language_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. Settings chrome strings (title, nav, Appearance Theme / Language) follow the resolved locale this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
 | **Settings Usage** | Settings page showing the selected session's local context window (`context_used` / `context_size` from ACP `usage_update`) and thread-goal tokens (`threadGoalUsageLabel`). Read-only. Not daemon `LoadUsageHistory`, not a cost chart, not Daily / Monthly / Projects. |
@@ -117,8 +117,19 @@ prints to stdout. `reply_path` stays `.fx` with `fx_spawn_acp = false`
 so stdout lines use the existing non-ACP `handleFxLine` path. Project
 cwd reuses `fx_ask_chdir_script`. Not ACP, not acp-proxy, not
 stream-json, not `--full-auto` / sandbox bypass / `--ask-for-approval
-never`. Image attach and unavailable Codex stay demo. Amp / Pi stay
-demo.
+never`. Image attach and unavailable Codex stay demo.
+
+**Amp execute-mode (first-cut live non-ACP).** After the Codex branch,
+Send on `ProviderId.amp` when `providers.isAvailable` and there is no
+image attach spawns one-shot `{binary} -x {prompt}` (argv slots;
+empty stdin). Execute mode sends the message, waits until the agent
+ends its turn, prints its final message, and exits. `reply_path`
+stays `.fx` with `fx_spawn_acp = false` so stdout lines use the
+existing non-ACP `handleFxLine` path. Project cwd reuses
+`fx_ask_chdir_script`. Not ACP, not `amp acp`, not acp-proxy, not
+`--stream-json`, not `--dangerously-allow-all` /
+`dangerouslyAllowAll`. Image attach and unavailable Amp stay demo.
+Pi stays demo.
 
 **daemon (sidecar, not embedded).** When `WAKU_DAEMON_ADDRESS` or
 persisted `last_daemon_address` is set, Send spawns `faku daemon-proxy
@@ -231,7 +242,8 @@ path when applicable, probe status, and that live Send is one-shot
 opencode), or one-shot `grok agent stdio` via acp-proxy when grok
 is Available, or one-shot `claude -p --output-format text` when
 claude is Available, or one-shot `codex exec {prompt}` when Codex
-is Available; Amp / Pi stay demo). fx Not found shows **Copy install
+is Available, or one-shot `amp -x` / `--execute` when Amp is
+Available; Pi stays demo). fx Not found shows **Copy install
 command** (clipboard
 `curl -fsSL https://fx.sh/setup.sh | bash`; never auto-run). fx
 Available shows **Copy login command** (`fx login`; Faku does not
@@ -320,11 +332,12 @@ Honest gaps this cut does not implement:
 
 - Full onboarding / OAuth / auto-install (fx install/login copy
   ships; other CLIs get a PATH hint only)
-- Native drivers for Amp, Pi (non-ACP in Waku). Claude print-mode
+- Native driver for Pi (non-ACP in Waku). Claude print-mode
   one-shot (`claude -p --output-format text`) ships; Codex exec
-  one-shot (`codex exec {prompt}`) ships. Claude and Codex are not
-  ACP / stream-json / a long-lived SDK session. Image attach on
-  Claude and Codex stays demo. Kimi is not in `ProviderId`
+  one-shot (`codex exec {prompt}`) ships; Amp execute-mode one-shot
+  (`amp -x {prompt}`) ships. Claude, Codex, and Amp are not ACP /
+  stream-json / a long-lived SDK session. Image attach on Claude,
+  Codex, and Amp stays demo. Kimi is not in `ProviderId`
 - Usage history from daemon `LoadUsageHistory`, cost / dollar chart,
   Daily / Monthly / Projects tabs (Settings Usage ships local context
   + thread-goal tokens for the selected session)
