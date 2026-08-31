@@ -226,6 +226,11 @@ pub fn handleSelectProvider(model: *Model, id: u32) void {
     providers.selectProvider(model, id);
 }
 
+pub fn handleApplySessionProvider(model: *Model, fx: *Effects) void {
+    if (!providers.applyToSession(model)) return;
+    store.persistIfPossible(model, model.selected, fx);
+}
+
 pub fn handleSkillsFilterEdit(model: *Model, edit: canvas.TextInputEvent) void {
     model.applySkillsFilter(edit);
 }

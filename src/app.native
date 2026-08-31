@@ -215,6 +215,9 @@
                 </for>
                 <if test="{has_provider_detail}">
                   <text wrap="true">{provider_detail}</text>
+                  <if test="{can_apply_session_provider}">
+                    <button variant="ghost" size="sm" on-press="apply_session_provider">Use for this session</button>
+                  </if>
                 </if>
               </column>
             </row>

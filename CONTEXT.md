@@ -37,7 +37,7 @@ send circle.
 | **hydrateSession** | Daemon transcript fill when the local transcript is empty. Local turns win. |
 | **argv slot** | Every flag and operand is its own spawn argument. Never interpolate into the chdir `-c` script. |
 | **right panel** | First-cut Files + Diff pane to the right of the conversation. Default closed. |
-| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Not Waku install/auth/onboarding; not a live non-fx Send driver. |
+| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Not Waku install/auth/onboarding; not a live non-fx Send driver. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
 
 Avoid: calling ACP a live WebSocket; treating the daemon as the catalog
@@ -183,11 +183,14 @@ PATH `{defaultBinary()} --help` (no `~/.local/bin/<binary>` fallback
 this cut) and show `Available` / `Not found` when that exit lands.
 Refresh re-runs the fx probe and every non-fx probe. Open starts
 non-fx probes only. Not live drivers, not install/sign-in, not Send
-enable toggles, not a change to `session.provider`. Selecting a row
-shows a short blurb (name, binary, fx path when applicable, probe
-status, and that the live fx path is one-shot `fx acp` via
-acp-proxy). Runtime-only. Leftovers: onboarding, enabling non-fx on
-Send, Appearance / Usage / Computer Use pages.
+enable toggles. Selecting a row highlights and shows a short blurb
+(name, binary, fx path when applicable, probe status, and that the
+live fx path is one-shot `fx acp` via acp-proxy). Apply ("Use for
+this session") sets the selected chat session's `provider` and
+persists via `sessions.json`. New sessions stay fx. Non-fx Send still
+uses the demo timer this cut. Runtime-only catalog. Leftovers:
+onboarding, a live non-fx Send driver, Appearance / Usage / Computer
+Use pages.
 
 ## Settings Skills scan
 
