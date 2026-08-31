@@ -1,5 +1,5 @@
 //! Agent Client Protocol (ACP) JSON-RPC 2.0 helpers for one-shot ACP
-//! via `acp-proxy` (`fx acp`, probed `cursor-agent acp`).
+//! via `acp-proxy` (`fx acp`, probed `cursor-agent acp` / `opencode acp`).
 //!
 //! Official methods (https://fx.sh/docs/using-fx/acp): initialize,
 //! session/new, session/load, session/resume, session/close, session/list,

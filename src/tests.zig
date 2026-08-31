@@ -1303,6 +1303,74 @@ test "send with cursor cli_available spawns acp-proxy cursor-agent acp and strea
     try testing.expect(!model.is_streaming());
 }
 
+test "send with opencode cli_available spawns acp-proxy opencode acp and streams session/update" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.opencode)] = true;
+    const id = model.addSession("opencode send", .opencode);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "what does this repo do" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(argvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(request.argv, "--"));
+    try testing.expect(argvHas(request.argv, "opencode"));
+    try testing.expect(argvHas(request.argv, "acp"));
+    try testing.expect(!argvHas(request.argv, "ask"));
+    try testing.expect(!argvHas(request.argv, "fx"));
+    try testing.expect(!argvHas(request.argv, "cursor-agent"));
+    try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    const binary_at = argvIndex(request.argv, "opencode") orelse return error.MissingBinary;
+    const acp_at = argvIndex(request.argv, "acp") orelse return error.MissingAcp;
+    try testing.expectEqual(binary_at + 1, acp_at);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"initialize\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/new\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/set_mode\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "what does this repo do") != null);
+
+    const before_len = lastAssistant(&model).len;
+    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello from opencode acp\"}}}}");
+    drainEffects(&model, &fx);
+    try testing.expect(lastAssistant(&model).len > before_len);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from opencode acp") != null);
+
+    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+}
+
+test "send with opencode unavailable still starts the demo timer" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    const id = model.addSession("opencode missing", .opencode);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "no opencode" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
 test "send with cursor unavailable or claude available still starts the demo timer" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();

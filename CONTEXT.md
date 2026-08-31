@@ -37,7 +37,7 @@ send circle.
 | **hydrateSession** | Daemon transcript fill when the local transcript is empty. Local turns win. |
 | **argv slot** | Every flag and operand is its own spawn argument. Never interpolate into the chdir `-c` script. |
 | **right panel** | First-cut Files + Diff pane to the right of the conversation. Default closed. |
-| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP `acp` providers (cursor today) uses the same one-shot acp-proxy as fx; other ids stay demo. fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
+| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP `acp` providers (cursor, opencode) uses the same one-shot acp-proxy as fx; other ids stay demo. fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
 | **Settings Appearance** | Settings page for chrome theme and language. Theme: System (follow OS `on_appearance`), Light, or Dark. Default System. Language: System / English / 简体中文 / 日本語. Default System. System language follows process `LC_ALL` / `LC_MESSAGES` / `LANG` (Native has no locale API). Explicit language chips are autonyms in every locale. Persists `theme_preference` and `language_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. Settings chrome strings (title, nav, Appearance Theme / Language) follow the resolved locale this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
 | **Settings Usage** | Settings page showing the selected session's local context window (`context_used` / `context_size` from ACP `usage_update`) and thread-goal tokens (`threadGoalUsageLabel`). Read-only. Not daemon `LoadUsageHistory`, not a cost chart, not Daily / Monthly / Projects. |
@@ -85,17 +85,17 @@ a real fx install. ACP does not accept image or audio blocks; draft
 `image_path` keeps `fx ask --image`.
 
 **ACP `acp` providers (first-cut live non-fx).** After daemon and fx
-branches, Send on a `speaksBareAcp` provider (cursor today; Waku
-`launch_for` argv `["acp"]`, Faku binary `cursor-agent`) when
-`providers.isAvailable` (PATH `--help` probe) spawns the same one-shot
-`faku acp-proxy -- {binary} acp` with the existing ACP stdin batch.
-`reply_path` stays `.fx` so ACP stream parsing (`fx_line` / `fx_exit` /
-`fx_spawn_acp`) is unchanged. Permission mode and project cwd / resume
-id follow the fx rules. Image attach on non-fx stays demo (ACP has no
-image blocks this cut). Unavailable cursor and non-ACP ids
-(claude / codex / amp / grok / opencode / pi) still use the demo
-timer. Not Grok `agent … stdio`, not OpenCode HTTP/SSE, not Claude /
-Codex / Amp / Pi native drivers. Not a long-lived ACP loop.
+branches, Send on a `speaksBareAcp` provider (cursor, opencode; Waku
+`launch_for` argv `["acp"]`, Faku binaries `cursor-agent` / `opencode`)
+when `providers.isAvailable` (PATH `--help` probe) spawns the same
+one-shot `faku acp-proxy -- {binary} acp` with the existing ACP stdin
+batch. `reply_path` stays `.fx` so ACP stream parsing (`fx_line` /
+`fx_exit` / `fx_spawn_acp`) is unchanged. Permission mode and project
+cwd / resume id follow the fx rules. Image attach on non-fx stays demo
+(ACP has no image blocks this cut). Unavailable cursor / opencode and
+non-ACP ids (claude / codex / amp / grok / pi) still use the demo
+timer. Not Grok `agent … stdio`, not Claude / Codex / Amp / Pi native
+drivers. Not a long-lived ACP loop.
 
 **daemon (sidecar, not embedded).** When `WAKU_DAEMON_ADDRESS` or
 persisted `last_daemon_address` is set, Send spawns `faku daemon-proxy
@@ -116,8 +116,9 @@ catalog is missing.
 
 ## ACP (one-shot, not a live loop)
 
-`fx acp` and probed bare-`acp` providers (`cursor-agent acp` today)
-are spawned one-shot per Send through `faku acp-proxy`. Native
+`fx acp` and probed bare-`acp` providers (`cursor-agent acp`,
+`opencode acp`) are spawned one-shot per Send through `faku acp-proxy`.
+Native
 `fx.spawn` accepts stdin only at spawn time (one buffer, then stdin
 closes). The sidecar owns the child stdin and auto-answers official
 `session/request_permission` from that run's access mode — not a prompt
@@ -203,8 +204,9 @@ Send enable toggles.
 
 Selecting a row highlights and shows a short blurb (name, binary, fx
 path when applicable, probe status, and that live Send is one-shot
-`acp` via acp-proxy for fx and probed ACP `acp` providers; other ids
-stay demo). fx Not found shows **Copy install command** (clipboard
+`acp` via acp-proxy for fx and probed ACP `acp` providers (cursor,
+opencode); other ids stay demo). fx Not found shows **Copy install
+command** (clipboard
 `curl -fsSL https://fx.sh/setup.sh | bash`; never auto-run). fx
 Available shows **Copy login command** (`fx login`; Faku does not
 detect auth from `--help`; optional note `fx login codex`). Other
@@ -293,7 +295,7 @@ Honest gaps this cut does not implement:
 - Full onboarding / OAuth / auto-install (fx install/login copy
   ships; other CLIs get a PATH hint only)
 - Native drivers for Claude, Codex, Amp, Pi (non-ACP in Waku), Grok
-  (`agent … stdio`), OpenCode (HTTP/SSE). Kimi is not in `ProviderId`
+  (`agent … stdio`). Kimi is not in `ProviderId`
 - Usage history from daemon `LoadUsageHistory`, cost / dollar chart,
   Daily / Monthly / Projects tabs (Settings Usage ships local context
   + thread-goal tokens for the selected session)

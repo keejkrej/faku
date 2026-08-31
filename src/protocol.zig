@@ -9,7 +9,7 @@
 //! First-party provider (this port's differentiator; Waku does not ship
 //! it): Vercel `fx` (https://fx.sh). Live first path is one-shot
 //! `fx acp` (see main.zig / acp.zig). Probed ACP `acp` providers
-//! (cursor today) reuse that sidecar. Native stdin is one buffer at spawn
+//! (cursor, opencode) reuse that sidecar. Native stdin is one buffer at spawn
 //! time; this is not a long-lived ACP loop. `fx ask --image` stays the
 //! image path. Probe `~/.local/bin/fx` then PATH. Missing binary keeps
 //! the demo timer.
@@ -216,14 +216,14 @@ pub const ProviderId = enum {
         };
     }
 
-    /// True when Waku documents this id as ACP stdio with a bare `acp`
-    /// subcommand (`cursor-agent acp`). fx stays on the first-party
-    /// branch. Not Claude/Codex/Amp/Pi (non-ACP in Waku), not Grok
-    /// `agent … stdio`, not OpenCode HTTP/SSE. Kimi is not in this
-    /// enum. Easy to extend later.
+    /// True when this id speaks ACP stdio with a bare `acp` subcommand
+    /// (`cursor-agent acp`, official `opencode acp`). fx stays on the
+    /// first-party branch. Not Claude/Codex/Amp/Pi native drivers, not
+    /// Grok `agent … stdio`. Kimi is not in this enum. Easy to extend
+    /// later.
     pub fn speaksBareAcp(id: ProviderId) bool {
         return switch (id) {
-            .cursor => true,
+            .cursor, .opencode => true,
             else => false,
         };
     }
@@ -1216,12 +1216,12 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expectEqualStrings("acp", FX_ACP_ARGV[1]);
     try std.testing.expectEqualStrings("acp", FX_TRANSPORT);
     try std.testing.expect(ProviderId.cursor.speaksBareAcp());
+    try std.testing.expect(ProviderId.opencode.speaksBareAcp());
     try std.testing.expect(!ProviderId.fx.speaksBareAcp());
     try std.testing.expect(!ProviderId.claude.speaksBareAcp());
     try std.testing.expect(!ProviderId.codex.speaksBareAcp());
     try std.testing.expect(!ProviderId.amp.speaksBareAcp());
     try std.testing.expect(!ProviderId.grok.speaksBareAcp());
-    try std.testing.expect(!ProviderId.opencode.speaksBareAcp());
     try std.testing.expect(!ProviderId.pi.speaksBareAcp());
 }
 
