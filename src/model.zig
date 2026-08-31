@@ -288,7 +288,8 @@ pub const SkillRow = struct {
 };
 
 /// Settings Providers row. `id` is 1-based `ProviderId` so Native
-/// `select_provider:{p.id}` never binds 0. Catalog-only for non-fx.
+/// `select_provider:{p.id}` never binds 0. Apply sets
+/// `session.provider`; live Send is `spawn.startPrompt`.
 pub const ProviderRow = providers.ProviderRow;
 
 /// Composer model picker row. `row_id` is a 1-based Native `for` key.

@@ -1,7 +1,7 @@
-//! One-shot `fx acp` sidecar.
+//! One-shot ACP sidecar (`fx acp`, probed `{binary} acp`).
 //!
 //! Native `fx.spawn` writes stdin once and then closes it. This process
-//! is `faku acp-proxy -- <fx argv…>`. It reads that ACP NDJSON batch
+//! is `faku acp-proxy -- <child argv…>`. It reads that ACP NDJSON batch
 //! (initialize / session/new|resume / set_mode / set_config_option /
 //! session/prompt), spawns the child, writes the batch, and keeps the
 //! child's stdin open so official `session/request_permission` can be

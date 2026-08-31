@@ -37,7 +37,7 @@ send circle.
 | **hydrateSession** | Daemon transcript fill when the local transcript is empty. Local turns win. |
 | **argv slot** | Every flag and operand is its own spawn argument. Never interpolate into the chdir `-c` script. |
 | **right panel** | First-cut Files + Diff pane to the right of the conversation. Default closed. |
-| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Not Waku install/auth/onboarding; not a live non-fx Send driver. |
+| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP `acp` providers (cursor today) uses the same one-shot acp-proxy as fx; other ids stay demo. Not Waku install/auth/onboarding. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
 
 Avoid: calling ACP a live WebSocket; treating the daemon as the catalog
@@ -79,8 +79,20 @@ spawns one-shot `faku acp-proxy -- {fx_path} acp`. Probe:
 `~/.local/bin/fx --help`, then `fx --help` on PATH. Missing or rejected
 binary keeps the demo timer so `native test --yes` stays green without
 a real fx install. ACP does not accept image or audio blocks; draft
-`image_path` keeps `fx ask --image`. Non-fx providers (the claude demo
-session) still use the demo timer.
+`image_path` keeps `fx ask --image`.
+
+**ACP `acp` providers (first-cut live non-fx).** After daemon and fx
+branches, Send on a `speaksBareAcp` provider (cursor today; Waku
+`launch_for` argv `["acp"]`, Faku binary `cursor-agent`) when
+`providers.isAvailable` (PATH `--help` probe) spawns the same one-shot
+`faku acp-proxy -- {binary} acp` with the existing ACP stdin batch.
+`reply_path` stays `.fx` so ACP stream parsing (`fx_line` / `fx_exit` /
+`fx_spawn_acp`) is unchanged. Permission mode and project cwd / resume
+id follow the fx rules. Image attach on non-fx stays demo (ACP has no
+image blocks this cut). Unavailable cursor and non-ACP ids
+(claude / codex / amp / grok / opencode / pi) still use the demo
+timer. Not Grok `agent … stdio`, not OpenCode HTTP/SSE, not Claude /
+Codex / Amp / Pi native drivers. Not a long-lived ACP loop.
 
 **daemon (sidecar, not embedded).** When `WAKU_DAEMON_ADDRESS` or
 persisted `last_daemon_address` is set, Send spawns `faku daemon-proxy
@@ -101,7 +113,8 @@ catalog is missing.
 
 ## ACP (one-shot, not a live loop)
 
-`fx acp` is spawned one-shot per Send through `faku acp-proxy`. Native
+`fx acp` and probed bare-`acp` providers (`cursor-agent acp` today)
+are spawned one-shot per Send through `faku acp-proxy`. Native
 `fx.spawn` accepts stdin only at spawn time (one buffer, then stdin
 closes). The sidecar owns the child stdin and auto-answers official
 `session/request_permission` from that run's access mode — not a prompt
@@ -182,15 +195,13 @@ opencode, cursor, pi). fx is the first-party default: status is
 PATH `{defaultBinary()} --help` (no `~/.local/bin/<binary>` fallback
 this cut) and show `Available` / `Not found` when that exit lands.
 Refresh re-runs the fx probe and every non-fx probe. Open starts
-non-fx probes only. Not live drivers, not install/sign-in, not Send
-enable toggles. Selecting a row highlights and shows a short blurb
-(name, binary, fx path when applicable, probe status, and that the
-live fx path is one-shot `fx acp` via acp-proxy). Apply ("Use for
-this session") sets the selected chat session's `provider` and
-persists via `sessions.json`. New sessions stay fx. Non-fx Send still
-uses the demo timer this cut. Runtime-only catalog. Leftovers:
-onboarding, a live non-fx Send driver, Appearance / Usage / Computer
-Use pages.
+non-fx probes only. Not install/sign-in, not Send enable toggles.
+Selecting a row highlights and shows a short blurb (name, binary, fx
+path when applicable, probe status, and that live Send is one-shot
+`acp` via acp-proxy for fx and probed ACP `acp` providers; other ids
+stay demo). Apply ("Use for this session") sets the selected chat
+session's `provider` and persists via `sessions.json`. New sessions
+stay fx. Runtime-only catalog.
 
 ## Settings Skills scan
 
@@ -220,3 +231,19 @@ live watch.
 | Skills scan | `src/skills.zig` |
 | Providers catalog | `src/providers.zig`, `src/cli_probe.zig` |
 | Composer / attach | `src/composer.zig`, `src/attach.zig` |
+
+## Leftovers
+
+Honest gaps this cut does not implement:
+
+- Install / sign-in / onboarding for any provider
+- Native drivers for Claude, Codex, Amp, Pi (non-ACP in Waku), Grok
+  (`agent … stdio`), OpenCode (HTTP/SSE). Kimi is not in `ProviderId`
+- Appearance / Usage / Computer Use settings pages
+- Monitor / Subagent Background (Environment Summary is Process +
+  last-turn settle only)
+- Further `main.zig` extract (`update` / `initFx` / `initialModel`
+  still live there)
+- Long-lived ACP or daemon socket in the update loop
+- ACP image blocks on non-fx (image attach stays demo)
+
