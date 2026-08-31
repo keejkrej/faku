@@ -10,9 +10,11 @@
 //! (cursor / opencode `acp`, grok `agent stdio`) use the same acp-proxy
 //! path when `--help` is available; Available Claude uses one-shot
 //! print-mode stream-json (`claude -p --output-format stream-json
-//! --verbose --include-partial-messages`, not ACP), with the
-//! documented image path inside that `-p` prompt when a composer
-//! image is attached (code.claude.com/docs/en/common-workflows;
+//! --verbose --include-partial-messages`, not ACP), with documented
+//! `--resume {fx_session_id}` on later Sends when that field is
+//! non-empty (first Send and Fork omit it; not `--continue`), and
+//! with the documented image path inside that `-p` prompt when a
+//! composer image is attached (code.claude.com/docs/en/common-workflows;
 //! stdout is NDJSON: live `text_delta` into the transcript, not a
 //! prose dump);
 //! Available Codex uses one-shot `codex exec {prompt}` (not ACP), with
