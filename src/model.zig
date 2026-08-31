@@ -540,8 +540,9 @@ pub const Msg = union(enum) {
     fx_line: native_sdk.EffectLine,
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
+    cli_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "open_find", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "open_find", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel" };
 };
 
 pub const Model = struct {
@@ -971,6 +972,11 @@ pub const Model = struct {
     fx_path_len: usize = 0,
     fx_probe_started: bool = false,
     fx_probe_index: u32 = 0,
+    /// Runtime-only non-fx `--help` probe results. Index is
+    /// `@intFromEnum(ProviderId)`. Slot 0 (fx) is unused — fx stays
+    /// on `fx_available` / `fx_probe`. Not persisted.
+    cli_available: [protocol.provider_id_count]bool = [_]bool{false} ** protocol.provider_id_count,
+    cli_probe_started: [protocol.provider_id_count]bool = [_]bool{false} ** protocol.provider_id_count,
     home_storage: [max_fx_path]u8 = [_]u8{0} ** max_fx_path,
     home_len: usize = 0,
     reply_path: ReplyPath = .demo,
@@ -1411,6 +1417,8 @@ pub const Model = struct {
         "fx_path_len",
         "fx_probe_started",
         "fx_probe_index",
+        "cli_available",
+        "cli_probe_started",
         "home_storage",
         "home_len",
         "reply_path",

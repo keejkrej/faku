@@ -202,8 +202,9 @@ pub fn handleSetSettingsPageGeneral(model: *Model) void {
     model.settings_page = .general;
 }
 
-pub fn handleSetSettingsPageProviders(model: *Model) void {
+pub fn handleSetSettingsPageProviders(model: *Model, fx: *Effects) void {
     model.settings_page = .providers;
+    providers.startProbes(model, fx);
 }
 
 pub fn handleSetSettingsPageSkills(model: *Model, fx: *Effects) void {

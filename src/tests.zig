@@ -27,6 +27,7 @@ const file_mention = @import("file_mention.zig");
 const skills = @import("skills.zig");
 const providers = @import("providers.zig");
 const fx_probe = @import("fx_probe.zig");
+const cli_probe = @import("cli_probe.zig");
 const keys = @import("keys.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 const goal = @import("goal.zig");
@@ -4842,6 +4843,20 @@ test "Waku access_mode maps to fx ACP ask|code, not fullAccess" {
 
 fn drainEffects(model: *Model, fx: *Effects) void {
     while (fx.takeMsg()) |msg| main.update(model, msg, fx);
+}
+
+fn findPendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |item| : (i += 1) {
+        if (item.key == key) return item;
+    }
+    return null;
+}
+
+fn findCliProbeSpawn(fx: *Effects, id: protocol.ProviderId) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    const spawn = findPendingSpawnKey(fx, cli_probe.probeKey(id)) orelse return null;
+    if (!cli_probe.isCliProbeArgv(spawn.argv, id)) return null;
+    return spawn;
 }
 
 fn argvHas(argv: []const []const u8, needle: []const u8) bool {
@@ -10209,7 +10224,10 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     try testing.expect(model.settings_page_providers());
     try testing.expect(!model.settings_page_general());
     try testing.expect(!model.settings_page_skills());
-    try testing.expectEqual(before_open, fx.pendingSpawnCount());
+    try testing.expectEqual(before_open + cli_probe.nonFxCount(), fx.pendingSpawnCount());
+    try testing.expect(findPendingSpawnKey(&fx, main.fx_probe_key) == null);
+    try testing.expect(findCliProbeSpawn(&fx, .claude) != null);
+    try testing.expect(findCliProbeSpawn(&fx, .pi) != null);
 
     tree = try buildTree(arena, &model);
     const providers_on = try expectButtonMsg(tree, "Providers", .set_settings_page_providers);
@@ -10223,7 +10241,7 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     const fx_row = try expectByText(tree.root, .list_item, "fx");
     try testing.expectEqual(Msg{ .select_provider = 1 }, tree.msgForPointer(fx_row.id, .up).?);
     _ = try expectByText(tree.root, .text, "First-party default");
-    _ = try expectByText(tree.root, .text, providers.fx_missing_status);
+    _ = try expectByText(tree.root, .text, providers.missing_status);
     _ = try expectByText(tree.root, .list_item, "claude");
     _ = try expectByText(tree.root, .list_item, "codex");
     _ = try expectByText(tree.root, .list_item, "amp");
@@ -10231,20 +10249,21 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     _ = try expectByText(tree.root, .list_item, "opencode");
     _ = try expectByText(tree.root, .list_item, "cursor");
     _ = try expectByText(tree.root, .list_item, "pi");
-    _ = try expectByText(tree.root, .text, providers.catalog_status);
     _ = try expectByText(tree.root, .text, "cursor-agent");
+    _ = try expectByText(tree.root, .text, "claude");
     try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) == null);
     try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) == null);
     try testing.expect(findByText(tree.root, .text, "Install") == null);
     try testing.expect(findByText(tree.root, .text, "Sign in") == null);
+    try testing.expect(findByText(tree.root, .text, "Catalog id only") == null);
 
+    const after_open = fx.pendingSpawnCount();
     model.fx_available = true;
     model.setFxPath("/tmp/faku-fx-probe");
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, providers.fx_available_status);
+    _ = try expectByText(tree.root, .text, providers.available_status);
     _ = try expectByText(tree.root, .text, "/tmp/faku-fx-probe");
-    try testing.expect(findByText(tree.root, .text, providers.fx_missing_status) == null);
-    try testing.expectEqual(before_open, fx.pendingSpawnCount());
+    try testing.expectEqual(after_open, fx.pendingSpawnCount());
 }
 
 test "settings Providers select shows detail; Refresh queues fx probe; close returns to General" {
@@ -10263,6 +10282,14 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     main.update(&model, .toggle_settings, &fx);
     main.update(&model, .set_settings_page_providers, &fx);
     try testing.expect(model.settings_page_providers());
+    const claude_spawn = findCliProbeSpawn(&fx, .claude) orelse return error.MissingClaudeProbe;
+    try fx.feedExit(claude_spawn.key, 0);
+    drainEffects(&model, &fx);
+    const cursor_spawn = findCliProbeSpawn(&fx, .cursor) orelse return error.MissingCursorProbe;
+    try fx.feedExit(cursor_spawn.key, 127);
+    drainEffects(&model, &fx);
+    try testing.expect(model.cli_available[@intFromEnum(protocol.ProviderId.claude)]);
+    try testing.expect(!model.cli_available[@intFromEnum(protocol.ProviderId.cursor)]);
 
     var tree = try buildTree(arena, &model);
     const fx_row = try expectByText(tree.root, .list_item, "fx");
@@ -10277,21 +10304,17 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     main.update(&model, .{ .select_provider = 2 }, &fx);
     try testing.expectEqual(@as(u32, 2), model.provider_selected_id);
     tree = try buildTree(arena, &model);
+    try testing.expect(findTextContaining(tree.root, providers.available_status) != null);
     try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) != null);
     try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) == null);
 
-    const before_refresh = fx.pendingSpawnCount();
     const refresh = try expectButtonMsg(tree, "Refresh", .refresh_providers);
     main.update(&model, tree.msgForPointer(refresh.id, .up).?, &fx);
     try testing.expect(model.fx_probe_started);
-    var i: usize = 0;
-    var spawn = fx.pendingSpawnAt(0);
-    while (spawn) |item| : (i += 1) {
-        if (item.key == main.fx_probe_key and fx_probe.isFxProbeArgv(item.argv)) break;
-        spawn = fx.pendingSpawnAt(i + 1);
-    }
-    try testing.expect(spawn != null);
-    try testing.expect(fx.pendingSpawnCount() > before_refresh);
+    try testing.expect(findPendingSpawnKey(&fx, main.fx_probe_key) != null);
+    try testing.expect(findCliProbeSpawn(&fx, .claude) != null);
+    try testing.expect(findCliProbeSpawn(&fx, .cursor) != null);
+    try testing.expect(findCliProbeSpawn(&fx, .pi) != null);
 
     main.update(&model, .toggle_settings, &fx);
     try testing.expect(!model.settings_open);
