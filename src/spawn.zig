@@ -12,9 +12,10 @@
 //! …transport…` as fx. `reply_path` stays `.fx` so ACP stream parsing
 //! (`fx_spawn_acp` / `fx_line` / `fx_exit`) is unchanged. After that,
 //! Available Claude is one-shot `{binary} -p --output-format
-//! stream-json --verbose --include-partial-messages {prompt}`
+//! stream-json --verbose --include-partial-messages
+//! --forward-subagent-text {prompt}`
 //! (empty stdin, not ACP, not acp-proxy), with documented `--resume
-//! {fx_session_id}` as two argv slots after `--include-partial-messages`
+//! {fx_session_id}` as two argv slots after `--forward-subagent-text`
 //! when that field is non-empty (first Send and Fork omit both; not
 //! `--continue`), and with the documented image path inside that
 //! single `-p` prompt when a composer image exists
@@ -84,6 +85,7 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
     model.streaming_session = session.id;
     model.fx_spawn_pi_json = false;
     model.fx_spawn_claude_json = false;
+    model.background_subagent_count = 0;
     if (model.daemonAddress().len > 0) {
         model.reply_path = .daemon;
         startDaemonProxy(model, fx, session, text);
@@ -115,10 +117,13 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
     if (session.provider == .claude and providers.isAvailable(model, .claude)) {
         // Claude Code is not ACP. Official print-mode streaming is
         // one-shot `claude -p --output-format stream-json --verbose
-        // --include-partial-messages` (code.claude.com/docs/en/
-        // headless). Later Sends pass documented `--resume
-        // {fx_session_id}` when that field is non-empty; first Send
-        // and Fork omit it. Not `--continue`. Documented image attach
+        // --include-partial-messages --forward-subagent-text`
+        // (code.claude.com/docs/en/headless). Later Sends pass
+        // documented `--resume {fx_session_id}` when that field is
+        // non-empty; first Send and Fork omit it. Not `--continue`.
+        // `--forward-subagent-text` is always its own argv slot after
+        // `--include-partial-messages` (CLI reference; requires `-p`
+        // and stream-json). Documented image attach
         // is the filesystem path inside that single `-p` prompt
         // (`Analyze this image: {path}` then the user prompt;
         // code.claude.com/docs/en/common-workflows). There is no
@@ -410,15 +415,19 @@ const claude_image_prompt_prefix = "Analyze this image: ";
 
 /// One-shot official Claude Code print-mode stream-json:
 /// `{binary} -p --output-format stream-json --verbose
-/// --include-partial-messages {prompt}`, or the same flags with
-/// `'Analyze this image: {path}\n{prompt}'` when a composer image
-/// exists. Prompt is an argv slot after the flags (documented
-/// `claude -p "query"`; streaming recipe at
+/// --include-partial-messages --forward-subagent-text {prompt}`,
+/// or the same flags with `'Analyze this image: {path}\n{prompt}'`
+/// when a composer image exists. Prompt is an argv slot after the
+/// flags (documented `claude -p "query"`; streaming recipe at
 /// code.claude.com/docs/en/headless). `--include-partial-messages`
 /// requires `--print` (`-p`) and `--output-format stream-json`
-/// (code.claude.com/docs/en/cli-reference). When
+/// (code.claude.com/docs/en/cli-reference). `--forward-subagent-text`
+/// is always its own argv slot after `--include-partial-messages`
+/// and before optional `--resume` / the prompt (same CLI page;
+/// requires `-p` and stream-json; prefer the argv flag over
+/// `CLAUDE_CODE_FORWARD_SUBAGENT_TEXT`). When
 /// `session.fxSessionId()` is non-empty, documented `--resume {id}`
-/// is two argv slots after `--include-partial-messages` and before
+/// is two argv slots after `--forward-subagent-text` and before
 /// the prompt (code.claude.com/docs/en/headless "Continue
 /// conversations"; CLI `--resume` / `-r`). Empty id omits both
 /// slots — never a bare `--resume`. Not `--continue` / `-c` (that
@@ -432,11 +441,12 @@ const claude_image_prompt_prefix = "Analyze this image: ";
 /// rather than truncating into a wrong command. Empty stdin.
 /// Stream-json stdout is NDJSON; `fx_spawn_claude_json` routes it
 /// through the Claude parser (live `stream_event` /
-/// `event.delta.type == text_delta`, not a prose dump). Not ACP,
-/// not `claude acp`, not `--input-format stream-json`, not
-/// `--mode rpc`, not `--forward-subagent-text`, not `--bare`, not
-/// permissions bypass, not acp-proxy. Caller sets `reply_path` to
-/// `.fx` on success; `fx_spawn_acp` stays false. Project cwd reuses
+/// `event.delta.type == text_delta`, not a prose dump). Non-empty
+/// `parent_tool_use_id` is subagent traffic (not main-turn prose).
+/// Not ACP, not `claude acp`, not `--input-format stream-json`, not
+/// `--mode rpc`, not `--bare`, not permissions bypass, not
+/// acp-proxy. Caller sets `reply_path` to `.fx` on success;
+/// `fx_spawn_acp` stays false. Project cwd reuses
 /// `fx_ask_chdir_script` (Native SpawnOptions has no cwd field).
 /// Resume id is its own argv slot — never interpolated into the
 /// chdir `-c` script. Empty binary is a no-op (PATH default is
@@ -462,9 +472,10 @@ pub fn startClaudePrint(model: *Model, fx: *Effects, session: *const Session, pr
     model.setLastSpawnImagePath(image_path);
 
     // chdir (5) + binary + -p + --output-format + stream-json +
-    // --verbose + --include-partial-messages + --resume + id + prompt
-    // = 14. Keep headroom rather than truncating.
-    var argv_buf: [16][]const u8 = undefined;
+    // --verbose + --include-partial-messages +
+    // --forward-subagent-text + --resume + id + prompt = 15.
+    // Keep headroom rather than truncating.
+    var argv_buf: [18][]const u8 = undefined;
     var n: usize = 0;
     if (cwd.len > 0) {
         argv_buf[n] = "/bin/sh";
@@ -489,6 +500,8 @@ pub fn startClaudePrint(model: *Model, fx: *Effects, session: *const Session, pr
     argv_buf[n] = "--verbose";
     n += 1;
     argv_buf[n] = "--include-partial-messages";
+    n += 1;
+    argv_buf[n] = "--forward-subagent-text";
     n += 1;
     if (resume_id.len > 0) {
         argv_buf[n] = "--resume";
@@ -1026,6 +1039,7 @@ test "claude + cli_available selects print-mode claude -p --output-format stream
     try testing.expect(testArgvHas(request.argv, "stream-json"));
     try testing.expect(testArgvHas(request.argv, "--verbose"));
     try testing.expect(testArgvHas(request.argv, "--include-partial-messages"));
+    try testing.expect(testArgvHas(request.argv, "--forward-subagent-text"));
     try testing.expect(testArgvHas(request.argv, "hello claude"));
     try testing.expect(!testArgvHas(request.argv, "text"));
     try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
@@ -1041,7 +1055,6 @@ test "claude + cli_available selects print-mode claude -p --output-format stream
     try testing.expect(!testArgvHas(request.argv, "--continue"));
     try testing.expect(!testArgvHas(request.argv, "--resume"));
     try testing.expect(!testArgvHas(request.argv, "--bare"));
-    try testing.expect(!testArgvHas(request.argv, "--forward-subagent-text"));
     try testing.expect(!testArgvHas(request.argv, "--allowedTools"));
     try testing.expect(!testArgvHas(request.argv, "--permission-mode"));
     try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
@@ -1053,13 +1066,15 @@ test "claude + cli_available selects print-mode claude -p --output-format stream
     const stream_at = testArgvIndex(request.argv, "stream-json") orelse return error.MissingStreamJson;
     const verbose_at = testArgvIndex(request.argv, "--verbose") orelse return error.MissingVerbose;
     const partial_at = testArgvIndex(request.argv, "--include-partial-messages") orelse return error.MissingPartial;
+    const forward_at = testArgvIndex(request.argv, "--forward-subagent-text") orelse return error.MissingForwardSubagent;
     const prompt_at = testArgvIndex(request.argv, "hello claude") orelse return error.MissingPrompt;
     try testing.expectEqual(binary_at + 1, p_at);
     try testing.expectEqual(p_at + 1, format_at);
     try testing.expectEqual(format_at + 1, stream_at);
     try testing.expectEqual(stream_at + 1, verbose_at);
     try testing.expectEqual(verbose_at + 1, partial_at);
-    try testing.expectEqual(partial_at + 1, prompt_at);
+    try testing.expectEqual(partial_at + 1, forward_at);
+    try testing.expectEqual(forward_at + 1, prompt_at);
 }
 
 test "claude + stored fx_session_id resumes with --resume {id}" {
@@ -1090,6 +1105,7 @@ test "claude + stored fx_session_id resumes with --resume {id}" {
     try testing.expect(testArgvHas(request.argv, "stream-json"));
     try testing.expect(testArgvHas(request.argv, "--verbose"));
     try testing.expect(testArgvHas(request.argv, "--include-partial-messages"));
+    try testing.expect(testArgvHas(request.argv, "--forward-subagent-text"));
     try testing.expect(testArgvHas(request.argv, "--resume"));
     try testing.expect(testArgvHas(request.argv, "claude-sess-resume-1"));
     try testing.expect(testArgvHas(request.argv, "continue that review"));
@@ -1108,7 +1124,6 @@ test "claude + stored fx_session_id resumes with --resume {id}" {
     try testing.expect(!testArgvHas(request.argv, "-c"));
     try testing.expect(!testArgvHas(request.argv, "-r"));
     try testing.expect(!testArgvHas(request.argv, "--bare"));
-    try testing.expect(!testArgvHas(request.argv, "--forward-subagent-text"));
     try testing.expect(!testArgvHas(request.argv, "--allowedTools"));
     try testing.expect(!testArgvHas(request.argv, "--permission-mode"));
     try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
@@ -1120,6 +1135,7 @@ test "claude + stored fx_session_id resumes with --resume {id}" {
     const stream_at = testArgvIndex(request.argv, "stream-json") orelse return error.MissingStreamJson;
     const verbose_at = testArgvIndex(request.argv, "--verbose") orelse return error.MissingVerbose;
     const partial_at = testArgvIndex(request.argv, "--include-partial-messages") orelse return error.MissingPartial;
+    const forward_at = testArgvIndex(request.argv, "--forward-subagent-text") orelse return error.MissingForwardSubagent;
     const resume_at = testArgvIndex(request.argv, "--resume") orelse return error.MissingResume;
     const prompt_at = testArgvIndex(request.argv, "continue that review") orelse return error.MissingPrompt;
     try testing.expectEqual(binary_at + 1, p_at);
@@ -1127,7 +1143,8 @@ test "claude + stored fx_session_id resumes with --resume {id}" {
     try testing.expectEqual(format_at + 1, stream_at);
     try testing.expectEqual(stream_at + 1, verbose_at);
     try testing.expectEqual(verbose_at + 1, partial_at);
-    try testing.expectEqual(partial_at + 1, resume_at);
+    try testing.expectEqual(partial_at + 1, forward_at);
+    try testing.expectEqual(forward_at + 1, resume_at);
     try testing.expect(resume_at + 1 < request.argv.len);
     try testing.expectEqualStrings("claude-sess-resume-1", request.argv[resume_at + 1]);
     try testing.expectEqual(resume_at + 2, prompt_at);
@@ -1155,8 +1172,10 @@ test "claude empty fx_session_id omits --resume" {
     try testing.expect(!testArgvHas(request.argv, "--resume"));
     try testing.expect(!testArgvHas(request.argv, "--continue"));
     const partial_at = testArgvIndex(request.argv, "--include-partial-messages") orelse return error.MissingPartial;
+    const forward_at = testArgvIndex(request.argv, "--forward-subagent-text") orelse return error.MissingForwardSubagent;
     const prompt_at = testArgvIndex(request.argv, "first send") orelse return error.MissingPrompt;
-    try testing.expectEqual(partial_at + 1, prompt_at);
+    try testing.expectEqual(partial_at + 1, forward_at);
+    try testing.expectEqual(forward_at + 1, prompt_at);
 }
 
 test "claude unavailable stays demo" {
@@ -1779,6 +1798,7 @@ test "claude image attach uses print-mode path in the -p prompt" {
     try testing.expect(testArgvHas(request.argv, "stream-json"));
     try testing.expect(testArgvHas(request.argv, "--verbose"));
     try testing.expect(testArgvHas(request.argv, "--include-partial-messages"));
+    try testing.expect(testArgvHas(request.argv, "--forward-subagent-text"));
     try testing.expect(!testArgvHas(request.argv, "text"));
     try testing.expect(!testArgvHas(request.argv, image));
     try testing.expect(!testArgvHas(request.argv, "describe this"));
@@ -1799,18 +1819,20 @@ test "claude image attach uses print-mode path in the -p prompt" {
     const stream_at = testArgvIndex(request.argv, "stream-json") orelse return error.MissingStreamJson;
     const verbose_at = testArgvIndex(request.argv, "--verbose") orelse return error.MissingVerbose;
     const partial_at = testArgvIndex(request.argv, "--include-partial-messages") orelse return error.MissingPartial;
+    const forward_at = testArgvIndex(request.argv, "--forward-subagent-text") orelse return error.MissingForwardSubagent;
     try testing.expectEqual(binary_at + 1, p_at);
     try testing.expectEqual(p_at + 1, format_at);
     try testing.expectEqual(format_at + 1, stream_at);
     try testing.expectEqual(stream_at + 1, verbose_at);
     try testing.expectEqual(verbose_at + 1, partial_at);
-    try testing.expect(partial_at + 1 < request.argv.len);
-    const print_prompt = request.argv[partial_at + 1];
+    try testing.expectEqual(partial_at + 1, forward_at);
+    try testing.expect(forward_at + 1 < request.argv.len);
+    const print_prompt = request.argv[forward_at + 1];
     try testing.expect(std.mem.indexOf(u8, print_prompt, claude_image_prompt_prefix) != null);
     try testing.expect(std.mem.indexOf(u8, print_prompt, image) != null);
     try testing.expect(std.mem.indexOf(u8, print_prompt, "describe this") != null);
     try testing.expect(std.mem.startsWith(u8, print_prompt, claude_image_prompt_prefix));
-    try testing.expectEqual(partial_at + 2, request.argv.len);
+    try testing.expectEqual(forward_at + 2, request.argv.len);
 }
 
 test "claude image attach + stored fx_session_id uses path-in-prompt and --resume" {
@@ -1849,6 +1871,7 @@ test "claude image attach + stored fx_session_id uses path-in-prompt and --resum
     try testing.expect(testArgvHas(request.argv, "stream-json"));
     try testing.expect(testArgvHas(request.argv, "--verbose"));
     try testing.expect(testArgvHas(request.argv, "--include-partial-messages"));
+    try testing.expect(testArgvHas(request.argv, "--forward-subagent-text"));
     try testing.expect(testArgvHas(request.argv, "--resume"));
     try testing.expect(testArgvHas(request.argv, "claude-sess-image-1"));
     try testing.expect(!testArgvHas(request.argv, image));
@@ -1857,7 +1880,6 @@ test "claude image attach + stored fx_session_id uses path-in-prompt and --resum
     try testing.expect(!testArgvHas(request.argv, "-i"));
     try testing.expect(!testArgvHas(request.argv, "--input-format"));
     try testing.expect(!testArgvHas(request.argv, "--continue"));
-    try testing.expect(!testArgvHas(request.argv, "--forward-subagent-text"));
     try testing.expect(!testArgvHas(request.argv, "acp"));
     try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(!testArgvHas(request.argv, "--dangerously-skip-permissions"));
@@ -1865,9 +1887,11 @@ test "claude image attach + stored fx_session_id uses path-in-prompt and --resum
     const binary_at = testArgvIndex(request.argv, "claude") orelse return error.MissingBinary;
     const p_at = testArgvIndex(request.argv, "-p") orelse return error.MissingPrint;
     const partial_at = testArgvIndex(request.argv, "--include-partial-messages") orelse return error.MissingPartial;
+    const forward_at = testArgvIndex(request.argv, "--forward-subagent-text") orelse return error.MissingForwardSubagent;
     const resume_at = testArgvIndex(request.argv, "--resume") orelse return error.MissingResume;
     try testing.expectEqual(binary_at + 1, p_at);
-    try testing.expectEqual(partial_at + 1, resume_at);
+    try testing.expectEqual(partial_at + 1, forward_at);
+    try testing.expectEqual(forward_at + 1, resume_at);
     try testing.expect(resume_at + 1 < request.argv.len);
     try testing.expectEqualStrings("claude-sess-image-1", request.argv[resume_at + 1]);
     try testing.expect(resume_at + 2 < request.argv.len);
@@ -2013,7 +2037,9 @@ test "claude print-mode chdir + stored fx_session_id keeps resume as argv slots"
     const resume_at = testArgvIndex(request.argv, "--resume") orelse return error.MissingResume;
     try testing.expectEqualStrings("claude-sess-cwd-1", request.argv[resume_at + 1]);
     const partial_at = testArgvIndex(request.argv, "--include-partial-messages") orelse return error.MissingPartial;
-    try testing.expectEqual(partial_at + 1, resume_at);
+    const forward_at = testArgvIndex(request.argv, "--forward-subagent-text") orelse return error.MissingForwardSubagent;
+    try testing.expectEqual(partial_at + 1, forward_at);
+    try testing.expectEqual(forward_at + 1, resume_at);
 }
 
 test "fx path stays preferred when provider is fx even if codex is available" {

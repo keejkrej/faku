@@ -1492,6 +1492,7 @@ test "send with claude cli_available spawns stream-json print-mode and streams t
     try testing.expect(argvHas(request.argv, "stream-json"));
     try testing.expect(argvHas(request.argv, "--verbose"));
     try testing.expect(argvHas(request.argv, "--include-partial-messages"));
+    try testing.expect(argvHas(request.argv, "--forward-subagent-text"));
     try testing.expect(argvHas(request.argv, "what does this repo do"));
     try testing.expect(!argvHas(request.argv, "text"));
     try testing.expect(!argvHas(request.argv, acp_proxy.SUBCOMMAND));
@@ -1506,7 +1507,6 @@ test "send with claude cli_available spawns stream-json print-mode and streams t
     try testing.expect(!argvHas(request.argv, "--continue"));
     try testing.expect(!argvHas(request.argv, "--resume"));
     try testing.expect(!argvHas(request.argv, "--bare"));
-    try testing.expect(!argvHas(request.argv, "--forward-subagent-text"));
     try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
     try testing.expectEqualStrings("", request.stdin);
     const binary_at = argvIndex(request.argv, "claude") orelse return error.MissingBinary;
@@ -1515,13 +1515,15 @@ test "send with claude cli_available spawns stream-json print-mode and streams t
     const stream_at = argvIndex(request.argv, "stream-json") orelse return error.MissingStreamJson;
     const verbose_at = argvIndex(request.argv, "--verbose") orelse return error.MissingVerbose;
     const partial_at = argvIndex(request.argv, "--include-partial-messages") orelse return error.MissingPartial;
+    const forward_at = argvIndex(request.argv, "--forward-subagent-text") orelse return error.MissingForwardSubagent;
     const prompt_at = argvIndex(request.argv, "what does this repo do") orelse return error.MissingPrompt;
     try testing.expectEqual(binary_at + 1, p_at);
     try testing.expectEqual(p_at + 1, format_at);
     try testing.expectEqual(format_at + 1, stream_at);
     try testing.expectEqual(stream_at + 1, verbose_at);
     try testing.expectEqual(verbose_at + 1, partial_at);
-    try testing.expectEqual(partial_at + 1, prompt_at);
+    try testing.expectEqual(partial_at + 1, forward_at);
+    try testing.expectEqual(forward_at + 1, prompt_at);
 
     try fx.feedLine(main.fx_ask_key, "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"claude-sess-send\"}");
     drainEffects(&model, &fx);
@@ -1573,12 +1575,12 @@ test "send with claude stored fx_session_id later send uses --resume {id}" {
     try testing.expect(argvHas(request.argv, "stream-json"));
     try testing.expect(argvHas(request.argv, "--verbose"));
     try testing.expect(argvHas(request.argv, "--include-partial-messages"));
+    try testing.expect(argvHas(request.argv, "--forward-subagent-text"));
     try testing.expect(argvHas(request.argv, "--resume"));
     try testing.expect(argvHas(request.argv, "claude-sess-later"));
     try testing.expect(argvHas(request.argv, "continue that review"));
     try testing.expect(!argvHas(request.argv, "--continue"));
     try testing.expect(!argvHas(request.argv, "--input-format"));
-    try testing.expect(!argvHas(request.argv, "--forward-subagent-text"));
     try testing.expect(!argvHas(request.argv, "acp"));
     try testing.expect(!argvHas(request.argv, "--image"));
     try testing.expect(!argvHas(request.argv, "--dangerously-skip-permissions"));
@@ -1586,7 +1588,9 @@ test "send with claude stored fx_session_id later send uses --resume {id}" {
     const resume_at = argvIndex(request.argv, "--resume") orelse return error.MissingResume;
     try testing.expectEqualStrings("claude-sess-later", request.argv[resume_at + 1]);
     const partial_at = argvIndex(request.argv, "--include-partial-messages") orelse return error.MissingPartial;
-    try testing.expectEqual(partial_at + 1, resume_at);
+    const forward_at = argvIndex(request.argv, "--forward-subagent-text") orelse return error.MissingForwardSubagent;
+    try testing.expectEqual(partial_at + 1, forward_at);
+    try testing.expectEqual(forward_at + 1, resume_at);
     const prompt_at = argvIndex(request.argv, "continue that review") orelse return error.MissingPrompt;
     try testing.expectEqual(resume_at + 2, prompt_at);
 }

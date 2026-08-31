@@ -633,6 +633,12 @@ pub const Model = struct {
     /// overwrites. Cleared when that session is removed.
     background_settled: environment_summary.SettledStatus = .none,
     background_settled_session: u32 = 0,
+    /// Live Subagent Background slots from Claude stream-json
+    /// `parent_tool_use_id` / Agent `tool_use`. Runtime-only; not
+    /// sessions.json / drafts.json. Cleared when the turn starts,
+    /// settles, or is stopped.
+    background_subagents: [environment_summary.max_live_subagents]environment_summary.LiveSubagent = [_]environment_summary.LiveSubagent{.{}} ** environment_summary.max_live_subagents,
+    background_subagent_count: u32 = 0,
     /// Runtime-only Environment Compare Review card. Not persisted.
     review_diff_active: bool = false,
     /// Runtime-only Review name-status source. Compare / header +/-
@@ -1160,6 +1166,8 @@ pub const Model = struct {
         "streaming_session",
         "background_settled",
         "background_settled_session",
+        "background_subagents",
+        "background_subagent_count",
         "has_settled_background",
         "background_settled_status",
         "queued_store",
@@ -3070,8 +3078,9 @@ pub const Model = struct {
         return environment_summary.hasBackgroundSection(model);
     }
 
-    /// Visible Background registry rows (Process from stream/settle
-    /// this cut). Native `for each="background_rows"`.
+    /// Visible Background registry rows (Process from stream/settle,
+    /// live Subagent from Claude `parent_tool_use_id` this cut).
+    /// Native `for each="background_rows"`.
     pub fn background_rows(model: *const Model, arena: std.mem.Allocator) []const environment_summary.BackgroundRow {
         return environment_summary.backgroundRows(model, arena);
     }
