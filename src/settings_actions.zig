@@ -202,6 +202,10 @@ pub fn handleSetSettingsPageGeneral(model: *Model) void {
     model.settings_page = .general;
 }
 
+pub fn handleSetSettingsPageAppearance(model: *Model) void {
+    model.settings_page = .appearance;
+}
+
 pub fn handleSetSettingsPageProviders(model: *Model, fx: *Effects) void {
     model.settings_page = .providers;
     providers.startProbes(model, fx);
@@ -210,6 +214,21 @@ pub fn handleSetSettingsPageProviders(model: *Model, fx: *Effects) void {
 pub fn handleSetSettingsPageSkills(model: *Model, fx: *Effects) void {
     model.settings_page = .skills;
     skills.refresh(model, fx);
+}
+
+pub fn handleSettingsThemeSystem(model: *Model) void {
+    model.setThemePreference(.system);
+    store.persistSettingsIfPossible(model);
+}
+
+pub fn handleSettingsThemeLight(model: *Model) void {
+    model.setThemePreference(.light);
+    store.persistSettingsIfPossible(model);
+}
+
+pub fn handleSettingsThemeDark(model: *Model) void {
+    model.setThemePreference(.dark);
+    store.persistSettingsIfPossible(model);
 }
 
 pub fn handleRefreshSkills(model: *Model, fx: *Effects) void {

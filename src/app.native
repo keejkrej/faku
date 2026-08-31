@@ -160,6 +160,7 @@
         <separator />
         <row height="40" padding="14" gap="8" cross="center">
           <button variant="ghost" size="sm" selected="{settings_page_general}" on-press="set_settings_page_general">General</button>
+          <button variant="ghost" size="sm" selected="{settings_page_appearance}" on-press="set_settings_page_appearance">Appearance</button>
           <button variant="ghost" size="sm" selected="{settings_page_providers}" on-press="set_settings_page_providers">Providers</button>
           <button variant="ghost" size="sm" selected="{settings_page_skills}" on-press="set_settings_page_skills">Skills</button>
           <spacer grow="1" />
@@ -236,6 +237,25 @@
             </row>
           </if>
           <else>
+          <if test="{settings_page_appearance}">
+            <row grow="1" main="center">
+              <column grow="1" max-width="720" gap="10" padding="14">
+                <card size="sm" padding="10">
+                  <column gap="8">
+                    <text>Theme</text>
+                    <row gap="8">
+                      <button variant="ghost" size="sm" selected="{theme_system}" on-press="settings_theme_system">System</button>
+                      <button variant="ghost" size="sm" selected="{theme_light}" on-press="settings_theme_light">Light</button>
+                      <button variant="ghost" size="sm" selected="{theme_dark}" on-press="settings_theme_dark">Dark</button>
+                    </row>
+                    <text wrap="true" foreground="text_muted">{appearance_os_caption}</text>
+                  </column>
+                </card>
+              </column>
+            </row>
+          </if>
+          <else>
+          <if test="{settings_page_general}">
           <row grow="1" main="center">
             <column grow="1" max-width="720" gap="10" padding="14">
               <text>Default model</text>
@@ -268,6 +288,8 @@
               <text-field text="{settings_daemon}" placeholder="host:port" on-input="settings_daemon_edit" />
             </column>
           </row>
+          </if>
+          </else>
           </else>
           </else>
         </scroll>
