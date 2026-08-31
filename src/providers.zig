@@ -5,13 +5,16 @@
 //! `fxPath()` — no new probe key. Other ids one-shot PATH
 //! `{defaultBinary()} --help` via `cli_probe.zig` (Available / Not
 //! found when that exit lands). Open starts non-fx probes; Refresh
-//! re-runs fx_probe and every non-fx probe. Tests do not need a live
-//! daemon or any real CLI install.
+//! re-runs fx_probe and every non-fx probe. Selecting a row highlights
+//! and shows detail; Apply ("Use for this session") sets the selected
+//! chat session's `provider` and persists via `sessions.json`. New
+//! sessions stay `.fx`. Tests do not need a live daemon or any real
+//! CLI install.
 //!
-//! Leftovers: install / sign-in / auto-detect onboarding; enabling
-//! non-fx providers on Send or changing `session.provider` from this
-//! page; Appearance / Usage / Computer Use settings pages. Not Waku
-//! install/auth.
+//! Leftovers: install / sign-in / auto-detect onboarding; a live
+//! non-fx Send driver (`spawn.startPrompt` still falls through to the
+//! demo timer for non-fx); Appearance / Usage / Computer Use settings
+//! pages. Not Waku install/auth.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -29,6 +32,7 @@ pub const fx_missing_status = missing_status;
 pub const catalog_detail_note = "Status is a PATH --help probe. Not a live driver this cut.";
 pub const first_party_label = "First-party default";
 pub const fx_transport_note = "Live path is one-shot fx acp via acp-proxy.";
+pub const apply_session_label = "Use for this session";
 
 /// Settings Providers row. `id` is 1-based `@intFromEnum(ProviderId)`
 /// so Native `select_provider:{p.id}` never binds 0.
@@ -136,6 +140,23 @@ pub fn selectProvider(model: *Model, id: u32) void {
         return;
     }
     model.provider_selected_id = id;
+}
+
+/// True when a valid Providers row is highlighted and a chat session
+/// is selected. Row press does not apply; Apply is explicit.
+pub fn canApplyToSession(model: *const Model) bool {
+    if (fromRowId(model.provider_selected_id) == null) return false;
+    return model.sessionByIdConst(model.selected) != null;
+}
+
+/// Sets the selected session's `provider` from the highlighted
+/// Providers row. No-op when there is no selected session or the row
+/// id is unknown. Does not start a live non-fx Send driver.
+pub fn applyToSession(model: *Model) bool {
+    const id = fromRowId(model.provider_selected_id) orelse return false;
+    const session = model.sessionById(model.selected) orelse return false;
+    session.provider = id;
+    return true;
 }
 
 pub fn close(model: *Model) void {
@@ -255,6 +276,77 @@ test "selectProvider; detail names binary, fx path, probe status, and one-shot a
     selectProvider(&model, 99);
     try testing.expectEqual(@as(u32, 0), model.provider_selected_id);
     try testing.expectEqualStrings("", detailText(&model, testing.allocator));
+}
+
+test "applyToSession sets selected session provider; unknown id and empty selection no-op" {
+    const testing = std.testing;
+    var model = Model{};
+    const id = model.addSession("thread", .fx);
+    model.selected = id;
+    try testing.expectEqual(protocol.ProviderId.fx, model.sessionByIdConst(id).?.provider);
+    try testing.expect(!canApplyToSession(&model));
+    try testing.expect(!applyToSession(&model));
+    try testing.expectEqual(protocol.ProviderId.fx, model.sessionByIdConst(id).?.provider);
+
+    selectProvider(&model, rowId(.claude));
+    try testing.expect(canApplyToSession(&model));
+    try testing.expect(applyToSession(&model));
+    try testing.expectEqual(protocol.ProviderId.claude, model.sessionByIdConst(id).?.provider);
+    try testing.expectEqualStrings("claude", model.sessionByIdConst(id).?.provider_label());
+
+    selectProvider(&model, rowId(.fx));
+    try testing.expect(applyToSession(&model));
+    try testing.expectEqual(protocol.ProviderId.fx, model.sessionByIdConst(id).?.provider);
+
+    model.provider_selected_id = 99;
+    try testing.expect(!canApplyToSession(&model));
+    try testing.expect(!applyToSession(&model));
+    try testing.expectEqual(protocol.ProviderId.fx, model.sessionByIdConst(id).?.provider);
+
+    selectProvider(&model, rowId(.pi));
+    model.selected = 0;
+    try testing.expect(!canApplyToSession(&model));
+    try testing.expect(!applyToSession(&model));
+    try testing.expectEqual(protocol.ProviderId.fx, model.sessionByIdConst(id).?.provider);
+
+    model.selected = id;
+    const other = model.addSession("other", .codex);
+    selectProvider(&model, rowId(.amp));
+    try testing.expect(applyToSession(&model));
+    try testing.expectEqual(protocol.ProviderId.amp, model.sessionByIdConst(id).?.provider);
+    try testing.expectEqual(protocol.ProviderId.codex, model.sessionByIdConst(other).?.provider);
+}
+
+test "applyToSession persistIfPossible writes provider on a started session skeleton" {
+    const testing = std.testing;
+    const store = @import("store.zig");
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-apply-provider-unit", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const id = model.addSession("apply me", .fx);
+    _ = model.appendTurn(id, .user, "started");
+    model.selected = id;
+    selectProvider(&model, rowId(.claude));
+    try testing.expect(applyToSession(&model));
+    store.persistIfPossible(&model, id, &fx);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 1), loaded.session_count);
+    try testing.expectEqual(protocol.ProviderId.claude, loaded.session_store[0].provider);
+    try testing.expectEqualStrings("claude", loaded.session_store[0].provider_label());
 }
 
 test "refresh queues fx_probe_key and every non-fx PATH --help probe" {

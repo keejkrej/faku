@@ -407,6 +407,7 @@ pub const Msg = union(enum) {
     skills_filter_edit: canvas.TextInputEvent,
     select_skill: u32,
     select_provider: u32,
+    apply_session_provider,
     cycle_access,
     cycle_interaction,
     cycle_effort,
@@ -2423,6 +2424,10 @@ pub const Model = struct {
 
     pub fn has_provider_detail(model: *const Model) bool {
         return model.settings_page == .providers and model.provider_selected_id != 0;
+    }
+
+    pub fn can_apply_session_provider(model: *const Model) bool {
+        return model.settings_page == .providers and providers.canApplyToSession(model);
     }
 
     pub fn provider_detail(model: *const Model, arena: std.mem.Allocator) []const u8 {

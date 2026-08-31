@@ -10256,6 +10256,7 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     try testing.expect(findByText(tree.root, .text, "Install") == null);
     try testing.expect(findByText(tree.root, .text, "Sign in") == null);
     try testing.expect(findByText(tree.root, .text, "Catalog id only") == null);
+    try testing.expect(findByText(tree.root, .button, providers.apply_session_label) == null);
 
     const after_open = fx.pendingSpawnCount();
     model.fx_available = true;
@@ -10296,13 +10297,18 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     main.update(&model, tree.msgForPointer(fx_row.id, .up).?, &fx);
     try testing.expectEqual(@as(u32, 1), model.provider_selected_id);
     try testing.expect(model.has_provider_detail());
+    try testing.expect(model.can_apply_session_provider());
+    try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
     tree = try buildTree(arena, &model);
     try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) != null);
     try testing.expect(findTextContaining(tree.root, "/home/probe/.local/bin/fx") != null);
     try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) == null);
+    _ = try expectButtonMsg(tree, providers.apply_session_label, .apply_session_provider);
 
     main.update(&model, .{ .select_provider = 2 }, &fx);
     try testing.expectEqual(@as(u32, 2), model.provider_selected_id);
+    try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
+    try testing.expectEqualStrings("fx", model.selected_provider());
     tree = try buildTree(arena, &model);
     try testing.expect(findTextContaining(tree.root, providers.available_status) != null);
     try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) != null);
@@ -10324,6 +10330,74 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     try testing.expect(findByText(tree.root, .list_item, "fx") == null);
     try testing.expect(findByText(tree.root, .text, "Default model") == null);
     _ = try expectByText(tree.root, .button, "Send");
+}
+
+test "settings Providers Use for this session applies to selected session and persists" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-apply-provider", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+    try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
+    try testing.expectEqual(main.Provider.claude, model.session_store[1].provider);
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_providers, &fx);
+    main.update(&model, .{ .select_provider = 2 }, &fx);
+    try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
+
+    var tree = try buildTree(arena, &model);
+    const apply = try expectButtonMsg(tree, providers.apply_session_label, .apply_session_provider);
+    main.update(&model, tree.msgForPointer(apply.id, .up).?, &fx);
+    try testing.expectEqual(main.Provider.claude, model.session_store[0].provider);
+    try testing.expectEqualStrings("claude", model.selected_provider());
+    try testing.expectEqual(main.Provider.claude, model.session_store[1].provider);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(main.Provider.claude, loaded.session_store[0].provider);
+    try testing.expectEqualStrings("claude", loaded.selected_provider());
+
+    main.update(&model, .{ .select_provider = 1 }, &fx);
+    main.update(&model, .apply_session_provider, &fx);
+    try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
+    try testing.expectEqualStrings("fx", model.selected_provider());
+
+    loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(main.Provider.fx, loaded.session_store[0].provider);
+
+    const previous = model.session_store[0].provider;
+    model.provider_selected_id = 99;
+    try testing.expect(!model.can_apply_session_provider());
+    main.update(&model, .apply_session_provider, &fx);
+    try testing.expectEqual(previous, model.session_store[0].provider);
+
+    model.provider_selected_id = 2;
+    model.selected = 0;
+    try testing.expect(!model.can_apply_session_provider());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, providers.apply_session_label) == null);
+    main.update(&model, .apply_session_provider, &fx);
+    try testing.expectEqual(main.Provider.fx, model.session_store[0].provider);
+    try testing.expectEqual(main.Provider.claude, model.session_store[1].provider);
 }
 
 test "settings edits persist model access and daemon address and reload" {
