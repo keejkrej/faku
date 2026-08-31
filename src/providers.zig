@@ -10,9 +10,14 @@
 //! chat session's `provider` and persists via `sessions.json`. New
 //! sessions stay `.fx`. Live Send for probed ACP `acp` providers
 //! (cursor today) is `spawn.startPrompt`; other non-fx ids stay demo.
-//! Tests do not need a live daemon or any real CLI install.
+//! fx Not found copies the verified `https://fx.sh` install command
+//! via `fx.writeClipboard` (never auto-runs `setup.sh`). fx Available
+//! copies `fx login` the same way — convenience copy, not auth-state
+//! detection or OAuth UI. Other missing CLIs get a muted PATH hint
+//! only (no invented install URLs). Tests do not need a live daemon
+//! or any real CLI install.
 //!
-//! Leftovers: install / sign-in / auto-detect onboarding; Claude /
+//! Leftovers: full onboarding / OAuth / auto-install; Claude /
 //! Codex / Amp / Pi / Grok / OpenCode native drivers; Appearance /
 //! Usage / Computer Use settings pages. Not Waku install/auth.
 
@@ -21,6 +26,7 @@ const main = @import("main.zig");
 const protocol = @import("protocol.zig");
 const fx_probe = @import("fx_probe.zig");
 const cli_probe = @import("cli_probe.zig");
+const copy_helpers = @import("copy.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -34,6 +40,16 @@ pub const first_party_label = "First-party default";
 pub const fx_transport_note = "Live path is one-shot fx acp via acp-proxy.";
 pub const acp_transport_note = "Live Send is one-shot acp via acp-proxy when Available.";
 pub const apply_session_label = "Use for this session";
+/// Verified from https://fx.sh and vercel-labs/fx README. Copied
+/// to the clipboard; never spawned as a shell that runs setup.sh.
+pub const fx_install_command = "curl -fsSL https://fx.sh/setup.sh | bash";
+/// Verified from vercel-labs/fx README. Convenience copy only.
+pub const fx_login_command = "fx login";
+pub const copy_install_label = "Copy install command";
+pub const copy_login_label = "Copy login command";
+pub const fx_login_note = "Faku does not detect auth state from the --help probe. Copy is a convenience, not sign-in UI or OAuth.";
+pub const fx_login_codex_note = "Optional: fx login codex for ChatGPT/Codex OAuth.";
+pub const other_install_hint = "Install that CLI on PATH, then Refresh.";
 
 /// Settings Providers row. `id` is 1-based `@intFromEnum(ProviderId)`
 /// so Native `select_provider:{p.id}` never binds 0.
@@ -158,6 +174,39 @@ pub fn applyToSession(model: *Model) bool {
     const session = model.sessionById(model.selected) orelse return false;
     session.provider = id;
     return true;
+}
+
+/// Highlighted row is fx and the `--help` probe did not find it.
+pub fn canCopyFxInstall(model: *const Model) bool {
+    const id = fromRowId(model.provider_selected_id) orelse return false;
+    return id == .fx and !isAvailable(model, .fx);
+}
+
+/// Highlighted row is fx and the `--help` probe found it. Auth
+/// state is not probed; this only gates the login-command copy.
+pub fn canCopyFxLogin(model: *const Model) bool {
+    const id = fromRowId(model.provider_selected_id) orelse return false;
+    return id == .fx and isAvailable(model, .fx);
+}
+
+/// Highlighted non-fx row is Not found. Muted PATH hint only.
+pub fn showsOtherInstallHint(model: *const Model) bool {
+    const id = fromRowId(model.provider_selected_id) orelse return false;
+    return id != .fx and !isAvailable(model, id);
+}
+
+/// Copy the verified fx install command. No-op when the install
+/// button would be hidden. Does not spawn a shell.
+pub fn copyFxInstall(model: *const Model, fx: *Effects) void {
+    if (!canCopyFxInstall(model)) return;
+    copy_helpers.copyText(fx, fx_install_command);
+}
+
+/// Copy `fx login`. No-op when the login button would be hidden.
+/// Does not spawn fx or start OAuth.
+pub fn copyFxLogin(model: *const Model, fx: *Effects) void {
+    if (!canCopyFxLogin(model)) return;
+    copy_helpers.copyText(fx, fx_login_command);
 }
 
 pub fn close(model: *Model) void {
@@ -427,4 +476,105 @@ test "rows empty off the Providers page" {
     try std.testing.expectEqualStrings("claude", on[1].name);
     try std.testing.expectEqualStrings(missing_status, on[1].status);
     try std.testing.expectEqualStrings("claude", on[1].binary);
+}
+
+test "copy command strings are the verified fx.sh / README commands" {
+    try std.testing.expectEqualStrings(
+        "curl -fsSL https://fx.sh/setup.sh | bash",
+        fx_install_command,
+    );
+    try std.testing.expectEqualStrings("fx login", fx_login_command);
+    try std.testing.expectEqualStrings("Copy install command", copy_install_label);
+    try std.testing.expectEqualStrings("Copy login command", copy_login_label);
+}
+
+test "install/login copy predicates: fx missing, fx available, other missing" {
+    var model = Model{};
+    try std.testing.expect(!canCopyFxInstall(&model));
+    try std.testing.expect(!canCopyFxLogin(&model));
+    try std.testing.expect(!showsOtherInstallHint(&model));
+
+    selectProvider(&model, rowId(.fx));
+    try std.testing.expect(canCopyFxInstall(&model));
+    try std.testing.expect(!canCopyFxLogin(&model));
+    try std.testing.expect(!showsOtherInstallHint(&model));
+
+    model.fx_available = true;
+    try std.testing.expect(!canCopyFxInstall(&model));
+    try std.testing.expect(canCopyFxLogin(&model));
+    try std.testing.expect(!showsOtherInstallHint(&model));
+
+    selectProvider(&model, rowId(.claude));
+    try std.testing.expect(!canCopyFxInstall(&model));
+    try std.testing.expect(!canCopyFxLogin(&model));
+    try std.testing.expect(showsOtherInstallHint(&model));
+
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    try std.testing.expect(!showsOtherInstallHint(&model));
+
+    const others = [_]protocol.ProviderId{ .codex, .amp, .grok, .opencode, .cursor, .pi };
+    for (others) |id| {
+        selectProvider(&model, rowId(id));
+        try std.testing.expect(!canCopyFxInstall(&model));
+        try std.testing.expect(!canCopyFxLogin(&model));
+        try std.testing.expect(showsOtherInstallHint(&model));
+        model.cli_available[@intFromEnum(id)] = true;
+        try std.testing.expect(!showsOtherInstallHint(&model));
+    }
+
+    selectProvider(&model, 99);
+    try std.testing.expect(!canCopyFxInstall(&model));
+    try std.testing.expect(!canCopyFxLogin(&model));
+    try std.testing.expect(!showsOtherInstallHint(&model));
+}
+
+test "copyFxInstall / copyFxLogin write verified commands; wrong state is a no-op" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    copyFxInstall(&model, &fx);
+    copyFxLogin(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+
+    selectProvider(&model, rowId(.fx));
+    copyFxLogin(&model, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingClipboardCount());
+    copyFxInstall(&model, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    const install = fx.pendingClipboardAt(0).?;
+    try testing.expectEqual(main.copy_turn_key, install.key);
+    try testing.expectEqual(@import("native_sdk").EffectClipboardOp.write, install.op);
+    try testing.expectEqualStrings(fx_install_command, install.text);
+    try testing.expectEqualStrings("curl -fsSL https://fx.sh/setup.sh | bash", install.text);
+
+    model.fx_available = true;
+    copyFxInstall(&model, &fx);
+    try testing.expectEqual(@as(usize, 1), fx.pendingClipboardCount());
+    try testing.expectEqualStrings(fx_install_command, fx.pendingClipboardAt(0).?.text);
+
+    var login_fx = Effects.init(testing.allocator);
+    defer login_fx.deinit();
+    login_fx.executor = .fake;
+    copyFxLogin(&model, &login_fx);
+    try testing.expectEqual(@as(usize, 1), login_fx.pendingClipboardCount());
+    const login = login_fx.pendingClipboardAt(0).?;
+    try testing.expectEqual(main.copy_turn_key, login.key);
+    try testing.expectEqual(@import("native_sdk").EffectClipboardOp.write, login.op);
+    try testing.expectEqualStrings(fx_login_command, login.text);
+    try testing.expectEqualStrings("fx login", login.text);
+    try testing.expectEqual(@as(usize, 0), login_fx.pendingSpawnCount());
+
+    selectProvider(&model, rowId(.claude));
+    var other_fx = Effects.init(testing.allocator);
+    defer other_fx.deinit();
+    other_fx.executor = .fake;
+    copyFxInstall(&model, &other_fx);
+    copyFxLogin(&model, &other_fx);
+    try testing.expectEqual(@as(usize, 0), other_fx.pendingClipboardCount());
+    try testing.expectEqual(@as(usize, 0), other_fx.pendingSpawnCount());
 }

@@ -43,7 +43,9 @@ best-effort sidecars: the desktop update loop never holds a socket.
 `WAKU_DAEMON_ADDRESS` still selects the daemon sidecar. Missing fx
 still uses the demo timer. Other providers (claude, codex, amp, grok,
 opencode, pi) and unavailable cursor stay demo. Apply on Settings →
-Providers sets `session.provider`; it is not install/sign-in.
+Providers sets `session.provider`. fx missing copies the verified
+install command; fx available copies `fx login`. Other missing CLIs
+get a PATH hint. Not OAuth or auto-install.
 
 Probe (boot `init_fx`, or first Send): `~/.local/bin/fx --help`, then
 `fx --help` on PATH. New sessions default to fx.
@@ -74,9 +76,9 @@ session catalog + hydrate, waku-protocol v4 JSON builders +
 server-frame parser, one-shot daemon sidecar, provider id `"fx"`.
 
 Later: Claude / Codex / Amp / Pi / Grok / OpenCode native drivers,
-install/sign-in, a long-lived daemon socket in the update loop (not
-this cut), a long-lived ACP loop once a window-side stdin-write
-effect exists.
+full onboarding / OAuth / auto-install, a long-lived daemon socket in
+the update loop (not this cut), a long-lived ACP loop once a
+window-side stdin-write effect exists.
 
 No `listSessions` / `createSession`. Catalog is `loadTaskState` (local
 JSON today). New session is a client-built session saved after first

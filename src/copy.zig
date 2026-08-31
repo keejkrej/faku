@@ -1,6 +1,7 @@
 //! Clipboard copy and turn-complete desktop notification helpers.
 //!
-//! Transcript / session / project-path clipboard writes and
+//! Transcript / session / project-path clipboard writes,
+//! Settings Providers fx install/login command copy, and
 //! successful-stream notify title/body live here. Msg routing and
 //! Model fields stay in `main.zig`. Behavior is unchanged from the
 //! former `main` copy and notify helpers, plus composer Copy path.
@@ -13,10 +14,11 @@ const Model = main.Model;
 const Effects = main.Effects;
 
 /// Caller-chosen identity for `fx.writeClipboard` on a transcript
-/// turn, a joined session, or the selected workspace path. Shares the
-/// effects key space with spawn / fetch / file; sits in the gap
-/// between daemon keys and `fx_spawn_overlap`. Verified: Native
-/// Effects `WriteClipboardOptions` + notes example.
+/// turn, a joined session, the selected workspace path, or Settings
+/// Providers fx install/login command copy. Shares the effects key
+/// space with spawn / fetch / file; sits in the gap between daemon
+/// keys and `fx_spawn_overlap`. Verified: Native Effects
+/// `WriteClipboardOptions` + notes example.
 pub const copy_turn_key: u64 = 32;
 /// Worst-case join of every in-memory turn with a blank line between.
 const max_copy_session = main.max_turns * main.max_body + (main.max_turns - 1) * 2;
@@ -73,9 +75,10 @@ pub fn notifyTurnComplete(model: *const Model, fx: *Effects, session_id: u32) vo
     });
 }
 
-/// Copy visible transcript text through Native `fx.writeClipboard`.
-/// Empty text is a no-op — no fake clipboard, no `pbcopy` spawn.
-fn writeVisibleClipboard(fx: *Effects, text: []const u8) void {
+/// Copy visible text through Native `fx.writeClipboard`. Empty
+/// text is a no-op — no fake clipboard, no `pbcopy` spawn, no
+/// shell that runs a remote install script.
+pub fn copyText(fx: *Effects, text: []const u8) void {
     if (text.len == 0) return;
     fx.writeClipboard(.{
         .key = copy_turn_key,
@@ -88,7 +91,7 @@ fn writeVisibleClipboard(fx: *Effects, text: []const u8) void {
 /// through Native `fx.writeClipboard`. Empty text is a no-op.
 pub fn copyTurn(model: *Model, fx: *Effects, id: u32) void {
     const turn = model.turnById(id) orelse return;
-    writeVisibleClipboard(fx, turn.text());
+    copyText(fx, turn.text());
 }
 
 /// Selected session, store order. Skip empty turns. Join remaining
@@ -116,14 +119,14 @@ fn joinSelectedSessionText(model: *const Model) ?[]const u8 {
 
 pub fn copySession(model: *Model, fx: *Effects) void {
     const text = joinSelectedSessionText(model) orelse return;
-    writeVisibleClipboard(fx, text);
+    copyText(fx, text);
 }
 
 /// Selected session's local `u32` id as decimal text. No invented UUID.
 pub fn copySessionId(model: *Model, fx: *Effects) void {
     if (model.sessionByIdConst(model.selected) == null) return;
     const text = std.fmt.bufPrint(&copy_session_id_buf, "{d}", .{model.selected}) catch return;
-    writeVisibleClipboard(fx, text);
+    copyText(fx, text);
 }
 
 /// Selected session `fx_session_id` (fx ask --json / ACP sessionId).
@@ -135,7 +138,7 @@ pub fn copyFxSessionId(model: *Model, fx: *Effects) void {
         model.setWindowStatus(no_provider_session_id_status);
         return;
     }
-    writeVisibleClipboard(fx, text);
+    copyText(fx, text);
 }
 
 /// Selected session, newest first. Empty text is skipped so a trailing
@@ -170,5 +173,5 @@ pub fn canCopyProjectPath(model: *const Model) bool {
 /// effect). Not Waku's Open-in app picker.
 pub fn copyProjectPath(model: *Model, fx: *Effects) void {
     const path = reveal_folder.resolveRevealPath(model) orelse return;
-    writeVisibleClipboard(fx, path);
+    copyText(fx, path);
 }
