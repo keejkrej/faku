@@ -1,16 +1,20 @@
 //! Prompt-start and provider-spawn helpers.
 //!
 //! `startPrompt` path selection (daemon / fx acp / fx ask / probed
-//! ACP stdio via acp-proxy / demo), StartOptions mapping, and
-//! `takeFxAskSessionId` live here. Stream lifecycle lives in
-//! `stream.zig`. Line handlers live in `lines.zig`.
+//! ACP stdio via acp-proxy / Claude print-mode / demo), StartOptions
+//! mapping, and `takeFxAskSessionId` live here. Stream lifecycle
+//! lives in `stream.zig`. Line handlers live in `lines.zig`.
 //!
 //! Non-fx live Send this cut: `ProviderId.speaksAcpStdio` (cursor /
 //! opencode bare `acp`, grok `agent stdio`) when
 //! `providers.isAvailable`. Same one-shot `faku acp-proxy -- {binary}
 //! …transport…` as fx. `reply_path` stays `.fx` so ACP stream parsing
-//! (`fx_spawn_acp` / `fx_line` / `fx_exit`) is unchanged. Image attach
-//! on non-fx stays demo. Claude/Codex/Amp/Pi stay demo.
+//! (`fx_spawn_acp` / `fx_line` / `fx_exit`) is unchanged. After that,
+//! Available Claude with no image attach is one-shot
+//! `{binary} -p --output-format text {prompt}` (empty stdin, not ACP,
+//! not acp-proxy). `reply_path` stays `.fx` with `fx_spawn_acp = false`
+//! so stdout lines use the existing non-ACP `handleFxLine` path.
+//! Image attach on non-fx stays demo. Codex/Amp/Pi stay demo.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -80,6 +84,16 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
             // so handleAcpLine keeps working. Not a new ReplyPath alias.
             model.reply_path = .fx;
             if (startAcpProxy(model, fx, session, binary, text)) return;
+        }
+    }
+    if (session.provider == .claude and providers.isAvailable(model, .claude)) {
+        // Claude Code is not ACP. Official print mode is one-shot
+        // `claude -p --output-format text`. Image attach stays demo.
+        if (model.resolveSpawnImage().len == 0) {
+            if (startClaudePrint(model, fx, session, text)) {
+                model.reply_path = .fx;
+                return;
+            }
         }
     }
     model.reply_path = .demo;
@@ -320,6 +334,58 @@ pub fn startFxAsk(model: *Model, fx: *Effects, session: *const Session, prompt: 
     });
 }
 
+/// One-shot official Claude Code print mode:
+/// `{binary} -p --output-format text {prompt}`. Prompt is an argv
+/// slot (documented `claude -p "query"`). Empty stdin. Not ACP, not
+/// `claude acp`, not stream-json, not permissions bypass, not
+/// acp-proxy. Caller sets `reply_path` to `.fx` on success;
+/// `fx_spawn_acp` stays false so stdout lines reuse non-ACP
+/// `handleFxLine` / `handleFxExit`. Project cwd reuses
+/// `fx_ask_chdir_script` (Native SpawnOptions has no cwd field).
+/// Empty binary is a no-op (PATH default is `claude`).
+pub fn startClaudePrint(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) bool {
+    const binary = providers.binaryFor(model, .claude);
+    if (binary.len == 0) return false;
+    const cwd = model.resolveSpawnCwd(session);
+    model.setLastSpawnCwd(cwd);
+    model.setLastSpawnImagePath("");
+
+    var argv_buf: [16][]const u8 = undefined;
+    var n: usize = 0;
+    if (cwd.len > 0) {
+        argv_buf[n] = "/bin/sh";
+        n += 1;
+        argv_buf[n] = "-c";
+        n += 1;
+        argv_buf[n] = fx_ask_chdir_script;
+        n += 1;
+        argv_buf[n] = "sh";
+        n += 1;
+        argv_buf[n] = cwd;
+        n += 1;
+    }
+    argv_buf[n] = binary;
+    n += 1;
+    argv_buf[n] = "-p";
+    n += 1;
+    argv_buf[n] = "--output-format";
+    n += 1;
+    argv_buf[n] = "text";
+    n += 1;
+    argv_buf[n] = prompt;
+    n += 1;
+
+    model.fx_spawn_acp = false;
+    fx.spawn(.{
+        .key = allocateFxSpawnKey(model),
+        .argv = argv_buf[0..n],
+        .stdin = "",
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
 /// A stdout line that is a JSON object with a non-empty `session_id`.
 /// Copies the id into `dest` and returns the copied slice.
 pub fn takeFxAskSessionId(line: []const u8, dest: []u8) ?[]const u8 {
@@ -468,34 +534,18 @@ test "speaksBareAcp is true for cursor and opencode; speaksAcpStdio also covers 
     try testing.expectEqualStrings("stdio", protocol.ProviderId.grok.acpTransportArgv()[1]);
 }
 
-test "cursor unavailable or non-ACP provider stays demo" {
+test "cursor unavailable stays demo" {
     const testing = std.testing;
-
-    {
-        var fx = Effects.init(testing.allocator);
-        defer fx.deinit();
-        fx.executor = .fake;
-        var model = Model{};
-        const cursor_id = model.addSession("cursor missing", .cursor);
-        startPrompt(&model, &fx, cursor_id, "no cursor-agent");
-        try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
-        try testing.expect(!model.fx_spawn_acp);
-        try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
-        try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
-    }
-
-    {
-        var fx = Effects.init(testing.allocator);
-        defer fx.deinit();
-        fx.executor = .fake;
-        var model = Model{};
-        model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
-        const claude_id = model.addSession("claude demo", .claude);
-        startPrompt(&model, &fx, claude_id, "stay demo");
-        try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
-        try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
-        try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
-    }
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    const cursor_id = model.addSession("cursor missing", .cursor);
+    startPrompt(&model, &fx, cursor_id, "no cursor-agent");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
 test "grok + cli_available selects acp-proxy grok agent stdio" {
@@ -607,6 +657,187 @@ test "cursor image attach stays demo" {
     try testing.expect(!model.fx_spawn_acp);
     try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "claude + cli_available selects print-mode claude -p --output-format text" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    const id = model.addSession("claude thread", .claude);
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+
+    startPrompt(&model, &fx, id, "hello claude");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(testArgvHas(request.argv, "claude"));
+    try testing.expect(testArgvHas(request.argv, "-p"));
+    try testing.expect(testArgvHas(request.argv, "--output-format"));
+    try testing.expect(testArgvHas(request.argv, "text"));
+    try testing.expect(testArgvHas(request.argv, "hello claude"));
+    try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(!testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "agent"));
+    try testing.expect(!testArgvHas(request.argv, "stdio"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+    try testing.expect(!testArgvHas(request.argv, "fx"));
+    try testing.expect(!testArgvHas(request.argv, "--dangerously-skip-permissions"));
+    try testing.expect(!testArgvHas(request.argv, "--always-approve"));
+    try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expectEqualStrings("", request.stdin);
+    const binary_at = testArgvIndex(request.argv, "claude") orelse return error.MissingBinary;
+    const p_at = testArgvIndex(request.argv, "-p") orelse return error.MissingPrint;
+    const format_at = testArgvIndex(request.argv, "--output-format") orelse return error.MissingFormat;
+    const text_at = testArgvIndex(request.argv, "text") orelse return error.MissingText;
+    const prompt_at = testArgvIndex(request.argv, "hello claude") orelse return error.MissingPrompt;
+    try testing.expectEqual(binary_at + 1, p_at);
+    try testing.expectEqual(p_at + 1, format_at);
+    try testing.expectEqual(format_at + 1, text_at);
+    try testing.expectEqual(text_at + 1, prompt_at);
+}
+
+test "claude unavailable stays demo" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    const id = model.addSession("claude missing", .claude);
+    startPrompt(&model, &fx, id, "no claude");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "available codex amp pi stay demo" {
+    const testing = std.testing;
+    const ids = [_]protocol.ProviderId{ .codex, .amp, .pi };
+    for (ids) |id| {
+        var fx = Effects.init(testing.allocator);
+        defer fx.deinit();
+        fx.executor = .fake;
+        var model = Model{};
+        model.cli_available[@intFromEnum(id)] = true;
+        const session_id = model.addSession("still demo", id);
+        startPrompt(&model, &fx, session_id, "stay demo");
+        try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+        try testing.expect(!model.fx_spawn_acp);
+        try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+        try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    }
+}
+
+test "fx path stays preferred when provider is fx even if claude is available" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    const id = model.addSession("fx first", .fx);
+
+    startPrompt(&model, &fx, id, "keep fx");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(testArgvHas(request.argv, "fx"));
+    try testing.expect(testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "claude"));
+    try testing.expect(!testArgvHas(request.argv, "-p"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+}
+
+test "fx session stays demo when fx is missing even if claude is available" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    const id = model.addSession("fx missing", .fx);
+    startPrompt(&model, &fx, id, "not claude");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "claude image attach stays demo" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/claude-shot.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    const id = model.addSession("claude image", .claude);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "claude print-mode reuses fx_ask_chdir_script when project cwd exists" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/claude-cwd", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("claude cwd", .claude);
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    startPrompt(&model, &fx, id, "in project");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "/bin/sh"));
+    try testing.expect(testArgvHas(request.argv, "-c"));
+    try testing.expect(testArgvHas(request.argv, fx_ask_chdir_script));
+    try testing.expect(testArgvHas(request.argv, project));
+    const binary_at = testArgvIndex(request.argv, "claude") orelse return error.MissingBinary;
+    const p_at = testArgvIndex(request.argv, "-p") orelse return error.MissingPrint;
+    try testing.expect(binary_at > 0);
+    try testing.expectEqual(binary_at + 1, p_at);
+    try testing.expectEqualStrings(project, request.argv[binary_at - 1]);
 }
 
 test "grok image attach stays demo" {
