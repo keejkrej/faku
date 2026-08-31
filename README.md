@@ -44,7 +44,9 @@ best-effort sidecars: the desktop update loop never holds a socket.
 `WAKU_DAEMON_ADDRESS` still selects the daemon sidecar. Missing fx
 still uses the demo timer. Available Claude is one-shot
 `claude -p --output-format stream-json --verbose
---include-partial-messages` (not ACP; documented image path
+--include-partial-messages` (not ACP; later Sends pass documented
+`--resume {fx_session_id}` when that field is non-empty; first Send
+and Fork omit it; not `--continue`; documented image path
 inside that `-p` prompt when a composer image is attached; stdout
 is NDJSON with live `text_delta` into the transcript). Available
 Codex is
@@ -89,7 +91,9 @@ when the CLI is present (via `acp-proxy`, which auto-answers
 stdio providers (cursor / OpenCode `acp`, grok `agent stdio`),
 first-cut live Send for Available Claude via official print-mode
 stream-json (`claude -p --output-format stream-json --verbose
---include-partial-messages`; stdout is parsed as NDJSON — live
+--include-partial-messages`; later Sends pass documented `--resume
+{fx_session_id}` when that field is non-empty; first Send and Fork
+omit it; stdout is parsed as NDJSON — live
 `text_delta` into the assistant turn, not a dump of raw JSON;
 documented image path in the `-p` prompt when a composer
 image is attached), first-cut live Send for Available Codex via official
@@ -109,7 +113,7 @@ sidecar, provider id `"fx"`, Environment Summary Background kind
 chrome (Process / Monitor / Subagent labels) with Process rows from
 window-side stream/settle.
 
-Later: Pi ACP / `--mode rpc`, Claude ACP / `--continue` / `--resume` /
+Later: Pi ACP / `--mode rpc`, Claude ACP, `--continue`,
 `--forward-subagent-text`, full
 onboarding / OAuth / auto-install, a long-lived daemon socket in the
 update loop

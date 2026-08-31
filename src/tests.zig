@@ -1545,6 +1545,52 @@ test "send with claude cli_available spawns stream-json print-mode and streams t
     try testing.expect(!model.is_streaming());
 }
 
+test "send with claude stored fx_session_id later send uses --resume {id}" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    const id = model.addSession("claude resume send", .claude);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setFxSessionId("claude-sess-later");
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "continue that review" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(model.fx_spawn_claude_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(argvHas(request.argv, "claude"));
+    try testing.expect(argvHas(request.argv, "-p"));
+    try testing.expect(argvHas(request.argv, "--output-format"));
+    try testing.expect(argvHas(request.argv, "stream-json"));
+    try testing.expect(argvHas(request.argv, "--verbose"));
+    try testing.expect(argvHas(request.argv, "--include-partial-messages"));
+    try testing.expect(argvHas(request.argv, "--resume"));
+    try testing.expect(argvHas(request.argv, "claude-sess-later"));
+    try testing.expect(argvHas(request.argv, "continue that review"));
+    try testing.expect(!argvHas(request.argv, "--continue"));
+    try testing.expect(!argvHas(request.argv, "--input-format"));
+    try testing.expect(!argvHas(request.argv, "--forward-subagent-text"));
+    try testing.expect(!argvHas(request.argv, "acp"));
+    try testing.expect(!argvHas(request.argv, "--image"));
+    try testing.expect(!argvHas(request.argv, "--dangerously-skip-permissions"));
+    try testing.expectEqualStrings("", request.stdin);
+    const resume_at = argvIndex(request.argv, "--resume") orelse return error.MissingResume;
+    try testing.expectEqualStrings("claude-sess-later", request.argv[resume_at + 1]);
+    const partial_at = argvIndex(request.argv, "--include-partial-messages") orelse return error.MissingPartial;
+    try testing.expectEqual(partial_at + 1, resume_at);
+    const prompt_at = argvIndex(request.argv, "continue that review") orelse return error.MissingPrompt;
+    try testing.expectEqual(resume_at + 2, prompt_at);
+}
+
 test "send with codex cli_available spawns exec and streams stdout as assistant text" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();

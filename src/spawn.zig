@@ -13,8 +13,11 @@
 //! (`fx_spawn_acp` / `fx_line` / `fx_exit`) is unchanged. After that,
 //! Available Claude is one-shot `{binary} -p --output-format
 //! stream-json --verbose --include-partial-messages {prompt}`
-//! (empty stdin, not ACP, not acp-proxy), with the documented image
-//! path inside that single `-p` prompt when a composer image exists
+//! (empty stdin, not ACP, not acp-proxy), with documented `--resume
+//! {fx_session_id}` as two argv slots after `--include-partial-messages`
+//! when that field is non-empty (first Send and Fork omit both; not
+//! `--continue`), and with the documented image path inside that
+//! single `-p` prompt when a composer image exists
 //! (code.claude.com/docs/en/common-workflows "Work with images":
 //! `Analyze this image: {path}` then the user prompt). There is no
 //! `--image` flag (code.claude.com/docs/en/cli-reference).
@@ -113,12 +116,14 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
         // Claude Code is not ACP. Official print-mode streaming is
         // one-shot `claude -p --output-format stream-json --verbose
         // --include-partial-messages` (code.claude.com/docs/en/
-        // headless). Documented image attach is the filesystem path
-        // inside that single `-p` prompt (`Analyze this image: {path}`
-        // then the user prompt; code.claude.com/docs/en/
-        // common-workflows). There is no `--image` flag. Join overflow
-        // fails closed to demo rather than truncating. Unavailable
-        // Claude stays demo.
+        // headless). Later Sends pass documented `--resume
+        // {fx_session_id}` when that field is non-empty; first Send
+        // and Fork omit it. Not `--continue`. Documented image attach
+        // is the filesystem path inside that single `-p` prompt
+        // (`Analyze this image: {path}` then the user prompt;
+        // code.claude.com/docs/en/common-workflows). There is no
+        // `--image` flag. Join overflow fails closed to demo rather
+        // than truncating. Unavailable Claude stays demo.
         if (startClaudePrint(model, fx, session, text)) {
             model.reply_path = .fx;
             return;
@@ -411,27 +416,36 @@ const claude_image_prompt_prefix = "Analyze this image: ";
 /// `claude -p "query"`; streaming recipe at
 /// code.claude.com/docs/en/headless). `--include-partial-messages`
 /// requires `--print` (`-p`) and `--output-format stream-json`
-/// (code.claude.com/docs/en/cli-reference). Composer images are
-/// documented as a path inside that prompt
-/// (code.claude.com/docs/en/common-workflows "Work with images");
-/// there is no `--image` / `-i` flag. The join is a stack buffer
-/// sized for the documented prefix + `max_project_path` + newline +
-/// `max_draft` (same caps as the draft image / prompt stores).
-/// Overflow returns false so Send fails closed to demo rather than
-/// truncating into a wrong command. Empty stdin. Stream-json stdout
-/// is NDJSON; `fx_spawn_claude_json` routes it through the Claude
-/// parser (live `stream_event` / `event.delta.type == text_delta`,
-/// not a prose dump). Not ACP, not `claude acp`, not
-/// `--input-format stream-json`, not `--mode rpc`, not `--continue`
-/// / `--resume`, not `--forward-subagent-text`, not `--bare`, not
+/// (code.claude.com/docs/en/cli-reference). When
+/// `session.fxSessionId()` is non-empty, documented `--resume {id}`
+/// is two argv slots after `--include-partial-messages` and before
+/// the prompt (code.claude.com/docs/en/headless "Continue
+/// conversations"; CLI `--resume` / `-r`). Empty id omits both
+/// slots — never a bare `--resume`. Not `--continue` / `-c` (that
+/// is most-recent in the current directory, and would mix Faku
+/// sessions). Composer images are documented as a path inside that
+/// prompt (code.claude.com/docs/en/common-workflows "Work with
+/// images"); there is no `--image` / `-i` flag. The join is a stack
+/// buffer sized for the documented prefix + `max_project_path` +
+/// newline + `max_draft` (same caps as the draft image / prompt
+/// stores). Overflow returns false so Send fails closed to demo
+/// rather than truncating into a wrong command. Empty stdin.
+/// Stream-json stdout is NDJSON; `fx_spawn_claude_json` routes it
+/// through the Claude parser (live `stream_event` /
+/// `event.delta.type == text_delta`, not a prose dump). Not ACP,
+/// not `claude acp`, not `--input-format stream-json`, not
+/// `--mode rpc`, not `--forward-subagent-text`, not `--bare`, not
 /// permissions bypass, not acp-proxy. Caller sets `reply_path` to
 /// `.fx` on success; `fx_spawn_acp` stays false. Project cwd reuses
 /// `fx_ask_chdir_script` (Native SpawnOptions has no cwd field).
-/// Empty binary is a no-op (PATH default is `claude`).
+/// Resume id is its own argv slot — never interpolated into the
+/// chdir `-c` script. Empty binary is a no-op (PATH default is
+/// `claude`).
 pub fn startClaudePrint(model: *Model, fx: *Effects, session: *const Session, prompt: []const u8) bool {
     const binary = providers.binaryFor(model, .claude);
     if (binary.len == 0) return false;
     const cwd = model.resolveSpawnCwd(session);
+    const resume_id = session.fxSessionId();
     const image_path = model.resolveSpawnImage();
 
     var print_prompt_buf: [claude_image_prompt_prefix.len + main.max_project_path + 1 + main.max_draft]u8 = undefined;
@@ -447,6 +461,9 @@ pub fn startClaudePrint(model: *Model, fx: *Effects, session: *const Session, pr
     model.setLastSpawnCwd(cwd);
     model.setLastSpawnImagePath(image_path);
 
+    // chdir (5) + binary + -p + --output-format + stream-json +
+    // --verbose + --include-partial-messages + --resume + id + prompt
+    // = 14. Keep headroom rather than truncating.
     var argv_buf: [16][]const u8 = undefined;
     var n: usize = 0;
     if (cwd.len > 0) {
@@ -473,6 +490,12 @@ pub fn startClaudePrint(model: *Model, fx: *Effects, session: *const Session, pr
     n += 1;
     argv_buf[n] = "--include-partial-messages";
     n += 1;
+    if (resume_id.len > 0) {
+        argv_buf[n] = "--resume";
+        n += 1;
+        argv_buf[n] = resume_id;
+        n += 1;
+    }
     argv_buf[n] = print_prompt;
     n += 1;
 
@@ -1036,6 +1059,103 @@ test "claude + cli_available selects print-mode claude -p --output-format stream
     try testing.expectEqual(format_at + 1, stream_at);
     try testing.expectEqual(stream_at + 1, verbose_at);
     try testing.expectEqual(verbose_at + 1, partial_at);
+    try testing.expectEqual(partial_at + 1, prompt_at);
+}
+
+test "claude + stored fx_session_id resumes with --resume {id}" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    const id = model.addSession("claude resume", .claude);
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    if (model.sessionById(id)) |session| session.setFxSessionId("claude-sess-resume-1");
+
+    startPrompt(&model, &fx, id, "continue that review");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(model.fx_spawn_claude_json);
+    try testing.expect(!model.fx_spawn_pi_json);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(testArgvHas(request.argv, "claude"));
+    try testing.expect(testArgvHas(request.argv, "-p"));
+    try testing.expect(testArgvHas(request.argv, "--output-format"));
+    try testing.expect(testArgvHas(request.argv, "stream-json"));
+    try testing.expect(testArgvHas(request.argv, "--verbose"));
+    try testing.expect(testArgvHas(request.argv, "--include-partial-messages"));
+    try testing.expect(testArgvHas(request.argv, "--resume"));
+    try testing.expect(testArgvHas(request.argv, "claude-sess-resume-1"));
+    try testing.expect(testArgvHas(request.argv, "continue that review"));
+    try testing.expect(!testArgvHas(request.argv, "text"));
+    try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(!testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "agent"));
+    try testing.expect(!testArgvHas(request.argv, "stdio"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+    try testing.expect(!testArgvHas(request.argv, "fx"));
+    try testing.expect(!testArgvHas(request.argv, "--dangerously-skip-permissions"));
+    try testing.expect(!testArgvHas(request.argv, "--always-approve"));
+    try testing.expect(!testArgvHas(request.argv, "--image"));
+    try testing.expect(!testArgvHas(request.argv, "--input-format"));
+    try testing.expect(!testArgvHas(request.argv, "--continue"));
+    try testing.expect(!testArgvHas(request.argv, "-c"));
+    try testing.expect(!testArgvHas(request.argv, "-r"));
+    try testing.expect(!testArgvHas(request.argv, "--bare"));
+    try testing.expect(!testArgvHas(request.argv, "--forward-subagent-text"));
+    try testing.expect(!testArgvHas(request.argv, "--allowedTools"));
+    try testing.expect(!testArgvHas(request.argv, "--permission-mode"));
+    try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expectEqualStrings("", request.stdin);
+    try testing.expectEqualStrings("", model.lastSpawnImagePath());
+    const binary_at = testArgvIndex(request.argv, "claude") orelse return error.MissingBinary;
+    const p_at = testArgvIndex(request.argv, "-p") orelse return error.MissingPrint;
+    const format_at = testArgvIndex(request.argv, "--output-format") orelse return error.MissingFormat;
+    const stream_at = testArgvIndex(request.argv, "stream-json") orelse return error.MissingStreamJson;
+    const verbose_at = testArgvIndex(request.argv, "--verbose") orelse return error.MissingVerbose;
+    const partial_at = testArgvIndex(request.argv, "--include-partial-messages") orelse return error.MissingPartial;
+    const resume_at = testArgvIndex(request.argv, "--resume") orelse return error.MissingResume;
+    const prompt_at = testArgvIndex(request.argv, "continue that review") orelse return error.MissingPrompt;
+    try testing.expectEqual(binary_at + 1, p_at);
+    try testing.expectEqual(p_at + 1, format_at);
+    try testing.expectEqual(format_at + 1, stream_at);
+    try testing.expectEqual(stream_at + 1, verbose_at);
+    try testing.expectEqual(verbose_at + 1, partial_at);
+    try testing.expectEqual(partial_at + 1, resume_at);
+    try testing.expect(resume_at + 1 < request.argv.len);
+    try testing.expectEqualStrings("claude-sess-resume-1", request.argv[resume_at + 1]);
+    try testing.expectEqual(resume_at + 2, prompt_at);
+}
+
+test "claude empty fx_session_id omits --resume" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    const id = model.addSession("claude empty resume", .claude);
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    if (model.sessionById(id)) |session| session.setFxSessionId("");
+
+    startPrompt(&model, &fx, id, "first send");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_claude_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "-p"));
+    try testing.expect(testArgvHas(request.argv, "first send"));
+    try testing.expect(!testArgvHas(request.argv, "--resume"));
+    try testing.expect(!testArgvHas(request.argv, "--continue"));
+    const partial_at = testArgvIndex(request.argv, "--include-partial-messages") orelse return error.MissingPartial;
+    const prompt_at = testArgvIndex(request.argv, "first send") orelse return error.MissingPrompt;
     try testing.expectEqual(partial_at + 1, prompt_at);
 }
 
@@ -1665,6 +1785,8 @@ test "claude image attach uses print-mode path in the -p prompt" {
     try testing.expect(!testArgvHas(request.argv, "--image"));
     try testing.expect(!testArgvHas(request.argv, "-i"));
     try testing.expect(!testArgvHas(request.argv, "--input-format"));
+    try testing.expect(!testArgvHas(request.argv, "--continue"));
+    try testing.expect(!testArgvHas(request.argv, "--resume"));
     try testing.expect(!testArgvHas(request.argv, "acp"));
     try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(!testArgvHas(request.argv, "ask"));
@@ -1689,6 +1811,72 @@ test "claude image attach uses print-mode path in the -p prompt" {
     try testing.expect(std.mem.indexOf(u8, print_prompt, "describe this") != null);
     try testing.expect(std.mem.startsWith(u8, print_prompt, claude_image_prompt_prefix));
     try testing.expectEqual(partial_at + 2, request.argv.len);
+}
+
+test "claude image attach + stored fx_session_id uses path-in-prompt and --resume" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/claude-resume-shot.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    const id = model.addSession("claude image resume", .claude);
+    model.selected = id;
+    model.setDraftImagePath(image);
+    if (model.sessionById(id)) |session| session.setFxSessionId("claude-sess-image-1");
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(model.fx_spawn_claude_json);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    try testing.expectEqualStrings(image, model.lastSpawnImagePath());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "claude"));
+    try testing.expect(testArgvHas(request.argv, "-p"));
+    try testing.expect(testArgvHas(request.argv, "--output-format"));
+    try testing.expect(testArgvHas(request.argv, "stream-json"));
+    try testing.expect(testArgvHas(request.argv, "--verbose"));
+    try testing.expect(testArgvHas(request.argv, "--include-partial-messages"));
+    try testing.expect(testArgvHas(request.argv, "--resume"));
+    try testing.expect(testArgvHas(request.argv, "claude-sess-image-1"));
+    try testing.expect(!testArgvHas(request.argv, image));
+    try testing.expect(!testArgvHas(request.argv, "describe this"));
+    try testing.expect(!testArgvHas(request.argv, "--image"));
+    try testing.expect(!testArgvHas(request.argv, "-i"));
+    try testing.expect(!testArgvHas(request.argv, "--input-format"));
+    try testing.expect(!testArgvHas(request.argv, "--continue"));
+    try testing.expect(!testArgvHas(request.argv, "--forward-subagent-text"));
+    try testing.expect(!testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(!testArgvHas(request.argv, "--dangerously-skip-permissions"));
+    try testing.expectEqualStrings("", request.stdin);
+    const binary_at = testArgvIndex(request.argv, "claude") orelse return error.MissingBinary;
+    const p_at = testArgvIndex(request.argv, "-p") orelse return error.MissingPrint;
+    const partial_at = testArgvIndex(request.argv, "--include-partial-messages") orelse return error.MissingPartial;
+    const resume_at = testArgvIndex(request.argv, "--resume") orelse return error.MissingResume;
+    try testing.expectEqual(binary_at + 1, p_at);
+    try testing.expectEqual(partial_at + 1, resume_at);
+    try testing.expect(resume_at + 1 < request.argv.len);
+    try testing.expectEqualStrings("claude-sess-image-1", request.argv[resume_at + 1]);
+    try testing.expect(resume_at + 2 < request.argv.len);
+    const print_prompt = request.argv[resume_at + 2];
+    try testing.expect(std.mem.indexOf(u8, print_prompt, claude_image_prompt_prefix) != null);
+    try testing.expect(std.mem.indexOf(u8, print_prompt, image) != null);
+    try testing.expect(std.mem.indexOf(u8, print_prompt, "describe this") != null);
+    try testing.expect(std.mem.startsWith(u8, print_prompt, claude_image_prompt_prefix));
+    try testing.expectEqual(resume_at + 3, request.argv.len);
 }
 
 test "claude unavailable image attach stays demo" {
@@ -1784,6 +1972,48 @@ test "claude print-mode reuses fx_ask_chdir_script when project cwd exists" {
     try testing.expect(binary_at > 0);
     try testing.expectEqual(binary_at + 1, p_at);
     try testing.expectEqualStrings(project, request.argv[binary_at - 1]);
+    try testing.expect(!testArgvHas(request.argv, "--resume"));
+    try testing.expect(!testArgvHas(request.argv, "--continue"));
+}
+
+test "claude print-mode chdir + stored fx_session_id keeps resume as argv slots" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/claude-cwd-resume", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("claude cwd resume", .claude);
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    if (model.sessionById(id)) |session| {
+        session.setProjectPath(project);
+        session.setFxSessionId("claude-sess-cwd-1");
+    }
+
+    startPrompt(&model, &fx, id, "in project");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_claude_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "/bin/sh"));
+    try testing.expect(testArgvHas(request.argv, fx_ask_chdir_script));
+    try testing.expect(testArgvHas(request.argv, project));
+    try testing.expect(testArgvHas(request.argv, "--resume"));
+    try testing.expect(testArgvHas(request.argv, "claude-sess-cwd-1"));
+    try testing.expect(!testArgvHas(request.argv, "--continue"));
+    try testing.expectEqualStrings(fx_ask_chdir_script, request.argv[2]);
+    try testing.expect(std.mem.indexOf(u8, request.argv[2], "claude-sess-cwd-1") == null);
+    const resume_at = testArgvIndex(request.argv, "--resume") orelse return error.MissingResume;
+    try testing.expectEqualStrings("claude-sess-cwd-1", request.argv[resume_at + 1]);
+    const partial_at = testArgvIndex(request.argv, "--include-partial-messages") orelse return error.MissingPartial;
+    try testing.expectEqual(partial_at + 1, resume_at);
 }
 
 test "fx path stays preferred when provider is fx even if codex is available" {
