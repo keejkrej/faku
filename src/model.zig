@@ -1078,6 +1078,10 @@ pub const Model = struct {
     next_fx_key: u64 = fx_spawn_overlap_key_first,
     fx_spawn_live: bool = false,
     fx_spawn_acp: bool = false,
+    /// Pi `--mode json` stdout is JSON event lines, not assistant
+    /// prose. When true, `handleFxLine` routes to the Pi JSON parser
+    /// (live `text_delta`; raw JSON is not dumped into the transcript).
+    fx_spawn_pi_json: bool = false,
     /// Journaled wall-clock ms from `fx.wallMs` (or a test pin). 0 means
     /// grouping treats missing `updated_at` as Today and relative-time
     /// labels stay omitted.
@@ -1547,6 +1551,7 @@ pub const Model = struct {
         "next_fx_key",
         "fx_spawn_live",
         "fx_spawn_acp",
+        "fx_spawn_pi_json",
         "daemonAddress",
         "setDaemonAddress",
         "lastDaemonAddress",
@@ -3783,7 +3788,7 @@ pub const Model = struct {
 
     /// Composer image path when the draft has a non-empty path that exists.
     /// Used as `fx ask --image`, `codex exec --image`, Amp execute-mode
-    /// `@{path}` in the `-x` prompt, Pi print-mode `@{path}`, and Claude
+    /// `@{path}` in the `-x` prompt, Pi json-mode `@{path}`, and Claude
     /// print-mode path-in-prompt. Missing files omit the attach; Native
     /// spawn has no attachment/blob API.
     pub fn resolveSpawnImage(model: *const Model) []const u8 {

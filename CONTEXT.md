@@ -37,7 +37,7 @@ send circle.
 | **hydrateSession** | Daemon transcript fill when the local transcript is empty. Local turns win. |
 | **argv slot** | Every flag and operand is its own spawn argument. Never interpolate into the chdir `-c` script. |
 | **right panel** | First-cut Files + Diff pane to the right of the conversation. Default closed. |
-| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx; Available Claude is one-shot `claude -p --output-format text` (not ACP; documented image path inside that `-p` prompt when a composer image is attached); Available Codex is one-shot `codex exec {prompt}` (not ACP; documented `--image {path}` after the prompt when a composer image is attached); Available Amp is one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x` prompt when a composer image is attached); Available Pi is one-shot `pi -p {prompt}` (not ACP; documented `@{path}` after `-p` when a composer image is attached). fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
+| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx; Available Claude is one-shot `claude -p --output-format text` (not ACP; documented image path inside that `-p` prompt when a composer image is attached); Available Codex is one-shot `codex exec {prompt}` (not ACP; documented `--image {path}` after the prompt when a composer image is attached); Available Amp is one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x` prompt when a composer image is attached); Available Pi is one-shot `pi --mode json {prompt}` (not ACP, not `--mode rpc`; documented `@{path}` after json when a composer image is attached; stdout is JSON events with live `text_delta`). fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
 | **Settings Appearance** | Settings page for chrome theme and language. Theme: System (follow OS `on_appearance`), Light, or Dark. Default System. Language: System / English / 简体中文 / 日本語. Default System. System language follows process `LC_ALL` / `LC_MESSAGES` / `LANG` (Native has no locale API). Explicit language chips are autonyms in every locale. Persists `theme_preference` and `language_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. Settings chrome strings (title, nav, Appearance Theme / Language) follow the resolved locale this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
 | **Settings Usage** | Settings page showing the selected session's local context window (`context_used` / `context_size` from ACP `usage_update`) and thread-goal tokens (`threadGoalUsageLabel`). Read-only. Not daemon `LoadUsageHistory`, not a cost chart, not Daily / Monthly / Projects. |
@@ -140,17 +140,19 @@ existing non-ACP `handleFxLine` path. Project cwd reuses
 `--stream-json`, not `--dangerously-allow-all` /
 `dangerouslyAllowAll`. Unavailable Amp stays demo.
 
-**Pi print-mode (first-cut live non-ACP).** After the Amp branch,
+**Pi json-mode (first-cut live non-ACP).** After the Amp branch,
 Send on `ProviderId.pi` when `providers.isAvailable` spawns one-shot
-`{binary} -p {prompt}` (argv slots; empty stdin; `--print` is the
-long form). Composer image attach adds documented `@{path}` after
-`-p` (`pi -p @{path} {prompt}`). File args are `@path` prefixes;
-there is no `--image` flag. Print mode prints the response and
-exits. `reply_path` stays `.fx` with `fx_spawn_acp = false` so
-stdout lines use the existing non-ACP `handleFxLine` path. Project
-cwd reuses `fx_ask_chdir_script`. Not ACP, not acp-proxy, not
-`--mode json`, not RPC, not `-a` / `--approve` / invented
-dangerously-* flags. Unavailable Pi stays demo.
+`{binary} --mode json {prompt}` (argv slots; empty stdin). Composer
+image attach adds documented `@{path}` after `--mode json`
+(`pi --mode json @{path} {prompt}`). File args are `@path` prefixes;
+there is no `--image` flag. JSON mode emits session events as JSON
+lines; `text_delta` streams into the live assistant turn. Raw JSON
+is not dumped as prose. `reply_path` stays `.fx` with
+`fx_spawn_acp = false` and `fx_spawn_pi_json` so stdout lines use
+the Pi JSON parser. Project cwd reuses `fx_ask_chdir_script`. Not
+ACP, not acp-proxy, not `--mode rpc`, not `-p` / `--print`, not
+`-a` / `--approve` / invented dangerously-* flags. Unavailable Pi
+stays demo.
 
 **daemon (sidecar, not embedded).** When `WAKU_DAEMON_ADDRESS` or
 persisted `last_daemon_address` is set, Send spawns `faku daemon-proxy
@@ -268,8 +270,8 @@ composer image is attached), or one-shot `codex exec {prompt}` when Codex
 is Available (documented `--image {path}` after the prompt when a
 composer image is attached), or one-shot `amp -x` / `--execute` when Amp is
 Available (documented `@{path}` in the `-x` prompt when a composer
-image is attached), or one-shot `pi -p` / `--print` when Pi is Available
-(documented `@{path}` after `-p` when a composer image is attached).
+image is attached), or one-shot `pi --mode json` when Pi is Available
+(documented `@{path}` after json when a composer image is attached).
 fx Not found shows **Copy install
 command** (clipboard
 `curl -fsSL https://fx.sh/setup.sh | bash`; never auto-run). fx
@@ -359,16 +361,18 @@ Honest gaps this cut does not implement:
 
 - Full onboarding / OAuth / auto-install (fx install/login copy
   ships; other CLIs get a PATH hint only)
-- Native Pi ACP / `--mode json` / RPC (print-mode one-shot
-  `pi -p {prompt}`, documented `@{path}` after `-p` when a composer
-  image is attached, ships). Claude print-mode one-shot
+- Native Pi ACP / `--mode rpc` (json-mode one-shot
+  `pi --mode json {prompt}`, documented `@{path}` after json when a
+  composer image is attached, ships; stdout is parsed as JSON events
+  with live `text_delta`, not dumped as prose). Claude print-mode one-shot
   (`claude -p --output-format text`, documented image path in the
   `-p` prompt when a composer image is attached) ships; Codex exec
   one-shot (`codex exec {prompt}`, documented `--image {path}` after
   the prompt when a composer image is attached) ships; Amp execute-mode
   one-shot (`amp -x {prompt}`, documented `@{path}` in the `-x` prompt
   when a composer image is attached) ships. Claude, Codex, Amp, and
-  Pi are not ACP / stream-json / a long-lived SDK session. Kimi is
+  Pi are not ACP / a long-lived SDK session (Pi json-mode is one-shot
+  JSON lines, not `--mode rpc`). Kimi is
   not in `ProviderId`
 - Usage history from daemon `LoadUsageHistory`, cost / dollar chart,
   Daily / Monthly / Projects tabs (Settings Usage ships local context
@@ -391,6 +395,6 @@ Honest gaps this cut does not implement:
 - ACP image blocks on non-fx (cursor / opencode / grok image attach
   stays demo; Codex uses `codex exec --image`, not ACP; Amp uses
   execute-mode `@{path}` in the `-x` prompt, not ACP; Pi uses
-  print-mode `@{path}`, not ACP; Claude uses print-mode path-in-prompt,
+  json-mode `@{path}`, not ACP; Claude uses print-mode path-in-prompt,
   not ACP)
 

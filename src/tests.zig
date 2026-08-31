@@ -1665,6 +1665,93 @@ test "send with amp unavailable still starts the demo timer" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
+test "send with pi cli_available spawns json-mode and streams text_delta as assistant text" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.pi)] = true;
+    const id = model.addSession("pi send", .pi);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "what files are here" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(model.fx_spawn_pi_json);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(argvHas(request.argv, "pi"));
+    try testing.expect(argvHas(request.argv, "--mode"));
+    try testing.expect(argvHas(request.argv, "json"));
+    try testing.expect(argvHas(request.argv, "what files are here"));
+    try testing.expect(!argvHas(request.argv, "-p"));
+    try testing.expect(!argvHas(request.argv, "--print"));
+    try testing.expect(!argvHas(request.argv, "rpc"));
+    try testing.expect(!argvHas(request.argv, "-a"));
+    try testing.expect(!argvHas(request.argv, "--approve"));
+    try testing.expect(!argvHas(request.argv, "--no-approve"));
+    try testing.expect(!argvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(!argvHas(request.argv, "acp"));
+    try testing.expect(!argvHas(request.argv, "ask"));
+    try testing.expect(!argvHas(request.argv, "fx"));
+    try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expectEqualStrings("", request.stdin);
+    const binary_at = argvIndex(request.argv, "pi") orelse return error.MissingBinary;
+    const mode_at = argvIndex(request.argv, "--mode") orelse return error.MissingMode;
+    const json_at = argvIndex(request.argv, "json") orelse return error.MissingJson;
+    const prompt_at = argvIndex(request.argv, "what files are here") orelse return error.MissingPrompt;
+    try testing.expectEqual(binary_at + 1, mode_at);
+    try testing.expectEqual(mode_at + 1, json_at);
+    try testing.expectEqual(json_at + 1, prompt_at);
+
+    try fx.feedLine(main.fx_ask_key, "{\"type\":\"session\",\"id\":\"pi-sess-send\",\"version\":3}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("pi-sess-send", model.sessionById(id).?.fxSessionId());
+    try testing.expectEqualStrings("", lastAssistant(&model));
+
+    try fx.feedLine(main.fx_ask_key, "{\"type\":\"agent_start\"}");
+    drainEffects(&model, &fx);
+    try testing.expectEqualStrings("", lastAssistant(&model));
+
+    const before_len = lastAssistant(&model).len;
+    try fx.feedLine(main.fx_ask_key, "{\"type\":\"message_update\",\"assistantMessageEvent\":{\"type\":\"text_delta\",\"delta\":\"hello from pi json\"}}");
+    drainEffects(&model, &fx);
+    try testing.expect(lastAssistant(&model).len > before_len);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from pi json") != null);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "agent_start") == null);
+
+    try fx.feedExit(main.fx_ask_key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+}
+
+test "send with pi unavailable still starts the demo timer" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    const id = model.addSession("pi missing", .pi);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "no pi" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expect(!model.fx_spawn_pi_json);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
 test "fx acp session/new cwd is session project_path when it exists" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();

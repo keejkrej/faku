@@ -18,8 +18,8 @@
 //! one-shot `amp -x {prompt}` (`--execute` is the long form; documented
 //! `@{path}` in the `-x` prompt when a composer image is attached);
 //! Available Pi is
-//! one-shot `pi -p {prompt}` (`--print` is the long form; documented
-//! `@{path}` after `-p` when a composer image is attached). fx
+//! one-shot `pi --mode json {prompt}` (documented
+//! `@{path}` after json when a composer image is attached). fx
 //! Not found copies the verified `https://fx.sh` install
 //! command via `fx.writeClipboard` (never auto-runs `setup.sh`). fx
 //! Available copies `fx login` the same way — convenience copy, not
@@ -28,11 +28,11 @@
 //! daemon or any real CLI install.
 //!
 //! Leftovers: full onboarding / OAuth / auto-install; Pi ACP /
-//! `--mode json` / RPC; Claude ACP / stream-json.
+//! `--mode rpc`; Claude ACP / stream-json.
 //! Claude print-mode (image path in the `-p` prompt when attached),
 //! Codex exec (`--image` when attached), Amp
-//! execute-mode (`@path` when attached), and Pi print-mode (`@path`
-//! when attached) ship this cut (not ACP, not stream-json, not
+//! execute-mode (`@path` when attached), and Pi json-mode (`@path`
+//! when attached) ship this cut (not ACP, not `--mode rpc`, not
 //! permissions bypass). Appearance theme,
 //! Usage, and Computer Use first-cut pages ship (Computer Use is
 //! Unavailable / Off; no Native helper). Not Waku install/auth.
@@ -59,7 +59,7 @@ pub const grok_transport_note = "Live Send is one-shot grok agent stdio via acp-
 pub const claude_transport_note = "Live Send is one-shot claude -p --output-format text when Available (image path in the -p prompt when attached).";
 pub const codex_transport_note = "Live Send is one-shot codex exec when Available (`--image` when attached).";
 pub const amp_transport_note = "Live Send is one-shot amp -x / --execute when Available (`@path` when attached).";
-pub const pi_transport_note = "Live Send is one-shot pi -p / --print when Available (`@path` when attached).";
+pub const pi_transport_note = "Live Send is one-shot pi --mode json when Available (`@path` when attached).";
 pub const apply_session_label = "Use for this session";
 /// Verified from https://fx.sh and vercel-labs/fx README. Copied
 /// to the clipboard; never spawned as a shell that runs setup.sh.
