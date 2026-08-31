@@ -44,7 +44,8 @@ best-effort sidecars: the desktop update loop never holds a socket.
 `WAKU_DAEMON_ADDRESS` still selects the daemon sidecar. Missing fx
 still uses the demo timer. Available Claude is one-shot
 `claude -p --output-format text` (not ACP). Available Codex is
-one-shot `codex exec {prompt}` (not ACP). Available Amp is one-shot
+one-shot `codex exec {prompt}` (not ACP; documented `--image {path}`
+after the prompt when a composer image is attached). Available Amp is one-shot
 `amp -x {prompt}` (not ACP). Available Pi is one-shot `pi -p {prompt}`
 (not ACP). Unavailable cursor / opencode / grok / claude / codex /
 amp / pi stay demo.
@@ -82,7 +83,8 @@ first-cut live Send for Available Claude via official print mode
 (`claude -p --output-format text`; stdout is the non-ACP fx line
 path), first-cut live Send for Available Codex via official
 non-interactive `codex exec {prompt}` (stdout is the same non-ACP
-fx line path; not ACP), first-cut live Send for Available Amp via
+fx line path; not ACP; documented `--image {path}` after the prompt
+when a composer image is attached), first-cut live Send for Available Amp via
 official execute mode (`amp -x {prompt}`; stdout is the same
 non-ACP fx line path; not ACP), first-cut live Send for Available
 Pi via official print mode (`pi -p {prompt}`; stdout is the same
@@ -93,8 +95,8 @@ sidecar, provider id `"fx"`, Environment Summary Background kind
 chrome (Process / Monitor / Subagent labels) with Process rows from
 window-side stream/settle.
 
-Later: Pi image attach / ACP / `--mode json` / RPC, Amp / Claude /
-Codex image attach, Claude ACP / stream-json, full onboarding /
+Later: Pi image attach / ACP / `--mode json` / RPC, Amp / Claude
+image attach, Claude ACP / stream-json, full onboarding /
 OAuth / auto-install, a long-lived daemon socket in the update loop
 (not this cut), a long-lived ACP loop once a window-side stdin-write
 effect exists, live Monitor / Subagent Background population,

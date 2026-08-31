@@ -11,7 +11,8 @@
 //! sessions stay `.fx`. Live Send for probed ACP stdio providers
 //! (cursor, opencode, grok) is `spawn.startPrompt`; Available Claude
 //! is one-shot print-mode (`claude -p --output-format text`); Available
-//! Codex is one-shot `codex exec {prompt}`; Available Amp is one-shot
+//! Codex is one-shot `codex exec {prompt}` (documented `--image {path}`
+//! after the prompt when a composer image is attached); Available Amp is one-shot
 //! `amp -x {prompt}` (`--execute` is the long form); Available Pi is
 //! one-shot `pi -p {prompt}` (`--print` is the long form). fx
 //! Not found copies the verified `https://fx.sh` install
@@ -22,8 +23,9 @@
 //! daemon or any real CLI install.
 //!
 //! Leftovers: full onboarding / OAuth / auto-install; Pi image
-//! attach / ACP / `--mode json` / RPC. Claude print-mode, Codex
-//! exec, Amp execute-mode, and Pi print-mode ship this cut (not ACP,
+//! attach / ACP / `--mode json` / RPC; Claude / Amp image attach.
+//! Claude print-mode, Codex exec (`--image` when attached), Amp
+//! execute-mode, and Pi print-mode ship this cut (not ACP,
 //! not stream-json, not permissions bypass). Appearance theme,
 //! Usage, and Computer Use first-cut pages ship (Computer Use is
 //! Unavailable / Off; no Native helper). Not Waku install/auth.
@@ -48,7 +50,7 @@ pub const fx_transport_note = "Live path is one-shot fx acp via acp-proxy.";
 pub const acp_transport_note = "Live Send is one-shot acp via acp-proxy when Available.";
 pub const grok_transport_note = "Live Send is one-shot grok agent stdio via acp-proxy when Available.";
 pub const claude_transport_note = "Live Send is one-shot claude -p --output-format text when Available.";
-pub const codex_transport_note = "Live Send is one-shot codex exec when Available.";
+pub const codex_transport_note = "Live Send is one-shot codex exec when Available (`--image` when attached).";
 pub const amp_transport_note = "Live Send is one-shot amp -x / --execute when Available.";
 pub const pi_transport_note = "Live Send is one-shot pi -p / --print when Available.";
 pub const apply_session_label = "Use for this session";

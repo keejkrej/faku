@@ -13,15 +13,17 @@
 //! (`fx_spawn_acp` / `fx_line` / `fx_exit`) is unchanged. After that,
 //! Available Claude with no image attach is one-shot
 //! `{binary} -p --output-format text {prompt}` (empty stdin, not ACP,
-//! not acp-proxy). Available Codex with no image attach is one-shot
-//! `{binary} exec {prompt}` (empty stdin, not ACP, not acp-proxy).
-//! Available Amp with no image attach is one-shot `{binary} -x
-//! {prompt}` (empty stdin, not ACP, not acp-proxy). Available Pi
-//! with no image attach is one-shot `{binary} -p {prompt}` (empty
-//! stdin, not ACP, not acp-proxy; `--print` is the long form).
-//! `reply_path` stays `.fx` with `fx_spawn_acp = false` so stdout
-//! lines use the existing non-ACP `handleFxLine` path. Image attach
-//! on non-fx stays demo.
+//! not acp-proxy). Available Codex is one-shot `{binary} exec
+//! {prompt}` (empty stdin, not ACP, not acp-proxy), with documented
+//! `--image {path}` after the prompt when a composer image exists.
+//! Available Amp with
+//! no image attach is one-shot `{binary} -x {prompt}` (empty stdin,
+//! not ACP, not acp-proxy). Available Pi with no image attach is
+//! one-shot `{binary} -p {prompt}` (empty stdin, not ACP, not
+//! acp-proxy; `--print` is the long form). `reply_path` stays `.fx`
+//! with `fx_spawn_acp = false` so stdout lines use the existing
+//! non-ACP `handleFxLine` path. Image attach on cursor / opencode /
+//! grok / claude / amp / pi stays demo.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -105,12 +107,13 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
     }
     if (session.provider == .codex and providers.isAvailable(model, .codex)) {
         // Codex is not ACP. Official non-interactive mode is one-shot
-        // `codex exec {prompt}`. Image attach stays demo.
-        if (model.resolveSpawnImage().len == 0) {
-            if (startCodexExec(model, fx, session, text)) {
-                model.reply_path = .fx;
-                return;
-            }
+        // `codex exec {prompt}`. Documented `--image {path}` after the
+        // prompt when a composer image exists (`--image` is clap
+        // `num_args = 1..`, so a following prompt would be eaten as
+        // another image path). Unavailable Codex stays demo.
+        if (startCodexExec(model, fx, session, text)) {
+            model.reply_path = .fx;
+            return;
         }
     }
     if (session.provider == .amp and providers.isAvailable(model, .amp)) {
@@ -425,10 +428,16 @@ pub fn startClaudePrint(model: *Model, fx: *Effects, session: *const Session, pr
 }
 
 /// One-shot official Codex non-interactive mode:
-/// `{binary} exec {prompt}`. Prompt is an argv slot (documented
-/// `codex exec [OPTIONS] [PROMPT]`). Empty stdin. Progress streams
-/// to stderr; the final agent message prints to stdout, so the
-/// existing non-ACP `handleFxLine` path is safe. Not ACP, not
+/// `{binary} exec {prompt}`, or `{binary} exec {prompt} --image {path}`
+/// when a composer image exists. Prompt is an argv slot (documented
+/// `codex exec [OPTIONS] [PROMPT]`). `--image` / `-i` is documented
+/// on `codex exec` (clap `num_args = 1..`); this cut uses the long
+/// form and one path. The flag must follow the positional prompt —
+/// `codex exec --image {path} {prompt}` makes clap treat the prompt
+/// as another image path. Same argv-slot pattern as `fx ask --image`
+/// (flag then path), not path-in-prompt. Empty stdin. Progress
+/// streams to stderr; the final agent message prints to stdout, so
+/// the existing non-ACP `handleFxLine` path is safe. Not ACP, not
 /// acp-proxy, not stream-json, not `--full-auto` / sandbox bypass /
 /// `--ask-for-approval never`. Caller sets `reply_path` to `.fx` on
 /// success; `fx_spawn_acp` stays false. Project cwd reuses
@@ -438,8 +447,9 @@ pub fn startCodexExec(model: *Model, fx: *Effects, session: *const Session, prom
     const binary = providers.binaryFor(model, .codex);
     if (binary.len == 0) return false;
     const cwd = model.resolveSpawnCwd(session);
+    const image_path = model.resolveSpawnImage();
     model.setLastSpawnCwd(cwd);
-    model.setLastSpawnImagePath("");
+    model.setLastSpawnImagePath(image_path);
 
     var argv_buf: [16][]const u8 = undefined;
     var n: usize = 0;
@@ -461,6 +471,12 @@ pub fn startCodexExec(model: *Model, fx: *Effects, session: *const Session, prom
     n += 1;
     argv_buf[n] = prompt;
     n += 1;
+    if (image_path.len > 0) {
+        argv_buf[n] = "--image";
+        n += 1;
+        argv_buf[n] = image_path;
+        n += 1;
+    }
 
     model.fx_spawn_acp = false;
     fx.spawn(.{
@@ -942,6 +958,7 @@ test "codex + cli_available selects exec-mode codex exec {prompt}" {
     try testing.expect(!testArgvHas(request.argv, "--ask-for-approval"));
     try testing.expect(!testArgvHas(request.argv, "never"));
     try testing.expect(!testArgvHas(request.argv, "--dangerously-skip-permissions"));
+    try testing.expect(!testArgvHas(request.argv, "--image"));
     try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
     try testing.expectEqualStrings("", request.stdin);
     const binary_at = testArgvIndex(request.argv, "codex") orelse return error.MissingBinary;
@@ -1444,7 +1461,7 @@ test "fx session stays demo when fx is missing even if codex is available" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "codex image attach stays demo" {
+test "codex image attach uses exec --image" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -1461,6 +1478,57 @@ test "codex image attach stays demo" {
     model.setSidecarPath("faku");
     model.cli_available[@intFromEnum(protocol.ProviderId.codex)] = true;
     const id = model.addSession("codex image", .codex);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    try testing.expectEqualStrings(image, model.lastSpawnImagePath());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, "codex"));
+    try testing.expect(testArgvHas(request.argv, "exec"));
+    try testing.expect(testArgvHas(request.argv, "--image"));
+    try testing.expect(testArgvHas(request.argv, image));
+    try testing.expect(testArgvHas(request.argv, "describe this"));
+    try testing.expect(!testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+    try testing.expect(!testArgvHas(request.argv, "fx"));
+    try testing.expect(!testArgvHas(request.argv, "--full-auto"));
+    try testing.expect(!testArgvHas(request.argv, "--ask-for-approval"));
+    try testing.expect(!testArgvHas(request.argv, "never"));
+    try testing.expect(!testArgvHas(request.argv, "--sandbox"));
+    try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expectEqualStrings("", request.stdin);
+    const binary_at = testArgvIndex(request.argv, "codex") orelse return error.MissingBinary;
+    const exec_at = testArgvIndex(request.argv, "exec") orelse return error.MissingExec;
+    const image_at = testArgvIndex(request.argv, "--image") orelse return error.MissingImage;
+    const prompt_at = testArgvIndex(request.argv, "describe this") orelse return error.MissingPrompt;
+    try testing.expectEqual(binary_at + 1, exec_at);
+    try testing.expectEqual(exec_at + 1, prompt_at);
+    try testing.expectEqualStrings("describe this", request.argv[prompt_at]);
+    try testing.expectEqual(prompt_at + 1, image_at);
+    try testing.expectEqualStrings(image, request.argv[image_at + 1]);
+}
+
+test "codex unavailable image attach stays demo" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/codex-missing-shot.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("codex missing image", .codex);
     model.selected = id;
     model.setDraftImagePath(image);
 
