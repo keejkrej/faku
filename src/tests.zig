@@ -1254,6 +1254,7 @@ test "send with cursor cli_available spawns acp-proxy cursor-agent acp and strea
     fx.executor = .fake;
 
     var model = Model{};
+    model.fx_probe_started = true;
     model.setSidecarPath("faku");
     model.cli_available[@intFromEnum(protocol.ProviderId.cursor)] = true;
     const id = model.addSession("cursor send", .cursor);
@@ -1302,6 +1303,7 @@ test "send with cursor unavailable or claude available still starts the demo tim
     fx.executor = .fake;
 
     var model = Model{};
+    model.fx_probe_started = true;
     const cursor_id = model.addSession("cursor missing", .cursor);
     model.selected = cursor_id;
     main.update(&model, .{ .draft_edit = .{ .insert_text = "no cursor-agent" } }, &fx);
