@@ -421,6 +421,7 @@ pub const paletteActionId = palette.paletteActionId;
 
 pub const QueuedMessage = model_mod.QueuedMessage;
 pub const QueuedRow = model_mod.QueuedRow;
+pub const BackgroundRow = environment_summary.BackgroundRow;
 pub const RightPanelFileRow = model_mod.RightPanelFileRow;
 pub const SkillRow = model_mod.SkillRow;
 pub const ProviderRow = model_mod.ProviderRow;

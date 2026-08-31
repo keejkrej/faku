@@ -226,12 +226,13 @@ lists the same bounded `file_mention` cache used by composer `@`
 mentions. Diff hosts Environment Compare / Review (Branch,
 Uncommitted, Staged, Unstaged, Committed, LastTurn). Not Browser,
 Terminal (no Native PTY), compact File editor, or BackgroundWork tabs.
-Not daemon `WorkspaceOperation`. Environment Summary Background is a
-Faku-side stream row: Process ("Agent turn") while window-side
-`is_streaming`, plus Stop agent, and one runtime-only last-turn settle
-(Completed / Stopped / Failed, cap 1). Not a Waku
-BackgroundWorkRegistry, not daemon `refreshBackgroundWork`, not
-Monitor / Subagent kinds.
+Not daemon `WorkspaceOperation`. Environment Summary Background is
+Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
+runtime-only multi-row registry. This cut only populates Process
+("Agent turn") from window-side `is_streaming`, plus Stop agent,
+and one last-turn settle (Completed / Stopped / Failed, cap 1).
+Not a Waku BackgroundWorkRegistry, not daemon
+`refreshBackgroundWork`, not live Monitor / Subagent population.
 
 ## Settings Providers
 
@@ -360,8 +361,11 @@ Honest gaps this cut does not implement:
   dates, Native locale / NSLocale API (Appearance language selector
   ships: System / English / 简体中文 / 日本語; Settings chrome follows
   the resolved locale)
-- Monitor / Subagent Background (Environment Summary is Process +
-  last-turn settle only)
+- Live Monitor / Subagent Background population, daemon
+  `refreshBackgroundWork`, right-panel BackgroundWork tab
+  (Environment Summary ships Process / Monitor / Subagent kind
+  chrome and a Process-only registry from stream/settle; not
+  Waku BackgroundWorkRegistry parity)
 - Further `main.zig` extract (`update` / `initFx` / `initialModel`
   still live there)
 - Long-lived ACP or daemon socket in the update loop

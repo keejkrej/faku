@@ -10,18 +10,23 @@
 //! thread ID when the selected session has a non-empty
 //! `fx_session_id` / ACP sessionId (same `copyFxSessionId`
 //! path as palette Copy provider session id; omitted when
-//! empty), and a first-cut Background section: a Process-kind
-//! "Agent turn" row plus Stop agent while window-side
-//! `is_streaming` (same composer Stop / `stopStream` path),
-//! and one runtime-only last-turn settle when idle (Completed
-//! on successful `finishStream` drain with no queued restart,
-//! Stopped on `stopStream`, Failed on drain=false paths that
-//! already end the stream; cap 1, overwrite). Settled is
-//! keyed by session id so switching hides another session's
-//! row without clearing it; a new settle overwrites; remove
-//! session clears that row. Not persisted to sessions.json /
-//! drafts.json. Header info trigger uses button `selected`
-//! while the dropdown is open or this section would show.
+//! empty), and a first-cut Background section with Process /
+//! Monitor / Subagent kind chrome. Visible rows come from a
+//! runtime-only multi-row registry (cap 8) rendered via Native
+//! `background_rows`. This cut only *populates* Process from
+//! window-side stream/settle: a live "Agent turn" row plus
+//! Stop agent while `is_streaming` (same composer Stop /
+//! `stopStream` path), and one last-turn settle when idle
+//! (Completed on successful `finishStream` drain with no
+//! queued restart, Stopped on `stopStream`, Failed on
+//! drain=false paths that already end the stream; cap 1,
+//! overwrite). Settled is keyed by session id so switching
+//! hides another session's row without clearing it; a new
+//! settle overwrites; remove session clears that row. Not
+//! persisted to sessions.json / drafts.json. No live Monitor
+//! or Subagent rows this cut (no placeholders). Header info
+//! trigger uses button `selected` while the dropdown is open
+//! or this section would show.
 //! Header +N −M reuses the composer project-row numstat probe
 //! (omit a zero side; muted ghost; click opens the right-panel
 //! Diff tab, default Uncommitted).
@@ -40,9 +45,10 @@
 //! `prepareTurnDiffBase` names `turn-diff-{n}`; Compare uses
 //! stored shas, not the refs); rewind `<sha>...HEAD`
 //! fallback; not `refs/waku/`; not HEAD~1. Leftovers:
-//! prune-alone, Monitor / Subagent kinds, multi-row registry,
-//! daemon `refreshBackgroundWork` / WorkspaceOperation, right-panel
-//! BackgroundWork tab. Not a Waku BackgroundWorkRegistry.
+//! prune-alone, live Monitor / Subagent population, daemon
+//! `refreshBackgroundWork` / WorkspaceOperation, right-panel
+//! BackgroundWork tab. Kind chrome and the Process registry
+//! ship; not a Waku BackgroundWorkRegistry.
 //! Not transcript checkpoint +/-. Not force push (Waku
 //! `git_commit::push` has no `--force`).
 
@@ -67,12 +73,52 @@ var header_numstat_buf: [git_numstat.max_git_numstat_label]u8 = undefined;
 /// Cap-1 last-turn Background settle. Runtime-only.
 pub const SettledStatus = enum { none, completed, stopped, failed };
 
-/// Process-kind row label. Honest about Faku-side stream state
+/// Background kind chrome. Stable labels match Waku's Process ·
+/// Monitor · Subagent grouping. This cut only fills Process.
+pub const BackgroundKind = enum {
+    process,
+    monitor,
+    subagent,
+};
+
+pub const kind_process_label = "Process";
+pub const kind_monitor_label = "Monitor";
+pub const kind_subagent_label = "Subagent";
+
+/// Bounded visible registry. Extra slots are for later Monitor /
+/// Subagent population; this cut emits at most one Process row.
+pub const max_background_rows: usize = 8;
+
+/// Stable Native `for` key for the Process row (live or settled).
+pub const process_row_id: u32 = 1;
+
+/// Process-kind row title. Honest about Faku-side stream state
 /// (not an OS process watch).
 pub const process_row_label = "Agent turn";
 pub const settled_completed_label = "Completed";
 pub const settled_stopped_label = "Stopped";
 pub const settled_failed_label = "Failed";
+
+/// Visible Background registry row. Native `background_rows`
+/// iterates this. Not persisted to sessions.json / drafts.json.
+pub const BackgroundRow = struct {
+    id: u32,
+    kind: BackgroundKind,
+    kind_label: []const u8,
+    title: []const u8,
+    live: bool,
+    can_stop: bool,
+    has_status: bool,
+    settled_status: []const u8,
+};
+
+pub fn backgroundKindLabel(kind: BackgroundKind) []const u8 {
+    return switch (kind) {
+        .process => kind_process_label,
+        .monitor => kind_monitor_label,
+        .subagent => kind_subagent_label,
+    };
+}
 
 /// Record the single last-turn row. `session_id == 0` or `.none`
 /// clears. A new settle overwrites (cap 1).
@@ -121,6 +167,37 @@ pub fn settledStatusLabel(model: *const Model) []const u8 {
         .stopped => settled_stopped_label,
         .failed => settled_failed_label,
     };
+}
+
+/// Project the runtime registry into `out` (cap `max_background_rows`).
+/// Streaming wins so a queued `finishStream` restart stays on the
+/// live Process row instead of flashing Completed. Monitor /
+/// Subagent kinds are never emitted from current signals.
+pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]BackgroundRow) []const BackgroundRow {
+    if (!hasBackgroundSection(model)) return out[0..0];
+    const live = model.is_streaming();
+    const status = if (live) "" else settledStatusLabel(model);
+    out[0] = .{
+        .id = process_row_id,
+        .kind = .process,
+        .kind_label = backgroundKindLabel(.process),
+        .title = process_row_label,
+        .live = live,
+        .can_stop = live,
+        .has_status = status.len > 0,
+        .settled_status = status,
+    };
+    return out[0..1];
+}
+
+/// Arena copy of `fillBackgroundRows` for Native `background_rows`.
+pub fn backgroundRows(model: *const Model, arena: std.mem.Allocator) []const BackgroundRow {
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    const filled = fillBackgroundRows(model, &buf);
+    if (filled.len == 0) return &.{};
+    const out = arena.alloc(BackgroundRow, filled.len) catch return &.{};
+    @memcpy(out, filled);
+    return out;
 }
 
 /// Header info trigger: selected while the dropdown is open or
@@ -206,6 +283,49 @@ pub fn stopBackground(model: *Model, fx: *Effects) void {
     if (!model.is_streaming()) return;
     close(model);
     turn_stream.stopStream(model, fx);
+}
+
+fn expectNoBackgroundRows(model: *const Model) !void {
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    try std.testing.expectEqual(@as(usize, 0), fillBackgroundRows(model, &buf).len);
+}
+
+fn expectOnlyProcessKinds(rows: []const BackgroundRow) !void {
+    try std.testing.expect(rows.len <= max_background_rows);
+    for (rows) |row| {
+        try std.testing.expectEqual(BackgroundKind.process, row.kind);
+        try std.testing.expectEqualStrings(kind_process_label, row.kind_label);
+        try std.testing.expect(row.kind != .monitor);
+        try std.testing.expect(row.kind != .subagent);
+        try std.testing.expect(!std.mem.eql(u8, row.kind_label, kind_monitor_label));
+        try std.testing.expect(!std.mem.eql(u8, row.kind_label, kind_subagent_label));
+    }
+}
+
+fn expectLiveProcessRow(model: *const Model) !void {
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    const rows = fillBackgroundRows(model, &buf);
+    try expectOnlyProcessKinds(rows);
+    try std.testing.expectEqual(@as(usize, 1), rows.len);
+    try std.testing.expectEqual(process_row_id, rows[0].id);
+    try std.testing.expectEqualStrings(process_row_label, rows[0].title);
+    try std.testing.expect(rows[0].live);
+    try std.testing.expect(rows[0].can_stop);
+    try std.testing.expect(!rows[0].has_status);
+    try std.testing.expectEqualStrings("", rows[0].settled_status);
+}
+
+fn expectSettledProcessRow(model: *const Model, status: []const u8) !void {
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    const rows = fillBackgroundRows(model, &buf);
+    try expectOnlyProcessKinds(rows);
+    try std.testing.expectEqual(@as(usize, 1), rows.len);
+    try std.testing.expectEqual(process_row_id, rows[0].id);
+    try std.testing.expectEqualStrings(process_row_label, rows[0].title);
+    try std.testing.expect(!rows[0].live);
+    try std.testing.expect(!rows[0].can_stop);
+    try std.testing.expect(rows[0].has_status);
+    try std.testing.expectEqualStrings(status, rows[0].settled_status);
 }
 
 test "headerNumstatLabel omits a zero side" {
@@ -552,6 +672,7 @@ test "stopBackground no-ops when not streaming" {
     try std.testing.expect(!hasSettledBackground(&model));
     try std.testing.expect(!hasBackgroundSection(&model));
     try std.testing.expect(environmentInfoSelected(&model));
+    try expectNoBackgroundRows(&model);
 
     close(&model);
     try std.testing.expect(!environmentInfoSelected(&model));
@@ -561,6 +682,7 @@ test "stopBackground no-ops when not streaming" {
     try std.testing.expect(model.environment_summary_open);
     try std.testing.expect(!model.is_streaming());
     try std.testing.expect(!hasSettledBackground(&model));
+    try expectNoBackgroundRows(&model);
 }
 
 test "stopBackground closes summary and stops via stopStream" {
@@ -575,6 +697,7 @@ test "stopBackground closes summary and stops via stopStream" {
     model.phase = .streaming;
     model.streaming_session = id;
     if (model.sessionById(id)) |session| session.busy = true;
+    try expectLiveProcessRow(&model);
 
     stopBackground(&model, &fx);
     try std.testing.expect(!model.environment_summary_open);
@@ -586,6 +709,7 @@ test "stopBackground closes summary and stops via stopStream" {
     try std.testing.expect(hasSettledBackground(&model));
     try std.testing.expectEqualStrings(settled_stopped_label, settledStatusLabel(&model));
     try std.testing.expect(hasBackgroundSection(&model));
+    try expectSettledProcessRow(&model, settled_stopped_label);
 }
 
 test "environment_stop_background uses the same stopStream path as Stop" {
@@ -603,6 +727,7 @@ test "environment_stop_background uses the same stopStream path as Stop" {
     try std.testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
     try std.testing.expectEqual(main.stream_timer_key, fx.pendingTimerAt(0).?.key);
     model.environment_summary_open = true;
+    try expectLiveProcessRow(&model);
 
     main.update(&model, .environment_stop_background, &fx);
     try std.testing.expect(!model.environment_summary_open);
@@ -612,6 +737,7 @@ test "environment_stop_background uses the same stopStream path as Stop" {
     try std.testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
     try std.testing.expect(hasSettledBackground(&model));
     try std.testing.expectEqualStrings(settled_stopped_label, settledStatusLabel(&model));
+    try expectSettledProcessRow(&model, settled_stopped_label);
 }
 
 test "idle with no settle omits Background; streaming shows the section" {
@@ -622,16 +748,19 @@ test "idle with no settle omits Background; streaming shows the section" {
     try std.testing.expect(!hasSettledBackground(&model));
     try std.testing.expect(!environmentInfoSelected(&model));
     try std.testing.expectEqualStrings("", settledStatusLabel(&model));
+    try expectNoBackgroundRows(&model);
 
     model.environment_summary_open = true;
     try std.testing.expect(environmentInfoSelected(&model));
     try std.testing.expect(!hasBackgroundSection(&model));
+    try expectNoBackgroundRows(&model);
 
     model.phase = .streaming;
     model.streaming_session = id;
     try std.testing.expect(hasBackgroundSection(&model));
     try std.testing.expect(!hasSettledBackground(&model));
     try std.testing.expect(environmentInfoSelected(&model));
+    try expectLiveProcessRow(&model);
 }
 
 test "successful finishStream without a queue settles Completed" {
@@ -648,6 +777,7 @@ test "successful finishStream without a queue settles Completed" {
     try std.testing.expect(hasBackgroundSection(&model));
     try std.testing.expect(!hasSettledBackground(&model));
     try std.testing.expect(environmentInfoSelected(&model));
+    try expectLiveProcessRow(&model);
 
     var n: u32 = 0;
     while (n < 16 and model.is_streaming()) : (n += 1) {
@@ -660,6 +790,7 @@ test "successful finishStream without a queue settles Completed" {
     try std.testing.expect(environmentInfoSelected(&model));
     try std.testing.expectEqual(id, model.background_settled_session);
     try std.testing.expectEqual(SettledStatus.completed, model.background_settled);
+    try expectSettledProcessRow(&model, settled_completed_label);
 }
 
 test "queued finishStream restart stays on Process and does not flash Completed" {
@@ -686,6 +817,7 @@ test "queued finishStream restart stays on Process and does not flash Completed"
     try std.testing.expect(!hasSettledBackground(&model));
     try std.testing.expectEqual(SettledStatus.none, model.background_settled);
     try std.testing.expect(hasBackgroundSection(&model));
+    try expectLiveProcessRow(&model);
 }
 
 test "stopStream and Esc settle Stopped" {
@@ -702,6 +834,7 @@ test "stopStream and Esc settle Stopped" {
     main.update(&model, .stop_turn, &fx);
     try std.testing.expect(!model.is_streaming());
     try std.testing.expectEqualStrings(settled_stopped_label, settledStatusLabel(&model));
+    try expectSettledProcessRow(&model, settled_stopped_label);
 
     var esc = Model{};
     const esc_id = esc.addSession("env settle esc", .fx);
@@ -712,6 +845,7 @@ test "stopStream and Esc settle Stopped" {
     main.update(&esc, .stop, &fx);
     try std.testing.expect(!esc.is_streaming());
     try std.testing.expectEqualStrings(settled_stopped_label, settledStatusLabel(&esc));
+    try expectSettledProcessRow(&esc, settled_stopped_label);
 }
 
 test "drain=false finishStream settles Failed" {
@@ -734,6 +868,7 @@ test "drain=false finishStream settles Failed" {
     try std.testing.expect(!model.is_streaming());
     try std.testing.expectEqualStrings(settled_failed_label, settledStatusLabel(&model));
     try std.testing.expectEqual(SettledStatus.failed, model.background_settled);
+    try expectSettledProcessRow(&model, settled_failed_label);
 }
 
 test "cap-1 settle overwrites; session switch hides another session's row" {
@@ -744,28 +879,75 @@ test "cap-1 settle overwrites; session switch hides another session's row" {
     settle(&model, first, .completed);
     try std.testing.expectEqualStrings(settled_completed_label, settledStatusLabel(&model));
     try std.testing.expect(hasBackgroundSection(&model));
+    try expectSettledProcessRow(&model, settled_completed_label);
 
     settle(&model, first, .stopped);
     try std.testing.expectEqualStrings(settled_stopped_label, settledStatusLabel(&model));
     try std.testing.expectEqual(first, model.background_settled_session);
+    try expectSettledProcessRow(&model, settled_stopped_label);
 
     settle(&model, second, .failed);
     try std.testing.expectEqual(second, model.background_settled_session);
     try std.testing.expectEqual(SettledStatus.failed, model.background_settled);
     try std.testing.expect(!hasSettledBackground(&model));
     try std.testing.expect(!hasBackgroundSection(&model));
+    try expectNoBackgroundRows(&model);
 
     model.selected = second;
     try std.testing.expectEqualStrings(settled_failed_label, settledStatusLabel(&model));
     try std.testing.expect(hasBackgroundSection(&model));
+    try expectSettledProcessRow(&model, settled_failed_label);
 
     model.selected = first;
     try std.testing.expect(!hasSettledBackground(&model));
     try std.testing.expectEqualStrings("", settledStatusLabel(&model));
+    try expectNoBackgroundRows(&model);
 
     clearSettledIfSession(&model, second);
     try std.testing.expectEqual(SettledStatus.none, model.background_settled);
     try std.testing.expectEqual(@as(u32, 0), model.background_settled_session);
     model.selected = second;
     try std.testing.expect(!hasBackgroundSection(&model));
+    try expectNoBackgroundRows(&model);
+}
+
+test "backgroundKindLabel is stable for Process Monitor Subagent" {
+    try std.testing.expectEqualStrings(kind_process_label, backgroundKindLabel(.process));
+    try std.testing.expectEqualStrings(kind_monitor_label, backgroundKindLabel(.monitor));
+    try std.testing.expectEqualStrings(kind_subagent_label, backgroundKindLabel(.subagent));
+    try std.testing.expectEqualStrings("Process", backgroundKindLabel(.process));
+    try std.testing.expectEqualStrings("Monitor", backgroundKindLabel(.monitor));
+    try std.testing.expectEqualStrings("Subagent", backgroundKindLabel(.subagent));
+}
+
+test "background registry never emits Monitor or Subagent from stream or settle" {
+    var model = Model{};
+    const id = model.addSession("env kinds only process", .fx);
+    model.selected = id;
+    try expectNoBackgroundRows(&model);
+
+    model.phase = .streaming;
+    model.streaming_session = id;
+    try expectLiveProcessRow(&model);
+
+    model.phase = .idle;
+    model.streaming_session = 0;
+    settle(&model, id, .completed);
+    try expectSettledProcessRow(&model, settled_completed_label);
+    settle(&model, id, .stopped);
+    try expectSettledProcessRow(&model, settled_stopped_label);
+    settle(&model, id, .failed);
+    try expectSettledProcessRow(&model, settled_failed_label);
+
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena_rows = backgroundRows(&model, arena_state.allocator());
+    try expectOnlyProcessKinds(arena_rows);
+    try std.testing.expectEqual(@as(usize, 1), arena_rows.len);
+    try std.testing.expectEqual(BackgroundKind.process, arena_rows[0].kind);
+
+    const via_model = model.background_rows(arena_state.allocator());
+    try expectOnlyProcessKinds(via_model);
+    try std.testing.expectEqual(@as(usize, 1), via_model.len);
+    try std.testing.expectEqualStrings(kind_process_label, via_model[0].kind_label);
 }

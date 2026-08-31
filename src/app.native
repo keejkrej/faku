@@ -405,14 +405,16 @@
                 </if>
                 <if test="{has_background_section}">
                   <text foreground="text_muted">Background</text>
-                  <if test="{is_streaming}">
-                    <text>Agent turn</text>
-                    <menu-item on-press="environment_stop_background">Stop agent</menu-item>
-                  </if>
-                  <else>
-                    <text>Agent turn</text>
-                    <text foreground="text_muted">{background_settled_status}</text>
-                  </else>
+                  <for each="background_rows" key="id" as="b">
+                    <text foreground="text_muted">{b.kind_label}</text>
+                    <text>{b.title}</text>
+                    <if test="{b.can_stop}">
+                      <menu-item on-press="environment_stop_background">Stop agent</menu-item>
+                    </if>
+                    <if test="{b.has_status}">
+                      <text foreground="text_muted">{b.settled_status}</text>
+                    </if>
+                  </for>
                 </if>
               </dropdown-menu>
             </if>

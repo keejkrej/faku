@@ -89,13 +89,16 @@ Pi via official print mode (`pi -p {prompt}`; stdout is the same
 non-ACP fx line path; not ACP),
 `fx ask --image` / `fx ask` fallback, local session catalog + hydrate,
 waku-protocol v4 JSON builders + server-frame parser, one-shot daemon
-sidecar, provider id `"fx"`.
+sidecar, provider id `"fx"`, Environment Summary Background kind
+chrome (Process / Monitor / Subagent labels) with Process rows from
+window-side stream/settle.
 
 Later: Pi image attach / ACP / `--mode json` / RPC, Amp / Claude /
 Codex image attach, Claude ACP / stream-json, full onboarding /
 OAuth / auto-install, a long-lived daemon socket in the update loop
 (not this cut), a long-lived ACP loop once a window-side stdin-write
-effect exists.
+effect exists, live Monitor / Subagent Background population,
+daemon `refreshBackgroundWork`, right-panel BackgroundWork tab.
 
 No `listSessions` / `createSession`. Catalog is `loadTaskState` (local
 JSON today). New session is a client-built session saved after first
