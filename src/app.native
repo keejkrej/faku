@@ -154,17 +154,17 @@
     <column grow="1" min-width="360">
       <if test="{settings_open}">
         <row height="48" padding="14" gap="10" cross="center" window-drag="true" label="Toolbar">
-          <text>Settings</text>
+          <text>{settings_title}</text>
           <spacer grow="1" />
         </row>
         <separator />
         <row height="40" padding="14" gap="8" cross="center">
-          <button variant="ghost" size="sm" selected="{settings_page_general}" on-press="set_settings_page_general">General</button>
-          <button variant="ghost" size="sm" selected="{settings_page_appearance}" on-press="set_settings_page_appearance">Appearance</button>
-          <button variant="ghost" size="sm" selected="{settings_page_providers}" on-press="set_settings_page_providers">Providers</button>
-          <button variant="ghost" size="sm" selected="{settings_page_skills}" on-press="set_settings_page_skills">Skills</button>
-          <button variant="ghost" size="sm" selected="{settings_page_usage}" on-press="set_settings_page_usage">Usage</button>
-          <button variant="ghost" size="sm" selected="{settings_page_computer_use}" on-press="set_settings_page_computer_use">Computer Use</button>
+          <button variant="ghost" size="sm" selected="{settings_page_general}" on-press="set_settings_page_general">{settings_nav_general}</button>
+          <button variant="ghost" size="sm" selected="{settings_page_appearance}" on-press="set_settings_page_appearance">{settings_nav_appearance}</button>
+          <button variant="ghost" size="sm" selected="{settings_page_providers}" on-press="set_settings_page_providers">{settings_nav_providers}</button>
+          <button variant="ghost" size="sm" selected="{settings_page_skills}" on-press="set_settings_page_skills">{settings_nav_skills}</button>
+          <button variant="ghost" size="sm" selected="{settings_page_usage}" on-press="set_settings_page_usage">{settings_nav_usage}</button>
+          <button variant="ghost" size="sm" selected="{settings_page_computer_use}" on-press="set_settings_page_computer_use">{settings_nav_computer_use}</button>
           <spacer grow="1" />
           <if test="{settings_page_skills}">
             <button variant="ghost" size="sm" on-press="refresh_skills">Refresh</button>
@@ -244,13 +244,25 @@
               <column grow="1" max-width="720" gap="10" padding="14">
                 <card size="sm" padding="10">
                   <column gap="8">
-                    <text>Theme</text>
+                    <text>{appearance_theme_title}</text>
                     <row gap="8">
-                      <button variant="ghost" size="sm" selected="{theme_system}" on-press="settings_theme_system">System</button>
-                      <button variant="ghost" size="sm" selected="{theme_light}" on-press="settings_theme_light">Light</button>
-                      <button variant="ghost" size="sm" selected="{theme_dark}" on-press="settings_theme_dark">Dark</button>
+                      <button variant="ghost" size="sm" selected="{theme_system}" on-press="settings_theme_system">{appearance_theme_system}</button>
+                      <button variant="ghost" size="sm" selected="{theme_light}" on-press="settings_theme_light">{appearance_theme_light}</button>
+                      <button variant="ghost" size="sm" selected="{theme_dark}" on-press="settings_theme_dark">{appearance_theme_dark}</button>
                     </row>
                     <text wrap="true" foreground="text_muted">{appearance_os_caption}</text>
+                  </column>
+                </card>
+                <card size="sm" padding="10">
+                  <column gap="8">
+                    <text>{appearance_language_title}</text>
+                    <row gap="8">
+                      <button variant="ghost" size="sm" selected="{language_system}" on-press="settings_language_system">{appearance_language_system}</button>
+                      <button variant="ghost" size="sm" selected="{language_english}" on-press="settings_language_english">{appearance_language_english}</button>
+                      <button variant="ghost" size="sm" selected="{language_simplified_chinese}" on-press="settings_language_simplified_chinese">{appearance_language_simplified_chinese}</button>
+                      <button variant="ghost" size="sm" selected="{language_japanese}" on-press="settings_language_japanese">{appearance_language_japanese}</button>
+                    </row>
+                    <text wrap="true" foreground="text_muted">{appearance_language_description}</text>
                   </column>
                 </card>
               </column>

@@ -26,6 +26,7 @@ const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const skills = @import("skills.zig");
 const providers = @import("providers.zig");
+const i18n = @import("i18n.zig");
 const fx_probe = @import("fx_probe.zig");
 const cli_probe = @import("cli_probe.zig");
 const keys = @import("keys.zig");
@@ -1129,6 +1130,8 @@ test "idle send is muted and usage chrome stays hidden until ACP reports a windo
     try testing.expect(!tokens.pixel_snap.geometry);
     try testing.expectEqual(main.ThemePreference.system, model.theme_preference);
     try testing.expect(model.theme_system());
+    try testing.expectEqual(main.LanguagePreference.system, model.language_preference);
+    try testing.expect(model.language_system());
     try testing.expectEqual(canvas.ColorScheme.dark, main.resolvedColorScheme(&model));
 
     const tree = try buildTree(arena, &model);
@@ -10110,6 +10113,7 @@ test "settings gear opens the panel; Esc and gear return to the session" {
     _ = try expectByText(tree.root, .text, "Last project path");
     _ = try expectByText(tree.root, .text, "Daemon address");
     try testing.expect(findByText(tree.root, .text, "Theme") == null);
+    try testing.expect(findByText(tree.root, .text, "Language") == null);
     _ = try expectButton(tree.root, "Ask");
     _ = try expectButton(tree.root, "Auto");
     _ = try expectButton(tree.root, "Full access");
@@ -10184,6 +10188,7 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(pressableAppearsBefore(tree.root, "Usage", "Computer Use"));
     _ = try expectByText(tree.root, .text, "Default model");
     try testing.expect(findByText(tree.root, .text, "Theme") == null);
+    try testing.expect(findByText(tree.root, .text, "Language") == null);
     try testing.expect(findByText(tree.root, .text, "Context window") == null);
     try testing.expect(findByText(tree.root, .text, "Unavailable") == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
@@ -10252,6 +10257,8 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try store.saveSession(&model, model.selected, testing.allocator, testing.io);
     try testing.expectEqual(main.ThemePreference.system, model.theme_preference);
     try testing.expect(model.theme_system());
+    try testing.expectEqual(main.LanguagePreference.system, model.language_preference);
+    try testing.expect(model.language_system());
 
     main.update(&model, .toggle_settings, &fx);
     var tree = try buildTree(arena, &model);
@@ -10264,6 +10271,7 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expect(!appearance_tab.state.selected);
     _ = try expectByText(tree.root, .text, "Default model");
     try testing.expect(findByText(tree.root, .text, "Theme") == null);
+    try testing.expect(findByText(tree.root, .text, "Language") == null);
 
     main.update(&model, tree.msgForPointer(appearance_tab.id, .up).?, &fx);
     try testing.expect(model.settings_page_appearance());
@@ -10282,13 +10290,23 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expect(findByText(tree.root, .button, "Refresh") == null);
     try testing.expect(findByText(tree.root, .text, "Context window") == null);
     _ = try expectByText(tree.root, .text, "Theme");
+    _ = try expectByText(tree.root, .text, "Language");
     const system_chip = try expectButtonMsg(tree, "System", .settings_theme_system);
     try testing.expect(system_chip.state.selected);
     const light_chip = try expectButtonMsg(tree, "Light", .settings_theme_light);
     try testing.expect(!light_chip.state.selected);
     const dark_chip = try expectButtonMsg(tree, "Dark", .settings_theme_dark);
     try testing.expect(!dark_chip.state.selected);
+    const language_system_chip = try expectButtonMsg(tree, "System", .settings_language_system);
+    try testing.expect(language_system_chip.state.selected);
+    const english_chip = try expectButtonMsg(tree, "English", .settings_language_english);
+    try testing.expect(!english_chip.state.selected);
+    const zh_chip = try expectButtonMsg(tree, "简体中文", .settings_language_simplified_chinese);
+    try testing.expect(!zh_chip.state.selected);
+    const ja_chip = try expectButtonMsg(tree, "日本語", .settings_language_japanese);
+    try testing.expect(!ja_chip.state.selected);
     try testing.expect(findTextContaining(tree.root, "follow the OS") != null);
+    try testing.expect(findTextContaining(tree.root, "LC_ALL") != null);
 
     main.update(&model, tree.msgForPointer(light_chip.id, .up).?, &fx);
     try testing.expectEqual(main.ThemePreference.light, model.theme_preference);
@@ -10311,6 +10329,118 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
     try testing.expectEqual(main.ThemePreference.dark, loaded.theme_preference);
     try testing.expect(loaded.theme_dark());
+}
+
+test "settings Appearance language chips persist and re-label Settings chrome" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-settings-language", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expectEqual(main.LanguagePreference.japanese, i18n.fromLocaleId("ja"));
+    try testing.expectEqual(main.LanguagePreference.japanese, i18n.fromLocaleId("ja_JP"));
+    try testing.expectEqual(main.LanguagePreference.japanese, i18n.fromLocaleId("ja-JP"));
+    try testing.expectEqual(main.LanguagePreference.simplified_chinese, i18n.fromLocaleId("zh-CN"));
+    try testing.expectEqual(main.LanguagePreference.simplified_chinese, i18n.fromLocaleId("zh_SG"));
+    try testing.expectEqual(main.LanguagePreference.simplified_chinese, i18n.fromLocaleId("zh-Hans-CN"));
+    try testing.expectEqual(main.LanguagePreference.english, i18n.fromLocaleId("zh-Hant-TW"));
+    try testing.expectEqual(main.LanguagePreference.english, i18n.fromLocaleId("en"));
+    try testing.expectEqual(main.LanguagePreference.english, i18n.fromLocaleId("C"));
+    try testing.expectEqual(main.LanguagePreference.english, i18n.fromLocaleId(""));
+    try testing.expectEqual(main.LanguagePreference.english, i18n.resolve(.english));
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+    try testing.expectEqual(main.LanguagePreference.system, model.language_preference);
+    try testing.expect(model.language_system());
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_appearance, &fx);
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Settings");
+    _ = try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance);
+    _ = try expectByText(tree.root, .text, "Language");
+    _ = try expectByText(tree.root, .text, "Theme");
+    const zh_chip = try expectButtonMsg(tree, "简体中文", .settings_language_simplified_chinese);
+    try testing.expect(!zh_chip.state.selected);
+    _ = try expectButtonMsg(tree, "English", .settings_language_english);
+    _ = try expectButtonMsg(tree, "日本語", .settings_language_japanese);
+
+    main.update(&model, tree.msgForPointer(zh_chip.id, .up).?, &fx);
+    try testing.expectEqual(main.LanguagePreference.simplified_chinese, model.language_preference);
+    try testing.expect(model.language_simplified_chinese());
+    try testing.expectEqualStrings("外观", model.settings_nav_appearance());
+    try testing.expectEqualStrings("语言", model.appearance_language_title());
+    try testing.expectEqualStrings("主题", model.appearance_theme_title());
+    try testing.expectEqualStrings("设置", model.settings_title());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "外观", .set_settings_page_appearance)).state.selected);
+    _ = try expectByText(tree.root, .text, "设置");
+    _ = try expectByText(tree.root, .text, "语言");
+    _ = try expectByText(tree.root, .text, "主题");
+    _ = try expectButtonMsg(tree, "通用", .set_settings_page_general);
+    try testing.expect((try expectButtonMsg(tree, "简体中文", .settings_language_simplified_chinese)).state.selected);
+    _ = try expectButtonMsg(tree, "English", .settings_language_english);
+    _ = try expectButtonMsg(tree, "日本語", .settings_language_japanese);
+    _ = try expectButtonMsg(tree, "系统", .settings_language_system);
+    try testing.expect(findByText(tree.root, .button, "System") == null);
+
+    var loaded_zh = Model{};
+    loaded_zh.setStoreDir(dir);
+    loaded_zh.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded_zh, testing.allocator, testing.io));
+    try testing.expectEqual(main.LanguagePreference.simplified_chinese, loaded_zh.language_preference);
+
+    const ja_chip_zh = try expectButtonMsg(tree, "日本語", .settings_language_japanese);
+    main.update(&model, tree.msgForPointer(ja_chip_zh.id, .up).?, &fx);
+    try testing.expectEqual(main.LanguagePreference.japanese, model.language_preference);
+    try testing.expectEqualStrings("外観", model.settings_nav_appearance());
+    try testing.expectEqualStrings("言語", model.appearance_language_title());
+    try testing.expectEqualStrings("テーマ", model.appearance_theme_title());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "外観", .set_settings_page_appearance)).state.selected);
+    _ = try expectByText(tree.root, .text, "設定");
+    _ = try expectByText(tree.root, .text, "言語");
+    _ = try expectByText(tree.root, .text, "テーマ");
+    try testing.expect((try expectButtonMsg(tree, "日本語", .settings_language_japanese)).state.selected);
+    _ = try expectButtonMsg(tree, "English", .settings_language_english);
+    _ = try expectButtonMsg(tree, "简体中文", .settings_language_simplified_chinese);
+
+    const english_chip_ja = try expectButtonMsg(tree, "English", .settings_language_english);
+    main.update(&model, tree.msgForPointer(english_chip_ja.id, .up).?, &fx);
+    try testing.expectEqual(main.LanguagePreference.english, model.language_preference);
+    try testing.expectEqualStrings("Appearance", model.settings_nav_appearance());
+    try testing.expectEqualStrings("Language", model.appearance_language_title());
+    try testing.expectEqualStrings("Theme", model.appearance_theme_title());
+    try testing.expectEqualStrings("Settings", model.settings_title());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance)).state.selected);
+    _ = try expectByText(tree.root, .text, "Language");
+    _ = try expectByText(tree.root, .text, "Theme");
+    try testing.expect((try expectButtonMsg(tree, "English", .settings_language_english)).state.selected);
+    _ = try expectButtonMsg(tree, "简体中文", .settings_language_simplified_chinese);
+    _ = try expectButtonMsg(tree, "日本語", .settings_language_japanese);
+    _ = try expectButtonMsg(tree, "System", .settings_language_system);
+
+    var loaded_en = Model{};
+    loaded_en.setStoreDir(dir);
+    loaded_en.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded_en, testing.allocator, testing.io));
+    try testing.expectEqual(main.LanguagePreference.english, loaded_en.language_preference);
 }
 
 test "settings Usage tab sits after Skills; local context and thread-goal labels" {
@@ -10366,6 +10496,7 @@ test "settings Usage tab sits after Skills; local context and thread-goal labels
     try testing.expect(!(try expectButtonMsg(tree, "Computer Use", .set_settings_page_computer_use)).state.selected);
     try testing.expect(findByText(tree.root, .text, "Default model") == null);
     try testing.expect(findByText(tree.root, .text, "Theme") == null);
+    try testing.expect(findByText(tree.root, .text, "Language") == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
     try testing.expect(findByText(tree.root, .list_item, "fx") == null);
     try testing.expect(findByText(tree.root, .button, "Refresh") == null);
@@ -10468,6 +10599,7 @@ test "settings Computer Use tab sits after Usage; Unavailable, Off, empty apps" 
     try testing.expect(!(try expectButtonMsg(tree, "Usage", .set_settings_page_usage)).state.selected);
     try testing.expect(findByText(tree.root, .text, "Default model") == null);
     try testing.expect(findByText(tree.root, .text, "Theme") == null);
+    try testing.expect(findByText(tree.root, .text, "Language") == null);
     try testing.expect(findByText(tree.root, .text, "Context window") == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
     try testing.expect(findByText(tree.root, .list_item, "fx") == null);
@@ -10499,6 +10631,11 @@ test "theme preference defaults to System; Light/Dark force scheme regardless of
     var model = Model{};
     try testing.expectEqual(main.ThemePreference.system, model.theme_preference);
     try testing.expect(model.theme_system());
+    try testing.expectEqual(main.LanguagePreference.system, model.language_preference);
+    try testing.expect(model.language_system());
+    try testing.expectEqual(main.LanguagePreference.system, main.LanguagePreference.fromPersist(""));
+    try testing.expectEqual(main.LanguagePreference.system, main.LanguagePreference.fromPersist("nope"));
+    try testing.expectEqual(main.LanguagePreference.english, main.LanguagePreference.fromPersist("english"));
     try testing.expectEqual(main.ThemePreference.system, main.ThemePreference.fromPersist(""));
     try testing.expectEqual(main.ThemePreference.system, main.ThemePreference.fromPersist("nope"));
     try testing.expectEqual(main.ThemePreference.system, main.ThemePreference.fromPersist("system"));
