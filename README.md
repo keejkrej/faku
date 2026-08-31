@@ -43,7 +43,9 @@ The local catalog `sessions.json` is canonical. Daemon and ACP are
 best-effort sidecars: the desktop update loop never holds a socket.
 `WAKU_DAEMON_ADDRESS` still selects the daemon sidecar. Missing fx
 still uses the demo timer. Available Claude is one-shot
-`claude -p --output-format text` (not ACP). Available Codex is
+`claude -p --output-format text` (not ACP; documented image path
+inside that `-p` prompt when a composer image is attached). Available
+Codex is
 one-shot `codex exec {prompt}` (not ACP; documented `--image {path}`
 after the prompt when a composer image is attached). Available Amp is
 one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x`
@@ -84,7 +86,8 @@ when the CLI is present (via `acp-proxy`, which auto-answers
 stdio providers (cursor / OpenCode `acp`, grok `agent stdio`),
 first-cut live Send for Available Claude via official print mode
 (`claude -p --output-format text`; stdout is the non-ACP fx line
-path), first-cut live Send for Available Codex via official
+path; documented image path in the `-p` prompt when a composer
+image is attached), first-cut live Send for Available Codex via official
 non-interactive `codex exec {prompt}` (stdout is the same non-ACP
 fx line path; not ACP; documented `--image {path}` after the prompt
 when a composer image is attached), first-cut live Send for Available Amp via
@@ -100,9 +103,9 @@ sidecar, provider id `"fx"`, Environment Summary Background kind
 chrome (Process / Monitor / Subagent labels) with Process rows from
 window-side stream/settle.
 
-Later: Pi ACP / `--mode json` / RPC, Claude
-image attach, Claude ACP / stream-json, full onboarding /
-OAuth / auto-install, a long-lived daemon socket in the update loop
+Later: Pi ACP / `--mode json` / RPC, Claude ACP / stream-json, full
+onboarding / OAuth / auto-install, a long-lived daemon socket in the
+update loop
 (not this cut), a long-lived ACP loop once a window-side stdin-write
 effect exists, live Monitor / Subagent Background population,
 daemon `refreshBackgroundWork`, right-panel BackgroundWork tab.
