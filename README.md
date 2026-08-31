@@ -45,8 +45,9 @@ best-effort sidecars: the desktop update loop never holds a socket.
 still uses the demo timer. Available Claude is one-shot
 `claude -p --output-format text` (not ACP). Available Codex is
 one-shot `codex exec {prompt}` (not ACP). Available Amp is one-shot
-`amp -x {prompt}` (not ACP). Pi and unavailable
-cursor / opencode / grok / claude / codex / amp stay demo.
+`amp -x {prompt}` (not ACP). Available Pi is one-shot `pi -p {prompt}`
+(not ACP). Unavailable cursor / opencode / grok / claude / codex /
+amp / pi stay demo.
 Apply on Settings →
 Providers sets `session.provider`. fx missing copies the verified
 install command; fx available copies `fx login`. Other missing CLIs
@@ -83,13 +84,15 @@ path), first-cut live Send for Available Codex via official
 non-interactive `codex exec {prompt}` (stdout is the same non-ACP
 fx line path; not ACP), first-cut live Send for Available Amp via
 official execute mode (`amp -x {prompt}`; stdout is the same
+non-ACP fx line path; not ACP), first-cut live Send for Available
+Pi via official print mode (`pi -p {prompt}`; stdout is the same
 non-ACP fx line path; not ACP),
 `fx ask --image` / `fx ask` fallback, local session catalog + hydrate,
 waku-protocol v4 JSON builders + server-frame parser, one-shot daemon
 sidecar, provider id `"fx"`.
 
-Later: Pi native driver, Amp / Claude / Codex image attach, Claude
-ACP / stream-json, full onboarding /
+Later: Pi image attach / ACP / `--mode json` / RPC, Amp / Claude /
+Codex image attach, Claude ACP / stream-json, full onboarding /
 OAuth / auto-install, a long-lived daemon socket in the update loop
 (not this cut), a long-lived ACP loop once a window-side stdin-write
 effect exists.
