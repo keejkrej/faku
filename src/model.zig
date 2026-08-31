@@ -428,6 +428,7 @@ pub const Msg = union(enum) {
     set_settings_page_providers,
     set_settings_page_skills,
     set_settings_page_usage,
+    set_settings_page_computer_use,
     settings_theme_system,
     settings_theme_light,
     settings_theme_dark,
@@ -697,7 +698,7 @@ pub const Model = struct {
     right_panel_expanded_count: u32 = 0,
     settings_open: bool = false,
     /// Runtime-only Settings General | Appearance | Providers | Skills |
-    /// Usage page. Default General. Not persisted to sessions.json.
+    /// Usage | Computer Use page. Default General. Not persisted.
     settings_page: skills.Page = .general,
     /// Persisted chrome theme. Default System (OS-follow).
     theme_preference: ThemePreference = .system,
@@ -2461,6 +2462,39 @@ pub const Model = struct {
 
     pub fn settings_page_usage(model: *const Model) bool {
         return model.settings_page == .usage;
+    }
+
+    pub fn settings_page_computer_use(model: *const Model) bool {
+        return model.settings_page == .computer_use;
+    }
+
+    /// Settings Computer Use availability. Always Unavailable this cut:
+    /// Native has no Screen Recording / Accessibility APIs.
+    pub fn computer_use_availability_label(model: *const Model) []const u8 {
+        _ = model;
+        return "Unavailable";
+    }
+
+    pub fn computer_use_availability_caption(model: *const Model) []const u8 {
+        _ = model;
+        return "Native has no Screen Recording or Accessibility APIs this cut. Waku's helper is macOS-only.";
+    }
+
+    /// Always false this cut. Not persisted. Do not invent a toggle.
+    pub fn computer_use_enabled(model: *const Model) bool {
+        _ = model;
+        return false;
+    }
+
+    /// Inverse of computer_use_enabled for the locked Off chip.
+    pub fn computer_use_off(model: *const Model) bool {
+        return !model.computer_use_enabled();
+    }
+
+    /// Always empty this cut. No always-allowed app picker.
+    pub fn computer_use_has_allowed_apps(model: *const Model) bool {
+        _ = model;
+        return false;
     }
 
     pub fn theme_system(model: *const Model) bool {

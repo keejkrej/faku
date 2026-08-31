@@ -10162,6 +10162,7 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(!model.settings_page_providers());
     try testing.expect(!model.settings_page_appearance());
     try testing.expect(!model.settings_page_usage());
+    try testing.expect(!model.settings_page_computer_use());
 
     var tree = try buildTree(arena, &model);
     const general = try expectButtonMsg(tree, "General", .set_settings_page_general);
@@ -10174,13 +10175,17 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(!skills_tab.state.selected);
     const usage_tab = try expectButtonMsg(tree, "Usage", .set_settings_page_usage);
     try testing.expect(!usage_tab.state.selected);
+    const computer_use_tab = try expectButtonMsg(tree, "Computer Use", .set_settings_page_computer_use);
+    try testing.expect(!computer_use_tab.state.selected);
     try testing.expect(pressableAppearsBefore(tree.root, "General", "Appearance"));
     try testing.expect(pressableAppearsBefore(tree.root, "Appearance", "Providers"));
     try testing.expect(pressableAppearsBefore(tree.root, "Providers", "Skills"));
     try testing.expect(pressableAppearsBefore(tree.root, "Skills", "Usage"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Usage", "Computer Use"));
     _ = try expectByText(tree.root, .text, "Default model");
     try testing.expect(findByText(tree.root, .text, "Theme") == null);
     try testing.expect(findByText(tree.root, .text, "Context window") == null);
+    try testing.expect(findByText(tree.root, .text, "Unavailable") == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
     try testing.expect(findByText(tree.root, .button, "Refresh") == null);
     try testing.expect(findByText(tree.root, .text, "Open a project") == null);
@@ -10193,6 +10198,7 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(!model.settings_page_providers());
     try testing.expect(!model.settings_page_appearance());
     try testing.expect(!model.settings_page_usage());
+    try testing.expect(!model.settings_page_computer_use());
     try testing.expectEqual(@as(u32, 0), model.skill_count);
 
     tree = try buildTree(arena, &model);
@@ -10253,6 +10259,7 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expect(pressableAppearsBefore(tree.root, "Appearance", "Providers"));
     try testing.expect(pressableAppearsBefore(tree.root, "Providers", "Skills"));
     try testing.expect(pressableAppearsBefore(tree.root, "Skills", "Usage"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Usage", "Computer Use"));
     const appearance_tab = try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance);
     try testing.expect(!appearance_tab.state.selected);
     _ = try expectByText(tree.root, .text, "Default model");
@@ -10264,6 +10271,7 @@ test "settings Appearance tab sits between General and Providers; theme chips pe
     try testing.expect(!model.settings_page_providers());
     try testing.expect(!model.settings_page_skills());
     try testing.expect(!model.settings_page_usage());
+    try testing.expect(!model.settings_page_computer_use());
 
     tree = try buildTree(arena, &model);
     try testing.expect((try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance)).state.selected);
@@ -10318,6 +10326,7 @@ test "settings Usage tab sits after Skills; local context and thread-goal labels
     try testing.expectEqual(skills.Page.general, empty.settings_page);
     try testing.expect(empty.settings_page_general());
     try testing.expect(!empty.settings_page_usage());
+    try testing.expect(!empty.settings_page_computer_use());
     try testing.expectEqual(@as(usize, 0), empty.context_usage_label(arena).len);
     try testing.expectEqual(@as(usize, 0), empty.goal_usage_label().len);
     try testing.expect(!empty.has_context_usage());
@@ -10333,6 +10342,7 @@ test "settings Usage tab sits after Skills; local context and thread-goal labels
     try testing.expect(model.settings_page_general());
     var tree = try buildTree(arena, &model);
     try testing.expect(pressableAppearsBefore(tree.root, "Skills", "Usage"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Usage", "Computer Use"));
     const usage_tab = try expectButtonMsg(tree, "Usage", .set_settings_page_usage);
     try testing.expect(!usage_tab.state.selected);
     _ = try expectByText(tree.root, .text, "Default model");
@@ -10345,6 +10355,7 @@ test "settings Usage tab sits after Skills; local context and thread-goal labels
     try testing.expect(!model.settings_page_appearance());
     try testing.expect(!model.settings_page_providers());
     try testing.expect(!model.settings_page_skills());
+    try testing.expect(!model.settings_page_computer_use());
 
     tree = try buildTree(arena, &model);
     try testing.expect((try expectButtonMsg(tree, "Usage", .set_settings_page_usage)).state.selected);
@@ -10352,6 +10363,7 @@ test "settings Usage tab sits after Skills; local context and thread-goal labels
     try testing.expect(!(try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Providers", .set_settings_page_providers)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Skills", .set_settings_page_skills)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Computer Use", .set_settings_page_computer_use)).state.selected);
     try testing.expect(findByText(tree.root, .text, "Default model") == null);
     try testing.expect(findByText(tree.root, .text, "Theme") == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
@@ -10397,6 +10409,90 @@ test "settings Usage tab sits after Skills; local context and thread-goal labels
     if (model.sessionById(id)) |session| session.setContextUsage(0, 0);
     try testing.expectEqual(@as(usize, 0), model.context_usage_label(arena).len);
     try testing.expect(!model.has_context_usage());
+}
+
+test "settings Computer Use tab sits after Usage; Unavailable, Off, empty apps" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var empty = Model{};
+    try testing.expectEqual(skills.Page.general, empty.settings_page);
+    try testing.expect(empty.settings_page_general());
+    try testing.expect(!empty.settings_page_computer_use());
+    try testing.expectEqualStrings("Unavailable", empty.computer_use_availability_label());
+    try testing.expect(std.mem.indexOf(u8, empty.computer_use_availability_caption(), "Screen Recording") != null);
+    try testing.expect(std.mem.indexOf(u8, empty.computer_use_availability_caption(), "macOS-only") != null);
+    try testing.expect(!empty.computer_use_enabled());
+    try testing.expect(empty.computer_use_off());
+    try testing.expect(!empty.computer_use_has_allowed_apps());
+
+    var model = main.initialModel();
+    try testing.expect(!model.computer_use_enabled());
+    try testing.expect(!model.computer_use_has_allowed_apps());
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_page_general());
+    var tree = try buildTree(arena, &model);
+    try testing.expect(pressableAppearsBefore(tree.root, "Usage", "Computer Use"));
+    const computer_use_tab = try expectButtonMsg(tree, "Computer Use", .set_settings_page_computer_use);
+    try testing.expect(!computer_use_tab.state.selected);
+    _ = try expectByText(tree.root, .text, "Default model");
+    try testing.expect(findByText(tree.root, .text, "Unavailable") == null);
+    try testing.expect(findByText(tree.root, .text, "Availability") == null);
+    try testing.expect(findByText(tree.root, .text, "Always-allowed apps") == null);
+    try testing.expect(findByText(tree.root, .text, "No always-allowed apps") == null);
+
+    main.update(&model, tree.msgForPointer(computer_use_tab.id, .up).?, &fx);
+    try testing.expect(model.settings_page_computer_use());
+    try testing.expect(!model.settings_page_general());
+    try testing.expect(!model.settings_page_appearance());
+    try testing.expect(!model.settings_page_providers());
+    try testing.expect(!model.settings_page_skills());
+    try testing.expect(!model.settings_page_usage());
+    try testing.expectEqualStrings("Unavailable", model.computer_use_availability_label());
+    try testing.expect(!model.computer_use_enabled());
+    try testing.expect(model.computer_use_off());
+    try testing.expect(!model.computer_use_has_allowed_apps());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Computer Use", .set_settings_page_computer_use)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "General", .set_settings_page_general)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Providers", .set_settings_page_providers)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Skills", .set_settings_page_skills)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Usage", .set_settings_page_usage)).state.selected);
+    try testing.expect(findByText(tree.root, .text, "Default model") == null);
+    try testing.expect(findByText(tree.root, .text, "Theme") == null);
+    try testing.expect(findByText(tree.root, .text, "Context window") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
+    try testing.expect(findByText(tree.root, .list_item, "fx") == null);
+    try testing.expect(findByText(tree.root, .button, "Refresh") == null);
+    try testing.expect(findByText(tree.root, .button, "Grant access") == null);
+    _ = try expectByText(tree.root, .text, "Computer Use");
+    _ = try expectByText(tree.root, .text, "Availability");
+    _ = try expectByText(tree.root, .text, "Unavailable");
+    try testing.expect(findTextContaining(tree.root, "Screen Recording") != null);
+    _ = try expectByText(tree.root, .text, "Enable");
+    const off = try expectByText(tree.root, .button, "Off");
+    try testing.expect(off.state.selected);
+    try testing.expect(tree.msgForPointer(off.id, .up) == null);
+    try testing.expect(findByText(tree.root, .button, "On") == null);
+    _ = try expectByText(tree.root, .text, "Always-allowed apps");
+    _ = try expectByText(tree.root, .text, "No always-allowed apps");
+
+    main.update(&model, .set_settings_page_usage, &fx);
+    try testing.expect(model.settings_page_usage());
+    try testing.expect(!model.settings_page_computer_use());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Context window");
+    try testing.expect(findByText(tree.root, .text, "Unavailable") == null);
+    try testing.expect(findByText(tree.root, .text, "Always-allowed apps") == null);
+    try testing.expect(findByText(tree.root, .button, "Off") == null);
 }
 
 test "theme preference defaults to System; Light/Dark force scheme regardless of OS" {
@@ -10547,6 +10643,7 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     try testing.expect(!(try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Skills", .set_settings_page_skills)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Usage", .set_settings_page_usage)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Computer Use", .set_settings_page_computer_use)).state.selected);
     _ = try expectButtonMsg(tree, "Refresh", .refresh_providers);
     try testing.expect(findByText(tree.root, .text, "Default model") == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
