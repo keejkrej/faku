@@ -38,6 +38,7 @@ send circle.
 | **argv slot** | Every flag and operand is its own spawn argument. Never interpolate into the chdir `-c` script. |
 | **right panel** | First-cut Files + Diff pane to the right of the conversation. Default closed. |
 | **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP `acp` providers (cursor today) uses the same one-shot acp-proxy as fx; other ids stay demo. fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
+| **Settings Appearance** | Settings page for chrome theme preference: System (follow OS `on_appearance`), Light, or Dark. Default System. Persists `theme_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. No language selector this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
 
 Avoid: calling ACP a live WebSocket; treating the daemon as the catalog
@@ -187,7 +188,7 @@ Monitor / Subagent kinds.
 
 ## Settings Providers
 
-The settings gear chrome is General | Providers | Skills. Providers
+The settings gear chrome is General | Appearance | Providers | Skills. Providers
 lists every `protocol.ProviderId` (fx, claude, codex, amp, grok,
 opencode, cursor, pi). fx is the first-party default: status is
 `Available` + probed path or `Not found` from the existing boot
@@ -210,10 +211,20 @@ URLs). Apply ("Use for this session") sets the selected chat
 session's `provider` and persists via `sessions.json`. New sessions
 stay fx. Runtime-only catalog.
 
+## Settings Appearance
+
+First-cut theme preference only. System follows OS `on_appearance`
+(`model.appearance.color_scheme`). Light / Dark force that scheme in
+`designTokens` / `DesignTokens.themeWithOverrides`. House pack,
+high contrast, and reduce motion still come from OS appearance;
+pixel-snap geometry stays off. Preference persists as
+`theme_preference` on `sessions.json` extras (`system` / `light` /
+`dark`). Missing or unknown loads as System. No language selector.
+
 ## Settings Skills scan
 
 The settings gear opens a panel for persisted defaults. A runtime-only
-General | Providers | Skills switch lists project `SKILL.md` files from
+General | Appearance | Providers | Skills switch lists project `SKILL.md` files from
 a bounded one-shot `find` (selected session `project_path`, else last
 project path). Name is YAML `name:` when present, else the parent
 folder. Selecting a row shows the body with frontmatter stripped.
@@ -247,7 +258,8 @@ Honest gaps this cut does not implement:
   ships; other CLIs get a PATH hint only)
 - Native drivers for Claude, Codex, Amp, Pi (non-ACP in Waku), Grok
   (`agent … stdio`), OpenCode (HTTP/SSE). Kimi is not in `ProviderId`
-- Appearance / Usage / Computer Use settings pages
+- Usage / Computer Use settings pages; language selector (Appearance
+  theme preference ships: System / Light / Dark)
 - Monitor / Subagent Background (Environment Summary is Process +
   last-turn settle only)
 - Further `main.zig` extract (`update` / `initFx` / `initialModel`

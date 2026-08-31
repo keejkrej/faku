@@ -420,6 +420,7 @@ pub const SkillRow = model_mod.SkillRow;
 pub const ProviderRow = model_mod.ProviderRow;
 pub const Msg = model_mod.Msg;
 pub const Model = model_mod.Model;
+pub const ThemePreference = model_mod.ThemePreference;
 
 pub const writeFixed = session_mod.writeFixed;
 
@@ -533,8 +534,12 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .close_settings_effort_picker => model.closeSettingsEffortPicker(),
         .pick_settings_effort => |id| settings_actions.handlePickSettingsEffort(model, id),
         .set_settings_page_general => settings_actions.handleSetSettingsPageGeneral(model),
+        .set_settings_page_appearance => settings_actions.handleSetSettingsPageAppearance(model),
         .set_settings_page_providers => settings_actions.handleSetSettingsPageProviders(model, fx),
         .set_settings_page_skills => settings_actions.handleSetSettingsPageSkills(model, fx),
+        .settings_theme_system => settings_actions.handleSettingsThemeSystem(model),
+        .settings_theme_light => settings_actions.handleSettingsThemeLight(model),
+        .settings_theme_dark => settings_actions.handleSettingsThemeDark(model),
         .refresh_skills => settings_actions.handleRefreshSkills(model, fx),
         .refresh_providers => settings_actions.handleRefreshProviders(model, fx),
         .skills_filter_edit => |edit| settings_actions.handleSkillsFilterEdit(model, edit),
@@ -745,12 +750,24 @@ pub fn onAppearance(appearance: native_sdk.platform.Appearance) ?Msg {
 /// rounded rects and the send circle stair-step; signed-distance
 /// coverage stays on when snapping is off. Slightly larger radii match
 /// Waku's 13px composer card.
-pub fn designTokens(model: *const Model) canvas.DesignTokens {
-    const contrast: canvas.ColorContrast = if (model.appearance.high_contrast) .high else .standard;
-    const scheme: canvas.ColorScheme = switch (model.appearance.color_scheme) {
+///
+/// Color scheme: System follows `model.appearance.color_scheme` from
+/// `on_appearance`. Light / Dark force that scheme. High contrast and
+/// reduce motion always follow the OS appearance.
+pub fn resolvedColorScheme(model: *const Model) canvas.ColorScheme {
+    return switch (model.theme_preference) {
         .light => .light,
         .dark => .dark,
+        .system => switch (model.appearance.color_scheme) {
+            .light => .light,
+            .dark => .dark,
+        },
     };
+}
+
+pub fn designTokens(model: *const Model) canvas.DesignTokens {
+    const contrast: canvas.ColorContrast = if (model.appearance.high_contrast) .high else .standard;
+    const scheme = resolvedColorScheme(model);
     return canvas.DesignTokens.themeWithOverrides(.{
         .pack = .house,
         .color_scheme = scheme,

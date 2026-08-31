@@ -1127,6 +1127,9 @@ test "idle send is muted and usage chrome stays hidden until ACP reports a windo
     try testing.expect(!model.has_context_usage());
     const tokens = main.designTokens(&model);
     try testing.expect(!tokens.pixel_snap.geometry);
+    try testing.expectEqual(main.ThemePreference.system, model.theme_preference);
+    try testing.expect(model.theme_system());
+    try testing.expectEqual(canvas.ColorScheme.dark, main.resolvedColorScheme(&model));
 
     const tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "Send", .send);
@@ -10103,6 +10106,7 @@ test "settings gear opens the panel; Esc and gear return to the session" {
     _ = try expectByText(tree.root, .text, "Effort");
     _ = try expectByText(tree.root, .text, "Last project path");
     _ = try expectByText(tree.root, .text, "Daemon address");
+    try testing.expect(findByText(tree.root, .text, "Theme") == null);
     _ = try expectButton(tree.root, "Ask");
     _ = try expectButton(tree.root, "Auto");
     _ = try expectButton(tree.root, "Full access");
@@ -10153,17 +10157,22 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(model.settings_page_general());
     try testing.expect(!model.settings_page_skills());
     try testing.expect(!model.settings_page_providers());
+    try testing.expect(!model.settings_page_appearance());
 
     var tree = try buildTree(arena, &model);
     const general = try expectButtonMsg(tree, "General", .set_settings_page_general);
     try testing.expect(general.state.selected);
+    const appearance_tab = try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance);
+    try testing.expect(!appearance_tab.state.selected);
     const providers_tab = try expectButtonMsg(tree, "Providers", .set_settings_page_providers);
     try testing.expect(!providers_tab.state.selected);
     const skills_tab = try expectButtonMsg(tree, "Skills", .set_settings_page_skills);
     try testing.expect(!skills_tab.state.selected);
-    try testing.expect(pressableAppearsBefore(tree.root, "General", "Providers"));
+    try testing.expect(pressableAppearsBefore(tree.root, "General", "Appearance"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Appearance", "Providers"));
     try testing.expect(pressableAppearsBefore(tree.root, "Providers", "Skills"));
     _ = try expectByText(tree.root, .text, "Default model");
+    try testing.expect(findByText(tree.root, .text, "Theme") == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
     try testing.expect(findByText(tree.root, .button, "Refresh") == null);
     try testing.expect(findByText(tree.root, .text, "Open a project") == null);
@@ -10174,6 +10183,7 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     try testing.expect(model.settings_page_skills());
     try testing.expect(!model.settings_page_general());
     try testing.expect(!model.settings_page_providers());
+    try testing.expect(!model.settings_page_appearance());
     try testing.expectEqual(@as(u32, 0), model.skill_count);
 
     tree = try buildTree(arena, &model);
@@ -10204,6 +10214,125 @@ test "settings General and Skills pages switch; Skills empty without a project" 
     _ = try expectByText(tree.root, .text, "Default model");
     const general_again = try expectButtonMsg(tree, "General", .set_settings_page_general);
     try testing.expect(general_again.state.selected);
+}
+
+test "settings Appearance tab sits between General and Providers; theme chips persist" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-settings-appearance", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    try store.saveSession(&model, model.selected, testing.allocator, testing.io);
+    try testing.expectEqual(main.ThemePreference.system, model.theme_preference);
+    try testing.expect(model.theme_system());
+
+    main.update(&model, .toggle_settings, &fx);
+    var tree = try buildTree(arena, &model);
+    try testing.expect(pressableAppearsBefore(tree.root, "General", "Appearance"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Appearance", "Providers"));
+    try testing.expect(pressableAppearsBefore(tree.root, "Providers", "Skills"));
+    const appearance_tab = try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance);
+    try testing.expect(!appearance_tab.state.selected);
+    _ = try expectByText(tree.root, .text, "Default model");
+    try testing.expect(findByText(tree.root, .text, "Theme") == null);
+
+    main.update(&model, tree.msgForPointer(appearance_tab.id, .up).?, &fx);
+    try testing.expect(model.settings_page_appearance());
+    try testing.expect(!model.settings_page_general());
+    try testing.expect(!model.settings_page_providers());
+    try testing.expect(!model.settings_page_skills());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "General", .set_settings_page_general)).state.selected);
+    try testing.expect(findByText(tree.root, .text, "Default model") == null);
+    try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
+    try testing.expect(findByText(tree.root, .list_item, "fx") == null);
+    try testing.expect(findByText(tree.root, .button, "Refresh") == null);
+    _ = try expectByText(tree.root, .text, "Theme");
+    const system_chip = try expectButtonMsg(tree, "System", .settings_theme_system);
+    try testing.expect(system_chip.state.selected);
+    const light_chip = try expectButtonMsg(tree, "Light", .settings_theme_light);
+    try testing.expect(!light_chip.state.selected);
+    const dark_chip = try expectButtonMsg(tree, "Dark", .settings_theme_dark);
+    try testing.expect(!dark_chip.state.selected);
+    try testing.expect(findTextContaining(tree.root, "follow the OS") != null);
+
+    main.update(&model, tree.msgForPointer(light_chip.id, .up).?, &fx);
+    try testing.expectEqual(main.ThemePreference.light, model.theme_preference);
+    try testing.expect(model.theme_light());
+    try testing.expect(!model.theme_system());
+    try testing.expectEqual(canvas.ColorScheme.light, main.resolvedColorScheme(&model));
+
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Light", .settings_theme_light)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "System", .settings_theme_system)).state.selected);
+
+    main.update(&model, .settings_theme_dark, &fx);
+    try testing.expectEqual(main.ThemePreference.dark, model.theme_preference);
+    try testing.expect(model.theme_dark());
+    try testing.expectEqual(canvas.ColorScheme.dark, main.resolvedColorScheme(&model));
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = testing.io;
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(main.ThemePreference.dark, loaded.theme_preference);
+    try testing.expect(loaded.theme_dark());
+}
+
+test "theme preference defaults to System; Light/Dark force scheme regardless of OS" {
+    var model = Model{};
+    try testing.expectEqual(main.ThemePreference.system, model.theme_preference);
+    try testing.expect(model.theme_system());
+    try testing.expectEqual(main.ThemePreference.system, main.ThemePreference.fromPersist(""));
+    try testing.expectEqual(main.ThemePreference.system, main.ThemePreference.fromPersist("nope"));
+    try testing.expectEqual(main.ThemePreference.system, main.ThemePreference.fromPersist("system"));
+    try testing.expectEqual(main.ThemePreference.light, main.ThemePreference.fromPersist("light"));
+    try testing.expectEqual(main.ThemePreference.dark, main.ThemePreference.fromPersist("dark"));
+
+    model.appearance = .{ .color_scheme = .dark };
+    try testing.expectEqual(canvas.ColorScheme.dark, main.resolvedColorScheme(&model));
+    const os_dark = main.designTokens(&model);
+    try testing.expect(!os_dark.pixel_snap.geometry);
+
+    model.appearance = .{ .color_scheme = .light };
+    try testing.expectEqual(canvas.ColorScheme.light, main.resolvedColorScheme(&model));
+    const os_light = main.designTokens(&model);
+    try testing.expect(!std.meta.eql(os_dark.colors.background, os_light.colors.background));
+
+    model.appearance = .{ .color_scheme = .dark };
+    model.theme_preference = .light;
+    try testing.expectEqual(canvas.ColorScheme.light, main.resolvedColorScheme(&model));
+    const forced_light = main.designTokens(&model);
+    try testing.expect(std.meta.eql(forced_light.colors.background, os_light.colors.background));
+    try testing.expect(!forced_light.pixel_snap.geometry);
+
+    model.appearance = .{ .color_scheme = .light };
+    model.theme_preference = .dark;
+    try testing.expectEqual(canvas.ColorScheme.dark, main.resolvedColorScheme(&model));
+    const forced_dark = main.designTokens(&model);
+    try testing.expect(std.meta.eql(forced_dark.colors.background, os_dark.colors.background));
+
+    model.theme_preference = .light;
+    model.appearance = .{ .color_scheme = .dark, .high_contrast = true, .reduce_motion = true };
+    try testing.expectEqual(canvas.ColorScheme.light, main.resolvedColorScheme(&model));
+    const forced_light_a11y = main.designTokens(&model);
+    try testing.expect(!std.meta.eql(forced_light_a11y.colors.background, os_light.colors.background) or
+        !std.meta.eql(forced_light_a11y.colors.text, os_light.colors.text));
+    try testing.expectEqualStrings("High contrast on, reduce motion on. These follow the OS.", model.appearance_os_caption());
 }
 
 test "settings Skills lists SKILL.md name and path; select shows body" {
@@ -10309,6 +10438,7 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     const providers_on = try expectButtonMsg(tree, "Providers", .set_settings_page_providers);
     try testing.expect(providers_on.state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "General", .set_settings_page_general)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Appearance", .set_settings_page_appearance)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Skills", .set_settings_page_skills)).state.selected);
     _ = try expectButtonMsg(tree, "Refresh", .refresh_providers);
     try testing.expect(findByText(tree.root, .text, "Default model") == null);

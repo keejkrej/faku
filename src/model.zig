@@ -110,6 +110,29 @@ pub const Role = enum { user, assistant, tool, reasoning };
 pub const Phase = enum { idle, streaming };
 pub const ReplyPath = enum { demo, fx, daemon };
 
+/// Settings → Appearance chrome theme. Default System so tokens still
+/// follow `on_appearance`. Missing / unknown persist strings load as
+/// System. Light / Dark force `DesignTokens` scheme regardless of OS.
+pub const ThemePreference = enum {
+    system,
+    light,
+    dark,
+
+    pub fn persistName(self: ThemePreference) []const u8 {
+        return switch (self) {
+            .system => "system",
+            .light => "light",
+            .dark => "dark",
+        };
+    }
+
+    pub fn fromPersist(value: []const u8) ThemePreference {
+        if (std.mem.eql(u8, value, "light")) return .light;
+        if (std.mem.eql(u8, value, "dark")) return .dark;
+        return .system;
+    }
+};
+
 pub const Turn = struct {
     id: u32 = 0,
     session_id: u32 = 0,
@@ -401,8 +424,12 @@ pub const Msg = union(enum) {
     close_settings_effort_picker,
     pick_settings_effort: []const u8,
     set_settings_page_general,
+    set_settings_page_appearance,
     set_settings_page_providers,
     set_settings_page_skills,
+    settings_theme_system,
+    settings_theme_light,
+    settings_theme_dark,
     refresh_skills,
     refresh_providers,
     skills_filter_edit: canvas.TextInputEvent,
@@ -668,9 +695,11 @@ pub const Model = struct {
     right_panel_expanded_store: [file_mention.max_file_mention_dirs]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** file_mention.max_file_mention_dirs,
     right_panel_expanded_count: u32 = 0,
     settings_open: bool = false,
-    /// Runtime-only Settings General | Providers | Skills page.
-    /// Default General. Not persisted to sessions.json.
+    /// Runtime-only Settings General | Appearance | Providers | Skills
+    /// page. Default General. Not persisted to sessions.json.
     settings_page: skills.Page = .general,
+    /// Persisted chrome theme. Default System (OS-follow).
+    theme_preference: ThemePreference = .system,
     /// Runtime-only selected Providers row (1-based). Not persisted.
     provider_selected_id: u32 = 0,
     /// Runtime-only Ctrl-Tab overlay. Not persisted to sessions.json.
@@ -1122,6 +1151,8 @@ pub const Model = struct {
         "settings_project_buffer",
         "settings_daemon_buffer",
         "settings_page",
+        "theme_preference",
+        "setThemePreference",
         "provider_selected_id",
         "skills_filter_buffer",
         "skill_store",
@@ -2415,12 +2446,41 @@ pub const Model = struct {
         return model.settings_page == .general;
     }
 
+    pub fn settings_page_appearance(model: *const Model) bool {
+        return model.settings_page == .appearance;
+    }
+
     pub fn settings_page_providers(model: *const Model) bool {
         return model.settings_page == .providers;
     }
 
     pub fn settings_page_skills(model: *const Model) bool {
         return model.settings_page == .skills;
+    }
+
+    pub fn theme_system(model: *const Model) bool {
+        return model.theme_preference == .system;
+    }
+
+    pub fn theme_light(model: *const Model) bool {
+        return model.theme_preference == .light;
+    }
+
+    pub fn theme_dark(model: *const Model) bool {
+        return model.theme_preference == .dark;
+    }
+
+    pub fn appearance_os_caption(model: *const Model) []const u8 {
+        const hc = model.appearance.high_contrast;
+        const rm = model.appearance.reduce_motion;
+        if (hc and rm) return "High contrast on, reduce motion on. These follow the OS.";
+        if (hc) return "High contrast on, reduce motion off. These follow the OS.";
+        if (rm) return "High contrast off, reduce motion on. These follow the OS.";
+        return "High contrast off, reduce motion off. These follow the OS.";
+    }
+
+    pub fn setThemePreference(model: *Model, preference: ThemePreference) void {
+        model.theme_preference = preference;
     }
 
     pub fn provider_rows(model: *const Model, arena: std.mem.Allocator) []const ProviderRow {
