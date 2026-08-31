@@ -1,12 +1,12 @@
 //! Settings chrome locale: LanguagePreference, System env resolve, labels.
 //!
 //! Native has no locale / NSLocale API this cut. System follows process
-//! `LC_ALL`, else `LC_MESSAGES`, else `LANG` (non-macOS Waku path).
-//! Settings chrome strings live here so `main.zig` does not grow.
-//! Not rust_i18n, not YAML catalogs, not full-app translation.
+//! `LC_ALL`, else `LC_MESSAGES`, else `LANG` (non-macOS Waku path), copied
+//! at boot onto the model. Settings chrome strings live here so
+//! `main.zig` does not grow. Not rust_i18n, not YAML catalogs, not
+//! full-app translation.
 
 const std = @import("std");
-const builtin = @import("builtin");
 
 /// Settings → Appearance chrome language. Default System. Missing /
 /// unknown persist strings load as System. Explicit chips are
@@ -141,34 +141,28 @@ pub fn fromLocaleId(id: []const u8) LanguagePreference {
     return .english;
 }
 
-/// Resolved chrome locale. `.system` follows process env; explicit
-/// preferences ignore LANG.
-pub fn resolve(preference: LanguagePreference) LanguagePreference {
-    if (preference == .system) return fromLocaleId(systemLocaleId());
-    return preference;
-}
-
-pub fn chromeFor(preference: LanguagePreference) Chrome {
-    return switch (resolve(preference)) {
-        .simplified_chinese => chrome_zh_cn,
-        .japanese => chrome_ja,
-        .system, .english => chrome_en,
-    };
-}
-
-fn systemLocaleId() []const u8 {
-    const lc_all = processEnv("LC_ALL");
+/// LC_ALL, else LC_MESSAGES, else LANG, else `"en"`. Empty values are skipped.
+/// Native has no locale API; the window copies these process env strings at boot.
+pub fn pickSystemLocaleId(lc_all: []const u8, lc_messages: []const u8, lang: []const u8) []const u8 {
     if (lc_all.len > 0) return lc_all;
-    const lc_messages = processEnv("LC_MESSAGES");
     if (lc_messages.len > 0) return lc_messages;
-    const lang = processEnv("LANG");
     if (lang.len > 0) return lang;
     return "en";
 }
 
-fn processEnv(key: [*:0]const u8) []const u8 {
-    if (builtin.os.tag == .windows) return "";
-    return std.posix.getenv(key) orelse "";
+/// Resolved chrome locale. `.system` follows `system_locale_id`; explicit
+/// preferences ignore it (English stays English even when LANG is ja).
+pub fn resolve(preference: LanguagePreference, system_locale_id: []const u8) LanguagePreference {
+    if (preference == .system) return fromLocaleId(system_locale_id);
+    return preference;
+}
+
+pub fn chromeFor(preference: LanguagePreference, system_locale_id: []const u8) Chrome {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => chrome_zh_cn,
+        .japanese => chrome_ja,
+        .system, .english => chrome_en,
+    };
 }
 
 test "LanguagePreference persist names and unknown load as System" {
@@ -203,15 +197,21 @@ test "fromLocaleId maps ja and zh-Hans; C empty and zh-Hant stay english" {
 
 test "resolve english ignores a japanese locale id" {
     const testing = std.testing;
-    try testing.expectEqual(LanguagePreference.english, resolve(.english));
-    try testing.expectEqual(LanguagePreference.japanese, fromLocaleId("ja"));
-    try testing.expectEqualStrings("Appearance", chromeFor(.english).appearance);
-    try testing.expectEqualStrings("外观", chromeFor(.simplified_chinese).appearance);
-    try testing.expectEqualStrings("外観", chromeFor(.japanese).appearance);
-    try testing.expectEqualStrings("Language", chromeFor(.english).language);
-    try testing.expectEqualStrings("语言", chromeFor(.simplified_chinese).language);
-    try testing.expectEqualStrings("言語", chromeFor(.japanese).language);
-    try testing.expectEqualStrings("Theme", chromeFor(.english).theme);
-    try testing.expectEqualStrings("主题", chromeFor(.simplified_chinese).theme);
-    try testing.expectEqualStrings("テーマ", chromeFor(.japanese).theme);
+    try testing.expectEqual(LanguagePreference.english, resolve(.english, "ja_JP.UTF-8"));
+    try testing.expectEqual(LanguagePreference.japanese, resolve(.system, "ja"));
+    try testing.expectEqualStrings("LC_ALL", pickSystemLocaleId("LC_ALL", "LC_MESSAGES", "LANG"));
+    try testing.expectEqualStrings("LC_MESSAGES", pickSystemLocaleId("", "LC_MESSAGES", "LANG"));
+    try testing.expectEqualStrings("LANG", pickSystemLocaleId("", "", "LANG"));
+    try testing.expectEqualStrings("en", pickSystemLocaleId("", "", ""));
+    try testing.expectEqualStrings("Appearance", chromeFor(.english, "ja").appearance);
+    try testing.expectEqualStrings("外观", chromeFor(.simplified_chinese, "").appearance);
+    try testing.expectEqualStrings("外観", chromeFor(.japanese, "").appearance);
+    try testing.expectEqualStrings("Language", chromeFor(.english, "").language);
+    try testing.expectEqualStrings("语言", chromeFor(.simplified_chinese, "").language);
+    try testing.expectEqualStrings("言語", chromeFor(.japanese, "").language);
+    try testing.expectEqualStrings("Theme", chromeFor(.english, "").theme);
+    try testing.expectEqualStrings("主题", chromeFor(.simplified_chinese, "").theme);
+    try testing.expectEqualStrings("テーマ", chromeFor(.japanese, "").theme);
+    try testing.expectEqualStrings("Appearance", chromeFor(.system, "").appearance);
+    try testing.expectEqualStrings("外観", chromeFor(.system, "ja_JP.UTF-8").appearance);
 }

@@ -10355,7 +10355,7 @@ test "settings Appearance language chips persist and re-label Settings chrome" {
     try testing.expectEqual(main.LanguagePreference.english, i18n.fromLocaleId("en"));
     try testing.expectEqual(main.LanguagePreference.english, i18n.fromLocaleId("C"));
     try testing.expectEqual(main.LanguagePreference.english, i18n.fromLocaleId(""));
-    try testing.expectEqual(main.LanguagePreference.english, i18n.resolve(.english));
+    try testing.expectEqual(main.LanguagePreference.english, i18n.resolve(.english, "ja_JP.UTF-8"));
 
     var model = main.initialModel();
     model.task_state_loaded = true;
@@ -10420,6 +10420,7 @@ test "settings Appearance language chips persist and re-label Settings chrome" {
     _ = try expectButtonMsg(tree, "简体中文", .settings_language_simplified_chinese);
 
     const english_chip_ja = try expectButtonMsg(tree, "English", .settings_language_english);
+    model.setSystemLocaleId("ja_JP.UTF-8");
     main.update(&model, tree.msgForPointer(english_chip_ja.id, .up).?, &fx);
     try testing.expectEqual(main.LanguagePreference.english, model.language_preference);
     try testing.expectEqualStrings("Appearance", model.settings_nav_appearance());

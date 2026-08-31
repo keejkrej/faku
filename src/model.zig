@@ -82,6 +82,7 @@ pub const max_tool_status = 32;
 pub const max_daemon_address = 128;
 pub const max_daemon_token = 256;
 pub const max_sidecar_path = 512;
+pub const max_locale_id = 128;
 
 // Field-default copies of shell / key constants that stay defined in
 // `main` / `switcher` / `attach`. Values must stay in sync.
@@ -711,6 +712,10 @@ pub const Model = struct {
     theme_preference: ThemePreference = .system,
     /// Persisted chrome language. Default System (LC_ALL / LC_MESSAGES / LANG).
     language_preference: LanguagePreference = .system,
+    /// Process locale id for System language. Copied at boot from LC_ALL /
+    /// LC_MESSAGES / LANG. Empty → english. Not persisted.
+    system_locale_id_storage: [max_locale_id]u8 = [_]u8{0} ** max_locale_id,
+    system_locale_id_len: usize = 0,
     /// Runtime-only selected Providers row (1-based). Not persisted.
     provider_selected_id: u32 = 0,
     /// Runtime-only Ctrl-Tab overlay. Not persisted to sessions.json.
@@ -1167,6 +1172,10 @@ pub const Model = struct {
         "language_preference",
         "setLanguagePreference",
         "settingsChrome",
+        "system_locale_id_storage",
+        "system_locale_id_len",
+        "setSystemLocaleId",
+        "systemLocaleId",
         "provider_selected_id",
         "skills_filter_buffer",
         "skill_store",
@@ -2538,7 +2547,15 @@ pub const Model = struct {
     }
 
     fn settingsChrome(model: *const Model) i18n.Chrome {
-        return i18n.chromeFor(model.language_preference);
+        return i18n.chromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    pub fn systemLocaleId(model: *const Model) []const u8 {
+        return model.system_locale_id_storage[0..model.system_locale_id_len];
+    }
+
+    pub fn setSystemLocaleId(model: *Model, value: []const u8) void {
+        writeFixed(&model.system_locale_id_storage, &model.system_locale_id_len, value);
     }
 
     pub fn settings_title(model: *const Model) []const u8 {

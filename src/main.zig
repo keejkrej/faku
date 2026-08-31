@@ -842,6 +842,11 @@ pub fn main(init: std.process.Init) !void {
         store.bindDefaultDir(&app_state.model, home, init.environ_map.get("XDG_DATA_HOME"));
     }
     util.bindDaemonEnv(&app_state.model, init);
+    app_state.model.setSystemLocaleId(i18n.pickSystemLocaleId(
+        init.environ_map.get("LC_ALL") orelse "",
+        init.environ_map.get("LC_MESSAGES") orelse "",
+        init.environ_map.get("LANG") orelse "",
+    ));
     _ = store.boot(&app_state.model, std.heap.page_allocator, init.io);
     if (init.environ_map.get(protocol.DAEMON_ADDRESS_ENV)) |addr| {
         app_state.model.setDaemonAddress(addr);
