@@ -18,9 +18,9 @@
 //! or any real CLI install.
 //!
 //! Leftovers: full onboarding / OAuth / auto-install; Claude /
-//! Codex / Amp / Pi / Grok / OpenCode native drivers; Usage /
-//! Computer Use settings pages. Appearance theme preference ships.
-//! Not Waku install/auth.
+//! Codex / Amp / Pi / Grok / OpenCode native drivers. Appearance
+//! theme, Usage, and Computer Use first-cut pages ship (Computer Use
+//! is Unavailable / Off; no Native helper). Not Waku install/auth.
 
 const std = @import("std");
 const main = @import("main.zig");

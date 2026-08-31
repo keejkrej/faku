@@ -41,6 +41,7 @@ send circle.
 | **Settings Appearance** | Settings page for chrome theme preference: System (follow OS `on_appearance`), Light, or Dark. Default System. Persists `theme_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. No language selector this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
 | **Settings Usage** | Settings page showing the selected session's local context window (`context_used` / `context_size` from ACP `usage_update`) and thread-goal tokens (`threadGoalUsageLabel`). Read-only. Not daemon `LoadUsageHistory`, not a cost chart, not Daily / Monthly / Projects. |
+| **Settings Computer Use** | Settings page for Waku-nav parity. First-cut is Unavailable / Off / empty always-allowed apps. Native has no Screen Recording or Accessibility APIs; no Swift helper, permission probe, or app grants this cut. |
 
 Avoid: calling ACP a live WebSocket; treating the daemon as the catalog
 of record; inventing Native git / pick-file / maximize / caret / PTY /
@@ -189,7 +190,7 @@ Monitor / Subagent kinds.
 
 ## Settings Providers
 
-The settings gear chrome is General | Appearance | Providers | Skills | Usage. Providers
+The settings gear chrome is General | Appearance | Providers | Skills | Usage | Computer Use. Providers
 lists every `protocol.ProviderId` (fx, claude, codex, amp, grok,
 opencode, cursor, pi). fx is the first-party default: status is
 `Available` + probed path or `Not found` from the existing boot
@@ -234,10 +235,19 @@ is already on `sessions.json`; this page is display-only. Not daemon
 `LoadUsageHistory`, not a dollar chart, not Daily / Monthly / Projects
 tabs.
 
+## Settings Computer Use
+
+First-cut nav + Unavailable page. Native has no Screen Recording,
+Accessibility, or permission-probe APIs; Waku's `Waku Computer Use`
+helper is macOS-only. Availability is always "Unavailable". Enable is
+locked Off (no persist, no toggle). Always-allowed apps is the empty
+state only. Not a Swift helper, not sky MCP, not System Settings
+grant-access buttons, not an app picker.
+
 ## Settings Skills scan
 
 The settings gear opens a panel for persisted defaults. A runtime-only
-General | Appearance | Providers | Skills | Usage switch lists project `SKILL.md` files from
+General | Appearance | Providers | Skills | Usage | Computer Use switch lists project `SKILL.md` files from
 a bounded one-shot `find` (selected session `project_path`, else last
 project path). Name is YAML `name:` when present, else the parent
 folder. Selecting a row shows the body with frontmatter stripped.
@@ -273,9 +283,12 @@ Honest gaps this cut does not implement:
   (`agent … stdio`), OpenCode (HTTP/SSE). Kimi is not in `ProviderId`
 - Usage history from daemon `LoadUsageHistory`, cost / dollar chart,
   Daily / Monthly / Projects tabs (Settings Usage ships local context
-  + thread-goal tokens for the selected session). Computer Use
-  settings page; language selector (Appearance theme preference ships:
-  System / Light / Dark)
+  + thread-goal tokens for the selected session)
+- Real Computer Use: Native Screen Recording / Accessibility APIs,
+  macOS helper, permission probe, always-allowed app picker (Settings
+  Computer Use first-cut is nav + Unavailable / Off / empty apps)
+- Language selector (Appearance theme preference ships: System /
+  Light / Dark)
 - Monitor / Subagent Background (Environment Summary is Process +
   last-turn settle only)
 - Further `main.zig` extract (`update` / `initFx` / `initialModel`

@@ -220,6 +220,10 @@ pub fn handleSetSettingsPageUsage(model: *Model) void {
     model.settings_page = .usage;
 }
 
+pub fn handleSetSettingsPageComputerUse(model: *Model) void {
+    model.settings_page = .computer_use;
+}
+
 pub fn handleSettingsThemeSystem(model: *Model) void {
     model.setThemePreference(.system);
     store.persistSettingsIfPossible(model);

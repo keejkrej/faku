@@ -538,6 +538,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .set_settings_page_providers => settings_actions.handleSetSettingsPageProviders(model, fx),
         .set_settings_page_skills => settings_actions.handleSetSettingsPageSkills(model, fx),
         .set_settings_page_usage => settings_actions.handleSetSettingsPageUsage(model),
+        .set_settings_page_computer_use => settings_actions.handleSetSettingsPageComputerUse(model),
         .settings_theme_system => settings_actions.handleSettingsThemeSystem(model),
         .settings_theme_light => settings_actions.handleSettingsThemeLight(model),
         .settings_theme_dark => settings_actions.handleSettingsThemeDark(model),

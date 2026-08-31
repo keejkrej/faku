@@ -164,6 +164,7 @@
           <button variant="ghost" size="sm" selected="{settings_page_providers}" on-press="set_settings_page_providers">Providers</button>
           <button variant="ghost" size="sm" selected="{settings_page_skills}" on-press="set_settings_page_skills">Skills</button>
           <button variant="ghost" size="sm" selected="{settings_page_usage}" on-press="set_settings_page_usage">Usage</button>
+          <button variant="ghost" size="sm" selected="{settings_page_computer_use}" on-press="set_settings_page_computer_use">Computer Use</button>
           <spacer grow="1" />
           <if test="{settings_page_skills}">
             <button variant="ghost" size="sm" on-press="refresh_skills">Refresh</button>
@@ -287,6 +288,35 @@
             </row>
           </if>
           <else>
+          <if test="{settings_page_computer_use}">
+            <row grow="1" main="center">
+              <column grow="1" max-width="720" gap="10" padding="14">
+                <text>Computer Use</text>
+                <card size="sm" padding="10">
+                  <column gap="8">
+                    <text>Availability</text>
+                    <text wrap="false" overflow="ellipsis">{computer_use_availability_label}</text>
+                    <text wrap="true" foreground="text_muted">{computer_use_availability_caption}</text>
+                  </column>
+                </card>
+                <card size="sm" padding="10">
+                  <column gap="8">
+                    <text>Enable</text>
+                    <row gap="8">
+                      <button variant="ghost" size="sm" selected="{computer_use_off}">Off</button>
+                    </row>
+                  </column>
+                </card>
+                <card size="sm" padding="10">
+                  <column gap="8">
+                    <text>Always-allowed apps</text>
+                    <text wrap="true" foreground="text_muted">No always-allowed apps</text>
+                  </column>
+                </card>
+              </column>
+            </row>
+          </if>
+          <else>
           <if test="{settings_page_general}">
           <row grow="1" main="center">
             <column grow="1" max-width="720" gap="10" padding="14">
@@ -321,6 +351,7 @@
             </column>
           </row>
           </if>
+          </else>
           </else>
           </else>
           </else>
