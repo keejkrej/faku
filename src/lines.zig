@@ -1219,7 +1219,9 @@ test "claude json apply: result fallback only when no text_delta" {
 
 test "claude json parser: parent_tool_use_id does not append to main turn" {
     const testing = std.testing;
-    const alloc = testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const alloc = arena_state.allocator();
 
     const delta = parseClaudeJsonLine(
         "{\"type\":\"stream_event\",\"parent_tool_use_id\":\"toolu_sub_1\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"child hello\"}}}",
