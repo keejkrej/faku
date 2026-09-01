@@ -2,8 +2,8 @@
 //!
 //! `Mode` / `Role` / `Phase` / `ReplyPath`, Turn / Folder / row types,
 //! `Msg`, and `Model` live here. `update` / `initFx` live in
-//! `update.zig` (re-exported from `main`). `initialModel` stays in
-//! `main.zig`. Helpers that `@import("main.zig")` keep working
+//! `update.zig` (re-exported from `main`). `initialModel` lives in
+//! `boot.zig` (re-exported from `main`). Helpers that `@import("main.zig")` keep working
 //! via re-exports. Behavior is unchanged from the former `main` Model
 //! cluster.
 

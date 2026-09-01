@@ -70,6 +70,7 @@ const fx_probe = @import("fx_probe.zig");
 const cli_probe = @import("cli_probe.zig");
 const palette_run = @import("palette_run.zig");
 const update_mod = @import("update.zig");
+const boot_mod = @import("boot.zig");
 const session_mod = @import("session.zig");
 const model_mod = @import("model.zig");
 const i18n = @import("i18n.zig");
@@ -464,79 +465,20 @@ pub const applySessionSelection = palette_run.applySessionSelection;
 
 pub const update = update_mod.update;
 pub const initFx = update_mod.initFx;
+pub const initialModel = boot_mod.initialModel;
+pub const onAppearance = boot_mod.onAppearance;
+pub const resolvedColorScheme = boot_mod.resolvedColorScheme;
+pub const designTokens = boot_mod.designTokens;
 
 pub const startFxProbe = fx_probe.startFxProbe;
 
 /// Native `UiApp.Options.on_drop` → Msg. Window-level; no OS picker.
 pub const onDrop = attach_helpers.onDrop;
 
-/// Keep custom Geist tokens in lockstep with the OS light/dark flip.
-pub fn onAppearance(appearance: native_sdk.platform.Appearance) ?Msg {
-    return .{ .appearance_changed = appearance };
-}
-
-/// Geist pack with anti-aliased edges. Geometry pixel-snap makes 1x
-/// rounded rects and the send circle stair-step; signed-distance
-/// coverage stays on when snapping is off. Slightly larger radii match
-/// Waku's 13px composer card.
-///
-/// Color scheme: System follows `model.appearance.color_scheme` from
-/// `on_appearance`. Light / Dark force that scheme. High contrast and
-/// reduce motion always follow the OS appearance.
-pub fn resolvedColorScheme(model: *const Model) canvas.ColorScheme {
-    return switch (model.theme_preference) {
-        .light => .light,
-        .dark => .dark,
-        .system => switch (model.appearance.color_scheme) {
-            .light => .light,
-            .dark => .dark,
-        },
-    };
-}
-
-pub fn designTokens(model: *const Model) canvas.DesignTokens {
-    const contrast: canvas.ColorContrast = if (model.appearance.high_contrast) .high else .standard;
-    const scheme = resolvedColorScheme(model);
-    return canvas.DesignTokens.themeWithOverrides(.{
-        .pack = .house,
-        .color_scheme = scheme,
-        .contrast = contrast,
-        .reduce_motion = model.appearance.reduce_motion,
-    }, .{
-        .pixel_snap = .{ .geometry = false },
-    });
-}
-
 pub const AppUi = canvas.Ui(Msg);
 pub const app_markup = @embedFile("app.native");
 
 const FakuApp = native_sdk.UiApp(Model, Msg);
-
-pub fn initialModel() Model {
-    var model = Model{};
-    const port = model.addSession("port waku to zig", .fx);
-    _ = model.appendTurn(port, .user, "replace the GPUI desktop with a Native SDK Zig shell");
-    _ = model.appendTurn(port, .assistant, "fx-first demo: sidebar, transcript, composer. Send runs `fx ask` when the CLI is installed.");
-
-    const auth = model.addSession("fix auth listener", .claude);
-    _ = model.appendTurn(auth, .user, "the auth listener drops the first event after reconnect");
-    _ = model.appendTurn(auth, .assistant, "I will inspect the reconnect path and replay the last event.");
-    _ = model.appendTurn(auth, .tool, "read src/auth/listener.ts");
-    _ = model.appendTurn(auth, .assistant, "The handler unsubscribes before the replay buffer is flushed.");
-
-    model.selected = port;
-    model.pushSelectionHistory(port);
-    model.pinTranscriptToLatest();
-    if (model.sessionById(port)) |session| {
-        session.has_started = true;
-        session.detail_loaded = true;
-    }
-    if (model.sessionById(auth)) |session| {
-        session.has_started = true;
-        session.detail_loaded = true;
-    }
-    return model;
-}
 
 pub fn main(init: std.process.Init) !void {
     if (try daemon_proxy.maybeRun(init)) return;
@@ -623,6 +565,7 @@ test {
     _ = @import("session_actions.zig");
     _ = @import("settings_actions.zig");
     _ = @import("update.zig");
+    _ = @import("boot.zig");
     _ = @import("session.zig");
     _ = @import("model.zig");
     _ = @import("i18n.zig");

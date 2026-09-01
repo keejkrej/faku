@@ -4,7 +4,7 @@
 //! matching `.init_fx` boot (catalog hydrate + git probes + fx `--help`).
 //! Re-exported from `main.zig` so `UiApp` and tests keep `main.update` /
 //! `main.initFx`. Behavior is unchanged from the former `main` functions.
-//! `initialModel` stays in `main.zig`.
+//! `initialModel` / appearance boot live in `boot.zig`.
 
 const main = @import("main.zig");
 const store = @import("store.zig");
