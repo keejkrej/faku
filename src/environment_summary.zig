@@ -27,8 +27,8 @@
 //! `tool_result` (`tool_use_id`) fills a bounded runtime-only
 //! 512KB last-window log on that row (newlines kept; not
 //! sessions.json). Environment Summary `detail` stays a short
-//! one-line preview; the right-panel Background body shows the
-//! stored log with CSI/ANSI stripped for display. Live Monitor
+//! one-line preview; the right-panel Background body shows a
+//! 100ms CSI-stripped render cache of that stored log. Live Monitor
 //! rows set `can_stop`; Stop is Faku-side dismiss of that slot
 //! (compact + free the heap log, ignore later output for that
 //! `tool_use` id) on one-shot `claude -p --output-format
@@ -53,7 +53,8 @@
 //! kept; CSI stored raw and stripped for display). That text
 //! still does not `appendToTurn` on the main stream. Environment
 //! Summary `detail` stays a short one-line preview; the
-//! right-panel Background body shows the stored log. When the
+//! right-panel Background body shows the 100ms CSI-stripped
+//! render cache of that stored log. When the
 //! turn settles (`finishStream` completed / failed, `stopStream`
 //! stopped), currently-live Monitor and Subagent rows stay in
 //! this runtime registry as settled (status from that Process
@@ -98,15 +99,19 @@
 //! row is a live Process, live Monitor, or live Subagent). Leftovers: prune-alone,
 //! Claude CLI TaskStop / long-lived ACP, daemon `refreshBackgroundWork` /
 //! WorkspaceOperation, full BackgroundWorkRegistry event/reconcile
-//! parity, 100ms render cache. Kind chrome, Process registry,
+//! parity. Kind chrome, Process registry,
 //! first-cut live Monitor rows from Claude `Monitor` tool_use plus
 //! a Waku-sized 512KB last-window log from matching user
 //! `tool_result` (Environment Summary stays a one-line preview;
-//! right-panel Background reads the stored log) and Faku-side
+//! right-panel Background reads a 100ms CSI-stripped render cache
+//! of that stored log — piggybacks `now_ms` / the stream tick;
+//! Native has no GPUI SharedString and no dedicated 100ms timer)
+//! and Faku-side
 //! Monitor Stop on one-shot `-p`, first-cut live Subagent rows
 //! from Claude `parent_tool_use_id` plus a matching 512KB
 //! last-window from forwarded `parent_tool_use_id` text
-//! (`text_delta` / assistant text; still off the main turn) and
+//! (`text_delta` / assistant text; still off the main turn; same
+//! 100ms render cache) and
 //! Faku-side Subagent Stop on one-shot `-p` (dismiss that live
 //! row; not Claude TaskStop mid-turn), first-cut settled Monitor /
 //! Subagent persist after the turn (status from Process settle;
@@ -203,19 +208,26 @@ pub const max_subagent_output: usize = max_monitor_output;
 pub const max_monitor_preview: usize = 512;
 pub const max_subagent_preview: usize = max_monitor_preview;
 
-/// Scratch for right-panel Monitor / Subagent log display
-/// (complete CSI stripped). Native copies the slice during the
-/// view bind. One selected row at a time.
-var background_panel_display: [max_monitor_output]u8 = undefined;
+/// Waku `OUTPUT_CACHE_REFRESH_INTERVAL`. Rebuilt CSI-stripped
+/// display is throttled to this many milliseconds of `model.now_ms`.
+/// Piggybacks the update loop / stream tick; Native has no
+/// dedicated 100ms timer this cut.
+pub const output_cache_refresh_interval_ms: i64 = 100;
 
-/// Shared heap last-window + one-line preview. Monitor and
-/// Subagent both embed this so append / preview / strip / free
-/// stay one implementation.
+/// Shared heap last-window + one-line preview + CSI-stripped
+/// render cache. Monitor and Subagent both embed this so append /
+/// preview / strip / free stay one implementation. Raw bytes stay
+/// in `output_*`. `rendered_*` is runtime-only (same 512KB cap,
+/// not sessions.json) and is rebuilt only when `dirty_output` and
+/// at least `output_cache_refresh_interval_ms` have passed.
 pub const LastWindow = struct {
     output_storage: []u8 = &.{},
     output_len: usize = 0,
     preview_storage: [max_monitor_preview]u8 = [_]u8{0} ** max_monitor_preview,
     preview_len: usize = 0,
+    rendered_storage: []u8 = &.{},
+    rendered_len: usize = 0,
+    dirty_output: bool = false,
 
     pub fn output(self: *const LastWindow) []const u8 {
         return self.output_storage[0..self.output_len];
@@ -223,6 +235,12 @@ pub const LastWindow = struct {
 
     pub fn preview(self: *const LastWindow) []const u8 {
         return self.preview_storage[0..self.preview_len];
+    }
+
+    /// CSI-stripped last-window for the right-panel body. Empty
+    /// until `refreshBackgroundOutputCache` rebuilds it.
+    pub fn rendered(self: *const LastWindow) []const u8 {
+        return self.rendered_storage[0..self.rendered_len];
     }
 };
 
@@ -435,6 +453,9 @@ pub fn settleLiveBackgroundSignals(model: *Model, session_id: u32, status: Settl
         slot.settled = status;
         if (slot.session_id == 0) slot.session_id = session_id;
     }
+    // Settled rows stay visible with no further stream ticks;
+    // rebuild dirty rendered buffers even inside the 100ms window.
+    _ = refreshBackgroundOutputCacheNow(model);
 }
 
 /// Drop the dismissed-id list so a later turn can re-register the
@@ -569,7 +590,9 @@ pub fn noteLiveMonitor(model: *Model, tool_use_id: []const u8) void {
 /// just appends. Last-window drain-from-front at
 /// `max_monitor_output`; UTF-8 char-boundary safe. Stored bytes
 /// keep newlines and raw CSI; Environment Summary `preview`
-/// collapses whitespace and strips complete CSI.
+/// collapses whitespace and strips complete CSI. Marks the 100ms
+/// render cache dirty; the panel buffer is rebuilt on
+/// `refreshBackgroundOutputCache`, not here.
 pub fn appendLiveMonitorOutput(model: *Model, tool_use_id: []const u8, text: []const u8) void {
     if (tool_use_id.len == 0 or text.len == 0) return;
     var i: u32 = 0;
@@ -581,6 +604,7 @@ pub fn appendLiveMonitorOutput(model: *Model, tool_use_id: []const u8, text: []c
         if (storage.len == 0) return;
         appendBounded(storage, &slot.log.output_len, text);
         rebuildPreview(&slot.log);
+        slot.log.dirty_output = true;
         return;
     }
 }
@@ -594,7 +618,9 @@ pub fn appendLiveMonitorOutput(model: *Model, tool_use_id: []const u8, text: []c
 /// drain-from-front at `max_subagent_output`; UTF-8
 /// char-boundary safe. Stored bytes keep newlines and raw CSI;
 /// Environment Summary `preview` collapses whitespace and strips
-/// complete CSI. Same size/policy as Monitor.
+/// complete CSI. Marks the 100ms render cache dirty; the panel
+/// buffer is rebuilt on `refreshBackgroundOutputCache`, not here.
+/// Same size/policy as Monitor.
 pub fn appendLiveSubagentOutput(model: *Model, parent_id: []const u8, text: []const u8) void {
     if (parent_id.len == 0 or text.len == 0) return;
     var i: u32 = 0;
@@ -606,6 +632,7 @@ pub fn appendLiveSubagentOutput(model: *Model, parent_id: []const u8, text: []co
         if (storage.len == 0) return;
         appendBounded(storage, &slot.log.output_len, text);
         rebuildPreview(&slot.log);
+        slot.log.dirty_output = true;
         return;
     }
 }
@@ -639,7 +666,9 @@ fn completeCsiLen(bytes: []const u8, i: usize) usize {
 }
 
 /// Strip complete CSI for display. Incomplete CSI at the end is
-/// left as-is (first-cut; not Waku's split-delta render cache).
+/// left as-is. Refresh runs this against the concatenated raw
+/// last-window so a sequence split across deltas is stripped once
+/// it is complete in the buffer.
 fn stripAnsi(src: []const u8, dest: []u8) usize {
     var n: usize = 0;
     var i: usize = 0;
@@ -674,9 +703,97 @@ fn releaseLog(log: *LastWindow) void {
     if (log.output_storage.len != 0) {
         std.heap.page_allocator.free(log.output_storage);
     }
+    if (log.rendered_storage.len != 0) {
+        std.heap.page_allocator.free(log.rendered_storage);
+    }
     log.output_storage = &.{};
     log.output_len = 0;
     log.preview_len = 0;
+    log.rendered_storage = &.{};
+    log.rendered_len = 0;
+    log.dirty_output = false;
+}
+
+fn ensureRendered(log: *LastWindow) []u8 {
+    if (log.rendered_storage.len == max_monitor_output) return log.rendered_storage;
+    if (log.rendered_storage.len != 0) {
+        std.heap.page_allocator.free(log.rendered_storage);
+        log.rendered_storage = &.{};
+        log.rendered_len = 0;
+    }
+    const buf = std.heap.page_allocator.alloc(u8, max_monitor_output) catch return &.{};
+    log.rendered_storage = buf;
+    log.rendered_len = 0;
+    return buf;
+}
+
+fn rebuildRendered(log: *LastWindow) void {
+    log.dirty_output = false;
+    const raw = log.output();
+    if (raw.len == 0) {
+        log.rendered_len = 0;
+        return;
+    }
+    const dest = ensureRendered(log);
+    if (dest.len == 0) {
+        log.dirty_output = true;
+        return;
+    }
+    log.rendered_len = stripAnsi(raw, dest);
+}
+
+fn anyDirtyBackgroundOutput(model: *const Model) bool {
+    var i: u32 = 0;
+    while (i < model.background_monitor_count) : (i += 1) {
+        if (model.background_monitors[i].log.dirty_output) return true;
+    }
+    i = 0;
+    while (i < model.background_subagent_count) : (i += 1) {
+        if (model.background_subagents[i].log.dirty_output) return true;
+    }
+    return false;
+}
+
+/// True while at least one Monitor / Subagent last-window still
+/// needs a cache rebuild. A retry is requested only while dirty.
+pub fn backgroundOutputCacheDirty(model: *const Model) bool {
+    return anyDirtyBackgroundOutput(model);
+}
+
+fn refreshBackgroundOutputCacheAt(model: *Model, force: bool) bool {
+    if (!anyDirtyBackgroundOutput(model)) return false;
+    if (!force) {
+        if (model.background_output_cache_refresh_ms) |last| {
+            if (model.now_ms >= last and model.now_ms - last < output_cache_refresh_interval_ms) {
+                return false;
+            }
+        }
+    }
+    var i: u32 = 0;
+    while (i < model.background_monitor_count) : (i += 1) {
+        const log = &model.background_monitors[i].log;
+        if (log.dirty_output) rebuildRendered(log);
+    }
+    i = 0;
+    while (i < model.background_subagent_count) : (i += 1) {
+        const log = &model.background_subagents[i].log;
+        if (log.dirty_output) rebuildRendered(log);
+    }
+    model.background_output_cache_refresh_ms = model.now_ms;
+    return true;
+}
+
+/// Rebuild dirty CSI-stripped last-window caches at most once per
+/// `output_cache_refresh_interval_ms` of `model.now_ms`. Returns
+/// true when at least one buffer was rebuilt. Unchanged snapshots
+/// (not dirty) are a no-op. Paint / Native view bind must not call
+/// this; `backgroundWorkOutput` reads the cache only.
+pub fn refreshBackgroundOutputCache(model: *Model) bool {
+    return refreshBackgroundOutputCacheAt(model, false);
+}
+
+fn refreshBackgroundOutputCacheNow(model: *Model) bool {
+    return refreshBackgroundOutputCacheAt(model, true);
 }
 
 fn appendBounded(storage: []u8, len: *usize, text: []const u8) void {
@@ -1231,27 +1348,24 @@ pub fn backgroundWorkStatus(row: BackgroundRow) []const u8 {
 }
 
 /// Right-panel Background body. Monitor and Subagent rows return
-/// the stored last-window with complete CSI stripped (newlines
-/// kept), live or settled. Process stays empty so the pane shows
-/// "No output".
+/// the CSI-stripped render cache (newlines kept), live or settled.
+/// Does not `stripAnsi` on the Native view bind. Process stays
+/// empty so the pane shows "No output".
 pub fn backgroundWorkOutput(model: *const Model) []const u8 {
     const row = selectedBackgroundRow(model) orelse return "";
-    const raw = switch (row.kind) {
-        .monitor => blk: {
+    switch (row.kind) {
+        .monitor => {
             const idx = row.id - monitor_row_id_first;
             if (idx >= model.background_monitor_count) return "";
-            break :blk model.background_monitors[idx].output();
+            return model.background_monitors[idx].log.rendered();
         },
-        .subagent => blk: {
+        .subagent => {
             const idx = row.id - subagent_row_id_first;
             if (idx >= model.background_subagent_count) return "";
-            break :blk model.background_subagents[idx].output();
+            return model.background_subagents[idx].log.rendered();
         },
         .process => return "",
-    };
-    if (raw.len == 0) return "";
-    const n = stripAnsi(raw, background_panel_display[0..]);
-    return background_panel_display[0..n];
+    }
 }
 
 /// Close the popover and open the right-panel Background surface on
@@ -1261,6 +1375,11 @@ pub fn openBackgroundWork(model: *Model, fx: *Effects, row_id: u32) void {
     if (findBackgroundRow(model, row_id) == null) return;
     close(model);
     right_panel.selectBackground(model, fx, row_id);
+    _ = refreshBackgroundOutputCache(model);
+}
+
+fn refreshPanelCache(model: *Model) void {
+    _ = refreshBackgroundOutputCache(model);
 }
 
 fn expectNoBackgroundRows(model: *const Model) !void {
@@ -2279,6 +2398,7 @@ test "appendLiveMonitorOutput fills preview; unknown id and empty text are no-op
     try std.testing.expectEqualStrings(kind_monitor_label, rows[1].title);
     try std.testing.expect(!rows[0].has_detail);
     model.right_panel_background_row_id = monitor_row_id_first;
+    refreshPanelCache(&model);
     try std.testing.expectEqualStrings("first\nline first\nline", backgroundWorkOutput(&model));
     try std.testing.expect(backgroundWorkOutput(&model).len > rows[1].detail.len or std.mem.indexOf(u8, backgroundWorkOutput(&model), "\n") != null);
 
@@ -2337,6 +2457,7 @@ test "Monitor stored log keeps newlines and CSI; Summary is one line; panel stri
     try std.testing.expectEqualStrings("\x1b[31mred\x1b[0m\nnext", model.background_monitors[0].output());
 
     model.right_panel_background_row_id = monitor_row_id_first;
+    refreshPanelCache(&model);
     const panel = backgroundWorkOutput(&model);
     try std.testing.expectEqualStrings("red\nnext", panel);
     try std.testing.expect(std.mem.indexOf(u8, panel, "\x1b") == null);
@@ -2368,6 +2489,7 @@ test "Monitor panel log is larger than the one-line Summary preview" {
     try std.testing.expect(std.mem.indexOf(u8, model.background_monitors[0].output(), "\n") != null);
 
     model.right_panel_background_row_id = monitor_row_id_first;
+    refreshPanelCache(&model);
     const panel = backgroundWorkOutput(&model);
     try std.testing.expect(panel.len > rows[1].detail.len);
     try std.testing.expect(std.mem.indexOf(u8, panel, "\n") != null);
@@ -2413,6 +2535,7 @@ test "appendLiveSubagentOutput fills preview; unknown id and empty text are no-o
     try std.testing.expectEqualStrings(kind_subagent_label, rows[1].title);
     try std.testing.expect(!rows[0].has_detail);
     model.right_panel_background_row_id = subagent_row_id_first;
+    refreshPanelCache(&model);
     try std.testing.expectEqualStrings("first\nline first\nline", backgroundWorkOutput(&model));
     try std.testing.expect(backgroundWorkOutput(&model).len > rows[1].detail.len or std.mem.indexOf(u8, backgroundWorkOutput(&model), "\n") != null);
 
@@ -2473,6 +2596,7 @@ test "Subagent stored log keeps newlines and CSI; Summary is one line; panel str
     try std.testing.expectEqualStrings("\x1b[31mred\x1b[0m\nnext", model.background_subagents[0].output());
 
     model.right_panel_background_row_id = subagent_row_id_first;
+    refreshPanelCache(&model);
     const panel = backgroundWorkOutput(&model);
     try std.testing.expectEqualStrings("red\nnext", panel);
     try std.testing.expect(std.mem.indexOf(u8, panel, "\x1b") == null);
@@ -2763,6 +2887,7 @@ test "right-panel selection clears when the stopped Monitor was selected" {
     model.right_panel_tab = right_panel.Tab.background;
     model.right_panel_background_row_id = monitor_row_id_first;
     try std.testing.expectEqual(monitor_row_id_first, selectedBackgroundRow(&model).?.id);
+    refreshPanelCache(&model);
     try std.testing.expectEqualStrings("keep me until stop", backgroundWorkOutput(&model));
 
     stopBackground(&model, &fx, monitor_row_id_first);
@@ -2966,6 +3091,7 @@ test "right-panel selection clears when the stopped Subagent was selected" {
     stopBackground(&model, &fx, subagent_row_id_first);
     try std.testing.expectEqual(monitor_row_id_first, model.right_panel_background_row_id);
     try std.testing.expectEqual(monitor_row_id_first, selectedBackgroundRow(&model).?.id);
+    refreshPanelCache(&model);
     try std.testing.expectEqualStrings("keep monitor", backgroundWorkOutput(&model));
 }
 
@@ -3298,5 +3424,191 @@ test "settled Monitor Stop is hidden; stopBackground on that id is a no-op" {
     try std.testing.expectEqual(@as(u32, 1), model.background_monitor_count);
     try std.testing.expectEqualStrings("keep after settle", model.background_monitors[0].output());
     try std.testing.expectEqual(monitor_row_id_first, model.right_panel_background_row_id);
+}
+
+fn streamingClaudeModel(title: []const u8) Model {
+    var model = Model{};
+    const id = model.addSession(title, .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    return model;
+}
+
+test "Background output cache: first dirty refresh strips CSI; unchanged is a no-op" {
+    var model = streamingClaudeModel("cache first refresh");
+    defer clearLiveMonitors(&model);
+    noteLiveMonitor(&model, "toolu_cache_1");
+    appendLiveMonitorOutput(&model, "toolu_cache_1", "\x1b[31mred\x1b[0m");
+    try std.testing.expect(backgroundOutputCacheDirty(&model));
+    try std.testing.expectEqual(@as(usize, 0), model.background_monitors[0].log.rendered().len);
+
+    try std.testing.expect(refreshBackgroundOutputCache(&model));
+    try std.testing.expect(!backgroundOutputCacheDirty(&model));
+    model.right_panel_background_row_id = monitor_row_id_first;
+    try std.testing.expectEqualStrings("red", backgroundWorkOutput(&model));
+
+    try std.testing.expect(!refreshBackgroundOutputCache(&model));
+    try std.testing.expectEqualStrings("red", backgroundWorkOutput(&model));
+    try std.testing.expectEqual(model.background_monitors[0].log.rendered().ptr, backgroundWorkOutput(&model).ptr);
+}
+
+test "Background output cache throttles a second refresh within 100ms" {
+    var model = streamingClaudeModel("cache throttle");
+    defer clearLiveMonitors(&model);
+    noteLiveMonitor(&model, "toolu_cache_2");
+    appendLiveMonitorOutput(&model, "toolu_cache_2", "first");
+    try std.testing.expect(refreshBackgroundOutputCache(&model));
+    model.right_panel_background_row_id = monitor_row_id_first;
+    try std.testing.expectEqualStrings("first", backgroundWorkOutput(&model));
+
+    appendLiveMonitorOutput(&model, "toolu_cache_2", " second");
+    try std.testing.expect(backgroundOutputCacheDirty(&model));
+    try std.testing.expect(!refreshBackgroundOutputCache(&model));
+    try std.testing.expect(backgroundOutputCacheDirty(&model));
+    try std.testing.expectEqualStrings("first", backgroundWorkOutput(&model));
+
+    model.now_ms += output_cache_refresh_interval_ms;
+    try std.testing.expect(refreshBackgroundOutputCache(&model));
+    try std.testing.expect(!backgroundOutputCacheDirty(&model));
+    try std.testing.expectEqualStrings("first second", backgroundWorkOutput(&model));
+}
+
+test "Background output cache strips CSI split across two appends" {
+    var model = streamingClaudeModel("cache split csi");
+    defer clearLiveMonitors(&model);
+    noteLiveMonitor(&model, "toolu_cache_split");
+    appendLiveMonitorOutput(&model, "toolu_cache_split", "\x1b");
+    appendLiveMonitorOutput(&model, "toolu_cache_split", "[31mred\x1b[0m");
+    try std.testing.expectEqualStrings("\x1b[31mred\x1b[0m", model.background_monitors[0].output());
+    try std.testing.expect(refreshBackgroundOutputCache(&model));
+    model.right_panel_background_row_id = monitor_row_id_first;
+    try std.testing.expectEqualStrings("red", backgroundWorkOutput(&model));
+}
+
+test "backgroundWorkOutput returns the cached slice after refresh" {
+    var model = streamingClaudeModel("cache slice identity");
+    defer clearLiveMonitors(&model);
+    noteLiveMonitor(&model, "toolu_cache_ptr");
+    appendLiveMonitorOutput(&model, "toolu_cache_ptr", "\x1b[31mred\x1b[0m\nnext");
+    model.right_panel_background_row_id = monitor_row_id_first;
+    try std.testing.expectEqualStrings("", backgroundWorkOutput(&model));
+    try std.testing.expect(refreshBackgroundOutputCache(&model));
+    const cached = model.background_monitors[0].log.rendered();
+    const panel = backgroundWorkOutput(&model);
+    try std.testing.expectEqual(cached.ptr, panel.ptr);
+    try std.testing.expectEqual(cached.len, panel.len);
+    try std.testing.expectEqualStrings("red\nnext", panel);
+}
+
+test "Environment Summary preview updates on append without the render cache" {
+    var model = streamingClaudeModel("cache preview vs panel");
+    defer clearLiveMonitors(&model);
+    noteLiveMonitor(&model, "toolu_cache_preview");
+    appendLiveMonitorOutput(&model, "toolu_cache_preview", "\x1b[31mred\x1b[0m\nnext");
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    const rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqualStrings("red next", rows[1].detail);
+    try std.testing.expectEqual(@as(usize, 0), model.background_monitors[0].log.rendered().len);
+    model.right_panel_background_row_id = monitor_row_id_first;
+    try std.testing.expectEqualStrings("", backgroundWorkOutput(&model));
+}
+
+test "settle keeps the rendered log; dismiss and remove session free it" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = streamingClaudeModel("cache settle free");
+    defer clearLiveMonitors(&model);
+    defer clearLiveSubagents(&model);
+    const id = model.selected;
+    if (model.sessionById(id)) |session| session.busy = true;
+    noteLiveMonitor(&model, "toolu_cache_keep");
+    appendLiveMonitorOutput(&model, "toolu_cache_keep", "keep after settle");
+    noteLiveSubagent(&model, "toolu_cache_sub");
+    appendLiveSubagentOutput(&model, "toolu_cache_sub", "sub stay");
+    model.right_panel_background_row_id = monitor_row_id_first;
+    try std.testing.expectEqualStrings("", backgroundWorkOutput(&model));
+
+    turn_stream.finishStream(&model, &fx, true);
+    try std.testing.expect(!backgroundOutputCacheDirty(&model));
+    try std.testing.expectEqualStrings("keep after settle", backgroundWorkOutput(&model));
+    try std.testing.expectEqual(max_monitor_output, model.background_monitors[0].log.rendered_storage.len);
+    model.right_panel_background_row_id = subagent_row_id_first;
+    try std.testing.expectEqualStrings("sub stay", backgroundWorkOutput(&model));
+
+    model.phase = .streaming;
+    model.streaming_session = id;
+    noteLiveMonitor(&model, "toolu_cache_live");
+    appendLiveMonitorOutput(&model, "toolu_cache_live", "live log");
+    model.now_ms += output_cache_refresh_interval_ms;
+    refreshPanelCache(&model);
+    try std.testing.expectEqual(max_monitor_output, model.background_monitors[1].log.rendered_storage.len);
+    stopBackground(&model, &fx, monitor_row_id_first + 1);
+    try std.testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    try std.testing.expectEqualStrings("keep after settle", model.background_monitors[0].output());
+    try std.testing.expectEqual(@as(usize, 0), model.background_monitors[1].log.rendered_storage.len);
+    try std.testing.expectEqual(@as(usize, 0), model.background_monitors[1].log.output_storage.len);
+
+    clearSettledIfSession(&model, id);
+    try std.testing.expectEqual(@as(u32, 0), model.background_monitor_count);
+    try std.testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    try std.testing.expectEqual(@as(usize, 0), model.background_monitors[0].log.rendered_storage.len);
+    try std.testing.expectEqual(@as(usize, 0), model.background_subagents[0].log.rendered_storage.len);
+}
+
+test "trim oldest settled Monitor frees the rendered heap" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = streamingClaudeModel("cache trim free");
+    defer clearLiveMonitors(&model);
+    var i: usize = 0;
+    while (i < max_live_monitors) : (i += 1) {
+        var id_buf: [32]u8 = undefined;
+        const label = std.fmt.bufPrint(&id_buf, "toolu_cache_trim_{d}", .{i}) catch unreachable;
+        noteLiveMonitor(&model, label);
+        appendLiveMonitorOutput(&model, label, "old");
+    }
+    turn_stream.finishStream(&model, &fx, true);
+    try std.testing.expectEqual(max_monitor_output, model.background_monitors[0].log.rendered_storage.len);
+
+    model.phase = .streaming;
+    model.streaming_session = model.selected;
+    noteLiveMonitor(&model, "toolu_cache_trim_new");
+    try std.testing.expectEqual(@as(u32, @intCast(max_live_monitors)), model.background_monitor_count);
+    try std.testing.expectEqualStrings("toolu_cache_trim_1", model.background_monitors[0].toolUseId());
+    try std.testing.expectEqualStrings("toolu_cache_trim_new", model.background_monitors[model.background_monitor_count - 1].toolUseId());
+    try std.testing.expectEqual(@as(usize, 0), model.background_monitors[model.background_monitor_count - 1].log.rendered_storage.len);
+}
+
+test "Process Background output stays empty after the render cache" {
+    var model = streamingClaudeModel("cache process empty");
+    defer clearLiveMonitors(&model);
+    noteLiveMonitor(&model, "toolu_cache_proc");
+    appendLiveMonitorOutput(&model, "toolu_cache_proc", "monitor only");
+    refreshPanelCache(&model);
+    model.right_panel_background_row_id = process_row_id;
+    try std.testing.expectEqualStrings("", backgroundWorkOutput(&model));
+}
+
+test "Subagent output cache throttles and strips split CSI" {
+    var model = streamingClaudeModel("cache subagent");
+    defer clearLiveSubagents(&model);
+    noteLiveSubagent(&model, "toolu_cache_sub_split");
+    appendLiveSubagentOutput(&model, "toolu_cache_sub_split", "\x1b");
+    try std.testing.expect(refreshBackgroundOutputCache(&model));
+    appendLiveSubagentOutput(&model, "toolu_cache_sub_split", "[31mred\x1b[0m");
+    try std.testing.expect(backgroundOutputCacheDirty(&model));
+    try std.testing.expect(!refreshBackgroundOutputCache(&model));
+    model.right_panel_background_row_id = subagent_row_id_first;
+    try std.testing.expectEqualStrings("\x1b", backgroundWorkOutput(&model));
+
+    model.now_ms += output_cache_refresh_interval_ms;
+    try std.testing.expect(refreshBackgroundOutputCache(&model));
+    try std.testing.expectEqualStrings("red", backgroundWorkOutput(&model));
+    try std.testing.expectEqual(model.background_subagents[0].log.rendered().ptr, backgroundWorkOutput(&model).ptr);
 }
 

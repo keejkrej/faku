@@ -9337,6 +9337,8 @@ test "Environment Summary Subagent row opens Background with the 512KB log" {
     } }, &fx);
     try testing.expectEqualStrings("", model.turnById(turn_id).?.text());
     try testing.expectEqualStrings("first\nline\n\x1b[31mred\x1b[0m", model.background_subagents[0].output());
+    model.now_ms = (model.background_output_cache_refresh_ms orelse 0) + environment_summary.output_cache_refresh_interval_ms;
+    _ = environment_summary.refreshBackgroundOutputCache(&model);
 
     main.update(&model, .toggle_environment_summary, &fx);
     var tree = try buildTree(arena, &model);
@@ -9394,6 +9396,8 @@ test "Environment Summary Monitor detail stays one line; Background panel shows 
         .key = main.fx_ask_key,
         .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"\\n\\u001b[31mred\\u001b[0m\"}]}}",
     } }, &fx);
+    model.now_ms = (model.background_output_cache_refresh_ms orelse 0) + environment_summary.output_cache_refresh_interval_ms;
+    _ = environment_summary.refreshBackgroundOutputCache(&model);
 
     main.update(&model, .toggle_environment_summary, &fx);
     var tree = try buildTree(arena, &model);

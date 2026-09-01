@@ -51,12 +51,12 @@ image path inside that `-p` prompt when a composer image is attached;
 stdout is NDJSON with live `text_delta` into the transcript; live
 Subagent Background from real `parent_tool_use_id` plus a bounded
 512KB last-window from forwarded `parent_tool_use_id` text
-(newlines kept; CSI stripped for display; Environment Summary
-stays a one-line preview); live Monitor
+(newlines kept; CSI stripped for display via a 100ms render
+cache; Environment Summary stays a one-line preview); live Monitor
 Background from real Claude `Monitor` `tool_use`, with a bounded
 512KB last-window log from matching user `tool_result` (newlines
-kept; CSI stripped for display; Environment Summary stays a
-one-line preview). Available
+kept; CSI stripped for display via the same 100ms render cache;
+Environment Summary stays a one-line preview). Available
 Codex is
 one-shot `codex exec {prompt}` (not ACP; documented `--image {path}`
 after the prompt when a composer image is attached). Available Amp is
@@ -126,13 +126,15 @@ window-side stream/settle, live Monitor rows from real Claude
 `Monitor` `tool_use` plus a first-cut Waku-sized 512KB last-window
 log in the right-panel Background surface from matching user
 `tool_result` (runtime-only; newlines kept; CSI stripped for
-display; Environment Summary stays a one-line preview),
+display via a 100ms render cache; Environment Summary stays a
+one-line preview),
 live Subagent rows from real Claude
 `parent_tool_use_id` / Agent `tool_use` signals while streaming
 plus a first-cut Waku-sized 512KB last-window log in the
 right-panel Background surface from forwarded `parent_tool_use_id`
-text (runtime-only; newlines kept; CSI stripped for display;
-Environment Summary stays a one-line preview),
+text (runtime-only; newlines kept; CSI stripped for display via
+the same 100ms render cache; Environment Summary stays a
+one-line preview),
 first-cut settled Monitor / Subagent persist after the turn
 (status from Process settle; Monitor / Subagent last-window kept; Stop
 hidden; not live after one-shot `-p` exits), and a
@@ -148,7 +150,7 @@ the update loop
 (not this cut), a long-lived ACP loop once a window-side stdin-write
 effect exists, Claude CLI TaskStop,
 daemon `refreshBackgroundWork`, full BackgroundWorkRegistry
-event/reconcile parity, 100ms render cache.
+event/reconcile parity.
 
 No `listSessions` / `createSession`. Catalog is `loadTaskState` (local
 JSON today). New session is a client-built session saved after first

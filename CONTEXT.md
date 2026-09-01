@@ -280,9 +280,11 @@ and one last-turn settle (Completed / Stopped / Failed, cap 1).
 Live Monitor rows come from real Claude stream-json `Monitor`
 `tool_use` while streaming (stable title `Monitor`). Matching user
 `tool_result` fills a bounded 512KB last-window log on that row
-(runtime-only; newlines kept; CSI/ANSI stripped for display).
+(runtime-only; newlines kept; CSI stored raw).
 Environment Summary `detail` stays a short one-line preview. The
-right-panel Background body reads that stored log. Live Monitor
+right-panel Background body reads a 100ms CSI-stripped render cache
+of that stored log (rebuilt when dirty and at least 100ms of
+`now_ms` have passed; Native view bind does not strip). Live Monitor
 rows offer Stop (Faku-side dismiss of that slot; Process Stop still
 `stopStream`). Live Subagent
 rows come from real Claude stream-json `parent_tool_use_id` /
@@ -291,9 +293,9 @@ Agent `tool_use` while streaming, with Faku-side Subagent Stop
 mid-turn; later `noteLiveSubagent` for that id is ignored until
 `clearDismissedSubagentIds`). Forwarded `parent_tool_use_id` text
 (`text_delta` / assistant text) fills a bounded 512KB last-window
-on that row (runtime-only; newlines kept; CSI/ANSI stripped for
-display; Environment Summary `detail` stays a short one-line
-preview; the right-panel Background body reads that stored log).
+on that row (runtime-only; newlines kept; same 100ms CSI-stripped
+render cache; Environment Summary `detail` stays a short one-line
+preview).
 When the turn settles, currently-live
 Monitor and Subagent become settled registry rows (status from
 Process settle; Monitor / Subagent last-window kept; Stop hidden). Honest
@@ -438,7 +440,9 @@ Honest gaps this cut does not implement:
   bounded 512KB last-window from forwarded `parent_tool_use_id`
   text; live Monitor Background from Claude `Monitor` `tool_use`
   plus a bounded 512KB last-window log from matching user
-  `tool_result`; first-cut settled Monitor / Subagent persist after
+  `tool_result`; first-cut 100ms CSI-stripped render cache on those
+  last-windows (piggybacks `now_ms` / the stream tick); first-cut
+  settled Monitor / Subagent persist after
   the turn; Environment Summary stays a one-line preview). Codex exec
   one-shot (`codex exec {prompt}`, documented `--image {path}` after
   the prompt when a composer image is attached) ships; Amp execute-mode
@@ -462,19 +466,22 @@ Honest gaps this cut does not implement:
   the resolved locale)
 - Claude CLI TaskStop / long-lived ACP, daemon
   `refreshBackgroundWork`, full BackgroundWorkRegistry
-  event/reconcile parity, 100ms render cache (Environment Summary
+  event/reconcile parity (Environment Summary
   ships Process / Monitor / Subagent kind chrome, a Process
   registry from stream/settle, live Monitor rows from Claude
   `Monitor` `tool_use` with a Waku-sized 512KB last-window log from
   matching user `tool_result` — newlines kept, CSI stripped for
-  display, Environment Summary stays a one-line preview — plus
+  display via a 100ms render cache piggybacking `now_ms` / the
+  stream tick (not GPUI SharedString, not a dedicated Native
+  timer), Environment Summary stays a one-line preview — plus
   Faku-side Monitor Stop that dismisses that live row on one-shot
   `claude -p` without invoking Claude's TaskStop tool mid-turn;
   live Subagent rows from Claude `parent_tool_use_id` / Agent
   `tool_use` with a matching 512KB last-window from forwarded
   `parent_tool_use_id` text (`text_delta` / assistant text; still
-  off the main turn) — newlines kept, CSI stripped for display,
-  Environment Summary stays a one-line preview — plus Faku-side
+  off the main turn) — newlines kept, same 100ms CSI-stripped
+  render cache, Environment Summary stays a one-line preview —
+  plus Faku-side
   Subagent Stop that dismisses that live row on one-shot `claude
   -p` (later `noteLiveSubagent` for a dismissed id is ignored until
   `clearDismissedSubagentIds`; not Claude TaskStop mid-turn);

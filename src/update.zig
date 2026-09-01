@@ -338,6 +338,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .fx_probe_exit => |exit| fx_probe.handleFxProbeExit(model, fx, exit),
         .cli_probe_exit => |exit| cli_probe.handleCliProbeExit(model, exit),
     }
+    // Waku-parity 100ms Background render cache. Piggybacks
+    // `now_ms` (stamped above) and this stream tick / fx_line
+    // path. Native has no dedicated 100ms timer this cut.
+    _ = environment_summary.refreshBackgroundOutputCache(model);
 }
 
 /// Boot probe: `~/.local/bin/fx --help` then `fx --help` (PATH). Wired

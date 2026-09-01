@@ -672,6 +672,13 @@ pub const Model = struct {
     /// session frees that session's heap logs.
     background_monitors: [environment_summary.max_live_monitors]environment_summary.LiveMonitor = [_]environment_summary.LiveMonitor{.{}} ** environment_summary.max_live_monitors,
     background_monitor_count: u32 = 0,
+    /// Last successful Background output-cache refresh (`now_ms`).
+    /// Null until the first rebuild. Registry-level; throttles every
+    /// LastWindow rendered buffer to
+    /// `output_cache_refresh_interval_ms`. Runtime-only; not
+    /// sessions.json. Piggybacks `now_ms` / the stream tick; Native
+    /// has no dedicated 100ms timer this cut.
+    background_output_cache_refresh_ms: ?i64 = null,
     /// Runtime-only Environment Compare Review card. Not persisted.
     review_diff_active: bool = false,
     /// Runtime-only Review name-status source. Compare / header +/-
@@ -1209,6 +1216,7 @@ pub const Model = struct {
         "background_dismissed_subagent_count",
         "background_monitors",
         "background_monitor_count",
+        "background_output_cache_refresh_ms",
         "has_settled_background",
         "background_settled_status",
         "queued_store",
