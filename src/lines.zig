@@ -1607,7 +1607,8 @@ test "claude json apply: Monitor tool_use fills Monitor rows after Process; Bash
     try testing.expectEqual(environment_summary.monitor_row_id_first, rows[1].id);
     try testing.expectEqual(environment_summary.subagent_row_id_first, rows[3].id);
     try testing.expectEqualStrings(environment_summary.kind_monitor_label, rows[1].title);
-    try testing.expect(!rows[1].can_stop);
+    try testing.expect(rows[1].can_stop);
+    try testing.expectEqualStrings(environment_summary.monitor_stop_label, rows[1].stop_label);
     try testing.expect(!rows[1].has_detail);
 }
 

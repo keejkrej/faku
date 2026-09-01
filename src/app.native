@@ -412,7 +412,7 @@
                       <text wrap="false" overflow="ellipsis" foreground="text_muted">{b.detail}</text>
                     </if>
                     <if test="{b.can_stop}">
-                      <menu-item on-press="environment_stop_background">Stop agent</menu-item>
+                      <menu-item on-press="environment_stop_background:{b.id}">{b.stop_label}</menu-item>
                     </if>
                     <if test="{b.has_status}">
                       <text foreground="text_muted">{b.settled_status}</text>
@@ -872,6 +872,9 @@
               <text>{background_work_title}</text>
               <if test="{has_background_work_status}">
                 <text foreground="text_muted">{background_work_status}</text>
+              </if>
+              <if test="{background_work_can_stop}">
+                <button variant="ghost" size="sm" on-press="environment_stop_background:{background_work_row_id}">{background_work_stop_label}</button>
               </if>
               <if test="{background_work_has_output}">
                 <scroll grow="1" label="Background output">
