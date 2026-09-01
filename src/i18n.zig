@@ -119,8 +119,9 @@ const chrome_ja: Chrome = .{
 };
 
 /// First-cut sidebar date-bucket titles plus the static relative-time
-/// words that are already string literals. Numeric `{d}m` / `{d}h` /
-/// `{d}d` / `YYYY-MM-DD` stay untranslated. Same resolve path as Chrome.
+/// words that are already string literals. Chrome unassign Today reuses
+/// `today`. Numeric `{d}m` / `{d}h` / `{d}d` / `YYYY-MM-DD` stay
+/// untranslated. Same resolve path as Chrome.
 pub const Dates = struct {
     today: []const u8,
     yesterday: []const u8,

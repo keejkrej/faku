@@ -2688,9 +2688,16 @@ pub const Model = struct {
     }
 
     /// Same resolve path as Settings Appearance chrome. Sidebar date
-    /// headers take this catalog; they do not read process env.
+    /// headers and the chrome unassign Today list-item take this catalog;
+    /// they do not read process env.
     pub fn sidebarDates(model: *const Model) i18n.Dates {
         return i18n.datesFor(model.language_preference, model.systemLocaleId());
+    }
+
+    /// Chrome unassign drop target (`folder_id` 0). Same `Dates.today`
+    /// string as the Today date-bucket header; not a second catalog.
+    pub fn unassign_today_label(model: *const Model) []const u8 {
+        return model.sidebarDates().today;
     }
 
     pub fn systemLocaleId(model: *const Model) []const u8 {
