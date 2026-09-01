@@ -6,6 +6,7 @@
 //! `main.initFx`. Behavior is unchanged from the former `main` functions.
 //! `initialModel` / appearance boot live in `boot.zig`.
 //! Shell scene / app icons live in `shell.zig`.
+//! Layout chrome widths live in `layout.zig`.
 
 const main = @import("main.zig");
 const store = @import("store.zig");
