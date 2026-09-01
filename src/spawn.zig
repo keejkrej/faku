@@ -444,6 +444,9 @@ const claude_image_prompt_prefix = "Analyze this image: ";
 /// through the Claude parser (live `stream_event` /
 /// `event.delta.type == text_delta`, not a prose dump). Non-empty
 /// `parent_tool_use_id` is subagent traffic (not main-turn prose).
+/// Forwarded `parent_tool_use_id` text (`text_delta` / assistant
+/// text) fills a bounded 512KB last-window on that live Subagent
+/// (same size/policy as Monitor; not `appendToTurn`).
 /// `tool_use` with `name` `Monitor` fills live Monitor Background
 /// (not Bash / Agent / `parent_tool_use_id`). Matching user
 /// `tool_result` fills a bounded 512KB last-window log on that live

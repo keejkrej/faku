@@ -9307,6 +9307,61 @@ test "Environment Summary Subagent row opens Background; Stop leaves Process str
     try testing.expectEqualStrings("toolu_agent_2", model.background_subagents[0].parentId());
 }
 
+test "Environment Summary Subagent row opens Background with the 512KB log" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer environment_summary.clearLiveSubagents(&model);
+    const sid = model.addSession("env subagent log panel", .claude);
+    model.selected = sid;
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    model.fx_spawn_claude_json = true;
+    model.fx_spawn_key = main.fx_ask_key;
+
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"stream_event\",\"parent_tool_use_id\":\"toolu_sub_1\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"first\\nline\"}}}",
+    } }, &fx);
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"parent_tool_use_id\":\"toolu_sub_1\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"\\n\\u001b[31mred\\u001b[0m\"}]}}",
+    } }, &fx);
+    try testing.expectEqualStrings("", model.turnById(turn_id).?.text());
+    try testing.expectEqualStrings("first\nline\n\x1b[31mred\x1b[0m", model.background_subagents[0].output());
+
+    main.update(&model, .toggle_environment_summary, &fx);
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "first line red");
+    try testing.expect(findByText(tree.root, .text, "first\nline") == null);
+    const subagent_row = try expectByText(tree.root, .menu_item, "Subagent");
+    try testing.expectEqual(Msg{ .open_background_work = 2 }, tree.msgForPointer(subagent_row.id, .up).?);
+
+    main.update(&model, tree.msgForPointer(subagent_row.id, .up).?, &fx);
+    try testing.expect(!model.environment_summary_open);
+    try testing.expect(model.right_panel_tab_background());
+    try testing.expectEqual(@as(u32, 2), model.right_panel_background_row_id);
+    try testing.expectEqualStrings("Subagent", model.background_work_kind_label());
+    try testing.expectEqualStrings("Running", model.background_work_status());
+    try testing.expectEqualStrings("first\nline\nred", model.background_work_output());
+    try testing.expect(std.mem.indexOf(u8, model.background_work_output(), "\x1b") == null);
+    try testing.expect(model.background_work_can_stop());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Subagent");
+    _ = try expectByText(tree.root, .text, "Running");
+    _ = try expectByText(tree.root, .text, "first\nline\nred");
+    try testing.expect(findByText(tree.root, .text, "No output") == null);
+}
+
 test "Environment Summary Monitor detail stays one line; Background panel shows newlines and strips CSI" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

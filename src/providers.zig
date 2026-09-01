@@ -17,7 +17,8 @@
 //! non-empty; first Send and Fork omit it; not `--continue`;
 //! documented image path inside that `-p` prompt when a composer image is
 //! attached; stdout is NDJSON with live `text_delta`; live Subagent
-//! Background from `parent_tool_use_id`; live Monitor Background from
+//! Background from `parent_tool_use_id` plus a bounded 512KB
+//! last-window from forwarded `parent_tool_use_id` text; live Monitor Background from
 //! Claude `Monitor` `tool_use` plus a bounded 512KB last-window
 //! log from matching user `tool_result` (Environment Summary
 //! stays a one-line preview; right-panel Background shows the

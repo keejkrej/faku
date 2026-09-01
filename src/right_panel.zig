@@ -9,7 +9,7 @@
 //! file list + hunk text) via `review_diff` — not a second git probe
 //! stack. Background is a runtime-only surface for the Environment
 //! Summary Process / Monitor / Subagent row that was clicked (kind,
-//! title, live-or-settled status, Monitor 512KB last-window log
+//! title, live-or-settled status, Monitor / Subagent 512KB last-window log
 //! with newlines kept and CSI/ANSI stripped for display;
 //! Environment Summary stays a one-line preview; Stop when the
 //! selected row is a live Process, live Monitor, or live Subagent). Tab
@@ -21,7 +21,7 @@
 //! `refreshBackgroundWork`, a 100ms GPUI render cache,
 //! or full BackgroundWorkRegistry event/reconcile parity. First-cut
 //! settled Monitor / Subagent stay in the runtime registry after the
-//! turn (status from Process settle; Monitor last-window kept; Stop
+//! turn (status from Process settle; Monitor / Subagent last-window kept; Stop
 //! hidden; not live after `-p` exits). Not daemon
 //! `WorkspaceOperation::listTree` / browseDirectory / readTextFile.
 //! Not Waku's 50k-file index (cap 256). Windows stays empty this cut

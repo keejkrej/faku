@@ -9,8 +9,9 @@
 //! handlers except Pi `--mode json` and Claude `--output-format
 //! stream-json` stdout, which are parsed as JSON events instead of
 //! appended as prose. Claude `parent_tool_use_id` is subagent
-//! traffic (not main-turn append; live Subagent Background).
-//! Claude `tool_use` with `name` `Monitor` is live Monitor
+//! traffic (not main-turn append; live Subagent Background with a
+//! bounded 512KB last-window from forwarded `parent_tool_use_id`
+//! text). Claude `tool_use` with `name` `Monitor` is live Monitor
 //! Background (not Bash / Agent / `parent_tool_use_id`). Matching
 //! user `tool_result` (`tool_use_id`) fills a bounded 512KB
 //! last-window log on that live row (newlines kept; CSI stripped
@@ -535,6 +536,16 @@ fn jsonToolResultFromBlock(block: anytype, allocator: std.mem.Allocator) ClaudeT
     return .{ .id = id, .text = text };
 }
 
+fn jsonMessageTextContent(obj: anytype, allocator: std.mem.Allocator) []const u8 {
+    const message = jsonObjectField(obj, "message") orelse return "";
+    const content_val = message.get("content") orelse return "";
+    return switch (content_val) {
+        .string => |s| s,
+        .array => |arr| jsonConcatTextBlocks(arr.items, allocator),
+        else => "",
+    };
+}
+
 fn jsonToolResultFromMessage(obj: anytype, allocator: std.mem.Allocator) ClaudeToolResult {
     const message = jsonObjectField(obj, "message") orelse return .{};
     const content_val = message.get("content") orelse return .{};
@@ -571,7 +582,10 @@ fn jsonStreamEventToolResult(event: anytype, allocator: std.mem.Allocator) Claud
 /// reuses the existing `fx_session_id` slot when the field is present.
 /// Non-empty `parent_tool_use_id` marks subagent traffic (do not
 /// append into the main turn). Agent `tool_use` id is the spawn key
-/// for live Subagent Background rows. Monitor `tool_use` id is the
+/// for live Subagent Background rows. Forwarded `parent_tool_use_id`
+/// text (`text_delta` / assistant `message.content` text) fills a
+/// bounded 512KB last-window on that live Subagent (same
+/// size/policy as Monitor). Monitor `tool_use` id is the
 /// spawn key for live Monitor Background rows. User `tool_result`
 /// (`tool_use_id` + `content`) is the first-cut Monitor output
 /// preview; empty id/text is no event. `parent_tool_use_id` is
@@ -670,7 +684,22 @@ fn parseClaudeJsonLine(line: []const u8, allocator: std.mem.Allocator) ClaudeJso
         };
     }
     if (std.mem.eql(u8, type_str, "assistant") or std.mem.eql(u8, type_str, "user")) {
+        var text: []const u8 = "";
+        if (parent.len > 0 and std.mem.eql(u8, type_str, "assistant")) {
+            text = jsonMessageTextContent(obj, allocator);
+        }
         if (parent.len == 0 and agent_id.len == 0 and monitor_id.len == 0 and output_id.len == 0) return .{};
+        if (text.len > 0) {
+            return .{
+                .kind = .text_delta,
+                .text = text,
+                .parent_tool_use_id = parent,
+                .agent_tool_use_id = agent_id,
+                .monitor_tool_use_id = monitor_id,
+                .monitor_output_id = output_id,
+                .monitor_output_text = output_text,
+            };
+        }
         return .{
             .parent_tool_use_id = parent,
             .agent_tool_use_id = agent_id,
@@ -709,7 +738,12 @@ fn handleClaudeJsonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine
     switch (parsed.kind) {
         .ignore, .session => {},
         .text_delta => {
-            if (subagent) return;
+            if (subagent) {
+                if (parsed.text.len > 0) {
+                    environment_summary.appendLiveSubagentOutput(model, parsed.parent_tool_use_id, parsed.text);
+                }
+                return;
+            }
             if (parsed.text.len == 0) return;
             model.appendToTurn(model.stream_turn_id, parsed.text);
         },
@@ -1393,9 +1427,9 @@ test "claude json parser: parent_tool_use_id does not append to main turn" {
         "{\"type\":\"assistant\",\"parent_tool_use_id\":\"toolu_sub_1\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"secret\"}]}}",
         alloc,
     );
-    try testing.expectEqual(ClaudeJsonKind.ignore, assistant.kind);
+    try testing.expectEqual(ClaudeJsonKind.text_delta, assistant.kind);
     try testing.expectEqualStrings("toolu_sub_1", assistant.parent_tool_use_id);
-    try testing.expectEqualStrings("", assistant.text);
+    try testing.expectEqualStrings("secret", assistant.text);
 
     const agent = parseClaudeJsonLine(
         "{\"type\":\"assistant\",\"parent_tool_use_id\":null,\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_agent_1\",\"name\":\"Agent\",\"input\":{}}]}}",
@@ -1430,6 +1464,7 @@ test "claude json apply: parent_tool_use_id stays off the main turn and fills Su
     fx.executor = .fake;
 
     var model = Model{};
+    defer environment_summary.clearLiveSubagents(&model);
     const sid = model.addSession("claude subagent", .claude);
     const turn_id = model.appendTurn(sid, .assistant, "");
     model.phase = .streaming;
@@ -1451,6 +1486,7 @@ test "claude json apply: parent_tool_use_id stays off the main turn and fills Su
     try testing.expectEqualStrings("Hel", piJsonTurnText(&model, turn_id));
     try testing.expectEqual(@as(u32, 1), model.background_subagent_count);
     try testing.expectEqualStrings("toolu_sub_1", model.background_subagents[0].parentId());
+    try testing.expectEqualStrings("child", model.background_subagents[0].output());
 
     handleFxLine(&model, &fx, .{
         .key = fx_ask_key,
@@ -1458,6 +1494,7 @@ test "claude json apply: parent_tool_use_id stays off the main turn and fills Su
     });
     try testing.expectEqualStrings("Hel", piJsonTurnText(&model, turn_id));
     try testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    try testing.expectEqualStrings("childnope", model.background_subagents[0].output());
 
     handleFxLine(&model, &fx, .{
         .key = fx_ask_key,
@@ -1465,6 +1502,7 @@ test "claude json apply: parent_tool_use_id stays off the main turn and fills Su
     });
     try testing.expectEqualStrings("Hel", piJsonTurnText(&model, turn_id));
     try testing.expectEqual(@as(u32, 2), model.background_subagent_count);
+    try testing.expectEqualStrings("", model.background_subagents[1].output());
 
     handleFxLine(&model, &fx, .{
         .key = fx_ask_key,
@@ -1479,7 +1517,11 @@ test "claude json apply: parent_tool_use_id stays off the main turn and fills Su
     try testing.expectEqual(environment_summary.BackgroundKind.subagent, rows[1].kind);
     try testing.expectEqual(environment_summary.BackgroundKind.subagent, rows[2].kind);
     try testing.expectEqualStrings(environment_summary.kind_subagent_label, rows[1].title);
+    try testing.expect(rows[1].has_detail);
+    try testing.expectEqualStrings("childnope", rows[1].detail);
+    try testing.expect(!rows[2].has_detail);
     try testing.expectEqual(@as(u32, 0), model.background_monitor_count);
+    try testing.expectEqualStrings("Hello", piJsonTurnText(&model, turn_id));
 }
 
 test "claude json parser: Monitor tool_use yields monitor id; Bash Agent missing name empty id do not" {
@@ -1696,6 +1738,7 @@ test "claude json apply: matching tool_result fills Monitor preview; unknown Bas
 
     var model = Model{};
     defer environment_summary.clearLiveMonitors(&model);
+    defer environment_summary.clearLiveSubagents(&model);
     const sid = model.addSession("claude monitor output", .claude);
     const turn_id = model.appendTurn(sid, .assistant, "");
     model.phase = .streaming;
@@ -1745,6 +1788,8 @@ test "claude json apply: matching tool_result fills Monitor preview; unknown Bas
     try testing.expectEqual(@as(u32, 1), model.background_subagent_count);
     try testing.expectEqual(@as(u32, 1), model.background_monitor_count);
     try testing.expectEqualStrings("", piJsonTurnText(&model, turn_id));
+    try testing.expectEqualStrings("secret", model.background_subagents[0].output());
+    try testing.expectEqualStrings("line from monitor second", model.background_monitors[0].output());
 
     var buf: [environment_summary.max_background_rows]environment_summary.BackgroundRow = undefined;
     const rows = environment_summary.fillBackgroundRows(&model, &buf);
@@ -1755,10 +1800,20 @@ test "claude json apply: matching tool_result fills Monitor preview; unknown Bas
     try testing.expectEqualStrings("line from monitor second", rows[1].detail);
     try testing.expect(!rows[0].has_detail);
     try testing.expectEqual(environment_summary.BackgroundKind.subagent, rows[2].kind);
-    try testing.expect(!rows[2].has_detail);
+    try testing.expect(rows[2].has_detail);
+    try testing.expectEqualStrings("secret", rows[2].detail);
     try testing.expect(rows[2].can_stop);
     try testing.expectEqualStrings(environment_summary.subagent_stop_label, rows[2].stop_label);
     try testing.expectEqual(environment_summary.monitor_row_id_first, rows[1].id);
     try testing.expectEqual(environment_summary.subagent_row_id_first, rows[2].id);
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"user\",\"parent_tool_use_id\":\"toolu_agent_1\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"nested\"}]}}",
+    });
+    try testing.expectEqualStrings("line from monitor second", model.background_monitors[0].output());
+    try testing.expectEqualStrings("secret", model.background_subagents[0].output());
+    try testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    try testing.expectEqualStrings("", piJsonTurnText(&model, turn_id));
 }
 

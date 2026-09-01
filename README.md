@@ -49,7 +49,10 @@ Sends pass documented `--resume {fx_session_id}` when that field is
 non-empty; first Send and Fork omit it; not `--continue`; documented
 image path inside that `-p` prompt when a composer image is attached;
 stdout is NDJSON with live `text_delta` into the transcript; live
-Subagent Background from real `parent_tool_use_id`; live Monitor
+Subagent Background from real `parent_tool_use_id` plus a bounded
+512KB last-window from forwarded `parent_tool_use_id` text
+(newlines kept; CSI stripped for display; Environment Summary
+stays a one-line preview); live Monitor
 Background from real Claude `Monitor` `tool_use`, with a bounded
 512KB last-window log from matching user `tool_result` (newlines
 kept; CSI stripped for display; Environment Summary stays a
@@ -100,7 +103,9 @@ stream-json (`claude -p --output-format stream-json --verbose
 documented `--resume {fx_session_id}` when that field is non-empty;
 first Send and Fork omit it; stdout is parsed as NDJSON — live
 `text_delta` into the assistant turn, not a dump of raw JSON;
-non-empty `parent_tool_use_id` does not append into that turn;
+non-empty `parent_tool_use_id` does not append into that turn
+(forwarded subagent text fills a bounded 512KB last-window on the
+Subagent Background row);
 documented image path in the `-p` prompt when a composer
 image is attached), first-cut live Send for Available Codex via official
 non-interactive `codex exec {prompt}` (stdout is the same non-ACP
@@ -123,12 +128,16 @@ log in the right-panel Background surface from matching user
 `tool_result` (runtime-only; newlines kept; CSI stripped for
 display; Environment Summary stays a one-line preview),
 live Subagent rows from real Claude
-`parent_tool_use_id` / Agent `tool_use` signals while streaming,
+`parent_tool_use_id` / Agent `tool_use` signals while streaming
+plus a first-cut Waku-sized 512KB last-window log in the
+right-panel Background surface from forwarded `parent_tool_use_id`
+text (runtime-only; newlines kept; CSI stripped for display;
+Environment Summary stays a one-line preview),
 first-cut settled Monitor / Subagent persist after the turn
-(status from Process settle; Monitor last-window kept; Stop
+(status from Process settle; Monitor / Subagent last-window kept; Stop
 hidden; not live after one-shot `-p` exits), and a
 first-cut right-panel Background surface (kind / title / live-or-settled
-status / Monitor log / Stop when the selected row is a live Process,
+status / Monitor / Subagent log / Stop when the selected row is a live Process,
 live Monitor, or live Subagent) opened from those rows. Live Monitor
 and Subagent Stop is Faku-side dismiss of that row on one-shot
 `claude -p` (not Claude TaskStop mid-turn).
