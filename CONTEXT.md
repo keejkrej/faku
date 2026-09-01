@@ -37,7 +37,7 @@ send circle.
 | **hydrateSession** | Daemon transcript fill when the local transcript is empty. Local turns win. |
 | **argv slot** | Every flag and operand is its own spawn argument. Never interpolate into the chdir `-c` script. |
 | **right panel** | First-cut Files + Diff + Background pane to the right of the conversation. Default closed. |
-| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx; Available Claude is one-shot `claude -p --output-format stream-json --verbose --include-partial-messages --forward-subagent-text` (not ACP; later Sends pass documented `--resume {fx_session_id}` when that field is non-empty; first Send and Fork omit it; not `--continue`; documented image path inside that `-p` prompt when a composer image is attached; stdout is NDJSON with live `text_delta`; live Subagent Background from `parent_tool_use_id`; live Monitor Background from Claude `Monitor` `tool_use` plus a bounded 512KB last-window log from matching user `tool_result` (Environment Summary stays a one-line preview; right-panel Background shows the stored log with CSI stripped for display); Available Codex is one-shot `codex exec {prompt}` (not ACP; documented `--image {path}` after the prompt when a composer image is attached); Available Amp is one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x` prompt when a composer image is attached); Available Pi is one-shot `pi --mode json {prompt}` (not ACP, not `--mode rpc`; documented `@{path}` after json when a composer image is attached; stdout is JSON events with live `text_delta`). fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
+| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx; Available Claude is one-shot `claude -p --output-format stream-json --verbose --include-partial-messages --forward-subagent-text` (not ACP; later Sends pass documented `--resume {fx_session_id}` when that field is non-empty; first Send and Fork omit it; not `--continue`; documented image path inside that `-p` prompt when a composer image is attached; stdout is NDJSON with live `text_delta`; live Subagent Background from `parent_tool_use_id`; live Monitor Background from Claude `Monitor` `tool_use` plus a bounded 512KB last-window log from matching user `tool_result` (Environment Summary stays a one-line preview; right-panel Background shows the stored log with CSI stripped for display); first-cut settled Monitor / Subagent stay in the runtime registry after the turn (status from Process settle; Monitor last-window kept; Stop hidden; not live / Running / Monitoring after `-p` exits); Available Codex is one-shot `codex exec {prompt}` (not ACP; documented `--image {path}` after the prompt when a composer image is attached); Available Amp is one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x` prompt when a composer image is attached); Available Pi is one-shot `pi --mode json {prompt}` (not ACP, not `--mode rpc`; documented `@{path}` after json when a composer image is attached; stdout is JSON events with live `text_delta`). fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
 | **Settings Appearance** | Settings page for chrome theme and language. Theme: System (follow OS `on_appearance`), Light, or Dark. Default System. Language: System / English / 简体中文 / 日本語. Default System. System language follows process `LC_ALL` / `LC_MESSAGES` / `LANG` (Native has no locale API). Explicit language chips are autonyms in every locale. Persists `theme_preference` and `language_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. Settings chrome strings (title, nav, Appearance Theme / Language) follow the resolved locale this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
 | **Settings Usage** | Settings page showing the selected session's local context window (`context_used` / `context_size` from ACP `usage_update`) and thread-goal tokens (`threadGoalUsageLabel`). Read-only. Not daemon `LoadUsageHistory`, not a cost chart, not Daily / Monthly / Projects. |
@@ -129,7 +129,10 @@ non-empty `id` fills live Monitor Background rows while streaming
 (stable title `Monitor`; not Bash / Agent / `parent_tool_use_id`).
 Matching user `tool_result` (`tool_use_id`) fills a bounded
 runtime-only output preview on that row (not `appendToTurn`; does
-not register a new Monitor).
+not register a new Monitor). When the turn settles, those
+Monitor / Subagent rows stay as settled registry rows (status from
+Process settle; Monitor last-window kept; Stop hidden; not live
+after `-p` exits).
 If no deltas arrived, the final `result` text is the
 fallback. `session_id` from a `result` or `system`/`init` event reuses
 `fx_session_id` when that documented field is present. Project cwd
@@ -283,8 +286,15 @@ rows come from real Claude stream-json `parent_tool_use_id` /
 Agent `tool_use` while streaming, with Faku-side Subagent Stop
 (dismiss that live row on one-shot `claude -p`; not Claude TaskStop
 mid-turn; later `noteLiveSubagent` for that id is ignored until
-`clearLiveSubagents`). Both are cleared when the turn
-settles; not sessions.json. Clicking a visible row closes the
+`clearDismissedSubagentIds`). When the turn settles, currently-live
+Monitor and Subagent become settled registry rows (status from
+Process settle; Monitor last-window kept; Stop hidden). Honest
+about one-shot `-p`: after the run's final result they are not
+live / Running / Monitoring. `startPrompt` does not wipe settled
+rows. Fill order is Process, then Monitor (live first, then
+settled), then Subagent (live first, then settled). Settled rows
+for other sessions are hidden; remove session frees that session's
+Monitor heap logs. Not sessions.json. Clicking a visible row closes the
 dropdown and opens the right-panel Background tab for that id.
 Not daemon `refreshBackgroundWork`.
 
@@ -418,7 +428,8 @@ Honest gaps this cut does not implement:
   stdout is parsed as NDJSON — live `text_delta`, not dumped as
   prose; live Subagent Background from `parent_tool_use_id`; live
   Monitor Background from Claude `Monitor` `tool_use` plus a bounded
-  512KB last-window log from matching user `tool_result`; Environment
+  512KB last-window log from matching user `tool_result`; first-cut
+  settled Monitor / Subagent persist after the turn; Environment
   Summary stays a one-line preview). Codex exec
   one-shot (`codex exec {prompt}`, documented `--image {path}` after
   the prompt when a composer image is attached) ships; Amp execute-mode
@@ -441,24 +452,26 @@ Honest gaps this cut does not implement:
   ships: System / English / 简体中文 / 日本語; Settings chrome follows
   the resolved locale)
 - Claude CLI TaskStop / long-lived ACP, daemon
-  `refreshBackgroundWork`, full BackgroundWorkRegistry, 100ms render
-  cache (Environment Summary ships
-  Process / Monitor / Subagent kind chrome, a Process registry from
-  stream/settle, live Monitor rows from Claude `Monitor` `tool_use`
-  with a Waku-sized 512KB last-window log from matching user
-  `tool_result` — newlines kept, CSI stripped for display,
-  Environment Summary stays a one-line preview — plus Faku-side
-  Monitor Stop that dismisses that live row on one-shot
+  `refreshBackgroundWork`, full BackgroundWorkRegistry
+  event/reconcile parity, 100ms render cache (Environment Summary
+  ships Process / Monitor / Subagent kind chrome, a Process
+  registry from stream/settle, live Monitor rows from Claude
+  `Monitor` `tool_use` with a Waku-sized 512KB last-window log from
+  matching user `tool_result` — newlines kept, CSI stripped for
+  display, Environment Summary stays a one-line preview — plus
+  Faku-side Monitor Stop that dismisses that live row on one-shot
   `claude -p` without invoking Claude's TaskStop tool mid-turn;
-  live Subagent
-  rows from Claude
-  `parent_tool_use_id` / Agent `tool_use`, plus Faku-side Subagent
-  Stop that dismisses that live row on one-shot `claude -p`
-  (later `noteLiveSubagent` for a dismissed id is ignored until
-  `clearLiveSubagents`; not Claude TaskStop mid-turn), and a first-cut
-  right-panel Background surface from those rows that shows the
-  stored Monitor log and Stop when the selected row is a live
-  Process, live Monitor, or live Subagent; not Waku BackgroundWorkRegistry parity)
+  live Subagent rows from Claude `parent_tool_use_id` / Agent
+  `tool_use`, plus Faku-side Subagent Stop that dismisses that live
+  row on one-shot `claude -p` (later `noteLiveSubagent` for a
+  dismissed id is ignored until `clearDismissedSubagentIds`; not
+  Claude TaskStop mid-turn); first-cut settled Monitor / Subagent
+  persist after the turn (status from Process settle; Monitor
+  last-window kept; Stop hidden; not live after `-p` exits); and a
+  first-cut right-panel Background surface from those rows that
+  shows the stored Monitor log and Stop when the selected row is a
+  live Process, live Monitor, or live Subagent; not Waku
+  BackgroundWorkRegistry event/reconcile/driver-refresh parity)
 - Further `main.zig` extract (`initialModel` still lives there)
 - Long-lived ACP or daemon socket in the update loop
 - ACP image blocks on non-fx (cursor / opencode / grok image attach

@@ -10,10 +10,10 @@
 //! cleared and before persist / queued restart. That same success
 //! records Environment Summary last-turn Completed unless a queued
 //! follow-up immediately restarts (stay on the Process row). Live
-//! Subagent rows are cleared on finish / stop / a new Send
-//! (dismissed ids go with them so a later turn can re-register).
-//! Live Monitor rows share that lifetime (the 512KB last-window
-//! log dies with the row).
+//! Monitor / Subagent rows convert to settled (status from that
+//! Process settle; Monitor 512KB last-window kept; Stop hidden)
+//! on finish / stop instead of being wiped. `startPrompt` /
+//! a queued restart does not free those settled rows.
 //! `stopStream` records Stopped. `drain == false` records Failed.
 //! Cancel / `stopStream` does not snapshot. Prompt spawn stays in
 //! `spawn.zig`. Line handlers live in `lines.zig`. Behavior is
@@ -112,7 +112,8 @@ pub fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
     model.stream_turn_id = 0;
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
-    environment_summary.clearLiveBackgroundSignals(model);
+    const settle_status: environment_summary.SettledStatus = if (drain) .completed else .failed;
+    environment_summary.settleLiveBackgroundSignals(model, finished_id, settle_status);
     if (drain) {
         session_fork.recordTurnEndIfPossible(model, finished_id);
         copy_helpers.notifyTurnComplete(model, fx, finished_id);
@@ -144,7 +145,7 @@ pub fn stopStream(model: *Model, fx: *Effects) void {
     if (model.daemon_spawn_key != 0) fx.cancel(model.daemon_spawn_key);
     model.fx_spawn_live = false;
     if (was_daemon) maybeCancelDaemonTurn(model, fx, finished_id);
-    environment_summary.clearLiveBackgroundSignals(model);
+    environment_summary.settleLiveBackgroundSignals(model, finished_id, .stopped);
     environment_summary.settle(model, finished_id, .stopped);
     store.persistIfPossible(model, finished_id, fx);
 }
