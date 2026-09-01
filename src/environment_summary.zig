@@ -3542,6 +3542,7 @@ test "settle keeps the rendered log; dismiss and remove session free it" {
     model.streaming_session = id;
     noteLiveMonitor(&model, "toolu_cache_live");
     appendLiveMonitorOutput(&model, "toolu_cache_live", "live log");
+    model.now_ms += output_cache_refresh_interval_ms;
     refreshPanelCache(&model);
     try std.testing.expectEqual(max_monitor_output, model.background_monitors[1].log.rendered_storage.len);
     stopBackground(&model, &fx, monitor_row_id_first + 1);
