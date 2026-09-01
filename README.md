@@ -123,7 +123,10 @@ log in the right-panel Background surface from matching user
 `tool_result` (runtime-only; newlines kept; CSI stripped for
 display; Environment Summary stays a one-line preview),
 live Subagent rows from real Claude
-`parent_tool_use_id` / Agent `tool_use` signals while streaming, and a
+`parent_tool_use_id` / Agent `tool_use` signals while streaming,
+first-cut settled Monitor / Subagent persist after the turn
+(status from Process settle; Monitor last-window kept; Stop
+hidden; not live after one-shot `-p` exits), and a
 first-cut right-panel Background surface (kind / title / live-or-settled
 status / Monitor log / Stop when the selected row is a live Process,
 live Monitor, or live Subagent) opened from those rows. Live Monitor
@@ -135,8 +138,8 @@ full onboarding / OAuth / auto-install, a long-lived daemon socket in
 the update loop
 (not this cut), a long-lived ACP loop once a window-side stdin-write
 effect exists, Claude CLI TaskStop,
-daemon `refreshBackgroundWork`, full BackgroundWorkRegistry, 100ms
-render cache.
+daemon `refreshBackgroundWork`, full BackgroundWorkRegistry
+event/reconcile parity, 100ms render cache.
 
 No `listSessions` / `createSession`. Catalog is `loadTaskState` (local
 JSON today). New session is a client-built session saved after first

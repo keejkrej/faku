@@ -645,23 +645,28 @@ pub const Model = struct {
     /// overwrites. Cleared when that session is removed.
     background_settled: environment_summary.SettledStatus = .none,
     background_settled_session: u32 = 0,
-    /// Live Subagent Background slots from Claude stream-json
-    /// `parent_tool_use_id` / Agent `tool_use`. Runtime-only; not
-    /// sessions.json / drafts.json. Cleared when the turn starts,
-    /// settles, or is stopped.
+    /// Subagent Background slots from Claude stream-json
+    /// `parent_tool_use_id` / Agent `tool_use`. Live while
+    /// `settled == .none`; first-cut persist-after-settle keeps
+    /// them after the turn (status from Process settle). Runtime-only;
+    /// not sessions.json / drafts.json. Not wiped on
+    /// `startPrompt`. Remove session drops that session's slots.
     background_subagents: [environment_summary.max_live_subagents]environment_summary.LiveSubagent = [_]environment_summary.LiveSubagent{.{}} ** environment_summary.max_live_subagents,
     background_subagent_count: u32 = 0,
     /// Dismissed Subagent ids for this turn. `noteLiveSubagent`
-    /// skips these until `clearLiveSubagents`. Runtime-only; not
-    /// sessions.json / drafts.json. Cap matches live slots.
+    /// skips these until `clearDismissedSubagentIds` (`startPrompt`).
+    /// Runtime-only; not sessions.json / drafts.json. Cap matches
+    /// live slots.
     background_dismissed_subagents: [environment_summary.max_live_subagents]environment_summary.DismissedSubagentId = [_]environment_summary.DismissedSubagentId{.{}} ** environment_summary.max_live_subagents,
     background_dismissed_subagent_count: u32 = 0,
-    /// Live Monitor Background slots from Claude stream-json
+    /// Monitor Background slots from Claude stream-json
     /// `Monitor` `tool_use`. Matching user `tool_result` fills a
     /// bounded 512KB last-window on the row (newlines kept; CSI
     /// stripped for display). Environment Summary `detail` stays a
-    /// one-line preview. Runtime-only; not sessions.json /
-    /// drafts.json. Same lifetime as live Subagent rows.
+    /// one-line preview. Live while `settled == .none`; first-cut
+    /// persist-after-settle keeps the row and heap log after the
+    /// turn. Runtime-only; not sessions.json / drafts.json. Remove
+    /// session frees that session's heap logs.
     background_monitors: [environment_summary.max_live_monitors]environment_summary.LiveMonitor = [_]environment_summary.LiveMonitor{.{}} ** environment_summary.max_live_monitors,
     background_monitor_count: u32 = 0,
     /// Runtime-only Environment Compare Review card. Not persisted.
@@ -1868,7 +1873,8 @@ pub const Model = struct {
     }
 
     /// Selected Background row is a live Process, live Monitor, or
-    /// live Subagent. Gates the right-panel Stop control.
+    /// live Subagent. Settled rows hide Stop. Gates the right-panel
+    /// Stop control.
     pub fn background_work_can_stop(model: *const Model) bool {
         const row = environment_summary.selectedBackgroundRow(model) orelse return false;
         return row.can_stop;
@@ -3173,10 +3179,10 @@ pub const Model = struct {
     }
 
     /// Visible Background registry rows (Process from stream/settle,
-    /// live Monitor from Claude `Monitor` tool_use plus a bounded
-    /// output preview from matching user `tool_result`, live Subagent
-    /// from Claude `parent_tool_use_id` / Agent `tool_use`).
-    /// Native `for each="background_rows"`.
+    /// Monitor from Claude `Monitor` tool_use plus a bounded last-window
+    /// from matching user `tool_result` — live then settled — Subagent
+    /// from Claude `parent_tool_use_id` / Agent `tool_use`, live then
+    /// settled). Native `for each="background_rows"`.
     pub fn background_rows(model: *const Model, arena: std.mem.Allocator) []const environment_summary.BackgroundRow {
         return environment_summary.backgroundRows(model, arena);
     }

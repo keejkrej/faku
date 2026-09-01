@@ -19,7 +19,10 @@
 //! Subagent Stop on one-shot `claude -p` ships; it dismisses that live
 //! row and does not invoke TaskStop mid-turn), daemon
 //! `refreshBackgroundWork`, a 100ms GPUI render cache,
-//! or a full BackgroundWorkRegistry. Not daemon
+//! or full BackgroundWorkRegistry event/reconcile parity. First-cut
+//! settled Monitor / Subagent stay in the runtime registry after the
+//! turn (status from Process settle; Monitor last-window kept; Stop
+//! hidden; not live after `-p` exits). Not daemon
 //! `WorkspaceOperation::listTree` / browseDirectory / readTextFile.
 //! Not Waku's 50k-file index (cap 256). Windows stays empty this cut
 //! (`file_mention` already skips Windows).
