@@ -25,8 +25,10 @@
 //! `Monitor` (code.claude.com/docs/en/tools-reference; first-cut
 //! title is the stable `Monitor` label). Matching Claude user
 //! `tool_result` (`tool_use_id`) fills a bounded runtime-only
-//! output preview on that row (not sessions.json; not a
-//! Waku-sized 512KB log). Live Subagent rows come from real
+//! 512KB last-window log on that row (newlines kept; not
+//! sessions.json). Environment Summary `detail` stays a short
+//! one-line preview; the right-panel Background body shows the
+//! stored log with CSI/ANSI stripped for display. Live Subagent rows come from real
 //! Claude stream-json `parent_tool_use_id` / Agent `tool_use`
 //! signals. Both are runtime-only while streaming (cleared
 //! when the turn settles or the stream ends; not
@@ -58,12 +60,14 @@
 //! fallback; not `refs/waku/`; not HEAD~1. Clicking a visible
 //! Background row closes this dropdown and opens the right-panel
 //! Background surface for that row (kind, title, live-or-settled
-//! status, Monitor 512-byte preview). Leftovers: prune-alone,
-//! full 512KB Monitor log, per-monitor TaskStop, daemon
-//! `refreshBackgroundWork` / WorkspaceOperation. Kind chrome,
-//! Process registry, first-cut live Monitor rows from Claude
-//! `Monitor` tool_use plus a bounded output preview from matching
-//! user `tool_result`, first-cut live Subagent rows from Claude
+//! status, Monitor 512KB last-window log). Leftovers: prune-alone,
+//! per-monitor TaskStop, daemon `refreshBackgroundWork` /
+//! WorkspaceOperation, full BackgroundWorkRegistry, 100ms render
+//! cache. Kind chrome, Process registry, first-cut live Monitor
+//! rows from Claude `Monitor` tool_use plus a Waku-sized 512KB
+//! last-window log from matching user `tool_result` (Environment
+//! Summary stays a one-line preview; right-panel Background reads
+//! the stored log), first-cut live Subagent rows from Claude
 //! `parent_tool_use_id`, and first-cut right-panel Background
 //! ship; not a Waku BackgroundWorkRegistry.
 //! Not transcript checkpoint +/-. Not force push (Waku
@@ -92,8 +96,9 @@ pub const SettledStatus = enum { none, completed, stopped, failed };
 
 /// Background kind chrome. Stable labels match Waku's Process ·
 /// Monitor · Subagent grouping. This cut fills Process, live
-/// Monitor from Claude `Monitor` tool_use (bounded output
-/// preview from matching user `tool_result`), and live Subagent
+/// Monitor from Claude `Monitor` tool_use (bounded 512KB
+/// last-window log from matching user `tool_result`; Summary
+/// `detail` is a one-line preview), and live Subagent
 /// from Claude `parent_tool_use_id` / Agent `tool_use`.
 pub const BackgroundKind = enum {
     process,
@@ -136,9 +141,20 @@ pub const max_monitor_id: usize = max_subagent_id;
 pub const max_subagent_title: usize = 32;
 pub const max_monitor_title: usize = max_subagent_title;
 
-/// First-cut Monitor output window (last bytes; drain-from-front).
-/// Not Waku's 512KB log. Runtime-only.
-pub const max_monitor_output: usize = 512;
+/// Waku-sized Monitor last-window (`MAX_BACKGROUND_OUTPUT_BYTES`).
+/// Drain-from-front on a UTF-8 char boundary. Heap-allocated per
+/// live row so `Model` / `initialModel()` stay return-by-value
+/// safe (inline `[512*1024]u8` × 7 is ~3.5MB). Runtime-only;
+/// freed when the row is cleared. Not sessions.json / drafts.json.
+pub const max_monitor_output: usize = 512 * 1024;
+
+/// Environment Summary one-line preview cap. Collapsed whitespace,
+/// CSI/ANSI stripped, trimmed; hidden when empty. Not the panel log.
+pub const max_monitor_preview: usize = 512;
+
+/// Scratch for right-panel Monitor log display (complete CSI
+/// stripped). Native copies the slice during the view bind.
+var monitor_panel_display: [max_monitor_output]u8 = undefined;
 
 /// Runtime-only live Subagent slot. Keyed by
 /// `parent_tool_use_id` / Agent `tool_use` id. Not persisted.
@@ -161,14 +177,19 @@ pub const LiveSubagent = struct {
 /// Runtime-only live Monitor slot. Keyed by Claude `Monitor`
 /// `tool_use` id. Not persisted. First-cut title is the stable
 /// `Monitor` label (no undocumented input scrape). Output is a
-/// bounded last-window from matching user `tool_result` text.
+/// bounded 512KB last-window from matching user `tool_result`
+/// text (newlines kept; CSI stored raw and stripped for display).
 pub const LiveMonitor = struct {
     id_storage: [max_monitor_id]u8 = [_]u8{0} ** max_monitor_id,
     id_len: usize = 0,
     title_storage: [max_monitor_title]u8 = [_]u8{0} ** max_monitor_title,
     title_len: usize = 0,
-    output_storage: [max_monitor_output]u8 = [_]u8{0} ** max_monitor_output,
+    /// Heap last-window (`max_monitor_output`). Empty until the
+    /// first matching `tool_result`. Freed with the row.
+    output_storage: []u8 = &.{},
     output_len: usize = 0,
+    preview_storage: [max_monitor_preview]u8 = [_]u8{0} ** max_monitor_preview,
+    preview_len: usize = 0,
 
     pub fn toolUseId(self: *const LiveMonitor) []const u8 {
         return self.id_storage[0..self.id_len];
@@ -183,10 +204,11 @@ pub const LiveMonitor = struct {
         return self.output_storage[0..self.output_len];
     }
 
-    /// Single-line preview for Environment Summary. Empty when
-    /// no output has landed (chrome hides it).
+    /// Single-line preview for Environment Summary. Collapsed
+    /// whitespace, CSI/ANSI stripped, trimmed. Empty when no
+    /// visible output has landed (chrome hides it).
     pub fn preview(self: *const LiveMonitor) []const u8 {
-        return std.mem.trim(u8, self.output(), " ");
+        return self.preview_storage[0..self.preview_len];
     }
 };
 
@@ -215,8 +237,9 @@ pub const BackgroundRow = struct {
     can_stop: bool,
     has_status: bool,
     settled_status: []const u8,
-    /// Monitor output preview only. Process / Subagent stay empty
-    /// so Completed / Stopped / Failed is not reused.
+    /// Monitor one-line preview only. Process / Subagent stay empty
+    /// so Completed / Stopped / Failed is not reused. The right-panel
+    /// body reads the stored log, not this field.
     has_detail: bool,
     detail: []const u8,
 };
@@ -257,11 +280,13 @@ pub fn clearLiveSubagents(model: *Model) void {
     model.background_subagent_count = 0;
 }
 
-/// Drop live Monitor rows (and their output windows). Same
-/// lifetime as Subagent.
+/// Drop live Monitor rows and free their heap last-windows. Same
+/// lifetime as Subagent. Walks every slot so a count-only reset
+/// cannot leak a buffer.
 pub fn clearLiveMonitors(model: *Model) void {
     var i: u32 = 0;
-    while (i < model.background_monitor_count) : (i += 1) {
+    while (i < max_live_monitors) : (i += 1) {
+        releaseMonitorLog(&model.background_monitors[i]);
         model.background_monitors[i] = .{};
     }
     model.background_monitor_count = 0;
@@ -304,6 +329,7 @@ pub fn noteLiveMonitor(model: *Model, tool_use_id: []const u8) void {
     }
     if (model.background_monitor_count >= max_live_monitors) return;
     const slot = &model.background_monitors[model.background_monitor_count];
+    releaseMonitorLog(slot);
     slot.* = .{};
     const writeFixed = main.writeFixed;
     writeFixed(&slot.id_storage, &slot.id_len, tool_use_id);
@@ -316,14 +342,18 @@ pub fn noteLiveMonitor(model: *Model, tool_use_id: []const u8) void {
 /// create a Monitor row (Bash / Agent / unknown ids stay ignored).
 /// Duplicate apply of the same delta just appends. Last-window
 /// drain-from-front at `max_monitor_output`; UTF-8 char-boundary
-/// safe. Newlines collapse to spaces so chrome stays one line.
+/// safe. Stored bytes keep newlines and raw CSI; Environment
+/// Summary `preview` collapses whitespace and strips complete CSI.
 pub fn appendLiveMonitorOutput(model: *Model, tool_use_id: []const u8, text: []const u8) void {
     if (tool_use_id.len == 0 or text.len == 0) return;
     var i: u32 = 0;
     while (i < model.background_monitor_count) : (i += 1) {
         const slot = &model.background_monitors[i];
         if (!std.mem.eql(u8, slot.toolUseId(), tool_use_id)) continue;
-        appendBoundedCollapsed(&slot.output_storage, &slot.output_len, text);
+        const storage = ensureMonitorLog(slot);
+        if (storage.len == 0) return;
+        appendBounded(storage, &slot.output_len, text);
+        rebuildPreview(slot);
         return;
     }
 }
@@ -341,16 +371,69 @@ fn utf8AlignForward(bytes: []const u8, start: usize) usize {
     return i;
 }
 
-fn appendBoundedCollapsed(storage: []u8, len: *usize, text: []const u8) void {
-    if (text.len == 0) return;
+fn isCsiFinal(c: u8) bool {
+    return c >= '@' and c <= '~';
+}
+
+/// Complete CSI length at `i` (`ESC [ … final` in `@`…`~`), or 0
+/// when the sequence is missing or split across the buffer end.
+fn completeCsiLen(bytes: []const u8, i: usize) usize {
+    if (i >= bytes.len or bytes[i] != 0x1b) return 0;
+    if (i + 1 >= bytes.len or bytes[i + 1] != '[') return 0;
+    var j = i + 2;
+    while (j < bytes.len and !isCsiFinal(bytes[j])) : (j += 1) {}
+    if (j >= bytes.len) return 0;
+    return j + 1 - i;
+}
+
+/// Strip complete CSI for display. Incomplete CSI at the end is
+/// left as-is (first-cut; not Waku's split-delta render cache).
+fn stripAnsi(src: []const u8, dest: []u8) usize {
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < src.len) {
+        const csi = completeCsiLen(src, i);
+        if (csi > 0) {
+            i += csi;
+            continue;
+        }
+        if (n >= dest.len) break;
+        dest[n] = src[i];
+        n += 1;
+        i += 1;
+    }
+    return n;
+}
+
+fn ensureMonitorLog(slot: *LiveMonitor) []u8 {
+    if (slot.output_storage.len == max_monitor_output) return slot.output_storage;
+    if (slot.output_storage.len != 0) {
+        std.heap.page_allocator.free(slot.output_storage);
+        slot.output_storage = &.{};
+        slot.output_len = 0;
+    }
+    const buf = std.heap.page_allocator.alloc(u8, max_monitor_output) catch return &.{};
+    slot.output_storage = buf;
+    slot.output_len = 0;
+    return buf;
+}
+
+fn releaseMonitorLog(slot: *LiveMonitor) void {
+    if (slot.output_storage.len != 0) {
+        std.heap.page_allocator.free(slot.output_storage);
+    }
+    slot.output_storage = &.{};
+    slot.output_len = 0;
+    slot.preview_len = 0;
+}
+
+fn appendBounded(storage: []u8, len: *usize, text: []const u8) void {
+    if (text.len == 0 or storage.len == 0) return;
     if (text.len >= storage.len) {
         const start = utf8AlignForward(text, text.len - storage.len);
-        var n: usize = 0;
-        for (text[start..]) |c| {
-            storage[n] = collapseWsByte(c);
-            n += 1;
-        }
-        len.* = n;
+        const chunk = text[start..];
+        @memcpy(storage[0..chunk.len], chunk);
+        len.* = chunk.len;
         return;
     }
     const combined = len.* + text.len;
@@ -363,13 +446,64 @@ fn appendBoundedCollapsed(storage: []u8, len: *usize, text: []const u8) void {
         }
         len.* = keep;
     }
-    var n = len.*;
-    for (text) |c| {
-        if (n >= storage.len) break;
-        storage[n] = collapseWsByte(c);
-        n += 1;
+    const n = len.*;
+    @memcpy(storage[n .. n + text.len], text);
+    len.* = n + text.len;
+}
+
+fn rebuildPreview(slot: *LiveMonitor) void {
+    slot.preview_len = 0;
+    const raw = slot.output();
+    var visible: usize = 0;
+    var i: usize = 0;
+    while (i < raw.len) {
+        const csi = completeCsiLen(raw, i);
+        if (csi > 0) {
+            i += csi;
+            continue;
+        }
+        visible += 1;
+        i += 1;
     }
-    len.* = n;
+    const skip = if (visible > max_monitor_preview) visible - max_monitor_preview else 0;
+    i = 0;
+    var seen: usize = 0;
+    while (i < raw.len) {
+        const csi = completeCsiLen(raw, i);
+        if (csi > 0) {
+            i += csi;
+            continue;
+        }
+        const c = collapseWsByte(raw[i]);
+        i += 1;
+        if (seen < skip) {
+            seen += 1;
+            continue;
+        }
+        slot.preview_storage[slot.preview_len] = c;
+        slot.preview_len += 1;
+        if (slot.preview_len == max_monitor_preview) break;
+    }
+    if (slot.preview_len > 0) {
+        const aligned = utf8AlignForward(slot.preview_storage[0..slot.preview_len], 0);
+        if (aligned > 0) {
+            const keep = slot.preview_len - aligned;
+            if (keep > 0) {
+                std.mem.copyForwards(u8, slot.preview_storage[0..keep], slot.preview_storage[aligned..slot.preview_len]);
+            }
+            slot.preview_len = keep;
+        }
+    }
+    const slice = slot.preview_storage[0..slot.preview_len];
+    const trimmed = std.mem.trim(u8, slice, " ");
+    if (trimmed.len == 0) {
+        slot.preview_len = 0;
+        return;
+    }
+    if (trimmed.ptr != slice.ptr) {
+        std.mem.copyForwards(u8, slot.preview_storage[0..trimmed.len], trimmed);
+    }
+    slot.preview_len = trimmed.len;
 }
 
 /// Live Subagent rows exist only while streaming. Idle settle is
@@ -417,7 +551,8 @@ pub fn settledStatusLabel(model: *const Model) []const u8 {
 /// Streaming wins so a queued `finishStream` restart stays on the
 /// live Process row instead of flashing Completed. Live Monitor
 /// rows follow Process from Claude `Monitor` `tool_use` (bounded
-/// output preview from matching user `tool_result`). Live
+/// 512KB last-window from matching user `tool_result`; `detail`
+/// is the one-line preview). Live
 /// Subagent rows follow those from `parent_tool_use_id` / Agent
 /// `tool_use`. Fill stops at the cap.
 pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]BackgroundRow) []const BackgroundRow {
@@ -599,9 +734,18 @@ pub fn backgroundWorkStatus(row: BackgroundRow) []const u8 {
     };
 }
 
-pub fn backgroundWorkOutput(row: BackgroundRow) []const u8 {
-    if (!row.has_detail) return "";
-    return row.detail;
+/// Right-panel Background body. Monitor rows return the stored
+/// last-window with complete CSI stripped (newlines kept). Process
+/// / Subagent stay empty so the pane shows "No output".
+pub fn backgroundWorkOutput(model: *const Model) []const u8 {
+    const row = selectedBackgroundRow(model) orelse return "";
+    if (row.kind != .monitor) return "";
+    const idx = row.id - monitor_row_id_first;
+    if (idx >= liveMonitorCount(model)) return "";
+    const raw = model.background_monitors[idx].output();
+    if (raw.len == 0) return "";
+    const n = stripAnsi(raw, monitor_panel_display[0..]);
+    return monitor_panel_display[0..n];
 }
 
 /// Close the popover and open the right-panel Background surface on
@@ -1486,6 +1630,7 @@ test "Send start clears live Monitor rows" {
     fx.executor = .fake;
 
     var model = Model{};
+    defer clearLiveMonitors(&model);
     const id = model.addSession("env send clears monitor", .claude);
     model.selected = id;
     model.phase = .streaming;
@@ -1506,6 +1651,7 @@ test "Send start clears live Monitor rows" {
 
 test "appendLiveMonitorOutput fills preview; unknown id and empty text are no-ops" {
     var model = Model{};
+    defer clearLiveMonitors(&model);
     const id = model.addSession("env monitor output", .claude);
     model.selected = id;
     model.phase = .streaming;
@@ -1537,9 +1683,15 @@ test "appendLiveMonitorOutput fills preview; unknown id and empty text are no-op
     rows = fillBackgroundRows(&model, &buf);
     try std.testing.expect(rows[1].has_detail);
     try std.testing.expectEqualStrings("first line first line", rows[1].detail);
+    try std.testing.expect(std.mem.indexOf(u8, rows[1].detail, "\n") == null);
+    try std.testing.expect(std.mem.indexOf(u8, rows[1].detail, "first\nline") == null);
+    try std.testing.expectEqualStrings("first\nline first\nline", model.background_monitors[0].output());
     try std.testing.expect(!rows[1].has_status);
     try std.testing.expectEqualStrings(kind_monitor_label, rows[1].title);
     try std.testing.expect(!rows[0].has_detail);
+    model.right_panel_background_row_id = monitor_row_id_first;
+    try std.testing.expectEqualStrings("first\nline first\nline", backgroundWorkOutput(&model));
+    try std.testing.expect(backgroundWorkOutput(&model).len > rows[1].detail.len or std.mem.indexOf(u8, backgroundWorkOutput(&model), "\n") != null);
 
     noteLiveSubagent(&model, "toolu_agent_1");
     rows = fillBackgroundRows(&model, &buf);
@@ -1548,16 +1700,24 @@ test "appendLiveMonitorOutput fills preview; unknown id and empty text are no-op
     try std.testing.expectEqualStrings("", rows[2].detail);
 }
 
-test "appendLiveMonitorOutput drains from the front at the 512-byte cap" {
+test "appendLiveMonitorOutput drains from the front at the 512KB cap" {
     var model = Model{};
+    defer clearLiveMonitors(&model);
     const id = model.addSession("env monitor overflow", .claude);
     model.selected = id;
     model.phase = .streaming;
     model.streaming_session = id;
     noteLiveMonitor(&model, "toolu_mon_cap");
 
-    const first = "é" ++ "x" ** (max_monitor_output - 2);
-    appendLiveMonitorOutput(&model, "toolu_mon_cap", first);
+    appendLiveMonitorOutput(&model, "toolu_mon_cap", "é");
+    const chunk = "x" ** 4096;
+    while (model.background_monitors[0].output().len + chunk.len <= max_monitor_output) {
+        appendLiveMonitorOutput(&model, "toolu_mon_cap", chunk);
+    }
+    const remain = max_monitor_output - model.background_monitors[0].output().len;
+    if (remain > 0) {
+        appendLiveMonitorOutput(&model, "toolu_mon_cap", chunk[0..remain]);
+    }
     try std.testing.expectEqual(max_monitor_output, model.background_monitors[0].output().len);
     try std.testing.expect(std.mem.startsWith(u8, model.background_monitors[0].output(), "é"));
 
@@ -1568,6 +1728,60 @@ test "appendLiveMonitorOutput drains from the front at the 512-byte cap" {
     try std.testing.expect(out[0] != 0xA9);
     try std.testing.expect(out[out.len - 1] == 'y');
     try std.testing.expect(!std.mem.startsWith(u8, out, "é"));
+}
+
+test "Monitor stored log keeps newlines and CSI; Summary is one line; panel strips ANSI" {
+    var model = Model{};
+    defer clearLiveMonitors(&model);
+    const id = model.addSession("env monitor ansi", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    noteLiveMonitor(&model, "toolu_mon_ansi");
+    appendLiveMonitorOutput(&model, "toolu_mon_ansi", "\x1b[31mred\x1b[0m\nnext");
+
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    const rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqualStrings("red next", rows[1].detail);
+    try std.testing.expect(std.mem.indexOf(u8, rows[1].detail, "\x1b") == null);
+    try std.testing.expect(std.mem.indexOf(u8, rows[1].detail, "\n") == null);
+    try std.testing.expectEqualStrings("\x1b[31mred\x1b[0m\nnext", model.background_monitors[0].output());
+
+    model.right_panel_background_row_id = monitor_row_id_first;
+    const panel = backgroundWorkOutput(&model);
+    try std.testing.expectEqualStrings("red\nnext", panel);
+    try std.testing.expect(std.mem.indexOf(u8, panel, "\x1b") == null);
+    try std.testing.expect(std.mem.indexOf(u8, panel, "\n") != null);
+    try std.testing.expect(panel.len > rows[1].detail.len or std.mem.eql(u8, panel, "red\nnext"));
+}
+
+test "Monitor panel log is larger than the one-line Summary preview" {
+    var model = Model{};
+    defer clearLiveMonitors(&model);
+    const id = model.addSession("env monitor preview cap", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    noteLiveMonitor(&model, "toolu_mon_preview");
+    const chunk = "x" ** 200;
+    appendLiveMonitorOutput(&model, "toolu_mon_preview", chunk);
+    appendLiveMonitorOutput(&model, "toolu_mon_preview", "\n");
+    appendLiveMonitorOutput(&model, "toolu_mon_preview", chunk);
+    appendLiveMonitorOutput(&model, "toolu_mon_preview", chunk);
+    appendLiveMonitorOutput(&model, "toolu_mon_preview", chunk);
+
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    const rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expect(rows[1].has_detail);
+    try std.testing.expect(rows[1].detail.len <= max_monitor_preview);
+    try std.testing.expect(std.mem.indexOf(u8, rows[1].detail, "\n") == null);
+    try std.testing.expect(model.background_monitors[0].output().len > rows[1].detail.len);
+    try std.testing.expect(std.mem.indexOf(u8, model.background_monitors[0].output(), "\n") != null);
+
+    model.right_panel_background_row_id = monitor_row_id_first;
+    const panel = backgroundWorkOutput(&model);
+    try std.testing.expect(panel.len > rows[1].detail.len);
+    try std.testing.expect(std.mem.indexOf(u8, panel, "\n") != null);
 }
 
 test "openBackgroundWork opens Process row; unknown id is a no-op; dropdown closes" {
@@ -1603,15 +1817,16 @@ test "openBackgroundWork opens Process row; unknown id is a no-op; dropdown clos
     try std.testing.expectEqual(BackgroundKind.process, row.kind);
     try std.testing.expectEqualStrings(process_row_label, row.title);
     try std.testing.expectEqualStrings(live_running_label, backgroundWorkStatus(row));
-    try std.testing.expectEqualStrings("", backgroundWorkOutput(row));
+    try std.testing.expectEqualStrings("", backgroundWorkOutput(&model));
 }
 
-test "openBackgroundWork shows Monitor preview; Files and Diff still open; gone row is empty" {
+test "openBackgroundWork shows Monitor log; Files and Diff still open; gone row is empty" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
 
     var model = Model{};
+    defer clearLiveMonitors(&model);
     const id = model.addSession("env background monitor panel", .claude);
     model.selected = id;
     model.phase = .streaming;
@@ -1628,7 +1843,7 @@ test "openBackgroundWork shows Monitor preview; Files and Diff still open; gone 
     try std.testing.expectEqual(BackgroundKind.monitor, mon.kind);
     try std.testing.expectEqualStrings(kind_monitor_label, mon.title);
     try std.testing.expectEqualStrings(live_monitoring_label, backgroundWorkStatus(mon));
-    try std.testing.expectEqualStrings("line from monitor", backgroundWorkOutput(mon));
+    try std.testing.expectEqualStrings("line from monitor", backgroundWorkOutput(&model));
 
     right_panel.selectFiles(&model, &fx);
     try std.testing.expectEqual(right_panel.Tab.files, model.right_panel_tab);
@@ -1666,7 +1881,7 @@ test "openBackgroundWork Subagent row is Running with empty output" {
     const row = selectedBackgroundRow(&model).?;
     try std.testing.expectEqual(BackgroundKind.subagent, row.kind);
     try std.testing.expectEqualStrings(live_running_label, backgroundWorkStatus(row));
-    try std.testing.expectEqualStrings("", backgroundWorkOutput(row));
+    try std.testing.expectEqualStrings("", backgroundWorkOutput(&model));
 }
 
 test "settled Process row on Background keeps Completed / Stopped / Failed" {

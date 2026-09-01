@@ -9,11 +9,13 @@
 //! file list + hunk text) via `review_diff` — not a second git probe
 //! stack. Background is a runtime-only surface for the Environment
 //! Summary Process / Monitor / Subagent row that was clicked (kind,
-//! title, live-or-settled status, Monitor 512-byte preview). Tab
+//! title, live-or-settled status, Monitor 512KB last-window log
+//! with newlines kept and CSI/ANSI stripped for display;
+//! Environment Summary stays a one-line preview). Tab
 //! click with no selected row, or a selected row that is gone, shows
 //! "No background work". Not Browser, Terminal (Native has no PTY),
-//! compact File editor, Waku-sized 512KB Monitor log, per-monitor
-//! TaskStop, daemon `refreshBackgroundWork`, or a full
+//! compact File editor, per-monitor TaskStop, daemon
+//! `refreshBackgroundWork`, a 100ms GPUI render cache, or a full
 //! BackgroundWorkRegistry. Not daemon
 //! `WorkspaceOperation::listTree` / browseDirectory / readTextFile.
 //! Not Waku's 50k-file index (cap 256). Windows stays empty this cut

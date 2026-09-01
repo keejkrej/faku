@@ -648,9 +648,10 @@ pub const Model = struct {
     background_subagent_count: u32 = 0,
     /// Live Monitor Background slots from Claude stream-json
     /// `Monitor` `tool_use`. Matching user `tool_result` fills a
-    /// bounded output preview on the row. Runtime-only; not
-    /// sessions.json / drafts.json. Same lifetime as live Subagent
-    /// rows.
+    /// bounded 512KB last-window on the row (newlines kept; CSI
+    /// stripped for display). Environment Summary `detail` stays a
+    /// one-line preview. Runtime-only; not sessions.json /
+    /// drafts.json. Same lifetime as live Subagent rows.
     background_monitors: [environment_summary.max_live_monitors]environment_summary.LiveMonitor = [_]environment_summary.LiveMonitor{.{}} ** environment_summary.max_live_monitors,
     background_monitor_count: u32 = 0,
     /// Runtime-only Environment Compare Review card. Not persisted.
@@ -1847,8 +1848,7 @@ pub const Model = struct {
     }
 
     pub fn background_work_output(model: *const Model) []const u8 {
-        const row = environment_summary.selectedBackgroundRow(model) orelse return "";
-        return environment_summary.backgroundWorkOutput(row);
+        return environment_summary.backgroundWorkOutput(model);
     }
 
     pub fn background_work_has_output(model: *const Model) bool {

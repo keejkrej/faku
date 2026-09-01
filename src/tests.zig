@@ -33,6 +33,7 @@ const keys = @import("keys.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 const goal = @import("goal.zig");
 const acp = @import("acp.zig");
+const environment_summary = @import("environment_summary.zig");
 
 const canvas = native_sdk.canvas;
 const testing = std.testing;
@@ -9155,7 +9156,7 @@ test "Environment Summary Process row opens right-panel Background; unknown id n
     try testing.expect(findByText(tree.root, .text, "No background work") == null);
 }
 
-test "Environment Summary Monitor row opens Background with the 512-byte preview" {
+test "Environment Summary Monitor row opens Background with the 512KB log" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -9165,6 +9166,7 @@ test "Environment Summary Monitor row opens Background with the 512-byte preview
     fx.executor = .fake;
 
     var model = Model{};
+    defer environment_summary.clearLiveMonitors(&model);
     const sid = model.addSession("env monitor panel", .claude);
     model.selected = sid;
     const turn_id = model.appendTurn(sid, .assistant, "");
@@ -9208,6 +9210,62 @@ test "Environment Summary Monitor row opens Background with the 512-byte preview
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "No background work");
     try testing.expect(findByText(tree.root, .text, "line from monitor") == null);
+}
+
+test "Environment Summary Monitor detail stays one line; Background panel shows newlines and strips CSI" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer environment_summary.clearLiveMonitors(&model);
+    const sid = model.addSession("env monitor multiline", .claude);
+    model.selected = sid;
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    model.fx_spawn_claude_json = true;
+    model.fx_spawn_key = main.fx_ask_key;
+
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_1\",\"name\":\"Monitor\"}]}}",
+    } }, &fx);
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"first\\nline\"}]}}",
+    } }, &fx);
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"\\n\\u001b[31mred\\u001b[0m\"}]}}",
+    } }, &fx);
+
+    main.update(&model, .toggle_environment_summary, &fx);
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "first line red");
+    try testing.expect(findByText(tree.root, .text, "first\nline") == null);
+    try testing.expect(findByText(tree.root, .text, "\x1b[31mred\x1b[0m") == null);
+    const rows = model.background_rows(arena);
+    try testing.expectEqual(@as(usize, 2), rows.len);
+    try testing.expectEqualStrings("first line red", rows[1].detail);
+    try testing.expect(std.mem.indexOf(u8, rows[1].detail, "\n") == null);
+    try testing.expectEqualStrings("first\nline\n\x1b[31mred\x1b[0m", model.background_monitors[0].output());
+
+    const monitor_row = try expectByText(tree.root, .menu_item, "Monitor");
+    main.update(&model, tree.msgForPointer(monitor_row.id, .up).?, &fx);
+    try testing.expectEqualStrings("first\nline\nred", model.background_work_output());
+    try testing.expect(std.mem.indexOf(u8, model.background_work_output(), "\x1b") == null);
+    try testing.expect(model.background_work_output().len > rows[1].detail.len);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "first\nline\nred");
+    try testing.expect(findByText(tree.root, .text, "No output") == null);
+    try testing.expect(findByText(tree.root, .text, "\x1b[31mred") == null);
 }
 
 test "cmd-c and ctrl-c copy the last non-empty turn via writeClipboard" {
@@ -19617,6 +19675,7 @@ test "Environment Background Monitor row shows tool_result preview and hides emp
     fx.executor = .fake;
 
     var model = Model{};
+    defer environment_summary.clearLiveMonitors(&model);
     const sid = model.addSession("env monitor preview", .claude);
     model.selected = sid;
     const turn_id = model.appendTurn(sid, .assistant, "");

@@ -18,8 +18,10 @@
 //! documented image path inside that `-p` prompt when a composer image is
 //! attached; stdout is NDJSON with live `text_delta`; live Subagent
 //! Background from `parent_tool_use_id`; live Monitor Background from
-//! Claude `Monitor` `tool_use` plus a bounded output preview from
-//! matching user `tool_result`); Available Codex is one-shot `codex exec {prompt}`
+//! Claude `Monitor` `tool_use` plus a bounded 512KB last-window
+//! log from matching user `tool_result` (Environment Summary
+//! stays a one-line preview; right-panel Background shows the
+//! stored log with CSI stripped); Available Codex is one-shot `codex exec {prompt}`
 //! (documented `--image {path}` after the prompt when a composer image
 //! is attached); Available Amp is
 //! one-shot `amp -x {prompt}` (`--execute` is the long form; documented

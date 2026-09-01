@@ -2134,6 +2134,7 @@ test "right panel open flag and width reload from document extras" {
 
 test "Background tab, selected row, and output are not written to sessions.json" {
     const testing = std.testing;
+    const environment_summary = @import("environment_summary.zig");
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
     var dir_buf: [256]u8 = undefined;
@@ -2142,10 +2143,11 @@ test "Background tab, selected row, and output are not written to sessions.json"
     const allocator = testing.allocator;
 
     var source = Model{};
+    defer environment_summary.clearLiveMonitors(&source);
     source.task_state_loaded = true;
     source.setStoreDir(dir);
     source.store_io = io;
-    const id = source.addSession("background pane later", .fx);
+    const id = source.addSession("background pane later", .claude);
     _ = source.appendTurn(id, .user, "remember the files pane");
     source.selected = id;
     source.phase = .streaming;
@@ -2155,13 +2157,16 @@ test "Background tab, selected row, and output are not written to sessions.json"
     var fx = main.Effects.init(allocator);
     defer fx.deinit();
     fx.executor = .fake;
+    environment_summary.noteLiveMonitor(&source, "toolu_mon_persist");
+    environment_summary.appendLiveMonitorOutput(&source, "toolu_mon_persist", "secret monitor log\nsecond line");
     source.environment_summary_open = true;
-    const environment_summary = @import("environment_summary.zig");
-    environment_summary.openBackgroundWork(&source, &fx, environment_summary.process_row_id);
+    environment_summary.openBackgroundWork(&source, &fx, environment_summary.monitor_row_id_first);
+    try saveSession(&source, id, allocator, io);
     persistLayoutIfPossible(&source);
     try testing.expect(source.right_panel_open);
     try testing.expect(source.right_panel_tab_background());
-    try testing.expectEqual(environment_summary.process_row_id, source.right_panel_background_row_id);
+    try testing.expectEqual(environment_summary.monitor_row_id_first, source.right_panel_background_row_id);
+    try testing.expectEqualStrings("secret monitor log\nsecond line", source.background_work_output());
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = catalogPath(dir, &path_buf).?;
@@ -2174,6 +2179,9 @@ test "Background tab, selected row, and output are not written to sessions.json"
     try testing.expect(std.mem.indexOf(u8, bytes, "background_work") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "Agent turn") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "Running") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "Monitoring") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "secret monitor log") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "second line") == null);
 
     var loaded = Model{};
     loaded.setStoreDir(dir);

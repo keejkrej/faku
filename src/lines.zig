@@ -12,9 +12,10 @@
 //! traffic (not main-turn append; live Subagent Background).
 //! Claude `tool_use` with `name` `Monitor` is live Monitor
 //! Background (not Bash / Agent / `parent_tool_use_id`). Matching
-//! user `tool_result` (`tool_use_id`) fills a bounded output
-//! preview on that live row; it does not `appendToTurn` and does
-//! not register a new Monitor.
+//! user `tool_result` (`tool_use_id`) fills a bounded 512KB
+//! last-window log on that live row (newlines kept; CSI stripped
+//! for display; Environment Summary stays a one-line preview); it
+//! does not `appendToTurn` and does not register a new Monitor.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -574,7 +575,9 @@ fn jsonStreamEventToolResult(event: anytype, allocator: std.mem.Allocator) Claud
 /// spawn key for live Monitor Background rows. User `tool_result`
 /// (`tool_use_id` + `content`) is the first-cut Monitor output
 /// preview; empty id/text is no event. `parent_tool_use_id` is
-/// still Subagent, never Monitor output.
+/// still Subagent, never Monitor output. The stored log is a
+/// Waku-sized 512KB last-window (newlines kept); Environment
+/// Summary `detail` stays a one-line preview.
 fn parseClaudeJsonLine(line: []const u8, allocator: std.mem.Allocator) ClaudeJsonParsed {
     const trimmed = std.mem.trim(u8, line, " \t\r\n");
     if (trimmed.len < 2 or trimmed[0] != '{') return .{};
@@ -1689,6 +1692,7 @@ test "claude json apply: matching tool_result fills Monitor preview; unknown Bas
     fx.executor = .fake;
 
     var model = Model{};
+    defer environment_summary.clearLiveMonitors(&model);
     const sid = model.addSession("claude monitor output", .claude);
     const turn_id = model.appendTurn(sid, .assistant, "");
     model.phase = .streaming;

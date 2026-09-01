@@ -50,6 +50,7 @@ const acp_proxy = @import("acp_proxy.zig");
 const composer = @import("composer.zig");
 const session_fork = @import("fork.zig");
 const providers = @import("providers.zig");
+const environment_summary = @import("environment_summary.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -85,8 +86,7 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
     model.streaming_session = session.id;
     model.fx_spawn_pi_json = false;
     model.fx_spawn_claude_json = false;
-    model.background_subagent_count = 0;
-    model.background_monitor_count = 0;
+    environment_summary.clearLiveBackgroundSignals(model);
     if (model.daemonAddress().len > 0) {
         model.reply_path = .daemon;
         startDaemonProxy(model, fx, session, text);
@@ -446,8 +446,10 @@ const claude_image_prompt_prefix = "Analyze this image: ";
 /// `parent_tool_use_id` is subagent traffic (not main-turn prose).
 /// `tool_use` with `name` `Monitor` fills live Monitor Background
 /// (not Bash / Agent / `parent_tool_use_id`). Matching user
-/// `tool_result` fills a bounded output preview on that live row
-/// (not `appendToTurn`; does not register a new Monitor).
+/// `tool_result` fills a bounded 512KB last-window log on that live
+/// row (newlines kept; CSI stripped for display; Environment
+/// Summary stays a one-line preview; not `appendToTurn`; does not
+/// register a new Monitor).
 /// Not ACP, not `claude acp`, not `--input-format stream-json`, not
 /// `--mode rpc`, not `--bare`, not permissions bypass, not
 /// acp-proxy. Caller sets `reply_path` to `.fx` on success;
