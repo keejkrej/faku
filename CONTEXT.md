@@ -141,7 +141,8 @@ Matching user `tool_result` (`tool_use_id`) fills a bounded
 runtime-only output preview on that row (not `appendToTurn`; does
 not register a new Monitor). When the turn settles, those
 Monitor / Subagent rows stay as settled registry rows (status from
-Process settle; Monitor / Subagent last-window kept; Faku-side Dismiss;
+Process settle; Monitor / Subagent last-window kept; Faku-side Dismiss
+plus Dismiss all settled for the selected session;
 not live
 after `-p` exits).
 If no deltas arrived, the final `result` text is the
@@ -316,7 +317,10 @@ settled), then Subagent (live first, then settled). Settled rows
 for other sessions are hidden; remove session frees that session's
 Monitor / Subagent heap logs. Not sessions.json. Clicking a visible row closes the
 dropdown and opens the right-panel Background tab for that id.
-Not daemon `refreshBackgroundWork`.
+Dismiss all settled on Environment Summary clears the selected
+session's settled leftovers (Monitor / Subagent slots plus the
+cap-1 Process settle) without stopping a live stream. Not Claude
+TaskStop. Not daemon `refreshBackgroundWork`.
 
 ## Settings Providers
 
@@ -463,7 +467,8 @@ Honest gaps this cut does not implement:
   `tool_result`; first-cut 100ms CSI-stripped render cache on those
   last-windows (piggybacks `now_ms` / the stream tick); first-cut
   settled Monitor / Subagent persist after
-  the turn; Environment Summary stays a one-line preview). Codex exec
+  the turn; Faku-side Dismiss all settled for the selected session
+  ships; Environment Summary stays a one-line preview). Codex exec
   one-shot (`codex exec {prompt}`, documented `--image {path}` after
   the prompt when a composer image is attached) ships; Amp execute-mode
   one-shot (`amp -x {prompt}`, documented `@{path}` in the `-x` prompt
@@ -513,7 +518,10 @@ Honest gaps this cut does not implement:
   first-cut settled Monitor / Subagent persist after the turn
   (status from Process settle; Monitor / Subagent last-window kept;
   Faku-side Dismiss, not Claude TaskStop / daemon
-  `refreshBackgroundWork`; not live after `-p` exits); and a first-cut
+  `refreshBackgroundWork`; not live after `-p` exits); Faku-side
+  Dismiss all settled for the selected session (settled Monitor /
+  Subagent plus the cap-1 Process settle; live rows and the stream
+  stay; not Claude TaskStop / daemon registry reconcile); and a first-cut
   right-panel Background surface from those rows that shows the
   stored Monitor / Subagent log, Stop when the selected row is
   a live Process, live Monitor, or live Subagent, and Dismiss when

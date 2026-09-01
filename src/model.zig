@@ -511,6 +511,12 @@ pub const Msg = union(enum) {
     /// dismiss of that slot only — not Claude TaskStop on one-shot
     /// `claude -p`. Unknown / Process-idle ids are no-ops.
     environment_stop_background: u32,
+    /// Environment Summary Dismiss all settled. Faku-side bulk
+    /// clear of settled Background leftovers for the selected
+    /// session (Monitor / Subagent slots plus the cap-1 Process
+    /// settle). Does not `stopStream` / dismiss live rows. Not
+    /// Claude TaskStop / daemon `refreshBackgroundWork`.
+    environment_dismiss_settled_background,
     close_review_diff,
     set_review_diff_source_branch,
     set_review_diff_source_uncommitted,
@@ -3220,6 +3226,13 @@ pub const Model = struct {
     /// Visible settled last-turn row (idle, selected session).
     pub fn has_settled_background(model: *const Model) bool {
         return environment_summary.hasSettledBackground(model);
+    }
+
+    /// At least one dismissable settled leftover for the selected
+    /// session (visible Process settle and/or settled Monitor /
+    /// Subagent). Gates Environment Summary **Dismiss all settled**.
+    pub fn has_dismissable_settled_background(model: *const Model) bool {
+        return environment_summary.hasDismissableSettledBackground(model);
     }
 
     /// Completed / Stopped / Failed. Empty when the settled row

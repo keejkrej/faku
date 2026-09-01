@@ -419,6 +419,9 @@
                       <text foreground="text_muted">{b.settled_status}</text>
                     </if>
                   </for>
+                  <if test="{has_dismissable_settled_background}">
+                    <menu-item on-press="environment_dismiss_settled_background">Dismiss all settled</menu-item>
+                  </if>
                 </if>
               </dropdown-menu>
             </if>

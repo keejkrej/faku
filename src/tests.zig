@@ -19992,6 +19992,9 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "for each=\"background_rows\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "open_background_work:{b.id}") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_stop_background:{b.id}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_stop_background:{b.id}").? < std.mem.indexOf(u8, main.app_markup, "environment_dismiss_settled_background").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "has_dismissable_settled_background") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "Dismiss all settled") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.kind_label}").? < std.mem.indexOf(u8, main.app_markup, "{b.title}").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.title}").? < std.mem.indexOf(u8, main.app_markup, "b.has_detail").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "b.has_detail").? < std.mem.indexOf(u8, main.app_markup, "{b.detail}").?);
@@ -20061,6 +20064,8 @@ test "Environment Background Stop appears while streaming and reuses composer St
     try testing.expect(findByText(tree.root, .menu_item, "Copy agent CLI thread ID") == null);
     try testing.expect(findByText(tree.root, .text, "Monitor") == null);
     try testing.expect(findByText(tree.root, .text, "Subagent") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Dismiss all settled") == null);
+    try testing.expect(!model.has_dismissable_settled_background());
 
     main.update(&model, tree.msgForPointer(stop_agent.id, .up).?, &fx);
     try testing.expect(!model.environment_summary_open);
@@ -20086,6 +20091,9 @@ test "Environment Background Stop appears while streaming and reuses composer St
     try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
     try testing.expect(findByText(tree.root, .text, "Monitor") == null);
     try testing.expect(findByText(tree.root, .text, "Subagent") == null);
+    try testing.expect(model.has_dismissable_settled_background());
+    const dismiss_all = try expectByText(tree.root, .menu_item, "Dismiss all settled");
+    try testing.expectEqual(Msg.environment_dismiss_settled_background, tree.msgForPointer(dismiss_all.id, .up).?);
 }
 
 test "Environment Background settles Completed on a finished turn with no queue" {
@@ -20119,6 +20127,9 @@ test "Environment Background settles Completed on a finished turn with no queue"
     try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
     try testing.expect(findByText(tree.root, .text, "Monitor") == null);
     try testing.expect(findByText(tree.root, .text, "Subagent") == null);
+    try testing.expect(model.has_dismissable_settled_background());
+    const dismiss_all = try expectByText(tree.root, .menu_item, "Dismiss all settled");
+    try testing.expectEqual(Msg.environment_dismiss_settled_background, tree.msgForPointer(dismiss_all.id, .up).?);
 }
 
 test "Environment Background Monitor row shows tool_result preview and hides empty detail" {
@@ -20344,6 +20355,9 @@ test "Environment Background settled Monitor and Subagent show Dismiss; Process 
     try testing.expect(findByText(tree.root, .menu_item, "Stop monitor") == null);
     try testing.expect(findByText(tree.root, .menu_item, "Stop subagent") == null);
     _ = try expectByText(tree.root, .text, "Stopped");
+    try testing.expect(model.has_dismissable_settled_background());
+    const dismiss_all = try expectByText(tree.root, .menu_item, "Dismiss all settled");
+    try testing.expectEqual(Msg.environment_dismiss_settled_background, tree.msgForPointer(dismiss_all.id, .up).?);
 
     main.update(&model, tree.msgForPointer(dismiss_monitor.id, .up).?, &fx);
     try testing.expectEqual(@as(u32, 0), model.background_monitor_count);
@@ -20364,6 +20378,86 @@ test "Environment Background settled Monitor and Subagent show Dismiss; Process 
     try testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
     try testing.expectEqual(@as(u32, 0), model.background_dismissed_subagent_count);
     try testing.expect(!model.background_work_can_stop());
+}
+
+test "Environment Background Dismiss all settled clears leftovers and leaves live Stop" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer environment_summary.clearLiveMonitors(&model);
+    defer environment_summary.clearLiveSubagents(&model);
+    const sid = model.addSession("env dismiss all settled ui", .claude);
+    model.selected = sid;
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    if (model.sessionById(sid)) |session| session.busy = true;
+    model.fx_spawn_claude_json = true;
+    model.fx_spawn_key = main.fx_ask_key;
+
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_1\",\"name\":\"Monitor\"}]}}",
+    } }, &fx);
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"line from monitor\"}]}}",
+    } }, &fx);
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_agent_1\",\"name\":\"Agent\"}]}}",
+    } }, &fx);
+    main.update(&model, .toggle_environment_summary, &fx);
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "Stop agent");
+    try testing.expect(findByText(tree.root, .menu_item, "Dismiss all settled") == null);
+
+    main.update(&model, .stop_turn, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expect(model.has_dismissable_settled_background());
+    tree = try buildTree(arena, &model);
+    const dismiss_all = try expectByText(tree.root, .menu_item, "Dismiss all settled");
+    try testing.expectEqual(Msg.environment_dismiss_settled_background, tree.msgForPointer(dismiss_all.id, .up).?);
+    _ = try expectByText(tree.root, .menu_item, "Dismiss monitor");
+    _ = try expectByText(tree.root, .menu_item, "Dismiss subagent");
+    try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
+
+    model.right_panel_background_row_id = environment_summary.monitor_row_id_first;
+    main.update(&model, tree.msgForPointer(dismiss_all.id, .up).?, &fx);
+    try testing.expect(!model.environment_summary_open);
+    try testing.expectEqual(@as(u32, 0), model.background_monitor_count);
+    try testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    try testing.expectEqual(environment_summary.SettledStatus.none, model.background_settled);
+    try testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+    try testing.expectEqual(@as(u32, 0), model.background_dismissed_subagent_count);
+    try testing.expect(!model.has_dismissable_settled_background());
+    try testing.expect(!model.has_background_section());
+    try testing.expect(!model.is_streaming());
+
+    model.phase = .streaming;
+    model.streaming_session = sid;
+    if (model.sessionById(sid)) |session| session.busy = true;
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_live\",\"name\":\"Monitor\"}]}}",
+    } }, &fx);
+    main.update(&model, .toggle_environment_summary, &fx);
+    tree = try buildTree(arena, &model);
+    const stop_agent = try expectByText(tree.root, .menu_item, "Stop agent");
+    try testing.expectEqual(Msg{ .environment_stop_background = 1 }, tree.msgForPointer(stop_agent.id, .up).?);
+    _ = try expectByText(tree.root, .menu_item, "Stop monitor");
+    try testing.expect(findByText(tree.root, .menu_item, "Dismiss all settled") == null);
+    try testing.expect(!model.has_dismissable_settled_background());
+    main.update(&model, tree.msgForPointer(stop_agent.id, .up).?, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(environment_summary.SettledStatus.stopped, model.background_settled);
 }
 
 test "Environment Commit or Push opens the commit card on a clean tree; composer Commit… stays gated" {
