@@ -3,8 +3,8 @@
 //! `openPalette` / `clampPaletteHighlight` / `runPaletteAction` /
 //! `runPalettePick` / `confirmPalette` / `applySessionSelection` /
 //! `goHistory` live here. Palette row building stays in `palette.zig`.
-//! Msg routing and Model fields stay in `main.zig`. Behavior is
-//! unchanged from the former `main` palette runners.
+//! Msg routing lives in `update.zig`. Model fields stay in `main.zig`.
+//! Behavior is unchanged from the former `main` palette runners.
 
 const main = @import("main.zig");
 const palette = @import("palette.zig");

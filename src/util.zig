@@ -3,7 +3,8 @@
 //! `sessionDisplayTitle` / `stampSessionActivity` /
 //! `asciiContainsIgnoreCase` / `directoryExists` / `fileExists` /
 //! `fx_ask_chdir_script` / `bindDaemonEnv` live here.
-//! `update` / `initFx` / `initialModel` / `main` stay in `main.zig`.
+//! `update` / `initFx` live in `update.zig`. `initialModel` / `main`
+//! stay in `main.zig`.
 //! Behavior is unchanged from the former `main` util helpers.
 
 const std = @import("std");

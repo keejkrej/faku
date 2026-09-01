@@ -2,7 +2,7 @@
 //!
 //! `handleNewSession` / `handleSelect` / folder + title edits /
 //! `handleRemoveSession` / `handleEditQueued` live here.
-//! Msg routing stays in `main.update`. Behavior is unchanged
+//! Msg routing stays in `update.zig`. Behavior is unchanged
 //! from the former `main` update arms.
 
 const std = @import("std");

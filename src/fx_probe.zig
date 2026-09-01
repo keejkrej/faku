@@ -2,7 +2,7 @@
 //!
 //! `startFxProbe` / `restartFxProbe` / `spawnFxProbe` /
 //! `handleFxProbeExit` / `fxProbePath` live here. Boot still starts
-//! from `initFx` in `main.zig`. Probe order is `~/.local/bin/fx
+//! from `initFx` in `update.zig`. Probe order is `~/.local/bin/fx
 //! --help` then `fx --help` (PATH). Settings → Providers Refresh
 //! calls `restartFxProbe`. Behavior of the boot probe is unchanged.
 
