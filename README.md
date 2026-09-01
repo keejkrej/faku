@@ -33,9 +33,10 @@ Protocol over stdio), `fx resume`.
 
 When the fx CLI is installed, Send on an fx session spawns a one-shot
 `faku acp-proxy -- {fx_path} acp`. Send on a probed ACP stdio provider
-(cursor, PATH `cursor-agent`; OpenCode, PATH `opencode`; grok, PATH
-`grok`) uses the same sidecar: `faku acp-proxy -- {binary} acp` for
-bare-`acp` ids, or `faku acp-proxy -- grok agent stdio`. Native
+(cursor, PATH `cursor-agent`; OpenCode, PATH `opencode`; kimi, PATH
+`kimi`; grok, PATH `grok`) uses the same sidecar: `faku acp-proxy --
+{binary} acp` for bare-`acp` ids, or `faku acp-proxy -- grok agent
+stdio`. Native
 `fx.spawn` writes **one stdin buffer and then closes stdin**. This is
 not a long-lived ACP or WebSocket loop. Composer image attach on
 those probed ACP stdio providers ships a first-cut official ACP v1
@@ -70,7 +71,7 @@ prompt when a composer image is attached). Available Pi is one-shot
 `pi --mode json {prompt}`
 (not ACP, not `--mode rpc`; documented `@{path}` after json when a
 composer image is attached; stdout is JSON events with live
-`text_delta` into the transcript). Unavailable cursor / opencode / grok / claude / codex /
+`text_delta` into the transcript). Unavailable cursor / opencode / kimi / grok / claude / codex /
 amp / pi stay demo.
 Apply on Settings →
 Providers sets `session.provider`. fx missing copies the verified
@@ -101,7 +102,7 @@ are not written until they have real content.
 Ready: desktop shell, demo sessions + timer fallback, one-shot `fx acp`
 when the CLI is present (via `acp-proxy`, which auto-answers
 `session/request_permission`), first-cut live Send for probed ACP
-stdio providers (cursor / OpenCode `acp`, grok `agent stdio`),
+stdio providers (cursor / OpenCode / kimi `acp`, grok `agent stdio`),
 including first-cut official ACP v1 image content blocks on
 `session/prompt` when a composer image is attached (base64 +
 mimeType; ~256KB raw; fail-closed on overflow / bad file; fx still

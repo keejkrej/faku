@@ -9,10 +9,10 @@
 //! First-party provider (this port's differentiator; Waku does not ship
 //! it): Vercel `fx` (https://fx.sh). Live first path is one-shot
 //! `fx acp` (see main.zig / acp.zig). Probed ACP stdio providers
-//! (cursor / opencode `acp`, grok `agent stdio`) reuse that sidecar.
+//! (cursor / opencode / kimi `acp`, grok `agent stdio`) reuse that sidecar.
 //! Native stdin is one buffer at spawn time; this is not a long-lived
 //! ACP loop. `fx ask --image` stays the fx image path (fx ACP rejects
-//! image blocks). Probed ACP stdio (cursor / opencode / grok) may
+//! image blocks). Probed ACP stdio (cursor / opencode / kimi / grok) may
 //! attach official ACP v1 image content blocks on `session/prompt`.
 //! Probe
 //! `~/.local/bin/fx` then PATH. Missing binary keeps the demo timer.
@@ -162,7 +162,7 @@ pub const FX_BINARY = "fx";
 /// ACP stdio surface — the right embed path (same family as cursor-agent / grok).
 pub const FX_TRANSPORT = "acp";
 pub const FX_ACP_ARGV = [_][]const u8{ "fx", "acp" };
-/// Bare `acp` after the binary — fx, cursor-agent, opencode.
+/// Bare `acp` after the binary — fx, cursor-agent, opencode, kimi.
 pub const BARE_ACP_TRANSPORT = [_][]const u8{FX_TRANSPORT};
 /// Official Grok ACP stdio. Not `grok acp`. Permission mode rides
 /// `session/set_mode` / `FX_PERMISSION_MODE` like the other ACP
@@ -196,6 +196,7 @@ pub const ProviderId = enum {
     opencode,
     cursor,
     pi,
+    kimi,
 
     pub const default = ProviderId.fx;
 
@@ -209,6 +210,7 @@ pub const ProviderId = enum {
             .opencode => "opencode",
             .cursor => "cursor",
             .pi => "pi",
+            .kimi => "kimi",
         };
     }
 
@@ -222,32 +224,33 @@ pub const ProviderId = enum {
             .opencode => "opencode",
             .cursor => "cursor-agent",
             .pi => "pi",
+            .kimi => "kimi",
         };
     }
 
     /// True when this id speaks ACP stdio with a bare `acp` subcommand
-    /// (`cursor-agent acp`, official `opencode acp`). fx stays on the
-    /// first-party branch. Not Claude print-mode stream-json (that is a
-    /// separate one-shot `-p --output-format stream-json` spawn, not
-    /// ACP). Not Codex
+    /// (`cursor-agent acp`, official `opencode acp`, official `kimi
+    /// acp`). fx stays on the first-party branch. Not Claude print-mode
+    /// stream-json (that is a separate one-shot `-p --output-format
+    /// stream-json` spawn, not ACP). Not Codex
     /// exec (that is a separate one-shot `codex exec {prompt}` spawn,
     /// not ACP). Not Amp execute-mode (that is a separate one-shot
     /// `amp -x {prompt}` spawn, documented `@{path}` in the `-x`
     /// prompt when attached, not ACP). Not Pi json-mode (that is
     /// a separate one-shot `pi --mode json {prompt}` spawn, documented
     /// `@{path}` after json when attached, not ACP). Not
-    /// Grok `agent stdio`. Kimi is not in this enum. Easy to extend
-    /// later.
+    /// Grok `agent stdio`. First-cut kimi is one-shot `kimi acp` via
+    /// acp-proxy (not long-lived; no invented flags).
     pub fn speaksBareAcp(id: ProviderId) bool {
         return switch (id) {
-            .cursor, .opencode => true,
+            .cursor, .opencode, .kimi => true,
             else => false,
         };
     }
 
     /// True when Faku can spawn one-shot ACP stdio for this id after
-    /// the daemon/fx branches. Bare `acp` (cursor, opencode) plus Grok
-    /// `agent stdio`. fx stays on the first-party branch.
+    /// the daemon/fx branches. Bare `acp` (cursor, opencode, kimi) plus
+    /// Grok `agent stdio`. fx stays on the first-party branch.
     pub fn speaksAcpStdio(id: ProviderId) bool {
         return id.speaksBareAcp() or id == .grok;
     }
@@ -257,7 +260,7 @@ pub const ProviderId = enum {
     /// speak ACP stdio this cut.
     pub fn acpTransportArgv(id: ProviderId) []const []const u8 {
         return switch (id) {
-            .fx, .cursor, .opencode => &BARE_ACP_TRANSPORT,
+            .fx, .cursor, .opencode, .kimi => &BARE_ACP_TRANSPORT,
             .grok => &GROK_ACP_TRANSPORT,
             else => &.{},
         };
@@ -1252,6 +1255,7 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expectEqualStrings("acp", FX_TRANSPORT);
     try std.testing.expect(ProviderId.cursor.speaksBareAcp());
     try std.testing.expect(ProviderId.opencode.speaksBareAcp());
+    try std.testing.expect(ProviderId.kimi.speaksBareAcp());
     try std.testing.expect(!ProviderId.fx.speaksBareAcp());
     try std.testing.expect(!ProviderId.claude.speaksBareAcp());
     try std.testing.expect(!ProviderId.codex.speaksBareAcp());
@@ -1260,6 +1264,7 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expect(!ProviderId.pi.speaksBareAcp());
     try std.testing.expect(ProviderId.cursor.speaksAcpStdio());
     try std.testing.expect(ProviderId.opencode.speaksAcpStdio());
+    try std.testing.expect(ProviderId.kimi.speaksAcpStdio());
     try std.testing.expect(ProviderId.grok.speaksAcpStdio());
     try std.testing.expect(!ProviderId.fx.speaksAcpStdio());
     try std.testing.expect(!ProviderId.claude.speaksAcpStdio());
@@ -1268,6 +1273,11 @@ test "start defaults to first-party fx over acp" {
     try std.testing.expectEqualStrings("acp", ProviderId.cursor.acpTransportArgv()[0]);
     try std.testing.expectEqual(@as(usize, 1), ProviderId.cursor.acpTransportArgv().len);
     try std.testing.expectEqualStrings("acp", ProviderId.opencode.acpTransportArgv()[0]);
+    try std.testing.expectEqualStrings("acp", ProviderId.kimi.acpTransportArgv()[0]);
+    try std.testing.expectEqual(@as(usize, 1), ProviderId.kimi.acpTransportArgv().len);
+    try std.testing.expectEqualStrings("kimi", ProviderId.kimi.wireName());
+    try std.testing.expectEqualStrings("kimi", ProviderId.kimi.defaultBinary());
+    try std.testing.expectEqual(ProviderId.kimi, ProviderId.fromWire("kimi").?);
     try std.testing.expectEqualStrings("acp", ProviderId.fx.acpTransportArgv()[0]);
     try std.testing.expectEqual(@as(usize, 2), ProviderId.grok.acpTransportArgv().len);
     try std.testing.expectEqualStrings("agent", ProviderId.grok.acpTransportArgv()[0]);

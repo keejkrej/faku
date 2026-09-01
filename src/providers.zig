@@ -9,7 +9,7 @@
 //! and shows detail; Apply ("Use for this session") sets the selected
 //! chat session's `provider` and persists via `sessions.json`. New
 //! sessions stay `.fx`. Live Send for probed ACP stdio providers
-//! (cursor, opencode, grok) is `spawn.startPrompt` (first-cut ACP v1
+//! (cursor, opencode, kimi, grok) is `spawn.startPrompt` (first-cut ACP v1
 //! image content blocks when a composer image is attached); Available Claude
 //! is one-shot print-mode stream-json (`claude -p --output-format
 //! stream-json --verbose --include-partial-messages
@@ -276,20 +276,24 @@ pub fn refresh(model: *Model, fx: *Effects) void {
 
 test "catalog lists every ProviderId; fx is row 1" {
     const tags = std.meta.tags(protocol.ProviderId);
-    try std.testing.expectEqual(@as(usize, 8), catalogLen());
+    try std.testing.expectEqual(@as(usize, 9), catalogLen());
     try std.testing.expectEqual(protocol.provider_id_count, catalogLen());
-    try std.testing.expectEqual(@as(usize, 8), tags.len);
+    try std.testing.expectEqual(@as(usize, 9), tags.len);
     try std.testing.expectEqual(protocol.ProviderId.fx, tags[0]);
     try std.testing.expectEqual(@as(u32, 1), rowId(.fx));
     try std.testing.expectEqual(@as(u32, 2), rowId(.claude));
     try std.testing.expectEqual(@as(u32, 8), rowId(.pi));
+    try std.testing.expectEqual(@as(u32, 9), rowId(.kimi));
     try std.testing.expectEqual(protocol.ProviderId.fx, fromRowId(1).?);
     try std.testing.expectEqual(protocol.ProviderId.claude, fromRowId(2).?);
     try std.testing.expectEqual(protocol.ProviderId.pi, fromRowId(8).?);
+    try std.testing.expectEqual(protocol.ProviderId.kimi, fromRowId(9).?);
     try std.testing.expect(fromRowId(0) == null);
-    try std.testing.expect(fromRowId(9) == null);
+    try std.testing.expect(fromRowId(10) == null);
     try std.testing.expectEqualStrings("fx", protocol.ProviderId.fx.wireName());
     try std.testing.expectEqualStrings("cursor-agent", protocol.ProviderId.cursor.defaultBinary());
+    try std.testing.expectEqualStrings("kimi", protocol.ProviderId.kimi.wireName());
+    try std.testing.expectEqualStrings("kimi", protocol.ProviderId.kimi.defaultBinary());
 }
 
 test "fx status from model fields without spawning; non-fx defaults Not found" {
@@ -303,8 +307,10 @@ test "fx status from model fields without spawning; non-fx defaults Not found" {
     try std.testing.expectEqualStrings(missing_status, statusFor(&model, .opencode));
     try std.testing.expectEqualStrings(missing_status, statusFor(&model, .cursor));
     try std.testing.expectEqualStrings(missing_status, statusFor(&model, .pi));
+    try std.testing.expectEqualStrings(missing_status, statusFor(&model, .kimi));
     try std.testing.expectEqualStrings("cursor-agent", binaryFor(&model, .cursor));
     try std.testing.expectEqualStrings("claude", binaryFor(&model, .claude));
+    try std.testing.expectEqualStrings("kimi", binaryFor(&model, .kimi));
 
     model.fx_available = true;
     model.setFxPath("/tmp/faku-fx");
@@ -475,13 +481,28 @@ test "selectProvider; detail names binary, fx path, probe status, and one-shot a
     try testing.expect(std.mem.indexOf(u8, grok_detail, amp_transport_note) == null);
     try testing.expect(std.mem.indexOf(u8, grok_detail, pi_transport_note) == null);
 
+    model.cli_available[@intFromEnum(protocol.ProviderId.kimi)] = true;
+    selectProvider(&model, rowId(.kimi));
+    try testing.expectEqual(rowId(.kimi), model.provider_selected_id);
+    const kimi_detail = detailText(&model, testing.allocator);
+    defer if (kimi_detail.len > 0) testing.allocator.free(kimi_detail);
+    try testing.expect(std.mem.indexOf(u8, kimi_detail, "kimi") != null);
+    try testing.expect(std.mem.indexOf(u8, kimi_detail, available_status) != null);
+    try testing.expect(std.mem.indexOf(u8, kimi_detail, acp_transport_note) != null);
+    try testing.expect(std.mem.indexOf(u8, kimi_detail, catalog_detail_note) == null);
+    try testing.expect(std.mem.indexOf(u8, kimi_detail, fx_transport_note) == null);
+    try testing.expect(std.mem.indexOf(u8, kimi_detail, grok_transport_note) == null);
+    try testing.expect(std.mem.indexOf(u8, kimi_detail, pi_transport_note) == null);
+
     try testing.expect(protocol.ProviderId.cursor.speaksBareAcp());
     try testing.expect(protocol.ProviderId.opencode.speaksBareAcp());
+    try testing.expect(protocol.ProviderId.kimi.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.claude.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.fx.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.grok.speaksBareAcp());
     try testing.expect(protocol.ProviderId.grok.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.cursor.speaksAcpStdio());
+    try testing.expect(protocol.ProviderId.kimi.speaksAcpStdio());
 
     selectProvider(&model, 99);
     try testing.expectEqual(@as(u32, 0), model.provider_selected_id);
@@ -657,7 +678,7 @@ test "install/login copy predicates: fx missing, fx available, other missing" {
     model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
     try std.testing.expect(!showsOtherInstallHint(&model));
 
-    const others = [_]protocol.ProviderId{ .codex, .amp, .grok, .opencode, .cursor, .pi };
+    const others = [_]protocol.ProviderId{ .codex, .amp, .grok, .opencode, .cursor, .pi, .kimi };
     for (others) |id| {
         selectProvider(&model, rowId(id));
         try std.testing.expect(!canCopyFxInstall(&model));
