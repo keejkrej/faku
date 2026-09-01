@@ -55,13 +55,16 @@
 //! finish also names a NEW snapshot `turn-{n}` and
 //! `prepareTurnDiffBase` names `turn-diff-{n}`; Compare uses
 //! stored shas, not the refs); rewind `<sha>...HEAD`
-//! fallback; not `refs/waku/`; not HEAD~1. Leftovers:
-//! prune-alone, right-panel BackgroundWork / full 512KB Monitor
-//! log, per-monitor TaskStop, daemon `refreshBackgroundWork` /
-//! WorkspaceOperation. Kind chrome, Process registry, first-cut
-//! live Monitor rows from Claude `Monitor` tool_use plus a
-//! bounded output preview from matching user `tool_result`, and
-//! first-cut live Subagent rows from Claude `parent_tool_use_id`
+//! fallback; not `refs/waku/`; not HEAD~1. Clicking a visible
+//! Background row closes this dropdown and opens the right-panel
+//! Background surface for that row (kind, title, live-or-settled
+//! status, Monitor 512-byte preview). Leftovers: prune-alone,
+//! full 512KB Monitor log, per-monitor TaskStop, daemon
+//! `refreshBackgroundWork` / WorkspaceOperation. Kind chrome,
+//! Process registry, first-cut live Monitor rows from Claude
+//! `Monitor` tool_use plus a bounded output preview from matching
+//! user `tool_result`, first-cut live Subagent rows from Claude
+//! `parent_tool_use_id`, and first-cut right-panel Background
 //! ship; not a Waku BackgroundWorkRegistry.
 //! Not transcript checkpoint +/-. Not force push (Waku
 //! `git_commit::push` has no `--force`).
@@ -193,6 +196,13 @@ pub const process_row_label = "Agent turn";
 pub const settled_completed_label = "Completed";
 pub const settled_stopped_label = "Stopped";
 pub const settled_failed_label = "Failed";
+/// Live Process / Subagent status on the right-panel Background
+/// surface. Not a new registry — derived from `BackgroundRow.live`.
+pub const live_running_label = "Running";
+/// Live Monitor status. Same derivation as `live_running_label`.
+pub const live_monitoring_label = "Monitoring";
+pub const empty_background_work_label = "No background work";
+pub const no_output_label = "No output";
 
 /// Visible Background registry row. Native `background_rows`
 /// iterates this. Not persisted to sessions.json / drafts.json.
@@ -560,6 +570,47 @@ pub fn stopBackground(model: *Model, fx: *Effects) void {
     if (!model.is_streaming()) return;
     close(model);
     turn_stream.stopStream(model, fx);
+}
+
+/// Visible registry row for `row_id`, or null when id is 0 / unknown.
+/// Slices inside the row point at model storage or string literals.
+pub fn findBackgroundRow(model: *const Model, row_id: u32) ?BackgroundRow {
+    if (row_id == 0) return null;
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    const rows = fillBackgroundRows(model, &buf);
+    for (rows) |row| {
+        if (row.id == row_id) return row;
+    }
+    return null;
+}
+
+pub fn selectedBackgroundRow(model: *const Model) ?BackgroundRow {
+    return findBackgroundRow(model, model.right_panel_background_row_id);
+}
+
+/// Live Running / Monitoring, or settled Completed / Stopped / Failed.
+/// Empty when there is no selected visible row.
+pub fn backgroundWorkStatus(row: BackgroundRow) []const u8 {
+    if (row.has_status) return row.settled_status;
+    if (!row.live) return "";
+    return switch (row.kind) {
+        .monitor => live_monitoring_label,
+        .process, .subagent => live_running_label,
+    };
+}
+
+pub fn backgroundWorkOutput(row: BackgroundRow) []const u8 {
+    if (!row.has_detail) return "";
+    return row.detail;
+}
+
+/// Close the popover and open the right-panel Background surface on
+/// `row_id`. Unknown / 0 is a no-op (dropdown stays open), same
+/// spirit as Monitor output ignoring Bash / unknown ids.
+pub fn openBackgroundWork(model: *Model, fx: *Effects, row_id: u32) void {
+    if (findBackgroundRow(model, row_id) == null) return;
+    close(model);
+    right_panel.selectBackground(model, fx, row_id);
 }
 
 fn expectNoBackgroundRows(model: *const Model) !void {
@@ -1517,5 +1568,123 @@ test "appendLiveMonitorOutput drains from the front at the 512-byte cap" {
     try std.testing.expect(out[0] != 0xA9);
     try std.testing.expect(out[out.len - 1] == 'y');
     try std.testing.expect(!std.mem.startsWith(u8, out, "é"));
+}
+
+test "openBackgroundWork opens Process row; unknown id is a no-op; dropdown closes" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env open background", .fx);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    model.environment_summary_open = true;
+    try expectLiveProcessRow(&model);
+
+    openBackgroundWork(&model, &fx, 99);
+    try std.testing.expect(model.environment_summary_open);
+    try std.testing.expect(!model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.files, model.right_panel_tab);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+
+    openBackgroundWork(&model, &fx, 0);
+    try std.testing.expect(model.environment_summary_open);
+    try std.testing.expect(!model.right_panel_open);
+
+    openBackgroundWork(&model, &fx, process_row_id);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.background, model.right_panel_tab);
+    try std.testing.expectEqual(process_row_id, model.right_panel_background_row_id);
+    try std.testing.expectEqual(@as(f32, 460), model.right_panel_width);
+    const row = selectedBackgroundRow(&model).?;
+    try std.testing.expectEqual(BackgroundKind.process, row.kind);
+    try std.testing.expectEqualStrings(process_row_label, row.title);
+    try std.testing.expectEqualStrings(live_running_label, backgroundWorkStatus(row));
+    try std.testing.expectEqualStrings("", backgroundWorkOutput(row));
+}
+
+test "openBackgroundWork shows Monitor preview; Files and Diff still open; gone row is empty" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env background monitor panel", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    noteLiveMonitor(&model, "toolu_mon_1");
+    appendLiveMonitorOutput(&model, "toolu_mon_1", "line from monitor");
+    model.environment_summary_open = true;
+
+    openBackgroundWork(&model, &fx, monitor_row_id_first);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expectEqual(right_panel.Tab.background, model.right_panel_tab);
+    try std.testing.expectEqual(monitor_row_id_first, model.right_panel_background_row_id);
+    const mon = selectedBackgroundRow(&model).?;
+    try std.testing.expectEqual(BackgroundKind.monitor, mon.kind);
+    try std.testing.expectEqualStrings(kind_monitor_label, mon.title);
+    try std.testing.expectEqualStrings(live_monitoring_label, backgroundWorkStatus(mon));
+    try std.testing.expectEqualStrings("line from monitor", backgroundWorkOutput(mon));
+
+    right_panel.selectFiles(&model, &fx);
+    try std.testing.expectEqual(right_panel.Tab.files, model.right_panel_tab);
+    try std.testing.expectEqual(monitor_row_id_first, model.right_panel_background_row_id);
+    right_panel.selectDiff(&model, &fx);
+    try std.testing.expectEqual(right_panel.Tab.diff, model.right_panel_tab);
+    right_panel.selectBackground(&model, &fx, 0);
+    try std.testing.expectEqual(right_panel.Tab.background, model.right_panel_tab);
+    try std.testing.expectEqual(monitor_row_id_first, model.right_panel_background_row_id);
+
+    model.phase = .idle;
+    model.streaming_session = 0;
+    settle(&model, id, .completed);
+    try std.testing.expect(selectedBackgroundRow(&model) == null);
+    try std.testing.expectEqual(monitor_row_id_first, model.right_panel_background_row_id);
+    try std.testing.expectEqual(right_panel.Tab.background, model.right_panel_tab);
+}
+
+test "openBackgroundWork Subagent row is Running with empty output" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env background subagent panel", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    noteLiveSubagent(&model, "toolu_agent_1");
+    model.environment_summary_open = true;
+
+    openBackgroundWork(&model, &fx, subagent_row_id_first);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expectEqual(right_panel.Tab.background, model.right_panel_tab);
+    const row = selectedBackgroundRow(&model).?;
+    try std.testing.expectEqual(BackgroundKind.subagent, row.kind);
+    try std.testing.expectEqualStrings(live_running_label, backgroundWorkStatus(row));
+    try std.testing.expectEqualStrings("", backgroundWorkOutput(row));
+}
+
+test "settled Process row on Background keeps Completed / Stopped / Failed" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env background settled", .fx);
+    model.selected = id;
+    settle(&model, id, .completed);
+    model.environment_summary_open = true;
+    openBackgroundWork(&model, &fx, process_row_id);
+    try std.testing.expectEqualStrings(settled_completed_label, backgroundWorkStatus(selectedBackgroundRow(&model).?));
+
+    settle(&model, id, .stopped);
+    try std.testing.expectEqualStrings(settled_stopped_label, backgroundWorkStatus(selectedBackgroundRow(&model).?));
+    settle(&model, id, .failed);
+    try std.testing.expectEqualStrings(settled_failed_label, backgroundWorkStatus(selectedBackgroundRow(&model).?));
 }
 

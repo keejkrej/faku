@@ -14,7 +14,8 @@
 //! `queued_messages`, `rewind_refs`, `worktree_snapshot_sha`, `worktree_turn_end_sha`, `worktree_turn_diff_sha`, and last-known context usage. Document extras also keep
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
 //! plus `right_panel_open` / `right_panel_width` for the first-cut Files +
-//! Diff pane (default closed; Waku file-tree 184px; Diff tab is runtime-only),
+//! Diff + Background pane (default closed; Waku file-tree 184px; Diff and
+//! Background tabs are runtime-only),
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
 //! `last_project_path` / `last_daemon_address` / `theme_preference` /
@@ -2129,6 +2130,59 @@ test "right panel open flag and width reload from document extras" {
     try testing.expect(!restored.right_panel_open);
     try testing.expectEqual(@as(u32, 220), restored.rightPanelWidthPixels());
     try testing.expectEqual(@as(f32, 1.0), restored.right_panel_split);
+}
+
+test "Background tab, selected row, and output are not written to sessions.json" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("background pane later", .fx);
+    _ = source.appendTurn(id, .user, "remember the files pane");
+    source.selected = id;
+    source.phase = .streaming;
+    source.streaming_session = id;
+    try saveSession(&source, id, allocator, io);
+
+    var fx = main.Effects.init(allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    source.environment_summary_open = true;
+    const environment_summary = @import("environment_summary.zig");
+    environment_summary.openBackgroundWork(&source, &fx, environment_summary.process_row_id);
+    persistLayoutIfPossible(&source);
+    try testing.expect(source.right_panel_open);
+    try testing.expect(source.right_panel_tab_background());
+    try testing.expectEqual(environment_summary.process_row_id, source.right_panel_background_row_id);
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = catalogPath(dir, &path_buf).?;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_document_bytes));
+    defer allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_open\":true") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_width\":460") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "right_panel_tab") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "right_panel_background") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "background_work") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "Agent turn") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "Running") == null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expect(loaded.right_panel_open);
+    try testing.expect(loaded.right_panel_tab_files());
+    try testing.expectEqual(@as(u32, 0), loaded.right_panel_background_row_id);
+    try testing.expect(loaded.background_work_empty());
 }
 
 test "settings extras persist last_model access path and daemon; missing catalog is not created" {

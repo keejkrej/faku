@@ -8834,6 +8834,7 @@ test "toggle right panel opens and closes the Files pane" {
     try testing.expect(files_tab.state.selected);
     const diff_tab = try expectButtonMsg(tree, "Diff", .set_right_panel_tab_diff);
     try testing.expect(!diff_tab.state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Background", .set_right_panel_tab_background)).state.selected);
     _ = try expectByText(tree.root, .text, "No project open");
     _ = try expectByText(tree.root, .text, "Open a project to browse its files");
     const hide = try expectButton(tree.root, "Hide right panel");
@@ -9009,7 +9010,7 @@ test "palette Show right panel and Hide right panel toggle the Files pane" {
     try testing.expect(!model.right_panel_open);
 }
 
-test "right panel Files and Diff tabs switch surfaces and Diff opens the pane" {
+test "right panel Files, Diff, and Background tabs switch surfaces" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -9033,7 +9034,10 @@ test "right panel Files and Diff tabs switch surfaces and Diff opens the pane" {
     try testing.expect(files_tab.state.selected);
     const diff_tab = try expectButtonMsg(tree, "Diff", .set_right_panel_tab_diff);
     try testing.expect(!diff_tab.state.selected);
+    const background_tab = try expectButtonMsg(tree, "Background", .set_right_panel_tab_background);
+    try testing.expect(!background_tab.state.selected);
     try testing.expect(findByText(tree.root, .text, "Review") == null);
+    try testing.expect(findByText(tree.root, .text, "No background work") == null);
 
     main.update(&model, .set_right_panel_tab_diff, &fx);
     try testing.expect(model.right_panel_open);
@@ -9047,10 +9051,13 @@ test "right panel Files and Diff tabs switch surfaces and Diff opens the pane" {
     try testing.expect(!files_off.state.selected);
     const diff_on = try expectButtonMsg(tree, "Diff", .set_right_panel_tab_diff);
     try testing.expect(diff_on.state.selected);
+    const background_off = try expectButtonMsg(tree, "Background", .set_right_panel_tab_background);
+    try testing.expect(!background_off.state.selected);
     _ = try expectByText(tree.root, .text, "Review");
     const uncommitted = try expectButtonMsg(tree, "Uncommitted", .set_review_diff_source_uncommitted);
     try testing.expect(uncommitted.state.selected);
     try testing.expect(findByText(tree.root, .text, "No project open") == null);
+    try testing.expect(findByText(tree.root, .text, "No background work") == null);
 
     main.update(&model, .set_right_panel_tab_files, &fx);
     try testing.expect(model.right_panel_tab_files());
@@ -9059,6 +9066,20 @@ test "right panel Files and Diff tabs switch surfaces and Diff opens the pane" {
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "Review") == null);
     _ = try expectByText(tree.root, .text, "No project open");
+
+    main.update(&model, .set_right_panel_tab_background, &fx);
+    try testing.expect(model.right_panel_open);
+    try testing.expect(model.right_panel_tab_background());
+    try testing.expectEqual(@as(u32, 460), model.rightPanelWidthPixels());
+    try testing.expect(model.background_work_empty());
+    tree = try buildTree(arena, &model);
+    const background_on = try expectButtonMsg(tree, "Background", .set_right_panel_tab_background);
+    try testing.expect(background_on.state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Files", .set_right_panel_tab_files)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Diff", .set_right_panel_tab_diff)).state.selected);
+    _ = try expectByText(tree.root, .text, "No background work");
+    try testing.expect(findByText(tree.root, .text, "Review") == null);
+    try testing.expect(findByText(tree.root, .text, "No project open") == null);
 
     main.update(&model, .hide_right_panel, &fx);
     try testing.expect(!model.right_panel_open);
@@ -9069,6 +9090,124 @@ test "right panel Files and Diff tabs switch surfaces and Diff opens the pane" {
     try testing.expect(model.right_panel_open);
     try testing.expect(model.right_panel_tab_diff());
     try testing.expectEqual(@as(u32, 460), model.rightPanelWidthPixels());
+}
+
+test "Environment Summary Process row opens right-panel Background; unknown id no-ops" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const selected = model.selected;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "stream for background panel" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    main.update(&model, .toggle_environment_summary, &fx);
+    try testing.expect(model.environment_summary_open);
+
+    var tree = try buildTree(arena, &model);
+    const process_row = try expectByText(tree.root, .menu_item, "Agent turn");
+    try testing.expectEqual(Msg{ .open_background_work = 1 }, tree.msgForPointer(process_row.id, .up).?);
+
+    main.update(&model, .{ .open_background_work = 99 }, &fx);
+    try testing.expect(model.environment_summary_open);
+    try testing.expect(!model.right_panel_open);
+    try testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+
+    main.update(&model, tree.msgForPointer(process_row.id, .up).?, &fx);
+    try testing.expect(!model.environment_summary_open);
+    try testing.expect(model.right_panel_open);
+    try testing.expect(model.right_panel_tab_background());
+    try testing.expectEqual(@as(u32, 1), model.right_panel_background_row_id);
+    try testing.expectEqual(@as(u32, 460), model.rightPanelWidthPixels());
+    try testing.expect(!model.background_work_empty());
+    try testing.expectEqualStrings("Process", model.background_work_kind_label());
+    try testing.expectEqualStrings("Agent turn", model.background_work_title());
+    try testing.expectEqualStrings("Running", model.background_work_status());
+    try testing.expect(!model.background_work_has_output());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+    _ = try expectByText(tree.root, .text, "Process");
+    _ = try expectByText(tree.root, .text, "Agent turn");
+    _ = try expectByText(tree.root, .text, "Running");
+    _ = try expectByText(tree.root, .text, "No output");
+    try testing.expect((try expectButtonMsg(tree, "Background", .set_right_panel_tab_background)).state.selected);
+
+    main.update(&model, .set_right_panel_tab_files, &fx);
+    try testing.expect(model.right_panel_tab_files());
+    main.update(&model, .set_right_panel_tab_diff, &fx);
+    try testing.expect(model.right_panel_tab_diff());
+    main.update(&model, .set_right_panel_tab_background, &fx);
+    try testing.expect(model.right_panel_tab_background());
+    try testing.expectEqual(@as(u32, 1), model.right_panel_background_row_id);
+
+    main.update(&model, .stop_turn, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(selected, model.background_settled_session);
+    try testing.expectEqualStrings("Stopped", model.background_work_status());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Stopped");
+    try testing.expect(findByText(tree.root, .text, "No background work") == null);
+}
+
+test "Environment Summary Monitor row opens Background with the 512-byte preview" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const sid = model.addSession("env monitor panel", .claude);
+    model.selected = sid;
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    model.fx_spawn_claude_json = true;
+    model.fx_spawn_key = main.fx_ask_key;
+
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_1\",\"name\":\"Monitor\"}]}}",
+    } }, &fx);
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"line from monitor\"}]}}",
+    } }, &fx);
+    main.update(&model, .toggle_environment_summary, &fx);
+    var tree = try buildTree(arena, &model);
+    const monitor_row = try expectByText(tree.root, .menu_item, "Monitor");
+    try testing.expectEqual(Msg{ .open_background_work = 100 }, tree.msgForPointer(monitor_row.id, .up).?);
+
+    main.update(&model, tree.msgForPointer(monitor_row.id, .up).?, &fx);
+    try testing.expect(!model.environment_summary_open);
+    try testing.expect(model.right_panel_tab_background());
+    try testing.expectEqual(@as(u32, 100), model.right_panel_background_row_id);
+    try testing.expectEqualStrings("Monitor", model.background_work_kind_label());
+    try testing.expectEqualStrings("Monitoring", model.background_work_status());
+    try testing.expectEqualStrings("line from monitor", model.background_work_output());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Monitor");
+    _ = try expectByText(tree.root, .text, "Monitoring");
+    _ = try expectByText(tree.root, .text, "line from monitor");
+    try testing.expect(findByText(tree.root, .text, "No output") == null);
+    try testing.expect(findByText(tree.root, .text, "No background work") == null);
+
+    main.update(&model, .stop_turn, &fx);
+    try testing.expect(model.background_work_empty());
+    try testing.expectEqual(@as(u32, 100), model.right_panel_background_row_id);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No background work");
+    try testing.expect(findByText(tree.root, .text, "line from monitor") == null);
 }
 
 test "cmd-c and ctrl-c copy the last non-empty turn via writeClipboard" {
@@ -19338,6 +19477,7 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_copy_task_id").? < std.mem.indexOf(u8, main.app_markup, "environment_copy_agent_thread_id").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_copy_agent_thread_id").? < std.mem.indexOf(u8, main.app_markup, "environment_stop_background").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "for each=\"background_rows\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "open_background_work:{b.id}") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.kind_label}").? < std.mem.indexOf(u8, main.app_markup, "{b.title}").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.title}").? < std.mem.indexOf(u8, main.app_markup, "b.has_detail").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "b.has_detail").? < std.mem.indexOf(u8, main.app_markup, "{b.detail}").?);
@@ -19400,7 +19540,7 @@ test "Environment Background Stop appears while streaming and reuses composer St
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Background");
     _ = try expectByText(tree.root, .text, "Process");
-    _ = try expectByText(tree.root, .text, "Agent turn");
+    _ = try expectByText(tree.root, .menu_item, "Agent turn");
     const stop_agent = try expectByText(tree.root, .menu_item, "Stop agent");
     try testing.expectEqual(Msg.environment_stop_background, tree.msgForPointer(stop_agent.id, .up).?);
     _ = try expectByText(tree.root, .menu_item, "Copy task ID");
@@ -19427,7 +19567,7 @@ test "Environment Background Stop appears while streaming and reuses composer St
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Background");
     _ = try expectByText(tree.root, .text, "Process");
-    _ = try expectByText(tree.root, .text, "Agent turn");
+    _ = try expectByText(tree.root, .menu_item, "Agent turn");
     _ = try expectByText(tree.root, .text, "Stopped");
     try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
     try testing.expect(findByText(tree.root, .text, "Monitor") == null);
@@ -19460,7 +19600,7 @@ test "Environment Background settles Completed on a finished turn with no queue"
     const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Background");
     _ = try expectByText(tree.root, .text, "Process");
-    _ = try expectByText(tree.root, .text, "Agent turn");
+    _ = try expectByText(tree.root, .menu_item, "Agent turn");
     _ = try expectByText(tree.root, .text, "Completed");
     try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
     try testing.expect(findByText(tree.root, .text, "Monitor") == null);
@@ -19495,7 +19635,7 @@ test "Environment Background Monitor row shows tool_result preview and hides emp
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Background");
     _ = try expectByText(tree.root, .text, "Process");
-    _ = try expectByText(tree.root, .text, "Agent turn");
+    _ = try expectByText(tree.root, .menu_item, "Agent turn");
     _ = try expectByText(tree.root, .text, "Monitor");
     try testing.expect(findByText(tree.root, .text, "line from monitor") == null);
     try testing.expect(findByText(tree.root, .text, "Completed") == null);

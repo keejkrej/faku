@@ -416,6 +416,12 @@ pub const Msg = union(enum) {
     set_right_panel_tab_files,
     /// Right-panel Diff tab. Opens the pane if closed and starts Compare.
     set_right_panel_tab_diff,
+    /// Right-panel Background tab. Runtime-only; empty state when no
+    /// selected Environment Summary row is visible.
+    set_right_panel_tab_background,
+    /// Environment Summary Background row click. Payload is the
+    /// Native `background_rows` id. Unknown / 0 is a no-op.
+    open_background_work: u32,
     toggle_settings,
     settings_model_edit: canvas.TextInputEvent,
     settings_project_edit: canvas.TextInputEvent,
@@ -706,12 +712,16 @@ pub const Model = struct {
     right_panel_open: bool = false,
     right_panel_split: f32 = default_right_panel_split,
     /// Last pane width in pixels. Files tab clamps to the file-tree
-    /// 184/140/360. Diff tab may bump toward Waku `DEFAULT_RIGHT_PANEL_WIDTH`
-    /// 460. Tab is runtime-only; hide reclamps to the file-tree max.
+    /// 184/140/360. Diff and Background tabs may bump toward Waku
+    /// `DEFAULT_RIGHT_PANEL_WIDTH` 460. Tab is runtime-only; hide
+    /// reclamps to the file-tree max.
     right_panel_width: f32 = right_panel_default_width,
-    /// Runtime-only Files | Diff surface. Default `files` when the panel
-    /// opens. Not persisted to sessions.json this cut.
+    /// Runtime-only Files | Diff | Background surface. Default `files`
+    /// when the panel opens. Not persisted to sessions.json this cut.
     right_panel_tab: right_panel.Tab = .files,
+    /// Runtime-only selected Environment Summary Background row id.
+    /// 0 = none. Not persisted to sessions.json this cut.
+    right_panel_background_row_id: u32 = 0,
     /// Runtime-only expanded Files-tree dirs. Keys match
     /// `file_mention.derivedDirParents` (no trailing slash). Empty =
     /// collapsed (depth-0 only). Cap `max_file_mention_dirs`. Not
@@ -1242,6 +1252,7 @@ pub const Model = struct {
         "openEditorPath",
         "right_panel_width",
         "right_panel_tab",
+        "right_panel_background_row_id",
         "right_panel_showing_files",
         "rightPanelWidthPixels",
         "applyRightPanelWidth",
@@ -1796,12 +1807,52 @@ pub const Model = struct {
         return model.right_panel_tab == .diff;
     }
 
+    pub fn right_panel_tab_background(model: *const Model) bool {
+        return model.right_panel_tab == .background;
+    }
+
     pub fn right_panel_showing_files(model: *const Model) bool {
         return model.right_panel_open and model.right_panel_tab == .files;
     }
 
     pub fn right_panel_showing_diff(model: *const Model) bool {
         return model.right_panel_open and model.right_panel_tab == .diff;
+    }
+
+    pub fn right_panel_showing_background(model: *const Model) bool {
+        return model.right_panel_open and model.right_panel_tab == .background;
+    }
+
+    pub fn background_work_empty(model: *const Model) bool {
+        return environment_summary.selectedBackgroundRow(model) == null;
+    }
+
+    pub fn background_work_kind_label(model: *const Model) []const u8 {
+        const row = environment_summary.selectedBackgroundRow(model) orelse return "";
+        return row.kind_label;
+    }
+
+    pub fn background_work_title(model: *const Model) []const u8 {
+        const row = environment_summary.selectedBackgroundRow(model) orelse return "";
+        return row.title;
+    }
+
+    pub fn background_work_status(model: *const Model) []const u8 {
+        const row = environment_summary.selectedBackgroundRow(model) orelse return "";
+        return environment_summary.backgroundWorkStatus(row);
+    }
+
+    pub fn has_background_work_status(model: *const Model) bool {
+        return model.background_work_status().len > 0;
+    }
+
+    pub fn background_work_output(model: *const Model) []const u8 {
+        const row = environment_summary.selectedBackgroundRow(model) orelse return "";
+        return environment_summary.backgroundWorkOutput(row);
+    }
+
+    pub fn background_work_has_output(model: *const Model) bool {
+        return model.background_work_output().len > 0;
     }
 
     pub fn right_panel_no_project(model: *const Model) bool {
