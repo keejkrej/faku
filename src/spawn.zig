@@ -445,7 +445,9 @@ const claude_image_prompt_prefix = "Analyze this image: ";
 /// `event.delta.type == text_delta`, not a prose dump). Non-empty
 /// `parent_tool_use_id` is subagent traffic (not main-turn prose).
 /// `tool_use` with `name` `Monitor` fills live Monitor Background
-/// (not Bash / Agent / `parent_tool_use_id`).
+/// (not Bash / Agent / `parent_tool_use_id`). Matching user
+/// `tool_result` fills a bounded output preview on that live row
+/// (not `appendToTurn`; does not register a new Monitor).
 /// Not ACP, not `claude acp`, not `--input-format stream-json`, not
 /// `--mode rpc`, not `--bare`, not permissions bypass, not
 /// acp-proxy. Caller sets `reply_path` to `.fx` on success;

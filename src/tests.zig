@@ -19339,6 +19339,8 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_copy_agent_thread_id").? < std.mem.indexOf(u8, main.app_markup, "environment_stop_background").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "for each=\"background_rows\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.kind_label}").? < std.mem.indexOf(u8, main.app_markup, "{b.title}").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.title}").? < std.mem.indexOf(u8, main.app_markup, "b.has_detail").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "b.has_detail").? < std.mem.indexOf(u8, main.app_markup, "{b.detail}").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"environment_compare\">{header_git_numstat_label}").? < std.mem.indexOf(u8, main.app_markup, "menu-item on-press=\"environment_compare\"").?);
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
@@ -19462,6 +19464,53 @@ test "Environment Background settles Completed on a finished turn with no queue"
     _ = try expectByText(tree.root, .text, "Completed");
     try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
     try testing.expect(findByText(tree.root, .text, "Monitor") == null);
+    try testing.expect(findByText(tree.root, .text, "Subagent") == null);
+}
+
+test "Environment Background Monitor row shows tool_result preview and hides empty detail" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const sid = model.addSession("env monitor preview", .claude);
+    model.selected = sid;
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    model.fx_spawn_claude_json = true;
+    model.fx_spawn_key = main.fx_ask_key;
+
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_1\",\"name\":\"Monitor\"}]}}",
+    } }, &fx);
+    main.update(&model, .toggle_environment_summary, &fx);
+    try testing.expect(model.environment_summary_open);
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Background");
+    _ = try expectByText(tree.root, .text, "Process");
+    _ = try expectByText(tree.root, .text, "Agent turn");
+    _ = try expectByText(tree.root, .text, "Monitor");
+    try testing.expect(findByText(tree.root, .text, "line from monitor") == null);
+    try testing.expect(findByText(tree.root, .text, "Completed") == null);
+    try testing.expect(findByText(tree.root, .text, "Stopped") == null);
+    try testing.expect(findByText(tree.root, .text, "Failed") == null);
+
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"line from monitor\"}]}}",
+    } }, &fx);
+    try testing.expectEqualStrings("", model.turnById(turn_id).?.text());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Monitor");
+    _ = try expectByText(tree.root, .text, "line from monitor");
+    try testing.expect(findByText(tree.root, .text, "Completed") == null);
     try testing.expect(findByText(tree.root, .text, "Subagent") == null);
 }
 

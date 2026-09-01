@@ -641,8 +641,10 @@ pub const Model = struct {
     background_subagents: [environment_summary.max_live_subagents]environment_summary.LiveSubagent = [_]environment_summary.LiveSubagent{.{}} ** environment_summary.max_live_subagents,
     background_subagent_count: u32 = 0,
     /// Live Monitor Background slots from Claude stream-json
-    /// `Monitor` `tool_use`. Runtime-only; not sessions.json /
-    /// drafts.json. Same lifetime as live Subagent rows.
+    /// `Monitor` `tool_use`. Matching user `tool_result` fills a
+    /// bounded output preview on the row. Runtime-only; not
+    /// sessions.json / drafts.json. Same lifetime as live Subagent
+    /// rows.
     background_monitors: [environment_summary.max_live_monitors]environment_summary.LiveMonitor = [_]environment_summary.LiveMonitor{.{}} ** environment_summary.max_live_monitors,
     background_monitor_count: u32 = 0,
     /// Runtime-only Environment Compare Review card. Not persisted.
@@ -3087,7 +3089,8 @@ pub const Model = struct {
     }
 
     /// Visible Background registry rows (Process from stream/settle,
-    /// live Monitor from Claude `Monitor` tool_use, live Subagent
+    /// live Monitor from Claude `Monitor` tool_use plus a bounded
+    /// output preview from matching user `tool_result`, live Subagent
     /// from Claude `parent_tool_use_id` / Agent `tool_use`).
     /// Native `for each="background_rows"`.
     pub fn background_rows(model: *const Model, arena: std.mem.Allocator) []const environment_summary.BackgroundRow {

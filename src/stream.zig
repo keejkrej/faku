@@ -11,7 +11,8 @@
 //! records Environment Summary last-turn Completed unless a queued
 //! follow-up immediately restarts (stay on the Process row). Live
 //! Subagent rows are cleared on finish / stop / a new Send.
-//! Live Monitor rows share that lifetime.
+//! Live Monitor rows share that lifetime (output preview goes
+//! with the row).
 //! `stopStream` records Stopped. `drain == false` records Failed.
 //! Cancel / `stopStream` does not snapshot. Prompt spawn stays in
 //! `spawn.zig`. Line handlers live in `lines.zig`. Behavior is
