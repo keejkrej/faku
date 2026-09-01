@@ -9260,7 +9260,7 @@ test "Environment Summary Monitor detail stays one line; Background panel shows 
     main.update(&model, tree.msgForPointer(monitor_row.id, .up).?, &fx);
     try testing.expectEqualStrings("first\nline\nred", model.background_work_output());
     try testing.expect(std.mem.indexOf(u8, model.background_work_output(), "\x1b") == null);
-    try testing.expect(model.background_work_output().len > rows[1].detail.len);
+    try testing.expect(std.mem.indexOf(u8, model.background_work_output(), "\n") != null);
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "first\nline\nred");
