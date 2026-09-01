@@ -1,13 +1,13 @@
 //! Sidebar row builders: date buckets, folder rows, and width clamps.
 //!
 //! Ungrouped date-header rows, folder headers, session row shaping,
-//! and sidebar split clamp/resize live here. `Model` and `SidebarRow`
-//! live in `model.zig` (re-exported from `main`). `Session` lives in
-//! `session.zig`. Behavior is unchanged from the former `main` sidebar
-//! row helpers.
+//! and sidebar split clamp/resize live here. Date-bucket titles follow
+//! the Model's resolved Appearance language (`sidebarDates`). UTC
+//! bucket math is unchanged.
 
 const std = @import("std");
 const main = @import("main.zig");
+const i18n = @import("i18n.zig");
 const sidebar_dates = @import("sidebar_dates.zig");
 
 const Model = main.Model;
@@ -15,7 +15,7 @@ const Session = main.Session;
 const SidebarRow = main.SidebarRow;
 const DateBucket = sidebar_dates.DateBucket;
 const sessionDateBucket = sidebar_dates.sessionDateBucket;
-const sessionRelativeTime = sidebar_dates.sessionRelativeTime;
+const sessionRelativeTimeFor = sidebar_dates.sessionRelativeTimeFor;
 
 /// Date-bucket header keys sit above folder headers.
 pub const date_row_id_base: u32 = 4_000_000;
@@ -61,18 +61,19 @@ pub fn rows(model: *const Model, arena: std.mem.Allocator) []const SidebarRow {
         if (!folder.collapsed) count += matches;
     }
     const out = arena.alloc(SidebarRow, count) catch return &.{};
+    const dates = model.sidebarDates();
     var i: usize = 0;
     if (show_date_headers) {
-        i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .today, arena);
-        i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .yesterday, arena);
-        i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .this_week, arena);
-        i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .this_month, arena);
-        i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .this_year, arena);
-        i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .older, arena);
+        i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .today, arena, dates);
+        i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .yesterday, arena, dates);
+        i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .this_week, arena, dates);
+        i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .this_month, arena, dates);
+        i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .this_year, arena, dates);
+        i = appendDateBucket(model, out, i, ungrouped[0..ungrouped_n], .older, arena, dates);
     } else {
         for (ungrouped[0..ungrouped_n]) |id| {
             const session = model.sessionByIdConst(id) orelse continue;
-            out[i] = sessionSidebarRow(model, session, arena);
+            out[i] = sessionSidebarRow(model, session, arena, dates);
             i += 1;
         }
     }
@@ -93,17 +94,17 @@ pub fn rows(model: *const Model, arena: std.mem.Allocator) []const SidebarRow {
         if (folder.collapsed) continue;
         for (model.session_store[0..model.session_count]) |*session| {
             if (effectiveFolderId(model, session) != folder.id) continue;
-            out[i] = sessionSidebarRow(model, session, arena);
+            out[i] = sessionSidebarRow(model, session, arena, dates);
             i += 1;
         }
     }
     return out[0..i];
 }
 
-fn dateHeaderRow(bucket: DateBucket) SidebarRow {
+fn dateHeaderRow(bucket: DateBucket, dates: i18n.Dates) SidebarRow {
     return .{
         .id = date_row_id_base + @intFromEnum(bucket) + 1,
-        .title = bucket.title(),
+        .title = bucket.titleFor(dates),
         .provider = "",
         .selected = false,
         .is_header = true,
@@ -148,6 +149,7 @@ fn appendDateBucket(
     ungrouped: []const u32,
     bucket: DateBucket,
     arena: std.mem.Allocator,
+    dates: i18n.Dates,
 ) usize {
     var i = start;
     var header = false;
@@ -155,11 +157,11 @@ fn appendDateBucket(
         const session = model.sessionByIdConst(id) orelse continue;
         if (sessionDateBucket(session.updated_at, model.now_ms) != bucket) continue;
         if (!header) {
-            out[i] = dateHeaderRow(bucket);
+            out[i] = dateHeaderRow(bucket, dates);
             i += 1;
             header = true;
         }
-        out[i] = sessionSidebarRow(model, session, arena);
+        out[i] = sessionSidebarRow(model, session, arena, dates);
         i += 1;
     }
     return i;
@@ -171,8 +173,8 @@ fn sessionProjectSubtitle(session: *const Session) []const u8 {
     return std.fs.path.basename(path);
 }
 
-fn sessionSidebarRow(model: *const Model, session: *const Session, arena: std.mem.Allocator) SidebarRow {
-    const relative = allocRelativeTime(arena, session.updated_at, model.now_ms);
+fn sessionSidebarRow(model: *const Model, session: *const Session, arena: std.mem.Allocator, dates: i18n.Dates) SidebarRow {
+    const relative = allocRelativeTime(arena, session.updated_at, model.now_ms, dates);
     return .{
         .id = session.id,
         .title = main.sessionDisplayTitle(session),
@@ -189,9 +191,9 @@ fn sessionSidebarRow(model: *const Model, session: *const Session, arena: std.me
     };
 }
 
-fn allocRelativeTime(arena: std.mem.Allocator, updated_at: i64, now_ms: i64) []const u8 {
+fn allocRelativeTime(arena: std.mem.Allocator, updated_at: i64, now_ms: i64, dates: i18n.Dates) []const u8 {
     var buf: [16]u8 = undefined;
-    const label = sessionRelativeTime(updated_at, now_ms, &buf) orelse return "";
+    const label = sessionRelativeTimeFor(updated_at, now_ms, &buf, dates) orelse return "";
     return arena.dupe(u8, label) catch "";
 }
 
