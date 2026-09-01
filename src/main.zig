@@ -71,6 +71,7 @@ const cli_probe = @import("cli_probe.zig");
 const palette_run = @import("palette_run.zig");
 const update_mod = @import("update.zig");
 const boot_mod = @import("boot.zig");
+const shell_mod = @import("shell.zig");
 const session_mod = @import("session.zig");
 const model_mod = @import("model.zig");
 const i18n = @import("i18n.zig");
@@ -98,17 +99,12 @@ pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 const canvas = native_sdk.canvas;
 const geometry = native_sdk.geometry;
 
-const canvas_label = "main-canvas";
-/// Declared shell-window label. Chromeless close/minimize ride
-/// `fx.closeWindow` / `fx.minimizeWindow` against this spelling —
-/// same address as `app.zon` / the scene. Unknown label is a no-op.
-/// Maximize is an OS sidecar (`maximize_window.zig`); Native still
-/// has no `fx.maximizeWindow`.
-pub const main_window_label = "main";
-pub const window_width: f32 = 1380;
-pub const window_height: f32 = 880;
-pub const window_min_width: f32 = 560;
-pub const window_min_height: f32 = 480;
+const canvas_label = shell_mod.canvas_label;
+pub const main_window_label = shell_mod.main_window_label;
+pub const window_width = shell_mod.window_width;
+pub const window_height = shell_mod.window_height;
+pub const window_min_width = shell_mod.window_min_width;
+pub const window_min_height = shell_mod.window_min_height;
 pub const sidebar_default_width: f32 = 252;
 pub const sidebar_min_width: f32 = 180;
 pub const sidebar_max_width: f32 = 420;
@@ -183,46 +179,9 @@ pub const fx_env_bin = "/usr/bin/env";
 pub const max_line_keep = 4096;
 
 const app_permissions = [_][]const u8{ native_sdk.security.permission_command, native_sdk.security.permission_view };
-const shell_views = [_]native_sdk.ShellView{
-    .{ .label = canvas_label, .kind = .gpu_surface, .fill = true, .role = "Faku canvas", .accessibility_label = "Faku", .gpu_backend = .metal, .gpu_pixel_format = .bgra8_unorm, .gpu_present_mode = .timer, .gpu_alpha_mode = .@"opaque", .gpu_color_space = .srgb, .gpu_vsync = true },
-};
-const shell_windows = [_]native_sdk.ShellWindow{.{
-    .label = main_window_label,
-    .title = "Faku",
-    .width = window_width,
-    .height = window_height,
-    .min_width = window_min_width,
-    .min_height = window_min_height,
-    .titlebar = .hidden_inset_tall,
-    .views = &shell_views,
-}};
-pub const shell_scene: native_sdk.ShellConfig = .{ .windows = &shell_windows };
-
-/// Chromeless Minimize bar. The built-in icon set has no minus
-/// (`examples/deck`); Native check rejects an invented `icon="minus"`.
-const minimize_icon = canvas.svg_icon.parseComptime(@embedFile("icons/minimize.svg"));
-
-/// Chromeless Maximize square. Native has no `fx.maximizeWindow`
-/// and no built-in maximize glyph.
-const maximize_icon = canvas.svg_icon.parseComptime(@embedFile("icons/maximize.svg"));
-
-/// Composer Stop square. Native has no built-in stop/square
-/// (https://native-sdk.dev/components/icon).
-const stop_icon = canvas.svg_icon.parseComptime(@embedFile("icons/stop.svg"));
-
-/// One table feeds boot registration and the model contract so
-/// `icon="app:minimize"` / `icon="app:maximize"` / `icon="app:stop"`
-/// are verified against what `main` registers.
-pub const app_icons = [_]canvas.icons.Entry{
-    .{ .name = "minimize", .icon = &minimize_icon },
-    .{ .name = "maximize", .icon = &maximize_icon },
-    .{ .name = "stop", .icon = &stop_icon },
-};
-
-/// Install the app icon table once, before views build.
-pub fn registerIcons() void {
-    canvas.icons.registerAppIcons(&app_icons);
-}
+pub const shell_scene = shell_mod.shell_scene;
+pub const app_icons = shell_mod.app_icons;
+pub const registerIcons = shell_mod.registerIcons;
 
 pub const stream_timer_key: u64 = 1;
 pub const fx_ask_key: u64 = 2;
@@ -566,6 +525,7 @@ test {
     _ = @import("settings_actions.zig");
     _ = @import("update.zig");
     _ = @import("boot.zig");
+    _ = @import("shell.zig");
     _ = @import("session.zig");
     _ = @import("model.zig");
     _ = @import("i18n.zig");
