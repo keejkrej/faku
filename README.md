@@ -146,13 +146,15 @@ text (runtime-only; newlines kept; CSI stripped for display via
 the same 100ms render cache; Environment Summary stays a
 one-line preview),
 first-cut settled Monitor / Subagent persist after the turn
-(status from Process settle; Monitor / Subagent last-window kept; Stop
-hidden; not live after one-shot `-p` exits), and a
+(status from Process settle; Monitor / Subagent last-window kept; Faku-side
+Dismiss, not Claude TaskStop; not live after one-shot `-p` exits), and a
 first-cut right-panel Background surface (kind / title / live-or-settled
 status / Monitor / Subagent log / Stop when the selected row is a live Process,
-live Monitor, or live Subagent) opened from those rows. Live Monitor
+live Monitor, or live Subagent; Dismiss when the selected row is a settled
+Monitor or Subagent) opened from those rows. Live Monitor
 and Subagent Stop is Faku-side dismiss of that row on one-shot
-`claude -p` (not Claude TaskStop mid-turn).
+`claude -p` (not Claude TaskStop mid-turn). Settled Monitor / Subagent
+Dismiss is the same Faku-side slot clear after the turn.
 
 Later: Pi ACP / `--mode rpc`, Claude ACP, `--continue`,
 full onboarding / OAuth / auto-install, a long-lived daemon socket in
