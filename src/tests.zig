@@ -19330,14 +19330,17 @@ test "sidebar date-bucket titles follow Appearance language preference" {
         "older thread",
     });
     const zh_tree = try buildTree(arena, &model);
-    _ = try expectByText(zh_tree.root, .list_item, "今日");
+    // Date-bucket headers are `{s.title}` text rows. The chrome unassign
+    // list-item stays the English "Today" drop target this cut.
+    _ = try expectByText(zh_tree.root, .text, "今日");
     _ = try expectByText(zh_tree.root, .text, "昨天");
     _ = try expectByText(zh_tree.root, .text, "本周");
     _ = try expectByText(zh_tree.root, .text, "本月");
     _ = try expectByText(zh_tree.root, .text, "今年");
     _ = try expectByText(zh_tree.root, .text, "更早");
-    try testing.expect(findByText(zh_tree.root, .text, "Today") == null);
     try testing.expect(findByText(zh_tree.root, .text, "This week") == null);
+    try testing.expect(findByText(zh_tree.root, .text, "This month") == null);
+    try testing.expect(findByText(zh_tree.root, .text, "Older") == null);
 
     model.language_preference = .japanese;
     try expectSidebarTitles(model.sidebar_rows(arena), &.{
@@ -19355,13 +19358,15 @@ test "sidebar date-bucket titles follow Appearance language preference" {
         "older thread",
     });
     const ja_tree = try buildTree(arena, &model);
-    _ = try expectByText(ja_tree.root, .list_item, "今日");
+    _ = try expectByText(ja_tree.root, .text, "今日");
     _ = try expectByText(ja_tree.root, .text, "昨日");
     _ = try expectByText(ja_tree.root, .text, "今週");
     _ = try expectByText(ja_tree.root, .text, "今月");
     _ = try expectByText(ja_tree.root, .text, "以前");
     try testing.expect(findByText(ja_tree.root, .text, "Yesterday") == null);
+    try testing.expect(findByText(ja_tree.root, .text, "This week") == null);
     try testing.expect(findByText(ja_tree.root, .text, "This month") == null);
+    try testing.expect(findByText(ja_tree.root, .text, "Older") == null);
 
     model.language_preference = .system;
     model.setSystemLocaleId("ja_JP.UTF-8");
