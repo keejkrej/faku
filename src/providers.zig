@@ -9,7 +9,8 @@
 //! and shows detail; Apply ("Use for this session") sets the selected
 //! chat session's `provider` and persists via `sessions.json`. New
 //! sessions stay `.fx`. Live Send for probed ACP stdio providers
-//! (cursor, opencode, grok) is `spawn.startPrompt`; Available Claude
+//! (cursor, opencode, grok) is `spawn.startPrompt` (first-cut ACP v1
+//! image content blocks when a composer image is attached); Available Claude
 //! is one-shot print-mode stream-json (`claude -p --output-format
 //! stream-json --verbose --include-partial-messages
 //! --forward-subagent-text`; documented
@@ -68,8 +69,8 @@ pub const fx_missing_status = missing_status;
 pub const catalog_detail_note = "Status is a PATH --help probe. Send stays demo this cut.";
 pub const first_party_label = "First-party default";
 pub const fx_transport_note = "Live path is one-shot fx acp via acp-proxy.";
-pub const acp_transport_note = "Live Send is one-shot acp via acp-proxy when Available.";
-pub const grok_transport_note = "Live Send is one-shot grok agent stdio via acp-proxy when Available.";
+pub const acp_transport_note = "Live Send is one-shot acp via acp-proxy when Available (ACP image content blocks when attached).";
+pub const grok_transport_note = "Live Send is one-shot grok agent stdio via acp-proxy when Available (ACP image content blocks when attached).";
 pub const claude_transport_note = "Live Send is one-shot claude -p --output-format stream-json --forward-subagent-text when Available (later Sends --resume {fx_session_id} when stored; image path in the -p prompt when attached).";
 pub const codex_transport_note = "Live Send is one-shot codex exec when Available (`--image` when attached).";
 pub const amp_transport_note = "Live Send is one-shot amp -x / --execute when Available (`@path` when attached).";
