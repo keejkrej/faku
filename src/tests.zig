@@ -1372,6 +1372,74 @@ test "send with opencode unavailable still starts the demo timer" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
+test "send with kimi cli_available spawns acp-proxy kimi acp and streams session/update" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.kimi)] = true;
+    const id = model.addSession("kimi send", .kimi);
+    model.selected = id;
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "what does this repo do" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(argvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(request.argv, "--"));
+    try testing.expect(argvHas(request.argv, "kimi"));
+    try testing.expect(argvHas(request.argv, "acp"));
+    try testing.expect(!argvHas(request.argv, "ask"));
+    try testing.expect(!argvHas(request.argv, "fx"));
+    try testing.expect(!argvHas(request.argv, "cursor-agent"));
+    try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    const binary_at = argvIndex(request.argv, "kimi") orelse return error.MissingBinary;
+    const acp_at = argvIndex(request.argv, "acp") orelse return error.MissingAcp;
+    try testing.expectEqual(binary_at + 1, acp_at);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"initialize\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/new\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/set_mode\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "what does this repo do") != null);
+
+    const before_len = lastAssistant(&model).len;
+    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"s1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello from kimi acp\"}}}}");
+    drainEffects(&model, &fx);
+    try testing.expect(lastAssistant(&model).len > before_len);
+    try testing.expect(std.mem.indexOf(u8, lastAssistant(&model), "hello from kimi acp") != null);
+
+    try fx.feedLine(main.fx_ask_key, "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"stopReason\":\"end_turn\"}}");
+    drainEffects(&model, &fx);
+    try testing.expect(!model.is_streaming());
+}
+
+test "send with kimi unavailable still starts the demo timer" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.fx_probe_started = true;
+    const id = model.addSession("kimi missing", .kimi);
+    model.selected = id;
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "no kimi" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
 test "send with grok cli_available spawns acp-proxy grok agent stdio and streams session/update" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
@@ -11622,6 +11690,7 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     try testing.expect(findPendingSpawnKey(&fx, main.fx_probe_key) == null);
     try testing.expect(findCliProbeSpawn(&fx, .claude) != null);
     try testing.expect(findCliProbeSpawn(&fx, .pi) != null);
+    try testing.expect(findCliProbeSpawn(&fx, .kimi) != null);
 
     tree = try buildTree(arena, &model);
     const providers_on = try expectButtonMsg(tree, "Providers", .set_settings_page_providers);
@@ -11646,6 +11715,7 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     _ = try expectByText(tree.root, .list_item, "opencode");
     _ = try expectByText(tree.root, .list_item, "cursor");
     _ = try expectByText(tree.root, .list_item, "pi");
+    _ = try expectByText(tree.root, .list_item, "kimi");
     _ = try expectByText(tree.root, .text, "cursor-agent");
     _ = try expectByText(tree.root, .text, "claude");
     try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) == null);
@@ -11762,6 +11832,15 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     try testing.expect(findByText(tree.root, .button, providers.copy_install_label) == null);
     try testing.expect(findByText(tree.root, .button, providers.copy_login_label) == null);
 
+    main.update(&model, .{ .select_provider = providers.rowId(.kimi) }, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findTextContaining(tree.root, providers.acp_transport_note) != null);
+    try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) == null);
+    try testing.expect(findTextContaining(tree.root, providers.other_install_hint) != null);
+    try testing.expect(findByText(tree.root, .button, providers.copy_install_label) == null);
+    try testing.expect(findByText(tree.root, .button, providers.copy_login_label) == null);
+
     const refresh = try expectButtonMsg(tree, "Refresh", .refresh_providers);
     main.update(&model, tree.msgForPointer(refresh.id, .up).?, &fx);
     try testing.expect(model.fx_probe_started);
@@ -11769,6 +11848,7 @@ test "settings Providers select shows detail; Refresh queues fx probe; close ret
     try testing.expect(findCliProbeSpawn(&fx, .claude) != null);
     try testing.expect(findCliProbeSpawn(&fx, .cursor) != null);
     try testing.expect(findCliProbeSpawn(&fx, .pi) != null);
+    try testing.expect(findCliProbeSpawn(&fx, .kimi) != null);
 
     main.update(&model, .toggle_settings, &fx);
     try testing.expect(!model.settings_open);

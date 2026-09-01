@@ -7,7 +7,7 @@
 //! `stream.zig`. Line handlers live in `lines.zig`.
 //!
 //! Non-fx live Send this cut: `ProviderId.speaksAcpStdio` (cursor /
-//! opencode bare `acp`, grok `agent stdio`) when
+//! opencode / kimi bare `acp`, grok `agent stdio`) when
 //! `providers.isAvailable`. Same one-shot `faku acp-proxy -- {binary}
 //! …transport…` as fx. `reply_path` stays `.fx` so ACP stream parsing
 //! (`fx_spawn_acp` / `fx_line` / `fx_exit`) is unchanged. After that,
@@ -38,7 +38,7 @@
 //! `reply_path` stays `.fx` with `fx_spawn_acp = false`. Pi sets
 //! `fx_spawn_pi_json = true` so stdout lines use the Pi JSON parser
 //! in `lines.zig` (live `text_delta`, not prose / raw JSON dump).
-//! Composer image attach on cursor / opencode / grok uses official
+//! Composer image attach on cursor / opencode / kimi / grok uses official
 //! ACP v1 image content blocks (base64 + mimeType) on the one-shot
 //! acp-proxy `session/prompt`. fx still uses `fx ask --image` (no
 //! ACP image blocks). Overflow / missing / unknown type fail closed
@@ -251,8 +251,8 @@ pub fn startFxAcp(model: *Model, fx: *Effects, session: *const Session, prompt: 
 
 /// One-shot `faku acp-proxy -- {binary} …transport…` with the
 /// existing ACP stdin batch. Transport comes from
-/// `ProviderId.acpTransportArgv` (`acp` for fx / cursor / opencode,
-/// `agent stdio` for grok). fx still prefixes `FX_MODEL` /
+/// `ProviderId.acpTransportArgv` (`acp` for fx / cursor / opencode /
+/// kimi, `agent stdio` for grok). fx still prefixes `FX_MODEL` /
 /// `FX_PERMISSION_MODE` via `/usr/bin/env` (same as before).
 /// Permission also rides `session/set_mode` in the batch. Empty
 /// binary or empty transport is a no-op.
@@ -279,7 +279,7 @@ pub fn startAcpProxy(model: *Model, fx: *Effects, session: *const Session, binar
     var image_raw: [acp.max_image_bytes]u8 = undefined;
     var image: ?acp.ImageContent = null;
     // fx REJECTS image blocks. Only probed ACP stdio (cursor /
-    // opencode / grok) may attach ImageContent on session/prompt.
+    // opencode / kimi / grok) may attach ImageContent on session/prompt.
     const image_path = if (session.provider.speaksAcpStdio()) model.draftImagePath() else "";
     if (image_path.len > 0) {
         const io = model.store_io orelse return false;
@@ -898,10 +898,64 @@ test "opencode unavailable stays demo" {
     try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
 }
 
-test "speaksBareAcp is true for cursor and opencode; speaksAcpStdio also covers grok" {
+test "kimi + cli_available selects acp-proxy kimi acp" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    const id = model.addSession("kimi thread", .kimi);
+    model.cli_available[@intFromEnum(protocol.ProviderId.kimi)] = true;
+
+    startPrompt(&model, &fx, id, "hello kimi");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expectEqual(main.fx_ask_key, request.key);
+    try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(testArgvHas(request.argv, "--"));
+    try testing.expect(testArgvHas(request.argv, "kimi"));
+    try testing.expect(testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+    try testing.expect(!testArgvHas(request.argv, "fx"));
+    try testing.expect(!testArgvHas(request.argv, "cursor-agent"));
+    try testing.expect(!testArgvHas(request.argv, daemon_proxy.SUBCOMMAND));
+    const dash = testArgvIndex(request.argv, "--") orelse return error.MissingDash;
+    const binary_at = testArgvIndex(request.argv, "kimi") orelse return error.MissingBinary;
+    const acp_at = testArgvIndex(request.argv, "acp") orelse return error.MissingAcp;
+    try testing.expect(dash < binary_at);
+    try testing.expectEqual(binary_at + 1, acp_at);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"initialize\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/new\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/set_mode\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "hello kimi") != null);
+}
+
+test "kimi unavailable stays demo" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    const id = model.addSession("kimi missing", .kimi);
+    startPrompt(&model, &fx, id, "no kimi");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "speaksBareAcp is true for cursor, opencode, and kimi; speaksAcpStdio also covers grok" {
     const testing = std.testing;
     try testing.expect(protocol.ProviderId.cursor.speaksBareAcp());
     try testing.expect(protocol.ProviderId.opencode.speaksBareAcp());
+    try testing.expect(protocol.ProviderId.kimi.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.fx.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.claude.speaksBareAcp());
     try testing.expect(!protocol.ProviderId.codex.speaksBareAcp());
@@ -910,10 +964,13 @@ test "speaksBareAcp is true for cursor and opencode; speaksAcpStdio also covers 
     try testing.expect(!protocol.ProviderId.pi.speaksBareAcp());
     try testing.expect(protocol.ProviderId.cursor.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.opencode.speaksAcpStdio());
+    try testing.expect(protocol.ProviderId.kimi.speaksAcpStdio());
     try testing.expect(protocol.ProviderId.grok.speaksAcpStdio());
     try testing.expect(!protocol.ProviderId.fx.speaksAcpStdio());
     try testing.expect(!protocol.ProviderId.claude.speaksAcpStdio());
     try testing.expect(!protocol.ProviderId.amp.speaksAcpStdio());
+    try testing.expectEqualStrings("acp", protocol.ProviderId.kimi.acpTransportArgv()[0]);
+    try testing.expectEqual(@as(usize, 1), protocol.ProviderId.kimi.acpTransportArgv().len);
     try testing.expectEqual(@as(usize, 0), protocol.ProviderId.amp.acpTransportArgv().len);
     try testing.expectEqual(@as(usize, 2), protocol.ProviderId.grok.acpTransportArgv().len);
     try testing.expectEqualStrings("agent", protocol.ProviderId.grok.acpTransportArgv()[0]);
@@ -1048,6 +1105,48 @@ test "cursor image attach uses ACP image content block" {
     const request = fx.pendingSpawnAt(0).?;
     try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
     try testing.expect(testArgvHas(request.argv, "cursor-agent"));
+    try testing.expect(testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+    try testing.expect(!testArgvHas(request.argv, "--image"));
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"text\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "describe this") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"image\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"data\":\"cG5n\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"mimeType\":\"image/png\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"uri\"") == null);
+}
+
+test "kimi image attach uses ACP image content block" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/shot.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "png" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.kimi)] = true;
+    const id = model.addSession("kimi image", .kimi);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    try testing.expectEqualStrings(image, model.lastSpawnImagePath());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(testArgvHas(request.argv, "kimi"));
     try testing.expect(testArgvHas(request.argv, "acp"));
     try testing.expect(!testArgvHas(request.argv, "ask"));
     try testing.expect(!testArgvHas(request.argv, "--image"));

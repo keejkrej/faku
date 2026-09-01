@@ -7,7 +7,7 @@
 //! executor queues the spawn; tests do not need a live CLI or daemon.
 //!
 //! Spawn key is `cli_probe_key_first + @intFromEnum(id)` so claude=601
-//! … pi=607. fx (enum 0) is unused on this band. Distinct from
+//! … kimi=608. fx (enum 0) is unused on this band. Distinct from
 //! fx_probe_key (3), fx_ask_key (2), daemon (4+), fx_spawn (64+),
 //! skills (530+). Refresh cancels the same fixed key per id.
 
@@ -20,7 +20,8 @@ const Model = main.Model;
 const Effects = main.Effects;
 
 /// Fixed key per ProviderId. Distinct from fx_probe_key (3).
-/// Skills scan is 530+ incrementing; this band is eight fixed keys.
+/// Skills scan is 530+ incrementing; this band is one fixed key per
+/// ProviderId tag (fx's slot unused).
 pub const cli_probe_key_first: u64 = 600;
 
 pub const help_flag = "--help";
@@ -102,21 +103,25 @@ test "probeKey is per-id and skips fx_probe_key / ask / daemon" {
     try std.testing.expectEqual(@as(u64, 605), probeKey(.opencode));
     try std.testing.expectEqual(@as(u64, 606), probeKey(.cursor));
     try std.testing.expectEqual(@as(u64, 607), probeKey(.pi));
+    try std.testing.expectEqual(@as(u64, 608), probeKey(.kimi));
     try std.testing.expect(probeKey(.claude) != main.fx_probe_key);
     try std.testing.expect(probeKey(.claude) != main.fx_ask_key);
     try std.testing.expect(probeKey(.claude) != main.daemon_proxy_key_first);
     try std.testing.expect(probeKey(.pi) != main.fx_probe_key);
+    try std.testing.expect(probeKey(.kimi) != main.fx_probe_key);
     try std.testing.expectEqual(protocol.ProviderId.claude, fromProbeKey(601).?);
     try std.testing.expectEqual(protocol.ProviderId.pi, fromProbeKey(607).?);
+    try std.testing.expectEqual(protocol.ProviderId.kimi, fromProbeKey(608).?);
     try std.testing.expect(fromProbeKey(main.fx_probe_key) == null);
     try std.testing.expect(fromProbeKey(cli_probe_key_first) == null);
-    try std.testing.expect(fromProbeKey(608) == null);
-    try std.testing.expectEqual(@as(usize, 7), nonFxCount());
+    try std.testing.expect(fromProbeKey(609) == null);
+    try std.testing.expectEqual(@as(usize, 8), nonFxCount());
 }
 
 test "isCliProbeArgv matches PATH defaultBinary --help only" {
     try std.testing.expect(isCliProbeArgv(&.{ "claude", "--help" }, .claude));
     try std.testing.expect(isCliProbeArgv(&.{ "cursor-agent", "--help" }, .cursor));
+    try std.testing.expect(isCliProbeArgv(&.{ "kimi", "--help" }, .kimi));
     try std.testing.expect(!isCliProbeArgv(&.{ "fx", "--help" }, .fx));
     try std.testing.expect(!isCliProbeArgv(&.{ "claude", "--help" }, .codex));
     try std.testing.expect(!isCliProbeArgv(&.{ "claude", "acp" }, .claude));

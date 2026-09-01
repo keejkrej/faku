@@ -7,7 +7,7 @@
 //! auto-answers `session/request_permission` from that run's access
 //! mode. Draft `image_path` still uses `fx ask --image` (ACP rejects
 //! image blocks). After the fx branch, probed ACP stdio providers
-//! (cursor / opencode `acp`, grok `agent stdio`) use the same acp-proxy
+//! (cursor / opencode / kimi `acp`, grok `agent stdio`) use the same acp-proxy
 //! path when `--help` is available, including first-cut official ACP
 //! v1 image content blocks on `session/prompt` when a composer image
 //! is attached (base64 + mimeType; overflow / bad file fail closed to
@@ -34,7 +34,7 @@
 //! `pi --mode json {prompt}` (not ACP, not `--mode rpc`), with
 //! documented `@{path}` after `--mode json` when a composer image
 //! is attached (stdout is JSON events: live `text_delta` into the
-//! transcript, not a prose dump); cursor / opencode / grok image
+//! transcript, not a prose dump); cursor / opencode / kimi / grok image
 //! attach uses ACP image content blocks (not `fx ask --image`).
 //! When `WAKU_DAEMON_ADDRESS` is set, Send instead
 //! spawns a one-shot `daemon-proxy` sidecar (hello + attachSession +
@@ -334,7 +334,7 @@ pub const review_diff_hunk_key_first = review_diff.review_diff_hunk_key_first;
 pub const skills_key_first = skills.skills_key_first;
 /// One-shot Settings Providers non-fx `{binary} --help` probes.
 /// Distinct from skills (530+). Band is 600+ `@intFromEnum(id)`
-/// so claude=601 … pi=607. fx stays on `fx_probe_key` (3).
+/// so claude=601 … kimi=608. fx stays on `fx_probe_key` (3).
 pub const cli_probe_key_first = cli_probe.cli_probe_key_first;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.

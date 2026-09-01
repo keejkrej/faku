@@ -3921,7 +3921,7 @@ pub const Model = struct {
     /// Used as `fx ask --image`, `codex exec --image`, Amp execute-mode
     /// `@{path}` in the `-x` prompt, Pi json-mode `@{path}`, Claude
     /// print-mode path-in-prompt, and non-fx ACP stdio image content
-    /// blocks (cursor / opencode / grok). Missing files omit the attach
+    /// blocks (cursor / opencode / kimi / grok). Missing files omit the attach
     /// for fx/Claude/Codex/Amp/Pi; ACP stdio fail-closes to demo.
     /// Native spawn has no attachment/blob API.
     pub fn resolveSpawnImage(model: *const Model) []const u8 {

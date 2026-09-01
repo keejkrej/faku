@@ -1,6 +1,6 @@
 //! Agent Client Protocol (ACP) JSON-RPC 2.0 helpers for one-shot ACP
 //! via `acp-proxy` (`fx acp`, probed `cursor-agent acp` /
-//! `opencode acp`, `grok agent stdio`).
+//! `opencode acp`, `kimi acp`, `grok agent stdio`).
 //!
 //! Official methods (https://fx.sh/docs/using-fx/acp): initialize,
 //! session/new, session/load, session/resume, session/close, session/list,
@@ -19,7 +19,7 @@
 //! from the window — Stop/Esc uses `fx.cancel`. This is not a
 //! long-lived ACP loop. `session/load` is not used (resume, not replay).
 //!
-//! Non-fx ACP stdio (cursor / opencode `acp`, grok `agent stdio`) may
+//! Non-fx ACP stdio (cursor / opencode / kimi `acp`, grok `agent stdio`) may
 //! attach one official ACP v1 image content block on `session/prompt`
 //! (`type`/`data` base64/`mimeType`; optional `uri` omitted). fx
 //! rejects image blocks — the fx ACP batch stays text-only (`fx ask
