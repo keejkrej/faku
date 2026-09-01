@@ -19,6 +19,13 @@
 //! from the window — Stop/Esc uses `fx.cancel`. This is not a
 //! long-lived ACP loop. `session/load` is not used (resume, not replay).
 //!
+//! Non-fx ACP stdio (cursor / opencode `acp`, grok `agent stdio`) may
+//! attach one official ACP v1 image content block on `session/prompt`
+//! (`type`/`data` base64/`mimeType`; optional `uri` omitted). fx
+//! rejects image blocks — the fx ACP batch stays text-only (`fx ask
+//! --image` is the fx image path). Missing / unreadable / unknown
+//! type / overflow fail closed; never a truncated image in the batch.
+//!
 //! Frames are one JSON object per line. This file never execs a binary.
 
 const std = @import("std");
@@ -137,6 +144,15 @@ pub const max_tool_content: usize = 4096;
 pub const STOP_END_TURN = "end_turn";
 pub const STOP_CANCELLED = "cancelled";
 pub const STOP_REFUSAL = "refusal";
+
+/// First-cut raw image cap for ACP `ImageContent.data` (before base64).
+/// Overflow fails closed — do not truncate a half image into the prompt.
+pub const max_image_bytes: usize = 256 * 1024;
+
+/// One-shot Native spawn stdin / acp-proxy collect cap. Fits initialize
+/// + new|resume + set_* + `session/prompt` with one `max_image_bytes`
+/// standard-base64 image block plus `max_draft` text.
+pub const stdin_cap: usize = std.base64.standard.Encoder.calcSize(max_image_bytes) + 16 * 1024;
 
 pub const Method = enum {
     initialize,
@@ -262,12 +278,21 @@ pub const ToolUpdate = struct {
     has_content: bool = false,
 };
 
+/// Official ACP v1 `ImageContent` payload for `session/prompt`.
+/// `bytes` are raw file bytes (writer standard-base64-encodes `data`).
+/// https://agentclientprotocol.com/protocol/schema
+pub const ImageContent = struct {
+    bytes: []const u8,
+    mime_type: []const u8,
+};
+
 pub const TurnStdin = struct {
     cwd: []const u8,
     resume_id: []const u8 = "",
     prompt: []const u8,
     model: []const u8 = "",
     access_mode: []const u8 = "",
+    image: ?ImageContent = null,
 };
 
 /// One ACP `PermissionOption`. Slices alias the parsed line.
@@ -325,6 +350,38 @@ fn writeUint(cur: *Cursor, value: u64) WriteError!void {
     var num: [20]u8 = undefined;
     const piece = std.fmt.bufPrint(&num, "{d}", .{value}) catch return error.NoSpaceLeft;
     try cur.write(piece);
+}
+
+/// Standard base64 into the JSON string. Alphabet is JSON-safe
+/// (`A-Za-z0-9+/=`); do not run it through `writeJsonString`.
+fn writeBase64(cur: *Cursor, bytes: []const u8) WriteError!void {
+    const encoded_len = std.base64.standard.Encoder.calcSize(bytes.len);
+    if (cur.pos + encoded_len > cur.buf.len) return error.NoSpaceLeft;
+    _ = std.base64.standard.Encoder.encode(cur.buf[cur.pos..][0..encoded_len], bytes);
+    cur.pos += encoded_len;
+}
+
+/// png / jpeg / jpg / gif / webp only. Unknown extension is fail-closed.
+pub fn mimeTypeForImagePath(path: []const u8) ?[]const u8 {
+    const ext = std.fs.path.extension(path);
+    if (std.ascii.eqlIgnoreCase(ext, ".png")) return "image/png";
+    if (std.ascii.eqlIgnoreCase(ext, ".jpg")) return "image/jpeg";
+    if (std.ascii.eqlIgnoreCase(ext, ".jpeg")) return "image/jpeg";
+    if (std.ascii.eqlIgnoreCase(ext, ".gif")) return "image/gif";
+    if (std.ascii.eqlIgnoreCase(ext, ".webp")) return "image/webp";
+    return null;
+}
+
+/// Read at most `max_image_bytes`. Missing, unreadable, empty, or
+/// over-cap files return null (fail closed; never a truncated image).
+pub fn readImageBytes(io: std.Io, path: []const u8, dest: []u8) ?[]const u8 {
+    if (path.len == 0 or dest.len == 0) return null;
+    const cap = @min(dest.len, max_image_bytes);
+    const bytes = std.Io.Dir.cwd().readFileAlloc(io, path, std.heap.page_allocator, .limited(cap + 1)) catch return null;
+    defer std.heap.page_allocator.free(bytes);
+    if (bytes.len == 0 or bytes.len > cap) return null;
+    @memcpy(dest[0..bytes.len], bytes);
+    return dest[0..bytes.len];
 }
 
 fn writeRequestHead(cur: *Cursor, id: u64, method: []const u8) WriteError!void {
@@ -386,12 +443,24 @@ pub fn writeSessionResume(
     return cur.slice();
 }
 
-/// `session/prompt` with one text content block.
+/// `session/prompt` with a text content block and an optional image
+/// content block. When `image` is set, `prompt` is `[text, image]` —
+/// same order as the official prompt-turn example (text then resource):
+/// https://agentclientprotocol.com/protocol/prompt-turn
+/// Image shape is ACP v1 `ImageContent`
+/// (`{ "type": "image", "data": "<base64>", "mimeType": "image/png" }`;
+/// optional `uri` omitted):
+/// https://agentclientprotocol.com/protocol/schema
+/// Requires agent `promptCapabilities.image` when included; this cut
+/// still ships the block for non-fx ACP (rejecting agents surface via
+/// existing error/demo paths). fx REJECTS image blocks — do not pass
+/// `image` on the fx ACP stdin batch.
 pub fn writeSessionPrompt(
     buf: []u8,
     id: u64,
     session_id: []const u8,
     text: []const u8,
+    image: ?ImageContent,
 ) WriteError![]const u8 {
     var cur = Cursor{ .buf = buf };
     try writeRequestHead(&cur, id, METHOD_SESSION_PROMPT);
@@ -399,7 +468,17 @@ pub fn writeSessionPrompt(
     try writeJsonString(&cur, session_id);
     try cur.write(",\"prompt\":[{\"type\":\"text\",\"text\":");
     try writeJsonString(&cur, text);
-    try cur.write("}]}}\n");
+    try cur.write("}");
+    if (image) |img| {
+        if (img.bytes.len > 0 and img.mime_type.len > 0) {
+            try cur.write(",{\"type\":\"image\",\"data\":\"");
+            try writeBase64(&cur, img.bytes);
+            try cur.write("\",\"mimeType\":");
+            try writeJsonString(&cur, img.mime_type);
+            try cur.write("}");
+        }
+    }
+    try cur.write("]}}\n");
     return cur.slice();
 }
 
@@ -569,7 +648,7 @@ pub fn writeTurnStdin(buf: []u8, args: TurnStdin) WriteError![]const u8 {
         );
         cur.pos += config.len;
     }
-    const prompt = try writeSessionPrompt(cur.remaining(), ID_PROMPT, args.resume_id, args.prompt);
+    const prompt = try writeSessionPrompt(cur.remaining(), ID_PROMPT, args.resume_id, args.prompt, args.image);
     cur.pos += prompt.len;
     return cur.slice();
 }
@@ -1528,11 +1607,12 @@ test "ACP builders are newline-delimited JSON-RPC 2.0" {
     try std.testing.expectEqualStrings("sess-1", parsed_resume.session_id);
     try std.testing.expect(std.mem.indexOf(u8, resumed, "\"cwd\":\"/tmp/project\"") != null);
 
-    const prompt = try writeSessionPrompt(&buf, 3, "sess-1", "trace the listener");
+    const prompt = try writeSessionPrompt(&buf, 3, "sess-1", "trace the listener", null);
     const parsed_prompt = parseLine(prompt);
     try std.testing.expectEqual(Method.session_prompt, parsed_prompt.method);
     try std.testing.expectEqualStrings("sess-1", parsed_prompt.session_id);
     try std.testing.expect(std.mem.indexOf(u8, prompt, "\"type\":\"text\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, prompt, "\"type\":\"image\"") == null);
 
     const cancel = try writeSessionCancel(&buf, "sess-1");
     const parsed_cancel = parseLine(cancel);
@@ -1574,6 +1654,73 @@ test "fx ACP ask|code reverse-map to Waku access_mode; unknown ids stay unmapped
     try std.testing.expect(accessModeFromSessionMode("") == null);
     try std.testing.expectEqualStrings(MODE_ASK, sessionMode(accessModeFromSessionMode(MODE_ASK).?));
     try std.testing.expectEqualStrings(MODE_CODE, sessionMode(accessModeFromSessionMode(MODE_CODE).?));
+}
+
+test "writeSessionPrompt emits text then image content blocks with official JSON shape" {
+    var buf: [2048]u8 = undefined;
+    const prompt = try writeSessionPrompt(&buf, 3, "sess-1", "look", .{
+        .bytes = "png",
+        .mime_type = "image/png",
+    });
+    try std.testing.expect(std.mem.endsWith(u8, prompt, "\n"));
+    try std.testing.expect(std.mem.indexOf(u8, prompt, "\"method\":\"session/prompt\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, prompt, "\"type\":\"text\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, prompt, "\"text\":\"look\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, prompt, "\"type\":\"image\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, prompt, "\"data\":\"cG5n\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, prompt, "\"mimeType\":\"image/png\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, prompt, "\"uri\"") == null);
+    const text_at = std.mem.indexOf(u8, prompt, "\"type\":\"text\"").?;
+    const image_at = std.mem.indexOf(u8, prompt, "\"type\":\"image\"").?;
+    try std.testing.expect(text_at < image_at);
+
+    const stdin = try writeTurnStdin(&buf, .{
+        .cwd = ".",
+        .prompt = "look",
+        .image = .{ .bytes = "png", .mime_type = "image/png" },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"method\":\"session/prompt\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"data\":\"cG5n\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"mimeType\":\"image/png\"") != null);
+}
+
+test "mimeTypeForImagePath maps png/jpeg/jpg/gif/webp and rejects unknown" {
+    try std.testing.expectEqualStrings("image/png", mimeTypeForImagePath("shot.PNG").?);
+    try std.testing.expectEqualStrings("image/jpeg", mimeTypeForImagePath("/tmp/a.jpg").?);
+    try std.testing.expectEqualStrings("image/jpeg", mimeTypeForImagePath("b.JPEG").?);
+    try std.testing.expectEqualStrings("image/gif", mimeTypeForImagePath("c.gif").?);
+    try std.testing.expectEqualStrings("image/webp", mimeTypeForImagePath("d.webp").?);
+    try std.testing.expect(mimeTypeForImagePath("shot.bmp") == null);
+    try std.testing.expect(mimeTypeForImagePath("shot.txt") == null);
+    try std.testing.expect(mimeTypeForImagePath("shot") == null);
+}
+
+test "readImageBytes fails closed on missing, empty, and overflow" {
+    const testing = std.testing;
+    var dest: [max_image_bytes]u8 = undefined;
+    try testing.expect(readImageBytes(testing.io, "", dest[0..]) == null);
+    try testing.expect(readImageBytes(testing.io, ".zig-cache/tmp/faku-acp-image-missing.png", dest[0..]) == null);
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const empty_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/empty.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = empty_path, .data = "" });
+    try testing.expect(readImageBytes(testing.io, empty_path, dest[0..]) == null);
+
+    const ok_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/ok.png", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = ok_path, .data = "png" });
+    const got = readImageBytes(testing.io, ok_path, dest[0..]) orelse return error.MissingImage;
+    try testing.expectEqualStrings("png", got);
+
+    var tiny: [1]u8 = undefined;
+    try testing.expect(readImageBytes(testing.io, ok_path, tiny[0..]) == null);
+
+    const over_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/over.png", .{tmp.sub_path[0..]});
+    var over: [max_image_bytes + 1]u8 = undefined;
+    @memset(&over, 'A');
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = over_path, .data = &over });
+    try testing.expect(readImageBytes(testing.io, over_path, dest[0..]) == null);
 }
 
 test "one-shot stdin is initialize plus new or resume then prompt" {

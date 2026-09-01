@@ -37,7 +37,12 @@ When the fx CLI is installed, Send on an fx session spawns a one-shot
 `grok`) uses the same sidecar: `faku acp-proxy -- {binary} acp` for
 bare-`acp` ids, or `faku acp-proxy -- grok agent stdio`. Native
 `fx.spawn` writes **one stdin buffer and then closes stdin**. This is
-not a long-lived ACP or WebSocket loop.
+not a long-lived ACP or WebSocket loop. Composer image attach on
+those probed ACP stdio providers ships a first-cut official ACP v1
+image content block on `session/prompt` (base64 + mimeType; png /
+jpeg / jpg / gif / webp; ~256KB raw; missing / unknown type /
+overflow fail closed to demo). fx still uses `fx ask --image` and
+does not put image blocks on the fx ACP stdin batch.
 
 The local catalog `sessions.json` is canonical. Daemon and ACP are
 best-effort sidecars: the desktop update loop never holds a socket.
@@ -97,6 +102,10 @@ Ready: desktop shell, demo sessions + timer fallback, one-shot `fx acp`
 when the CLI is present (via `acp-proxy`, which auto-answers
 `session/request_permission`), first-cut live Send for probed ACP
 stdio providers (cursor / OpenCode `acp`, grok `agent stdio`),
+including first-cut official ACP v1 image content blocks on
+`session/prompt` when a composer image is attached (base64 +
+mimeType; ~256KB raw; fail-closed on overflow / bad file; fx still
+`fx ask --image`, no ACP image blocks),
 first-cut live Send for Available Claude via official print-mode
 stream-json (`claude -p --output-format stream-json --verbose
 --include-partial-messages --forward-subagent-text`; later Sends pass

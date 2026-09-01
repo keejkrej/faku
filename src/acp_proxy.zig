@@ -3,7 +3,8 @@
 //! Native `fx.spawn` writes stdin once and then closes it. This process
 //! is `faku acp-proxy -- <child argv…>`. It reads that ACP NDJSON batch
 //! (initialize / session/new|resume / set_mode / set_config_option /
-//! session/prompt), spawns the child, writes the batch, and keeps the
+//! session/prompt, including a first-cut image content block when the
+//! window attached one), spawns the child, writes the batch, and keeps the
 //! child's stdin open so official `session/request_permission` can be
 //! answered from the access mode already on this run (env / set_mode).
 //! Other agent requests are rejected so they do not hang. The window
@@ -15,7 +16,7 @@ const acp = @import("acp.zig");
 pub const SUBCOMMAND = "acp-proxy";
 
 const nativeLineCap = 64 * 1024;
-const stdinCap = 8192;
+const stdinCap = acp.stdin_cap;
 
 pub fn isSidecarArgv(args: []const []const u8) bool {
     return args.len >= 2 and std.mem.eql(u8, args[1], SUBCOMMAND);

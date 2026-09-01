@@ -8,7 +8,10 @@
 //! mode. Draft `image_path` still uses `fx ask --image` (ACP rejects
 //! image blocks). After the fx branch, probed ACP stdio providers
 //! (cursor / opencode `acp`, grok `agent stdio`) use the same acp-proxy
-//! path when `--help` is available; Available Claude uses one-shot
+//! path when `--help` is available, including first-cut official ACP
+//! v1 image content blocks on `session/prompt` when a composer image
+//! is attached (base64 + mimeType; overflow / bad file fail closed to
+//! demo); Available Claude uses one-shot
 //! print-mode stream-json (`claude -p --output-format stream-json
 //! --verbose --include-partial-messages --forward-subagent-text`,
 //! not ACP), with documented
@@ -32,7 +35,7 @@
 //! documented `@{path}` after `--mode json` when a composer image
 //! is attached (stdout is JSON events: live `text_delta` into the
 //! transcript, not a prose dump); cursor / opencode / grok image
-//! attach stays the demo timer.
+//! attach uses ACP image content blocks (not `fx ask --image`).
 //! When `WAKU_DAEMON_ADDRESS` is set, Send instead
 //! spawns a one-shot `daemon-proxy` sidecar (hello + attachSession +
 //! start + prompt when no runtime id; later sends keep attach + prompt).

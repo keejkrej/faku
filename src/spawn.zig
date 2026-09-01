@@ -38,7 +38,11 @@
 //! `reply_path` stays `.fx` with `fx_spawn_acp = false`. Pi sets
 //! `fx_spawn_pi_json = true` so stdout lines use the Pi JSON parser
 //! in `lines.zig` (live `text_delta`, not prose / raw JSON dump).
-//! Image attach on cursor / opencode / grok stays demo.
+//! Composer image attach on cursor / opencode / grok uses official
+//! ACP v1 image content blocks (base64 + mimeType) on the one-shot
+//! acp-proxy `session/prompt`. fx still uses `fx ask --image` (no
+//! ACP image blocks). Overflow / missing / unknown type fail closed
+//! to demo.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -105,15 +109,15 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
         return;
     }
     if (session.provider.speaksAcpStdio() and providers.isAvailable(model, session.provider)) {
-        // ACP has no image blocks this cut; cursor / opencode / grok
-        // image attach stays demo.
-        if (model.resolveSpawnImage().len == 0) {
-            const binary = providers.binaryFor(model, session.provider);
-            // Reuse fx spawn keys / fx_line / fx_exit / reply_path=.fx
-            // so handleAcpLine keeps working. Not a new ReplyPath alias.
-            model.reply_path = .fx;
-            if (startAcpProxy(model, fx, session, binary, text)) return;
-        }
+        // Official ACP v1 image content blocks on session/prompt when
+        // a composer image is attached (non-fx only). Missing /
+        // unreadable / unknown type / overflow fail closed to demo.
+        // fx never takes this branch (not speaksAcpStdio).
+        const binary = providers.binaryFor(model, session.provider);
+        // Reuse fx spawn keys / fx_line / fx_exit / reply_path=.fx
+        // so handleAcpLine keeps working. Not a new ReplyPath alias.
+        model.reply_path = .fx;
+        if (startAcpProxy(model, fx, session, binary, text)) return;
     }
     if (session.provider == .claude and providers.isAvailable(model, .claude)) {
         // Claude Code is not ACP. Official print-mode streaming is
@@ -252,6 +256,12 @@ pub fn startFxAcp(model: *Model, fx: *Effects, session: *const Session, prompt: 
 /// `FX_PERMISSION_MODE` via `/usr/bin/env` (same as before).
 /// Permission also rides `session/set_mode` in the batch. Empty
 /// binary or empty transport is a no-op.
+///
+/// Non-fx ACP stdio may attach one official image content block
+/// when the composer draft has an image path. fx never gets image
+/// blocks here (callers route fx images to `fx ask --image`).
+/// Missing / unreadable / unknown type / overflow return false so
+/// `startPrompt` fail-closes to demo.
 pub fn startAcpProxy(model: *Model, fx: *Effects, session: *const Session, binary: []const u8, prompt: []const u8) bool {
     if (binary.len == 0) return false;
     const transport = session.provider.acpTransportArgv();
@@ -265,14 +275,27 @@ pub fn startAcpProxy(model: *Model, fx: *Effects, session: *const Session, binar
     model.setLastSpawnFxPermissionMode(permission_mode);
     model.setLastSpawnImagePath("");
 
-    var stdin_buf: [8192]u8 = undefined;
+    var stdin_buf: [acp.stdin_cap]u8 = undefined;
+    var image_raw: [acp.max_image_bytes]u8 = undefined;
+    var image: ?acp.ImageContent = null;
+    // fx REJECTS image blocks. Only probed ACP stdio (cursor /
+    // opencode / grok) may attach ImageContent on session/prompt.
+    const image_path = if (session.provider.speaksAcpStdio()) model.draftImagePath() else "";
+    if (image_path.len > 0) {
+        const io = model.store_io orelse return false;
+        const mime = acp.mimeTypeForImagePath(image_path) orelse return false;
+        const bytes = acp.readImageBytes(io, image_path, &image_raw) orelse return false;
+        image = .{ .bytes = bytes, .mime_type = mime };
+    }
     const stdin = acp.writeTurnStdin(&stdin_buf, .{
         .cwd = cwd,
         .resume_id = resume_id,
         .prompt = prompt,
         .model = model_id,
         .access_mode = session.accessMode(),
+        .image = image,
     }) catch return false;
+    if (image_path.len > 0) model.setLastSpawnImagePath(image_path);
 
     var model_assign: [max_fx_model + 16]u8 = undefined;
     var perm_assign: [max_access_mode + 24]u8 = undefined;
@@ -995,7 +1018,7 @@ test "fx path stays preferred when provider is fx even if cursor is available" {
     try testing.expect(!testArgvHas(request.argv, "ask"));
 }
 
-test "cursor image attach stays demo" {
+test "cursor image attach uses ACP image content block" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -1014,6 +1037,98 @@ test "cursor image attach stays demo" {
     const id = model.addSession("cursor image", .cursor);
     model.selected = id;
     model.setDraftImagePath(image);
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    try testing.expectEqualStrings(image, model.lastSpawnImagePath());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(testArgvHas(request.argv, "cursor-agent"));
+    try testing.expect(testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "ask"));
+    try testing.expect(!testArgvHas(request.argv, "--image"));
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"text\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "describe this") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"image\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"data\":\"cG5n\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"mimeType\":\"image/png\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"uri\"") == null);
+}
+
+test "cursor image attach unknown type stays demo" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/shot.bmp", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = "bmp" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.cursor)] = true;
+    const id = model.addSession("cursor bmp", .cursor);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "cursor image attach overflow stays demo" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var image_buf: [256]u8 = undefined;
+    const image = try std.fmt.bufPrint(&image_buf, ".zig-cache/tmp/{s}/over.png", .{tmp.sub_path[0..]});
+    var over: [acp.max_image_bytes + 1]u8 = undefined;
+    @memset(&over, 'A');
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = image, .data = &over });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.cursor)] = true;
+    const id = model.addSession("cursor overflow", .cursor);
+    model.selected = id;
+    model.setDraftImagePath(image);
+
+    startPrompt(&model, &fx, id, "describe this");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(!model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "cursor image attach missing file stays demo" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.setSidecarPath("faku");
+    model.cli_available[@intFromEnum(protocol.ProviderId.cursor)] = true;
+    const id = model.addSession("cursor missing image", .cursor);
+    model.selected = id;
+    model.setDraftImagePath(".zig-cache/tmp/faku-acp-image-missing.png");
 
     startPrompt(&model, &fx, id, "describe this");
     try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
@@ -2209,7 +2324,7 @@ test "codex exec reuses fx_ask_chdir_script when project cwd exists" {
     try testing.expectEqualStrings(project, request.argv[binary_at - 1]);
 }
 
-test "grok image attach stays demo" {
+test "grok image attach uses ACP image content block" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -2230,8 +2345,22 @@ test "grok image attach stays demo" {
     model.setDraftImagePath(image);
 
     startPrompt(&model, &fx, id, "describe this");
-    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
-    try testing.expect(!model.fx_spawn_acp);
-    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
-    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
+    try testing.expect(model.fx_spawn_acp);
+    try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+    try testing.expectEqualStrings(image, model.lastSpawnImagePath());
+
+    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(testArgvHas(request.argv, acp_proxy.SUBCOMMAND));
+    try testing.expect(testArgvHas(request.argv, "grok"));
+    try testing.expect(testArgvHas(request.argv, "agent"));
+    try testing.expect(testArgvHas(request.argv, "stdio"));
+    try testing.expect(!testArgvHas(request.argv, "acp"));
+    try testing.expect(!testArgvHas(request.argv, "--image"));
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"method\":\"session/prompt\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "describe this") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"image\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"data\":\"cG5n\"") != null);
+    try testing.expect(std.mem.indexOf(u8, request.stdin, "\"mimeType\":\"image/png\"") != null);
 }

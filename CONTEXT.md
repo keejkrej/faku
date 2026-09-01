@@ -37,7 +37,7 @@ send circle.
 | **hydrateSession** | Daemon transcript fill when the local transcript is empty. Local turns win. |
 | **argv slot** | Every flag and operand is its own spawn argument. Never interpolate into the chdir `-c` script. |
 | **right panel** | First-cut Files + Diff + Background pane to the right of the conversation. Default closed. |
-| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx; Available Claude is one-shot `claude -p --output-format stream-json --verbose --include-partial-messages --forward-subagent-text` (not ACP; later Sends pass documented `--resume {fx_session_id}` when that field is non-empty; first Send and Fork omit it; not `--continue`; documented image path inside that `-p` prompt when a composer image is attached; stdout is NDJSON with live `text_delta`; live Subagent Background from `parent_tool_use_id` plus a bounded 512KB last-window from forwarded `parent_tool_use_id` text (Environment Summary stays a one-line preview; right-panel Background shows the stored log with CSI stripped for display); live Monitor Background from Claude `Monitor` `tool_use` plus a bounded 512KB last-window log from matching user `tool_result` (Environment Summary stays a one-line preview; right-panel Background shows the stored log with CSI stripped for display); first-cut settled Monitor / Subagent stay in the runtime registry after the turn (status from Process settle; Monitor / Subagent last-window kept; Stop hidden; not live / Running / Monitoring after `-p` exits); Available Codex is one-shot `codex exec {prompt}` (not ACP; documented `--image {path}` after the prompt when a composer image is attached); Available Amp is one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x` prompt when a composer image is attached); Available Pi is one-shot `pi --mode json {prompt}` (not ACP, not `--mode rpc`; documented `@{path}` after json when a composer image is attached; stdout is JSON events with live `text_delta`). fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
+| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx (first-cut official ACP v1 image content blocks on `session/prompt` when a composer image is attached: base64 + mimeType, ~256KB raw, fail-closed on overflow / bad file; fx still `fx ask --image`, no ACP image blocks); Available Claude is one-shot `claude -p --output-format stream-json --verbose --include-partial-messages --forward-subagent-text` (not ACP; later Sends pass documented `--resume {fx_session_id}` when that field is non-empty; first Send and Fork omit it; not `--continue`; documented image path inside that `-p` prompt when a composer image is attached; stdout is NDJSON with live `text_delta`; live Subagent Background from `parent_tool_use_id` plus a bounded 512KB last-window from forwarded `parent_tool_use_id` text (Environment Summary stays a one-line preview; right-panel Background shows the stored log with CSI stripped for display); live Monitor Background from Claude `Monitor` `tool_use` plus a bounded 512KB last-window log from matching user `tool_result` (Environment Summary stays a one-line preview; right-panel Background shows the stored log with CSI stripped for display); first-cut settled Monitor / Subagent stay in the runtime registry after the turn (status from Process settle; Monitor / Subagent last-window kept; Stop hidden; not live / Running / Monitoring after `-p` exits); Available Codex is one-shot `codex exec {prompt}` (not ACP; documented `--image {path}` after the prompt when a composer image is attached); Available Amp is one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x` prompt when a composer image is attached); Available Pi is one-shot `pi --mode json {prompt}` (not ACP, not `--mode rpc`; documented `@{path}` after json when a composer image is attached; stdout is JSON events with live `text_delta`). fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
 | **Settings Appearance** | Settings page for chrome theme and language. Theme: System (follow OS `on_appearance`), Light, or Dark. Default System. Language: System / English / 简体中文 / 日本語. Default System. System language follows process `LC_ALL` / `LC_MESSAGES` / `LANG` (Native has no locale API). Explicit language chips are autonyms in every locale. Persists `theme_preference` and `language_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. Settings chrome strings (title, nav, Appearance Theme / Language) follow the resolved locale this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
 | **Settings Usage** | Settings page showing the selected session's local context window (`context_used` / `context_size` from ACP `usage_update`) and thread-goal tokens (`threadGoalUsageLabel`). Read-only. Not daemon `LoadUsageHistory`, not a cost chart, not Daily / Monthly / Projects. |
@@ -94,9 +94,16 @@ with the existing ACP stdin batch. Transport argv is `acp` for
 bare-acp ids and `agent stdio` for grok (`faku acp-proxy -- grok
 agent stdio`). `reply_path` stays `.fx` so ACP stream parsing
 (`fx_line` / `fx_exit` / `fx_spawn_acp`) is unchanged. Permission
-mode and project cwd / resume id follow the fx rules. Image attach
-on cursor / opencode / grok stays demo (ACP has no image blocks this
-cut). Unavailable cursor / opencode / grok still use the demo timer.
+mode and project cwd / resume id follow the fx rules. Composer
+image attach ships first-cut official ACP v1 image content blocks
+on `session/prompt` (`{ "type": "image", "data": "<base64>",
+"mimeType": "image/png" }`; optional `uri` omitted; png / jpeg /
+jpg / gif / webp; ~256KB raw cap). Missing, unreadable, unknown
+type, or encoded-batch overflow fail closed to demo (never a
+truncated image). Agents that reject image blocks surface via
+existing error/demo paths. fx still uses `fx ask --image` and
+never puts image blocks on the fx ACP stdin batch. Unavailable
+cursor / opencode / grok still use the demo timer.
 Not a long-lived ACP loop.
 
 **Claude print-mode stream-json (first-cut live non-ACP).** After daemon, fx, and
@@ -324,8 +331,9 @@ Send enable toggles.
 Selecting a row highlights and shows a short blurb (name, binary, fx
 path when applicable, probe status, and that live Send is one-shot
 `acp` via acp-proxy for fx and probed ACP `acp` providers (cursor,
-opencode), or one-shot `grok agent stdio` via acp-proxy when grok
-is Available, or one-shot `claude -p --output-format stream-json
+opencode; first-cut ACP v1 image content blocks when a composer
+image is attached), or one-shot `grok agent stdio` via acp-proxy when grok
+is Available (same image content blocks), or one-shot `claude -p --output-format stream-json
 --forward-subagent-text` when claude is Available (later Sends pass
 documented `--resume {fx_session_id}` when that field is non-empty;
 first Send and Fork omit it; documented image path in the `-p`
@@ -494,9 +502,10 @@ Honest gaps this cut does not implement:
   BackgroundWorkRegistry event/reconcile/driver-refresh parity)
 - Further `main.zig` extract (`initialModel` still lives there)
 - Long-lived ACP or daemon socket in the update loop
-- ACP image blocks on non-fx (cursor / opencode / grok image attach
-  stays demo; Codex uses `codex exec --image`, not ACP; Amp uses
-  execute-mode `@{path}` in the `-x` prompt, not ACP; Pi uses
-  json-mode `@{path}`, not ACP; Claude uses print-mode path-in-prompt,
-  not ACP)
+- fx ACP still rejects image blocks (`fx ask --image`). First-cut
+  ACP image content blocks (base64 + mimeType, ~256KB raw, size
+  fail-closed) ship for probed cursor / opencode / grok. Codex uses
+  `codex exec --image`, not ACP; Amp uses execute-mode `@{path}` in
+  the `-x` prompt, not ACP; Pi uses json-mode `@{path}`, not ACP;
+  Claude uses print-mode path-in-prompt, not ACP
 

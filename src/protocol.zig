@@ -11,7 +11,10 @@
 //! `fx acp` (see main.zig / acp.zig). Probed ACP stdio providers
 //! (cursor / opencode `acp`, grok `agent stdio`) reuse that sidecar.
 //! Native stdin is one buffer at spawn time; this is not a long-lived
-//! ACP loop. `fx ask --image` stays the image path. Probe
+//! ACP loop. `fx ask --image` stays the fx image path (fx ACP rejects
+//! image blocks). Probed ACP stdio (cursor / opencode / grok) may
+//! attach official ACP v1 image content blocks on `session/prompt`.
+//! Probe
 //! `~/.local/bin/fx` then PATH. Missing binary keeps the demo timer.
 //!
 //! Catalog is `loadTaskState`. There is no `listSessions` / `createSession`
