@@ -11,6 +11,7 @@
 //! records Environment Summary last-turn Completed unless a queued
 //! follow-up immediately restarts (stay on the Process row). Live
 //! Subagent rows are cleared on finish / stop / a new Send.
+//! Live Monitor rows share that lifetime.
 //! `stopStream` records Stopped. `drain == false` records Failed.
 //! Cancel / `stopStream` does not snapshot. Prompt spawn stays in
 //! `spawn.zig`. Line handlers live in `lines.zig`. Behavior is
@@ -109,7 +110,7 @@ pub fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
     model.stream_turn_id = 0;
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
-    environment_summary.clearLiveSubagents(model);
+    environment_summary.clearLiveBackgroundSignals(model);
     if (drain) {
         session_fork.recordTurnEndIfPossible(model, finished_id);
         copy_helpers.notifyTurnComplete(model, fx, finished_id);
@@ -141,7 +142,7 @@ pub fn stopStream(model: *Model, fx: *Effects) void {
     if (model.daemon_spawn_key != 0) fx.cancel(model.daemon_spawn_key);
     model.fx_spawn_live = false;
     if (was_daemon) maybeCancelDaemonTurn(model, fx, finished_id);
-    environment_summary.clearLiveSubagents(model);
+    environment_summary.clearLiveBackgroundSignals(model);
     environment_summary.settle(model, finished_id, .stopped);
     store.persistIfPossible(model, finished_id, fx);
 }

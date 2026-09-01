@@ -17,7 +17,8 @@
 //! non-empty; first Send and Fork omit it; not `--continue`;
 //! documented image path inside that `-p` prompt when a composer image is
 //! attached; stdout is NDJSON with live `text_delta`; live Subagent
-//! Background from `parent_tool_use_id`); Available Codex is one-shot `codex exec {prompt}`
+//! Background from `parent_tool_use_id`; live Monitor Background from
+//! Claude `Monitor` `tool_use`); Available Codex is one-shot `codex exec {prompt}`
 //! (documented `--image {path}` after the prompt when a composer image
 //! is attached); Available Amp is
 //! one-shot `amp -x {prompt}` (`--execute` is the long form; documented
