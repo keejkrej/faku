@@ -86,6 +86,7 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
     model.fx_spawn_pi_json = false;
     model.fx_spawn_claude_json = false;
     model.background_subagent_count = 0;
+    model.background_monitor_count = 0;
     if (model.daemonAddress().len > 0) {
         model.reply_path = .daemon;
         startDaemonProxy(model, fx, session, text);
@@ -443,6 +444,8 @@ const claude_image_prompt_prefix = "Analyze this image: ";
 /// through the Claude parser (live `stream_event` /
 /// `event.delta.type == text_delta`, not a prose dump). Non-empty
 /// `parent_tool_use_id` is subagent traffic (not main-turn prose).
+/// `tool_use` with `name` `Monitor` fills live Monitor Background
+/// (not Bash / Agent / `parent_tool_use_id`).
 /// Not ACP, not `claude acp`, not `--input-format stream-json`, not
 /// `--mode rpc`, not `--bare`, not permissions bypass, not
 /// acp-proxy. Caller sets `reply_path` to `.fx` on success;

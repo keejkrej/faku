@@ -37,7 +37,7 @@ send circle.
 | **hydrateSession** | Daemon transcript fill when the local transcript is empty. Local turns win. |
 | **argv slot** | Every flag and operand is its own spawn argument. Never interpolate into the chdir `-c` script. |
 | **right panel** | First-cut Files + Diff pane to the right of the conversation. Default closed. |
-| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx; Available Claude is one-shot `claude -p --output-format stream-json --verbose --include-partial-messages --forward-subagent-text` (not ACP; later Sends pass documented `--resume {fx_session_id}` when that field is non-empty; first Send and Fork omit it; not `--continue`; documented image path inside that `-p` prompt when a composer image is attached; stdout is NDJSON with live `text_delta`; live Subagent Background from `parent_tool_use_id`); Available Codex is one-shot `codex exec {prompt}` (not ACP; documented `--image {path}` after the prompt when a composer image is attached); Available Amp is one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x` prompt when a composer image is attached); Available Pi is one-shot `pi --mode json {prompt}` (not ACP, not `--mode rpc`; documented `@{path}` after json when a composer image is attached; stdout is JSON events with live `text_delta`). fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
+| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx; Available Claude is one-shot `claude -p --output-format stream-json --verbose --include-partial-messages --forward-subagent-text` (not ACP; later Sends pass documented `--resume {fx_session_id}` when that field is non-empty; first Send and Fork omit it; not `--continue`; documented image path inside that `-p` prompt when a composer image is attached; stdout is NDJSON with live `text_delta`; live Subagent Background from `parent_tool_use_id`; live Monitor Background from Claude `Monitor` `tool_use`); Available Codex is one-shot `codex exec {prompt}` (not ACP; documented `--image {path}` after the prompt when a composer image is attached); Available Amp is one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x` prompt when a composer image is attached); Available Pi is one-shot `pi --mode json {prompt}` (not ACP, not `--mode rpc`; documented `@{path}` after json when a composer image is attached; stdout is JSON events with live `text_delta`). fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
 | **Settings Appearance** | Settings page for chrome theme and language. Theme: System (follow OS `on_appearance`), Light, or Dark. Default System. Language: System / English / 简体中文 / 日本語. Default System. System language follows process `LC_ALL` / `LC_MESSAGES` / `LANG` (Native has no locale API). Explicit language chips are autonyms in every locale. Persists `theme_preference` and `language_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. Settings chrome strings (title, nav, Appearance Theme / Language) follow the resolved locale this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
 | **Settings Usage** | Settings page showing the selected session's local context window (`context_used` / `context_size` from ACP `usage_update`) and thread-goal tokens (`threadGoalUsageLabel`). Read-only. Not daemon `LoadUsageHistory`, not a cost chart, not Daily / Monthly / Projects. |
@@ -124,6 +124,9 @@ stdout lines use the Claude JSON parser in `lines.zig` (live
 raw NDJSON). Non-empty `parent_tool_use_id` is subagent traffic: it
 does not `appendToTurn` on the main stream, and it (plus Agent
 `tool_use`) fills live Subagent Background rows while streaming.
+Main-turn `tool_use` / `content_block` with `name` `Monitor` and a
+non-empty `id` fills live Monitor Background rows while streaming
+(stable title `Monitor`; not Bash / Agent / `parent_tool_use_id`).
 If no deltas arrived, the final `result` text is the
 fallback. `session_id` from a `result` or `system`/`init` event reuses
 `fx_session_id` when that documented field is present. Project cwd
@@ -262,11 +265,12 @@ Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
 runtime-only multi-row registry. This cut populates Process
 ("Agent turn") from window-side `is_streaming`, plus Stop agent,
 and one last-turn settle (Completed / Stopped / Failed, cap 1).
-Live Subagent rows come from real Claude stream-json
-`parent_tool_use_id` / Agent `tool_use` while streaming (cleared
-when the turn settles; not sessions.json). Not a Waku
-BackgroundWorkRegistry, not daemon `refreshBackgroundWork`, not
-live Monitor population.
+Live Monitor rows come from real Claude stream-json `Monitor`
+`tool_use` while streaming (stable title `Monitor`). Live Subagent
+rows come from real Claude stream-json `parent_tool_use_id` /
+Agent `tool_use` while streaming. Both are cleared when the turn
+settles; not sessions.json. Not a Waku BackgroundWorkRegistry,
+not daemon `refreshBackgroundWork`, not a Monitor output log.
 
 ## Settings Providers
 
@@ -290,7 +294,7 @@ is Available, or one-shot `claude -p --output-format stream-json
 documented `--resume {fx_session_id}` when that field is non-empty;
 first Send and Fork omit it; documented image path in the `-p`
 prompt when a composer image is attached; stdout is NDJSON with live
-`text_delta`; live Subagent Background from `parent_tool_use_id`), or one-shot `codex exec {prompt}` when Codex
+`text_delta`; live Subagent Background from `parent_tool_use_id`; live Monitor Background from Claude `Monitor` `tool_use`), or one-shot `codex exec {prompt}` when Codex
 is Available (documented `--image {path}` after the prompt when a
 composer image is attached), or one-shot `amp -x` / `--execute` when Amp is
 Available (documented `@{path}` in the `-x` prompt when a composer
@@ -396,7 +400,8 @@ Honest gaps this cut does not implement:
   field is non-empty; first Send and Fork omit it; documented image
   path in the `-p` prompt when a composer image is attached, ships;
   stdout is parsed as NDJSON — live `text_delta`, not dumped as
-  prose; live Subagent Background from `parent_tool_use_id`). Codex exec
+  prose; live Subagent Background from `parent_tool_use_id`; live
+  Monitor Background from Claude `Monitor` `tool_use`). Codex exec
   one-shot (`codex exec {prompt}`, documented `--image {path}` after
   the prompt when a composer image is attached) ships; Amp execute-mode
   one-shot (`amp -x {prompt}`, documented `@{path}` in the `-x` prompt
@@ -417,11 +422,11 @@ Honest gaps this cut does not implement:
   dates, Native locale / NSLocale API (Appearance language selector
   ships: System / English / 简体中文 / 日本語; Settings chrome follows
   the resolved locale)
-- Live Monitor Background population, daemon
-  `refreshBackgroundWork`, right-panel BackgroundWork tab
-  (Environment Summary ships Process / Monitor / Subagent kind
-  chrome, a Process registry from stream/settle, and live Subagent
-  rows from Claude `parent_tool_use_id`; not
+- Monitor output log, daemon `refreshBackgroundWork`, right-panel
+  BackgroundWork tab (Environment Summary ships Process / Monitor /
+  Subagent kind chrome, a Process registry from stream/settle, live
+  Monitor rows from Claude `Monitor` `tool_use`, and live Subagent
+  rows from Claude `parent_tool_use_id` / Agent `tool_use`; not
   Waku BackgroundWorkRegistry parity)
 - Further `main.zig` extract (`initialModel` still lives there)
 - Long-lived ACP or daemon socket in the update loop
