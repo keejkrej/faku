@@ -9225,6 +9225,88 @@ test "Environment Summary Monitor row opens Background with the 512KB log" {
     try testing.expect(findByText(tree.root, .button, "Stop monitor") == null);
 }
 
+test "Environment Summary Subagent row opens Background; Stop leaves Process streaming" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer environment_summary.clearLiveMonitors(&model);
+    const sid = model.addSession("env subagent panel", .claude);
+    model.selected = sid;
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    if (model.sessionById(sid)) |session| session.busy = true;
+    model.fx_spawn_claude_json = true;
+    model.fx_spawn_key = main.fx_ask_key;
+
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_keep\",\"name\":\"Monitor\"}]}}",
+    } }, &fx);
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_keep\",\"content\":\"monitor stays\"}]}}",
+    } }, &fx);
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_agent_1\",\"name\":\"Agent\"}]}}",
+    } }, &fx);
+    main.update(&model, .toggle_environment_summary, &fx);
+    var tree = try buildTree(arena, &model);
+    const subagent_row = try expectByText(tree.root, .menu_item, "Subagent");
+    try testing.expectEqual(Msg{ .open_background_work = 2 }, tree.msgForPointer(subagent_row.id, .up).?);
+    _ = try expectByText(tree.root, .menu_item, "Stop subagent");
+
+    main.update(&model, tree.msgForPointer(subagent_row.id, .up).?, &fx);
+    try testing.expect(!model.environment_summary_open);
+    try testing.expect(model.right_panel_tab_background());
+    try testing.expectEqual(@as(u32, 2), model.right_panel_background_row_id);
+    try testing.expectEqualStrings("Subagent", model.background_work_kind_label());
+    try testing.expectEqualStrings("Running", model.background_work_status());
+    try testing.expect(!model.background_work_has_output());
+    try testing.expect(model.background_work_can_stop());
+    try testing.expectEqual(@as(u32, 2), model.background_work_row_id());
+    try testing.expectEqualStrings("Stop subagent", model.background_work_stop_label());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Subagent");
+    _ = try expectByText(tree.root, .text, "Running");
+    _ = try expectByText(tree.root, .text, "No output");
+    const stop_panel = try expectButtonMsg(tree, "Stop subagent", .{ .environment_stop_background = 2 });
+    try testing.expect(findByText(tree.root, .text, "No background work") == null);
+
+    main.update(&model, tree.msgForPointer(stop_panel.id, .up).?, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expect(model.sessionById(sid).?.busy);
+    try testing.expect(model.background_work_empty());
+    try testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+    try testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    try testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No background work");
+    try testing.expect(findByText(tree.root, .button, "Stop subagent") == null);
+
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"stream_event\",\"parent_tool_use_id\":\"toolu_agent_1\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"child\"}}}",
+    } }, &fx);
+    try testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    try testing.expectEqualStrings("", model.turnById(turn_id).?.text());
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_agent_2\",\"name\":\"Agent\"}]}}",
+    } }, &fx);
+    try testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    try testing.expectEqualStrings("toolu_agent_2", model.background_subagents[0].parentId());
+}
+
 test "Environment Summary Monitor detail stays one line; Background panel shows newlines and strips CSI" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -19780,6 +19862,75 @@ test "Environment Background Monitor Stop dismisses that row and leaves Process 
     _ = try expectByText(tree.root, .menu_item, "Stop agent");
     try testing.expect(findByText(tree.root, .menu_item, "Stop monitor") == null);
     try testing.expect(findByText(tree.root, .text, "Monitor") == null);
+}
+
+test "Environment Background Subagent Stop dismisses that row and leaves Process streaming" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer environment_summary.clearLiveMonitors(&model);
+    const sid = model.addSession("env subagent stop ui", .claude);
+    model.selected = sid;
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    if (model.sessionById(sid)) |session| session.busy = true;
+    model.fx_spawn_claude_json = true;
+    model.fx_spawn_key = main.fx_ask_key;
+
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_keep\",\"name\":\"Monitor\"}]}}",
+    } }, &fx);
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_agent_1\",\"name\":\"Agent\"}]}}",
+    } }, &fx);
+    main.update(&model, .toggle_environment_summary, &fx);
+    var tree = try buildTree(arena, &model);
+    const stop_subagent = try expectByText(tree.root, .menu_item, "Stop subagent");
+    try testing.expectEqual(Msg{ .environment_stop_background = 2 }, tree.msgForPointer(stop_subagent.id, .up).?);
+    _ = try expectByText(tree.root, .menu_item, "Stop agent");
+    _ = try expectByText(tree.root, .menu_item, "Stop monitor");
+    _ = try expectByText(tree.root, .text, "Subagent");
+    _ = try expectByText(tree.root, .text, "Monitor");
+
+    main.update(&model, tree.msgForPointer(stop_subagent.id, .up).?, &fx);
+    try testing.expect(!model.environment_summary_open);
+    try testing.expect(model.is_streaming());
+    try testing.expect(model.sessionById(sid).?.busy);
+    try testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    try testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    try testing.expect(model.has_background_section());
+    try testing.expect(!model.has_settled_background());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Stop subagent") == null);
+
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"stream_event\",\"parent_tool_use_id\":\"toolu_agent_1\",\"event\":{\"delta\":{\"type\":\"text_delta\",\"text\":\"child\"}}}",
+    } }, &fx);
+    try testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    try testing.expectEqualStrings("", model.turnById(turn_id).?.text());
+
+    main.update(&model, .toggle_environment_summary, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Process");
+    _ = try expectByText(tree.root, .menu_item, "Agent turn");
+    _ = try expectByText(tree.root, .menu_item, "Stop agent");
+    _ = try expectByText(tree.root, .menu_item, "Stop monitor");
+    _ = try expectByText(tree.root, .text, "Monitor");
+    try testing.expect(findByText(tree.root, .menu_item, "Stop subagent") == null);
+    try testing.expect(findByText(tree.root, .text, "Subagent") == null);
 }
 
 test "Environment Commit or Push opens the commit card on a clean tree; composer Commit… stays gated" {

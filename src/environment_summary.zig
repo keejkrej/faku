@@ -38,7 +38,14 @@
 //! the turn ends; Faku stops showing and accumulating that row.
 //! Live Subagent rows come from real
 //! Claude stream-json `parent_tool_use_id` / Agent `tool_use`
-//! signals (`can_stop` stays false this cut). Both are runtime-only while streaming (cleared
+//! signals. Live Subagent rows set `can_stop`; Stop is Faku-side
+//! dismiss of that slot (compact + remember the id so later
+//! `noteLiveSubagent` / `parent_tool_use_id` / Agent `tool_use`
+//! cannot resurrect it until `clearLiveSubagents`) on one-shot
+//! `claude -p`. It does not invoke Claude TaskStop / control_request
+//! mid-turn (Native `fx.spawn` is one-buffer-then-close-stdin; no
+//! official `claude acp`, no mid-turn stdin on print-mode `-p`).
+//! Both are runtime-only while streaming (cleared
 //! when the turn settles or the stream ends; not
 //! sessions.json). Visible fill is Process, then live
 //! Monitor, then live Subagent, stopping at the cap.
@@ -69,16 +76,18 @@
 //! Background row closes this dropdown and opens the right-panel
 //! Background surface for that row (kind, title, live-or-settled
 //! status, Monitor 512KB last-window log, Stop when the selected
-//! row is a live Process or live Monitor). Leftovers: prune-alone,
+//! row is a live Process, live Monitor, or live Subagent). Leftovers: prune-alone,
 //! Claude CLI TaskStop / long-lived ACP, daemon `refreshBackgroundWork` /
-//! WorkspaceOperation, full BackgroundWorkRegistry, Subagent stop,
+//! WorkspaceOperation, full BackgroundWorkRegistry,
 //! 100ms render cache. Kind chrome, Process registry, first-cut live Monitor
 //! rows from Claude `Monitor` tool_use plus a Waku-sized 512KB
 //! last-window log from matching user `tool_result` (Environment
 //! Summary stays a one-line preview; right-panel Background reads
 //! the stored log) and Faku-side Monitor Stop on one-shot `-p`,
 //! first-cut live Subagent rows from Claude
-//! `parent_tool_use_id`, and first-cut right-panel Background
+//! `parent_tool_use_id` and Faku-side Subagent Stop on one-shot `-p`
+//! (dismiss that live row; not Claude TaskStop mid-turn), and first-cut
+//! right-panel Background
 //! ship; not a Waku BackgroundWorkRegistry.
 //! Not transcript checkpoint +/-. Not force push (Waku
 //! `git_commit::push` has no `--force`).
@@ -184,6 +193,20 @@ pub const LiveSubagent = struct {
     }
 };
 
+/// Runtime-only dismissed Subagent id. `noteLiveSubagent` skips
+/// these until `clearLiveSubagents` (turn start / settle / stop).
+/// Cap matches live slots; when full, the oldest dismissed id is
+/// dropped so a later signal for that old id could register again.
+/// Not persisted.
+pub const DismissedSubagentId = struct {
+    storage: [max_subagent_id]u8 = [_]u8{0} ** max_subagent_id,
+    len: usize = 0,
+
+    pub fn id(self: *const DismissedSubagentId) []const u8 {
+        return self.storage[0..self.len];
+    }
+};
+
 /// Runtime-only live Monitor slot. Keyed by Claude `Monitor`
 /// `tool_use` id. Not persisted. First-cut title is the stable
 /// `Monitor` label (no undocumented input scrape). Output is a
@@ -240,6 +263,9 @@ pub const process_stop_label = "Stop agent";
 /// Monitor Stop. Faku-side dismiss of that live row; not Claude
 /// TaskStop on one-shot `claude -p`. Distinct from composer Stop.
 pub const monitor_stop_label = "Stop monitor";
+/// Subagent Stop. Faku-side dismiss of that live row; not Claude
+/// TaskStop on one-shot `claude -p`. Distinct from Process / Monitor.
+pub const subagent_stop_label = "Stop subagent";
 
 /// Visible Background registry row. Native `background_rows`
 /// iterates this. Not persisted to sessions.json / drafts.json.
@@ -250,9 +276,10 @@ pub const BackgroundRow = struct {
     title: []const u8,
     live: bool,
     can_stop: bool,
-    /// Process: `Stop agent`. Monitor: `Stop monitor`. Empty when
-    /// `can_stop` is false. Native binds this so one press handler
-    /// can label Process vs Monitor without new widgets.
+    /// Process: `Stop agent`. Monitor: `Stop monitor`. Subagent:
+    /// `Stop subagent`. Empty when `can_stop` is false. Native binds
+    /// this so one press handler can label Process vs Monitor vs
+    /// Subagent without new widgets.
     stop_label: []const u8,
     has_status: bool,
     settled_status: []const u8,
@@ -293,10 +320,17 @@ pub fn clearSettledIfSession(model: *Model, session_id: u32) void {
     if (model.background_settled_session == session_id) clearSettled(model);
 }
 
-/// Drop live Subagent rows. Called when a turn starts, settles,
-/// or is stopped. Runtime-only; nothing to persist.
+/// Drop live Subagent rows and the dismissed-id list. Called when
+/// a turn starts, settles, or is stopped. Runtime-only; nothing
+/// to persist. Clearing dismissed ids lets a later turn re-register
+/// the same Agent / `parent_tool_use_id`.
 pub fn clearLiveSubagents(model: *Model) void {
     model.background_subagent_count = 0;
+    var i: u32 = 0;
+    while (i < max_live_subagents) : (i += 1) {
+        model.background_dismissed_subagents[i] = .{};
+    }
+    model.background_dismissed_subagent_count = 0;
 }
 
 /// Drop live Monitor rows and free their heap last-windows. Same
@@ -318,11 +352,14 @@ pub fn clearLiveBackgroundSignals(model: *Model) void {
 }
 
 /// Register a live Subagent keyed by non-empty
-/// `parent_tool_use_id` / Agent `tool_use` id. Duplicate ids are
-/// a no-op. Cap `max_live_subagents` (Process keeps a slot).
-/// Title is the stable `Subagent` label this cut.
+/// `parent_tool_use_id` / Agent `tool_use` id. Duplicate live ids
+/// are a no-op. Dismissed ids stay ignored until
+/// `clearLiveSubagents` so a later child `stream_event` cannot
+/// resurrect a Stopped row. Cap `max_live_subagents` (Process
+/// keeps a slot). Title is the stable `Subagent` label this cut.
 pub fn noteLiveSubagent(model: *Model, parent_id: []const u8) void {
     if (parent_id.len == 0) return;
+    if (isDismissedSubagent(model, parent_id)) return;
     var i: u32 = 0;
     while (i < model.background_subagent_count) : (i += 1) {
         if (std.mem.eql(u8, model.background_subagents[i].parentId(), parent_id)) return;
@@ -622,8 +659,8 @@ pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]Backgr
             .kind_label = backgroundKindLabel(.subagent),
             .title = slot.title(),
             .live = true,
-            .can_stop = false,
-            .stop_label = "",
+            .can_stop = true,
+            .stop_label = subagent_stop_label,
             .has_status = false,
             .settled_status = "",
             .has_detail = false,
@@ -724,10 +761,12 @@ pub fn compare(model: *Model, fx: *Effects) void {
 /// as composer Stop (`stopStream`) and records Stopped. Live Monitor
 /// ids dismiss that Faku-side slot only (compact + free heap log;
 /// later `tool_result` for that `tool_use` id is ignored because the
-/// slot is gone). Does not `stopStream` for a Monitor. Unknown /
-/// Process-idle / Subagent ids are no-ops (Subagent `can_stop` stays
-/// false). Not Claude TaskStop: one-shot `claude -p` has no mid-turn
-/// stdin / long-lived session.
+/// slot is gone). Live Subagent ids dismiss that Faku-side slot only
+/// (compact + remember the id so later `noteLiveSubagent` is ignored
+/// until `clearLiveSubagents`). Does not `stopStream` for a Monitor
+/// or Subagent. Unknown / Process-idle ids are no-ops. Not Claude
+/// TaskStop: one-shot `claude -p` has no mid-turn stdin / long-lived
+/// session.
 pub fn stopBackground(model: *Model, fx: *Effects, row_id: u32) void {
     if (row_id == process_row_id) {
         if (!model.is_streaming()) return;
@@ -735,9 +774,14 @@ pub fn stopBackground(model: *Model, fx: *Effects, row_id: u32) void {
         turn_stream.stopStream(model, fx);
         return;
     }
-    const index = liveMonitorIndex(model, row_id) orelse return;
+    if (liveMonitorIndex(model, row_id)) |index| {
+        close(model);
+        dismissLiveMonitor(model, index);
+        return;
+    }
+    const sub_index = liveSubagentIndex(model, row_id) orelse return;
     close(model);
-    dismissLiveMonitor(model, index);
+    dismissLiveSubagent(model, sub_index);
 }
 
 /// Visible live Monitor index for `row_id`, or null when idle /
@@ -776,6 +820,75 @@ fn remapBackgroundSelectionAfterMonitorRemove(model: *Model, removed_id: u32, ol
     }
     if (old_count == 0) return;
     const last_id = monitor_row_id_first + old_count - 1;
+    if (selected > removed_id and selected <= last_id) {
+        model.right_panel_background_row_id -= 1;
+    }
+}
+
+/// Visible live Subagent index for `row_id`, or null when idle /
+/// unknown / not a Subagent key. Monitor ids start at
+/// `monitor_row_id_first` and must not match here.
+fn liveSubagentIndex(model: *const Model, row_id: u32) ?u32 {
+    const n = liveSubagentCount(model);
+    if (n == 0 or row_id < subagent_row_id_first or row_id >= monitor_row_id_first) return null;
+    const idx = row_id - subagent_row_id_first;
+    if (idx >= n) return null;
+    return idx;
+}
+
+fn isDismissedSubagent(model: *const Model, parent_id: []const u8) bool {
+    var i: u32 = 0;
+    while (i < model.background_dismissed_subagent_count) : (i += 1) {
+        if (std.mem.eql(u8, model.background_dismissed_subagents[i].id(), parent_id)) return true;
+    }
+    return false;
+}
+
+/// Remember a dismissed Subagent id so later `noteLiveSubagent`
+/// cannot resurrect it this turn. Cap `max_live_subagents`; when
+/// full, drop the oldest dismissed id.
+fn rememberDismissedSubagent(model: *Model, parent_id: []const u8) void {
+    if (parent_id.len == 0) return;
+    if (isDismissedSubagent(model, parent_id)) return;
+    if (model.background_dismissed_subagent_count >= max_live_subagents) {
+        var i: u32 = 0;
+        while (i + 1 < model.background_dismissed_subagent_count) : (i += 1) {
+            model.background_dismissed_subagents[i] = model.background_dismissed_subagents[i + 1];
+        }
+        model.background_dismissed_subagent_count -= 1;
+        model.background_dismissed_subagents[model.background_dismissed_subagent_count] = .{};
+    }
+    const slot = &model.background_dismissed_subagents[model.background_dismissed_subagent_count];
+    main.writeFixed(&slot.storage, &slot.len, parent_id);
+    model.background_dismissed_subagent_count += 1;
+}
+
+/// Faku-side Subagent dismiss: remember the id, compact remaining
+/// slots, and clear or remap right-panel selection so a selected
+/// stopped row becomes empty ("No background work"). Does not
+/// cancel the Process / stream and does not touch Monitor rows.
+fn dismissLiveSubagent(model: *Model, index: u32) void {
+    if (index >= model.background_subagent_count) return;
+    const old_count = model.background_subagent_count;
+    const removed_id = subagent_row_id_first + index;
+    remapBackgroundSelectionAfterSubagentRemove(model, removed_id, old_count);
+    rememberDismissedSubagent(model, model.background_subagents[index].parentId());
+    var j = index;
+    while (j + 1 < model.background_subagent_count) : (j += 1) {
+        model.background_subagents[j] = model.background_subagents[j + 1];
+    }
+    model.background_subagent_count -= 1;
+    model.background_subagents[model.background_subagent_count] = .{};
+}
+
+fn remapBackgroundSelectionAfterSubagentRemove(model: *Model, removed_id: u32, old_count: u32) void {
+    const selected = model.right_panel_background_row_id;
+    if (selected == removed_id) {
+        model.right_panel_background_row_id = 0;
+        return;
+    }
+    if (old_count == 0) return;
+    const last_id = subagent_row_id_first + old_count - 1;
     if (selected > removed_id and selected <= last_id) {
         model.right_panel_background_row_id -= 1;
     }
@@ -1529,8 +1642,8 @@ test "fillBackgroundRows emits Subagent while live parent_tool_use_id signals ex
     try std.testing.expectEqualStrings(kind_subagent_label, rows[1].kind_label);
     try std.testing.expectEqualStrings(kind_subagent_label, rows[1].title);
     try std.testing.expect(rows[1].live);
-    try std.testing.expect(!rows[1].can_stop);
-    try std.testing.expectEqualStrings("", rows[1].stop_label);
+    try std.testing.expect(rows[1].can_stop);
+    try std.testing.expectEqualStrings(subagent_stop_label, rows[1].stop_label);
     try std.testing.expect(!rows[1].has_status);
     try std.testing.expect(!rows[1].has_detail);
     try std.testing.expectEqualStrings("", rows[1].detail);
@@ -1650,6 +1763,8 @@ test "fillBackgroundRows emits Process then Monitor then Subagent under the cap"
     try std.testing.expect(!rows[1].has_detail);
     try std.testing.expectEqual(BackgroundKind.subagent, rows[2].kind);
     try std.testing.expectEqual(subagent_row_id_first, rows[2].id);
+    try std.testing.expect(rows[2].can_stop);
+    try std.testing.expectEqualStrings(subagent_stop_label, rows[2].stop_label);
     try std.testing.expect(rows[1].id != rows[2].id);
     try std.testing.expect(rows[1].id != process_row_id);
 
@@ -1959,6 +2074,8 @@ test "openBackgroundWork Subagent row is Running with empty output" {
     try std.testing.expectEqual(right_panel.Tab.background, model.right_panel_tab);
     const row = selectedBackgroundRow(&model).?;
     try std.testing.expectEqual(BackgroundKind.subagent, row.kind);
+    try std.testing.expect(row.can_stop);
+    try std.testing.expectEqualStrings(subagent_stop_label, row.stop_label);
     try std.testing.expectEqualStrings(live_running_label, backgroundWorkStatus(row));
     try std.testing.expectEqualStrings("", backgroundWorkOutput(&model));
 }
@@ -2011,7 +2128,8 @@ test "live Monitor can_stop; stop by monitor id removes only that monitor" {
     try std.testing.expectEqual(monitor_row_id_first, rows[1].id);
     try std.testing.expect(rows[2].can_stop);
     try std.testing.expectEqual(monitor_row_id_first + 1, rows[2].id);
-    try std.testing.expect(!rows[3].can_stop);
+    try std.testing.expect(rows[3].can_stop);
+    try std.testing.expectEqualStrings(subagent_stop_label, rows[3].stop_label);
     try std.testing.expectEqual(BackgroundKind.subagent, rows[3].kind);
 
     stopBackground(&model, &fx, 99);
@@ -2019,7 +2137,7 @@ test "live Monitor can_stop; stop by monitor id removes only that monitor" {
     try std.testing.expect(model.is_streaming());
     try std.testing.expectEqual(@as(u32, 2), model.background_monitor_count);
 
-    stopBackground(&model, &fx, subagent_row_id_first);
+    stopBackground(&model, &fx, 50);
     try std.testing.expect(model.environment_summary_open);
     try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
     try std.testing.expectEqual(@as(u32, 2), model.background_monitor_count);
@@ -2142,5 +2260,205 @@ test "environment_stop_background monitor id leaves Process streaming" {
     try std.testing.expectEqual(@as(u32, 0), model.background_monitor_count);
     try std.testing.expect(model.sessionById(id).?.busy);
     try expectLiveProcessRow(&model);
+}
+
+test "live Subagent can_stop; stop by subagent id removes only that subagent" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer clearLiveMonitors(&model);
+    const id = model.addSession("env stop subagent", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    if (model.sessionById(id)) |session| session.busy = true;
+    noteLiveMonitor(&model, "toolu_mon_keep");
+    appendLiveMonitorOutput(&model, "toolu_mon_keep", "monitor stays");
+    noteLiveSubagent(&model, "toolu_agent_stop_1");
+    noteLiveSubagent(&model, "toolu_agent_stop_2");
+    model.environment_summary_open = true;
+
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    var rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 4), rows.len);
+    try std.testing.expect(rows[0].can_stop);
+    try std.testing.expectEqualStrings(process_stop_label, rows[0].stop_label);
+    try std.testing.expectEqual(BackgroundKind.monitor, rows[1].kind);
+    try std.testing.expect(rows[1].can_stop);
+    try std.testing.expectEqualStrings(monitor_stop_label, rows[1].stop_label);
+    try std.testing.expect(rows[2].can_stop);
+    try std.testing.expectEqualStrings(subagent_stop_label, rows[2].stop_label);
+    try std.testing.expectEqual(subagent_row_id_first, rows[2].id);
+    try std.testing.expect(rows[3].can_stop);
+    try std.testing.expectEqual(subagent_row_id_first + 1, rows[3].id);
+
+    stopBackground(&model, &fx, 99);
+    try std.testing.expect(model.environment_summary_open);
+    try std.testing.expect(model.is_streaming());
+    try std.testing.expectEqual(@as(u32, 2), model.background_subagent_count);
+    try std.testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+
+    stopBackground(&model, &fx, subagent_row_id_first);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expect(model.is_streaming());
+    try std.testing.expectEqual(id, model.streaming_session);
+    try std.testing.expect(model.sessionById(id).?.busy);
+    try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    try std.testing.expectEqualStrings("toolu_agent_stop_2", model.background_subagents[0].parentId());
+    try std.testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    try std.testing.expectEqualStrings("toolu_mon_keep", model.background_monitors[0].toolUseId());
+    try std.testing.expectEqualStrings("monitor stays", model.background_monitors[0].output());
+    try std.testing.expectEqual(@as(u32, 1), model.background_dismissed_subagent_count);
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 3), rows.len);
+    try std.testing.expectEqual(BackgroundKind.process, rows[0].kind);
+    try std.testing.expect(rows[0].live);
+    try std.testing.expect(rows[0].can_stop);
+    try std.testing.expectEqual(BackgroundKind.monitor, rows[1].kind);
+    try std.testing.expectEqualStrings("monitor stays", rows[1].detail);
+    try std.testing.expectEqual(BackgroundKind.subagent, rows[2].kind);
+    try std.testing.expectEqual(subagent_row_id_first, rows[2].id);
+    try std.testing.expectEqualStrings(subagent_stop_label, rows[2].stop_label);
+
+    noteLiveSubagent(&model, "toolu_agent_stop_1");
+    try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    try std.testing.expectEqualStrings("toolu_agent_stop_2", model.background_subagents[0].parentId());
+    noteLiveSubagent(&model, "toolu_agent_stop_3");
+    try std.testing.expectEqual(@as(u32, 2), model.background_subagent_count);
+    try std.testing.expectEqualStrings("toolu_agent_stop_3", model.background_subagents[1].parentId());
+}
+
+test "stopBackground Process still stopStream while a Subagent is live" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env stop process with subagent", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    if (model.sessionById(id)) |session| session.busy = true;
+    noteLiveSubagent(&model, "toolu_agent_with_process");
+    model.environment_summary_open = true;
+
+    stopBackground(&model, &fx, process_row_id);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expect(!model.is_streaming());
+    try std.testing.expectEqual(main.Phase.idle, model.phase);
+    try std.testing.expectEqual(@as(u32, 0), model.streaming_session);
+    try std.testing.expect(!model.sessionById(id).?.busy);
+    try std.testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    try std.testing.expectEqual(@as(u32, 0), model.background_dismissed_subagent_count);
+    try std.testing.expect(hasSettledBackground(&model));
+    try expectSettledProcessRow(&model, settled_stopped_label);
+}
+
+test "right-panel selection clears when the stopped Subagent was selected" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer clearLiveMonitors(&model);
+    const id = model.addSession("env stop subagent selection", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    noteLiveMonitor(&model, "toolu_mon_untouched");
+    appendLiveMonitorOutput(&model, "toolu_mon_untouched", "keep monitor");
+    noteLiveSubagent(&model, "toolu_agent_sel_1");
+    noteLiveSubagent(&model, "toolu_agent_sel_2");
+    model.right_panel_open = true;
+    model.right_panel_tab = right_panel.Tab.background;
+    model.right_panel_background_row_id = subagent_row_id_first;
+    try std.testing.expectEqual(subagent_row_id_first, selectedBackgroundRow(&model).?.id);
+    try std.testing.expectEqualStrings("", backgroundWorkOutput(&model));
+
+    stopBackground(&model, &fx, subagent_row_id_first);
+    try std.testing.expect(model.is_streaming());
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+    try std.testing.expect(selectedBackgroundRow(&model) == null);
+    try std.testing.expectEqualStrings("", backgroundWorkOutput(&model));
+    try std.testing.expectEqual(right_panel.Tab.background, model.right_panel_tab);
+    try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    try std.testing.expectEqualStrings("toolu_agent_sel_2", model.background_subagents[0].parentId());
+    try std.testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    try std.testing.expectEqualStrings("keep monitor", model.background_monitors[0].output());
+
+    noteLiveSubagent(&model, "toolu_agent_sel_3");
+    model.right_panel_background_row_id = subagent_row_id_first + 1;
+    try std.testing.expectEqual(subagent_row_id_first + 1, selectedBackgroundRow(&model).?.id);
+    stopBackground(&model, &fx, subagent_row_id_first);
+    try std.testing.expectEqual(subagent_row_id_first, model.right_panel_background_row_id);
+    try std.testing.expectEqual(subagent_row_id_first, selectedBackgroundRow(&model).?.id);
+    try std.testing.expectEqualStrings("toolu_agent_sel_3", model.background_subagents[0].parentId());
+
+    model.right_panel_background_row_id = process_row_id;
+    stopBackground(&model, &fx, subagent_row_id_first);
+    try std.testing.expectEqual(process_row_id, model.right_panel_background_row_id);
+    try std.testing.expectEqual(process_row_id, selectedBackgroundRow(&model).?.id);
+    try std.testing.expect(model.is_streaming());
+    try std.testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+
+    model.right_panel_background_row_id = monitor_row_id_first;
+    noteLiveSubagent(&model, "toolu_agent_sel_4");
+    stopBackground(&model, &fx, subagent_row_id_first);
+    try std.testing.expectEqual(monitor_row_id_first, model.right_panel_background_row_id);
+    try std.testing.expectEqual(monitor_row_id_first, selectedBackgroundRow(&model).?.id);
+    try std.testing.expectEqualStrings("keep monitor", backgroundWorkOutput(&model));
+}
+
+test "environment_stop_background subagent id leaves Process streaming" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env stop subagent msg", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    if (model.sessionById(id)) |session| session.busy = true;
+    noteLiveSubagent(&model, "toolu_agent_msg");
+    model.environment_summary_open = true;
+
+    main.update(&model, .{ .environment_stop_background = subagent_row_id_first }, &fx);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expect(model.is_streaming());
+    try std.testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    try std.testing.expect(model.sessionById(id).?.busy);
+    try expectLiveProcessRow(&model);
+}
+
+test "dismissed Subagent id stays ignored until clearLiveSubagents" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("env dismissed subagent", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    noteLiveSubagent(&model, "toolu_agent_dismiss");
+    stopBackground(&model, &fx, subagent_row_id_first);
+    try std.testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    try std.testing.expectEqual(@as(u32, 1), model.background_dismissed_subagent_count);
+
+    noteLiveSubagent(&model, "toolu_agent_dismiss");
+    try std.testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    noteLiveSubagent(&model, "toolu_agent_fresh");
+    try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    try std.testing.expectEqualStrings("toolu_agent_fresh", model.background_subagents[0].parentId());
+
+    clearLiveSubagents(&model);
+    try std.testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    try std.testing.expectEqual(@as(u32, 0), model.background_dismissed_subagent_count);
+    noteLiveSubagent(&model, "toolu_agent_dismiss");
+    try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    try std.testing.expectEqualStrings("toolu_agent_dismiss", model.background_subagents[0].parentId());
 }
 

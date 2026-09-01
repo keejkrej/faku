@@ -10,7 +10,8 @@
 //! cleared and before persist / queued restart. That same success
 //! records Environment Summary last-turn Completed unless a queued
 //! follow-up immediately restarts (stay on the Process row). Live
-//! Subagent rows are cleared on finish / stop / a new Send.
+//! Subagent rows are cleared on finish / stop / a new Send
+//! (dismissed ids go with them so a later turn can re-register).
 //! Live Monitor rows share that lifetime (the 512KB last-window
 //! log dies with the row).
 //! `stopStream` records Stopped. `drain == false` records Failed.

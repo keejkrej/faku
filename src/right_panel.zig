@@ -12,14 +12,14 @@
 //! title, live-or-settled status, Monitor 512KB last-window log
 //! with newlines kept and CSI/ANSI stripped for display;
 //! Environment Summary stays a one-line preview; Stop when the
-//! selected row is a live Process or live Monitor). Tab
+//! selected row is a live Process, live Monitor, or live Subagent). Tab
 //! click with no selected row, or a selected row that is gone, shows
 //! "No background work". Not Browser, Terminal (Native has no PTY),
-//! compact File editor, Claude CLI TaskStop (Faku-side Monitor
-//! Stop on one-shot `claude -p` ships; it dismisses that live row
-//! and does not invoke TaskStop mid-turn), daemon
-//! `refreshBackgroundWork`, a 100ms GPUI render cache, Subagent
-//! stop, or a full BackgroundWorkRegistry. Not daemon
+//! compact File editor, Claude CLI TaskStop (Faku-side Monitor and
+//! Subagent Stop on one-shot `claude -p` ships; it dismisses that live
+//! row and does not invoke TaskStop mid-turn), daemon
+//! `refreshBackgroundWork`, a 100ms GPUI render cache,
+//! or a full BackgroundWorkRegistry. Not daemon
 //! `WorkspaceOperation::listTree` / browseDirectory / readTextFile.
 //! Not Waku's 50k-file index (cap 256). Windows stays empty this cut
 //! (`file_mention` already skips Windows).
