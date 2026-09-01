@@ -19247,6 +19247,45 @@ test "sessionDateBucket This year is same UTC year, older than this month" {
     try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(year_now_ms - (400 * day_ms), year_now_ms));
 }
 
+test "chrome unassign Today label follows Appearance language" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    try testing.expectEqualStrings("Today", model.unassign_today_label());
+    try testing.expectEqualStrings(model.sidebarDates().today, model.unassign_today_label());
+    var tree = try buildTree(arena, &model);
+    const en_row = try expectByText(tree.root, .list_item, "Today");
+    try testing.expectEqual(Msg.unassign_selected, tree.msgForPointer(en_row.id, .up).?);
+
+    model.language_preference = .simplified_chinese;
+    try testing.expectEqualStrings("今日", model.unassign_today_label());
+    try testing.expectEqualStrings(model.sidebarDates().today, model.unassign_today_label());
+    tree = try buildTree(arena, &model);
+    const zh_row = try expectByText(tree.root, .list_item, "今日");
+    try testing.expectEqual(Msg.unassign_selected, tree.msgForPointer(zh_row.id, .up).?);
+    try testing.expect(findByText(tree.root, .list_item, "Today") == null);
+
+    model.language_preference = .japanese;
+    try testing.expectEqualStrings("今日", model.unassign_today_label());
+    try testing.expectEqualStrings(model.sidebarDates().today, model.unassign_today_label());
+    tree = try buildTree(arena, &model);
+    const ja_row = try expectByText(tree.root, .list_item, "今日");
+    try testing.expectEqual(Msg.unassign_selected, tree.msgForPointer(ja_row.id, .up).?);
+    try testing.expect(findByText(tree.root, .list_item, "Today") == null);
+
+    model.language_preference = .english;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("Today", model.unassign_today_label());
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("zh_CN.UTF-8");
+    try testing.expectEqualStrings("今日", model.unassign_today_label());
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("今日", model.unassign_today_label());
+}
+
 test "DateBucket.title english default; zh and ja follow datesFor" {
     try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
     try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());
@@ -19330,8 +19369,13 @@ test "sidebar date-bucket titles follow Appearance language preference" {
         "older thread",
     });
     const zh_tree = try buildTree(arena, &model);
-    // Date-bucket headers are `{s.title}` text rows. The chrome unassign
-    // list-item stays the English "Today" drop target this cut.
+    // Date-bucket headers are `{s.title}` text rows. Chrome unassign is
+    // the `{unassign_today_label}` list-item (same Dates.today string).
+    try testing.expectEqualStrings("今日", model.unassign_today_label());
+    const zh_unassign = try expectByText(zh_tree.root, .list_item, "今日");
+    try testing.expectEqual(Msg.unassign_selected, zh_tree.msgForPointer(zh_unassign.id, .up).?);
+    try testing.expect(findByText(zh_tree.root, .list_item, "Today") == null);
+    try testing.expectEqual(@as(usize, 2), countByText(zh_tree.root, .text, "今日"));
     _ = try expectByText(zh_tree.root, .text, "今日");
     _ = try expectByText(zh_tree.root, .text, "昨天");
     _ = try expectByText(zh_tree.root, .text, "本周");
@@ -19358,6 +19402,11 @@ test "sidebar date-bucket titles follow Appearance language preference" {
         "older thread",
     });
     const ja_tree = try buildTree(arena, &model);
+    try testing.expectEqualStrings("今日", model.unassign_today_label());
+    const ja_unassign = try expectByText(ja_tree.root, .list_item, "今日");
+    try testing.expectEqual(Msg.unassign_selected, ja_tree.msgForPointer(ja_unassign.id, .up).?);
+    try testing.expect(findByText(ja_tree.root, .list_item, "Today") == null);
+    try testing.expectEqual(@as(usize, 2), countByText(ja_tree.root, .text, "今日"));
     _ = try expectByText(ja_tree.root, .text, "今日");
     _ = try expectByText(ja_tree.root, .text, "昨日");
     _ = try expectByText(ja_tree.root, .text, "今週");

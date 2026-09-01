@@ -26,9 +26,10 @@
           <spacer height="10" />
           <row height="28" cross="center">
             <spacer width="8" />
-            <list-item height="28" on-press="unassign_selected" label="Today">
-              <!-- Unassign target (`folder_id` 0). Also the Today date bucket. -->
-              <text foreground="text_muted">Today</text>
+            <list-item height="28" on-press="unassign_selected" label="{unassign_today_label}">
+              <!-- Unassign target (`folder_id` 0). Label follows Appearance
+                   Dates.today; still distinct from dynamic date-bucket headers. -->
+              <text foreground="text_muted">{unassign_today_label}</text>
             </list-item>
             <spacer grow="1" />
             <if test="{can_collapse_folders}">
