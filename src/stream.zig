@@ -11,7 +11,7 @@
 //! records Environment Summary last-turn Completed unless a queued
 //! follow-up immediately restarts (stay on the Process row). Live
 //! Monitor / Subagent rows convert to settled (status from that
-//! Process settle; Monitor 512KB last-window kept; Stop hidden)
+//! Process settle; Monitor / Subagent 512KB last-window kept; Stop hidden)
 //! on finish / stop instead of being wiped. `startPrompt` /
 //! a queued restart does not free those settled rows.
 //! `stopStream` records Stopped. `drain == false` records Failed.

@@ -2144,6 +2144,7 @@ test "Background tab, selected row, and output are not written to sessions.json"
 
     var source = Model{};
     defer environment_summary.clearLiveMonitors(&source);
+    defer environment_summary.clearLiveSubagents(&source);
     source.task_state_loaded = true;
     source.setStoreDir(dir);
     source.store_io = io;
@@ -2159,6 +2160,8 @@ test "Background tab, selected row, and output are not written to sessions.json"
     fx.executor = .fake;
     environment_summary.noteLiveMonitor(&source, "toolu_mon_persist");
     environment_summary.appendLiveMonitorOutput(&source, "toolu_mon_persist", "secret monitor log\nsecond line");
+    environment_summary.noteLiveSubagent(&source, "toolu_agent_persist");
+    environment_summary.appendLiveSubagentOutput(&source, "toolu_agent_persist", "secret subagent log");
     source.environment_summary_open = true;
     environment_summary.openBackgroundWork(&source, &fx, environment_summary.monitor_row_id_first);
     try saveSession(&source, id, allocator, io);
@@ -2182,6 +2185,7 @@ test "Background tab, selected row, and output are not written to sessions.json"
     try testing.expect(std.mem.indexOf(u8, bytes, "Monitoring") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "secret monitor log") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "second line") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "secret subagent log") == null);
 
     var loaded = Model{};
     loaded.setStoreDir(dir);

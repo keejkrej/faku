@@ -646,11 +646,14 @@ pub const Model = struct {
     background_settled: environment_summary.SettledStatus = .none,
     background_settled_session: u32 = 0,
     /// Subagent Background slots from Claude stream-json
-    /// `parent_tool_use_id` / Agent `tool_use`. Live while
-    /// `settled == .none`; first-cut persist-after-settle keeps
-    /// them after the turn (status from Process settle). Runtime-only;
-    /// not sessions.json / drafts.json. Not wiped on
-    /// `startPrompt`. Remove session drops that session's slots.
+    /// `parent_tool_use_id` / Agent `tool_use`. Matching forwarded
+    /// `parent_tool_use_id` text fills a bounded 512KB last-window
+    /// on the row (newlines kept; CSI stripped for display).
+    /// Environment Summary `detail` stays a one-line preview. Live
+    /// while `settled == .none`; first-cut persist-after-settle keeps
+    /// the row and heap log after the turn. Runtime-only; not
+    /// sessions.json / drafts.json. Not wiped on `startPrompt`.
+    /// Remove session frees that session's heap logs.
     background_subagents: [environment_summary.max_live_subagents]environment_summary.LiveSubagent = [_]environment_summary.LiveSubagent{.{}} ** environment_summary.max_live_subagents,
     background_subagent_count: u32 = 0,
     /// Dismissed Subagent ids for this turn. `noteLiveSubagent`
@@ -3181,8 +3184,9 @@ pub const Model = struct {
     /// Visible Background registry rows (Process from stream/settle,
     /// Monitor from Claude `Monitor` tool_use plus a bounded last-window
     /// from matching user `tool_result` — live then settled — Subagent
-    /// from Claude `parent_tool_use_id` / Agent `tool_use`, live then
-    /// settled). Native `for each="background_rows"`.
+    /// from Claude `parent_tool_use_id` / Agent `tool_use` plus a
+    /// bounded last-window from forwarded `parent_tool_use_id` text,
+    /// live then settled). Native `for each="background_rows"`.
     pub fn background_rows(model: *const Model, arena: std.mem.Allocator) []const environment_summary.BackgroundRow {
         return environment_summary.backgroundRows(model, arena);
     }

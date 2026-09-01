@@ -17,7 +17,9 @@
 //! with the documented image path inside that `-p` prompt when a
 //! composer image is attached (code.claude.com/docs/en/common-workflows;
 //! stdout is NDJSON: live `text_delta` into the transcript, not a
-//! prose dump; non-empty `parent_tool_use_id` is subagent traffic;
+//! prose dump; non-empty `parent_tool_use_id` is subagent traffic
+//! (forwarded text fills a bounded 512KB last-window on that
+//! Subagent Background row; still off the main turn);
 //! `tool_use` with `name` `Monitor` fills live Monitor Background;
 //! matching user `tool_result` fills a bounded 512KB last-window
 //! log on that row (newlines kept; CSI stripped for display;

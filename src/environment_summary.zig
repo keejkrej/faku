@@ -46,10 +46,18 @@
 //! `claude -p`. It does not invoke Claude TaskStop / control_request
 //! mid-turn (Native `fx.spawn` is one-buffer-then-close-stdin; no
 //! official `claude acp`, no mid-turn stdin on print-mode `-p`).
-//! When the turn settles (`finishStream` completed / failed,
-//! `stopStream` stopped), currently-live Monitor and Subagent
-//! rows stay in this runtime registry as settled (status from
-//! that Process settle; `can_stop` false; Monitor last-window
+//! Non-empty `parent_tool_use_id` plus text (`text_delta` /
+//! assistant text content) fills a bounded runtime-only 512KB
+//! last-window on that Subagent row — same size/policy as Monitor
+//! (heap per row; drain-from-front on a UTF-8 boundary; newlines
+//! kept; CSI stored raw and stripped for display). That text
+//! still does not `appendToTurn` on the main stream. Environment
+//! Summary `detail` stays a short one-line preview; the
+//! right-panel Background body shows the stored log. When the
+//! turn settles (`finishStream` completed / failed, `stopStream`
+//! stopped), currently-live Monitor and Subagent rows stay in
+//! this runtime registry as settled (status from that Process
+//! settle; `can_stop` false; Monitor / Subagent last-window
 //! kept). Honest about one-shot `claude -p`: after the run's
 //! final result, Monitor / Subagent work is dead — settled
 //! rows, not live / Running / Monitoring. `startPrompt` / a
@@ -63,7 +71,7 @@
 //! another session's rows without clearing them; a new Process
 //! settle overwrites the cap-1 Process slot; remove session
 //! drops that session's Process settle and its Monitor /
-//! Subagent slots (heap Monitor logs freed). Not persisted to
+//! Subagent slots (heap logs freed). Not persisted to
 //! sessions.json / drafts.json. Header info trigger uses button
 //! `selected` while the dropdown is open or this section would show.
 //! Header +N −M reuses the composer project-row numstat probe
@@ -86,7 +94,7 @@
 //! fallback; not `refs/waku/`; not HEAD~1. Clicking a visible
 //! Background row closes this dropdown and opens the right-panel
 //! Background surface for that row (kind, title, live-or-settled
-//! status, Monitor 512KB last-window log, Stop when the selected
+//! status, Monitor / Subagent 512KB last-window log, Stop when the selected
 //! row is a live Process, live Monitor, or live Subagent). Leftovers: prune-alone,
 //! Claude CLI TaskStop / long-lived ACP, daemon `refreshBackgroundWork` /
 //! WorkspaceOperation, full BackgroundWorkRegistry event/reconcile
@@ -96,13 +104,15 @@
 //! `tool_result` (Environment Summary stays a one-line preview;
 //! right-panel Background reads the stored log) and Faku-side
 //! Monitor Stop on one-shot `-p`, first-cut live Subagent rows
-//! from Claude `parent_tool_use_id` and Faku-side Subagent Stop
-//! on one-shot `-p` (dismiss that live row; not Claude TaskStop
-//! mid-turn), first-cut settled Monitor / Subagent persist after
-//! the turn (status from Process settle; Monitor last-window
-//! kept; Stop hidden), and first-cut right-panel Background
-//! ship; not Waku BackgroundWorkRegistry event/reconcile/driver
-//! parity.
+//! from Claude `parent_tool_use_id` plus a matching 512KB
+//! last-window from forwarded `parent_tool_use_id` text
+//! (`text_delta` / assistant text; still off the main turn) and
+//! Faku-side Subagent Stop on one-shot `-p` (dismiss that live
+//! row; not Claude TaskStop mid-turn), first-cut settled Monitor /
+//! Subagent persist after the turn (status from Process settle;
+//! Monitor / Subagent last-window kept; Stop hidden), and
+//! first-cut right-panel Background ship; not Waku
+//! BackgroundWorkRegistry event/reconcile/driver parity.
 //! Not transcript checkpoint +/-. Not force push (Waku
 //! `git_commit::push` has no `--force`).
 
@@ -133,7 +143,9 @@ pub const SettledStatus = enum { none, completed, stopped, failed };
 /// 512KB last-window log from matching user `tool_result`;
 /// Summary `detail` is a one-line preview), and live then
 /// settled Subagent from Claude `parent_tool_use_id` / Agent
-/// `tool_use`.
+/// `tool_use` (bounded 512KB last-window from forwarded
+/// `parent_tool_use_id` text; Summary `detail` is a one-line
+/// preview).
 pub const BackgroundKind = enum {
     process,
     monitor,
@@ -176,27 +188,53 @@ pub const max_monitor_id: usize = max_subagent_id;
 pub const max_subagent_title: usize = 32;
 pub const max_monitor_title: usize = max_subagent_title;
 
-/// Waku-sized Monitor last-window (`MAX_BACKGROUND_OUTPUT_BYTES`).
-/// Drain-from-front on a UTF-8 char boundary. Heap-allocated per
-/// live or settled row so `Model` / `initialModel()` stay
-/// return-by-value safe (inline `[512*1024]u8` × 7 is ~3.5MB).
-/// Runtime-only; kept after the turn settles; freed when the row
-/// is dismissed, trimmed, or the session is removed. Not
-/// sessions.json / drafts.json.
+/// Waku-sized Monitor / Subagent last-window
+/// (`MAX_BACKGROUND_OUTPUT_BYTES`). Drain-from-front on a UTF-8
+/// char boundary. Heap-allocated per live or settled row so
+/// `Model` / `initialModel()` stay return-by-value safe (inline
+/// `[512*1024]u8` × 7 is ~3.5MB). Runtime-only; kept after the
+/// turn settles; freed when the row is dismissed, trimmed, or the
+/// session is removed. Not sessions.json / drafts.json.
 pub const max_monitor_output: usize = 512 * 1024;
+pub const max_subagent_output: usize = max_monitor_output;
 
 /// Environment Summary one-line preview cap. Collapsed whitespace,
 /// CSI/ANSI stripped, trimmed; hidden when empty. Not the panel log.
 pub const max_monitor_preview: usize = 512;
+pub const max_subagent_preview: usize = max_monitor_preview;
 
-/// Scratch for right-panel Monitor log display (complete CSI
-/// stripped). Native copies the slice during the view bind.
-var monitor_panel_display: [max_monitor_output]u8 = undefined;
+/// Scratch for right-panel Monitor / Subagent log display
+/// (complete CSI stripped). Native copies the slice during the
+/// view bind. One selected row at a time.
+var background_panel_display: [max_monitor_output]u8 = undefined;
+
+/// Shared heap last-window + one-line preview. Monitor and
+/// Subagent both embed this so append / preview / strip / free
+/// stay one implementation.
+pub const LastWindow = struct {
+    output_storage: []u8 = &.{},
+    output_len: usize = 0,
+    preview_storage: [max_monitor_preview]u8 = [_]u8{0} ** max_monitor_preview,
+    preview_len: usize = 0,
+
+    pub fn output(self: *const LastWindow) []const u8 {
+        return self.output_storage[0..self.output_len];
+    }
+
+    pub fn preview(self: *const LastWindow) []const u8 {
+        return self.preview_storage[0..self.preview_len];
+    }
+};
 
 /// Runtime-only Subagent slot. Keyed by
 /// `parent_tool_use_id` / Agent `tool_use` id. `settled == .none`
-/// is live; otherwise a first-cut persist-after-settle row.
-/// Not persisted.
+/// is live; otherwise a first-cut persist-after-settle row that
+/// keeps the heap last-window. Not persisted. First-cut title is
+/// the stable `Subagent` label. Output is a bounded 512KB
+/// last-window from forwarded `parent_tool_use_id` text
+/// (`text_delta` / assistant text; newlines kept; CSI stored raw
+/// and stripped for display). Empty until the first matching
+/// text. Does not register a row on append alone.
 pub const LiveSubagent = struct {
     id_storage: [max_subagent_id]u8 = [_]u8{0} ** max_subagent_id,
     id_len: usize = 0,
@@ -204,6 +242,7 @@ pub const LiveSubagent = struct {
     title_len: usize = 0,
     session_id: u32 = 0,
     settled: SettledStatus = .none,
+    log: LastWindow = .{},
 
     pub fn parentId(self: *const LiveSubagent) []const u8 {
         return self.id_storage[0..self.id_len];
@@ -212,6 +251,17 @@ pub const LiveSubagent = struct {
     pub fn title(self: *const LiveSubagent) []const u8 {
         if (self.title_len == 0) return kind_subagent_label;
         return self.title_storage[0..self.title_len];
+    }
+
+    pub fn output(self: *const LiveSubagent) []const u8 {
+        return self.log.output();
+    }
+
+    /// Single-line preview for Environment Summary. Collapsed
+    /// whitespace, CSI/ANSI stripped, trimmed. Empty when no
+    /// visible output has landed (chrome hides it).
+    pub fn preview(self: *const LiveSubagent) []const u8 {
+        return self.log.preview();
     }
 };
 
@@ -247,10 +297,7 @@ pub const LiveMonitor = struct {
     /// first matching `tool_result`. Kept after settle; freed
     /// when the row is dismissed, trimmed, or the session is
     /// removed.
-    output_storage: []u8 = &.{},
-    output_len: usize = 0,
-    preview_storage: [max_monitor_preview]u8 = [_]u8{0} ** max_monitor_preview,
-    preview_len: usize = 0,
+    log: LastWindow = .{},
 
     pub fn toolUseId(self: *const LiveMonitor) []const u8 {
         return self.id_storage[0..self.id_len];
@@ -262,14 +309,14 @@ pub const LiveMonitor = struct {
     }
 
     pub fn output(self: *const LiveMonitor) []const u8 {
-        return self.output_storage[0..self.output_len];
+        return self.log.output();
     }
 
     /// Single-line preview for Environment Summary. Collapsed
     /// whitespace, CSI/ANSI stripped, trimmed. Empty when no
     /// visible output has landed (chrome hides it).
     pub fn preview(self: *const LiveMonitor) []const u8 {
-        return self.preview_storage[0..self.preview_len];
+        return self.log.preview();
     }
 };
 
@@ -311,9 +358,10 @@ pub const BackgroundRow = struct {
     stop_label: []const u8,
     has_status: bool,
     settled_status: []const u8,
-    /// Monitor one-line preview only. Process / Subagent stay empty
-    /// so Completed / Stopped / Failed is not reused. The right-panel
-    /// body reads the stored log, not this field.
+    /// Monitor / Subagent one-line preview. Process stays empty so
+    /// Completed / Stopped / Failed is not reused. Hidden when
+    /// empty. The right-panel body reads the stored log, not this
+    /// field.
     has_detail: bool,
     detail: []const u8,
 };
@@ -343,8 +391,8 @@ pub fn clearSettled(model: *Model) void {
 }
 
 /// Drop the cap-1 Process row when that session is removed, plus
-/// that session's Monitor / Subagent slots (heap Monitor logs
-/// freed). Other sessions keep their rows.
+/// that session's Monitor / Subagent slots (heap logs freed).
+/// Other sessions keep their rows.
 pub fn clearSettledIfSession(model: *Model, session_id: u32) void {
     if (session_id == 0) return;
     if (model.background_settled_session == session_id) clearSettled(model);
@@ -367,7 +415,7 @@ pub fn clearSettledIfSession(model: *Model, session_id: u32) void {
 }
 
 /// Convert currently-live Monitor / Subagent rows (`settled ==
-/// .none`) to `status` without freeing heap Monitor logs.
+/// .none`) to `status` without freeing heap last-windows.
 /// `can_stop` becomes false via fill. Status matches Process
 /// settle (`.completed` / `.failed` / `.stopped`). `.none` is a
 /// no-op. Does not persist to sessions.json.
@@ -400,12 +448,14 @@ pub fn clearDismissedSubagentIds(model: *Model) void {
     model.background_dismissed_subagent_count = 0;
 }
 
-/// Drop every Subagent slot (live and settled) and the
-/// dismissed-id list. Test / full-wipe helper; turn settle does
-/// not call this.
+/// Drop every Subagent slot (live and settled), free their heap
+/// last-windows, and clear the dismissed-id list. Walks every
+/// slot so a count-only reset cannot leak a buffer. Test /
+/// full-wipe helper; turn settle does not call this.
 pub fn clearLiveSubagents(model: *Model) void {
     var i: u32 = 0;
     while (i < max_live_subagents) : (i += 1) {
+        releaseLog(&model.background_subagents[i].log);
         model.background_subagents[i] = .{};
     }
     model.background_subagent_count = 0;
@@ -419,7 +469,7 @@ pub fn clearLiveSubagents(model: *Model) void {
 pub fn clearLiveMonitors(model: *Model) void {
     var i: u32 = 0;
     while (i < max_live_monitors) : (i += 1) {
-        releaseMonitorLog(&model.background_monitors[i]);
+        releaseLog(&model.background_monitors[i].log);
         model.background_monitors[i] = .{};
     }
     model.background_monitor_count = 0;
@@ -470,6 +520,7 @@ pub fn noteLiveSubagent(model: *Model, parent_id: []const u8) void {
         if (!trimOldestSettledSubagent(model)) return;
     }
     const slot = &model.background_subagents[model.background_subagent_count];
+    releaseLog(&slot.log);
     slot.* = .{};
     const writeFixed = main.writeFixed;
     writeFixed(&slot.id_storage, &slot.id_len, parent_id);
@@ -500,7 +551,7 @@ pub fn noteLiveMonitor(model: *Model, tool_use_id: []const u8) void {
         if (!trimOldestSettledMonitor(model)) return;
     }
     const slot = &model.background_monitors[model.background_monitor_count];
-    releaseMonitorLog(slot);
+    releaseLog(&slot.log);
     slot.* = .{};
     const writeFixed = main.writeFixed;
     writeFixed(&slot.id_storage, &slot.id_len, tool_use_id);
@@ -526,10 +577,35 @@ pub fn appendLiveMonitorOutput(model: *Model, tool_use_id: []const u8, text: []c
         const slot = &model.background_monitors[i];
         if (slot.settled != .none) continue;
         if (!std.mem.eql(u8, slot.toolUseId(), tool_use_id)) continue;
-        const storage = ensureMonitorLog(slot);
+        const storage = ensureLog(&slot.log);
         if (storage.len == 0) return;
-        appendBounded(storage, &slot.output_len, text);
-        rebuildPreview(slot);
+        appendBounded(storage, &slot.log.output_len, text);
+        rebuildPreview(&slot.log);
+        return;
+    }
+}
+
+/// Append output onto a *live* Subagent whose parent /
+/// Agent `tool_use` id matches. No-op when id/text is empty, no
+/// live row is registered, or the matching row is already
+/// settled (one-shot `-p` is done). Does not create a Subagent
+/// row (empty / unknown / dismissed ids stay ignored). Duplicate
+/// apply of the same delta just appends. Last-window
+/// drain-from-front at `max_subagent_output`; UTF-8
+/// char-boundary safe. Stored bytes keep newlines and raw CSI;
+/// Environment Summary `preview` collapses whitespace and strips
+/// complete CSI. Same size/policy as Monitor.
+pub fn appendLiveSubagentOutput(model: *Model, parent_id: []const u8, text: []const u8) void {
+    if (parent_id.len == 0 or text.len == 0) return;
+    var i: u32 = 0;
+    while (i < model.background_subagent_count) : (i += 1) {
+        const slot = &model.background_subagents[i];
+        if (slot.settled != .none) continue;
+        if (!std.mem.eql(u8, slot.parentId(), parent_id)) continue;
+        const storage = ensureLog(&slot.log);
+        if (storage.len == 0) return;
+        appendBounded(storage, &slot.log.output_len, text);
+        rebuildPreview(&slot.log);
         return;
     }
 }
@@ -581,26 +657,26 @@ fn stripAnsi(src: []const u8, dest: []u8) usize {
     return n;
 }
 
-fn ensureMonitorLog(slot: *LiveMonitor) []u8 {
-    if (slot.output_storage.len == max_monitor_output) return slot.output_storage;
-    if (slot.output_storage.len != 0) {
-        std.heap.page_allocator.free(slot.output_storage);
-        slot.output_storage = &.{};
-        slot.output_len = 0;
+fn ensureLog(log: *LastWindow) []u8 {
+    if (log.output_storage.len == max_monitor_output) return log.output_storage;
+    if (log.output_storage.len != 0) {
+        std.heap.page_allocator.free(log.output_storage);
+        log.output_storage = &.{};
+        log.output_len = 0;
     }
     const buf = std.heap.page_allocator.alloc(u8, max_monitor_output) catch return &.{};
-    slot.output_storage = buf;
-    slot.output_len = 0;
+    log.output_storage = buf;
+    log.output_len = 0;
     return buf;
 }
 
-fn releaseMonitorLog(slot: *LiveMonitor) void {
-    if (slot.output_storage.len != 0) {
-        std.heap.page_allocator.free(slot.output_storage);
+fn releaseLog(log: *LastWindow) void {
+    if (log.output_storage.len != 0) {
+        std.heap.page_allocator.free(log.output_storage);
     }
-    slot.output_storage = &.{};
-    slot.output_len = 0;
-    slot.preview_len = 0;
+    log.output_storage = &.{};
+    log.output_len = 0;
+    log.preview_len = 0;
 }
 
 fn appendBounded(storage: []u8, len: *usize, text: []const u8) void {
@@ -627,9 +703,9 @@ fn appendBounded(storage: []u8, len: *usize, text: []const u8) void {
     len.* = n + text.len;
 }
 
-fn rebuildPreview(slot: *LiveMonitor) void {
-    slot.preview_len = 0;
-    const raw = slot.output();
+fn rebuildPreview(log: *LastWindow) void {
+    log.preview_len = 0;
+    const raw = log.output();
     var visible: usize = 0;
     var i: usize = 0;
     while (i < raw.len) {
@@ -656,30 +732,30 @@ fn rebuildPreview(slot: *LiveMonitor) void {
             seen += 1;
             continue;
         }
-        slot.preview_storage[slot.preview_len] = c;
-        slot.preview_len += 1;
-        if (slot.preview_len == max_monitor_preview) break;
+        log.preview_storage[log.preview_len] = c;
+        log.preview_len += 1;
+        if (log.preview_len == max_monitor_preview) break;
     }
-    if (slot.preview_len > 0) {
-        const aligned = utf8AlignForward(slot.preview_storage[0..slot.preview_len], 0);
+    if (log.preview_len > 0) {
+        const aligned = utf8AlignForward(log.preview_storage[0..log.preview_len], 0);
         if (aligned > 0) {
-            const keep = slot.preview_len - aligned;
+            const keep = log.preview_len - aligned;
             if (keep > 0) {
-                std.mem.copyForwards(u8, slot.preview_storage[0..keep], slot.preview_storage[aligned..slot.preview_len]);
+                std.mem.copyForwards(u8, log.preview_storage[0..keep], log.preview_storage[aligned..log.preview_len]);
             }
-            slot.preview_len = keep;
+            log.preview_len = keep;
         }
     }
-    const slice = slot.preview_storage[0..slot.preview_len];
+    const slice = log.preview_storage[0..log.preview_len];
     const trimmed = std.mem.trim(u8, slice, " ");
     if (trimmed.len == 0) {
-        slot.preview_len = 0;
+        log.preview_len = 0;
         return;
     }
     if (trimmed.ptr != slice.ptr) {
-        std.mem.copyForwards(u8, slot.preview_storage[0..trimmed.len], trimmed);
+        std.mem.copyForwards(u8, log.preview_storage[0..trimmed.len], trimmed);
     }
-    slot.preview_len = trimmed.len;
+    log.preview_len = trimmed.len;
 }
 
 /// Live Subagent rows (`settled == .none`) exist only while
@@ -787,6 +863,7 @@ fn fillMonitorRow(slot: *const LiveMonitor, index: u32) BackgroundRow {
 fn fillSubagentRow(slot: *const LiveSubagent, index: u32) BackgroundRow {
     const live = slot.settled == .none;
     const status = if (live) "" else statusLabel(slot.settled);
+    const detail = slot.preview();
     return .{
         .id = subagent_row_id_first + index,
         .kind = .subagent,
@@ -797,8 +874,8 @@ fn fillSubagentRow(slot: *const LiveSubagent, index: u32) BackgroundRow {
         .stop_label = if (live) subagent_stop_label else "",
         .has_status = status.len > 0,
         .settled_status = status,
-        .has_detail = false,
-        .detail = "",
+        .has_detail = detail.len > 0,
+        .detail = detail,
     };
 }
 
@@ -807,8 +884,8 @@ fn fillSubagentRow(slot: *const LiveSubagent, index: u32) BackgroundRow {
 /// live Process row instead of flashing Completed. Fill order:
 /// Process (live or last-turn settle), then Monitor (live first,
 /// then settled for the selected session), then Subagent (live
-/// first, then settled). Monitor `detail` is the one-line preview;
-/// the right-panel body reads the stored log. Fill stops at the cap.
+/// first, then settled). Monitor / Subagent `detail` is the one-line
+/// preview; the right-panel body reads the stored log. Fill stops at the cap.
 pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]BackgroundRow) []const BackgroundRow {
     if (!hasBackgroundSection(model)) return out[0..0];
     var n: usize = 0;
@@ -948,7 +1025,7 @@ pub fn compare(model: *Model, fx: *Effects) void {
 /// ids dismiss that Faku-side slot only (compact + free heap log;
 /// later `tool_result` for that `tool_use` id is ignored because the
 /// slot is gone). Live Subagent ids dismiss that Faku-side slot only
-/// (compact + remember the id so later `noteLiveSubagent` is ignored
+/// (compact + free heap log + remember the id so later `noteLiveSubagent` is ignored
 /// until `clearDismissedSubagentIds`). Settled Monitor / Subagent
 /// rows have `can_stop` false and are not dismissed here. Does not
 /// `stopStream` for a Monitor or Subagent. Unknown / Process-idle
@@ -988,7 +1065,7 @@ fn removeMonitorAt(model: *Model, index: u32) void {
     const old_count = model.background_monitor_count;
     const removed_id = monitor_row_id_first + index;
     remapBackgroundSelectionAfterMonitorRemove(model, removed_id, old_count);
-    releaseMonitorLog(&model.background_monitors[index]);
+    releaseLog(&model.background_monitors[index].log);
     var j = index;
     while (j + 1 < model.background_monitor_count) : (j += 1) {
         model.background_monitors[j] = model.background_monitors[j + 1];
@@ -1071,13 +1148,15 @@ fn rememberDismissedSubagent(model: *Model, parent_id: []const u8) void {
     model.background_dismissed_subagent_count += 1;
 }
 
-/// Compact-remove a Subagent slot (live or settled) and remap
-/// right-panel selection. Does not remember a dismissed id.
+/// Compact-remove a Subagent slot (live or settled), free its
+/// heap last-window, and remap right-panel selection. Does not
+/// remember a dismissed id.
 fn removeSubagentAt(model: *Model, index: u32) void {
     if (index >= model.background_subagent_count) return;
     const old_count = model.background_subagent_count;
     const removed_id = subagent_row_id_first + index;
     remapBackgroundSelectionAfterSubagentRemove(model, removed_id, old_count);
+    releaseLog(&model.background_subagents[index].log);
     var j = index;
     while (j + 1 < model.background_subagent_count) : (j += 1) {
         model.background_subagents[j] = model.background_subagents[j + 1];
@@ -1087,7 +1166,8 @@ fn removeSubagentAt(model: *Model, index: u32) void {
 }
 
 /// Drop the oldest settled Subagent (array order) to make room
-/// for a new live row. Returns false when there is no settled slot.
+/// for a new live row. Frees that slot's heap log. Returns false
+/// when there is no settled slot.
 fn trimOldestSettledSubagent(model: *Model) bool {
     var i: u32 = 0;
     while (i < model.background_subagent_count) : (i += 1) {
@@ -1098,10 +1178,11 @@ fn trimOldestSettledSubagent(model: *Model) bool {
     return false;
 }
 
-/// Faku-side Subagent dismiss: remember the id, compact remaining
-/// slots, and clear or remap right-panel selection so a selected
-/// stopped row becomes empty ("No background work"). Does not
-/// cancel the Process / stream and does not touch Monitor rows.
+/// Faku-side Subagent dismiss: remember the id, free the heap
+/// last-window, compact remaining slots, and clear or remap
+/// right-panel selection so a selected stopped row becomes empty
+/// ("No background work"). Does not cancel the Process / stream
+/// and does not touch Monitor rows.
 fn dismissLiveSubagent(model: *Model, index: u32) void {
     if (index >= model.background_subagent_count) return;
     if (model.background_subagents[index].settled != .none) return;
@@ -1149,19 +1230,28 @@ pub fn backgroundWorkStatus(row: BackgroundRow) []const u8 {
     };
 }
 
-/// Right-panel Background body. Monitor rows return the stored
-/// last-window with complete CSI stripped (newlines kept), live
-/// or settled. Process / Subagent stay empty so the pane shows
+/// Right-panel Background body. Monitor and Subagent rows return
+/// the stored last-window with complete CSI stripped (newlines
+/// kept), live or settled. Process stays empty so the pane shows
 /// "No output".
 pub fn backgroundWorkOutput(model: *const Model) []const u8 {
     const row = selectedBackgroundRow(model) orelse return "";
-    if (row.kind != .monitor) return "";
-    const idx = row.id - monitor_row_id_first;
-    if (idx >= model.background_monitor_count) return "";
-    const raw = model.background_monitors[idx].output();
+    const raw = switch (row.kind) {
+        .monitor => blk: {
+            const idx = row.id - monitor_row_id_first;
+            if (idx >= model.background_monitor_count) return "";
+            break :blk model.background_monitors[idx].output();
+        },
+        .subagent => blk: {
+            const idx = row.id - subagent_row_id_first;
+            if (idx >= model.background_subagent_count) return "";
+            break :blk model.background_subagents[idx].output();
+        },
+        .process => return "",
+    };
     if (raw.len == 0) return "";
-    const n = stripAnsi(raw, monitor_panel_display[0..]);
-    return monitor_panel_display[0..n];
+    const n = stripAnsi(raw, background_panel_display[0..]);
+    return background_panel_display[0..n];
 }
 
 /// Close the popover and open the right-panel Background surface on
@@ -2100,6 +2190,7 @@ test "startPrompt keeps settled Monitor log; a new live Monitor can appear along
 
     var model = Model{};
     defer clearLiveMonitors(&model);
+    defer clearLiveSubagents(&model);
     const id = model.addSession("env send keeps monitor", .claude);
     model.selected = id;
     model.phase = .streaming;
@@ -2107,12 +2198,14 @@ test "startPrompt keeps settled Monitor log; a new live Monitor can appear along
     noteLiveMonitor(&model, "toolu_mon_send_1");
     appendLiveMonitorOutput(&model, "toolu_mon_send_1", "preview that must stay");
     noteLiveSubagent(&model, "toolu_agent_send_1");
+    appendLiveSubagentOutput(&model, "toolu_agent_send_1", "subagent that must stay");
     turn_stream.finishStream(&model, &fx, true);
     try std.testing.expectEqual(@as(u32, 1), model.background_monitor_count);
     try std.testing.expectEqual(SettledStatus.completed, model.background_monitors[0].settled);
     try std.testing.expectEqualStrings("preview that must stay", model.background_monitors[0].output());
     try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
     try std.testing.expectEqual(SettledStatus.completed, model.background_subagents[0].settled);
+    try std.testing.expectEqualStrings("subagent that must stay", model.background_subagents[0].output());
 
     prompt_spawn.startPrompt(&model, &fx, id, "next turn");
     try std.testing.expectEqual(@as(u32, 1), model.background_monitor_count);
@@ -2120,6 +2213,7 @@ test "startPrompt keeps settled Monitor log; a new live Monitor can appear along
     try std.testing.expectEqual(SettledStatus.completed, model.background_monitors[0].settled);
     try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
     try std.testing.expectEqual(SettledStatus.completed, model.background_subagents[0].settled);
+    try std.testing.expectEqualStrings("subagent that must stay", model.background_subagents[0].output());
     try std.testing.expectEqual(@as(u32, 0), model.background_dismissed_subagent_count);
     try std.testing.expect(model.is_streaming());
 
@@ -2141,6 +2235,7 @@ test "startPrompt keeps settled Monitor log; a new live Monitor can appear along
     try std.testing.expectEqualStrings("preview that must stay", rows[2].detail);
     try std.testing.expectEqual(BackgroundKind.subagent, rows[3].kind);
     try std.testing.expect(!rows[3].live);
+    try std.testing.expectEqualStrings("subagent that must stay", rows[3].detail);
 }
 
 test "appendLiveMonitorOutput fills preview; unknown id and empty text are no-ops" {
@@ -2278,6 +2373,112 @@ test "Monitor panel log is larger than the one-line Summary preview" {
     try std.testing.expect(std.mem.indexOf(u8, panel, "\n") != null);
 }
 
+test "appendLiveSubagentOutput fills preview; unknown id and empty text are no-ops" {
+    var model = Model{};
+    defer clearLiveSubagents(&model);
+    const id = model.addSession("env subagent output", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+
+    appendLiveSubagentOutput(&model, "toolu_agent_1", "before row");
+    try std.testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    try expectLiveProcessRow(&model);
+
+    noteLiveSubagent(&model, "toolu_agent_1");
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    var rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 2), rows.len);
+    try std.testing.expect(!rows[1].has_detail);
+    try std.testing.expectEqualStrings("", rows[1].detail);
+    try std.testing.expect(!rows[1].has_status);
+    try std.testing.expectEqualStrings("", rows[1].settled_status);
+
+    appendLiveSubagentOutput(&model, "", "ignored");
+    appendLiveSubagentOutput(&model, "toolu_agent_1", "");
+    appendLiveSubagentOutput(&model, "toolu_unknown", "no row");
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 2), rows.len);
+    try std.testing.expect(!rows[1].has_detail);
+    try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+
+    appendLiveSubagentOutput(&model, "toolu_agent_1", "first\nline");
+    appendLiveSubagentOutput(&model, "toolu_agent_1", " first\nline");
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expect(rows[1].has_detail);
+    try std.testing.expectEqualStrings("first line first line", rows[1].detail);
+    try std.testing.expect(std.mem.indexOf(u8, rows[1].detail, "\n") == null);
+    try std.testing.expectEqualStrings("first\nline first\nline", model.background_subagents[0].output());
+    try std.testing.expect(!rows[1].has_status);
+    try std.testing.expectEqualStrings(kind_subagent_label, rows[1].title);
+    try std.testing.expect(!rows[0].has_detail);
+    model.right_panel_background_row_id = subagent_row_id_first;
+    try std.testing.expectEqualStrings("first\nline first\nline", backgroundWorkOutput(&model));
+    try std.testing.expect(backgroundWorkOutput(&model).len > rows[1].detail.len or std.mem.indexOf(u8, backgroundWorkOutput(&model), "\n") != null);
+
+    noteLiveMonitor(&model, "toolu_mon_1");
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 3), rows.len);
+    try std.testing.expectEqual(BackgroundKind.monitor, rows[1].kind);
+    try std.testing.expect(!rows[1].has_detail);
+    try std.testing.expectEqual(BackgroundKind.subagent, rows[2].kind);
+    try std.testing.expect(rows[2].has_detail);
+}
+
+test "appendLiveSubagentOutput drains from the front at the 512KB cap" {
+    var model = Model{};
+    defer clearLiveSubagents(&model);
+    const id = model.addSession("env subagent overflow", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    noteLiveSubagent(&model, "toolu_agent_cap");
+
+    appendLiveSubagentOutput(&model, "toolu_agent_cap", "é");
+    const chunk = "x" ** 4096;
+    while (model.background_subagents[0].output().len + chunk.len <= max_subagent_output) {
+        appendLiveSubagentOutput(&model, "toolu_agent_cap", chunk);
+    }
+    const remain = max_subagent_output - model.background_subagents[0].output().len;
+    if (remain > 0) {
+        appendLiveSubagentOutput(&model, "toolu_agent_cap", chunk[0..remain]);
+    }
+    try std.testing.expectEqual(max_subagent_output, model.background_subagents[0].output().len);
+    try std.testing.expect(std.mem.startsWith(u8, model.background_subagents[0].output(), "é"));
+
+    appendLiveSubagentOutput(&model, "toolu_agent_cap", "y");
+    const out = model.background_subagents[0].output();
+    try std.testing.expect(out.len <= max_subagent_output);
+    try std.testing.expect(out.len > 0);
+    try std.testing.expect(out[0] != 0xA9);
+    try std.testing.expect(out[out.len - 1] == 'y');
+    try std.testing.expect(!std.mem.startsWith(u8, out, "é"));
+}
+
+test "Subagent stored log keeps newlines and CSI; Summary is one line; panel strips ANSI" {
+    var model = Model{};
+    defer clearLiveSubagents(&model);
+    const id = model.addSession("env subagent ansi", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    noteLiveSubagent(&model, "toolu_agent_ansi");
+    appendLiveSubagentOutput(&model, "toolu_agent_ansi", "\x1b[31mred\x1b[0m\nnext");
+
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    const rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqualStrings("red next", rows[1].detail);
+    try std.testing.expect(std.mem.indexOf(u8, rows[1].detail, "\x1b") == null);
+    try std.testing.expect(std.mem.indexOf(u8, rows[1].detail, "\n") == null);
+    try std.testing.expectEqualStrings("\x1b[31mred\x1b[0m\nnext", model.background_subagents[0].output());
+
+    model.right_panel_background_row_id = subagent_row_id_first;
+    const panel = backgroundWorkOutput(&model);
+    try std.testing.expectEqualStrings("red\nnext", panel);
+    try std.testing.expect(std.mem.indexOf(u8, panel, "\x1b") == null);
+    try std.testing.expect(std.mem.indexOf(u8, panel, "\n") != null);
+}
+
 test "openBackgroundWork opens Process row; unknown id is a no-op; dropdown closes" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
@@ -2378,6 +2579,49 @@ test "openBackgroundWork Subagent row is Running with empty output" {
     try std.testing.expectEqualStrings(subagent_stop_label, row.stop_label);
     try std.testing.expectEqualStrings(live_running_label, backgroundWorkStatus(row));
     try std.testing.expectEqualStrings("", backgroundWorkOutput(&model));
+}
+
+test "openBackgroundWork shows Subagent log; settle keeps it; dismiss frees it" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer clearLiveSubagents(&model);
+    const id = model.addSession("env background subagent log", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    if (model.sessionById(id)) |session| session.busy = true;
+    noteLiveSubagent(&model, "toolu_agent_log");
+    appendLiveSubagentOutput(&model, "toolu_agent_log", "line from subagent");
+    model.environment_summary_open = true;
+
+    openBackgroundWork(&model, &fx, subagent_row_id_first);
+    try std.testing.expectEqualStrings("line from subagent", backgroundWorkOutput(&model));
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    var rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqualStrings("line from subagent", rows[1].detail);
+
+    turn_stream.finishStream(&model, &fx, true);
+    try std.testing.expectEqual(SettledStatus.completed, model.background_subagents[0].settled);
+    try std.testing.expectEqualStrings("line from subagent", backgroundWorkOutput(&model));
+    try std.testing.expectEqualStrings("line from subagent", model.background_subagents[0].output());
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expect(!rows[1].can_stop);
+    try std.testing.expectEqualStrings("line from subagent", rows[1].detail);
+
+    stopBackground(&model, &fx, subagent_row_id_first);
+    try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    try std.testing.expectEqualStrings("line from subagent", model.background_subagents[0].output());
+
+    model.phase = .streaming;
+    model.streaming_session = id;
+    noteLiveSubagent(&model, "toolu_agent_live");
+    appendLiveSubagentOutput(&model, "toolu_agent_live", "live log");
+    stopBackground(&model, &fx, subagent_row_id_first + 1);
+    try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    try std.testing.expectEqualStrings("toolu_agent_log", model.background_subagents[0].parentId());
 }
 
 test "settled Process row on Background keeps Completed / Stopped / Failed" {
@@ -2783,6 +3027,7 @@ test "drain=false finishStream settles Monitor and Subagent Failed" {
 
     var model = Model{};
     defer clearLiveMonitors(&model);
+    defer clearLiveSubagents(&model);
     const id = model.addSession("env settle failed signals", .claude);
     model.selected = id;
     model.phase = .streaming;
@@ -2790,12 +3035,14 @@ test "drain=false finishStream settles Monitor and Subagent Failed" {
     noteLiveMonitor(&model, "toolu_mon_fail");
     appendLiveMonitorOutput(&model, "toolu_mon_fail", "fail log");
     noteLiveSubagent(&model, "toolu_agent_fail");
+    appendLiveSubagentOutput(&model, "toolu_agent_fail", "fail subagent log");
 
     turn_stream.finishStream(&model, &fx, false);
     try std.testing.expectEqual(SettledStatus.failed, model.background_settled);
     try std.testing.expectEqual(SettledStatus.failed, model.background_monitors[0].settled);
     try std.testing.expectEqual(SettledStatus.failed, model.background_subagents[0].settled);
     try std.testing.expectEqualStrings("fail log", model.background_monitors[0].output());
+    try std.testing.expectEqualStrings("fail subagent log", model.background_subagents[0].output());
     var buf: [max_background_rows]BackgroundRow = undefined;
     const rows = fillBackgroundRows(&model, &buf);
     try std.testing.expectEqual(@as(usize, 3), rows.len);
@@ -2806,8 +3053,11 @@ test "drain=false finishStream settles Monitor and Subagent Failed" {
     try std.testing.expectEqual(BackgroundKind.subagent, rows[2].kind);
     try std.testing.expectEqualStrings(settled_failed_label, rows[2].settled_status);
     try std.testing.expect(!rows[2].can_stop);
+    try std.testing.expectEqualStrings("fail subagent log", rows[2].detail);
     appendLiveMonitorOutput(&model, "toolu_mon_fail", " ignored after settle");
     try std.testing.expectEqualStrings("fail log", model.background_monitors[0].output());
+    appendLiveSubagentOutput(&model, "toolu_agent_fail", " ignored after settle");
+    try std.testing.expectEqualStrings("fail subagent log", model.background_subagents[0].output());
 }
 
 test "session switch hides another session's settled Monitor and Subagent; remove frees the log" {
@@ -2817,6 +3067,7 @@ test "session switch hides another session's settled Monitor and Subagent; remov
 
     var model = Model{};
     defer clearLiveMonitors(&model);
+    defer clearLiveSubagents(&model);
     const first = model.addSession("env settle session a", .claude);
     const second = model.addSession("env settle session b", .claude);
     model.selected = first;
@@ -2825,14 +3076,17 @@ test "session switch hides another session's settled Monitor and Subagent; remov
     noteLiveMonitor(&model, "toolu_mon_a");
     appendLiveMonitorOutput(&model, "toolu_mon_a", "session a log");
     noteLiveSubagent(&model, "toolu_agent_a");
+    appendLiveSubagentOutput(&model, "toolu_agent_a", "session a subagent");
     turn_stream.finishStream(&model, &fx, true);
     try std.testing.expectEqual(SettledStatus.completed, model.background_monitors[0].settled);
+    try std.testing.expectEqual(SettledStatus.completed, model.background_subagents[0].settled);
 
     var buf: [max_background_rows]BackgroundRow = undefined;
     var rows = fillBackgroundRows(&model, &buf);
     try std.testing.expectEqual(@as(usize, 3), rows.len);
     try std.testing.expectEqual(BackgroundKind.monitor, rows[1].kind);
     try std.testing.expectEqual(BackgroundKind.subagent, rows[2].kind);
+    try std.testing.expectEqualStrings("session a subagent", rows[2].detail);
 
     model.selected = second;
     try std.testing.expect(!hasSettledBackground(&model));
@@ -2842,8 +3096,11 @@ test "session switch hides another session's settled Monitor and Subagent; remov
     rows = fillBackgroundRows(&model, &buf);
     try std.testing.expectEqual(@as(usize, 3), rows.len);
     try std.testing.expectEqualStrings("session a log", rows[1].detail);
+    try std.testing.expectEqualStrings("session a subagent", rows[2].detail);
     model.right_panel_background_row_id = monitor_row_id_first;
     try std.testing.expectEqualStrings("session a log", backgroundWorkOutput(&model));
+    model.right_panel_background_row_id = subagent_row_id_first;
+    try std.testing.expectEqualStrings("session a subagent", backgroundWorkOutput(&model));
 
     clearSettledIfSession(&model, first);
     try std.testing.expectEqual(@as(u32, 0), model.background_monitor_count);
@@ -2897,6 +3154,47 @@ test "cap trim drops oldest settled Monitor before live" {
     noteLiveMonitor(&model, "toolu_mon_trim_0");
     try std.testing.expectEqual(@as(u32, @intCast(max_live_monitors)), model.background_monitor_count);
     try std.testing.expectEqualStrings("toolu_mon_trim_2", model.background_monitors[0].toolUseId());
+}
+
+test "cap trim drops oldest settled Subagent and frees its log" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer clearLiveSubagents(&model);
+    const id = model.addSession("env trim settled subagent", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    var i: usize = 0;
+    while (i < max_live_subagents) : (i += 1) {
+        var id_buf: [32]u8 = undefined;
+        const label = std.fmt.bufPrint(&id_buf, "toolu_agent_trim_{d}", .{i}) catch unreachable;
+        noteLiveSubagent(&model, label);
+        appendLiveSubagentOutput(&model, label, "old");
+    }
+    try std.testing.expectEqual(@as(u32, @intCast(max_live_subagents)), model.background_subagent_count);
+    turn_stream.finishStream(&model, &fx, true);
+    try std.testing.expectEqual(SettledStatus.completed, model.background_subagents[0].settled);
+    try std.testing.expectEqualStrings("toolu_agent_trim_0", model.background_subagents[0].parentId());
+    try std.testing.expectEqualStrings("old", model.background_subagents[0].output());
+
+    model.phase = .streaming;
+    model.streaming_session = id;
+    noteLiveSubagent(&model, "toolu_agent_trim_live");
+    try std.testing.expectEqual(@as(u32, @intCast(max_live_subagents)), model.background_subagent_count);
+    try std.testing.expectEqualStrings("toolu_agent_trim_1", model.background_subagents[0].parentId());
+    try std.testing.expectEqual(SettledStatus.completed, model.background_subagents[0].settled);
+    try std.testing.expectEqualStrings("old", model.background_subagents[0].output());
+    const last = model.background_subagent_count - 1;
+    try std.testing.expectEqualStrings("toolu_agent_trim_live", model.background_subagents[last].parentId());
+    try std.testing.expectEqual(SettledStatus.none, model.background_subagents[last].settled);
+    try std.testing.expectEqual(@as(usize, 0), model.background_subagents[last].output().len);
+
+    noteLiveSubagent(&model, "toolu_agent_trim_0");
+    try std.testing.expectEqual(@as(u32, @intCast(max_live_subagents)), model.background_subagent_count);
+    try std.testing.expectEqualStrings("toolu_agent_trim_2", model.background_subagents[0].parentId());
 }
 
 test "duplicate settled Monitor id becomes a new live slot" {
