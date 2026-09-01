@@ -73,7 +73,10 @@
 //! another session's rows without clearing them; a new Process
 //! settle overwrites the cap-1 Process slot; remove session
 //! drops that session's Process settle and its Monitor /
-//! Subagent slots (heap logs freed). Not persisted to
+//! Subagent slots (heap logs freed). Dismiss all settled
+//! clears that selected session's visible leftovers (settled
+//! Monitor / Subagent plus the cap-1 Process settle) without
+//! stopping a live stream. Not persisted to
 //! sessions.json / drafts.json. Header info trigger uses button
 //! `selected` while the dropdown is open or this section would show.
 //! Header +N −M reuses the composer project-row numstat probe
@@ -98,8 +101,11 @@
 //! Background surface for that row (kind, title, live-or-settled
 //! status, Monitor / Subagent 512KB last-window log, Stop when the selected
 //! row is a live Process, live Monitor, or live Subagent; Dismiss
-//! when the selected row is a settled Monitor or Subagent). Leftovers: prune-alone,
-//! Claude CLI TaskStop / long-lived ACP, daemon `refreshBackgroundWork` /
+//! when the selected row is a settled Monitor or Subagent). Faku-side
+//! Dismiss all settled ships for the selected session (settled
+//! Monitor / Subagent slots plus the cap-1 Process settle; live
+//! rows and the stream stay). Leftovers: Claude CLI TaskStop /
+//! long-lived ACP, daemon `refreshBackgroundWork` /
 //! WorkspaceOperation, full BackgroundWorkRegistry event/reconcile
 //! parity. Kind chrome, Process registry,
 //! first-cut live Monitor rows from Claude `Monitor` tool_use plus
@@ -118,7 +124,8 @@
 //! row; not Claude TaskStop mid-turn), first-cut settled Monitor /
 //! Subagent persist after the turn (status from Process settle;
 //! Monitor / Subagent last-window kept; Faku-side Dismiss, not
-//! Claude TaskStop / daemon `refreshBackgroundWork`), and
+//! Claude TaskStop / daemon `refreshBackgroundWork`), Faku-side
+//! Dismiss all settled for the selected session, and
 //! first-cut right-panel Background ship; not Waku
 //! BackgroundWorkRegistry event/reconcile/driver parity.
 //! Not transcript checkpoint +/-. Not force push (Waku
@@ -948,6 +955,14 @@ fn hasVisibleSettledSignals(model: *const Model) bool {
     return false;
 }
 
+/// At least one dismissable settled leftover for the selected
+/// session: visible last-turn Process, and/or a visible settled
+/// Monitor / Subagent. Gates Environment Summary **Dismiss all
+/// settled**. Live-only streaming is false (live Stop is unchanged).
+pub fn hasDismissableSettledBackground(model: *const Model) bool {
+    return hasSettledBackground(model) or hasVisibleSettledSignals(model);
+}
+
 /// Visible settled Process row for the selected session. Hidden
 /// while `is_streaming` so a queued restart stays on the Process
 /// row instead of flashing Completed.
@@ -1177,6 +1192,46 @@ pub fn stopBackground(model: *Model, fx: *Effects, row_id: u32) void {
     const sub_index = subagentIndex(model, row_id) orelse return;
     close(model);
     dismissSubagent(model, sub_index);
+}
+
+/// Faku-side bulk dismiss of settled Background leftovers for the
+/// selected session. Removes every visible settled Monitor and
+/// Subagent slot (heap logs freed, right-panel selection remapped;
+/// settled Subagent skips remember-dismissed-id, same as per-row
+/// Dismiss). Clears the cap-1 Process settle with `clearSettled`
+/// when that slot belongs to the selected session. Does not stop
+/// a live stream, does not dismiss live Monitor / Subagent
+/// (`settled == .none`), and does not `stopStream`. Other sessions'
+/// leftovers stay. Closes the Environment Summary dropdown.
+/// Not Claude TaskStop / daemon `refreshBackgroundWork`.
+pub fn dismissSettledBackground(model: *Model) void {
+    close(model);
+    const session_id = model.selected;
+    if (session_id == 0) return;
+
+    var i: u32 = 0;
+    while (i < model.background_monitor_count) {
+        if (visibleSettledMonitor(model, i)) {
+            dismissMonitor(model, i);
+            continue;
+        }
+        i += 1;
+    }
+    i = 0;
+    while (i < model.background_subagent_count) {
+        if (visibleSettledSubagent(model, i)) {
+            dismissSubagent(model, i);
+            continue;
+        }
+        i += 1;
+    }
+
+    if (model.background_settled_session == session_id) {
+        if (!model.is_streaming() and model.right_panel_background_row_id == process_row_id) {
+            model.right_panel_background_row_id = 0;
+        }
+        clearSettled(model);
+    }
 }
 
 /// Monitor array index for `row_id`, live or settled. Null when
@@ -3517,6 +3572,234 @@ test "settled Monitor and Subagent can_stop dismiss; stopBackground removes the 
     try std.testing.expectEqual(@as(u32, 0), model.background_monitor_count);
     try std.testing.expect(model.is_streaming());
     try std.testing.expect(model.sessionById(id).?.busy);
+}
+
+test "hasDismissableSettledBackground is true after settle; live-only streaming is false" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer clearLiveMonitors(&model);
+    defer clearLiveSubagents(&model);
+    const id = model.addSession("env dismiss all helper", .claude);
+    model.selected = id;
+    try std.testing.expect(!hasDismissableSettledBackground(&model));
+    try std.testing.expect(!model.has_dismissable_settled_background());
+
+    model.phase = .streaming;
+    model.streaming_session = id;
+    try std.testing.expect(!hasDismissableSettledBackground(&model));
+    try expectLiveProcessRow(&model);
+
+    noteLiveMonitor(&model, "toolu_mon_helper");
+    noteLiveSubagent(&model, "toolu_agent_helper");
+    try std.testing.expect(!hasDismissableSettledBackground(&model));
+
+    turn_stream.finishStream(&model, &fx, true);
+    try std.testing.expect(hasDismissableSettledBackground(&model));
+    try std.testing.expect(model.has_dismissable_settled_background());
+    try std.testing.expect(hasSettledBackground(&model));
+
+    dismissSettledBackground(&model);
+    try std.testing.expect(!hasDismissableSettledBackground(&model));
+    try std.testing.expect(!hasSettledBackground(&model));
+    try expectNoBackgroundRows(&model);
+}
+
+test "dismissSettledBackground removes settled Monitor Subagent and Process; frees logs; clears selection" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer clearLiveMonitors(&model);
+    defer clearLiveSubagents(&model);
+    const id = model.addSession("env dismiss all settled", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    if (model.sessionById(id)) |session| session.busy = true;
+    noteLiveMonitor(&model, "toolu_mon_all");
+    appendLiveMonitorOutput(&model, "toolu_mon_all", "monitor leftover");
+    noteLiveSubagent(&model, "toolu_agent_all");
+    appendLiveSubagentOutput(&model, "toolu_agent_all", "subagent leftover");
+    model.environment_summary_open = true;
+
+    turn_stream.finishStream(&model, &fx, true);
+    try std.testing.expect(hasDismissableSettledBackground(&model));
+    try std.testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    try std.testing.expectEqual(SettledStatus.completed, model.background_settled);
+    try std.testing.expectEqual(id, model.background_settled_session);
+
+    model.right_panel_open = true;
+    model.right_panel_tab = right_panel.Tab.background;
+    model.right_panel_background_row_id = monitor_row_id_first;
+    try std.testing.expectEqualStrings("monitor leftover", backgroundWorkOutput(&model));
+
+    main.update(&model, .environment_dismiss_settled_background, &fx);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expectEqual(@as(u32, 0), model.background_monitor_count);
+    try std.testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    try std.testing.expectEqual(@as(usize, 0), model.background_monitors[0].output().len);
+    try std.testing.expectEqual(@as(usize, 0), model.background_monitors[0].log.output_storage.len);
+    try std.testing.expectEqual(@as(usize, 0), model.background_subagents[0].output().len);
+    try std.testing.expectEqual(@as(usize, 0), model.background_subagents[0].log.output_storage.len);
+    try std.testing.expectEqual(SettledStatus.none, model.background_settled);
+    try std.testing.expectEqual(@as(u32, 0), model.background_settled_session);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+    try std.testing.expect(selectedBackgroundRow(&model) == null);
+    try std.testing.expectEqual(@as(u32, 0), model.background_dismissed_subagent_count);
+    try std.testing.expect(!model.is_streaming());
+    try std.testing.expect(!hasDismissableSettledBackground(&model));
+    try expectNoBackgroundRows(&model);
+}
+
+test "dismissSettledBackground leaves live rows and does not stopStream" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer clearLiveMonitors(&model);
+    defer clearLiveSubagents(&model);
+    const id = model.addSession("env dismiss all live stay", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    if (model.sessionById(id)) |session| session.busy = true;
+    noteLiveMonitor(&model, "toolu_mon_old");
+    appendLiveMonitorOutput(&model, "toolu_mon_old", "settled keep");
+    noteLiveSubagent(&model, "toolu_agent_old");
+    appendLiveSubagentOutput(&model, "toolu_agent_old", "settled sub");
+    turn_stream.finishStream(&model, &fx, true);
+
+    model.phase = .streaming;
+    model.streaming_session = id;
+    if (model.sessionById(id)) |session| session.busy = true;
+    noteLiveMonitor(&model, "toolu_mon_live");
+    appendLiveMonitorOutput(&model, "toolu_mon_live", "live monitor");
+    noteLiveSubagent(&model, "toolu_agent_live");
+    appendLiveSubagentOutput(&model, "toolu_agent_live", "live subagent");
+    try std.testing.expect(hasDismissableSettledBackground(&model));
+    try std.testing.expect(model.is_streaming());
+
+    model.right_panel_background_row_id = monitor_row_id_first + 1;
+    try std.testing.expectEqualStrings("toolu_mon_live", model.background_monitors[1].toolUseId());
+
+    dismissSettledBackground(&model);
+    try std.testing.expect(model.is_streaming());
+    try std.testing.expect(model.sessionById(id).?.busy);
+    try std.testing.expectEqual(id, model.streaming_session);
+    try std.testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    try std.testing.expectEqual(SettledStatus.none, model.background_monitors[0].settled);
+    try std.testing.expectEqualStrings("toolu_mon_live", model.background_monitors[0].toolUseId());
+    try std.testing.expectEqualStrings("live monitor", model.background_monitors[0].output());
+    try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    try std.testing.expectEqual(SettledStatus.none, model.background_subagents[0].settled);
+    try std.testing.expectEqualStrings("toolu_agent_live", model.background_subagents[0].parentId());
+    try std.testing.expectEqualStrings("live subagent", model.background_subagents[0].output());
+    try std.testing.expectEqual(@as(u32, 0), model.background_dismissed_subagent_count);
+    try std.testing.expect(!hasDismissableSettledBackground(&model));
+    try std.testing.expectEqual(monitor_row_id_first, model.right_panel_background_row_id);
+    try std.testing.expect(selectedBackgroundRow(&model).?.live);
+    try std.testing.expectEqual(monitor_row_id_first, selectedBackgroundRow(&model).?.id);
+
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    const rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 3), rows.len);
+    try std.testing.expect(rows[0].live);
+    try std.testing.expectEqual(BackgroundKind.process, rows[0].kind);
+    try std.testing.expect(rows[1].live);
+    try std.testing.expectEqual(BackgroundKind.monitor, rows[1].kind);
+    try std.testing.expect(rows[2].live);
+    try std.testing.expectEqual(BackgroundKind.subagent, rows[2].kind);
+
+    stopBackground(&model, &fx, process_row_id);
+    try std.testing.expect(!model.is_streaming());
+    try std.testing.expectEqual(SettledStatus.stopped, model.background_settled);
+    try std.testing.expectEqual(SettledStatus.stopped, model.background_monitors[0].settled);
+    try std.testing.expectEqual(SettledStatus.stopped, model.background_subagents[0].settled);
+}
+
+test "dismissSettledBackground is session-scoped" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer clearLiveMonitors(&model);
+    defer clearLiveSubagents(&model);
+    const first = model.addSession("env dismiss all session a", .claude);
+    const second = model.addSession("env dismiss all session b", .claude);
+
+    model.selected = first;
+    model.phase = .streaming;
+    model.streaming_session = first;
+    if (model.sessionById(first)) |session| session.busy = true;
+    noteLiveMonitor(&model, "toolu_mon_a");
+    appendLiveMonitorOutput(&model, "toolu_mon_a", "session a monitor");
+    noteLiveSubagent(&model, "toolu_agent_a");
+    appendLiveSubagentOutput(&model, "toolu_agent_a", "session a subagent");
+    turn_stream.finishStream(&model, &fx, true);
+
+    model.selected = second;
+    model.phase = .streaming;
+    model.streaming_session = second;
+    if (model.sessionById(second)) |session| session.busy = true;
+    noteLiveMonitor(&model, "toolu_mon_b");
+    appendLiveMonitorOutput(&model, "toolu_mon_b", "session b monitor");
+    noteLiveSubagent(&model, "toolu_agent_b");
+    appendLiveSubagentOutput(&model, "toolu_agent_b", "session b subagent");
+    turn_stream.finishStream(&model, &fx, true);
+
+    try std.testing.expectEqual(@as(u32, 2), model.background_monitor_count);
+    try std.testing.expectEqual(@as(u32, 2), model.background_subagent_count);
+    try std.testing.expectEqual(second, model.background_settled_session);
+
+    model.selected = first;
+    try std.testing.expect(hasDismissableSettledBackground(&model));
+    try std.testing.expect(!hasSettledBackground(&model));
+    model.right_panel_background_row_id = monitor_row_id_first;
+    dismissSettledBackground(&model);
+    try std.testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    try std.testing.expectEqualStrings("toolu_mon_b", model.background_monitors[0].toolUseId());
+    try std.testing.expectEqualStrings("session b monitor", model.background_monitors[0].output());
+    try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    try std.testing.expectEqualStrings("toolu_agent_b", model.background_subagents[0].parentId());
+    try std.testing.expectEqualStrings("session b subagent", model.background_subagents[0].output());
+    try std.testing.expectEqual(second, model.background_settled_session);
+    try std.testing.expectEqual(SettledStatus.completed, model.background_settled);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+    try std.testing.expect(!hasDismissableSettledBackground(&model));
+    try expectNoBackgroundRows(&model);
+
+    model.selected = second;
+    try std.testing.expect(hasDismissableSettledBackground(&model));
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    const rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 3), rows.len);
+    try std.testing.expectEqual(BackgroundKind.process, rows[0].kind);
+    try std.testing.expectEqual(BackgroundKind.monitor, rows[1].kind);
+    try std.testing.expectEqualStrings("session b monitor", rows[1].detail);
+    try std.testing.expectEqual(BackgroundKind.subagent, rows[2].kind);
+}
+
+test "dismissSettledBackground clears Process-only settle and Process selection" {
+    var model = Model{};
+    const id = model.addSession("env dismiss all process only", .fx);
+    model.selected = id;
+    settle(&model, id, .completed);
+    try std.testing.expect(hasDismissableSettledBackground(&model));
+    model.right_panel_background_row_id = process_row_id;
+    model.environment_summary_open = true;
+    dismissSettledBackground(&model);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expectEqual(SettledStatus.none, model.background_settled);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+    try std.testing.expect(!hasDismissableSettledBackground(&model));
+    try expectNoBackgroundRows(&model);
 }
 
 fn streamingClaudeModel(title: []const u8) Model {
