@@ -18,8 +18,11 @@
 //! compact File editor, Claude CLI TaskStop (Faku-side Monitor and
 //! Subagent Stop on one-shot `claude -p` ships; it dismisses that live
 //! row and does not invoke TaskStop mid-turn), daemon
-//! `refreshBackgroundWork`, a 100ms GPUI render cache,
-//! or full BackgroundWorkRegistry event/reconcile parity. First-cut
+//! `refreshBackgroundWork`, GPUI SharedString, or full
+//! BackgroundWorkRegistry event/reconcile parity. This cut ships a
+//! 100ms CSI-stripped last-window render cache on Monitor / Subagent
+//! (piggybacks `now_ms` / the stream tick; Native has no dedicated
+//! 100ms timer). First-cut
 //! settled Monitor / Subagent stay in the runtime registry after the
 //! turn (status from Process settle; Monitor / Subagent last-window kept; Stop
 //! hidden; not live after `-p` exits). Not daemon
