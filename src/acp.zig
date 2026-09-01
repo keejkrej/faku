@@ -460,7 +460,7 @@ pub fn writeSessionPrompt(
     id: u64,
     session_id: []const u8,
     text: []const u8,
-    image: ?ImageContent = null,
+    image: ?ImageContent,
 ) WriteError![]const u8 {
     var cur = Cursor{ .buf = buf };
     try writeRequestHead(&cur, id, METHOD_SESSION_PROMPT);
@@ -1607,7 +1607,7 @@ test "ACP builders are newline-delimited JSON-RPC 2.0" {
     try std.testing.expectEqualStrings("sess-1", parsed_resume.session_id);
     try std.testing.expect(std.mem.indexOf(u8, resumed, "\"cwd\":\"/tmp/project\"") != null);
 
-    const prompt = try writeSessionPrompt(&buf, 3, "sess-1", "trace the listener");
+    const prompt = try writeSessionPrompt(&buf, 3, "sess-1", "trace the listener", null);
     const parsed_prompt = parseLine(prompt);
     try std.testing.expectEqual(Method.session_prompt, parsed_prompt.method);
     try std.testing.expectEqualStrings("sess-1", parsed_prompt.session_id);
