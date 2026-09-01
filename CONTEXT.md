@@ -419,6 +419,7 @@ live watch.
 | Window loop | `src/main.zig` |
 | Seed model / theme boot | `src/boot.zig` |
 | Shell scene / app icons | `src/shell.zig` |
+| Layout chrome widths | `src/layout.zig` |
 | Msg update / initFx | `src/update.zig` |
 | Model / Msg / Turn / Folder | `src/model.zig` |
 | Session type | `src/session.zig` |
@@ -509,8 +510,9 @@ Honest gaps this cut does not implement:
   the selected row is a settled Monitor or Subagent; not Waku
   BackgroundWorkRegistry event/reconcile/driver-refresh parity)
 - Further `main.zig` extract (`initialModel` / appearance boot live in
-  `boot.zig`; icons + shell scene live in `shell.zig`; remaining
-  `main.zig` leftovers are re-exports + `main()`)
+  `boot.zig`; icons + shell scene live in `shell.zig`; layout chrome
+  lives in `layout.zig`; remaining `main.zig` leftovers are
+  re-exports + effect keys + `main()`)
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size

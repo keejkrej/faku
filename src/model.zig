@@ -4,7 +4,8 @@
 //! `Msg`, and `Model` live here. `update` / `initFx` live in
 //! `update.zig` (re-exported from `main`). `initialModel` lives in
 //! `boot.zig` (re-exported from `main`). Shell scene / app icons live
-//! in `shell.zig` (re-exported from `main`). Helpers that `@import("main.zig")` keep working
+//! in `shell.zig` (re-exported from `main`). Layout chrome widths live
+//! in `layout.zig` (re-exported from `main`). Helpers that `@import("main.zig")` keep working
 //! via re-exports. Behavior is unchanged from the former `main` Model
 //! cluster.
 
@@ -86,8 +87,8 @@ pub const max_daemon_token = 256;
 pub const max_sidecar_path = 512;
 pub const max_locale_id = 128;
 
-// Field-default copies of shell / key constants that stay defined in
-// `main` / `switcher` / `attach`. Values must stay in sync.
+// Field-default copies of shell / layout / key constants defined in
+// `shell.zig` / `layout.zig` / `switcher` / `attach`. Values must stay in sync.
 const switcher_cap: u32 = 10;
 const sidebar_default_width: f32 = 252;
 const window_width: f32 = 1380;

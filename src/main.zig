@@ -72,6 +72,7 @@ const palette_run = @import("palette_run.zig");
 const update_mod = @import("update.zig");
 const boot_mod = @import("boot.zig");
 const shell_mod = @import("shell.zig");
+const layout_mod = @import("layout.zig");
 const session_mod = @import("session.zig");
 const model_mod = @import("model.zig");
 const i18n = @import("i18n.zig");
@@ -105,23 +106,15 @@ pub const window_width = shell_mod.window_width;
 pub const window_height = shell_mod.window_height;
 pub const window_min_width = shell_mod.window_min_width;
 pub const window_min_height = shell_mod.window_min_height;
-pub const sidebar_default_width: f32 = 252;
-pub const sidebar_min_width: f32 = 180;
-pub const sidebar_max_width: f32 = 420;
-pub const sidebar_rail_width: f32 = 48;
-/// Waku `DEFAULT_FILE_TREE_WIDTH`. Files tab default (not the 460px panel).
-pub const right_panel_default_width: f32 = 184;
-/// Waku `FILE_TREE_MIN_WIDTH`. Shared min for Files, Diff, and Background.
-pub const right_panel_min_width: f32 = 140;
-/// Waku `FILE_TREE_MAX_WIDTH`. Files tab clamp. Diff and Background use `right_panel_diff_max_width`.
-pub const right_panel_max_width: f32 = 360;
-/// Waku `DEFAULT_RIGHT_PANEL_WIDTH`. Diff and Background target when the pane
-/// is still file-tree-narrow (≤ `right_panel_max_width`). Not persisted as a
-/// tab: switching back to Files reclamps to `right_panel_max_width`.
-pub const right_panel_diff_default_width: f32 = 460;
-/// First-cut Diff / Background tab max: Waku `DEFAULT_RIGHT_PANEL_WIDTH` 460
-/// (full Waku `RIGHT_PANEL_MAX_WIDTH` is 1000; `RIGHT_PANEL_MIN_WIDTH` is 280).
-pub const right_panel_diff_max_width: f32 = 460;
+pub const sidebar_default_width = layout_mod.sidebar_default_width;
+pub const sidebar_min_width = layout_mod.sidebar_min_width;
+pub const sidebar_max_width = layout_mod.sidebar_max_width;
+pub const sidebar_rail_width = layout_mod.sidebar_rail_width;
+pub const right_panel_default_width = layout_mod.right_panel_default_width;
+pub const right_panel_min_width = layout_mod.right_panel_min_width;
+pub const right_panel_max_width = layout_mod.right_panel_max_width;
+pub const right_panel_diff_default_width = layout_mod.right_panel_diff_default_width;
+pub const right_panel_diff_max_width = layout_mod.right_panel_diff_max_width;
 pub const max_sessions = model_mod.max_sessions;
 /// Sidebar folder-header keys sit above session ids so `for` keys stay unique.
 pub const folder_row_id_base: u32 = 1_000_000;
@@ -526,6 +519,7 @@ test {
     _ = @import("update.zig");
     _ = @import("boot.zig");
     _ = @import("shell.zig");
+    _ = @import("layout.zig");
     _ = @import("session.zig");
     _ = @import("model.zig");
     _ = @import("i18n.zig");
