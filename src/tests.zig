@@ -20072,6 +20072,79 @@ test "Environment Background Subagent Stop dismisses that row and leaves Process
     try testing.expect(findByText(tree.root, .text, "Subagent") == null);
 }
 
+test "Environment Background settled Monitor and Subagent show Dismiss; Process Stop stays hidden" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer environment_summary.clearLiveMonitors(&model);
+    defer environment_summary.clearLiveSubagents(&model);
+    const sid = model.addSession("env settled dismiss ui", .claude);
+    model.selected = sid;
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    if (model.sessionById(sid)) |session| session.busy = true;
+    model.fx_spawn_claude_json = true;
+    model.fx_spawn_key = main.fx_ask_key;
+
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_1\",\"name\":\"Monitor\"}]}}",
+    } }, &fx);
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"line from monitor\"}]}}",
+    } }, &fx);
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_agent_1\",\"name\":\"Agent\"}]}}",
+    } }, &fx);
+    main.update(&model, .toggle_environment_summary, &fx);
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "Stop monitor");
+    _ = try expectByText(tree.root, .menu_item, "Stop subagent");
+    _ = try expectByText(tree.root, .menu_item, "Stop agent");
+
+    main.update(&model, .stop_turn, &fx);
+    try testing.expect(!model.is_streaming());
+    tree = try buildTree(arena, &model);
+    const dismiss_monitor = try expectByText(tree.root, .menu_item, "Dismiss monitor");
+    try testing.expectEqual(Msg{ .environment_stop_background = 100 }, tree.msgForPointer(dismiss_monitor.id, .up).?);
+    const dismiss_subagent = try expectByText(tree.root, .menu_item, "Dismiss subagent");
+    try testing.expectEqual(Msg{ .environment_stop_background = 2 }, tree.msgForPointer(dismiss_subagent.id, .up).?);
+    try testing.expect(findByText(tree.root, .menu_item, "Stop agent") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Stop monitor") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Stop subagent") == null);
+    _ = try expectByText(tree.root, .text, "Stopped");
+
+    main.update(&model, tree.msgForPointer(dismiss_monitor.id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 0), model.background_monitor_count);
+    try testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqual(environment_summary.SettledStatus.stopped, model.background_settled);
+
+    main.update(&model, .toggle_environment_summary, &fx);
+    main.update(&model, .{ .open_background_work = 2 }, &fx);
+    try testing.expect(model.background_work_can_stop());
+    try testing.expectEqualStrings("Dismiss subagent", model.background_work_stop_label());
+    try testing.expectEqual(@as(u32, 2), model.background_work_row_id());
+    tree = try buildTree(arena, &model);
+    const dismiss_panel = try expectButtonMsg(tree, "Dismiss subagent", .{ .environment_stop_background = 2 });
+    main.update(&model, tree.msgForPointer(dismiss_panel.id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 0), model.background_subagent_count);
+    try testing.expect(model.background_work_empty());
+    try testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+    try testing.expectEqual(@as(u32, 0), model.background_dismissed_subagent_count);
+    try testing.expect(!model.background_work_can_stop());
+}
+
 test "Environment Commit or Push opens the commit card on a clean tree; composer Commit… stays gated" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

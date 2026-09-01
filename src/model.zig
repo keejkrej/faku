@@ -1884,9 +1884,9 @@ pub const Model = struct {
         return model.background_work_output().len > 0;
     }
 
-    /// Selected Background row is a live Process, live Monitor, or
-    /// live Subagent. Settled rows hide Stop. Gates the right-panel
-    /// Stop control.
+    /// Selected Background row is a live Process, live Monitor, live
+    /// Subagent, or a settled Monitor / Subagent. Settled Process
+    /// hides Stop. Gates the right-panel Stop / Dismiss control.
     pub fn background_work_can_stop(model: *const Model) bool {
         const row = environment_summary.selectedBackgroundRow(model) orelse return false;
         return row.can_stop;
@@ -1899,8 +1899,10 @@ pub const Model = struct {
         return row.id;
     }
 
-    /// Process: "Stop agent". Monitor: "Stop monitor". Subagent:
-    /// "Stop subagent". Empty when the selected row is not stoppable.
+    /// Process: "Stop agent". Monitor: "Stop monitor" live /
+    /// "Dismiss monitor" settled. Subagent: "Stop subagent" live /
+    /// "Dismiss subagent" settled. Empty when the selected row is
+    /// not stoppable.
     pub fn background_work_stop_label(model: *const Model) []const u8 {
         const row = environment_summary.selectedBackgroundRow(model) orelse return "";
         return row.stop_label;
