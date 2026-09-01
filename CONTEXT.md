@@ -483,7 +483,8 @@ Honest gaps this cut does not implement:
   NSLocale API, tz-aware date grouping (Appearance language selector
   ships: System / English / 简体中文 / 日本語; Settings chrome and
   first-cut sidebar date-bucket titles follow the resolved locale.
-  UTC-day bucketing is unchanged. Not full-app catalogs, not Native
+  UTC-day bucketing is unchanged. The chrome unassign "Today"
+  list-item stays English. Not full-app catalogs, not Native
   NSLocale, not east-asian calendar formatting)
 - Claude CLI TaskStop / long-lived ACP, daemon
   `refreshBackgroundWork`, full BackgroundWorkRegistry
