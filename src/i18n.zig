@@ -2,9 +2,9 @@
 //!
 //! Native has no locale / NSLocale API this cut. System follows process
 //! `LC_ALL`, else `LC_MESSAGES`, else `LANG` (non-macOS Waku path), copied
-//! at boot onto the model. Settings chrome strings live here so
-//! `main.zig` does not grow. Not rust_i18n, not YAML catalogs, not
-//! full-app translation.
+//! at boot onto the model. Settings chrome strings and first-cut sidebar
+//! date-bucket titles live here so `main.zig` does not grow. Not rust_i18n,
+//! not YAML catalogs, not full-app translation, not tz-aware grouping.
 
 const std = @import("std");
 
@@ -118,6 +118,49 @@ const chrome_ja: Chrome = .{
     .os_caption_hc_off_rm_off = "ハイコントラストオフ、動きを減らすオフ。これらは OS に従います。",
 };
 
+/// First-cut sidebar date-bucket titles plus the static relative-time
+/// words that are already string literals. Numeric `{d}m` / `{d}h` /
+/// `{d}d` / `YYYY-MM-DD` stay untranslated. Same resolve path as Chrome.
+pub const Dates = struct {
+    today: []const u8,
+    yesterday: []const u8,
+    this_week: []const u8,
+    this_month: []const u8,
+    this_year: []const u8,
+    older: []const u8,
+    just_now: []const u8,
+};
+
+const dates_en: Dates = .{
+    .today = "Today",
+    .yesterday = "Yesterday",
+    .this_week = "This week",
+    .this_month = "This month",
+    .this_year = "This year",
+    .older = "Older",
+    .just_now = "just now",
+};
+
+const dates_zh_cn: Dates = .{
+    .today = "今日",
+    .yesterday = "昨天",
+    .this_week = "本周",
+    .this_month = "本月",
+    .this_year = "今年",
+    .older = "更早",
+    .just_now = "刚刚",
+};
+
+const dates_ja: Dates = .{
+    .today = "今日",
+    .yesterday = "昨日",
+    .this_week = "今週",
+    .this_month = "今月",
+    .this_year = "今年",
+    .older = "以前",
+    .just_now = "たった今",
+};
+
 /// Map a POSIX locale id (or env fragment) onto english / simplified_chinese /
 /// japanese. Never returns `.system`. Empty / C / unknown → english.
 /// Tests pass an explicit id so they do not depend on the runner's LANG.
@@ -162,6 +205,17 @@ pub fn chromeFor(preference: LanguagePreference, system_locale_id: []const u8) C
         .simplified_chinese => chrome_zh_cn,
         .japanese => chrome_ja,
         .system, .english => chrome_en,
+    };
+}
+
+/// Sidebar date-bucket titles for the resolved chrome locale. Callers
+/// pass Model `language_preference` + `system_locale_id`; this file
+/// does not read process env.
+pub fn datesFor(preference: LanguagePreference, system_locale_id: []const u8) Dates {
+    return switch (resolve(preference, system_locale_id)) {
+        .simplified_chinese => dates_zh_cn,
+        .japanese => dates_ja,
+        .system, .english => dates_en,
     };
 }
 
@@ -214,4 +268,36 @@ test "resolve english ignores a japanese locale id" {
     try testing.expectEqualStrings("テーマ", chromeFor(.japanese, "").theme);
     try testing.expectEqualStrings("Appearance", chromeFor(.system, "").appearance);
     try testing.expectEqualStrings("外観", chromeFor(.system, "ja_JP.UTF-8").appearance);
+}
+
+test "datesFor english default; zh and ja bucket titles; System follows locale id" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("Today", datesFor(.english, "ja").today);
+    try testing.expectEqualStrings("Yesterday", datesFor(.english, "").yesterday);
+    try testing.expectEqualStrings("This week", datesFor(.english, "").this_week);
+    try testing.expectEqualStrings("This month", datesFor(.english, "").this_month);
+    try testing.expectEqualStrings("This year", datesFor(.english, "").this_year);
+    try testing.expectEqualStrings("Older", datesFor(.english, "").older);
+    try testing.expectEqualStrings("just now", datesFor(.english, "").just_now);
+    try testing.expectEqualStrings("Today", datesFor(.system, "").today);
+
+    try testing.expectEqualStrings("今日", datesFor(.simplified_chinese, "").today);
+    try testing.expectEqualStrings("昨天", datesFor(.simplified_chinese, "").yesterday);
+    try testing.expectEqualStrings("本周", datesFor(.simplified_chinese, "").this_week);
+    try testing.expectEqualStrings("本月", datesFor(.simplified_chinese, "").this_month);
+    try testing.expectEqualStrings("今年", datesFor(.simplified_chinese, "").this_year);
+    try testing.expectEqualStrings("更早", datesFor(.simplified_chinese, "").older);
+    try testing.expectEqualStrings("刚刚", datesFor(.simplified_chinese, "").just_now);
+
+    try testing.expectEqualStrings("今日", datesFor(.japanese, "").today);
+    try testing.expectEqualStrings("昨日", datesFor(.japanese, "").yesterday);
+    try testing.expectEqualStrings("今週", datesFor(.japanese, "").this_week);
+    try testing.expectEqualStrings("今月", datesFor(.japanese, "").this_month);
+    try testing.expectEqualStrings("今年", datesFor(.japanese, "").this_year);
+    try testing.expectEqualStrings("以前", datesFor(.japanese, "").older);
+    try testing.expectEqualStrings("たった今", datesFor(.japanese, "").just_now);
+
+    try testing.expectEqualStrings("今日", datesFor(.system, "zh_CN.UTF-8").today);
+    try testing.expectEqualStrings("昨日", datesFor(.system, "ja_JP.UTF-8").yesterday);
+    try testing.expectEqualStrings("Today", datesFor(.english, "ja_JP.UTF-8").today);
 }

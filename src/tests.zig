@@ -19247,6 +19247,157 @@ test "sessionDateBucket This year is same UTC year, older than this month" {
     try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(year_now_ms - (400 * day_ms), year_now_ms));
 }
 
+test "DateBucket.title english default; zh and ja follow datesFor" {
+    try testing.expectEqualStrings("Today", sidebar_dates.DateBucket.today.title());
+    try testing.expectEqualStrings("Yesterday", sidebar_dates.DateBucket.yesterday.title());
+    try testing.expectEqualStrings("This week", sidebar_dates.DateBucket.this_week.title());
+    try testing.expectEqualStrings("This month", sidebar_dates.DateBucket.this_month.title());
+    try testing.expectEqualStrings("This year", sidebar_dates.DateBucket.this_year.title());
+    try testing.expectEqualStrings("Older", sidebar_dates.DateBucket.older.title());
+
+    const zh = i18n.datesFor(.simplified_chinese, "");
+    try testing.expectEqualStrings("今日", sidebar_dates.DateBucket.today.titleFor(zh));
+    try testing.expectEqualStrings("昨天", sidebar_dates.DateBucket.yesterday.titleFor(zh));
+    try testing.expectEqualStrings("本周", sidebar_dates.DateBucket.this_week.titleFor(zh));
+    try testing.expectEqualStrings("本月", sidebar_dates.DateBucket.this_month.titleFor(zh));
+    try testing.expectEqualStrings("今年", sidebar_dates.DateBucket.this_year.titleFor(zh));
+    try testing.expectEqualStrings("更早", sidebar_dates.DateBucket.older.titleFor(zh));
+
+    const ja = i18n.datesFor(.japanese, "");
+    try testing.expectEqualStrings("今日", sidebar_dates.DateBucket.today.titleFor(ja));
+    try testing.expectEqualStrings("昨日", sidebar_dates.DateBucket.yesterday.titleFor(ja));
+    try testing.expectEqualStrings("今週", sidebar_dates.DateBucket.this_week.titleFor(ja));
+    try testing.expectEqualStrings("今月", sidebar_dates.DateBucket.this_month.titleFor(ja));
+    try testing.expectEqualStrings("今年", sidebar_dates.DateBucket.this_year.titleFor(ja));
+    try testing.expectEqualStrings("以前", sidebar_dates.DateBucket.older.titleFor(ja));
+}
+
+test "sidebar date-bucket titles follow Appearance language preference" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    model.now_ms = year_now_ms;
+    const today_id = model.addSession("today thread", .fx);
+    const yesterday_id = model.addSession("yesterday thread", .fx);
+    const week_id = model.addSession("week thread", .fx);
+    const month_id = model.addSession("month thread", .fx);
+    const year_id = model.addSession("year thread", .fx);
+    const older_id = model.addSession("older thread", .fx);
+    model.sessionById(today_id).?.updated_at = year_now_ms;
+    model.sessionById(yesterday_id).?.updated_at = year_now_ms - day_ms;
+    model.sessionById(week_id).?.updated_at = year_now_ms - (3 * day_ms);
+    model.sessionById(month_id).?.updated_at = year_now_ms - (10 * day_ms);
+    model.sessionById(year_id).?.updated_at = year_now_ms - (20 * day_ms);
+    model.sessionById(older_id).?.updated_at = year_now_ms - (80 * day_ms);
+
+    try testing.expectEqual(sidebar_dates.DateBucket.today, sidebar_dates.sessionDateBucket(year_now_ms, year_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.yesterday, sidebar_dates.sessionDateBucket(year_now_ms - day_ms, year_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_week, sidebar_dates.sessionDateBucket(year_now_ms - (3 * day_ms), year_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_month, sidebar_dates.sessionDateBucket(year_now_ms - (10 * day_ms), year_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.this_year, sidebar_dates.sessionDateBucket(year_now_ms - (20 * day_ms), year_now_ms));
+    try testing.expectEqual(sidebar_dates.DateBucket.older, sidebar_dates.sessionDateBucket(year_now_ms - (80 * day_ms), year_now_ms));
+
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "Today",
+        "today thread",
+        "Yesterday",
+        "yesterday thread",
+        "This week",
+        "week thread",
+        "This month",
+        "month thread",
+        "This year",
+        "year thread",
+        "Older",
+        "older thread",
+    });
+
+    model.language_preference = .simplified_chinese;
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "今日",
+        "today thread",
+        "昨天",
+        "yesterday thread",
+        "本周",
+        "week thread",
+        "本月",
+        "month thread",
+        "今年",
+        "year thread",
+        "更早",
+        "older thread",
+    });
+    const zh_tree = try buildTree(arena, &model);
+    _ = try expectByText(zh_tree.root, .list_item, "今日");
+    _ = try expectByText(zh_tree.root, .text, "昨天");
+    _ = try expectByText(zh_tree.root, .text, "本周");
+    _ = try expectByText(zh_tree.root, .text, "本月");
+    _ = try expectByText(zh_tree.root, .text, "今年");
+    _ = try expectByText(zh_tree.root, .text, "更早");
+    try testing.expect(findByText(zh_tree.root, .text, "Today") == null);
+    try testing.expect(findByText(zh_tree.root, .text, "This week") == null);
+
+    model.language_preference = .japanese;
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "今日",
+        "today thread",
+        "昨日",
+        "yesterday thread",
+        "今週",
+        "week thread",
+        "今月",
+        "month thread",
+        "今年",
+        "year thread",
+        "以前",
+        "older thread",
+    });
+    const ja_tree = try buildTree(arena, &model);
+    _ = try expectByText(ja_tree.root, .list_item, "今日");
+    _ = try expectByText(ja_tree.root, .text, "昨日");
+    _ = try expectByText(ja_tree.root, .text, "今週");
+    _ = try expectByText(ja_tree.root, .text, "今月");
+    _ = try expectByText(ja_tree.root, .text, "以前");
+    try testing.expect(findByText(ja_tree.root, .text, "Yesterday") == null);
+    try testing.expect(findByText(ja_tree.root, .text, "This month") == null);
+
+    model.language_preference = .system;
+    model.setSystemLocaleId("ja_JP.UTF-8");
+    try testing.expectEqualStrings("昨日", model.sidebarDates().yesterday);
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "今日",
+        "today thread",
+        "昨日",
+        "yesterday thread",
+        "今週",
+        "week thread",
+        "今月",
+        "month thread",
+        "今年",
+        "year thread",
+        "以前",
+        "older thread",
+    });
+
+    model.language_preference = .english;
+    try expectSidebarTitles(model.sidebar_rows(arena), &.{
+        "Today",
+        "today thread",
+        "Yesterday",
+        "yesterday thread",
+        "This week",
+        "week thread",
+        "This month",
+        "month thread",
+        "This year",
+        "year thread",
+        "Older",
+        "older thread",
+    });
+}
+
 test "ungrouped sessions land in Today Yesterday Older; folder rows stay put" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -19637,6 +19788,22 @@ test "sessionRelativeTime covers now, minutes, hours, yesterday, days, date; omi
     try expectRelativeTime(noon - day_ms, noon, "Yesterday");
     try expectRelativeTime(noon - (3 * day_ms), noon, "3d");
     try expectRelativeTime(pinned_now_ms - (40 * day_ms), noon, "2023-11-22");
+}
+
+test "sessionRelativeTime just now and Yesterday follow dates catalog; numeric forms stay" {
+    const noon = pinned_now_ms + (12 * 3_600_000);
+    var buf: [16]u8 = undefined;
+    const zh = i18n.datesFor(.simplified_chinese, "");
+    try testing.expectEqualStrings("刚刚", sidebar_dates.sessionRelativeTimeFor(noon, noon, &buf, zh).?);
+    try testing.expectEqualStrings("昨天", sidebar_dates.sessionRelativeTimeFor(noon - day_ms, noon, &buf, zh).?);
+    try testing.expectEqualStrings("5m", sidebar_dates.sessionRelativeTimeFor(noon - (5 * 60_000), noon, &buf, zh).?);
+    try testing.expectEqualStrings("2h", sidebar_dates.sessionRelativeTimeFor(noon - (2 * 3_600_000), noon, &buf, zh).?);
+    try testing.expectEqualStrings("3d", sidebar_dates.sessionRelativeTimeFor(noon - (3 * day_ms), noon, &buf, zh).?);
+    try testing.expectEqualStrings("2023-11-22", sidebar_dates.sessionRelativeTimeFor(pinned_now_ms - (40 * day_ms), noon, &buf, zh).?);
+    const ja = i18n.datesFor(.japanese, "");
+    try testing.expectEqualStrings("たった今", sidebar_dates.sessionRelativeTimeFor(noon, noon, &buf, ja).?);
+    try testing.expectEqualStrings("昨日", sidebar_dates.sessionRelativeTimeFor(noon - day_ms, noon, &buf, ja).?);
+    try testing.expectEqualStrings("5m", sidebar_dates.sessionRelativeTimeFor(noon - (5 * 60_000), noon, &buf, ja).?);
 }
 
 test "sidebar session rows show static relative last-activity; 0 omits; date buckets stay" {

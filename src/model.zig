@@ -1242,6 +1242,7 @@ pub const Model = struct {
         "language_preference",
         "setLanguagePreference",
         "settingsChrome",
+        "sidebarDates",
         "system_locale_id_storage",
         "system_locale_id_len",
         "setSystemLocaleId",
@@ -2684,6 +2685,12 @@ pub const Model = struct {
 
     fn settingsChrome(model: *const Model) i18n.Chrome {
         return i18n.chromeFor(model.language_preference, model.systemLocaleId());
+    }
+
+    /// Same resolve path as Settings Appearance chrome. Sidebar date
+    /// headers take this catalog; they do not read process env.
+    pub fn sidebarDates(model: *const Model) i18n.Dates {
+        return i18n.datesFor(model.language_preference, model.systemLocaleId());
     }
 
     pub fn systemLocaleId(model: *const Model) []const u8 {
