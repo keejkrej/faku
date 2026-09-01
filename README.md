@@ -50,7 +50,8 @@ non-empty; first Send and Fork omit it; not `--continue`; documented
 image path inside that `-p` prompt when a composer image is attached;
 stdout is NDJSON with live `text_delta` into the transcript; live
 Subagent Background from real `parent_tool_use_id`; live Monitor
-Background from real Claude `Monitor` `tool_use`). Available
+Background from real Claude `Monitor` `tool_use`, with a bounded
+output preview from matching user `tool_result`). Available
 Codex is
 one-shot `codex exec {prompt}` (not ACP; documented `--image {path}`
 after the prompt when a composer image is attached). Available Amp is
@@ -115,15 +116,18 @@ waku-protocol v4 JSON builders + server-frame parser, one-shot daemon
 sidecar, provider id `"fx"`, Environment Summary Background kind
 chrome (Process / Monitor / Subagent labels) with Process rows from
 window-side stream/settle, live Monitor rows from real Claude
-`Monitor` `tool_use`, and live Subagent rows from real Claude
+`Monitor` `tool_use` plus a first-cut bounded output preview in
+Environment Summary from matching user `tool_result` (runtime-only),
+and live Subagent rows from real Claude
 `parent_tool_use_id` / Agent `tool_use` signals while streaming.
 
 Later: Pi ACP / `--mode rpc`, Claude ACP, `--continue`,
 full onboarding / OAuth / auto-install, a long-lived daemon socket in
 the update loop
 (not this cut), a long-lived ACP loop once a window-side stdin-write
-effect exists, Monitor output log,
-daemon `refreshBackgroundWork`, right-panel BackgroundWork tab.
+effect exists, right-panel BackgroundWork / full 512KB Monitor log,
+per-monitor TaskStop,
+daemon `refreshBackgroundWork`.
 
 No `listSessions` / `createSession`. Catalog is `loadTaskState` (local
 JSON today). New session is a client-built session saved after first

@@ -408,6 +408,9 @@
                   <for each="background_rows" key="id" as="b">
                     <text foreground="text_muted">{b.kind_label}</text>
                     <text>{b.title}</text>
+                    <if test="{b.has_detail}">
+                      <text wrap="false" overflow="ellipsis" foreground="text_muted">{b.detail}</text>
+                    </if>
                     <if test="{b.can_stop}">
                       <menu-item on-press="environment_stop_background">Stop agent</menu-item>
                     </if>

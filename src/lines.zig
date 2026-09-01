@@ -11,7 +11,10 @@
 //! appended as prose. Claude `parent_tool_use_id` is subagent
 //! traffic (not main-turn append; live Subagent Background).
 //! Claude `tool_use` with `name` `Monitor` is live Monitor
-//! Background (not Bash / Agent / `parent_tool_use_id`).
+//! Background (not Bash / Agent / `parent_tool_use_id`). Matching
+//! user `tool_result` (`tool_use_id`) fills a bounded output
+//! preview on that live row; it does not `appendToTurn` and does
+//! not register a new Monitor.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -407,6 +410,13 @@ const ClaudeJsonParsed = struct {
     /// `name` is `Monitor` (code.claude.com/docs/en/tools-reference).
     /// Empty when absent. Not Bash, Agent, or `parent_tool_use_id`.
     monitor_tool_use_id: []const u8 = "",
+    /// First `message.content[]` / `content_block` `tool_result`
+    /// with a non-empty `tool_use_id` and non-empty `content` text
+    /// (string, or concatenated `type==text` array). Empty id or
+    /// empty text means no output event. Parser is name-blind;
+    /// registry matches a live Monitor id.
+    monitor_output_id: []const u8 = "",
+    monitor_output_text: []const u8 = "",
 };
 
 fn jsonStringField(obj: anytype, key: []const u8) ?[]const u8 {
@@ -471,6 +481,84 @@ fn jsonStreamEventNamedToolUseId(event: anytype, want_name: []const u8) []const 
     return jsonNamedToolUseIdFromBlock(block, want_name);
 }
 
+const ClaudeToolResult = struct {
+    id: []const u8 = "",
+    text: []const u8 = "",
+};
+
+fn jsonTextBlockText(item: std.json.Value) []const u8 {
+    const block = switch (item) {
+        .object => |o| o,
+        else => return "",
+    };
+    const block_type = jsonStringField(block, "type") orelse return "";
+    if (!std.mem.eql(u8, block_type, "text")) return "";
+    return jsonStringField(block, "text") orelse "";
+}
+
+fn jsonConcatTextBlocks(items: []const std.json.Value, allocator: std.mem.Allocator) []const u8 {
+    var total: usize = 0;
+    for (items) |item| {
+        const text = jsonTextBlockText(item);
+        if (text.len == 0) continue;
+        total += text.len;
+    }
+    if (total == 0) return "";
+    const out = allocator.alloc(u8, total) catch return "";
+    var n: usize = 0;
+    for (items) |item| {
+        const text = jsonTextBlockText(item);
+        if (text.len == 0) continue;
+        @memcpy(out[n..][0..text.len], text);
+        n += text.len;
+    }
+    return out[0..n];
+}
+
+fn jsonToolResultContentText(block: anytype, allocator: std.mem.Allocator) []const u8 {
+    const content_val = block.get("content") orelse return "";
+    return switch (content_val) {
+        .string => |s| s,
+        .array => |arr| jsonConcatTextBlocks(arr.items, allocator),
+        else => "",
+    };
+}
+
+fn jsonToolResultFromBlock(block: anytype, allocator: std.mem.Allocator) ClaudeToolResult {
+    const block_type = jsonStringField(block, "type") orelse return .{};
+    if (!std.mem.eql(u8, block_type, "tool_result")) return .{};
+    const id = jsonStringField(block, "tool_use_id") orelse return .{};
+    if (id.len == 0) return .{};
+    const text = jsonToolResultContentText(block, allocator);
+    if (text.len == 0) return .{};
+    return .{ .id = id, .text = text };
+}
+
+fn jsonToolResultFromMessage(obj: anytype, allocator: std.mem.Allocator) ClaudeToolResult {
+    const message = jsonObjectField(obj, "message") orelse return .{};
+    const content_val = message.get("content") orelse return .{};
+    const items = switch (content_val) {
+        .array => |arr| arr.items,
+        else => return .{},
+    };
+    for (items) |item| {
+        const block = switch (item) {
+            .object => |o| o,
+            else => continue,
+        };
+        const result = jsonToolResultFromBlock(block, allocator);
+        if (result.id.len > 0) return result;
+    }
+    return .{};
+}
+
+fn jsonStreamEventToolResult(event: anytype, allocator: std.mem.Allocator) ClaudeToolResult {
+    const event_type = jsonStringField(event, "type") orelse return .{};
+    if (!std.mem.eql(u8, event_type, "content_block_start")) return .{};
+    const block = jsonObjectField(event, "content_block") orelse return .{};
+    return jsonToolResultFromBlock(block, allocator);
+}
+
 /// Official Claude `--output-format stream-json` NDJSON line.
 /// Documented at code.claude.com/docs/en/headless (streaming recipe
 /// plus jq filter
@@ -483,7 +571,10 @@ fn jsonStreamEventNamedToolUseId(event: anytype, want_name: []const u8) []const 
 /// Non-empty `parent_tool_use_id` marks subagent traffic (do not
 /// append into the main turn). Agent `tool_use` id is the spawn key
 /// for live Subagent Background rows. Monitor `tool_use` id is the
-/// spawn key for live Monitor Background rows.
+/// spawn key for live Monitor Background rows. User `tool_result`
+/// (`tool_use_id` + `content`) is the first-cut Monitor output
+/// preview; empty id/text is no event. `parent_tool_use_id` is
+/// still Subagent, never Monitor output.
 fn parseClaudeJsonLine(line: []const u8, allocator: std.mem.Allocator) ClaudeJsonParsed {
     const trimmed = std.mem.trim(u8, line, " \t\r\n");
     if (trimmed.len < 2 or trimmed[0] != '{') return .{};
@@ -496,15 +587,39 @@ fn parseClaudeJsonLine(line: []const u8, allocator: std.mem.Allocator) ClaudeJso
     const parent = jsonParentToolUseId(obj);
     var agent_id = jsonNamedToolUseIdFromMessage(obj, "Agent");
     var monitor_id = jsonNamedToolUseIdFromMessage(obj, "Monitor");
+    var output_id: []const u8 = "";
+    var output_text: []const u8 = "";
+    if (std.mem.eql(u8, type_str, "user")) {
+        const result = jsonToolResultFromMessage(obj, allocator);
+        output_id = result.id;
+        output_text = result.text;
+    }
+    if (parent.len > 0) {
+        output_id = "";
+        output_text = "";
+    }
     if (std.mem.eql(u8, type_str, "stream_event")) {
         const event = jsonObjectField(obj, "event") orelse {
-            if (parent.len == 0 and agent_id.len == 0 and monitor_id.len == 0) return .{};
-            return .{ .parent_tool_use_id = parent, .agent_tool_use_id = agent_id, .monitor_tool_use_id = monitor_id };
+            if (parent.len == 0 and agent_id.len == 0 and monitor_id.len == 0 and output_id.len == 0) return .{};
+            return .{
+                .parent_tool_use_id = parent,
+                .agent_tool_use_id = agent_id,
+                .monitor_tool_use_id = monitor_id,
+                .monitor_output_id = output_id,
+                .monitor_output_text = output_text,
+            };
         };
         const stream_agent = jsonStreamEventNamedToolUseId(event, "Agent");
         if (stream_agent.len > 0) agent_id = stream_agent;
         const stream_monitor = jsonStreamEventNamedToolUseId(event, "Monitor");
         if (stream_monitor.len > 0) monitor_id = stream_monitor;
+        if (parent.len == 0) {
+            const stream_result = jsonStreamEventToolResult(event, allocator);
+            if (stream_result.id.len > 0) {
+                output_id = stream_result.id;
+                output_text = stream_result.text;
+            }
+        }
         const delta = jsonObjectField(event, "delta");
         if (delta) |d| {
             const delta_type = jsonStringField(d, "type") orelse "";
@@ -517,12 +632,20 @@ fn parseClaudeJsonLine(line: []const u8, allocator: std.mem.Allocator) ClaudeJso
                         .parent_tool_use_id = parent,
                         .agent_tool_use_id = agent_id,
                         .monitor_tool_use_id = monitor_id,
+                        .monitor_output_id = output_id,
+                        .monitor_output_text = output_text,
                     };
                 }
             }
         }
-        if (parent.len == 0 and agent_id.len == 0 and monitor_id.len == 0) return .{};
-        return .{ .parent_tool_use_id = parent, .agent_tool_use_id = agent_id, .monitor_tool_use_id = monitor_id };
+        if (parent.len == 0 and agent_id.len == 0 and monitor_id.len == 0 and output_id.len == 0) return .{};
+        return .{
+            .parent_tool_use_id = parent,
+            .agent_tool_use_id = agent_id,
+            .monitor_tool_use_id = monitor_id,
+            .monitor_output_id = output_id,
+            .monitor_output_text = output_text,
+        };
     }
     if (std.mem.eql(u8, type_str, "system")) {
         const subtype = jsonStringField(obj, "subtype") orelse return .{};
@@ -544,8 +667,14 @@ fn parseClaudeJsonLine(line: []const u8, allocator: std.mem.Allocator) ClaudeJso
         };
     }
     if (std.mem.eql(u8, type_str, "assistant") or std.mem.eql(u8, type_str, "user")) {
-        if (parent.len == 0 and agent_id.len == 0 and monitor_id.len == 0) return .{};
-        return .{ .parent_tool_use_id = parent, .agent_tool_use_id = agent_id, .monitor_tool_use_id = monitor_id };
+        if (parent.len == 0 and agent_id.len == 0 and monitor_id.len == 0 and output_id.len == 0) return .{};
+        return .{
+            .parent_tool_use_id = parent,
+            .agent_tool_use_id = agent_id,
+            .monitor_tool_use_id = monitor_id,
+            .monitor_output_id = output_id,
+            .monitor_output_text = output_text,
+        };
     }
     return .{};
 }
@@ -569,6 +698,9 @@ fn handleClaudeJsonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine
     }
     if (parsed.monitor_tool_use_id.len > 0) {
         environment_summary.noteLiveMonitor(model, parsed.monitor_tool_use_id);
+    }
+    if (parsed.monitor_output_id.len > 0 and parsed.monitor_output_text.len > 0) {
+        environment_summary.appendLiveMonitorOutput(model, parsed.monitor_output_id, parsed.monitor_output_text);
     }
     const subagent = parsed.parent_tool_use_id.len > 0;
     switch (parsed.kind) {
@@ -1361,6 +1493,8 @@ test "claude json parser: Monitor tool_use yields monitor id; Bash Agent missing
     try testing.expectEqualStrings("", monitor.parent_tool_use_id);
     try testing.expectEqualStrings("", monitor.agent_tool_use_id);
     try testing.expectEqualStrings("toolu_mon_1", monitor.monitor_tool_use_id);
+    try testing.expectEqualStrings("", monitor.monitor_output_id);
+    try testing.expectEqualStrings("", monitor.monitor_output_text);
 
     const stream_monitor = parseClaudeJsonLine(
         "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_mon_2\",\"name\":\"Monitor\"}}}",
@@ -1471,5 +1605,151 @@ test "claude json apply: Monitor tool_use fills Monitor rows after Process; Bash
     try testing.expectEqual(environment_summary.subagent_row_id_first, rows[3].id);
     try testing.expectEqualStrings(environment_summary.kind_monitor_label, rows[1].title);
     try testing.expect(!rows[1].can_stop);
+    try testing.expect(!rows[1].has_detail);
+}
+
+test "claude json parser: user tool_result yields monitor output; empty missing Bash Agent assistant do not" {
+    const testing = std.testing;
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const alloc = arena_state.allocator();
+
+    const string_result = parseClaudeJsonLine(
+        "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"line from monitor\"}]}}",
+        alloc,
+    );
+    try testing.expectEqual(ClaudeJsonKind.ignore, string_result.kind);
+    try testing.expectEqualStrings("toolu_mon_1", string_result.monitor_output_id);
+    try testing.expectEqualStrings("line from monitor", string_result.monitor_output_text);
+    try testing.expectEqualStrings("", string_result.monitor_tool_use_id);
+    try testing.expectEqualStrings("", string_result.text);
+
+    const array_result = parseClaudeJsonLine(
+        "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_2\",\"content\":[{\"type\":\"text\",\"text\":\"foo\"},{\"type\":\"image\"},{\"type\":\"text\",\"text\":\"\"},{\"type\":\"text\",\"text\":\"bar\"}]}]}}",
+        alloc,
+    );
+    try testing.expectEqualStrings("toolu_mon_2", array_result.monitor_output_id);
+    try testing.expectEqualStrings("foobar", array_result.monitor_output_text);
+
+    const stream_result = parseClaudeJsonLine(
+        "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_3\",\"content\":\"stream line\"}}}",
+        alloc,
+    );
+    try testing.expectEqualStrings("toolu_mon_3", stream_result.monitor_output_id);
+    try testing.expectEqualStrings("stream line", stream_result.monitor_output_text);
+
+    const empty_id = parseClaudeJsonLine(
+        "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"\",\"content\":\"nope\"}]}}",
+        alloc,
+    );
+    try testing.expectEqualStrings("", empty_id.monitor_output_id);
+    try testing.expectEqualStrings("", empty_id.monitor_output_text);
+
+    const missing_content = parseClaudeJsonLine(
+        "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\"}]}}",
+        alloc,
+    );
+    try testing.expectEqualStrings("", missing_content.monitor_output_id);
+    try testing.expectEqualStrings("", missing_content.monitor_output_text);
+
+    const empty_content = parseClaudeJsonLine(
+        "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"\"}]}}",
+        alloc,
+    );
+    try testing.expectEqualStrings("", empty_content.monitor_output_id);
+    try testing.expectEqualStrings("", empty_content.monitor_output_text);
+
+    const bash_use = parseClaudeJsonLine(
+        "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_bash\",\"name\":\"Bash\"}]}}",
+        alloc,
+    );
+    try testing.expectEqualStrings("", bash_use.monitor_output_id);
+    try testing.expectEqualStrings("", bash_use.monitor_output_text);
+
+    const agent_use = parseClaudeJsonLine(
+        "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_agent_1\",\"name\":\"Agent\"}]}}",
+        alloc,
+    );
+    try testing.expectEqualStrings("", agent_use.monitor_output_id);
+    try testing.expectEqualStrings("", agent_use.monitor_output_text);
+
+    const parent = parseClaudeJsonLine(
+        "{\"type\":\"user\",\"parent_tool_use_id\":\"toolu_agent_1\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"child\"}]}}",
+        alloc,
+    );
+    try testing.expectEqualStrings("toolu_agent_1", parent.parent_tool_use_id);
+    try testing.expectEqualStrings("", parent.monitor_output_id);
+    try testing.expectEqualStrings("", parent.monitor_output_text);
+}
+
+test "claude json apply: matching tool_result fills Monitor preview; unknown Bash do not; Subagent still works" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const sid = model.addSession("claude monitor output", .claude);
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    model.fx_spawn_claude_json = true;
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_1\",\"name\":\"Monitor\"}]}}",
+    });
+    try testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    try testing.expectEqualStrings("", model.background_monitors[0].output());
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\"line from monitor\"}]}}",
+    });
+    try testing.expectEqualStrings("line from monitor", model.background_monitors[0].output());
+    try testing.expectEqualStrings("", piJsonTurnText(&model, turn_id));
+    try testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_mon_1\",\"content\":\" second\"}]}}",
+    });
+    try testing.expectEqualStrings("line from monitor second", model.background_monitors[0].output());
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_unknown\",\"content\":\"ghost\"}]}}",
+    });
+    try testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    try testing.expectEqualStrings("line from monitor second", model.background_monitors[0].output());
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_bash\",\"content\":\"ls output\"}]}}",
+    });
+    try testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    try testing.expectEqualStrings("line from monitor second", model.background_monitors[0].output());
+
+    handleFxLine(&model, &fx, .{
+        .key = fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"parent_tool_use_id\":\"toolu_agent_1\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"secret\"}]}}",
+    });
+    try testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    try testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    try testing.expectEqualStrings("", piJsonTurnText(&model, turn_id));
+
+    var buf: [environment_summary.max_background_rows]environment_summary.BackgroundRow = undefined;
+    const rows = environment_summary.fillBackgroundRows(&model, &buf);
+    try testing.expectEqual(@as(usize, 3), rows.len);
+    try testing.expectEqual(environment_summary.BackgroundKind.process, rows[0].kind);
+    try testing.expectEqual(environment_summary.BackgroundKind.monitor, rows[1].kind);
+    try testing.expect(rows[1].has_detail);
+    try testing.expectEqualStrings("line from monitor second", rows[1].detail);
+    try testing.expect(!rows[0].has_detail);
+    try testing.expectEqual(environment_summary.BackgroundKind.subagent, rows[2].kind);
+    try testing.expect(!rows[2].has_detail);
+    try testing.expectEqual(environment_summary.monitor_row_id_first, rows[1].id);
+    try testing.expectEqual(environment_summary.subagent_row_id_first, rows[2].id);
 }
 

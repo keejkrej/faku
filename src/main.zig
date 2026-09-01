@@ -18,8 +18,9 @@
 //! composer image is attached (code.claude.com/docs/en/common-workflows;
 //! stdout is NDJSON: live `text_delta` into the transcript, not a
 //! prose dump; non-empty `parent_tool_use_id` is subagent traffic;
-//! `tool_use` with `name` `Monitor` fills live Monitor Background);
-//! Available Codex uses one-shot `codex exec {prompt}` (not ACP), with
+//! `tool_use` with `name` `Monitor` fills live Monitor Background;
+//! matching user `tool_result` fills a bounded output preview on
+//! that row); Available Codex uses one-shot `codex exec {prompt}` (not ACP), with
 //! documented `--image {path}` after the prompt when a composer image
 //! is attached; Available Amp uses one-shot `amp -x {prompt}` (not ACP),
 //! with a documented `@{path}` mention in that `-x` prompt when a

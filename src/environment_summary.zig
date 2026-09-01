@@ -23,12 +23,15 @@
 //! overwrite). Live Monitor rows come from real Claude
 //! stream-json `tool_use` / `content_block` whose `name` is
 //! `Monitor` (code.claude.com/docs/en/tools-reference; first-cut
-//! title is the stable `Monitor` label). Live Subagent rows
-//! come from real Claude stream-json `parent_tool_use_id` /
-//! Agent `tool_use` signals. Both are runtime-only while
-//! streaming (cleared when the turn settles or the stream
-//! ends; not sessions.json). Visible fill is Process, then
-//! live Monitor, then live Subagent, stopping at the cap.
+//! title is the stable `Monitor` label). Matching Claude user
+//! `tool_result` (`tool_use_id`) fills a bounded runtime-only
+//! output preview on that row (not sessions.json; not a
+//! Waku-sized 512KB log). Live Subagent rows come from real
+//! Claude stream-json `parent_tool_use_id` / Agent `tool_use`
+//! signals. Both are runtime-only while streaming (cleared
+//! when the turn settles or the stream ends; not
+//! sessions.json). Visible fill is Process, then live
+//! Monitor, then live Subagent, stopping at the cap.
 //! Idle settle stays Process-only. Settled is keyed by
 //! session id so switching hides another session's row
 //! without clearing it; a new settle overwrites; remove
@@ -53,10 +56,11 @@
 //! `prepareTurnDiffBase` names `turn-diff-{n}`; Compare uses
 //! stored shas, not the refs); rewind `<sha>...HEAD`
 //! fallback; not `refs/waku/`; not HEAD~1. Leftovers:
-//! prune-alone, Monitor output log, daemon
-//! `refreshBackgroundWork` / WorkspaceOperation, right-panel
-//! BackgroundWork tab. Kind chrome, Process registry, first-cut
-//! live Monitor rows from Claude `Monitor` tool_use, and
+//! prune-alone, right-panel BackgroundWork / full 512KB Monitor
+//! log, per-monitor TaskStop, daemon `refreshBackgroundWork` /
+//! WorkspaceOperation. Kind chrome, Process registry, first-cut
+//! live Monitor rows from Claude `Monitor` tool_use plus a
+//! bounded output preview from matching user `tool_result`, and
 //! first-cut live Subagent rows from Claude `parent_tool_use_id`
 //! ship; not a Waku BackgroundWorkRegistry.
 //! Not transcript checkpoint +/-. Not force push (Waku
@@ -85,7 +89,8 @@ pub const SettledStatus = enum { none, completed, stopped, failed };
 
 /// Background kind chrome. Stable labels match Waku's Process ·
 /// Monitor · Subagent grouping. This cut fills Process, live
-/// Monitor from Claude `Monitor` tool_use, and live Subagent
+/// Monitor from Claude `Monitor` tool_use (bounded output
+/// preview from matching user `tool_result`), and live Subagent
 /// from Claude `parent_tool_use_id` / Agent `tool_use`.
 pub const BackgroundKind = enum {
     process,
@@ -128,6 +133,10 @@ pub const max_monitor_id: usize = max_subagent_id;
 pub const max_subagent_title: usize = 32;
 pub const max_monitor_title: usize = max_subagent_title;
 
+/// First-cut Monitor output window (last bytes; drain-from-front).
+/// Not Waku's 512KB log. Runtime-only.
+pub const max_monitor_output: usize = 512;
+
 /// Runtime-only live Subagent slot. Keyed by
 /// `parent_tool_use_id` / Agent `tool_use` id. Not persisted.
 pub const LiveSubagent = struct {
@@ -148,12 +157,15 @@ pub const LiveSubagent = struct {
 
 /// Runtime-only live Monitor slot. Keyed by Claude `Monitor`
 /// `tool_use` id. Not persisted. First-cut title is the stable
-/// `Monitor` label (no undocumented input scrape).
+/// `Monitor` label (no undocumented input scrape). Output is a
+/// bounded last-window from matching user `tool_result` text.
 pub const LiveMonitor = struct {
     id_storage: [max_monitor_id]u8 = [_]u8{0} ** max_monitor_id,
     id_len: usize = 0,
     title_storage: [max_monitor_title]u8 = [_]u8{0} ** max_monitor_title,
     title_len: usize = 0,
+    output_storage: [max_monitor_output]u8 = [_]u8{0} ** max_monitor_output,
+    output_len: usize = 0,
 
     pub fn toolUseId(self: *const LiveMonitor) []const u8 {
         return self.id_storage[0..self.id_len];
@@ -162,6 +174,16 @@ pub const LiveMonitor = struct {
     pub fn title(self: *const LiveMonitor) []const u8 {
         if (self.title_len == 0) return kind_monitor_label;
         return self.title_storage[0..self.title_len];
+    }
+
+    pub fn output(self: *const LiveMonitor) []const u8 {
+        return self.output_storage[0..self.output_len];
+    }
+
+    /// Single-line preview for Environment Summary. Empty when
+    /// no output has landed (chrome hides it).
+    pub fn preview(self: *const LiveMonitor) []const u8 {
+        return std.mem.trim(u8, self.output(), " ");
     }
 };
 
@@ -183,6 +205,10 @@ pub const BackgroundRow = struct {
     can_stop: bool,
     has_status: bool,
     settled_status: []const u8,
+    /// Monitor output preview only. Process / Subagent stay empty
+    /// so Completed / Stopped / Failed is not reused.
+    has_detail: bool,
+    detail: []const u8,
 };
 
 pub fn backgroundKindLabel(kind: BackgroundKind) []const u8 {
@@ -221,8 +247,13 @@ pub fn clearLiveSubagents(model: *Model) void {
     model.background_subagent_count = 0;
 }
 
-/// Drop live Monitor rows. Same lifetime as Subagent.
+/// Drop live Monitor rows (and their output windows). Same
+/// lifetime as Subagent.
 pub fn clearLiveMonitors(model: *Model) void {
+    var i: u32 = 0;
+    while (i < model.background_monitor_count) : (i += 1) {
+        model.background_monitors[i] = .{};
+    }
     model.background_monitor_count = 0;
 }
 
@@ -254,7 +285,7 @@ pub fn noteLiveSubagent(model: *Model, parent_id: []const u8) void {
 /// `tool_use` id. Duplicate ids are a no-op. Cap
 /// `max_live_monitors` (Process keeps a slot). Title is the
 /// stable `Monitor` label this cut. Not Bash, Agent, or
-/// `parent_tool_use_id`.
+/// `parent_tool_use_id`. Output append does not register a row.
 pub fn noteLiveMonitor(model: *Model, tool_use_id: []const u8) void {
     if (tool_use_id.len == 0) return;
     var i: u32 = 0;
@@ -263,10 +294,72 @@ pub fn noteLiveMonitor(model: *Model, tool_use_id: []const u8) void {
     }
     if (model.background_monitor_count >= max_live_monitors) return;
     const slot = &model.background_monitors[model.background_monitor_count];
+    slot.* = .{};
     const writeFixed = main.writeFixed;
     writeFixed(&slot.id_storage, &slot.id_len, tool_use_id);
     writeFixed(&slot.title_storage, &slot.title_len, kind_monitor_label);
     model.background_monitor_count += 1;
+}
+
+/// Append output onto a live Monitor whose `tool_use` id matches.
+/// No-op when id/text is empty or no row is registered. Does not
+/// create a Monitor row (Bash / Agent / unknown ids stay ignored).
+/// Duplicate apply of the same delta just appends. Last-window
+/// drain-from-front at `max_monitor_output`; UTF-8 char-boundary
+/// safe. Newlines collapse to spaces so chrome stays one line.
+pub fn appendLiveMonitorOutput(model: *Model, tool_use_id: []const u8, text: []const u8) void {
+    if (tool_use_id.len == 0 or text.len == 0) return;
+    var i: u32 = 0;
+    while (i < model.background_monitor_count) : (i += 1) {
+        const slot = &model.background_monitors[i];
+        if (!std.mem.eql(u8, slot.toolUseId(), tool_use_id)) continue;
+        appendBoundedCollapsed(&slot.output_storage, &slot.output_len, text);
+        return;
+    }
+}
+
+fn collapseWsByte(c: u8) u8 {
+    return switch (c) {
+        '\n', '\r', '\t' => ' ',
+        else => c,
+    };
+}
+
+fn utf8AlignForward(bytes: []const u8, start: usize) usize {
+    var i = start;
+    while (i < bytes.len and (bytes[i] & 0xC0) == 0x80) i += 1;
+    return i;
+}
+
+fn appendBoundedCollapsed(storage: []u8, len: *usize, text: []const u8) void {
+    if (text.len == 0) return;
+    if (text.len >= storage.len) {
+        const start = utf8AlignForward(text, text.len - storage.len);
+        var n: usize = 0;
+        for (text[start..]) |c| {
+            storage[n] = collapseWsByte(c);
+            n += 1;
+        }
+        len.* = n;
+        return;
+    }
+    const combined = len.* + text.len;
+    if (combined > storage.len) {
+        const drop = combined - storage.len;
+        const start = utf8AlignForward(storage[0..len.*], drop);
+        const keep = len.* - start;
+        if (start > 0 and keep > 0) {
+            std.mem.copyForwards(u8, storage[0..keep], storage[start..len.*]);
+        }
+        len.* = keep;
+    }
+    var n = len.*;
+    for (text) |c| {
+        if (n >= storage.len) break;
+        storage[n] = collapseWsByte(c);
+        n += 1;
+    }
+    len.* = n;
 }
 
 /// Live Subagent rows exist only while streaming. Idle settle is
@@ -313,7 +406,8 @@ pub fn settledStatusLabel(model: *const Model) []const u8 {
 /// Project the runtime registry into `out` (cap `max_background_rows`).
 /// Streaming wins so a queued `finishStream` restart stays on the
 /// live Process row instead of flashing Completed. Live Monitor
-/// rows follow Process from Claude `Monitor` `tool_use`. Live
+/// rows follow Process from Claude `Monitor` `tool_use` (bounded
+/// output preview from matching user `tool_result`). Live
 /// Subagent rows follow those from `parent_tool_use_id` / Agent
 /// `tool_use`. Fill stops at the cap.
 pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]BackgroundRow) []const BackgroundRow {
@@ -329,12 +423,15 @@ pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]Backgr
         .can_stop = live,
         .has_status = status.len > 0,
         .settled_status = status,
+        .has_detail = false,
+        .detail = "",
     };
     var n: usize = 1;
     const mon_n = liveMonitorCount(model);
     var mi: u32 = 0;
     while (mi < mon_n and n < max_background_rows) : (mi += 1) {
         const slot = &model.background_monitors[mi];
+        const detail = slot.preview();
         out[n] = .{
             .id = monitor_row_id_first + mi,
             .kind = .monitor,
@@ -344,6 +441,8 @@ pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]Backgr
             .can_stop = false,
             .has_status = false,
             .settled_status = "",
+            .has_detail = detail.len > 0,
+            .detail = detail,
         };
         n += 1;
     }
@@ -360,6 +459,8 @@ pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]Backgr
             .can_stop = false,
             .has_status = false,
             .settled_status = "",
+            .has_detail = false,
+            .detail = "",
         };
         n += 1;
     }
@@ -489,6 +590,8 @@ fn expectLiveProcessRow(model: *const Model) !void {
     try std.testing.expect(rows[0].can_stop);
     try std.testing.expect(!rows[0].has_status);
     try std.testing.expectEqualStrings("", rows[0].settled_status);
+    try std.testing.expect(!rows[0].has_detail);
+    try std.testing.expectEqualStrings("", rows[0].detail);
 }
 
 fn expectSettledProcessRow(model: *const Model, status: []const u8) !void {
@@ -502,6 +605,8 @@ fn expectSettledProcessRow(model: *const Model, status: []const u8) !void {
     try std.testing.expect(!rows[0].can_stop);
     try std.testing.expect(rows[0].has_status);
     try std.testing.expectEqualStrings(status, rows[0].settled_status);
+    try std.testing.expect(!rows[0].has_detail);
+    try std.testing.expectEqualStrings("", rows[0].detail);
 }
 
 test "headerNumstatLabel omits a zero side" {
@@ -1155,6 +1260,8 @@ test "fillBackgroundRows emits Subagent while live parent_tool_use_id signals ex
     try std.testing.expect(rows[1].live);
     try std.testing.expect(!rows[1].can_stop);
     try std.testing.expect(!rows[1].has_status);
+    try std.testing.expect(!rows[1].has_detail);
+    try std.testing.expectEqualStrings("", rows[1].detail);
     try std.testing.expect(rows[1].kind != .monitor);
 
     noteLiveSubagent(&model, "toolu_agent_2");
@@ -1228,6 +1335,8 @@ test "fillBackgroundRows emits Monitor while live Monitor tool_use signals exist
     try std.testing.expect(rows[1].live);
     try std.testing.expect(!rows[1].can_stop);
     try std.testing.expect(!rows[1].has_status);
+    try std.testing.expect(!rows[1].has_detail);
+    try std.testing.expectEqualStrings("", rows[1].detail);
     try std.testing.expect(rows[1].kind != .subagent);
 
     noteLiveMonitor(&model, "toolu_mon_2");
@@ -1264,6 +1373,7 @@ test "fillBackgroundRows emits Process then Monitor then Subagent under the cap"
     try std.testing.expectEqual(monitor_row_id_first, rows[1].id);
     try std.testing.expectEqualStrings(kind_monitor_label, rows[1].title);
     try std.testing.expect(!rows[1].can_stop);
+    try std.testing.expect(!rows[1].has_detail);
     try std.testing.expectEqual(BackgroundKind.subagent, rows[2].kind);
     try std.testing.expectEqual(subagent_row_id_first, rows[2].id);
     try std.testing.expect(rows[1].id != rows[2].id);
@@ -1297,8 +1407,12 @@ test "finishStream and stopStream clear live Monitor rows" {
     model.phase = .streaming;
     model.streaming_session = id;
     noteLiveMonitor(&model, "toolu_mon_clear_1");
+    appendLiveMonitorOutput(&model, "toolu_mon_clear_1", "line from monitor");
     var buf: [max_background_rows]BackgroundRow = undefined;
-    try std.testing.expectEqual(@as(usize, 2), fillBackgroundRows(&model, &buf).len);
+    const live_rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 2), live_rows.len);
+    try std.testing.expect(live_rows[1].has_detail);
+    try std.testing.expectEqualStrings("line from monitor", live_rows[1].detail);
 
     turn_stream.finishStream(&model, &fx, true);
     try std.testing.expectEqual(@as(u32, 0), model.background_monitor_count);
@@ -1326,8 +1440,10 @@ test "Send start clears live Monitor rows" {
     model.phase = .streaming;
     model.streaming_session = id;
     noteLiveMonitor(&model, "toolu_mon_send_1");
+    appendLiveMonitorOutput(&model, "toolu_mon_send_1", "preview that must drop");
     noteLiveSubagent(&model, "toolu_agent_send_1");
     try std.testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    try std.testing.expect(model.background_monitors[0].output().len > 0);
     try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
 
     prompt_spawn.startPrompt(&model, &fx, id, "next turn");
@@ -1335,5 +1451,71 @@ test "Send start clears live Monitor rows" {
     try std.testing.expectEqual(@as(u32, 0), model.background_subagent_count);
     try std.testing.expect(model.is_streaming());
     try expectLiveProcessRow(&model);
+}
+
+test "appendLiveMonitorOutput fills preview; unknown id and empty text are no-ops" {
+    var model = Model{};
+    const id = model.addSession("env monitor output", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+
+    appendLiveMonitorOutput(&model, "toolu_mon_1", "before row");
+    try std.testing.expectEqual(@as(u32, 0), model.background_monitor_count);
+    try expectLiveProcessRow(&model);
+
+    noteLiveMonitor(&model, "toolu_mon_1");
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    var rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 2), rows.len);
+    try std.testing.expect(!rows[1].has_detail);
+    try std.testing.expectEqualStrings("", rows[1].detail);
+    try std.testing.expect(!rows[1].has_status);
+    try std.testing.expectEqualStrings("", rows[1].settled_status);
+
+    appendLiveMonitorOutput(&model, "", "ignored");
+    appendLiveMonitorOutput(&model, "toolu_mon_1", "");
+    appendLiveMonitorOutput(&model, "toolu_unknown", "no row");
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 2), rows.len);
+    try std.testing.expect(!rows[1].has_detail);
+    try std.testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+
+    appendLiveMonitorOutput(&model, "toolu_mon_1", "first\nline");
+    appendLiveMonitorOutput(&model, "toolu_mon_1", " first\nline");
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expect(rows[1].has_detail);
+    try std.testing.expectEqualStrings("first line first line", rows[1].detail);
+    try std.testing.expect(!rows[1].has_status);
+    try std.testing.expectEqualStrings(kind_monitor_label, rows[1].title);
+    try std.testing.expect(!rows[0].has_detail);
+
+    noteLiveSubagent(&model, "toolu_agent_1");
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 3), rows.len);
+    try std.testing.expect(!rows[2].has_detail);
+    try std.testing.expectEqualStrings("", rows[2].detail);
+}
+
+test "appendLiveMonitorOutput drains from the front at the 512-byte cap" {
+    var model = Model{};
+    const id = model.addSession("env monitor overflow", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    noteLiveMonitor(&model, "toolu_mon_cap");
+
+    const first = "é" ++ "x" ** (max_monitor_output - 2);
+    appendLiveMonitorOutput(&model, "toolu_mon_cap", first);
+    try std.testing.expectEqual(max_monitor_output, model.background_monitors[0].output().len);
+    try std.testing.expect(std.mem.startsWith(u8, model.background_monitors[0].output(), "é"));
+
+    appendLiveMonitorOutput(&model, "toolu_mon_cap", "y");
+    const out = model.background_monitors[0].output();
+    try std.testing.expect(out.len <= max_monitor_output);
+    try std.testing.expect(out.len > 0);
+    try std.testing.expect(out[0] != 0xA9);
+    try std.testing.expect(out[out.len - 1] == 'y');
+    try std.testing.expect(!std.mem.startsWith(u8, out, "é"));
 }
 
