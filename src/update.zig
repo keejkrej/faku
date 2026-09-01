@@ -5,6 +5,7 @@
 //! Re-exported from `main.zig` so `UiApp` and tests keep `main.update` /
 //! `main.initFx`. Behavior is unchanged from the former `main` functions.
 //! `initialModel` / appearance boot live in `boot.zig`.
+//! Shell scene / app icons live in `shell.zig`.
 
 const main = @import("main.zig");
 const store = @import("store.zig");

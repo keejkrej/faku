@@ -4,7 +4,8 @@
 //! `asciiContainsIgnoreCase` / `directoryExists` / `fileExists` /
 //! `fx_ask_chdir_script` / `bindDaemonEnv` live here.
 //! `update` / `initFx` live in `update.zig`. `initialModel` lives in
-//! `boot.zig`. `main()` stays in `main.zig`.
+//! `boot.zig`. Shell scene / app icons live in `shell.zig`.
+//! `main()` stays in `main.zig`.
 //! Behavior is unchanged from the former `main` util helpers.
 
 const std = @import("std");
