@@ -9130,6 +9130,9 @@ test "Environment Summary Process row opens right-panel Background; unknown id n
     try testing.expectEqualStrings("Agent turn", model.background_work_title());
     try testing.expectEqualStrings("Running", model.background_work_status());
     try testing.expect(!model.background_work_has_output());
+    try testing.expect(model.background_work_can_stop());
+    try testing.expectEqual(@as(u32, 1), model.background_work_row_id());
+    try testing.expectEqualStrings("Stop agent", model.background_work_stop_label());
 
     tree = try buildTree(arena, &model);
     try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
@@ -9137,6 +9140,7 @@ test "Environment Summary Process row opens right-panel Background; unknown id n
     _ = try expectByText(tree.root, .text, "Agent turn");
     _ = try expectByText(tree.root, .text, "Running");
     _ = try expectByText(tree.root, .text, "No output");
+    _ = try expectButtonMsg(tree, "Stop agent", .{ .environment_stop_background = 1 });
     try testing.expect((try expectButtonMsg(tree, "Background", .set_right_panel_tab_background)).state.selected);
 
     main.update(&model, .set_right_panel_tab_files, &fx);
@@ -9151,9 +9155,11 @@ test "Environment Summary Process row opens right-panel Background; unknown id n
     try testing.expect(!model.is_streaming());
     try testing.expectEqual(selected, model.background_settled_session);
     try testing.expectEqualStrings("Stopped", model.background_work_status());
+    try testing.expect(!model.background_work_can_stop());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Stopped");
     try testing.expect(findByText(tree.root, .text, "No background work") == null);
+    try testing.expect(findByText(tree.root, .button, "Stop agent") == null);
 }
 
 test "Environment Summary Monitor row opens Background with the 512KB log" {
@@ -9196,20 +9202,27 @@ test "Environment Summary Monitor row opens Background with the 512KB log" {
     try testing.expectEqualStrings("Monitor", model.background_work_kind_label());
     try testing.expectEqualStrings("Monitoring", model.background_work_status());
     try testing.expectEqualStrings("line from monitor", model.background_work_output());
+    try testing.expect(model.background_work_can_stop());
+    try testing.expectEqual(@as(u32, 100), model.background_work_row_id());
+    try testing.expectEqualStrings("Stop monitor", model.background_work_stop_label());
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Monitor");
     _ = try expectByText(tree.root, .text, "Monitoring");
     _ = try expectByText(tree.root, .text, "line from monitor");
+    const stop_panel = try expectButtonMsg(tree, "Stop monitor", .{ .environment_stop_background = 100 });
     try testing.expect(findByText(tree.root, .text, "No output") == null);
     try testing.expect(findByText(tree.root, .text, "No background work") == null);
 
-    main.update(&model, .stop_turn, &fx);
+    main.update(&model, tree.msgForPointer(stop_panel.id, .up).?, &fx);
+    try testing.expect(model.is_streaming());
     try testing.expect(model.background_work_empty());
-    try testing.expectEqual(@as(u32, 100), model.right_panel_background_row_id);
+    try testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+    try testing.expectEqual(@as(u32, 0), model.background_monitor_count);
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "No background work");
     try testing.expect(findByText(tree.root, .text, "line from monitor") == null);
+    try testing.expect(findByText(tree.root, .button, "Stop monitor") == null);
 }
 
 test "Environment Summary Monitor detail stays one line; Background panel shows newlines and strips CSI" {
@@ -19536,6 +19549,7 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_copy_agent_thread_id").? < std.mem.indexOf(u8, main.app_markup, "environment_stop_background").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "for each=\"background_rows\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "open_background_work:{b.id}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "environment_stop_background:{b.id}") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.kind_label}").? < std.mem.indexOf(u8, main.app_markup, "{b.title}").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.title}").? < std.mem.indexOf(u8, main.app_markup, "b.has_detail").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "b.has_detail").? < std.mem.indexOf(u8, main.app_markup, "{b.detail}").?);
@@ -19600,7 +19614,7 @@ test "Environment Background Stop appears while streaming and reuses composer St
     _ = try expectByText(tree.root, .text, "Process");
     _ = try expectByText(tree.root, .menu_item, "Agent turn");
     const stop_agent = try expectByText(tree.root, .menu_item, "Stop agent");
-    try testing.expectEqual(Msg.environment_stop_background, tree.msgForPointer(stop_agent.id, .up).?);
+    try testing.expectEqual(Msg{ .environment_stop_background = 1 }, tree.msgForPointer(stop_agent.id, .up).?);
     _ = try expectByText(tree.root, .menu_item, "Copy task ID");
     try testing.expect(findByText(tree.root, .menu_item, "Copy agent CLI thread ID") == null);
     try testing.expect(findByText(tree.root, .text, "Monitor") == null);
@@ -19709,8 +19723,63 @@ test "Environment Background Monitor row shows tool_result preview and hides emp
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Monitor");
     _ = try expectByText(tree.root, .text, "line from monitor");
+    const stop_monitor = try expectByText(tree.root, .menu_item, "Stop monitor");
+    try testing.expectEqual(Msg{ .environment_stop_background = 100 }, tree.msgForPointer(stop_monitor.id, .up).?);
+    _ = try expectByText(tree.root, .menu_item, "Stop agent");
     try testing.expect(findByText(tree.root, .text, "Completed") == null);
     try testing.expect(findByText(tree.root, .text, "Subagent") == null);
+}
+
+test "Environment Background Monitor Stop dismisses that row and leaves Process streaming" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer environment_summary.clearLiveMonitors(&model);
+    const sid = model.addSession("env monitor stop ui", .claude);
+    model.selected = sid;
+    const turn_id = model.appendTurn(sid, .assistant, "");
+    model.phase = .streaming;
+    model.stream_turn_id = turn_id;
+    model.streaming_session = sid;
+    if (model.sessionById(sid)) |session| session.busy = true;
+    model.fx_spawn_claude_json = true;
+    model.fx_spawn_key = main.fx_ask_key;
+
+    main.update(&model, .{ .fx_line = .{
+        .key = main.fx_ask_key,
+        .line = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_mon_1\",\"name\":\"Monitor\"}]}}",
+    } }, &fx);
+    main.update(&model, .toggle_environment_summary, &fx);
+    var tree = try buildTree(arena, &model);
+    const stop_monitor = try expectByText(tree.root, .menu_item, "Stop monitor");
+    try testing.expectEqual(Msg{ .environment_stop_background = 100 }, tree.msgForPointer(stop_monitor.id, .up).?);
+
+    main.update(&model, tree.msgForPointer(stop_monitor.id, .up).?, &fx);
+    try testing.expect(!model.environment_summary_open);
+    try testing.expect(model.is_streaming());
+    try testing.expect(model.sessionById(sid).?.busy);
+    try testing.expectEqual(@as(u32, 0), model.background_monitor_count);
+    try testing.expect(model.has_background_section());
+    try testing.expect(!model.has_settled_background());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .dropdown_menu) == null);
+    try testing.expect(findByText(tree.root, .menu_item, "Stop monitor") == null);
+    try testing.expect(findByText(tree.root, .text, "Monitor") == null);
+
+    main.update(&model, .toggle_environment_summary, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Process");
+    _ = try expectByText(tree.root, .menu_item, "Agent turn");
+    _ = try expectByText(tree.root, .menu_item, "Stop agent");
+    try testing.expect(findByText(tree.root, .menu_item, "Stop monitor") == null);
+    try testing.expect(findByText(tree.root, .text, "Monitor") == null);
 }
 
 test "Environment Commit or Push opens the commit card on a clean tree; composer Commit… stays gated" {

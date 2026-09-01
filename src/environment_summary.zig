@@ -28,9 +28,17 @@
 //! 512KB last-window log on that row (newlines kept; not
 //! sessions.json). Environment Summary `detail` stays a short
 //! one-line preview; the right-panel Background body shows the
-//! stored log with CSI/ANSI stripped for display. Live Subagent rows come from real
+//! stored log with CSI/ANSI stripped for display. Live Monitor
+//! rows set `can_stop`; Stop is Faku-side dismiss of that slot
+//! (compact + free the heap log, ignore later output for that
+//! `tool_use` id) on one-shot `claude -p --output-format
+//! stream-json`. It does not invoke Claude's TaskStop tool
+//! mid-turn (no long-lived session, no undocumented stdin). The
+//! underlying Monitor may keep feeding the Claude process until
+//! the turn ends; Faku stops showing and accumulating that row.
+//! Live Subagent rows come from real
 //! Claude stream-json `parent_tool_use_id` / Agent `tool_use`
-//! signals. Both are runtime-only while streaming (cleared
+//! signals (`can_stop` stays false this cut). Both are runtime-only while streaming (cleared
 //! when the turn settles or the stream ends; not
 //! sessions.json). Visible fill is Process, then live
 //! Monitor, then live Subagent, stopping at the cap.
@@ -60,14 +68,16 @@
 //! fallback; not `refs/waku/`; not HEAD~1. Clicking a visible
 //! Background row closes this dropdown and opens the right-panel
 //! Background surface for that row (kind, title, live-or-settled
-//! status, Monitor 512KB last-window log). Leftovers: prune-alone,
-//! per-monitor TaskStop, daemon `refreshBackgroundWork` /
-//! WorkspaceOperation, full BackgroundWorkRegistry, 100ms render
-//! cache. Kind chrome, Process registry, first-cut live Monitor
+//! status, Monitor 512KB last-window log, Stop when the selected
+//! row is a live Process or live Monitor). Leftovers: prune-alone,
+//! Claude CLI TaskStop / long-lived ACP, daemon `refreshBackgroundWork` /
+//! WorkspaceOperation, full BackgroundWorkRegistry, Subagent stop,
+//! 100ms render cache. Kind chrome, Process registry, first-cut live Monitor
 //! rows from Claude `Monitor` tool_use plus a Waku-sized 512KB
 //! last-window log from matching user `tool_result` (Environment
 //! Summary stays a one-line preview; right-panel Background reads
-//! the stored log), first-cut live Subagent rows from Claude
+//! the stored log) and Faku-side Monitor Stop on one-shot `-p`,
+//! first-cut live Subagent rows from Claude
 //! `parent_tool_use_id`, and first-cut right-panel Background
 //! ship; not a Waku BackgroundWorkRegistry.
 //! Not transcript checkpoint +/-. Not force push (Waku
@@ -225,6 +235,11 @@ pub const live_running_label = "Running";
 pub const live_monitoring_label = "Monitoring";
 pub const empty_background_work_label = "No background work";
 pub const no_output_label = "No output";
+/// Process Stop. Same composer Stop / `stopStream` path.
+pub const process_stop_label = "Stop agent";
+/// Monitor Stop. Faku-side dismiss of that live row; not Claude
+/// TaskStop on one-shot `claude -p`. Distinct from composer Stop.
+pub const monitor_stop_label = "Stop monitor";
 
 /// Visible Background registry row. Native `background_rows`
 /// iterates this. Not persisted to sessions.json / drafts.json.
@@ -235,6 +250,10 @@ pub const BackgroundRow = struct {
     title: []const u8,
     live: bool,
     can_stop: bool,
+    /// Process: `Stop agent`. Monitor: `Stop monitor`. Empty when
+    /// `can_stop` is false. Native binds this so one press handler
+    /// can label Process vs Monitor without new widgets.
+    stop_label: []const u8,
     has_status: bool,
     settled_status: []const u8,
     /// Monitor one-line preview only. Process / Subagent stay empty
@@ -566,6 +585,7 @@ pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]Backgr
         .title = process_row_label,
         .live = live,
         .can_stop = live,
+        .stop_label = if (live) process_stop_label else "",
         .has_status = status.len > 0,
         .settled_status = status,
         .has_detail = false,
@@ -583,7 +603,8 @@ pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]Backgr
             .kind_label = backgroundKindLabel(.monitor),
             .title = slot.title(),
             .live = true,
-            .can_stop = false,
+            .can_stop = true,
+            .stop_label = monitor_stop_label,
             .has_status = false,
             .settled_status = "",
             .has_detail = detail.len > 0,
@@ -602,6 +623,7 @@ pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]Backgr
             .title = slot.title(),
             .live = true,
             .can_stop = false,
+            .stop_label = "",
             .has_status = false,
             .settled_status = "",
             .has_detail = false,
@@ -697,14 +719,66 @@ pub fn compare(model: *Model, fx: *Effects) void {
     right_panel.selectDiff(model, fx);
 }
 
-/// Close the popover, then cancel the live turn the same way as
-/// composer Stop (`stopStream`). Idle is a no-op: Stop agent is
-/// omitted when not streaming. `stopStream` records the Stopped
-/// settle; this does not invent spawn/kill paths.
-pub fn stopBackground(model: *Model, fx: *Effects) void {
-    if (!model.is_streaming()) return;
+/// Close the popover, then dispatch Stop by Native `background_rows`
+/// id. Process (`process_row_id`) cancels the live turn the same way
+/// as composer Stop (`stopStream`) and records Stopped. Live Monitor
+/// ids dismiss that Faku-side slot only (compact + free heap log;
+/// later `tool_result` for that `tool_use` id is ignored because the
+/// slot is gone). Does not `stopStream` for a Monitor. Unknown /
+/// Process-idle / Subagent ids are no-ops (Subagent `can_stop` stays
+/// false). Not Claude TaskStop: one-shot `claude -p` has no mid-turn
+/// stdin / long-lived session.
+pub fn stopBackground(model: *Model, fx: *Effects, row_id: u32) void {
+    if (row_id == process_row_id) {
+        if (!model.is_streaming()) return;
+        close(model);
+        turn_stream.stopStream(model, fx);
+        return;
+    }
+    const index = liveMonitorIndex(model, row_id) orelse return;
     close(model);
-    turn_stream.stopStream(model, fx);
+    dismissLiveMonitor(model, index);
+}
+
+/// Visible live Monitor index for `row_id`, or null when idle /
+/// unknown / not a Monitor key.
+fn liveMonitorIndex(model: *const Model, row_id: u32) ?u32 {
+    const n = liveMonitorCount(model);
+    if (n == 0 or row_id < monitor_row_id_first) return null;
+    const idx = row_id - monitor_row_id_first;
+    if (idx >= n) return null;
+    return idx;
+}
+
+/// Faku-side Monitor dismiss: free the heap last-window, compact
+/// remaining slots, and clear or remap right-panel selection so a
+/// selected stopped row becomes empty ("No background work"). Does
+/// not cancel the Process / stream.
+fn dismissLiveMonitor(model: *Model, index: u32) void {
+    if (index >= model.background_monitor_count) return;
+    const old_count = model.background_monitor_count;
+    const removed_id = monitor_row_id_first + index;
+    remapBackgroundSelectionAfterMonitorRemove(model, removed_id, old_count);
+    releaseMonitorLog(&model.background_monitors[index]);
+    var j = index;
+    while (j + 1 < model.background_monitor_count) : (j += 1) {
+        model.background_monitors[j] = model.background_monitors[j + 1];
+    }
+    model.background_monitor_count -= 1;
+    model.background_monitors[model.background_monitor_count] = .{};
+}
+
+fn remapBackgroundSelectionAfterMonitorRemove(model: *Model, removed_id: u32, old_count: u32) void {
+    const selected = model.right_panel_background_row_id;
+    if (selected == removed_id) {
+        model.right_panel_background_row_id = 0;
+        return;
+    }
+    if (old_count == 0) return;
+    const last_id = monitor_row_id_first + old_count - 1;
+    if (selected > removed_id and selected <= last_id) {
+        model.right_panel_background_row_id -= 1;
+    }
 }
 
 /// Visible registry row for `row_id`, or null when id is 0 / unknown.
@@ -783,6 +857,7 @@ fn expectLiveProcessRow(model: *const Model) !void {
     try std.testing.expectEqualStrings(process_row_label, rows[0].title);
     try std.testing.expect(rows[0].live);
     try std.testing.expect(rows[0].can_stop);
+    try std.testing.expectEqualStrings(process_stop_label, rows[0].stop_label);
     try std.testing.expect(!rows[0].has_status);
     try std.testing.expectEqualStrings("", rows[0].settled_status);
     try std.testing.expect(!rows[0].has_detail);
@@ -798,6 +873,7 @@ fn expectSettledProcessRow(model: *const Model, status: []const u8) !void {
     try std.testing.expectEqualStrings(process_row_label, rows[0].title);
     try std.testing.expect(!rows[0].live);
     try std.testing.expect(!rows[0].can_stop);
+    try std.testing.expectEqualStrings("", rows[0].stop_label);
     try std.testing.expect(rows[0].has_status);
     try std.testing.expectEqualStrings(status, rows[0].settled_status);
     try std.testing.expect(!rows[0].has_detail);
@@ -1139,7 +1215,7 @@ test "stopBackground no-ops when not streaming" {
     model.environment_summary_open = true;
     try std.testing.expect(!model.is_streaming());
 
-    stopBackground(&model, &fx);
+    stopBackground(&model, &fx, process_row_id);
     try std.testing.expect(model.environment_summary_open);
     try std.testing.expect(!model.is_streaming());
     try std.testing.expectEqual(@as(u32, 0), model.streaming_session);
@@ -1154,7 +1230,7 @@ test "stopBackground no-ops when not streaming" {
     try std.testing.expect(!environmentInfoSelected(&model));
 
     model.environment_summary_open = true;
-    main.update(&model, .environment_stop_background, &fx);
+    main.update(&model, .{ .environment_stop_background = process_row_id }, &fx);
     try std.testing.expect(model.environment_summary_open);
     try std.testing.expect(!model.is_streaming());
     try std.testing.expect(!hasSettledBackground(&model));
@@ -1175,7 +1251,7 @@ test "stopBackground closes summary and stops via stopStream" {
     if (model.sessionById(id)) |session| session.busy = true;
     try expectLiveProcessRow(&model);
 
-    stopBackground(&model, &fx);
+    stopBackground(&model, &fx, process_row_id);
     try std.testing.expect(!model.environment_summary_open);
     try std.testing.expect(!model.is_streaming());
     try std.testing.expectEqual(main.Phase.idle, model.phase);
@@ -1205,7 +1281,7 @@ test "environment_stop_background uses the same stopStream path as Stop" {
     model.environment_summary_open = true;
     try expectLiveProcessRow(&model);
 
-    main.update(&model, .environment_stop_background, &fx);
+    main.update(&model, .{ .environment_stop_background = process_row_id }, &fx);
     try std.testing.expect(!model.environment_summary_open);
     try std.testing.expect(!model.is_streaming());
     try std.testing.expect(!model.sessionById(id).?.busy);
@@ -1454,6 +1530,7 @@ test "fillBackgroundRows emits Subagent while live parent_tool_use_id signals ex
     try std.testing.expectEqualStrings(kind_subagent_label, rows[1].title);
     try std.testing.expect(rows[1].live);
     try std.testing.expect(!rows[1].can_stop);
+    try std.testing.expectEqualStrings("", rows[1].stop_label);
     try std.testing.expect(!rows[1].has_status);
     try std.testing.expect(!rows[1].has_detail);
     try std.testing.expectEqualStrings("", rows[1].detail);
@@ -1528,7 +1605,8 @@ test "fillBackgroundRows emits Monitor while live Monitor tool_use signals exist
     try std.testing.expectEqualStrings(kind_monitor_label, rows[1].kind_label);
     try std.testing.expectEqualStrings(kind_monitor_label, rows[1].title);
     try std.testing.expect(rows[1].live);
-    try std.testing.expect(!rows[1].can_stop);
+    try std.testing.expect(rows[1].can_stop);
+    try std.testing.expectEqualStrings(monitor_stop_label, rows[1].stop_label);
     try std.testing.expect(!rows[1].has_status);
     try std.testing.expect(!rows[1].has_detail);
     try std.testing.expectEqualStrings("", rows[1].detail);
@@ -1567,7 +1645,8 @@ test "fillBackgroundRows emits Process then Monitor then Subagent under the cap"
     try std.testing.expectEqual(BackgroundKind.monitor, rows[1].kind);
     try std.testing.expectEqual(monitor_row_id_first, rows[1].id);
     try std.testing.expectEqualStrings(kind_monitor_label, rows[1].title);
-    try std.testing.expect(!rows[1].can_stop);
+    try std.testing.expect(rows[1].can_stop);
+    try std.testing.expectEqualStrings(monitor_stop_label, rows[1].stop_label);
     try std.testing.expect(!rows[1].has_detail);
     try std.testing.expectEqual(BackgroundKind.subagent, rows[2].kind);
     try std.testing.expectEqual(subagent_row_id_first, rows[2].id);
@@ -1901,5 +1980,167 @@ test "settled Process row on Background keeps Completed / Stopped / Failed" {
     try std.testing.expectEqualStrings(settled_stopped_label, backgroundWorkStatus(selectedBackgroundRow(&model).?));
     settle(&model, id, .failed);
     try std.testing.expectEqualStrings(settled_failed_label, backgroundWorkStatus(selectedBackgroundRow(&model).?));
+}
+
+test "live Monitor can_stop; stop by monitor id removes only that monitor" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer clearLiveMonitors(&model);
+    const id = model.addSession("env stop monitor", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    if (model.sessionById(id)) |session| session.busy = true;
+    noteLiveMonitor(&model, "toolu_mon_stop_1");
+    noteLiveMonitor(&model, "toolu_mon_stop_2");
+    noteLiveSubagent(&model, "toolu_agent_keep");
+    appendLiveMonitorOutput(&model, "toolu_mon_stop_1", "first monitor log");
+    appendLiveMonitorOutput(&model, "toolu_mon_stop_2", "second monitor log");
+    model.environment_summary_open = true;
+
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    var rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 4), rows.len);
+    try std.testing.expect(rows[0].can_stop);
+    try std.testing.expectEqualStrings(process_stop_label, rows[0].stop_label);
+    try std.testing.expect(rows[1].can_stop);
+    try std.testing.expectEqualStrings(monitor_stop_label, rows[1].stop_label);
+    try std.testing.expectEqual(monitor_row_id_first, rows[1].id);
+    try std.testing.expect(rows[2].can_stop);
+    try std.testing.expectEqual(monitor_row_id_first + 1, rows[2].id);
+    try std.testing.expect(!rows[3].can_stop);
+    try std.testing.expectEqual(BackgroundKind.subagent, rows[3].kind);
+
+    stopBackground(&model, &fx, 99);
+    try std.testing.expect(model.environment_summary_open);
+    try std.testing.expect(model.is_streaming());
+    try std.testing.expectEqual(@as(u32, 2), model.background_monitor_count);
+
+    stopBackground(&model, &fx, subagent_row_id_first);
+    try std.testing.expect(model.environment_summary_open);
+    try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    try std.testing.expectEqual(@as(u32, 2), model.background_monitor_count);
+
+    stopBackground(&model, &fx, monitor_row_id_first);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expect(model.is_streaming());
+    try std.testing.expectEqual(id, model.streaming_session);
+    try std.testing.expect(model.sessionById(id).?.busy);
+    try std.testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    try std.testing.expectEqualStrings("toolu_mon_stop_2", model.background_monitors[0].toolUseId());
+    try std.testing.expectEqualStrings("second monitor log", model.background_monitors[0].output());
+    try std.testing.expectEqual(@as(u32, 1), model.background_subagent_count);
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 3), rows.len);
+    try std.testing.expectEqual(BackgroundKind.process, rows[0].kind);
+    try std.testing.expect(rows[0].live);
+    try std.testing.expect(rows[0].can_stop);
+    try std.testing.expectEqual(BackgroundKind.monitor, rows[1].kind);
+    try std.testing.expectEqual(monitor_row_id_first, rows[1].id);
+    try std.testing.expectEqualStrings("second monitor log", rows[1].detail);
+    try std.testing.expectEqual(BackgroundKind.subagent, rows[2].kind);
+
+    appendLiveMonitorOutput(&model, "toolu_mon_stop_1", "ignored after stop");
+    try std.testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    try std.testing.expectEqualStrings("second monitor log", model.background_monitors[0].output());
+    appendLiveMonitorOutput(&model, "toolu_mon_stop_2", " still live");
+    try std.testing.expectEqualStrings("second monitor log still live", model.background_monitors[0].output());
+}
+
+test "stopBackground Process still stopStream while a Monitor is live" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer clearLiveMonitors(&model);
+    const id = model.addSession("env stop process with monitor", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    if (model.sessionById(id)) |session| session.busy = true;
+    noteLiveMonitor(&model, "toolu_mon_with_process");
+    model.environment_summary_open = true;
+
+    stopBackground(&model, &fx, process_row_id);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expect(!model.is_streaming());
+    try std.testing.expectEqual(main.Phase.idle, model.phase);
+    try std.testing.expectEqual(@as(u32, 0), model.streaming_session);
+    try std.testing.expect(!model.sessionById(id).?.busy);
+    try std.testing.expectEqual(@as(u32, 0), model.background_monitor_count);
+    try std.testing.expect(hasSettledBackground(&model));
+    try expectSettledProcessRow(&model, settled_stopped_label);
+}
+
+test "right-panel selection clears when the stopped Monitor was selected" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer clearLiveMonitors(&model);
+    const id = model.addSession("env stop monitor selection", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    noteLiveMonitor(&model, "toolu_mon_sel_1");
+    noteLiveMonitor(&model, "toolu_mon_sel_2");
+    appendLiveMonitorOutput(&model, "toolu_mon_sel_1", "keep me until stop");
+    model.right_panel_open = true;
+    model.right_panel_tab = right_panel.Tab.background;
+    model.right_panel_background_row_id = monitor_row_id_first;
+    try std.testing.expectEqual(monitor_row_id_first, selectedBackgroundRow(&model).?.id);
+    try std.testing.expectEqualStrings("keep me until stop", backgroundWorkOutput(&model));
+
+    stopBackground(&model, &fx, monitor_row_id_first);
+    try std.testing.expect(model.is_streaming());
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+    try std.testing.expect(selectedBackgroundRow(&model) == null);
+    try std.testing.expectEqualStrings("", backgroundWorkOutput(&model));
+    try std.testing.expectEqual(right_panel.Tab.background, model.right_panel_tab);
+    try std.testing.expectEqual(@as(u32, 1), model.background_monitor_count);
+    try std.testing.expectEqualStrings("toolu_mon_sel_2", model.background_monitors[0].toolUseId());
+
+    noteLiveMonitor(&model, "toolu_mon_sel_3");
+    model.right_panel_background_row_id = monitor_row_id_first + 1;
+    try std.testing.expectEqual(monitor_row_id_first + 1, selectedBackgroundRow(&model).?.id);
+    stopBackground(&model, &fx, monitor_row_id_first);
+    try std.testing.expectEqual(monitor_row_id_first, model.right_panel_background_row_id);
+    try std.testing.expectEqual(monitor_row_id_first, selectedBackgroundRow(&model).?.id);
+    try std.testing.expectEqualStrings("toolu_mon_sel_3", model.background_monitors[0].toolUseId());
+
+    model.right_panel_background_row_id = process_row_id;
+    stopBackground(&model, &fx, monitor_row_id_first);
+    try std.testing.expectEqual(process_row_id, model.right_panel_background_row_id);
+    try std.testing.expectEqual(process_row_id, selectedBackgroundRow(&model).?.id);
+    try std.testing.expect(model.is_streaming());
+    try std.testing.expectEqual(@as(u32, 0), model.background_monitor_count);
+}
+
+test "environment_stop_background monitor id leaves Process streaming" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer clearLiveMonitors(&model);
+    const id = model.addSession("env stop monitor msg", .claude);
+    model.selected = id;
+    model.phase = .streaming;
+    model.streaming_session = id;
+    if (model.sessionById(id)) |session| session.busy = true;
+    noteLiveMonitor(&model, "toolu_mon_msg");
+    model.environment_summary_open = true;
+
+    main.update(&model, .{ .environment_stop_background = monitor_row_id_first }, &fx);
+    try std.testing.expect(!model.environment_summary_open);
+    try std.testing.expect(model.is_streaming());
+    try std.testing.expectEqual(@as(u32, 0), model.background_monitor_count);
+    try std.testing.expect(model.sessionById(id).?.busy);
+    try expectLiveProcessRow(&model);
 }
 

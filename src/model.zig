@@ -500,10 +500,14 @@ pub const Msg = union(enum) {
     /// dropdown then `copyFxSessionId`. Menu is gated on a
     /// non-empty selected `fx_session_id`.
     environment_copy_agent_thread_id,
-    /// Environment Summary Background Stop. Closes the dropdown then
-    /// `stopStream` (same path as composer Stop; records Stopped).
-    /// No-op when idle.
-    environment_stop_background,
+    /// Environment Summary / right-panel Background Stop. Payload is
+    /// the Native `background_rows` id (`process_row_id` or a live
+    /// Monitor `monitor_row_id_first + index`). Process closes the
+    /// dropdown then `stopStream` (same path as composer Stop;
+    /// records Stopped). Live Monitor is Faku-side dismiss of that
+    /// slot only — not Claude TaskStop on one-shot `claude -p`.
+    /// Unknown / Process-idle / Subagent ids are no-ops.
+    environment_stop_background: u32,
     close_review_diff,
     set_review_diff_source_branch,
     set_review_diff_source_uncommitted,
@@ -1853,6 +1857,27 @@ pub const Model = struct {
 
     pub fn background_work_has_output(model: *const Model) bool {
         return model.background_work_output().len > 0;
+    }
+
+    /// Selected Background row is a live Process or live Monitor.
+    /// Gates the right-panel Stop control.
+    pub fn background_work_can_stop(model: *const Model) bool {
+        const row = environment_summary.selectedBackgroundRow(model) orelse return false;
+        return row.can_stop;
+    }
+
+    /// Native `environment_stop_background:{background_work_row_id}`.
+    /// 0 when there is no selected visible row.
+    pub fn background_work_row_id(model: *const Model) u32 {
+        const row = environment_summary.selectedBackgroundRow(model) orelse return 0;
+        return row.id;
+    }
+
+    /// Process: "Stop agent". Monitor: "Stop monitor". Empty when
+    /// the selected row is not stoppable.
+    pub fn background_work_stop_label(model: *const Model) []const u8 {
+        const row = environment_summary.selectedBackgroundRow(model) orelse return "";
+        return row.stop_label;
     }
 
     pub fn right_panel_no_project(model: *const Model) bool {
