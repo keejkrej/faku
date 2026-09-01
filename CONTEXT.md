@@ -414,6 +414,7 @@ live watch.
 | Area | Start here |
 | --- | --- |
 | Window loop | `src/main.zig` |
+| Seed model / theme boot | `src/boot.zig` |
 | Msg update / initFx | `src/update.zig` |
 | Model / Msg / Turn / Folder | `src/model.zig` |
 | Session type | `src/session.zig` |
@@ -500,7 +501,9 @@ Honest gaps this cut does not implement:
   stored Monitor / Subagent log and Stop when the selected row is
   a live Process, live Monitor, or live Subagent; not Waku
   BackgroundWorkRegistry event/reconcile/driver-refresh parity)
-- Further `main.zig` extract (`initialModel` still lives there)
+- Further `main.zig` extract (`initialModel` / appearance boot live in
+  `boot.zig`; `main.zig` still holds re-exports, `main()`, icons, and
+  the shell scene)
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size
