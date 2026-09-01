@@ -1609,6 +1609,8 @@ test "claude json apply: Monitor tool_use fills Monitor rows after Process; Bash
     try testing.expectEqualStrings(environment_summary.kind_monitor_label, rows[1].title);
     try testing.expect(rows[1].can_stop);
     try testing.expectEqualStrings(environment_summary.monitor_stop_label, rows[1].stop_label);
+    try testing.expect(rows[3].can_stop);
+    try testing.expectEqualStrings(environment_summary.subagent_stop_label, rows[3].stop_label);
     try testing.expect(!rows[1].has_detail);
 }
 
@@ -1754,6 +1756,8 @@ test "claude json apply: matching tool_result fills Monitor preview; unknown Bas
     try testing.expect(!rows[0].has_detail);
     try testing.expectEqual(environment_summary.BackgroundKind.subagent, rows[2].kind);
     try testing.expect(!rows[2].has_detail);
+    try testing.expect(rows[2].can_stop);
+    try testing.expectEqualStrings(environment_summary.subagent_stop_label, rows[2].stop_label);
     try testing.expectEqual(environment_summary.monitor_row_id_first, rows[1].id);
     try testing.expectEqual(environment_summary.subagent_row_id_first, rows[2].id);
 }

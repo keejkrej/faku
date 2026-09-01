@@ -125,18 +125,17 @@ display; Environment Summary stays a one-line preview),
 live Subagent rows from real Claude
 `parent_tool_use_id` / Agent `tool_use` signals while streaming, and a
 first-cut right-panel Background surface (kind / title / live-or-settled
-status / Monitor log / Stop when the selected row is a live Process
-or live Monitor) opened from those rows. Live Monitor Stop is
-Faku-side dismiss of that row on one-shot `claude -p` (not Claude
-TaskStop mid-turn).
+status / Monitor log / Stop when the selected row is a live Process,
+live Monitor, or live Subagent) opened from those rows. Live Monitor
+and Subagent Stop is Faku-side dismiss of that row on one-shot
+`claude -p` (not Claude TaskStop mid-turn).
 
 Later: Pi ACP / `--mode rpc`, Claude ACP, `--continue`,
 full onboarding / OAuth / auto-install, a long-lived daemon socket in
 the update loop
 (not this cut), a long-lived ACP loop once a window-side stdin-write
 effect exists, Claude CLI TaskStop,
-daemon `refreshBackgroundWork`, full BackgroundWorkRegistry, Subagent
-stop, 100ms
+daemon `refreshBackgroundWork`, full BackgroundWorkRegistry, 100ms
 render cache.
 
 No `listSessions` / `createSession`. Catalog is `loadTaskState` (local

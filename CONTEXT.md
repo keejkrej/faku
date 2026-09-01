@@ -264,7 +264,7 @@ mentions. Diff hosts Environment Compare / Review (Branch,
 Uncommitted, Staged, Unstaged, Committed, LastTurn). Background is the
 Environment Summary Process / Monitor / Subagent row surface (kind,
 title, live-or-settled status, Monitor 512KB last-window log). Not Browser, Terminal (no Native PTY), compact File editor,
-or a full BackgroundWorkRegistry. Faku-side Monitor Stop on
+or a full BackgroundWorkRegistry. Faku-side Monitor and Subagent Stop on
 one-shot `claude -p` ships (dismisses that live row; not Claude
 TaskStop mid-turn). Not daemon `WorkspaceOperation`. Environment Summary Background is
 Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
@@ -280,7 +280,10 @@ right-panel Background body reads that stored log. Live Monitor
 rows offer Stop (Faku-side dismiss of that slot; Process Stop still
 `stopStream`). Live Subagent
 rows come from real Claude stream-json `parent_tool_use_id` /
-Agent `tool_use` while streaming. Both are cleared when the turn
+Agent `tool_use` while streaming, with Faku-side Subagent Stop
+(dismiss that live row on one-shot `claude -p`; not Claude TaskStop
+mid-turn; later `noteLiveSubagent` for that id is ignored until
+`clearLiveSubagents`). Both are cleared when the turn
 settles; not sessions.json. Clicking a visible row closes the
 dropdown and opens the right-panel Background tab for that id.
 Not daemon `refreshBackgroundWork`.
@@ -438,8 +441,8 @@ Honest gaps this cut does not implement:
   ships: System / English / 简体中文 / 日本語; Settings chrome follows
   the resolved locale)
 - Claude CLI TaskStop / long-lived ACP, daemon
-  `refreshBackgroundWork`, full BackgroundWorkRegistry, Subagent
-  stop, 100ms render cache (Environment Summary ships
+  `refreshBackgroundWork`, full BackgroundWorkRegistry, 100ms render
+  cache (Environment Summary ships
   Process / Monitor / Subagent kind chrome, a Process registry from
   stream/settle, live Monitor rows from Claude `Monitor` `tool_use`
   with a Waku-sized 512KB last-window log from matching user
@@ -449,10 +452,13 @@ Honest gaps this cut does not implement:
   `claude -p` without invoking Claude's TaskStop tool mid-turn;
   live Subagent
   rows from Claude
-  `parent_tool_use_id` / Agent `tool_use`, and a first-cut
+  `parent_tool_use_id` / Agent `tool_use`, plus Faku-side Subagent
+  Stop that dismisses that live row on one-shot `claude -p`
+  (later `noteLiveSubagent` for a dismissed id is ignored until
+  `clearLiveSubagents`; not Claude TaskStop mid-turn), and a first-cut
   right-panel Background surface from those rows that shows the
   stored Monitor log and Stop when the selected row is a live
-  Process or live Monitor; not Waku BackgroundWorkRegistry parity)
+  Process, live Monitor, or live Subagent; not Waku BackgroundWorkRegistry parity)
 - Further `main.zig` extract (`initialModel` still lives there)
 - Long-lived ACP or daemon socket in the update loop
 - ACP image blocks on non-fx (cursor / opencode / grok image attach

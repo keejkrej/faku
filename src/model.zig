@@ -501,12 +501,13 @@ pub const Msg = union(enum) {
     /// non-empty selected `fx_session_id`.
     environment_copy_agent_thread_id,
     /// Environment Summary / right-panel Background Stop. Payload is
-    /// the Native `background_rows` id (`process_row_id` or a live
-    /// Monitor `monitor_row_id_first + index`). Process closes the
+    /// the Native `background_rows` id (`process_row_id`, a live
+    /// Monitor `monitor_row_id_first + index`, or a live Subagent
+    /// `subagent_row_id_first + index`). Process closes the
     /// dropdown then `stopStream` (same path as composer Stop;
-    /// records Stopped). Live Monitor is Faku-side dismiss of that
-    /// slot only — not Claude TaskStop on one-shot `claude -p`.
-    /// Unknown / Process-idle / Subagent ids are no-ops.
+    /// records Stopped). Live Monitor / Subagent is Faku-side
+    /// dismiss of that slot only — not Claude TaskStop on one-shot
+    /// `claude -p`. Unknown / Process-idle ids are no-ops.
     environment_stop_background: u32,
     close_review_diff,
     set_review_diff_source_branch,
@@ -650,6 +651,11 @@ pub const Model = struct {
     /// settles, or is stopped.
     background_subagents: [environment_summary.max_live_subagents]environment_summary.LiveSubagent = [_]environment_summary.LiveSubagent{.{}} ** environment_summary.max_live_subagents,
     background_subagent_count: u32 = 0,
+    /// Dismissed Subagent ids for this turn. `noteLiveSubagent`
+    /// skips these until `clearLiveSubagents`. Runtime-only; not
+    /// sessions.json / drafts.json. Cap matches live slots.
+    background_dismissed_subagents: [environment_summary.max_live_subagents]environment_summary.DismissedSubagentId = [_]environment_summary.DismissedSubagentId{.{}} ** environment_summary.max_live_subagents,
+    background_dismissed_subagent_count: u32 = 0,
     /// Live Monitor Background slots from Claude stream-json
     /// `Monitor` `tool_use`. Matching user `tool_result` fills a
     /// bounded 512KB last-window on the row (newlines kept; CSI
@@ -1191,6 +1197,8 @@ pub const Model = struct {
         "background_settled_session",
         "background_subagents",
         "background_subagent_count",
+        "background_dismissed_subagents",
+        "background_dismissed_subagent_count",
         "background_monitors",
         "background_monitor_count",
         "has_settled_background",
@@ -1859,8 +1867,8 @@ pub const Model = struct {
         return model.background_work_output().len > 0;
     }
 
-    /// Selected Background row is a live Process or live Monitor.
-    /// Gates the right-panel Stop control.
+    /// Selected Background row is a live Process, live Monitor, or
+    /// live Subagent. Gates the right-panel Stop control.
     pub fn background_work_can_stop(model: *const Model) bool {
         const row = environment_summary.selectedBackgroundRow(model) orelse return false;
         return row.can_stop;
@@ -1873,8 +1881,8 @@ pub const Model = struct {
         return row.id;
     }
 
-    /// Process: "Stop agent". Monitor: "Stop monitor". Empty when
-    /// the selected row is not stoppable.
+    /// Process: "Stop agent". Monitor: "Stop monitor". Subagent:
+    /// "Stop subagent". Empty when the selected row is not stoppable.
     pub fn background_work_stop_label(model: *const Model) []const u8 {
         const row = environment_summary.selectedBackgroundRow(model) orelse return "";
         return row.stop_label;
