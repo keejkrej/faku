@@ -12,20 +12,23 @@
 //! title, live-or-settled status, Monitor / Subagent 512KB last-window log
 //! with newlines kept and CSI/ANSI stripped for display;
 //! Environment Summary stays a one-line preview; Stop when the
-//! selected row is a live Process, live Monitor, or live Subagent). Tab
+//! selected row is a live Process, live Monitor, or live Subagent;
+//! Dismiss when the selected row is a settled Monitor or Subagent). Tab
 //! click with no selected row, or a selected row that is gone, shows
 //! "No background work". Not Browser, Terminal (Native has no PTY),
 //! compact File editor, Claude CLI TaskStop (Faku-side Monitor and
-//! Subagent Stop on one-shot `claude -p` ships; it dismisses that live
-//! row and does not invoke TaskStop mid-turn), daemon
+//! Subagent Stop on one-shot `claude -p` ships; live Stop dismisses
+//! that live row and does not invoke TaskStop mid-turn; settled
+//! rows offer Dismiss), daemon
 //! `refreshBackgroundWork`, GPUI SharedString, or full
 //! BackgroundWorkRegistry event/reconcile parity. This cut ships a
 //! 100ms CSI-stripped last-window render cache on Monitor / Subagent
 //! (piggybacks `now_ms` / the stream tick; Native has no dedicated
 //! 100ms timer). First-cut
 //! settled Monitor / Subagent stay in the runtime registry after the
-//! turn (status from Process settle; Monitor / Subagent last-window kept; Stop
-//! hidden; not live after `-p` exits). Not daemon
+//! turn (status from Process settle; Monitor / Subagent last-window kept;
+//! Faku-side Dismiss, not Claude TaskStop / daemon
+//! `refreshBackgroundWork`; not live after `-p` exits). Not daemon
 //! `WorkspaceOperation::listTree` / browseDirectory / readTextFile.
 //! Not Waku's 50k-file index (cap 256). Windows stays empty this cut
 //! (`file_mention` already skips Windows).
