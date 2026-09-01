@@ -407,7 +407,7 @@
                   <text foreground="text_muted">Background</text>
                   <for each="background_rows" key="id" as="b">
                     <text foreground="text_muted">{b.kind_label}</text>
-                    <text>{b.title}</text>
+                    <menu-item on-press="open_background_work:{b.id}">{b.title}</menu-item>
                     <if test="{b.has_detail}">
                       <text wrap="false" overflow="ellipsis" foreground="text_muted">{b.detail}</text>
                     </if>
@@ -817,6 +817,7 @@
         <row height="48" padding="10" gap="8" cross="center">
           <button variant="ghost" size="sm" selected="{right_panel_tab_files}" on-press="set_right_panel_tab_files">Files</button>
           <button variant="ghost" size="sm" selected="{right_panel_tab_diff}" on-press="set_right_panel_tab_diff">Diff</button>
+          <button variant="ghost" size="sm" selected="{right_panel_tab_background}" on-press="set_right_panel_tab_background">Background</button>
           <spacer grow="1" />
           <button variant="ghost" size="icon" icon="panel-right" label="Hide right panel" on-press="hide_right_panel"></button>
         </row>
@@ -859,6 +860,29 @@
               </if>
             </column>
           </if>
+        </if>
+        <else>
+        <if test="{right_panel_showing_background}">
+          <column grow="1" gap="6" padding="10" label="Background work">
+            <if test="{background_work_empty}">
+              <text foreground="text_muted">No background work</text>
+            </if>
+            <else>
+              <text foreground="text_muted">{background_work_kind_label}</text>
+              <text>{background_work_title}</text>
+              <if test="{has_background_work_status}">
+                <text foreground="text_muted">{background_work_status}</text>
+              </if>
+              <if test="{background_work_has_output}">
+                <scroll grow="1" label="Background output">
+                  <text wrap="true" foreground="text_muted">{background_work_output}</text>
+                </scroll>
+              </if>
+              <else>
+                <text foreground="text_muted">No output</text>
+              </else>
+            </else>
+          </column>
         </if>
         <else>
         <if test="{right_panel_no_project}">
@@ -911,6 +935,7 @@
               </for>
             </column>
           </scroll>
+        </else>
         </else>
         </else>
       </if>

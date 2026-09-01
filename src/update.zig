@@ -307,6 +307,14 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             right_panel.selectDiff(model, fx);
             store.persistLayoutIfPossible(model);
         },
+        .set_right_panel_tab_background => {
+            right_panel.selectBackground(model, fx, 0);
+            store.persistLayoutIfPossible(model);
+        },
+        .open_background_work => |id| {
+            environment_summary.openBackgroundWork(model, fx, id);
+            store.persistLayoutIfPossible(model);
+        },
         .sidebar_resized => |fraction| {
             sidebar_row_helpers.applySidebarResize(model, fraction);
             model.syncRightPanelSplit();

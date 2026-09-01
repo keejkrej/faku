@@ -118,14 +118,16 @@ chrome (Process / Monitor / Subagent labels) with Process rows from
 window-side stream/settle, live Monitor rows from real Claude
 `Monitor` `tool_use` plus a first-cut bounded output preview in
 Environment Summary from matching user `tool_result` (runtime-only),
-and live Subagent rows from real Claude
-`parent_tool_use_id` / Agent `tool_use` signals while streaming.
+live Subagent rows from real Claude
+`parent_tool_use_id` / Agent `tool_use` signals while streaming, and a
+first-cut right-panel Background surface (kind / title / live-or-settled
+status / Monitor preview) opened from those rows.
 
 Later: Pi ACP / `--mode rpc`, Claude ACP, `--continue`,
 full onboarding / OAuth / auto-install, a long-lived daemon socket in
 the update loop
 (not this cut), a long-lived ACP loop once a window-side stdin-write
-effect exists, right-panel BackgroundWork / full 512KB Monitor log,
+effect exists, full 512KB Monitor log,
 per-monitor TaskStop,
 daemon `refreshBackgroundWork`.
 

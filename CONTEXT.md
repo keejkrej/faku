@@ -36,7 +36,7 @@ send circle.
 | **saveTaskState** | Best-effort daemon mirror of one started-session skeleton. Does not replace the local catalog. |
 | **hydrateSession** | Daemon transcript fill when the local transcript is empty. Local turns win. |
 | **argv slot** | Every flag and operand is its own spawn argument. Never interpolate into the chdir `-c` script. |
-| **right panel** | First-cut Files + Diff pane to the right of the conversation. Default closed. |
+| **right panel** | First-cut Files + Diff + Background pane to the right of the conversation. Default closed. |
 | **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx; Available Claude is one-shot `claude -p --output-format stream-json --verbose --include-partial-messages --forward-subagent-text` (not ACP; later Sends pass documented `--resume {fx_session_id}` when that field is non-empty; first Send and Fork omit it; not `--continue`; documented image path inside that `-p` prompt when a composer image is attached; stdout is NDJSON with live `text_delta`; live Subagent Background from `parent_tool_use_id`; live Monitor Background from Claude `Monitor` `tool_use` plus a bounded output preview from matching user `tool_result`); Available Codex is one-shot `codex exec {prompt}` (not ACP; documented `--image {path}` after the prompt when a composer image is attached); Available Amp is one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x` prompt when a composer image is attached); Available Pi is one-shot `pi --mode json {prompt}` (not ACP, not `--mode rpc`; documented `@{path}` after json when a composer image is attached; stdout is JSON events with live `text_delta`). fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
 | **Settings Appearance** | Settings page for chrome theme and language. Theme: System (follow OS `on_appearance`), Light, or Dark. Default System. Language: System / English / 简体中文 / 日本語. Default System. System language follows process `LC_ALL` / `LC_MESSAGES` / `LANG` (Native has no locale API). Explicit language chips are autonyms in every locale. Persists `theme_preference` and `language_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. Settings chrome strings (title, nav, Appearance Theme / Language) follow the resolved locale this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
@@ -254,15 +254,18 @@ and those chat turns using the Send-time HEAD / snapshot. Fork clones
 the local transcript into a new `sessions.json` row; it is not a
 provider session fork.
 
-## Right panel: Files / Diff
+## Right panel: Files / Diff / Background
 
 Command palette Show / Hide right panel toggles a first-cut Files +
-Diff pane. Default closed. Files width persists (`right_panel_open` /
-`right_panel_width`); Diff tab is runtime-only (default Files). Files
+Diff + Background pane. Default closed. Files width persists (`right_panel_open` /
+`right_panel_width`); Diff and Background tabs are runtime-only (default Files). Files
 lists the same bounded `file_mention` cache used by composer `@`
 mentions. Diff hosts Environment Compare / Review (Branch,
-Uncommitted, Staged, Unstaged, Committed, LastTurn). Not Browser,
-Terminal (no Native PTY), compact File editor, or BackgroundWork tabs.
+Uncommitted, Staged, Unstaged, Committed, LastTurn). Background is the
+Environment Summary Process / Monitor / Subagent row surface (kind,
+title, live-or-settled status, Monitor 512-byte preview). Not Browser,
+Terminal (no Native PTY), compact File editor, Waku-sized 512KB log,
+per-monitor TaskStop, or a full BackgroundWorkRegistry.
 Not daemon `WorkspaceOperation`. Environment Summary Background is
 Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
 runtime-only multi-row registry. This cut populates Process
@@ -274,9 +277,9 @@ Live Monitor rows come from real Claude stream-json `Monitor`
 (runtime-only). Live Subagent
 rows come from real Claude stream-json `parent_tool_use_id` /
 Agent `tool_use` while streaming. Both are cleared when the turn
-settles; not sessions.json. Not a Waku BackgroundWorkRegistry,
-not daemon `refreshBackgroundWork`, not a Waku-sized 512KB log /
-right-panel BackgroundWork / TaskStop.
+settles; not sessions.json. Clicking a visible row closes the
+dropdown and opens the right-panel Background tab for that id.
+Not daemon `refreshBackgroundWork`.
 
 ## Settings Providers
 
@@ -429,13 +432,14 @@ Honest gaps this cut does not implement:
   dates, Native locale / NSLocale API (Appearance language selector
   ships: System / English / 简体中文 / 日本語; Settings chrome follows
   the resolved locale)
-- Right-panel BackgroundWork / full 512KB Monitor log, per-monitor
-  TaskStop, daemon `refreshBackgroundWork` (Environment Summary ships
+- Full 512KB Monitor log, per-monitor TaskStop, daemon
+  `refreshBackgroundWork` (Environment Summary ships
   Process / Monitor / Subagent kind chrome, a Process registry from
   stream/settle, live Monitor rows from Claude `Monitor` `tool_use`
   with a first-cut bounded output preview from matching user
-  `tool_result`, and live Subagent rows from Claude
-  `parent_tool_use_id` / Agent `tool_use`; not Waku
+  `tool_result`, live Subagent rows from Claude
+  `parent_tool_use_id` / Agent `tool_use`, and a first-cut
+  right-panel Background surface from those rows; not Waku
   BackgroundWorkRegistry parity)
 - Further `main.zig` extract (`initialModel` still lives there)
 - Long-lived ACP or daemon socket in the update loop
