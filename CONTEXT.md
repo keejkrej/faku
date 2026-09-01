@@ -366,6 +366,7 @@ live watch.
 | Area | Start here |
 | --- | --- |
 | Window loop | `src/main.zig` |
+| Msg update / initFx | `src/update.zig` |
 | Model / Msg / Turn / Folder | `src/model.zig` |
 | Session type | `src/session.zig` |
 | Local catalog | `src/store.zig` |
@@ -422,8 +423,7 @@ Honest gaps this cut does not implement:
   chrome, a Process registry from stream/settle, and live Subagent
   rows from Claude `parent_tool_use_id`; not
   Waku BackgroundWorkRegistry parity)
-- Further `main.zig` extract (`update` / `initFx` / `initialModel`
-  still live there)
+- Further `main.zig` extract (`initialModel` still lives there)
 - Long-lived ACP or daemon socket in the update loop
 - ACP image blocks on non-fx (cursor / opencode / grok image attach
   stays demo; Codex uses `codex exec --image`, not ACP; Amp uses

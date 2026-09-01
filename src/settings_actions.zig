@@ -2,7 +2,7 @@
 //!
 //! `handleStop` / `handleToggleGoalStatusPicker` / settings panel /
 //! composer chip cycles + pickers live here.
-//! Msg routing stays in `main.update`. Behavior is unchanged
+//! Msg routing stays in `update.zig`. Behavior is unchanged
 //! from the former `main` update arms.
 
 const native_sdk = @import("native_sdk");

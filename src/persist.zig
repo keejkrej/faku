@@ -2,7 +2,7 @@
 //!
 //! `persistAssignedFolder` / `persistDeletedFolder` /
 //! `persistComposerChips` / `persistComposerProject` live here.
-//! Disk IO stays in `store.zig`. Msg routing stays in `main.update`.
+//! Disk IO stays in `store.zig`. Msg routing stays in `update.zig`.
 //! Behavior is unchanged from the former `main` persist helpers.
 
 const main = @import("main.zig");

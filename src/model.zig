@@ -1,8 +1,9 @@
 //! TEA Model / Msg type graph.
 //!
 //! `Mode` / `Role` / `Phase` / `ReplyPath`, Turn / Folder / row types,
-//! `Msg`, and `Model` live here. `update` / `initFx` / `initialModel`
-//! stay in `main.zig`. Helpers that `@import("main.zig")` keep working
+//! `Msg`, and `Model` live here. `update` / `initFx` live in
+//! `update.zig` (re-exported from `main`). `initialModel` stays in
+//! `main.zig`. Helpers that `@import("main.zig")` keep working
 //! via re-exports. Behavior is unchanged from the former `main` Model
 //! cluster.
 
