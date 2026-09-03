@@ -2179,6 +2179,7 @@ test "Background tab, selected row, and output are not written to sessions.json"
     try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_width\":460") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "right_panel_tab") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "right_panel_background") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "file_preview") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "background_work") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "Agent turn") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "Running") == null);
@@ -2194,6 +2195,7 @@ test "Background tab, selected row, and output are not written to sessions.json"
     try testing.expect(loaded.right_panel_open);
     try testing.expect(loaded.right_panel_tab_files());
     try testing.expectEqual(@as(u32, 0), loaded.right_panel_background_row_id);
+    try testing.expectEqual(@as(u32, 0), loaded.right_panel_file_preview_id);
     try testing.expect(loaded.background_work_empty());
 }
 

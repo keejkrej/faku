@@ -20,6 +20,7 @@ const sidebar_row_helpers = @import("sidebar_rows.zig");
 const palette_run = @import("palette_run.zig");
 const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
+const right_panel = @import("right_panel.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -31,6 +32,7 @@ pub fn handleNewSession(model: *Model, fx: *Effects) void {
     store.persistDraftIfPossible(model);
     environment_summary.close(model);
     review_diff.close(model, fx);
+    right_panel.clearFilePreview(model);
     model.closeProjectEdit();
     model.closeImageAttach();
     model.closeCommands();
@@ -127,6 +129,7 @@ pub fn handleSessionTitleEdit(model: *Model, fx: *Effects, edit: canvas.TextInpu
 pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
     if (model.editing_session_id == id) model.closeSessionTitleEdit();
     model.closeCommands();
+    right_panel.clearFilePreview(model);
     environment_summary.clearSettledIfSession(model, id);
     store.removeIfPossible(model, id, fx);
     store.loadDraftIfPossible(model);

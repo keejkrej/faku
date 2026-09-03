@@ -16,7 +16,7 @@
 //! Dismiss when the selected row is a settled Monitor or Subagent). Tab
 //! click with no selected row, or a selected row that is gone, shows
 //! "No background work". Not Browser, Terminal (Native has no PTY),
-//! compact File editor, Claude CLI TaskStop (Faku-side Monitor and
+//! Claude CLI TaskStop (Faku-side Monitor and
 //! Subagent Stop on one-shot `claude -p` ships; live Stop dismisses
 //! that live row and does not invoke TaskStop mid-turn; settled
 //! rows offer Dismiss), daemon
@@ -32,6 +32,13 @@
 //! `WorkspaceOperation::listTree` / browseDirectory / readTextFile.
 //! Not Waku's 50k-file index (cap 256). Windows stays empty this cut
 //! (`file_mention` already skips Windows).
+//!
+//! Files tab ships a read-only bounded inline file preview (Faku-side
+//! `readFileAlloc`, 256KB cap, truncated label when larger, binary /
+//! non-UTF-8 honest empty state, unreadable one-line error, newlines
+//! kept, runtime-only, cleared on session switch / remove / panel hide;
+//! Open in editor still available). Not editing, save, syntax
+//! highlighting, live reload, Browser, Terminal (Native has no PTY).
 //!
 //! Default closed: Waku `RightPanelSessionState::take_or_closed` uses
 //! `empty(false)` and persistence `default_right_panel_visibility` is
@@ -68,6 +75,14 @@ pub const Tab = enum { files, diff, background };
 
 /// Mild tree indent per `fileMentionDepth`. Sidebar grouped rows use 15px.
 pub const indent_step: f32 = 12;
+
+/// Files-tab inline preview read cap (256KB). Truncation is labeled.
+pub const max_file_preview_bytes: usize = 256 * 1024;
+
+pub const binary_file_label = "Binary file — not shown";
+pub const truncated_file_label = "Truncated — showing first 256 KB";
+pub const unreadable_file_label = "Cannot read file";
+pub const missing_file_label = "File not found";
 
 /// Files-tree clamp (Waku 184/140/360). Kept for tests and hide/Files.
 pub fn clampWidth(width: f32) f32 {
@@ -189,14 +204,15 @@ pub fn rows(model: *const Model, arena: std.mem.Allocator) []const RightPanelFil
     for (parents[0..dir_n], 0..) |parent, dir_index| {
         const path = std.fmt.allocPrint(arena, "{s}/", .{parent}) catch continue;
         if (!ancestorsExpanded(path, expanded)) continue;
-        out[n] = makeRow(path, file_mention.dirMentionId(dir_index), false, containsKey(expanded, parent));
+        out[n] = makeRow(path, file_mention.dirMentionId(dir_index), false, containsKey(expanded, parent), false);
         n += 1;
     }
     var file_i: usize = 0;
     while (file_i < file_n) : (file_i += 1) {
         const path = file_mention.cachedPath(model, file_i);
         if (!ancestorsExpanded(path, expanded)) continue;
-        out[n] = makeRow(path, file_mention.fileMentionId(file_i), true, false);
+        const file_id = file_mention.fileMentionId(file_i);
+        out[n] = makeRow(path, file_id, true, false, model.right_panel_file_preview_id == file_id);
         n += 1;
     }
     const lessThan = struct {
@@ -210,7 +226,7 @@ pub fn rows(model: *const Model, arena: std.mem.Allocator) []const RightPanelFil
     return out[0..n];
 }
 
-fn makeRow(path: []const u8, id: u32, is_file: bool, expanded: bool) RightPanelFileRow {
+fn makeRow(path: []const u8, id: u32, is_file: bool, expanded: bool, selected: bool) RightPanelFileRow {
     const name = composer.fileMentionBasename(path);
     const parent = composer.fileMentionParent(path);
     const depth = composer.fileMentionDepth(path);
@@ -225,6 +241,7 @@ fn makeRow(path: []const u8, id: u32, is_file: bool, expanded: bool) RightPanelF
         .depth = depth,
         .has_indent = depth > 0,
         .indent = @as(f32, @floatFromInt(depth)) * indent_step,
+        .selected = selected,
     };
 }
 
@@ -308,14 +325,153 @@ fn bumpWideTabWidth(model: *Model) void {
     }
 }
 
-pub fn openCachedFile(model: *Model, fx: *Effects, id: u32) void {
+pub fn clearFilePreview(model: *Model) void {
+    if (model.right_panel_file_preview_storage.len != 0) {
+        std.heap.page_allocator.free(model.right_panel_file_preview_storage);
+    }
+    model.right_panel_file_preview_storage = &.{};
+    model.right_panel_file_preview_len = 0;
+    model.right_panel_file_preview_id = 0;
+    model.right_panel_file_preview_relpath_len = 0;
+    model.right_panel_file_preview_abs_len = 0;
+    model.right_panel_file_preview_truncated = false;
+    model.right_panel_file_preview_binary = false;
+    model.right_panel_file_preview_error_len = 0;
+}
+
+fn setPreviewError(model: *Model, message: []const u8) void {
+    main.writeFixed(
+        &model.right_panel_file_preview_error_storage,
+        &model.right_panel_file_preview_error_len,
+        message,
+    );
+}
+
+fn previewReadError(err: anyerror) []const u8 {
+    return switch (err) {
+        error.FileNotFound => missing_file_label,
+        else => unreadable_file_label,
+    };
+}
+
+const PreviewWindow = struct {
+    bytes: []u8,
+    truncated: bool,
+};
+
+/// `readFileAlloc` + `.limited` errors with `StreamTooLong` when the file
+/// size reaches the cap. That path then reads the first 256KB via
+/// `File.Reader` and labels truncation from `stat`.
+fn readPreviewWindow(io: std.Io, abs: []const u8) !PreviewWindow {
+    const bytes = std.Io.Dir.cwd().readFileAlloc(
+        io,
+        abs,
+        std.heap.page_allocator,
+        .limited(max_file_preview_bytes),
+    ) catch |err| {
+        if (err != error.StreamTooLong) return err;
+        return readCappedHead(io, abs);
+    };
+    return .{ .bytes = bytes, .truncated = false };
+}
+
+fn readCappedHead(io: std.Io, abs: []const u8) !PreviewWindow {
+    var file = try std.Io.Dir.cwd().openFile(io, abs, .{});
+    defer file.close(io);
+    const size = (try file.stat(io)).size;
+    const take: usize = @intCast(@min(size, max_file_preview_bytes));
+    const truncated = size > max_file_preview_bytes;
+    const buf = try std.heap.page_allocator.alloc(u8, take);
+    errdefer std.heap.page_allocator.free(buf);
+    if (take > 0) {
+        var file_reader = file.reader(io, &.{});
+        file_reader.interface.readSliceAll(buf) catch return error.Unexpected;
+    }
+    return .{ .bytes = buf, .truncated = truncated };
+}
+
+/// Longest valid UTF-8 prefix. `null` when a complete sequence is invalid
+/// (including a NUL byte). Incomplete tail after a cap is dropped.
+fn utf8PreviewPrefix(bytes: []const u8) ?[]const u8 {
+    if (std.mem.indexOfScalar(u8, bytes, 0) != null) return null;
+    var i: usize = 0;
+    while (i < bytes.len) {
+        const len = std.unicode.utf8ByteSequenceLength(bytes[i]) catch return null;
+        if (i + len > bytes.len) return bytes[0..i];
+        _ = std.unicode.utf8Decode(bytes[i..][0..len]) catch return null;
+        i += len;
+    }
+    return bytes;
+}
+
+fn loadFilePreviewBody(model: *Model) void {
+    const abs = model.right_panel_file_preview_abs_storage[0..model.right_panel_file_preview_abs_len];
+    const io = model.store_io;
+    if (io == null or abs.len == 0) {
+        setPreviewError(model, unreadable_file_label);
+        return;
+    }
+    const read = readPreviewWindow(io.?, abs) catch |err| {
+        setPreviewError(model, previewReadError(err));
+        return;
+    };
+    defer std.heap.page_allocator.free(read.bytes);
+
+    const raw = if (read.truncated)
+        read.bytes[0..@min(read.bytes.len, max_file_preview_bytes)]
+    else
+        read.bytes;
+    const window = utf8PreviewPrefix(raw) orelse {
+        model.right_panel_file_preview_binary = true;
+        return;
+    };
+
+    const buf = std.heap.page_allocator.alloc(u8, window.len) catch {
+        setPreviewError(model, unreadable_file_label);
+        return;
+    };
+    @memcpy(buf, window);
+    model.right_panel_file_preview_storage = buf;
+    model.right_panel_file_preview_len = window.len;
+    model.right_panel_file_preview_truncated = read.truncated;
+}
+
+/// Files-pane file click: select the row and load a bounded read-only
+/// inline preview. Does not open an external editor.
+pub fn selectCachedFile(model: *Model, id: u32) void {
     if (id == 0 or id >= file_mention.file_mention_dir_id_base) return;
     var rel_buf: [file_mention.max_file_mention_path + 1]u8 = undefined;
     const rel = file_mention.mentionRelpath(model, id, &rel_buf) orelse return;
     const project = model.selectedProjectPath();
     var abs_buf: [open_editor.max_open_path]u8 = undefined;
     const abs = joinProjectRelpath(project, rel, &abs_buf) orelse return;
+
+    clearFilePreview(model);
+    model.right_panel_file_preview_id = id;
+    main.writeFixed(
+        &model.right_panel_file_preview_relpath_storage,
+        &model.right_panel_file_preview_relpath_len,
+        rel,
+    );
+    main.writeFixed(
+        &model.right_panel_file_preview_abs_storage,
+        &model.right_panel_file_preview_abs_len,
+        abs,
+    );
+    loadFilePreviewBody(model);
+}
+
+/// Files-pane preview header: Open in editor at the stored absolute path.
+pub fn openPreviewInEditor(model: *Model, fx: *Effects) void {
+    if (model.right_panel_file_preview_id == 0) return;
+    const abs = model.right_panel_file_preview_abs_storage[0..model.right_panel_file_preview_abs_len];
+    if (abs.len == 0) return;
     open_editor.startOpenEditorAt(model, fx, abs);
+}
+
+pub fn openCachedFile(model: *Model, fx: *Effects, id: u32) void {
+    selectCachedFile(model, id);
+    _ = fx;
 }
 
 test "file-tree widths match Waku DEFAULT_FILE_TREE / FILE_TREE_MIN / MAX" {
@@ -569,6 +725,9 @@ test "collapsed default, expand shows children, collapse hides descendants" {
     openCachedFile(&model, &fx, src_id);
     try std.testing.expect(fx.pendingSpawnAt(0) == null);
     openCachedFile(&model, &fx, 1);
+    try std.testing.expect(fx.pendingSpawnAt(0) == null);
+    try std.testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
+    openPreviewInEditor(&model, &fx);
     try std.testing.expect(fx.pendingSpawnAt(0) != null);
 
     model.hideRightPanel();
@@ -580,4 +739,157 @@ test "collapsed default, expand shows children, collapse hides descendants" {
     try std.testing.expectEqual(@as(u32, 1), model.right_panel_expanded_count);
     file_mention.clearCache(&model);
     try std.testing.expectEqual(@as(u32, 0), model.right_panel_expanded_count);
+}
+
+fn writePreviewFile(io: std.Io, abs: []const u8, data: []const u8) !void {
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = abs, .data = data });
+}
+
+test "inline preview caps at 256KB and labels truncation" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-cap-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/big.txt", .{project});
+    const over = max_file_preview_bytes + 8;
+    const blob = try std.testing.allocator.alloc(u8, over);
+    defer std.testing.allocator.free(blob);
+    @memset(blob, 'a');
+    try writePreviewFile(std.testing.io, abs, blob);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview cap", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "big.txt\n");
+    defer clearFilePreview(&model);
+
+    selectCachedFile(&model, 1);
+    try std.testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
+    try std.testing.expect(model.file_preview_truncated());
+    try std.testing.expectEqual(max_file_preview_bytes, model.right_panel_file_preview_len);
+    try std.testing.expect(!model.file_preview_binary());
+    try std.testing.expectEqualStrings("big.txt", model.file_preview_path());
+}
+
+test "inline preview rejects NUL and invalid UTF-8" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-bin-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var nul_buf: [300]u8 = undefined;
+    const nul_abs = try std.fmt.bufPrint(&nul_buf, "{s}/nul.bin", .{project});
+    try writePreviewFile(std.testing.io, nul_abs, "ok\x00still");
+
+    var bad_buf: [300]u8 = undefined;
+    const bad_abs = try std.fmt.bufPrint(&bad_buf, "{s}/bad.txt", .{project});
+    try writePreviewFile(std.testing.io, bad_abs, "ok\xff");
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview bin", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "nul.bin\nbad.txt\n");
+    defer clearFilePreview(&model);
+
+    selectCachedFile(&model, 1);
+    try std.testing.expect(model.file_preview_binary());
+    try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_len);
+    try std.testing.expectEqualStrings(binary_file_label, binary_file_label);
+
+    selectCachedFile(&model, 2);
+    try std.testing.expect(model.file_preview_binary());
+    try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_len);
+}
+
+test "inline preview missing path is a one-line error" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-miss-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview miss", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "gone.txt\n");
+    defer clearFilePreview(&model);
+
+    selectCachedFile(&model, 1);
+    try std.testing.expect(model.file_preview_has_error());
+    try std.testing.expectEqualStrings(missing_file_label, model.file_preview_error());
+    try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_len);
+    try std.testing.expect(!model.file_preview_binary());
+}
+
+test "inline preview close, hide, and session switch free the heap buffer" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-free-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, abs, "hello\nworld\n");
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const first = model.addSession("preview free", .fx);
+    const second = model.addSession("other", .fx);
+    model.selected = first;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+
+    selectCachedFile(&model, 1);
+    try std.testing.expect(model.file_preview_has_body());
+    try std.testing.expectEqualStrings("hello\nworld\n", model.file_preview_body());
+    try std.testing.expect(model.right_panel_file_preview_storage.len != 0);
+
+    clearFilePreview(&model);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_file_preview_id);
+    try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_storage.len);
+
+    selectCachedFile(&model, 1);
+    try std.testing.expect(model.right_panel_file_preview_storage.len != 0);
+    model.hideRightPanel();
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_file_preview_id);
+    try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_storage.len);
+
+    model.showRightPanel();
+    selectCachedFile(&model, 1);
+    try std.testing.expect(model.right_panel_file_preview_storage.len != 0);
+    const palette_run = @import("palette_run.zig");
+    palette_run.applySessionSelection(&model, &fx, second);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_file_preview_id);
+    try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_storage.len);
+
+    model.selected = first;
+    model.setSelectedProjectPath(project);
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    selectCachedFile(&model, 1);
+    var editor_fx = Effects.init(std.testing.allocator);
+    defer editor_fx.deinit();
+    editor_fx.executor = .fake;
+    openPreviewInEditor(&model, &editor_fx);
+    const spawn = editor_fx.pendingSpawnAt(0) orelse return error.MissingOpenEditorSpawn;
+    try std.testing.expect(open_editor.isEditorArgv(spawn.argv));
+    try std.testing.expectEqualStrings(abs, spawn.argv[1]);
+    clearFilePreview(&model);
 }

@@ -904,44 +904,116 @@
               <text foreground="text_muted">Loading files…</text>
             </column>
           </if>
-          <scroll grow="1">
-            <column>
-              <for each="right_panel_file_rows" key="id" as="f">
-                <if test="{f.is_file}">
-                  <list-item height="32" padding="8" gap="4" cross="center" on-press="open_right_panel_file:{f.id}" label="{f.path}">
-                    <if test="{f.has_indent}">
-                      <spacer width="{f.indent}" />
-                    </if>
-                    <column gap="2">
-                      <text wrap="false" overflow="ellipsis">{f.name}</text>
-                      <if test="{f.has_parent}">
-                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
-                      </if>
-                    </column>
-                  </list-item>
-                </if>
-                <else>
-                  <list-item height="32" padding="8" gap="4" cross="center" on-press="toggle_right_panel_dir:{f.id}" label="{f.path}">
-                    <if test="{f.has_indent}">
-                      <spacer width="{f.indent}" />
-                    </if>
-                    <if test="{f.expanded}">
-                      <icon name="chevron-down" />
+          <else>
+          <column grow="1">
+            <if test="{right_panel_file_preview_open}">
+              <scroll grow="0" height="140">
+                <column>
+                  <for each="right_panel_file_rows" key="id" as="f">
+                    <if test="{f.is_file}">
+                      <list-item height="32" padding="8" gap="4" cross="center" selected="{f.selected}" on-press="open_right_panel_file:{f.id}" label="{f.path}">
+                        <if test="{f.has_indent}">
+                          <spacer width="{f.indent}" />
+                        </if>
+                        <column gap="2">
+                          <text wrap="false" overflow="ellipsis">{f.name}</text>
+                          <if test="{f.has_parent}">
+                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
+                          </if>
+                        </column>
+                      </list-item>
                     </if>
                     <else>
-                      <icon name="chevron-right" />
+                      <list-item height="32" padding="8" gap="4" cross="center" on-press="toggle_right_panel_dir:{f.id}" label="{f.path}">
+                        <if test="{f.has_indent}">
+                          <spacer width="{f.indent}" />
+                        </if>
+                        <if test="{f.expanded}">
+                          <icon name="chevron-down" />
+                        </if>
+                        <else>
+                          <icon name="chevron-right" />
+                        </else>
+                        <column gap="2">
+                          <text wrap="false" overflow="ellipsis">{f.name}</text>
+                          <if test="{f.has_parent}">
+                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
+                          </if>
+                        </column>
+                      </list-item>
                     </else>
-                    <column gap="2">
-                      <text wrap="false" overflow="ellipsis">{f.name}</text>
-                      <if test="{f.has_parent}">
-                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
-                      </if>
-                    </column>
-                  </list-item>
+                  </for>
+                </column>
+              </scroll>
+              <separator />
+              <column grow="1" gap="6" padding="10" label="File preview">
+                <row gap="6" cross="center">
+                  <text wrap="false" overflow="ellipsis" grow="1">{file_preview_path}</text>
+                  <button variant="ghost" size="sm" on-press="open_right_panel_file_editor">Open in editor</button>
+                  <button variant="ghost" size="sm" on-press="close_right_panel_file_preview">Close</button>
+                </row>
+                <if test="{file_preview_truncated}">
+                  <text foreground="text_muted">Truncated — showing first 256 KB</text>
+                </if>
+                <if test="{file_preview_binary}">
+                  <text foreground="text_muted">Binary file — not shown</text>
+                </if>
+                <else>
+                  <if test="{file_preview_has_error}">
+                    <text foreground="text_muted">{file_preview_error}</text>
+                  </if>
+                  <else>
+                    <if test="{file_preview_has_body}">
+                      <scroll grow="1">
+                        <text wrap="true" foreground="text_muted">{file_preview_body}</text>
+                      </scroll>
+                    </if>
+                  </else>
                 </else>
-              </for>
-            </column>
-          </scroll>
+              </column>
+            </if>
+            <else>
+              <scroll grow="1">
+                <column>
+                  <for each="right_panel_file_rows" key="id" as="f">
+                    <if test="{f.is_file}">
+                      <list-item height="32" padding="8" gap="4" cross="center" selected="{f.selected}" on-press="open_right_panel_file:{f.id}" label="{f.path}">
+                        <if test="{f.has_indent}">
+                          <spacer width="{f.indent}" />
+                        </if>
+                        <column gap="2">
+                          <text wrap="false" overflow="ellipsis">{f.name}</text>
+                          <if test="{f.has_parent}">
+                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
+                          </if>
+                        </column>
+                      </list-item>
+                    </if>
+                    <else>
+                      <list-item height="32" padding="8" gap="4" cross="center" on-press="toggle_right_panel_dir:{f.id}" label="{f.path}">
+                        <if test="{f.has_indent}">
+                          <spacer width="{f.indent}" />
+                        </if>
+                        <if test="{f.expanded}">
+                          <icon name="chevron-down" />
+                        </if>
+                        <else>
+                          <icon name="chevron-right" />
+                        </else>
+                        <column gap="2">
+                          <text wrap="false" overflow="ellipsis">{f.name}</text>
+                          <if test="{f.has_parent}">
+                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
+                          </if>
+                        </column>
+                      </list-item>
+                    </else>
+                  </for>
+                </column>
+              </scroll>
+            </else>
+          </column>
+          </else>
         </else>
         </else>
         </else>
