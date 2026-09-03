@@ -9030,6 +9030,11 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expectEqual(Msg.open_right_panel_file_editor, tree.msgForPointer(open_editor_btn.id, .up).?);
     const close_preview = try expectButton(tree.root, "Close");
     try testing.expectEqual(Msg.close_right_panel_file_preview, tree.msgForPointer(close_preview.id, .up).?);
+    const edit_btn = try expectButtonMsg(tree, "Edit", .open_right_panel_file_edit);
+    _ = edit_btn;
+    _ = try expectButtonMsg(tree, "Reload", .file_preview_reload);
+    try testing.expect(findByText(tree.root, .button, "Save") == null);
+    try testing.expect(findByText(tree.root, .text, "Unsaved") == null);
     const preview_source = findTextContaining(tree.root, "pub fn main() void {}") orelse {
         dumpTexts(tree.root, 0);
         return error.WidgetNotFound;
@@ -9040,6 +9045,34 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "language=\"zig\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "line-numbers") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "for each=\"file_preview_line_rows\"") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"open_right_panel_file_edit\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"file_preview_edit\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"file_preview_save\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"file_preview_reload\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "text=\"{file_preview_draft}\"") != null);
+
+    main.update(&model, .open_right_panel_file_edit, &fx);
+    try testing.expect(model.file_preview_editing());
+    try testing.expect(!model.file_preview_dirty());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Edit") == null);
+    try testing.expect(findByText(tree.root, .button, "Save") == null);
+    _ = try expectButtonMsg(tree, "Reload", .file_preview_reload);
+
+    main.update(&model, .{ .file_preview_edit = .{ .insert_text = "// edited\n" } }, &fx);
+    try testing.expect(model.file_preview_dirty());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Unsaved");
+    _ = try expectButtonMsg(tree, "Save", .file_preview_save);
+
+    main.update(&model, .file_preview_save, &fx);
+    try testing.expect(!model.file_preview_editing());
+    try testing.expect(!model.file_preview_dirty());
+    try testing.expectEqualStrings("pub fn main() void {}\n// edited\n", model.file_preview_body());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Edit", .open_right_panel_file_edit);
+    try testing.expect(findByText(tree.root, .button, "Save") == null);
+    try testing.expect(findByText(tree.root, .text, "Unsaved") == null);
 
     main.update(&model, .open_right_panel_file_editor, &fx);
     const spawn = findOpenEditorSpawn(&fx) orelse return error.MissingOpenEditorSpawn;
