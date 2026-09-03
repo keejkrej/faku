@@ -105,11 +105,12 @@ jobs:
             target: windows
     steps:
       - uses: actions/checkout@v4
-      # Native auto-downloads Zig on macOS/Linux. Windows has no managed
+      # Same action vercel-labs/native CI uses on windows-2022. Native
+      # auto-downloads Zig on macOS/Linux; Windows has no managed
       # toolchain, so 0.16.0 must be on PATH before `native build --yes`.
-      - uses: mlugg/setup-zig@v2
+      - uses: vercel-labs/setup-zig@v1
         with:
-          version: 0.16.0
+          version: "0.16.0"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
