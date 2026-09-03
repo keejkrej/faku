@@ -25,7 +25,15 @@ OpenAI-compatible `/v1/chat/completions` server.
 
 ## Install Faku
 
-Clone and run with the Native CLI:
+Latest installers are on [GitHub Releases](https://github.com/keejkrej/faku/releases) (`v0.1.0`):
+
+- macOS (Apple Silicon): [faku-0.1.0-macos-arm64.dmg](https://github.com/keejkrej/faku/releases/download/v0.1.0/faku-0.1.0-macos-arm64.dmg) — unsigned (expected)
+- Debian/Ubuntu amd64: [faku_0.1.0_amd64.deb](https://github.com/keejkrej/faku/releases/download/v0.1.0/faku_0.1.0_amd64.deb)
+- Windows x64: [faku-0.1.0-windows-x64.exe](https://github.com/keejkrej/faku/releases/download/v0.1.0/faku-0.1.0-windows-x64.exe) — silent NSIS installer
+
+No zip. Fedora/Arch still compile with Native CLI. Packaging notes under [GitHub Releases](#github-releases).
+
+### From source / contribute
 
 ```bash
 git clone https://github.com/keejkrej/faku.git
@@ -35,12 +43,7 @@ native dev --yes
 
 `native build` produces a binary. Need the Native CLI?
 `npm install -g @native-sdk/cli`. Push a `v*` tag (matching `version`
-in `app.json` and `app.zon`) to publish a GitHub Release: unsigned
-macOS `.dmg`, Debian/Ubuntu amd64 `.deb`, silent NSIS `.exe`. No zip.
-Fedora/Arch compile with Native CLI. Tag `v0.1.0` is on
-[GitHub Releases](https://github.com/keejkrej/faku/releases) with
-`faku-0.1.0-macos-arm64.dmg`, `faku_0.1.0_amd64.deb`, and
-`faku-0.1.0-windows-x64.exe`. Details below.
+in `app.json` and `app.zon`) to publish the next Release.
 
 ## Install fx
 
@@ -105,6 +108,7 @@ Do not eject.
 
 Desktop installers for macOS, Linux, and Windows are built by
 [`.github/workflows/release.yml`](.github/workflows/release.yml).
+Live `v0.1.0` download links are under [Install Faku](#install-faku).
 Set `version` in both `app.json` and `app.zon` to the same value as
 the `v*` tag, then push the tag:
 

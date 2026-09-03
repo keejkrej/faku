@@ -541,6 +541,8 @@ Honest gaps this cut does not implement:
   `.deb` from the Linux FHS install tree, silent NSIS `.exe` from the
   early Windows directory. No zip. Unsigned NSIS (SmartScreen).
   Fedora/Arch compile with Native CLI. Not iOS/Android.
+  README Install Faku leads with the live `v0.1.0` downloaders;
+  clone / Native CLI is secondary.
 - Further `main.zig` extract (`initialModel` / appearance boot live in
   `boot.zig`; icons + shell scene live in `shell.zig`; layout chrome
   lives in `layout.zig`; spawn / stream effect keys live in
