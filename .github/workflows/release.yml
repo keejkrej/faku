@@ -7,7 +7,7 @@
 
 name: Release
 
-on:
+"on":
   push:
     tags:
       - "v*"
@@ -185,10 +185,9 @@ jobs:
             }
             PY=python3
             command -v python3 >/dev/null 2>&1 || PY=python
-            product_version="$("$PY" -c 'import re,sys
-p=re.findall(r"\d+", sys.argv[1])
-p=(p+["0","0","0","0"])[:4]
-print(".".join(p))' "$VERSION")"
+            # One line: a column-0 continuation terminates YAML `run: |`
+            # so GitHub never registers `name: Release` / workflow_dispatch.
+            product_version="$("$PY" -c 'import re,sys; p=re.findall(r"\d+", sys.argv[1]); p=(p+["0","0","0","0"])[:4]; print(".".join(p))' "$VERSION")"
             to_mixed() {
               if command -v cygpath >/dev/null 2>&1; then
                 cygpath -m "$1"
