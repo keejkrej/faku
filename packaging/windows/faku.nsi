@@ -1,6 +1,7 @@
 ; Silent-by-default NSIS installer wrapping Native's early Windows
-; package directory (zig-out/package/faku-windows: exe + ico + assets).
-; Double-click installs with no wizard. /S still works.
+; package directory (zig-out/package/faku-windows: bin\faku.exe + ico +
+; assets). File /r preserves bin\. Double-click installs with no wizard.
+; /S still works.
 ;
 ; Required defines (passed by the release workflow):
 ;   VERSION          release version, e.g. 0.1.0
@@ -53,7 +54,7 @@ Section "Install"
   WriteRegStr HKLM "Software\Faku" "InstallDir" "$INSTDIR"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Faku" "DisplayName" "Faku"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Faku" "UninstallString" '"$INSTDIR\Uninstall.exe"'
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Faku" "DisplayIcon" "$INSTDIR\faku.exe"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Faku" "DisplayIcon" "$INSTDIR\bin\faku.exe"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Faku" "DisplayVersion" "${VERSION}"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Faku" "Publisher" "Faku"
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Faku" "NoModify" 1
@@ -61,9 +62,9 @@ Section "Install"
 
   CreateDirectory "$SMPROGRAMS\Faku"
   !if /FileExists "${PKGDIR}/app-icon.ico"
-    CreateShortCut "$SMPROGRAMS\Faku\Faku.lnk" "$INSTDIR\faku.exe" "" "$INSTDIR\app-icon.ico"
+    CreateShortCut "$SMPROGRAMS\Faku\Faku.lnk" "$INSTDIR\bin\faku.exe" "" "$INSTDIR\app-icon.ico"
   !else
-    CreateShortCut "$SMPROGRAMS\Faku\Faku.lnk" "$INSTDIR\faku.exe"
+    CreateShortCut "$SMPROGRAMS\Faku\Faku.lnk" "$INSTDIR\bin\faku.exe"
   !endif
 SectionEnd
 
