@@ -29,6 +29,7 @@ const max_queued_text = main.max_queued_text;
 const canvas = native_sdk.canvas;
 
 pub fn handleNewSession(model: *Model, fx: *Effects) void {
+    if (!right_panel.beginDiscardOrPark(model, .new_session)) return;
     store.persistDraftIfPossible(model);
     environment_summary.close(model);
     review_diff.close(model, fx);
@@ -64,6 +65,7 @@ pub fn handleSelect(model: *Model, fx: *Effects, id: u32) void {
         return;
     }
     if (model.sessionById(id) != null) {
+        if (!right_panel.beginDiscardOrPark(model, .{ .switch_session = id })) return;
         model.pushSelectionHistory(id);
         palette_run.applySessionSelection(model, fx, id);
     }
@@ -127,6 +129,7 @@ pub fn handleSessionTitleEdit(model: *Model, fx: *Effects, edit: canvas.TextInpu
 }
 
 pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
+    if (!right_panel.beginDiscardOrPark(model, .{ .remove_session = id })) return;
     if (model.editing_session_id == id) model.closeSessionTitleEdit();
     model.closeCommands();
     right_panel.clearFilePreview(model);

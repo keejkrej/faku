@@ -427,6 +427,10 @@ pub const Msg = union(enum) {
     file_preview_save,
     /// Files-pane preview header: re-read from disk (discards dirty).
     file_preview_reload,
+    /// Files-pane preview header: confirm discarding the dirty buffer.
+    file_preview_discard,
+    /// Files-pane preview header: cancel a parked discard and keep editing.
+    file_preview_keep_editing,
     /// Files-pane dir click. Payload is `file_mention_dir_id_base + index`.
     toggle_right_panel_dir: u32,
     /// Right-panel Files tab. Runtime-only; default when the panel opens.
@@ -797,6 +801,9 @@ pub const Model = struct {
     right_panel_file_preview_editing: bool = false,
     right_panel_file_preview_status_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
     right_panel_file_preview_status_len: usize = 0,
+    /// Runtime-only parked discard for a dirty Files preview. Not persisted.
+    file_preview_pending_kind: right_panel.PendingDiscardKind = .none,
+    file_preview_pending_id: u32 = 0,
     settings_open: bool = false,
     /// Runtime-only Settings General | Appearance | Providers | Skills |
     /// Usage | Computer Use page. Default General. Not persisted.
@@ -1341,6 +1348,8 @@ pub const Model = struct {
         "right_panel_file_preview_editing",
         "right_panel_file_preview_status_storage",
         "right_panel_file_preview_status_len",
+        "file_preview_pending_kind",
+        "file_preview_pending_id",
         "file_preview_line_rows",
         "right_panel_showing_files",
         "rightPanelWidthPixels",
@@ -2052,6 +2061,10 @@ pub const Model = struct {
         return model.right_panel_file_preview_status_len > 0;
     }
 
+    pub fn file_preview_discard_confirm(model: *const Model) bool {
+        return right_panel.discardConfirmOpen(model);
+    }
+
     pub fn right_panel_pane_min(model: *const Model) f32 {
         return if (model.right_panel_open) right_panel_min_width else 0;
     }
@@ -2662,6 +2675,7 @@ pub const Model = struct {
     }
 
     pub fn hideRightPanel(model: *Model) void {
+        if (!right_panel.beginDiscardOrPark(model, .hide_panel)) return;
         model.right_panel_open = false;
         model.right_panel_tab = .files;
         model.clearRightPanelExpanded();

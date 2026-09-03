@@ -964,6 +964,13 @@
                   <button variant="ghost" size="sm" on-press="open_right_panel_file_editor">Open in editor</button>
                   <button variant="ghost" size="sm" on-press="close_right_panel_file_preview">Close</button>
                 </row>
+                <if test="{file_preview_discard_confirm}">
+                  <row gap="8" cross="center">
+                    <text wrap="false" overflow="ellipsis" grow="1" foreground="text_muted">Discard unsaved changes?</text>
+                    <button variant="ghost" size="sm" on-press="file_preview_discard">Discard</button>
+                    <button variant="ghost" size="sm" on-press="file_preview_keep_editing">Keep editing</button>
+                  </row>
+                </if>
                 <if test="{file_preview_has_status}">
                   <text wrap="true" foreground="text_muted">{file_preview_status}</text>
                 </if>

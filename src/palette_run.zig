@@ -89,6 +89,7 @@ pub fn confirmPalette(model: *Model, fx: *Effects) void {
 
 pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     if (model.sessionById(id) == null) return;
+    if (!right_panel.beginDiscardOrPark(model, .{ .switch_session = id })) return;
     store.persistDraftIfPossible(model);
     environment_summary.close(model);
     review_diff.close(model, fx);

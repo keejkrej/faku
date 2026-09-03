@@ -9049,6 +9049,9 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"file_preview_edit\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"file_preview_save\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"file_preview_reload\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"file_preview_discard\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"file_preview_keep_editing\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "file_preview_discard_confirm") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "text=\"{file_preview_draft}\"") != null);
 
     main.update(&model, .open_right_panel_file_edit, &fx);
@@ -9089,6 +9092,99 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expectEqual(@as(usize, 2), model.right_panel_file_rows(arena).len);
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "main.zig") == null);
+}
+
+test "Files preview dirty Close shows discard confirm; Keep editing and Discard" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-discard-ui-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+    var a_buf: [300]u8 = undefined;
+    const a_abs = try std.fmt.bufPrint(&a_buf, "{s}/a.txt", .{project});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = a_abs, .data = "aaa\n" });
+    var b_buf: [300]u8 = undefined;
+    const b_abs = try std.fmt.bufPrint(&b_buf, "{s}/b.txt", .{project});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = b_abs, .data = "bbb\n" });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const first = model.addSession("discard ui", .fx);
+    const second = model.addSession("other session", .fx);
+    model.selected = first;
+    model.setSelectedProjectPath(project);
+    defer right_panel.clearFilePreview(&model);
+
+    main.update(&model, .show_right_panel, &fx);
+    file_mention.applyStdoutPaths(&model, "a.txt\nb.txt\n");
+    main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
+    main.update(&model, .open_right_panel_file_edit, &fx);
+    main.update(&model, .{ .file_preview_edit = .{ .insert_text = "x" } }, &fx);
+    try testing.expect(model.file_preview_dirty());
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Discard") == null);
+    try testing.expect(findByText(tree.root, .text, "Discard unsaved changes?") == null);
+
+    main.update(&model, .{ .open_right_panel_file = 2 }, &fx);
+    try testing.expect(model.file_preview_discard_confirm());
+    try testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Discard unsaved changes?");
+    _ = try expectButtonMsg(tree, "Discard", .file_preview_discard);
+    _ = try expectButtonMsg(tree, "Keep editing", .file_preview_keep_editing);
+    _ = try expectButtonMsg(tree, "Save", .file_preview_save);
+
+    main.update(&model, .file_preview_keep_editing, &fx);
+    try testing.expect(!model.file_preview_discard_confirm());
+    try testing.expect(model.file_preview_dirty());
+    try testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Discard") == null);
+
+    main.update(&model, .close_right_panel_file_preview, &fx);
+    try testing.expect(model.right_panel_file_preview_open());
+    try testing.expect(model.file_preview_discard_confirm());
+    main.update(&model, .file_preview_keep_editing, &fx);
+
+    main.update(&model, .hide_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+    try testing.expect(model.file_preview_discard_confirm());
+    main.update(&model, .file_preview_keep_editing, &fx);
+
+    main.update(&model, .toggle_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+    try testing.expect(model.file_preview_discard_confirm());
+    main.update(&model, .file_preview_keep_editing, &fx);
+
+    main.update(&model, .{ .select = second }, &fx);
+    try testing.expectEqual(first, model.selected);
+    try testing.expect(model.file_preview_discard_confirm());
+    main.update(&model, .file_preview_keep_editing, &fx);
+    try testing.expectEqual(first, model.selected);
+
+    main.update(&model, .new_session, &fx);
+    try testing.expectEqual(first, model.selected);
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    try testing.expect(model.file_preview_discard_confirm());
+    main.update(&model, .file_preview_keep_editing, &fx);
+
+    main.update(&model, .close_right_panel_file_preview, &fx);
+    main.update(&model, .file_preview_discard, &fx);
+    try testing.expect(!model.right_panel_file_preview_open());
+    try testing.expect(!model.file_preview_dirty());
+    try testing.expect(model.right_panel_open);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Discard") == null);
+    try testing.expect(findByText(tree.root, .text, "Discard unsaved changes?") == null);
 }
 
 test "right panel Files list stays empty without a project" {
