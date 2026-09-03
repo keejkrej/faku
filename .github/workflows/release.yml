@@ -219,19 +219,20 @@ jobs:
             # One line: a column-0 continuation terminates YAML `run: |`
             # so GitHub never registers `name: Release` / workflow_dispatch.
             product_version="$("$PY" -c 'import re,sys; p=re.findall(r"\d+", sys.argv[1]); p=(p+["0","0","0","0"])[:4]; print(".".join(p))' "$VERSION")"
-            # NSIS File /r does not recurse a relative mixed-slash PKGDIR
-            # from cygpath -m. Pass absolute Windows paths with backslashes.
-            to_win() {
+            # Absolute mixed-slash Windows paths. Relative mixed PKGDIR
+            # did not recurse; absolute backslash PKGDIR on D:\a\ is an
+            # NSIS -D escape (`\a`). File accepts `/` on Windows.
+            to_mixed() {
               if command -v cygpath >/dev/null 2>&1; then
-                cygpath -w "$1"
+                cygpath -m "$1"
               else
                 echo "$1"
               fi
             }
             pkg_abs="${GITHUB_WORKSPACE}/${pkg}"
-            pkg_win=$(to_win "$pkg_abs")
-            out_win=$(to_win "${GITHUB_WORKSPACE}/dist/faku-${VERSION}-windows-x64.exe")
-            nsi_win=$(to_win "${GITHUB_WORKSPACE}/packaging/windows/faku.nsi")
+            pkg_win=$(to_mixed "$pkg_abs")
+            out_win=$(to_mixed "${GITHUB_WORKSPACE}/dist/faku-${VERSION}-windows-x64.exe")
+            nsi_win=$(to_mixed "${GITHUB_WORKSPACE}/packaging/windows/faku.nsi")
             echo "makensis PKGDIR=$pkg_win OUTFILE=$out_win"
             makensis \
               -DVERSION="$VERSION" \
