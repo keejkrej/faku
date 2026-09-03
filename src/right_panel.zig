@@ -848,6 +848,7 @@ test "inline preview caps at 256KB and labels truncation" {
         try std.testing.expectEqualStrings("1", lines[0].n_label);
         try std.testing.expectEqual(max_file_preview_bytes, lines[0].text.len);
     }
+}
 
 test "inline preview rejects NUL and invalid UTF-8" {
     var tmp = std.testing.tmpDir(.{});
