@@ -2,9 +2,10 @@
 //!
 //! `startFxProbe` / `restartFxProbe` / `spawnFxProbe` /
 //! `handleFxProbeExit` / `fxProbePath` live here. Boot still starts
-//! from `initFx` in `update.zig`. Probe order is `~/.local/bin/fx
-//! --help` then `fx --help` (PATH). Settings → Providers Refresh
-//! calls `restartFxProbe`. Behavior of the boot probe is unchanged.
+//! from `initFx` in `update.zig`. Probe order is `$HOME/.fx/bin/fx`
+//! `--help` (keejkrej/fx default), leftover `~/.local/bin/fx --help`
+//! (not advertised), then `fx --help` (PATH). Settings → Providers
+//! Refresh calls `restartFxProbe`.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -40,8 +41,12 @@ pub fn isFxProbeArgv(argv: []const []const u8) bool {
     return std.mem.eql(u8, bin, "fx") or std.mem.endsWith(u8, bin, "/fx");
 }
 
+/// Must match `protocol.FX_PROBE_PATHS` length: ~/.fx/bin/fx,
+/// leftover ~/.local/bin/fx, PATH fx.
+const probe_path_count: u32 = 3;
+
 fn spawnFxProbe(model: *Model, fx: *Effects) void {
-    while (model.fx_probe_index < 2) {
+    while (model.fx_probe_index < probe_path_count) {
         var path_buf: [max_fx_path]u8 = undefined;
         if (fxProbePath(model, model.fx_probe_index, &path_buf)) |path| {
             model.setFxPath(path);
@@ -73,18 +78,19 @@ pub fn handleFxProbeExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExi
     spawnFxProbe(model, fx);
 }
 
+fn joinHomeSuffix(home: []const u8, suffix: []const u8, buf: *[max_fx_path]u8) ?[]const u8 {
+    if (home.len == 0) return null;
+    if (home.len + suffix.len > buf.len) return null;
+    @memcpy(buf[0..home.len], home);
+    @memcpy(buf[home.len..][0..suffix.len], suffix);
+    return buf[0 .. home.len + suffix.len];
+}
+
 pub fn fxProbePath(model: *const Model, index: u32, buf: *[max_fx_path]u8) ?[]const u8 {
     switch (index) {
-        0 => {
-            const home = model.homeDir();
-            if (home.len == 0) return null;
-            const suffix = "/.local/bin/fx";
-            if (home.len + suffix.len > buf.len) return null;
-            @memcpy(buf[0..home.len], home);
-            @memcpy(buf[home.len..][0..suffix.len], suffix);
-            return buf[0 .. home.len + suffix.len];
-        },
-        1 => {
+        0 => return joinHomeSuffix(model.homeDir(), "/.fx/bin/fx", buf),
+        1 => return joinHomeSuffix(model.homeDir(), "/.local/bin/fx", buf),
+        2 => {
             const name = "fx";
             @memcpy(buf[0..name.len], name);
             return buf[0..name.len];
@@ -93,24 +99,27 @@ pub fn fxProbePath(model: *const Model, index: u32, buf: *[max_fx_path]u8) ?[]co
     }
 }
 
-test "fxProbePath index 0 is {home}/.local/bin/fx; index 1 is fx" {
+test "fxProbePath prefers ~/.fx/bin/fx, then leftover ~/.local/bin/fx, then PATH fx" {
     var model = Model{};
     model.setHome("/home/probe");
     var buf: [max_fx_path]u8 = undefined;
-    try std.testing.expectEqualStrings("/home/probe/.local/bin/fx", fxProbePath(&model, 0, &buf).?);
-    try std.testing.expectEqualStrings("fx", fxProbePath(&model, 1, &buf).?);
-    try std.testing.expect(fxProbePath(&model, 2, &buf) == null);
+    try std.testing.expectEqualStrings("/home/probe/.fx/bin/fx", fxProbePath(&model, 0, &buf).?);
+    try std.testing.expectEqualStrings("/home/probe/.local/bin/fx", fxProbePath(&model, 1, &buf).?);
+    try std.testing.expectEqualStrings("fx", fxProbePath(&model, 2, &buf).?);
+    try std.testing.expect(fxProbePath(&model, 3, &buf) == null);
 }
 
-test "fxProbePath index 0 is null when home is empty" {
+test "fxProbePath home slots are null when home is empty; PATH fx remains" {
     const model = Model{};
     var buf: [max_fx_path]u8 = undefined;
     try std.testing.expect(fxProbePath(&model, 0, &buf) == null);
-    try std.testing.expectEqualStrings("fx", fxProbePath(&model, 1, &buf).?);
+    try std.testing.expect(fxProbePath(&model, 1, &buf) == null);
+    try std.testing.expectEqualStrings("fx", fxProbePath(&model, 2, &buf).?);
 }
 
 test "isFxProbeArgv matches --help on fx path" {
     try std.testing.expect(isFxProbeArgv(&.{ "fx", "--help" }));
+    try std.testing.expect(isFxProbeArgv(&.{ "/home/probe/.fx/bin/fx", "--help" }));
     try std.testing.expect(isFxProbeArgv(&.{ "/home/probe/.local/bin/fx", "--help" }));
     try std.testing.expect(!isFxProbeArgv(&.{ "fx", "acp" }));
     try std.testing.expect(!isFxProbeArgv(&.{"fx"}));

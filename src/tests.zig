@@ -11964,7 +11964,7 @@ test "settings Providers fx copy install when missing, copy login when available
     const written_install = fx.pendingClipboardAt(0).?;
     try testing.expectEqual(main.copy_turn_key, written_install.key);
     try testing.expectEqual(native_sdk.EffectClipboardOp.write, written_install.op);
-    try testing.expectEqualStrings("curl -fsSL https://fx.sh/setup.sh | bash", written_install.text);
+    try testing.expectEqualStrings("curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash", written_install.text);
     try testing.expectEqualStrings(providers.fx_install_command, written_install.text);
 
     model.fx_available = true;

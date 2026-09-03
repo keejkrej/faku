@@ -2,9 +2,10 @@
 //!
 //! Each non-fx `protocol.ProviderId` one-shots `{defaultBinary()} --help`
 //! on PATH (no `~/.local/bin/<binary>` fallback this cut). fx stays on
-//! `fx_probe.zig` (`~/.local/bin/fx` then PATH) and is never spawned
-//! here. Same Native collect+on_exit pattern as `fx_probe`. Fake
-//! executor queues the spawn; tests do not need a live CLI or daemon.
+//! `fx_probe.zig` (`$HOME/.fx/bin/fx`, leftover `~/.local/bin/fx`, then
+//! PATH) and is never spawned here. Same Native collect+on_exit pattern
+//! as `fx_probe`. Fake executor queues the spawn; tests do not need a
+//! live CLI or daemon.
 //!
 //! Spawn key is `cli_probe_key_first + @intFromEnum(id)` so claude=601
 //! … kimi=608. fx (enum 0) is unused on this band. Distinct from

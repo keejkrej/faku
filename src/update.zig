@@ -348,7 +348,8 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     _ = environment_summary.refreshBackgroundOutputCache(model);
 }
 
-/// Boot probe: `~/.local/bin/fx --help` then `fx --help` (PATH). Wired
+/// Boot probe: `$HOME/.fx/bin/fx --help`, leftover `~/.local/bin/fx`,
+/// then `fx --help` (PATH). Wired
 /// through `.init_fx` so the first paint already has the spawn in flight.
 pub fn initFx(model: *Model, fx: *Effects) void {
     model.now_ms = fx.wallMs();
