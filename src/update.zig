@@ -302,12 +302,28 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistLayoutIfPossible(model);
         },
         .open_right_panel_file => |id| right_panel.selectCachedFile(model, id),
-        .close_right_panel_file_preview => right_panel.clearFilePreview(model),
+        .close_right_panel_file_preview => right_panel.closeFilePreview(model),
         .open_right_panel_file_editor => right_panel.openPreviewInEditor(model, fx),
         .open_right_panel_file_edit => right_panel.startFilePreviewEdit(model),
         .file_preview_edit => |edit| right_panel.applyFilePreviewEdit(model, edit),
         .file_preview_save => right_panel.saveFilePreview(model),
         .file_preview_reload => right_panel.reloadFilePreview(model),
+        .file_preview_discard => {
+            const intent = right_panel.acceptPendingDiscard(model);
+            switch (intent) {
+                .none => {},
+                .switch_file => |id| right_panel.selectCachedFile(model, id),
+                .close_preview => right_panel.clearFilePreview(model),
+                .hide_panel => {
+                    model.hideRightPanel();
+                    store.persistLayoutIfPossible(model);
+                },
+                .switch_session => |id| palette_run.applySessionSelection(model, fx, id),
+                .new_session => session_actions.handleNewSession(model, fx),
+                .remove_session => |id| session_actions.handleRemoveSession(model, fx, id),
+            }
+        },
+        .file_preview_keep_editing => right_panel.cancelPendingDiscard(model),
         .toggle_right_panel_dir => |id| right_panel.toggleDir(model, id),
         .set_right_panel_tab_files => {
             right_panel.selectFiles(model, fx);
