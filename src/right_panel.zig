@@ -36,11 +36,13 @@
 //! Files tab ships a read-only bounded inline file preview (Faku-side
 //! `readFileAlloc`, 256KB cap, truncated label when larger, binary /
 //! non-UTF-8 honest empty state, unreadable one-line error, newlines
-//! kept, first-cut line-number gutter on Native `for each` rows
-//! (`max_file_preview_line_rows`), runtime-only, cleared on session
-//! switch / remove / panel hide; Open in editor still available). Not
-//! editing, save, syntax highlighting, live reload, Browser, Terminal
-//! (Native has no PTY).
+//! kept, first-cut Native `<code>` highlighting with `line-numbers`,
+//! runtime-only, cleared on session switch / remove / panel hide; Open
+//! in editor still available). Language is a documented Native lexer
+//! name from the path (unknown / Dockerfile / Makefile / Cargo.toml →
+//! `plain`). Native numbered mode omits the gutter above 128 logical
+//! lines but keeps the source. `previewLineRows` remains for tests.
+//! Not editing, save, live reload, Browser, Terminal (Native has no PTY).
 //!
 //! Default closed: Waku `RightPanelSessionState::take_or_closed` uses
 //! `empty(false)` and persistence `default_right_panel_visibility` is
@@ -91,6 +93,60 @@ pub const binary_file_label = "Binary file — not shown";
 pub const truncated_file_label = "Truncated — showing first 256 KB";
 pub const unreadable_file_label = "Cannot read file";
 pub const missing_file_label = "File not found";
+
+/// Documented Native `language=` lexer name for a preview path. Unknown
+/// extensions and well-known names Native has no lexer for
+/// (Dockerfile, Makefile, Cargo.toml) are `"plain"`. Never invents a
+/// lexer id; names match `native_sdk.canvas.code.languageFromName`.
+pub fn previewLanguage(path: []const u8) []const u8 {
+    const base = composer.fileMentionBasename(path);
+    if (std.ascii.eqlIgnoreCase(base, "Dockerfile") or
+        std.ascii.eqlIgnoreCase(base, "Containerfile") or
+        std.ascii.eqlIgnoreCase(base, "Makefile") or
+        std.ascii.eqlIgnoreCase(base, "GNUmakefile") or
+        std.ascii.eqlIgnoreCase(base, "Cargo.toml"))
+    {
+        return "plain";
+    }
+    const ext = extensionOf(base);
+    if (std.ascii.eqlIgnoreCase(ext, "zig")) return "zig";
+    if (std.ascii.eqlIgnoreCase(ext, "js") or
+        std.ascii.eqlIgnoreCase(ext, "mjs") or
+        std.ascii.eqlIgnoreCase(ext, "cjs")) return "javascript";
+    if (std.ascii.eqlIgnoreCase(ext, "tsx")) return "tsx";
+    if (std.ascii.eqlIgnoreCase(ext, "jsx")) return "jsx";
+    if (std.ascii.eqlIgnoreCase(ext, "ts")) return "typescript";
+    if (std.ascii.eqlIgnoreCase(ext, "json") or std.ascii.eqlIgnoreCase(ext, "jsonc")) return "json";
+    if (std.ascii.eqlIgnoreCase(ext, "yaml") or std.ascii.eqlIgnoreCase(ext, "yml")) return "yaml";
+    if (std.ascii.eqlIgnoreCase(ext, "sh") or
+        std.ascii.eqlIgnoreCase(ext, "bash") or
+        std.ascii.eqlIgnoreCase(ext, "zsh")) return "shell";
+    if (std.ascii.eqlIgnoreCase(ext, "py") or std.ascii.eqlIgnoreCase(ext, "pyi")) return "python";
+    if (std.ascii.eqlIgnoreCase(ext, "rs")) return "rust";
+    if (std.ascii.eqlIgnoreCase(ext, "c") or std.ascii.eqlIgnoreCase(ext, "h") or
+        std.ascii.eqlIgnoreCase(ext, "cc") or std.ascii.eqlIgnoreCase(ext, "cpp") or
+        std.ascii.eqlIgnoreCase(ext, "cxx") or std.ascii.eqlIgnoreCase(ext, "hpp") or
+        std.ascii.eqlIgnoreCase(ext, "hh") or std.ascii.eqlIgnoreCase(ext, "cs") or
+        std.ascii.eqlIgnoreCase(ext, "java") or std.ascii.eqlIgnoreCase(ext, "kt") or
+        std.ascii.eqlIgnoreCase(ext, "kts") or std.ascii.eqlIgnoreCase(ext, "swift")) return "c";
+    if (std.ascii.eqlIgnoreCase(ext, "go")) return "go";
+    if (std.ascii.eqlIgnoreCase(ext, "html") or std.ascii.eqlIgnoreCase(ext, "htm") or
+        std.ascii.eqlIgnoreCase(ext, "xml") or std.ascii.eqlIgnoreCase(ext, "svg")) return "html";
+    if (std.ascii.eqlIgnoreCase(ext, "css") or
+        std.ascii.eqlIgnoreCase(ext, "scss") or
+        std.ascii.eqlIgnoreCase(ext, "less")) return "css";
+    if (std.ascii.eqlIgnoreCase(ext, "sql")) return "sql";
+    if (std.ascii.eqlIgnoreCase(ext, "md") or std.ascii.eqlIgnoreCase(ext, "markdown")) return "markdown";
+    return "plain";
+}
+
+fn extensionOf(name: []const u8) []const u8 {
+    if (std.mem.lastIndexOfScalar(u8, name, '.')) |dot| {
+        if (dot == 0 or dot + 1 >= name.len) return "";
+        return name[dot + 1 ..];
+    }
+    return "";
+}
 
 /// Native `for each="file_preview_line_rows"` row. `id` is the 1-based
 /// line number (never 0). `text` is a slice into the preview buffer
@@ -840,6 +896,7 @@ test "inline preview caps at 256KB and labels truncation" {
     try std.testing.expectEqual(max_file_preview_bytes, model.right_panel_file_preview_len);
     try std.testing.expect(!model.file_preview_binary());
     try std.testing.expectEqualStrings("big.txt", model.file_preview_path());
+    try std.testing.expectEqualStrings("plain", model.file_preview_language());
     {
         var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena_state.deinit();
@@ -940,6 +997,7 @@ test "inline preview close, hide, and session switch free the heap buffer" {
     selectCachedFile(&model, 1);
     try std.testing.expect(model.file_preview_has_body());
     try std.testing.expectEqualStrings("hello\nworld\n", model.file_preview_body());
+    try std.testing.expectEqualStrings("plain", model.file_preview_language());
     try std.testing.expect(model.right_panel_file_preview_storage.len != 0);
     {
         const lines = model.file_preview_line_rows(arena);
@@ -1050,4 +1108,41 @@ test "preview gutter materializes at most max_file_preview_line_rows" {
     try std.testing.expectEqualStrings("x", lines[0].text);
     try std.testing.expectEqual(@as(u32, @intCast(max_file_preview_line_rows)), lines[lines.len - 1].id);
     try std.testing.expectEqualStrings("x", lines[lines.len - 1].text);
+}
+
+test "preview language maps documented extensions; unknown and well-known names are plain" {
+    const native_sdk = @import("native_sdk");
+    const code = native_sdk.canvas.code;
+
+    try std.testing.expectEqualStrings("zig", previewLanguage("src/main.zig"));
+    try std.testing.expectEqual(code.Language.zig, code.languageFromName(previewLanguage("src/main.zig")));
+    try std.testing.expectEqualStrings("javascript", previewLanguage("app.js"));
+    try std.testing.expectEqualStrings("javascript", previewLanguage("mod.mjs"));
+    try std.testing.expectEqualStrings("typescript", previewLanguage("src/index.ts"));
+    try std.testing.expectEqualStrings("tsx", previewLanguage("Button.tsx"));
+    try std.testing.expectEqualStrings("jsx", previewLanguage("view.jsx"));
+    try std.testing.expectEqualStrings("json", previewLanguage("package.json"));
+    try std.testing.expectEqualStrings("yaml", previewLanguage("compose.yml"));
+    try std.testing.expectEqualStrings("shell", previewLanguage("scripts/install.sh"));
+    try std.testing.expectEqualStrings("python", previewLanguage("main.py"));
+    try std.testing.expectEqualStrings("rust", previewLanguage("src/lib.rs"));
+    try std.testing.expectEqualStrings("c", previewLanguage("foo.c"));
+    try std.testing.expectEqualStrings("c", previewLanguage("bar.cpp"));
+    try std.testing.expectEqualStrings("c", previewLanguage("Main.java"));
+    try std.testing.expectEqualStrings("go", previewLanguage("main.go"));
+    try std.testing.expectEqualStrings("html", previewLanguage("index.html"));
+    try std.testing.expectEqualStrings("html", previewLanguage("icon.svg"));
+    try std.testing.expectEqualStrings("css", previewLanguage("theme.css"));
+    try std.testing.expectEqualStrings("sql", previewLanguage("schema.sql"));
+    try std.testing.expectEqualStrings("markdown", previewLanguage("README.md"));
+    try std.testing.expectEqualStrings("plain", previewLanguage("Dockerfile"));
+    try std.testing.expectEqualStrings("plain", previewLanguage("Makefile"));
+    try std.testing.expectEqualStrings("plain", previewLanguage("Cargo.toml"));
+    try std.testing.expectEqualStrings("plain", previewLanguage("notes.txt"));
+    try std.testing.expectEqualStrings("plain", previewLanguage("lock.foo"));
+    try std.testing.expect(code.isLanguageName(previewLanguage("src/main.zig")));
+    try std.testing.expect(code.isLanguageName(previewLanguage("Dockerfile")));
+    try std.testing.expectEqual(code.Language.plain, code.languageFromName(previewLanguage("Cargo.toml")));
+    try std.testing.expectEqual(code.Language.javascript, code.languageFromName(previewLanguage("app.js")));
+    try std.testing.expectEqual(code.Language.c_like, code.languageFromName(previewLanguage("foo.c")));
 }

@@ -1323,7 +1323,7 @@ pub const Model = struct {
         "right_panel_file_preview_binary",
         "right_panel_file_preview_error_storage",
         "right_panel_file_preview_error_len",
-        "file_preview_body",
+        "file_preview_line_rows",
         "right_panel_showing_files",
         "rightPanelWidthPixels",
         "applyRightPanelWidth",
@@ -1973,6 +1973,13 @@ pub const Model = struct {
         return model.right_panel_file_preview_len > 0
             and !model.right_panel_file_preview_binary
             and model.right_panel_file_preview_error_len == 0;
+    }
+
+    /// Documented Native `<code language>` lexer name for the open preview
+    /// path. Empty preview → `"plain"`.
+    pub fn file_preview_language(model: *const Model) []const u8 {
+        if (!model.file_preview_has_body()) return "plain";
+        return right_panel.previewLanguage(model.file_preview_path());
     }
 
     pub fn file_preview_line_rows(model: *const Model, arena: std.mem.Allocator) []const right_panel.FilePreviewLineRow {
