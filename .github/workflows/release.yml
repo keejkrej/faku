@@ -1,0 +1,219 @@
+# First-cut GitHub Releases for Faku desktop binaries.
+# Host-native `native build` + `native package` only. No eject, no
+# invented flags, no Apple notarize, not iOS/Android.
+#
+# Flags come from https://native-sdk.dev/docs/cli and
+# `native package --help` (printed on each runner).
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Artifact version without v (defaults to app.json). Does not publish a GitHub Release by itself."
+        required: false
+        type: string
+      tag:
+        description: "Existing v* tag to publish as a GitHub Release. Empty = Actions artifacts only."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  meta:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      publish: ${{ steps.resolve.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: resolve
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          manifest=$(python3 -c "import json; print(json.load(open('app.json'))['version'])")
+          zon=$(python3 -c 'import re, pathlib, sys; m=re.search(r"\.version\s*=\s*\"([^\"]+)\"", pathlib.Path("app.zon").read_text()); sys.exit("app.zon version not found") if m is None else print(m.group(1))')
+          if [[ "$manifest" != "$zon" ]]; then
+            echo "app.json version ($manifest) does not match app.zon ($zon)" >&2
+            exit 1
+          fi
+
+          tag=""
+          publish=false
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            tag="${GITHUB_REF_NAME}"
+            publish=true
+          elif [[ -n "${INPUT_TAG}" ]]; then
+            tag="${INPUT_TAG}"
+            if [[ "$tag" != v* ]]; then
+              tag="v${tag}"
+            fi
+            publish=true
+          fi
+
+          version="${INPUT_VERSION:-}"
+          version="${version#v}"
+          if [[ -z "$version" && -n "$tag" ]]; then
+            version="${tag#v}"
+          fi
+          if [[ -z "$version" ]]; then
+            version="$manifest"
+          fi
+
+          if [[ "$publish" == true && "$version" != "$manifest" ]]; then
+            echo "release version ($version) does not match app.json/app.zon ($manifest)" >&2
+            exit 1
+          fi
+          if [[ "$publish" == true && "$tag" != v* ]]; then
+            echo "publish tag must be v* (got $tag)" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "version=$version tag=$tag publish=$publish"
+
+  package:
+    name: Package ${{ matrix.target }}
+    needs: meta
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: macos
+          - os: ubuntu-latest
+            target: linux
+          - os: windows-latest
+            target: windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Native CLI
+        run: |
+          set -euo pipefail
+          npm install -g @native-sdk/cli
+          native version
+          native package --help
+      - name: Install Linux GTK host deps
+        if: matrix.target == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev pkg-config zip
+      - name: Build
+        run: native build --yes
+      - name: Package
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            arm64|aarch64) ARCH=arm64 ;;
+            *) ARCH=x64 ;;
+          esac
+          mkdir -p dist
+
+          if [[ "$TARGET" == macos ]]; then
+            native package --target macos --archive --signing none
+            ls -la zig-out/package
+            shopt -s nullglob
+            dmgs=(zig-out/package/*.dmg)
+            if [[ ${#dmgs[@]} -eq 0 ]]; then
+              echo "native package --archive did not produce a .dmg" >&2
+              exit 1
+            fi
+            cp "${dmgs[0]}" "dist/faku-${VERSION}-macos-${ARCH}.dmg"
+          elif [[ "$TARGET" == linux ]]; then
+            native package --target linux
+            ls -la zig-out/package
+            pkg="zig-out/package/faku-linux"
+            if [[ ! -d "$pkg" ]]; then
+              echo "missing $pkg (native package default linux output)" >&2
+              exit 1
+            fi
+            (cd zig-out/package && zip -r "${GITHUB_WORKSPACE}/dist/faku-${VERSION}-linux-${ARCH}.zip" faku-linux)
+          elif [[ "$TARGET" == windows ]]; then
+            native package --target windows
+            ls -la zig-out/package
+            pkg="zig-out/package/faku-windows"
+            if [[ ! -d "$pkg" ]]; then
+              echo "missing $pkg (native package default windows output)" >&2
+              exit 1
+            fi
+            PY=python3
+            command -v python3 >/dev/null 2>&1 || PY=python
+            "$PY" -c 'import pathlib, shutil, sys; src=pathlib.Path(sys.argv[1]); dest=pathlib.Path(sys.argv[2]); shutil.make_archive(str(dest.with_suffix("")), "zip", src.parent, src.name)' \
+              "$pkg" "dist/faku-${VERSION}-windows-${ARCH}.zip"
+          else
+            echo "unexpected target $TARGET" >&2
+            exit 1
+          fi
+
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: faku-${{ matrix.target }}
+          path: dist/faku-*
+          if-no-files-found: error
+
+  publish:
+    name: GitHub Release
+    needs: [meta, package]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: SHA256SUMS
+        run: |
+          set -euo pipefail
+          cd dist
+          ls -la
+          sha256sum faku-* | tee SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: faku-release-${{ needs.meta.outputs.version }}
+          path: dist/*
+          if-no-files-found: error
+      - name: Create GitHub Release
+        if: needs.meta.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          notes="$(mktemp)"
+          cat > "$notes" <<EOF
+          Faku ${VERSION} desktop packages.
+
+          Built host-native with documented \`native build\` / \`native package\`.
+          Not iOS/Android.
+
+          - macOS: unsigned \`.dmg\` (\`--signing none\`; no Apple identity / notarize)
+          - Linux: documented install tree zip (\`bin/\`, \`.desktop\`, hicolor icons)
+          - Windows: Native early directory zip (not MSI/NSIS)
+          EOF
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file "$notes" \
+            dist/faku-* dist/SHA256SUMS
