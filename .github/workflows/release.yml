@@ -180,11 +180,27 @@ jobs:
               echo "missing $pkg (native package default windows output)" >&2
               exit 1
             fi
-            if [[ ! -f "$pkg/faku.exe" ]]; then
-              echo "missing $pkg/faku.exe" >&2
+            # Native windows is early directory packaging; CI lays the
+            # exe under bin/ (same as the documented Linux tree).
+            exe=""
+            if [[ -f "$pkg/bin/faku.exe" ]]; then
+              exe="$pkg/bin/faku.exe"
+            elif [[ -f "$pkg/faku.exe" ]]; then
+              exe="$pkg/faku.exe"
+            fi
+            if [[ -z "$exe" ]]; then
+              echo "missing $pkg/bin/faku.exe (also checked $pkg/faku.exe)" >&2
               ls -la "$pkg" >&2
+              if [[ -d "$pkg/bin" ]]; then
+                ls -la "$pkg/bin" >&2
+              fi
+              if [[ -f "$pkg/package-manifest.zon" ]]; then
+                echo "--- $pkg/package-manifest.zon ---" >&2
+                cat "$pkg/package-manifest.zon" >&2
+              fi
               exit 1
             fi
+            echo "windows package exe: $exe"
             command -v makensis >/dev/null 2>&1 || {
               echo "makensis not on PATH after choco nsis" >&2
               exit 1
