@@ -37,7 +37,7 @@ Section "Install"
   File /nonfatal "@PKGDIR@\app-icon.ico"
   File /nonfatal "@PKGDIR@\README.txt"
   SetOutPath "$INSTDIR\resources"
-  File /r /nonfatal "@PKGDIR@\resources\*.*"
+  File /nonfatal /r "@PKGDIR@\resources\*.*"
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   WriteRegStr HKLM "Software\Faku" "InstallDir" "$INSTDIR"
