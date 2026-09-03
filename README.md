@@ -177,6 +177,35 @@ Install the Native CLI globally, then from this directory:
     native check
     native build
 
+Host-native packaging uses the same documented verbs CI does
+(`native build` then `native package --target macos|linux|windows`).
+Do not eject.
+
+### GitHub Releases
+
+Desktop binaries for macOS, Linux, and Windows are built by
+[`.github/workflows/release.yml`](.github/workflows/release.yml).
+Set `version` in both `app.json` and `app.zon` to the same value as
+the `v*` tag, then push the tag:
+
+    git tag v0.1.0
+    git push origin v0.1.0
+
+`workflow_dispatch` still uploads Actions artifacts. A GitHub Release
+is created only for a `v*` tag, or when dispatch is given that tag.
+
+Honest about this cut:
+
+- macOS CI builds are unsigned (`native package --signing none`).
+  There is no Apple identity and no notarize in CI.
+- Linux is Native's documented install tree (`bin/`, `.desktop`,
+  hicolor icons) archived by the workflow. `--archive` is a macOS
+  DMG, not a Linux tarball.
+- Windows is Native's early directory packaging plus a generated
+  `.ico`, zipped by the workflow. Not an MSI/NSIS installer.
+- iOS and Android are experimental Native hosts and not a Faku
+  desktop product. They are not packaged here.
+
 ## License
 
 GPL-3.0-only for this Waku-inspired client. Not a verbatim copy of
