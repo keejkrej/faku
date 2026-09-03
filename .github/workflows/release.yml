@@ -219,27 +219,29 @@ jobs:
             # One line: a column-0 continuation terminates YAML `run: |`
             # so GitHub never registers `name: Release` / workflow_dispatch.
             product_version="$("$PY" -c 'import re,sys; p=re.findall(r"\d+", sys.argv[1]); p=(p+["0","0","0","0"])[:4]; print(".".join(p))' "$VERSION")"
-            # Absolute mixed-slash Windows paths. Relative mixed PKGDIR
-            # did not recurse; absolute backslash PKGDIR on D:\a\ is an
-            # NSIS -D escape (`\a`). File accepts `/` on Windows.
-            to_mixed() {
-              if command -v cygpath >/dev/null 2>&1; then
-                cygpath -m "$1"
-              else
-                echo "$1"
-              fi
-            }
+            # Do not pass paths through makensis -D: `\a` in D:\a\ is an
+            # NSIS escape. Convert to Windows backslash form here (never
+            # -D) and substitute tokens into a generated script.
             pkg_abs="${GITHUB_WORKSPACE}/${pkg}"
-            pkg_win=$(to_mixed "$pkg_abs")
-            out_win=$(to_mixed "${GITHUB_WORKSPACE}/dist/faku-${VERSION}-windows-x64.exe")
-            nsi_win=$(to_mixed "${GITHUB_WORKSPACE}/packaging/windows/faku.nsi")
-            echo "makensis PKGDIR=$pkg_win OUTFILE=$out_win"
-            makensis \
-              -DVERSION="$VERSION" \
-              -DPRODUCT_VERSION="$product_version" \
-              -DPKGDIR="$pkg_win" \
-              -DOUTFILE="$out_win" \
-              "$nsi_win"
+            if command -v cygpath >/dev/null 2>&1; then
+              pkg_win=$(cygpath -w "$pkg_abs")
+              out_win=$(cygpath -w "${GITHUB_WORKSPACE}/dist/faku-${VERSION}-windows-x64.exe")
+            else
+              pkg_win="$pkg_abs"
+              out_win="${GITHUB_WORKSPACE}/dist/faku-${VERSION}-windows-x64.exe"
+            fi
+            nsi_gen="${GITHUB_WORKSPACE}/dist/faku.nsi"
+            echo "generating $nsi_gen PKGDIR=$pkg_win OUTFILE=$out_win"
+            "$PY" -c 'import pathlib,sys; t=pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"); pathlib.Path(sys.argv[2]).write_text(t.replace("@PKGDIR@",sys.argv[3]).replace("@OUTFILE@",sys.argv[4]).replace("@VERSION@",sys.argv[5]).replace("@PRODUCT_VERSION@",sys.argv[6]), encoding="utf-8")' \
+              "${GITHUB_WORKSPACE}/packaging/windows/faku.nsi" \
+              "$nsi_gen" \
+              "$pkg_win" \
+              "$out_win" \
+              "$VERSION" \
+              "$product_version"
+            echo "--- generated File lines ---"
+            grep -E "File |OutFile " "$nsi_gen" || true
+            makensis "$nsi_gen"
           else
             echo "unexpected target $TARGET" >&2
             exit 1
