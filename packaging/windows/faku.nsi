@@ -1,9 +1,11 @@
 ; Silent-by-default NSIS installer wrapping Native's early Windows
 ; package directory (zig-out/package/faku-windows: bin\faku.exe + ico +
 ; assets). PKGDIR must be an absolute Windows path with forward slashes
-; (D:/a/...): NSIS -D treats `\a` in D:\a\ as an escape. File /r
-; "${PKGDIR}/bin" preserves bin\ under $INSTDIR. Double-click installs
-; with no wizard. /S still works.
+; (D:/a/...): NSIS -D treats `\a` in D:\a\ as an escape. File /r on a
+; bare directory (no wildcard) matches the dir name as a filespec and
+; includes no files; use "${PKGDIR}/bin/*.*" with SetOutPath
+; $INSTDIR\bin so the exe stays at $INSTDIR\bin\faku.exe. Double-click
+; installs with no wizard. /S still works.
 ;
 ; Required defines (passed by the release workflow):
 ;   VERSION          release version, e.g. 0.1.0
@@ -49,11 +51,13 @@ VIAddVersionKey "LegalCopyright" "Faku"
 !endif
 
 Section "Install"
+  SetOutPath "$INSTDIR\bin"
+  File /r "${PKGDIR}/bin/*.*"
   SetOutPath "$INSTDIR"
-  File /r "${PKGDIR}/bin"
   File /nonfatal "${PKGDIR}/app-icon.ico"
   File /nonfatal "${PKGDIR}/README.txt"
-  File /r /nonfatal "${PKGDIR}/resources"
+  SetOutPath "$INSTDIR\resources"
+  File /r /nonfatal "${PKGDIR}/resources/*.*"
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   WriteRegStr HKLM "Software\Faku" "InstallDir" "$INSTDIR"
