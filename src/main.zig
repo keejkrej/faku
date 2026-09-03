@@ -1,6 +1,6 @@
 //! Faku: Native SDK desktop for a Waku-protocol compatible coding-agent shell.
 //!
-//! First-party provider is Tianyi's `fx` fork (https://github.com/keejkrej/fx). Send on an `.fx`
+//! First-party provider is the keejkrej/fx fork (https://github.com/keejkrej/fx). Send on an `.fx`
 //! session runs one-shot `faku acp-proxy -- … fx acp` when the CLI is
 //! installed (NDJSON stdin: initialize, session/new or session/resume,
 //! set model/mode, session/prompt). The sidecar keeps fx stdin open and

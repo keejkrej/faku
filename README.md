@@ -11,7 +11,7 @@ less disk:
 https://x.com/localhost_5173/status/2090464458695192842
 
 Faku answers that with Vercel Native (markup + Zig Model / Msg / update)
-and an **fx-first** default: [Tianyi's fx fork](https://github.com/keejkrej/fx),
+and an **fx-first** default: the fx fork from [keejkrej/fx](https://github.com/keejkrej/fx),
 not stock [vercel-labs/fx](https://github.com/vercel-labs/fx) and not
 `curl | bash` from fx.sh.
 
@@ -40,7 +40,7 @@ Release (unsigned macOS DMG / Linux zip / Windows zip; no live
 
 ## Install fx
 
-Faku probes `$HOME/.fx/bin/fx`, then PATH `fx`. Install Tianyi's fork
+Faku probes `$HOME/.fx/bin/fx`, then PATH `fx`. Install the keejkrej/fx fork
 from GitHub Releases. Default dir is `~/.fx/bin` — put it on PATH
 ahead of any fx.sh install. Binary name stays `fx`.
 
