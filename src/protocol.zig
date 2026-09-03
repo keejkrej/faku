@@ -7,15 +7,15 @@
 //! `WAKU_DAEMON_ADDRESS` keeps `fx ask` / the demo timer.
 //!
 //! First-party provider (this port's differentiator; Waku does not ship
-//! it): Vercel `fx` (https://fx.sh). Live first path is one-shot
-//! `fx acp` (see main.zig / acp.zig). Probed ACP stdio providers
-//! (cursor / opencode / kimi `acp`, grok `agent stdio`) reuse that sidecar.
-//! Native stdin is one buffer at spawn time; this is not a long-lived
-//! ACP loop. `fx ask --image` stays the fx image path (fx ACP rejects
-//! image blocks). Probed ACP stdio (cursor / opencode / kimi / grok) may
-//! attach official ACP v1 image content blocks on `session/prompt`.
-//! Probe
-//! `~/.local/bin/fx` then PATH. Missing binary keeps the demo timer.
+//! it): Tianyi's `fx` fork (https://github.com/keejkrej/fx). Live first
+//! path is one-shot `fx acp` (see main.zig / acp.zig). Probed ACP stdio
+//! providers (cursor / opencode / kimi `acp`, grok `agent stdio`) reuse
+//! that sidecar. Native stdin is one buffer at spawn time; this is not
+//! a long-lived ACP loop. `fx ask --image` stays the fx image path (fx
+//! ACP rejects image blocks). Probed ACP stdio (cursor / opencode /
+//! kimi / grok) may attach official ACP v1 image content blocks on
+//! `session/prompt`. Probe `$HOME/.fx/bin/fx`, leftover `~/.local/bin/fx`,
+//! then PATH. Missing binary keeps the demo timer.
 //!
 //! Catalog is `loadTaskState`. There is no `listSessions` / `createSession`
 //! RPC. A new session is a client-built AgentSession persisted with
@@ -169,8 +169,9 @@ pub const BARE_ACP_TRANSPORT = [_][]const u8{FX_TRANSPORT};
 /// ids; this cut does not pass `--always-approve`.
 pub const GROK_ACP_TRANSPORT = [_][]const u8{ "agent", "stdio" };
 pub const FX_ASK_ARGV_HEAD = [_][]const u8{ "fx", "ask" };
-/// Install: `curl -fsSL https://fx.sh/setup.sh | bash` → ~/.local/bin/fx
-pub const FX_PROBE_PATHS = [_][]const u8{ "~/.local/bin/fx", "fx" };
+/// Install: keejkrej/fx v0.0.7 tarball → ~/.fx/bin/fx (not fx.sh).
+/// Leftover ~/.local/bin/fx stays a probe fallback only.
+pub const FX_PROBE_PATHS = [_][]const u8{ "~/.fx/bin/fx", "~/.local/bin/fx", "fx" };
 
 /// First line of daemon stdout after spawn, before the WebSocket is up.
 pub const DaemonReady = struct {

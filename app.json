@@ -3,7 +3,7 @@
   "id": "com.faku.app",
   "name": "faku",
   "display_name": "Faku",
-  "description": "Native Zig desktop for coding agents, first-party Vercel fx, Waku-protocol compatible.",
+  "description": "Native Zig desktop for coding agents, first-party fx (keejkrej/fx), Waku-protocol compatible.",
   "version": "0.1.0",
   "icons": ["assets/icon.png"],
   "platforms": ["macos", "linux", "windows"],

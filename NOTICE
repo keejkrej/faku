@@ -8,8 +8,10 @@ Rust or TypeScript sources.
 This software uses the Vercel Native SDK (https://github.com/vercel-labs/native),
 licensed under the Apache License, Version 2.0.
 
-First-party provider support targets Vercel fx (https://fx.sh),
-also Apache-2.0. This tree does not vend fx.
+First-party provider support targets Tianyi's fx fork
+(https://github.com/keejkrej/fx), a fork of Vercel fx, also
+Apache-2.0. This tree does not vend fx. Install from that repo's
+GitHub Releases, not https://fx.sh.
 
 You may obtain a copy of the Apache License at
 

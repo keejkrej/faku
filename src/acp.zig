@@ -53,7 +53,7 @@ pub const METHOD_SESSION_SET_MODE = "session/set_mode";
 pub const METHOD_SESSION_SET_CONFIG = "session/set_config_option";
 /// Official ACP v1 client method (agent → client).
 /// https://agentclientprotocol.com/protocol/v1/tool-calls#requesting-permission
-/// vercel-labs/fx `src/acp/prompt.zig` `writePermissionOption`.
+/// keejkrej/fx fork of vercel-labs/fx `src/acp/prompt.zig` `writePermissionOption`.
 pub const METHOD_SESSION_REQUEST_PERMISSION = "session/request_permission";
 
 /// Official ACP v1 `PermissionOptionKind`. optionId is a free string;
@@ -81,16 +81,16 @@ pub const SESSION_UPDATE_AGENT_MESSAGE = "agent_message_chunk";
 /// Official ACP v1 `session/update` reasoning chunk
 /// (https://agentclientprotocol.com/protocol/v1/schema `agent_thought_chunk`,
 /// same content block as `agent_message_chunk`). Not a `delta` field.
-/// vercel-labs/fx `src/acp/types.zig` has `writeAgentMessageChunk` but no
+/// keejkrej/fx fork of vercel-labs/fx `src/acp/types.zig` has `writeAgentMessageChunk` but no
 /// thought writer today.
 pub const SESSION_UPDATE_AGENT_THOUGHT = "agent_thought_chunk";
 /// Stabilized ACP v1 `session/update` variant
 /// (https://agentclientprotocol.com/protocol/v1/prompt-turn#session-usage-updates).
-/// fx.sh ACP docs and vercel-labs/fx do not emit this today.
+/// fx.sh ACP docs and keejkrej/fx fork of vercel-labs/fx do not emit this today.
 pub const SESSION_UPDATE_USAGE = "usage_update";
 /// Official ACP + fx `session/update` tool frames
 /// (https://agentclientprotocol.com/protocol/v1/prompt-turn,
-/// vercel-labs/fx `src/acp/types.zig` `writeToolCall` /
+/// keejkrej/fx fork of vercel-labs/fx `src/acp/types.zig` `writeToolCall` /
 /// `writeToolCallUpdate`).
 pub const SESSION_UPDATE_TOOL_CALL = "tool_call";
 pub const SESSION_UPDATE_TOOL_CALL_UPDATE = "tool_call_update";
@@ -99,7 +99,7 @@ pub const SESSION_UPDATE_TOOL_CALL_UPDATE = "tool_call_update";
 /// https://agentclientprotocol.com/protocol/v1/session-modes).
 /// Wire field is `currentModeId` (schema required). The session-modes
 /// docs example also shows `modeId` (same key as `session/set_mode`);
-/// the parser accepts either. vercel-labs/fx `src/acp/types.zig` and
+/// the parser accepts either. keejkrej/fx fork of vercel-labs/fx `src/acp/types.zig` and
 /// fx.sh ACP docs do not emit this today.
 pub const SESSION_UPDATE_CURRENT_MODE = "current_mode_update";
 /// Official ACP v1 `session/update` when session config options change
@@ -111,7 +111,7 @@ pub const SESSION_UPDATE_CURRENT_MODE = "current_mode_update";
 /// `options` catalog is stored for the composer picker when present;
 /// an empty `options` array is a real clear. The same catalog is also
 /// read from a `session/set_config_option` result (`id` 5).
-/// vercel-labs/fx `src/acp/types.zig` and fx.sh ACP docs do not emit
+/// keejkrej/fx fork of vercel-labs/fx `src/acp/types.zig` and fx.sh ACP docs do not emit
 /// this today.
 pub const SESSION_UPDATE_CONFIG_OPTION = "config_option_update";
 /// Official ACP v1 `session/update` when slash commands change
@@ -121,7 +121,7 @@ pub const SESSION_UPDATE_CONFIG_OPTION = "config_option_update";
 /// required `name`, usually `description`, optional `input`/`hint`).
 /// This cut stores name + description on the session (replace, not
 /// append). `input` is ignored. No palette and no slash execution.
-/// vercel-labs/fx `writeAvailableCommandsUpdate` emits this after
+/// keejkrej/fx fork of vercel-labs/fx `writeAvailableCommandsUpdate` emits this after
 /// `session/new` (e2e expects `compact`).
 pub const SESSION_UPDATE_AVAILABLE_COMMANDS = "available_commands_update";
 /// Official ACP v1 `session/update` when session metadata changes
@@ -132,7 +132,7 @@ pub const SESSION_UPDATE_AVAILABLE_COMMANDS = "available_commands_update";
 /// is immutable after setup and is **not** in this notification.
 /// Faku only has a session `title` for this type — apply a non-empty
 /// string `title`; empty / missing / null is ignore. `updatedAt` and
-/// `_meta` have no session field. vercel-labs/fx
+/// `_meta` have no session field. keejkrej/fx fork of vercel-labs/fx
 /// `writeModelRecoveryInfoUpdate` emits this with `_meta` only (no title).
 pub const SESSION_UPDATE_SESSION_INFO = "session_info_update";
 /// Cap matches the session store. Extra wire items are dropped.
@@ -2084,7 +2084,7 @@ test "ACP parser classifies result, error, update, and stopReason" {
     try std.testing.expect(!promptSucceeded(cancelled));
 }
 
-/// vercel-labs/fx `src/acp/prompt.zig` `writePermissionOption` + e2e.
+/// keejkrej/fx fork of vercel-labs/fx `src/acp/prompt.zig` `writePermissionOption` + e2e.
 const fx_request_permission =
     "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"session/request_permission\",\"params\":{\"sessionId\":\"sess_abc123def456\",\"toolCall\":{\"toolCallId\":\"call_001\",\"title\":\"Run command\",\"kind\":\"execute\",\"status\":\"pending\"},\"options\":[{\"optionId\":\"allow_once\",\"name\":\"Allow once\",\"kind\":\"allow_once\"},{\"optionId\":\"allow_always\",\"name\":\"Allow for this session\",\"kind\":\"allow_always\"},{\"optionId\":\"reject_once\",\"name\":\"Reject\",\"kind\":\"reject_once\"}]}}";
 

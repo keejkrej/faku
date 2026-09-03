@@ -8,7 +8,8 @@ does not implement.
 ## Product
 
 Faku = fx + Waku. A Native SDK Zig desktop for local coding agents.
-First-party provider is Vercel fx. Waku-protocol compatible. Faku is
+First-party provider is Tianyi's fx fork
+(https://github.com/keejkrej/fx). Waku-protocol compatible. Faku is
 the window; waku-daemon can stay the brain. Chrome matches the stopped
 Waku-parity cut: chromeless 48px header, measured sidebar, composer
 send circle.
@@ -18,7 +19,7 @@ send circle.
 | Term | Meaning here |
 | --- | --- |
 | **Faku** | This desktop. Not a copy of Waku's Rust or TypeScript sources. |
-| **fx** | Vercel coding-agent harness (`https://fx.sh`). Default first-class provider. Surfaces: interactive, `fx ask`, `fx acp`, `fx resume`. |
+| **fx** | Tianyi's fork of vercel-labs/fx (https://github.com/keejkrej/fx). Default first-class provider. Install from GitHub Releases into `~/.fx/bin`, not fx.sh. Surfaces: interactive, `fx ask`, `fx acp`, `fx login` / `fx login grok` / `fx login codex`. |
 | **Waku** | Egoist's coding-agent app. Faku is Waku-shaped chrome + protocol, not an embedded daemon. |
 | **waku-daemon** | Optional brain. Talked to only through a one-shot sidecar when `WAKU_DAEMON_ADDRESS` (or persisted `last_daemon_address`) is set. Not embedded. |
 | **Native / Native SDK** | Vercel Native: markup + Zig Model / Msg / update loop. Effects are the only window-side I/O. |
@@ -37,7 +38,7 @@ send circle.
 | **hydrateSession** | Daemon transcript fill when the local transcript is empty. Local turns win. |
 | **argv slot** | Every flag and operand is its own spawn argument. Never interpolate into the chdir `-c` script. |
 | **right panel** | First-cut Files + Diff + Background pane to the right of the conversation. Default closed. |
-| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode / kimi `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx (first-cut official ACP v1 image content blocks on `session/prompt` when a composer image is attached: base64 + mimeType, ~256KB raw, fail-closed on overflow / bad file; fx still `fx ask --image`, no ACP image blocks); Available Claude is one-shot `claude -p --output-format stream-json --verbose --include-partial-messages --forward-subagent-text` (not ACP; later Sends pass documented `--resume {fx_session_id}` when that field is non-empty; first Send and Fork omit it; not `--continue`; documented image path inside that `-p` prompt when a composer image is attached; stdout is NDJSON with live `text_delta`; live Subagent Background from `parent_tool_use_id` plus a bounded 512KB last-window from forwarded `parent_tool_use_id` text (Environment Summary stays a one-line preview; right-panel Background shows the stored log with CSI stripped for display); live Monitor Background from Claude `Monitor` `tool_use` plus a bounded 512KB last-window log from matching user `tool_result` (Environment Summary stays a one-line preview; right-panel Background shows the stored log with CSI stripped for display); first-cut settled Monitor / Subagent stay in the runtime registry after the turn (status from Process settle; Monitor / Subagent last-window kept; Faku-side Dismiss, not Claude TaskStop; not live / Running / Monitoring after `-p` exits); Available Codex is one-shot `codex exec {prompt}` (not ACP; documented `--image {path}` after the prompt when a composer image is attached); Available Amp is one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x` prompt when a composer image is attached); Available Pi is one-shot `pi --mode json {prompt}` (not ACP, not `--mode rpc`; documented `@{path}` after json when a composer image is attached; stdout is JSON events with live `text_delta`). fx Not found copies the verified `https://fx.sh` install command; fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
+| **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode / kimi `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx (first-cut official ACP v1 image content blocks on `session/prompt` when a composer image is attached: base64 + mimeType, ~256KB raw, fail-closed on overflow / bad file; fx still `fx ask --image`, no ACP image blocks); Available Claude is one-shot `claude -p --output-format stream-json --verbose --include-partial-messages --forward-subagent-text` (not ACP; later Sends pass documented `--resume {fx_session_id}` when that field is non-empty; first Send and Fork omit it; not `--continue`; documented image path inside that `-p` prompt when a composer image is attached; stdout is NDJSON with live `text_delta`; live Subagent Background from `parent_tool_use_id` plus a bounded 512KB last-window from forwarded `parent_tool_use_id` text (Environment Summary stays a one-line preview; right-panel Background shows the stored log with CSI stripped for display); live Monitor Background from Claude `Monitor` `tool_use` plus a bounded 512KB last-window log from matching user `tool_result` (Environment Summary stays a one-line preview; right-panel Background shows the stored log with CSI stripped for display); first-cut settled Monitor / Subagent stay in the runtime registry after the turn (status from Process settle; Monitor / Subagent last-window kept; Faku-side Dismiss, not Claude TaskStop; not live / Running / Monitoring after `-p` exits); Available Codex is one-shot `codex exec {prompt}` (not ACP; documented `--image {path}` after the prompt when a composer image is attached); Available Amp is one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x` prompt when a composer image is attached); Available Pi is one-shot `pi --mode json {prompt}` (not ACP, not `--mode rpc`; documented `@{path}` after json when a composer image is attached; stdout is JSON events with live `text_delta`). fx Not found copies the verified keejkrej/fx v0.0.7 tarball install into `~/.fx/bin` (not fx.sh); fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
 | **Settings Appearance** | Settings page for chrome theme and language. Theme: System (follow OS `on_appearance`), Light, or Dark. Default System. Language: System / English / 简体中文 / 日本語. Default System. System language follows process `LC_ALL` / `LC_MESSAGES` / `LANG` (Native has no locale API). Explicit language chips are autonyms in every locale. Persists `theme_preference` and `language_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. Settings chrome strings (title, nav, Appearance Theme / Language), first-cut sidebar date-bucket titles, and the chrome unassign Today list-item follow the resolved locale this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
 | **Settings Usage** | Settings page showing the selected session's local context window (`context_used` / `context_size` from ACP `usage_update`) and thread-goal tokens (`threadGoalUsageLabel`). Read-only. Not daemon `LoadUsageHistory`, not a cost chart, not Daily / Monthly / Projects. |
@@ -79,7 +80,8 @@ default to fx.
 
 **fx (first path).** When the CLI is installed, Send on an fx session
 spawns one-shot `faku acp-proxy -- {fx_path} acp`. Probe:
-`~/.local/bin/fx --help`, then `fx --help` on PATH. Missing or rejected
+`$HOME/.fx/bin/fx --help`, leftover `~/.local/bin/fx --help` (not the
+fork layout), then `fx --help` on PATH. Missing or rejected
 binary keeps the demo timer so `native test --yes` stays green without
 a real fx install. ACP does not accept image or audio blocks; draft
 `image_path` keeps `fx ask --image`.
@@ -352,10 +354,12 @@ Available (documented `@{path}` in the `-x` prompt when a composer
 image is attached), or one-shot `pi --mode json` when Pi is Available
 (documented `@{path}` after json when a composer image is attached).
 fx Not found shows **Copy install
-command** (clipboard
-`curl -fsSL https://fx.sh/setup.sh | bash`; never auto-run). fx
+command** (clipboard is the working v0.0.7 linux-x86_64 tarball
+one-liner into `~/.fx/bin`; never auto-run; not fx.sh; not the
+unreleased `releases/latest/download/install` URL). fx
 Available shows **Copy login command** (`fx login`; Faku does not
-detect auth from `--help`; optional note `fx login codex`). Other
+detect auth from `--help`; optional note `fx login grok` /
+`fx login codex`). Other
 ids when Not found show a muted PATH hint only (no invented install
 URLs). Apply ("Use for this session") sets the selected chat
 session's `provider` and persists via `sessions.json`. New sessions
