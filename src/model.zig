@@ -1323,6 +1323,7 @@ pub const Model = struct {
         "right_panel_file_preview_binary",
         "right_panel_file_preview_error_storage",
         "right_panel_file_preview_error_len",
+        "file_preview_body",
         "right_panel_showing_files",
         "rightPanelWidthPixels",
         "applyRightPanelWidth",
