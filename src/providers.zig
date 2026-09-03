@@ -31,8 +31,9 @@
 //! Available Pi is
 //! one-shot `pi --mode json {prompt}` (documented
 //! `@{path}` after json when a composer image is attached). fx
-//! Not found copies the verified keejkrej/fx v0.0.7 tarball install
-//! (into `~/.fx/bin`; never auto-runs; not fx.sh). fx Available copies
+//! Not found copies the verified keejkrej/fx Unix install script
+//! (`releases/latest/download/install` into `~/.fx/bin`; never
+//! auto-runs; not fx.sh). fx Available copies
 //! `fx login` the same way — convenience copy, not auth-state detection
 //! or OAuth UI. Other missing CLIs get a muted PATH hint only (no
 //! invented install URLs). Tests do not need a live daemon or any real
@@ -76,11 +77,11 @@ pub const codex_transport_note = "Live Send is one-shot codex exec when Availabl
 pub const amp_transport_note = "Live Send is one-shot amp -x / --execute when Available (`@path` when attached).";
 pub const pi_transport_note = "Live Send is one-shot pi --mode json when Available (`@path` when attached).";
 pub const apply_session_label = "Use for this session";
-/// Working keejkrej/fx v0.0.7 tarball install (linux x86_64 example).
-/// Copied to the clipboard; never auto-run. The post-v0.0.8
-/// `releases/latest/download/install` URL 404s until that tag exists.
-/// Swap the archive name for linux-aarch64 / macos-x86_64 / macos-aarch64.
-pub const fx_install_command = "mkdir -p \"$HOME/.fx/bin\" && curl -fsSL -o /tmp/fx.tgz https://github.com/keejkrej/fx/releases/download/v0.0.7/fx-linux-x86_64.tar.gz && tar -xzf /tmp/fx.tgz -C /tmp && install -m 0755 /tmp/fx \"$HOME/.fx/bin/fx\"";
+/// Working keejkrej/fx Unix install script on the latest GitHub Release
+/// (v0.0.7+). Copied to the clipboard; never auto-run. Not fx.sh.
+/// Lands in `~/.fx/bin`. Windows uses install.ps1 (script on v0.0.7;
+/// Windows binary zips land in v0.0.8).
+pub const fx_install_command = "curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash";
 /// Convenience copy only. Fork pitch is also `fx login grok` / `fx login codex`.
 pub const fx_login_command = "fx login";
 pub const copy_install_label = "Copy install command";
@@ -646,9 +647,9 @@ test "rows empty off the Providers page" {
     try std.testing.expectEqualStrings("claude", on[1].binary);
 }
 
-test "copy command strings are the verified keejkrej/fx tarball / login commands" {
+test "copy command strings are the verified keejkrej/fx install / login commands" {
     try std.testing.expectEqualStrings(
-        "mkdir -p \"$HOME/.fx/bin\" && curl -fsSL -o /tmp/fx.tgz https://github.com/keejkrej/fx/releases/download/v0.0.7/fx-linux-x86_64.tar.gz && tar -xzf /tmp/fx.tgz -C /tmp && install -m 0755 /tmp/fx \"$HOME/.fx/bin/fx\"",
+        "curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash",
         fx_install_command,
     );
     try std.testing.expectEqualStrings("fx login", fx_login_command);
@@ -718,7 +719,7 @@ test "copyFxInstall / copyFxLogin write verified commands; wrong state is a no-o
     try testing.expectEqual(main.copy_turn_key, install.key);
     try testing.expectEqual(@import("native_sdk").EffectClipboardOp.write, install.op);
     try testing.expectEqualStrings(fx_install_command, install.text);
-    try testing.expectEqualStrings("mkdir -p \"$HOME/.fx/bin\" && curl -fsSL -o /tmp/fx.tgz https://github.com/keejkrej/fx/releases/download/v0.0.7/fx-linux-x86_64.tar.gz && tar -xzf /tmp/fx.tgz -C /tmp && install -m 0755 /tmp/fx \"$HOME/.fx/bin/fx\"", install.text);
+    try testing.expectEqualStrings("curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash", install.text);
 
     model.fx_available = true;
     copyFxInstall(&model, &fx);

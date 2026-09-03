@@ -169,8 +169,8 @@ pub const BARE_ACP_TRANSPORT = [_][]const u8{FX_TRANSPORT};
 /// ids; this cut does not pass `--always-approve`.
 pub const GROK_ACP_TRANSPORT = [_][]const u8{ "agent", "stdio" };
 pub const FX_ASK_ARGV_HEAD = [_][]const u8{ "fx", "ask" };
-/// Install: keejkrej/fx v0.0.7 tarball → ~/.fx/bin/fx (not fx.sh).
-/// Leftover ~/.local/bin/fx stays a probe fallback only.
+/// Install: keejkrej/fx `releases/latest/download/install` → ~/.fx/bin/fx
+/// (not fx.sh). Leftover ~/.local/bin/fx stays a probe fallback only.
 pub const FX_PROBE_PATHS = [_][]const u8{ "~/.fx/bin/fx", "~/.local/bin/fx", "fx" };
 
 /// First line of daemon stdout after spawn, before the WebSocket is up.

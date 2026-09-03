@@ -33,22 +33,38 @@ cd faku
 native dev --yes
 ```
 
-`native build` produces a binary. There is no packaged GitHub Release
-for Faku yet. Need the Native CLI? `npm install -g @native-sdk/cli`.
+`native build` produces a binary. Need the Native CLI?
+`npm install -g @native-sdk/cli`. Push a `v*` tag to publish a GitHub
+Release (unsigned macOS DMG / Linux zip / Windows zip; no live
+`v0.1.0` tag yet — see GitHub Releases below).
 
 ## Install fx
 
 Faku probes `$HOME/.fx/bin/fx`, then PATH `fx`. Install Tianyi's fork
-from GitHub Releases. Binary name stays `fx`.
+from GitHub Releases. Default dir is `~/.fx/bin` — put it on PATH
+ahead of any fx.sh install. Binary name stays `fx`.
 
-**Current (v0.0.7 tarball).** Linux x86_64; swap the archive name for
-`linux-aarch64`, `macos-x86_64`, or `macos-aarch64`:
+Unix:
+
+```bash
+curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash
+```
+
+Windows PowerShell — the script is on v0.0.7; Windows binary zips are
+not (those land in v0.0.8):
+
+```powershell
+irm https://github.com/keejkrej/fx/releases/latest/download/install.ps1 | iex
+```
+
+Tarball fallback (linux/macos; swap arch: `linux-aarch64`,
+`macos-x86_64`, `macos-aarch64`):
 
 ```bash
 mkdir -p "$HOME/.fx/bin" && curl -fsSL -o /tmp/fx.tgz https://github.com/keejkrej/fx/releases/download/v0.0.7/fx-linux-x86_64.tar.gz && tar -xzf /tmp/fx.tgz -C /tmp && install -m 0755 /tmp/fx "$HOME/.fx/bin/fx"
 ```
 
-Put `~/.fx/bin` on PATH if it is not already. Then:
+Then:
 
 ```bash
 fx login grok    # or: fx login codex
@@ -56,16 +72,6 @@ fx login grok    # or: fx login codex
 
 Or set `FX_OPENAI_BASE_URL` and `FX_OPENAI_API_KEY` for an
 OpenAI-compatible endpoint. Gateway `fx login` is optional.
-
-**After v0.0.8** (not published yet; these URLs 404 today):
-
-```bash
-# Unix
-curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash
-
-# Windows PowerShell
-irm https://github.com/keejkrej/fx/releases/latest/download/install.ps1 | iex
-```
 
 Build from source: clone https://github.com/keejkrej/fx, Zig 0.16.0,
 `zig build -Doptimize=ReleaseSafe` → `zig-out/bin/fx`.
