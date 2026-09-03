@@ -1,0 +1,2 @@
+# Zig rejects CRLF. GitHub Actions checkout on Windows otherwise converts.
+*.zig text eol=lf

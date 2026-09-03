@@ -35,8 +35,11 @@ native dev --yes
 
 `native build` produces a binary. Need the Native CLI?
 `npm install -g @native-sdk/cli`. Push a `v*` tag to publish a GitHub
-Release (unsigned macOS DMG, amd64 `.deb`, silent NSIS `.exe`; no zip;
-no live `v0.1.0` tag yet — see GitHub Releases below).
+Release (unsigned macOS DMG, amd64 `.deb`, silent NSIS `.exe`; no zip).
+Tag `v0.1.0` exists; the first Release run packaged macOS and Linux but
+failed on Windows (no Zig 0.16.0 on that runner). Re-run the Release
+workflow on that tag after the Windows Zig bootstrap lands — see GitHub
+Releases below.
 
 ## Install fx
 
@@ -112,6 +115,12 @@ is created only for a `v*` tag, or when dispatch is given that tag.
 
 Honest about this cut:
 
+- Tag `v0.1.0` exists. A GitHub Release publishes only after macOS,
+  Linux, and Windows package jobs all succeed. The first tagged run
+  failed at Windows `native build` because Native has no managed Zig
+  download on that platform. The workflow installs Zig 0.16.0 before
+  Build. After that lands, re-run the Release workflow on the tag
+  (do not retarget the tag from a workflow-only fix).
 - User-facing assets are an unsigned macOS `.dmg`, a Debian `.deb`
   (amd64, Debian/Ubuntu), and a silent NSIS `.exe`. No zip.
   Fedora/Arch and other distros compile with Native CLI.
