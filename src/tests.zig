@@ -9013,6 +9013,13 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expectEqualStrings("src/main.zig", model.file_preview_path());
     try testing.expectEqualStrings("pub fn main() void {}\n", model.file_preview_body());
     {
+        const lines = model.file_preview_line_rows(arena);
+        try testing.expectEqual(@as(usize, 1), lines.len);
+        try testing.expectEqual(@as(u32, 1), lines[0].id);
+        try testing.expectEqualStrings("1", lines[0].n_label);
+        try testing.expectEqualStrings("pub fn main() void {}", lines[0].text);
+    }
+    {
         const preview_rows = model.right_panel_file_rows(arena);
         try testing.expect(preview_rows[3].selected);
     }
@@ -9022,6 +9029,11 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expectEqual(Msg.open_right_panel_file_editor, tree.msgForPointer(open_editor_btn.id, .up).?);
     const close_preview = try expectButton(tree.root, "Close");
     try testing.expectEqual(Msg.close_right_panel_file_preview, tree.msgForPointer(close_preview.id, .up).?);
+    _ = try expectByText(tree.root, .text, "1");
+    _ = try expectByText(tree.root, .text, "pub fn main() void {}");
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "for each=\"file_preview_line_rows\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{l.n_label}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{file_preview_body}") == null);
 
     main.update(&model, .open_right_panel_file_editor, &fx);
     const spawn = findOpenEditorSpawn(&fx) orelse return error.MissingOpenEditorSpawn;
@@ -9032,6 +9044,7 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     main.update(&model, .close_right_panel_file_preview, &fx);
     try testing.expect(!model.right_panel_file_preview_open());
     try testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_storage.len);
+    try testing.expectEqual(@as(usize, 0), model.file_preview_line_rows(arena).len);
 
     main.update(&model, .{ .toggle_right_panel_dir = file_mention.file_mention_dir_id_base }, &fx);
     try testing.expectEqual(@as(usize, 2), model.right_panel_file_rows(arena).len);

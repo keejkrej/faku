@@ -1323,6 +1323,7 @@ pub const Model = struct {
         "right_panel_file_preview_binary",
         "right_panel_file_preview_error_storage",
         "right_panel_file_preview_error_len",
+        "file_preview_body",
         "right_panel_showing_files",
         "rightPanelWidthPixels",
         "applyRightPanelWidth",
@@ -1972,6 +1973,10 @@ pub const Model = struct {
         return model.right_panel_file_preview_len > 0
             and !model.right_panel_file_preview_binary
             and model.right_panel_file_preview_error_len == 0;
+    }
+
+    pub fn file_preview_line_rows(model: *const Model, arena: std.mem.Allocator) []const right_panel.FilePreviewLineRow {
+        return right_panel.previewLineRows(model, arena);
     }
 
     pub fn file_preview_truncated(model: *const Model) bool {
