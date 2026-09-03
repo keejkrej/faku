@@ -310,7 +310,7 @@ jobs:
           - Linux: amd64 \`.deb\` (Debian/Ubuntu; GTK 4 runtime). Fedora/Arch compile with Native CLI.
           - Windows: silent NSIS \`.exe\` (unsigned; SmartScreen). Double-click installs with no wizard. Not MSI.
           EOF
-          gh release create "$TAG" \
+          gh release create "$TAG" --repo keejkrej/faku \
             --title "$TAG" \
             --notes-file "$notes" \
             dist/*.dmg dist/*.deb dist/*.exe dist/SHA256SUMS
