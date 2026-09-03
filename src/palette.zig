@@ -61,6 +61,10 @@ pub const PaletteAction = enum(u32) {
     show_right_panel = 15,
     /// Waku `command_palette.hide_right_panel`.
     hide_right_panel = 16,
+    /// Right-panel Browser tab. OS-open URL field; not a webview.
+    show_browser_tab = 17,
+    /// Right-panel Terminal tab. Open in Terminal; not a PTY.
+    show_terminal_tab = 18,
 };
 
 pub const PaletteActionSpec = struct {
@@ -85,8 +89,10 @@ pub const palette_action_specs = [_]PaletteActionSpec{
     .{ .action = .open_terminal, .label = "Open project in Terminal", .keywords = &.{ "terminal", "shell", "iterm", "console", "project", "open" }, .suggested = false },
     .{ .action = .open_editor, .label = "Open project in Editor", .keywords = &.{ "editor", "vscode", "cursor", "code", "project", "open" }, .suggested = false },
     .{ .action = .copy_project_path, .label = "Copy project path", .keywords = &.{ "copy", "path", "folder", "project", "cwd" }, .suggested = false },
-    .{ .action = .show_right_panel, .label = "Show right panel", .keywords = &.{ "right", "panel", "files", "diff", "show" }, .suggested = false },
-    .{ .action = .hide_right_panel, .label = "Hide right panel", .keywords = &.{ "right", "panel", "files", "diff", "hide" }, .suggested = false },
+    .{ .action = .show_right_panel, .label = "Show right panel", .keywords = &.{ "right", "panel", "files", "diff", "browser", "terminal", "show" }, .suggested = false },
+    .{ .action = .hide_right_panel, .label = "Hide right panel", .keywords = &.{ "right", "panel", "files", "diff", "browser", "terminal", "hide" }, .suggested = false },
+    .{ .action = .show_browser_tab, .label = "Show Browser tab", .keywords = &.{ "browser", "url", "web", "right", "panel" }, .suggested = false },
+    .{ .action = .show_terminal_tab, .label = "Show Terminal tab", .keywords = &.{ "terminal", "shell", "pty", "right", "panel" }, .suggested = false },
 };
 
 pub fn paletteActionId(action: PaletteAction) u32 {

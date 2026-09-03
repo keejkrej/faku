@@ -45,6 +45,7 @@ const environment_summary = @import("environment_summary.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
+const open_url = @import("open_url.zig");
 const open_editor = @import("open_editor.zig");
 
 const Model = main.Model;
@@ -60,6 +61,7 @@ const pick_image_key = main.pick_image_key;
 const pick_folder_key = main.pick_folder_key;
 const reveal_folder_key = main.reveal_folder_key;
 const open_terminal_key = main.open_terminal_key;
+const open_url_key = main.open_url_key;
 const open_editor_key = main.open_editor_key;
 const writeFixed = main.writeFixed;
 const takeFxAskSessionId = main.takeFxAskSessionId;
@@ -1065,6 +1067,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (exit.key == open_terminal_key) {
         open_terminal.handleOpenTerminalExit(model, fx, exit);
+        return;
+    }
+    if (exit.key == open_url_key) {
+        open_url.handleOpenUrlExit(model, exit);
         return;
     }
     if (exit.key == open_editor_key) {

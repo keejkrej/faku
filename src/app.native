@@ -821,6 +821,8 @@
         <row height="48" padding="10" gap="8" cross="center">
           <button variant="ghost" size="sm" selected="{right_panel_tab_files}" on-press="set_right_panel_tab_files">Files</button>
           <button variant="ghost" size="sm" selected="{right_panel_tab_diff}" on-press="set_right_panel_tab_diff">Diff</button>
+          <button variant="ghost" size="sm" selected="{right_panel_tab_browser}" on-press="set_right_panel_tab_browser">Browser</button>
+          <button variant="ghost" size="sm" selected="{right_panel_tab_terminal}" on-press="set_right_panel_tab_terminal">Terminal</button>
           <button variant="ghost" size="sm" selected="{right_panel_tab_background}" on-press="set_right_panel_tab_background">Background</button>
           <spacer grow="1" />
           <button variant="ghost" size="icon" icon="panel-right" label="Hide right panel" on-press="hide_right_panel"></button>
@@ -865,7 +867,32 @@
             </column>
           </if>
         </if>
-        <else>
+        <if test="{right_panel_showing_browser}">
+          <column grow="1" gap="8" padding="10" label="Browser">
+            <text foreground="text_muted">Native has no embedded browser. Open the system browser instead.</text>
+            <row gap="8" cross="center">
+              <text-field grow="1" placeholder="https://example.com" text="{browser_url}" on-input="browser_url_edit" />
+              <button variant="ghost" size="sm" on-press="open_url">Open in browser</button>
+            </row>
+            <if test="{has_window_status}">
+              <text wrap="true" foreground="text_muted">{window_status}</text>
+            </if>
+          </column>
+        </if>
+        <if test="{right_panel_showing_terminal}">
+          <column grow="1" gap="8" padding="10" label="Terminal">
+            <text foreground="text_muted">Native has no embedded terminal (no PTY). Open the host terminal instead.</text>
+            <if test="{can_open_terminal}">
+              <button variant="ghost" size="sm" on-press="open_terminal">Open in Terminal</button>
+            </if>
+            <else>
+              <text wrap="true" foreground="text_muted">{open_terminal_no_project_status}</text>
+            </else>
+            <if test="{has_window_status}">
+              <text wrap="true" foreground="text_muted">{window_status}</text>
+            </if>
+          </column>
+        </if>
         <if test="{right_panel_showing_background}">
           <column grow="1" gap="6" padding="10" label="Background work">
             <if test="{background_work_empty}">
@@ -891,7 +918,7 @@
             </else>
           </column>
         </if>
-        <else>
+        <if test="{right_panel_showing_files}">
         <if test="{right_panel_no_project}">
           <column padding="14" gap="6">
             <text>No project open</text>
@@ -1094,8 +1121,7 @@
           </column>
           </else>
         </else>
-        </else>
-        </else>
+        </if>
       </if>
     </column>
     </split>

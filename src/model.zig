@@ -34,6 +34,7 @@ const skills = @import("skills.zig");
 const providers = @import("providers.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
+const open_url = @import("open_url.zig");
 const copy_helpers = @import("copy.zig");
 const open_editor = @import("open_editor.zig");
 const right_panel = @import("right_panel.zig");
@@ -437,6 +438,10 @@ pub const Msg = union(enum) {
     set_right_panel_tab_files,
     /// Right-panel Diff tab. Opens the pane if closed and starts Compare.
     set_right_panel_tab_diff,
+    /// Right-panel Browser tab. Runtime-only OS-open URL field; not a webview.
+    set_right_panel_tab_browser,
+    /// Right-panel Terminal tab. Runtime-only Open in Terminal; not a PTY.
+    set_right_panel_tab_terminal,
     /// Right-panel Background tab. Runtime-only; empty state when no
     /// selected Environment Summary row is visible.
     set_right_panel_tab_background,
@@ -560,6 +565,10 @@ pub const Msg = union(enum) {
     reveal_folder,
     /// Composer Open in Terminal: one-shot OS terminal sidecar. Not a Native effect.
     open_terminal,
+    /// Right-panel Browser URL field `on-input`. Runtime-only; not sessions.json.
+    browser_url_edit: canvas.TextInputEvent,
+    /// Right-panel Browser: one-shot OS URL-open sidecar. Not a webview.
+    open_url,
     /// Composer Open in Editor: one-shot OS editor sidecar. Not a Native effect.
     open_editor,
     /// Composer Copy path: selected-session workspace via `fx.writeClipboard`.
@@ -765,12 +774,13 @@ pub const Model = struct {
     right_panel_open: bool = false,
     right_panel_split: f32 = default_right_panel_split,
     /// Last pane width in pixels. Files tab clamps to the file-tree
-    /// 184/140/360. Diff and Background tabs may bump toward Waku
-    /// `DEFAULT_RIGHT_PANEL_WIDTH` 460. Tab is runtime-only; hide
-    /// reclamps to the file-tree max.
+    /// 184/140/360. Diff, Browser, Terminal, and Background tabs may
+    /// bump toward Waku `DEFAULT_RIGHT_PANEL_WIDTH` 460. Tab is
+    /// runtime-only; hide reclamps to the file-tree max.
     right_panel_width: f32 = right_panel_default_width,
-    /// Runtime-only Files | Diff | Background surface. Default `files`
-    /// when the panel opens. Not persisted to sessions.json this cut.
+    /// Runtime-only Files | Diff | Browser | Terminal | Background
+    /// surface. Default `files` when the panel opens. Not persisted
+    /// to sessions.json this cut.
     right_panel_tab: right_panel.Tab = .files,
     /// Runtime-only selected Environment Summary Background row id.
     /// 0 = none. Not persisted to sessions.json this cut.
@@ -856,6 +866,11 @@ pub const Model = struct {
     pick_folder_got_path: bool = false,
     pick_folder_tried_fallback: bool = false,
     reveal_folder_live: bool = false,
+    open_url_live: bool = false,
+    open_url_storage: [open_url.max_spawn_url]u8 = [_]u8{0} ** open_url.max_spawn_url,
+    open_url_len: usize = 0,
+    /// Runtime-only Browser tab URL draft. Not persisted to sessions.json.
+    browser_url_buffer: canvas.TextBuffer(open_url.max_url) = .{},
     open_terminal_live: bool = false,
     open_terminal_tried_fallback: bool = false,
     open_terminal_wd_storage: [open_terminal.wd_arg_len]u8 = [_]u8{0} ** open_terminal.wd_arg_len,
@@ -1321,6 +1336,11 @@ pub const Model = struct {
         "pick_folder_got_path",
         "pick_folder_tried_fallback",
         "reveal_folder_live",
+        "open_url_live",
+        "open_url_storage",
+        "open_url_len",
+        "browser_url_buffer",
+        "applyBrowserUrl",
         "open_terminal_live",
         "open_terminal_tried_fallback",
         "open_terminal_wd_storage",
@@ -1351,7 +1371,6 @@ pub const Model = struct {
         "file_preview_pending_kind",
         "file_preview_pending_id",
         "file_preview_line_rows",
-        "right_panel_showing_files",
         "rightPanelWidthPixels",
         "applyRightPanelWidth",
         "syncRightPanelSplit",
@@ -1909,6 +1928,14 @@ pub const Model = struct {
         return model.right_panel_tab == .background;
     }
 
+    pub fn right_panel_tab_browser(model: *const Model) bool {
+        return model.right_panel_tab == .browser;
+    }
+
+    pub fn right_panel_tab_terminal(model: *const Model) bool {
+        return model.right_panel_tab == .terminal;
+    }
+
     pub fn right_panel_showing_files(model: *const Model) bool {
         return model.right_panel_open and model.right_panel_tab == .files;
     }
@@ -1919,6 +1946,27 @@ pub const Model = struct {
 
     pub fn right_panel_showing_background(model: *const Model) bool {
         return model.right_panel_open and model.right_panel_tab == .background;
+    }
+
+    pub fn right_panel_showing_browser(model: *const Model) bool {
+        return model.right_panel_open and model.right_panel_tab == .browser;
+    }
+
+    pub fn right_panel_showing_terminal(model: *const Model) bool {
+        return model.right_panel_open and model.right_panel_tab == .terminal;
+    }
+
+    pub fn browser_url(model: *const Model) []const u8 {
+        return model.browser_url_buffer.text();
+    }
+
+    pub fn applyBrowserUrl(model: *Model, edit: canvas.TextInputEvent) void {
+        model.browser_url_buffer.apply(edit);
+    }
+
+    pub fn open_terminal_no_project_status(model: *const Model) []const u8 {
+        _ = model;
+        return open_terminal.no_project_status;
     }
 
     pub fn background_work_empty(model: *const Model) bool {

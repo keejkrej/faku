@@ -11,6 +11,7 @@ const pick_image = @import("pick_image.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
+const open_url = @import("open_url.zig");
 const open_editor = @import("open_editor.zig");
 const maximize_window = @import("maximize_window.zig");
 const git_branch = @import("git_branch.zig");
@@ -8904,6 +8905,8 @@ test "toggle right panel opens and closes the Files pane" {
     try testing.expect(files_tab.state.selected);
     const diff_tab = try expectButtonMsg(tree, "Diff", .set_right_panel_tab_diff);
     try testing.expect(!diff_tab.state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Browser", .set_right_panel_tab_browser)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Terminal", .set_right_panel_tab_terminal)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Background", .set_right_panel_tab_background)).state.selected);
     _ = try expectByText(tree.root, .text, "No project open");
     _ = try expectByText(tree.root, .text, "Open a project to browse its files");
@@ -9258,7 +9261,7 @@ test "palette Show right panel and Hide right panel toggle the Files pane" {
     try testing.expect(!model.right_panel_open);
 }
 
-test "right panel Files, Diff, and Background tabs switch surfaces" {
+test "right panel Files, Diff, Browser, Terminal, and Background tabs switch surfaces" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -9282,10 +9285,14 @@ test "right panel Files, Diff, and Background tabs switch surfaces" {
     try testing.expect(files_tab.state.selected);
     const diff_tab = try expectButtonMsg(tree, "Diff", .set_right_panel_tab_diff);
     try testing.expect(!diff_tab.state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Browser", .set_right_panel_tab_browser)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Terminal", .set_right_panel_tab_terminal)).state.selected);
     const background_tab = try expectButtonMsg(tree, "Background", .set_right_panel_tab_background);
     try testing.expect(!background_tab.state.selected);
     try testing.expect(findByText(tree.root, .text, "Review") == null);
     try testing.expect(findByText(tree.root, .text, "No background work") == null);
+    try testing.expect(findByText(tree.root, .text, "Native has no embedded browser. Open the system browser instead.") == null);
+    try testing.expect(findByText(tree.root, .text, "Native has no embedded terminal (no PTY). Open the host terminal instead.") == null);
 
     main.update(&model, .set_right_panel_tab_diff, &fx);
     try testing.expect(model.right_panel_open);
@@ -9329,6 +9336,32 @@ test "right panel Files, Diff, and Background tabs switch surfaces" {
     try testing.expect(findByText(tree.root, .text, "Review") == null);
     try testing.expect(findByText(tree.root, .text, "No project open") == null);
 
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    try testing.expect(model.right_panel_open);
+    try testing.expect(model.right_panel_tab_browser());
+    try testing.expect(model.right_panel_showing_browser());
+    try testing.expectEqual(@as(u32, 460), model.rightPanelWidthPixels());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Browser", .set_right_panel_tab_browser)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Files", .set_right_panel_tab_files)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Terminal", .set_right_panel_tab_terminal)).state.selected);
+    _ = try expectByText(tree.root, .text, "Native has no embedded browser. Open the system browser instead.");
+    _ = try expectButtonMsg(tree, "Open in browser", .open_url);
+    try testing.expect(findByText(tree.root, .text, "No project open") == null);
+    try testing.expect(findByText(tree.root, .text, "Review") == null);
+    try testing.expect(findByText(tree.root, .text, "No background work") == null);
+
+    main.update(&model, .set_right_panel_tab_terminal, &fx);
+    try testing.expect(model.right_panel_tab_terminal());
+    try testing.expect(model.right_panel_showing_terminal());
+    try testing.expectEqual(@as(u32, 460), model.rightPanelWidthPixels());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Terminal", .set_right_panel_tab_terminal)).state.selected);
+    _ = try expectByText(tree.root, .text, "Native has no embedded terminal (no PTY). Open the host terminal instead.");
+    _ = try expectByText(tree.root, .text, open_terminal.no_project_status);
+    try testing.expect(findByText(tree.root, .button, "Open in Terminal") == null);
+    try testing.expect(findByText(tree.root, .text, "No project open") == null);
+
     main.update(&model, .hide_right_panel, &fx);
     try testing.expect(!model.right_panel_open);
     try testing.expect(model.right_panel_tab_files());
@@ -9337,6 +9370,88 @@ test "right panel Files, Diff, and Background tabs switch surfaces" {
     main.update(&model, .set_right_panel_tab_diff, &fx);
     try testing.expect(model.right_panel_open);
     try testing.expect(model.right_panel_tab_diff());
+    try testing.expectEqual(@as(u32, 460), model.rightPanelWidthPixels());
+}
+
+test "right panel Browser Open in browser spawns key-25 URL sidecar; empty URL is a status" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .show_right_panel, &fx);
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    try testing.expectEqualStrings("", model.browser_url());
+
+    main.update(&model, .open_url, &fx);
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expectEqualStrings(open_url.empty_url_status, model.window_status());
+    try testing.expect(!model.open_url_live);
+
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "  example.com/path  " } }, &fx);
+    try testing.expectEqualStrings("  example.com/path  ", model.browser_url());
+    var tree = try buildTree(arena, &model);
+    const open_browser = try expectButtonMsg(tree, "Open in browser", .open_url);
+    main.update(&model, tree.msgForPointer(open_browser.id, .up).?, &fx);
+    if (open_url.hostBin() == null) {
+        try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+        try testing.expectEqualStrings(open_url.hostMissingStatus(), model.window_status());
+        return;
+    }
+    try testing.expect(model.open_url_live);
+    try testing.expect(!model.has_window_status());
+    const spawn = findOpenUrlSpawn(&fx) orelse return error.MissingOpenUrlSpawn;
+    try testing.expectEqual(main.open_url_key, spawn.key);
+    try testing.expect(spawn.key != main.open_terminal_key);
+    try testing.expect(spawn.key != main.reveal_folder_key);
+    try testing.expect(open_url.isUrlArgv(spawn.argv));
+    try testing.expect(!reveal_folder.isRevealArgv(spawn.argv));
+    try testing.expectEqualStrings(open_url.hostBin().?, spawn.argv[0]);
+    try testing.expectEqualStrings("https://example.com/path", spawn.argv[1]);
+
+    try fx.feedExit(spawn.key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.open_url_live);
+}
+
+fn findOpenUrlSpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (open_url.isUrlArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
+test "palette Show Browser tab and Show Terminal tab open the wide OS-open surfaces" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .start_search, &fx);
+    const empty = model.palette_rows(arena);
+    try testing.expect(paletteHasLabel(empty, "Show Browser tab"));
+    try testing.expect(paletteHasLabel(empty, "Show Terminal tab"));
+    try testing.expectEqual(main.paletteActionId(.show_browser_tab), paletteRowId(empty, "Show Browser tab"));
+    try testing.expectEqual(main.paletteActionId(.show_terminal_tab), paletteRowId(empty, "Show Terminal tab"));
+
+    main.update(&model, .{ .palette_pick = main.paletteActionId(.show_browser_tab) }, &fx);
+    try testing.expect(!model.palette_open);
+    try testing.expect(model.right_panel_open);
+    try testing.expect(model.right_panel_tab_browser());
+    try testing.expectEqual(@as(u32, 460), model.rightPanelWidthPixels());
+
+    main.update(&model, .start_search, &fx);
+    main.update(&model, .{ .palette_pick = main.paletteActionId(.show_terminal_tab) }, &fx);
+    try testing.expect(model.right_panel_tab_terminal());
     try testing.expectEqual(@as(u32, 460), model.rightPanelWidthPixels());
 }
 
@@ -10142,6 +10257,8 @@ test "empty palette lists New Task; query new t still includes it" {
     try testing.expect(paletteHasLabel(empty, "Copy provider session id"));
     try testing.expect(paletteHasLabel(empty, "Reveal project folder"));
     try testing.expect(paletteHasLabel(empty, "Show right panel"));
+    try testing.expect(paletteHasLabel(empty, "Show Browser tab"));
+    try testing.expect(paletteHasLabel(empty, "Show Terminal tab"));
     try testing.expect(!paletteHasLabel(empty, "Hide right panel"));
     try testing.expect(!paletteHasLabel(empty, "Open project in Terminal"));
     try testing.expect(!paletteHasLabel(empty, "Open project in Editor"));

@@ -40,6 +40,7 @@ const file_mention = @import("file_mention.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
+const open_url = @import("open_url.zig");
 const open_editor = @import("open_editor.zig");
 const copy_helpers = @import("copy.zig");
 const right_panel = @import("right_panel.zig");
@@ -237,6 +238,8 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .pick_folder => pick_folder.startPickFolder(model, fx),
         .reveal_folder => reveal_folder.startRevealFolder(model, fx),
         .open_terminal => open_terminal.startOpenTerminal(model, fx),
+        .browser_url_edit => |edit| model.applyBrowserUrl(edit),
+        .open_url => open_url.startOpenUrl(model, fx),
         .open_editor => open_editor.startOpenEditor(model, fx),
         .copy_project_path => copy_helpers.copyProjectPath(model, fx),
         .start_image_attach => model.startImageAttach(),
@@ -331,6 +334,14 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .set_right_panel_tab_diff => {
             right_panel.selectDiff(model, fx);
+            store.persistLayoutIfPossible(model);
+        },
+        .set_right_panel_tab_browser => {
+            right_panel.selectBrowser(model, fx);
+            store.persistLayoutIfPossible(model);
+        },
+        .set_right_panel_tab_terminal => {
+            right_panel.selectTerminal(model, fx);
             store.persistLayoutIfPossible(model);
         },
         .set_right_panel_tab_background => {

@@ -1,4 +1,4 @@
-//! First-cut Waku right panel: Files tree, Diff tab, and Background.
+//! First-cut Waku right panel: Files, Diff, Browser, Terminal, Background.
 //!
 //! Toggleable pane to the right of the conversation column. Files
 //! lists the selected session's project files from the existing
@@ -15,7 +15,9 @@
 //! selected row is a live Process, live Monitor, or live Subagent;
 //! Dismiss when the selected row is a settled Monitor or Subagent). Tab
 //! click with no selected row, or a selected row that is gone, shows
-//! "No background work". Not Browser, Terminal (Native has no PTY),
+//! "No background work". Browser and Terminal are honest OS-open
+//! first-cuts this cut (system browser via `open_url`, host terminal
+//! via `open_terminal`) — not an embedded webview or PTY.
 //! Claude CLI TaskStop (Faku-side Monitor and
 //! Subagent Stop on one-shot `claude -p` ships; live Stop dismisses
 //! that live row and does not invoke TaskStop mid-turn; settled
@@ -65,18 +67,20 @@
 //! Discard runs the parked action; Keep editing clears the park.
 //! Successful Save, Reload, or the buffer matching the loaded body
 //! (dirty becomes false) clears the pending confirm. Not live reload /
-//! FS watch (Native has none), Browser, Terminal (Native has no PTY),
+//! FS watch (Native has none), not an embedded Browser / Terminal
+//! (those tabs are OS-open workarounds; Native has no PTY / webview),
 //! or autosave.
 //!
 //! Default closed: Waku `RightPanelSessionState::take_or_closed` uses
 //! `empty(false)` and persistence `default_right_panel_visibility` is
 //! false. Files tab widths are Waku `DEFAULT_FILE_TREE_WIDTH` (184) /
 //! `FILE_TREE_MIN_WIDTH` (140) / `FILE_TREE_MAX_WIDTH` (360). Diff and
-//! Background bump toward Waku `DEFAULT_RIGHT_PANEL_WIDTH` (460) when
-//! the pane is still file-tree-narrow; first-cut max is 460 (Waku
-//! `RIGHT_PANEL_MAX_WIDTH` is 1000). Tab, selected Background row, and
-//! output are runtime-only (default `files` when the panel opens);
-//! not persisted this cut.
+//! Background, Browser, and Terminal bump toward Waku
+//! `DEFAULT_RIGHT_PANEL_WIDTH` (460) when the pane is still
+//! file-tree-narrow; first-cut max is 460 (Waku
+//! `RIGHT_PANEL_MAX_WIDTH` is 1000). Tab, selected Background row,
+//! Browser draft URL, and output are runtime-only (default `files`
+//! when the panel opens); not persisted this cut.
 //!
 //! Directory expand/collapse is a runtime-only set of relative dir
 //! paths matching `file_mention.derivedDirParents` (no trailing
@@ -100,9 +104,9 @@ const Model = main.Model;
 const Effects = main.Effects;
 const RightPanelFileRow = main.RightPanelFileRow;
 
-/// Runtime-only Files | Diff | Background surface. Default `files`
-/// when the panel opens. Background is not persisted.
-pub const Tab = enum { files, diff, background };
+/// Runtime-only Files | Diff | Browser | Terminal | Background
+/// surface. Default `files` when the panel opens. Not persisted.
+pub const Tab = enum { files, diff, browser, terminal, background };
 
 /// Parked action that would discard a dirty Files preview buffer.
 /// Runtime-only; not persisted. Stored on Model as kind + id.
@@ -221,14 +225,14 @@ pub fn clampWidth(width: f32) f32 {
 pub fn defaultWidth(tab: Tab) f32 {
     return switch (tab) {
         .files => main.right_panel_default_width,
-        .diff, .background => main.right_panel_diff_default_width,
+        .diff, .browser, .terminal, .background => main.right_panel_diff_default_width,
     };
 }
 
 pub fn maxWidth(tab: Tab) f32 {
     return switch (tab) {
         .files => main.right_panel_max_width,
-        .diff, .background => main.right_panel_diff_max_width,
+        .diff, .browser, .terminal, .background => main.right_panel_diff_max_width,
     };
 }
 
@@ -444,6 +448,34 @@ pub fn selectBackground(model: *Model, fx: *Effects, row_id: u32) void {
     bumpWideTabWidth(model);
     model.right_panel_tab = .background;
     model.right_panel_width = clampWidthTab(model.right_panel_width, .background);
+    model.syncRightPanelSplit();
+    if (!was_open) file_mention.refresh(model, fx);
+}
+
+/// Browser tab. Opens the pane if closed, selects Browser, and bumps
+/// width toward 460 when still file-tree-narrow (same clamp as Diff).
+/// Native has no webview; the body is an OS-open URL field. Does not
+/// persist the tab or the draft URL.
+pub fn selectBrowser(model: *Model, fx: *Effects) void {
+    const was_open = model.right_panel_open;
+    model.right_panel_open = true;
+    bumpWideTabWidth(model);
+    model.right_panel_tab = .browser;
+    model.right_panel_width = clampWidthTab(model.right_panel_width, .browser);
+    model.syncRightPanelSplit();
+    if (!was_open) file_mention.refresh(model, fx);
+}
+
+/// Terminal tab. Opens the pane if closed, selects Terminal, and bumps
+/// width toward 460 when still file-tree-narrow (same clamp as Diff).
+/// Native has no PTY; the body is Open in Terminal. Does not persist
+/// the tab.
+pub fn selectTerminal(model: *Model, fx: *Effects) void {
+    const was_open = model.right_panel_open;
+    model.right_panel_open = true;
+    bumpWideTabWidth(model);
+    model.right_panel_tab = .terminal;
+    model.right_panel_width = clampWidthTab(model.right_panel_width, .terminal);
     model.syncRightPanelSplit();
     if (!was_open) file_mention.refresh(model, fx);
 }
@@ -899,7 +931,7 @@ test "file-tree widths match Waku DEFAULT_FILE_TREE / FILE_TREE_MIN / MAX" {
     try std.testing.expectEqual(@as(f32, 200), clampWidth(200));
 }
 
-test "Diff tab default 460 / max 460; Background shares Diff clamp; Files clamp stays 360" {
+test "Diff tab default 460 / max 460; Browser Terminal Background share Diff clamp; Files clamp stays 360" {
     try std.testing.expectEqual(@as(f32, 460), main.right_panel_diff_default_width);
     try std.testing.expectEqual(@as(f32, 460), main.right_panel_diff_max_width);
     try std.testing.expectEqual(@as(f32, 460), clampWidthTab(0, .diff));
@@ -910,11 +942,19 @@ test "Diff tab default 460 / max 460; Background shares Diff clamp; Files clamp 
     try std.testing.expectEqual(@as(f32, 140), clampWidthTab(100, .background));
     try std.testing.expectEqual(@as(f32, 460), clampWidthTab(500, .background));
     try std.testing.expectEqual(@as(f32, 400), clampWidthTab(400, .background));
+    try std.testing.expectEqual(@as(f32, 460), clampWidthTab(0, .browser));
+    try std.testing.expectEqual(@as(f32, 140), clampWidthTab(100, .browser));
+    try std.testing.expectEqual(@as(f32, 460), clampWidthTab(500, .browser));
+    try std.testing.expectEqual(@as(f32, 400), clampWidthTab(400, .browser));
+    try std.testing.expectEqual(@as(f32, 460), clampWidthTab(0, .terminal));
+    try std.testing.expectEqual(@as(f32, 140), clampWidthTab(100, .terminal));
+    try std.testing.expectEqual(@as(f32, 460), clampWidthTab(500, .terminal));
+    try std.testing.expectEqual(@as(f32, 400), clampWidthTab(400, .terminal));
     try std.testing.expectEqual(@as(f32, 360), clampWidthTab(400, .files));
     try std.testing.expectEqual(@as(f32, 360), clampWidthTab(460, .files));
 }
 
-test "tab defaults to files; Diff and Background open the panel; Files↔Diff↔Background clamps width" {
+test "tab defaults to files; Diff Background Browser Terminal open the panel; Files↔wide tabs clamp width" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -956,6 +996,16 @@ test "tab defaults to files; Diff and Background open the panel; Files↔Diff↔
 
     selectBackground(&model, &fx, 0);
     try std.testing.expectEqual(@as(u32, 1), model.right_panel_background_row_id);
+
+    selectBrowser(&model, &fx);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(Tab.browser, model.right_panel_tab);
+    try std.testing.expectEqual(@as(f32, 460), model.right_panel_width);
+    try std.testing.expectEqual(@as(u32, 1), model.right_panel_background_row_id);
+
+    selectTerminal(&model, &fx);
+    try std.testing.expectEqual(Tab.terminal, model.right_panel_tab);
+    try std.testing.expectEqual(@as(f32, 460), model.right_panel_width);
 
     selectFiles(&model, &fx);
     try std.testing.expectEqual(Tab.files, model.right_panel_tab);

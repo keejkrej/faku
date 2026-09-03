@@ -14,8 +14,9 @@
 //! `queued_messages`, `rewind_refs`, `worktree_snapshot_sha`, `worktree_turn_end_sha`, `worktree_turn_diff_sha`, and last-known context usage. Document extras also keep
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
 //! plus `right_panel_open` / `right_panel_width` for the first-cut Files +
-//! Diff + Background pane (default closed; Waku file-tree 184px; Diff and
-//! Background tabs are runtime-only),
+//! Diff + Browser + Terminal + Background pane (default closed; Waku
+//! file-tree 184px; Diff, Browser, Terminal, and Background tabs are
+//! runtime-only),
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
 //! `last_project_path` / `last_daemon_address` / `theme_preference` /
@@ -2178,6 +2179,7 @@ test "Background tab, selected row, and output are not written to sessions.json"
     try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_open\":true") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_width\":460") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "right_panel_tab") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "browser_url") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "right_panel_background") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "file_preview") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "background_work") == null);
