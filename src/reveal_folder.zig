@@ -78,7 +78,16 @@ pub fn argvFor(path: []const u8, buf: *[argv_len][]const u8) []const []const u8 
 
 pub fn isRevealArgv(argv: []const []const u8) bool {
     if (argv.len != argv_len) return false;
-    return std.mem.eql(u8, argv[0], macos_bin) or std.mem.eql(u8, argv[0], linux_bin);
+    const bin_ok = std.mem.eql(u8, argv[0], macos_bin) or std.mem.eql(u8, argv[0], linux_bin);
+    if (!bin_ok) return false;
+    // URL opens are `open_url` (`http://` / `https://`), not folder reveal.
+    return !looksLikeHttpUrl(argv[1]);
+}
+
+fn looksLikeHttpUrl(s: []const u8) bool {
+    if (s.len >= 8 and std.ascii.eqlIgnoreCase(s[0..8], "https://")) return true;
+    if (s.len >= 7 and std.ascii.eqlIgnoreCase(s[0..7], "http://")) return true;
+    return false;
 }
 
 /// Existing selected-session directory. Relative paths count so the

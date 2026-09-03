@@ -61,6 +61,8 @@ fn runPaletteAction(model: *Model, fx: *Effects, action: PaletteAction) void {
         .copy_project_path => main.update(model, .copy_project_path, fx),
         .show_right_panel => main.update(model, .show_right_panel, fx),
         .hide_right_panel => main.update(model, .hide_right_panel, fx),
+        .show_browser_tab => main.update(model, .set_right_panel_tab_browser, fx),
+        .show_terminal_tab => main.update(model, .set_right_panel_tab_terminal, fx),
     }
 }
 
