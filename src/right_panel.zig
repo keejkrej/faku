@@ -1289,7 +1289,6 @@ test "preview gutter materializes at most max_file_preview_line_rows" {
 }
 
 test "preview language maps documented extensions; unknown and well-known names are plain" {
-    const native_sdk = @import("native_sdk");
     const code = native_sdk.canvas.code;
 
     try std.testing.expectEqualStrings("zig", previewLanguage("src/main.zig"));
