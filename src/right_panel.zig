@@ -33,16 +33,34 @@
 //! Not Waku's 50k-file index (cap 256). Windows stays empty this cut
 //! (`file_mention` already skips Windows).
 //!
-//! Files tab ships a read-only bounded inline file preview (Faku-side
+//! Files tab ships a bounded inline file preview (Faku-side
 //! `readFileAlloc`, 256KB cap, truncated label when larger, binary /
 //! non-UTF-8 honest empty state, unreadable one-line error, newlines
-//! kept, first-cut Native `<code>` highlighting with `line-numbers`,
-//! runtime-only, cleared on session switch / remove / panel hide; Open
-//! in editor still available). Language is a documented Native lexer
-//! name from the path (unknown / Dockerfile / Makefile / Cargo.toml →
-//! `plain`). Native numbered mode omits the gutter above 128 logical
-//! lines but keeps the source. `previewLineRows` remains for tests.
-//! Not editing, save, live reload, Browser, Terminal (Native has no PTY).
+//! kept, Native `<code>` highlighting with `line-numbers`, runtime-only,
+//! cleared on session switch / remove / panel hide). Language is a
+//! documented Native lexer name from the path (unknown / Dockerfile /
+//! Makefile / Cargo.toml → `plain`). Native numbered mode omits the
+//! gutter above 128 logical lines but keeps the source.
+//! `previewLineRows` remains for tests.
+//!
+//! First-cut edit + save ships: Edit switches a text body to a Native
+//! `<textarea>` (same widget as the composer; highlighting drops while
+//! dirty). `on-input` updates a Model edit buffer. Dirty is buffer ≠
+//! loaded body. Save writes the buffer to the stored absolute path via
+//! Zig `std.Io` `createFileAtomic` (temp + rename, same class of local
+//! I/O as `store` / `sessions.json`; no Native write effect). Success
+//! adopts the saved bytes as the new preview body, clears dirty, and
+//! returns to the read-only `<code>` view. Failure sets a short status
+//! string and leaves the on-disk file untouched when the atomic replace
+//! does not run. Save is gated: not editing / not dirty / binary / no
+//! abs path / truncated (saving a 256KB window would clobber the rest
+//! of the file — refuse with a short message; truncated stays
+//! Open-in-editor + Reload). Reload always re-reads disk and discards
+//! unsaved edits (the click is the confirm; no dialog chrome). Open in
+//! editor and Close stay. Not live reload / FS watch (Native has none),
+//! Browser, Terminal (Native has no PTY), or unsaved-dialog chrome
+//! beyond the dirty flag. Switching files / Close / hide / session
+//! switch discards the dirty buffer.
 //!
 //! Default closed: Waku `RightPanelSessionState::take_or_closed` uses
 //! `empty(false)` and persistence `default_right_panel_visibility` is
@@ -63,11 +81,14 @@
 //! `RightPanelSessionState`).
 
 const std = @import("std");
+const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const file_mention = @import("file_mention.zig");
 const composer = @import("composer.zig");
 const open_editor = @import("open_editor.zig");
 const review_diff = @import("review_diff.zig");
+
+const canvas = native_sdk.canvas;
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -93,6 +114,9 @@ pub const binary_file_label = "Binary file — not shown";
 pub const truncated_file_label = "Truncated — showing first 256 KB";
 pub const unreadable_file_label = "Cannot read file";
 pub const missing_file_label = "File not found";
+pub const truncated_save_label = "Cannot save truncated preview — open in editor";
+pub const binary_save_label = "Cannot save binary file";
+pub const cannot_save_label = "Cannot save file";
 
 /// Documented Native `language=` lexer name for a preview path. Unknown
 /// extensions and well-known names Native has no lexer for
@@ -401,17 +425,68 @@ fn bumpWideTabWidth(model: *Model) void {
 }
 
 pub fn clearFilePreview(model: *Model) void {
+    freePreviewBody(model);
+    model.right_panel_file_preview_id = 0;
+    model.right_panel_file_preview_relpath_len = 0;
+    model.right_panel_file_preview_abs_len = 0;
+    model.right_panel_file_preview_editing = false;
+    model.file_preview_edit_buffer.clear();
+    model.right_panel_file_preview_status_len = 0;
+}
+
+fn freePreviewBody(model: *Model) void {
     if (model.right_panel_file_preview_storage.len != 0) {
         std.heap.page_allocator.free(model.right_panel_file_preview_storage);
     }
     model.right_panel_file_preview_storage = &.{};
     model.right_panel_file_preview_len = 0;
-    model.right_panel_file_preview_id = 0;
-    model.right_panel_file_preview_relpath_len = 0;
-    model.right_panel_file_preview_abs_len = 0;
     model.right_panel_file_preview_truncated = false;
     model.right_panel_file_preview_binary = false;
     model.right_panel_file_preview_error_len = 0;
+}
+
+fn setPreviewStatus(model: *Model, message: []const u8) void {
+    main.writeFixed(
+        &model.right_panel_file_preview_status_storage,
+        &model.right_panel_file_preview_status_len,
+        message,
+    );
+}
+
+/// Successful text load (including empty). Binary / read-error / closed
+/// are not text.
+pub fn previewTextOk(model: *const Model) bool {
+    return model.right_panel_file_preview_id != 0
+        and !model.right_panel_file_preview_binary
+        and model.right_panel_file_preview_error_len == 0;
+}
+
+pub fn isPreviewDirty(model: *const Model) bool {
+    if (!model.right_panel_file_preview_editing) return false;
+    return !std.mem.eql(u8, model.file_preview_edit_buffer.text(), model.file_preview_body());
+}
+
+/// Edit is offered for a full text window with an abs path. Truncated
+/// stays Open-in-editor + Reload (saving the 256KB window would clobber
+/// the rest of the file).
+pub fn canStartPreviewEdit(model: *const Model) bool {
+    return previewTextOk(model)
+        and model.right_panel_file_preview_abs_len > 0
+        and !model.right_panel_file_preview_truncated
+        and !model.right_panel_file_preview_editing;
+}
+
+pub fn canSavePreview(model: *const Model) bool {
+    return model.right_panel_file_preview_editing
+        and isPreviewDirty(model)
+        and previewTextOk(model)
+        and model.right_panel_file_preview_abs_len > 0
+        and !model.right_panel_file_preview_truncated
+        and !model.right_panel_file_preview_binary;
+}
+
+pub fn canReloadPreview(model: *const Model) bool {
+    return model.right_panel_file_preview_id != 0 and model.right_panel_file_preview_abs_len > 0;
 }
 
 fn setPreviewError(model: *Model, message: []const u8) void {
@@ -588,6 +663,109 @@ pub fn openPreviewInEditor(model: *Model, fx: *Effects) void {
     const abs = model.right_panel_file_preview_abs_storage[0..model.right_panel_file_preview_abs_len];
     if (abs.len == 0) return;
     open_editor.startOpenEditorAt(model, fx, abs);
+}
+
+/// Switch the open text preview to the composer `<textarea>`. No-op for
+/// binary / error / truncated / missing abs path / already editing.
+pub fn startFilePreviewEdit(model: *Model) void {
+    if (!canStartPreviewEdit(model)) {
+        if (model.right_panel_file_preview_truncated) {
+            setPreviewStatus(model, truncated_save_label);
+        } else if (model.right_panel_file_preview_binary) {
+            setPreviewStatus(model, binary_save_label);
+        }
+        return;
+    }
+    model.file_preview_edit_buffer.set(model.file_preview_body());
+    model.right_panel_file_preview_editing = true;
+    model.right_panel_file_preview_status_len = 0;
+}
+
+pub fn applyFilePreviewEdit(model: *Model, edit: canvas.TextInputEvent) void {
+    if (!model.right_panel_file_preview_editing) return;
+    model.file_preview_edit_buffer.apply(edit);
+}
+
+fn atomicWriteAbs(io: std.Io, abs: []const u8, bytes: []const u8) !void {
+    const cwd = std.Io.Dir.cwd();
+    var atomic = try cwd.createFileAtomic(io, abs, .{ .make_path = false, .replace = true });
+    defer atomic.deinit(io);
+    try atomic.file.writePositionalAll(io, bytes, 0);
+    try atomic.file.sync(io);
+    try atomic.replace(io);
+}
+
+fn replacePreviewBody(model: *Model, bytes: []const u8) void {
+    if (model.right_panel_file_preview_storage.len != 0) {
+        std.heap.page_allocator.free(model.right_panel_file_preview_storage);
+    }
+    model.right_panel_file_preview_storage = &.{};
+    model.right_panel_file_preview_len = 0;
+    if (bytes.len == 0) return;
+    const buf = std.heap.page_allocator.alloc(u8, bytes.len) catch {
+        setPreviewError(model, unreadable_file_label);
+        return;
+    };
+    @memcpy(buf, bytes);
+    model.right_panel_file_preview_storage = buf;
+    model.right_panel_file_preview_len = bytes.len;
+}
+
+/// Write the edit buffer to the stored abs path. Gated: not editing /
+/// not dirty / binary / no abs path / truncated refuse with a short
+/// status. Success adopts the saved bytes as the preview body and
+/// returns to the read-only `<code>` view.
+pub fn saveFilePreview(model: *Model) void {
+    if (model.right_panel_file_preview_id == 0) return;
+    if (model.right_panel_file_preview_binary) {
+        setPreviewStatus(model, binary_save_label);
+        return;
+    }
+    if (model.right_panel_file_preview_truncated) {
+        setPreviewStatus(model, truncated_save_label);
+        return;
+    }
+    if (model.right_panel_file_preview_abs_len == 0) {
+        setPreviewStatus(model, cannot_save_label);
+        return;
+    }
+    if (!model.right_panel_file_preview_editing or !isPreviewDirty(model)) return;
+
+    const io = model.store_io orelse {
+        setPreviewStatus(model, cannot_save_label);
+        return;
+    };
+    const abs = model.right_panel_file_preview_abs_storage[0..model.right_panel_file_preview_abs_len];
+    const bytes = model.file_preview_edit_buffer.text();
+    atomicWriteAbs(io, abs, bytes) catch {
+        setPreviewStatus(model, cannot_save_label);
+        return;
+    };
+    replacePreviewBody(model, bytes);
+    model.right_panel_file_preview_truncated = false;
+    model.right_panel_file_preview_binary = false;
+    model.right_panel_file_preview_error_len = 0;
+    model.right_panel_file_preview_editing = false;
+    model.file_preview_edit_buffer.clear();
+    model.right_panel_file_preview_status_len = 0;
+}
+
+/// Re-read the stored abs path into the preview. Discards unsaved edits
+/// (the Reload click is the confirm; no dialog this cut). Stays in edit
+/// mode when the reloaded window is still a full text body.
+pub fn reloadFilePreview(model: *Model) void {
+    if (!canReloadPreview(model)) return;
+    const was_editing = model.right_panel_file_preview_editing;
+    freePreviewBody(model);
+    loadFilePreviewBody(model);
+    if (was_editing and previewTextOk(model) and !model.right_panel_file_preview_truncated) {
+        model.file_preview_edit_buffer.set(model.file_preview_body());
+        model.right_panel_file_preview_editing = true;
+    } else {
+        model.right_panel_file_preview_editing = false;
+        model.file_preview_edit_buffer.clear();
+    }
+    model.right_panel_file_preview_status_len = 0;
 }
 
 pub fn openCachedFile(model: *Model, fx: *Effects, id: u32) void {
@@ -1145,4 +1323,132 @@ test "preview language maps documented extensions; unknown and well-known names 
     try std.testing.expectEqual(code.Language.plain, code.languageFromName(previewLanguage("Cargo.toml")));
     try std.testing.expectEqual(code.Language.javascript, code.languageFromName(previewLanguage("app.js")));
     try std.testing.expectEqual(code.Language.c_like, code.languageFromName(previewLanguage("foo.c")));
+}
+
+test "edit buffer dirty/save gates; save writes abs path and returns to read-only" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-save-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, abs, "hello\n");
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview save", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    defer clearFilePreview(&model);
+
+    selectCachedFile(&model, 1);
+    try std.testing.expect(model.file_preview_can_edit());
+    try std.testing.expect(!model.file_preview_editing());
+    try std.testing.expect(!model.file_preview_dirty());
+    try std.testing.expect(!model.file_preview_can_save());
+    try std.testing.expect(model.file_preview_can_reload());
+
+    saveFilePreview(&model);
+    try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
+
+    startFilePreviewEdit(&model);
+    try std.testing.expect(model.file_preview_editing());
+    try std.testing.expect(!model.file_preview_can_edit());
+    try std.testing.expect(!model.file_preview_dirty());
+    try std.testing.expect(!model.file_preview_can_save());
+    try std.testing.expectEqualStrings("hello\n", model.file_preview_draft());
+
+    applyFilePreviewEdit(&model, .{ .insert_text = "world\n" });
+    try std.testing.expect(model.file_preview_dirty());
+    try std.testing.expect(model.file_preview_can_save());
+    try std.testing.expectEqualStrings("hello\nworld\n", model.file_preview_draft());
+    try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
+
+    saveFilePreview(&model);
+    try std.testing.expect(!model.file_preview_editing());
+    try std.testing.expect(!model.file_preview_dirty());
+    try std.testing.expect(!model.file_preview_can_save());
+    try std.testing.expect(model.file_preview_can_edit());
+    try std.testing.expectEqualStrings("hello\nworld\n", model.file_preview_body());
+    try std.testing.expectEqual(@as(usize, 0), model.file_preview_draft().len);
+
+    const got = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, abs, std.testing.allocator, .limited(64));
+    defer std.testing.allocator.free(got);
+    try std.testing.expectEqualStrings("hello\nworld\n", got);
+}
+
+test "reload discards dirty buffer; truncated and binary refuse save" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-gates-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var note_buf: [300]u8 = undefined;
+    const note_abs = try std.fmt.bufPrint(&note_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, note_abs, "disk\n");
+
+    var nul_buf: [300]u8 = undefined;
+    const nul_abs = try std.fmt.bufPrint(&nul_buf, "{s}/nul.bin", .{project});
+    try writePreviewFile(std.testing.io, nul_abs, "ok\x00still");
+
+    var big_buf: [300]u8 = undefined;
+    const big_abs = try std.fmt.bufPrint(&big_buf, "{s}/big.txt", .{project});
+    const over = max_file_preview_bytes + 8;
+    const blob = try std.testing.allocator.alloc(u8, over);
+    defer std.testing.allocator.free(blob);
+    @memset(blob, 'a');
+    try writePreviewFile(std.testing.io, big_abs, blob);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview gates", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "note.txt\nnul.bin\nbig.txt\n");
+    defer clearFilePreview(&model);
+
+    selectCachedFile(&model, 1);
+    startFilePreviewEdit(&model);
+    applyFilePreviewEdit(&model, .{ .insert_text = "dirty" });
+    try std.testing.expect(model.file_preview_dirty());
+    try std.testing.expectEqualStrings("disk\ndirty", model.file_preview_draft());
+
+    reloadFilePreview(&model);
+    try std.testing.expectEqualStrings("disk\n", model.file_preview_body());
+    try std.testing.expect(model.file_preview_editing());
+    try std.testing.expect(!model.file_preview_dirty());
+    try std.testing.expectEqualStrings("disk\n", model.file_preview_draft());
+    const still = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, note_abs, std.testing.allocator, .limited(64));
+    defer std.testing.allocator.free(still);
+    try std.testing.expectEqualStrings("disk\n", still);
+
+    selectCachedFile(&model, 2);
+    try std.testing.expect(model.file_preview_binary());
+    try std.testing.expect(!model.file_preview_can_edit());
+    try std.testing.expect(!model.file_preview_can_save());
+    startFilePreviewEdit(&model);
+    try std.testing.expect(!model.file_preview_editing());
+    try std.testing.expectEqualStrings(binary_save_label, model.file_preview_status());
+    saveFilePreview(&model);
+    try std.testing.expectEqualStrings(binary_save_label, model.file_preview_status());
+    const bin_still = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, nul_abs, std.testing.allocator, .limited(64));
+    defer std.testing.allocator.free(bin_still);
+    try std.testing.expectEqualStrings("ok\x00still", bin_still);
+
+    selectCachedFile(&model, 3);
+    try std.testing.expect(model.file_preview_truncated());
+    try std.testing.expect(model.file_preview_has_body());
+    try std.testing.expect(!model.file_preview_can_edit());
+    try std.testing.expect(!model.file_preview_can_save());
+    startFilePreviewEdit(&model);
+    try std.testing.expect(!model.file_preview_editing());
+    try std.testing.expectEqualStrings(truncated_save_label, model.file_preview_status());
+    saveFilePreview(&model);
+    try std.testing.expectEqualStrings(truncated_save_label, model.file_preview_status());
+    try std.testing.expectEqual(max_file_preview_bytes, model.right_panel_file_preview_len);
 }

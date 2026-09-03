@@ -419,6 +419,14 @@ pub const Msg = union(enum) {
     close_right_panel_file_preview,
     /// Files-pane preview header: Open in editor at the preview abs path.
     open_right_panel_file_editor,
+    /// Files-pane preview header: switch the text body to `<textarea>`.
+    open_right_panel_file_edit,
+    /// Files-pane preview textarea `on-input`.
+    file_preview_edit: canvas.TextInputEvent,
+    /// Files-pane preview header: write the dirty buffer to the abs path.
+    file_preview_save,
+    /// Files-pane preview header: re-read from disk (discards dirty).
+    file_preview_reload,
     /// Files-pane dir click. Payload is `file_mention_dir_id_base + index`.
     toggle_right_panel_dir: u32,
     /// Right-panel Files tab. Runtime-only; default when the panel opens.
@@ -783,6 +791,12 @@ pub const Model = struct {
     right_panel_file_preview_binary: bool = false,
     right_panel_file_preview_error_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
     right_panel_file_preview_error_len: usize = 0,
+    /// Runtime-only Files preview edit buffer. Cap matches the 256KB
+    /// read window. Cleared on preview close. Not persisted.
+    file_preview_edit_buffer: canvas.TextBuffer(right_panel.max_file_preview_bytes) = .{},
+    right_panel_file_preview_editing: bool = false,
+    right_panel_file_preview_status_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
+    right_panel_file_preview_status_len: usize = 0,
     settings_open: bool = false,
     /// Runtime-only Settings General | Appearance | Providers | Skills |
     /// Usage | Computer Use page. Default General. Not persisted.
@@ -1323,6 +1337,10 @@ pub const Model = struct {
         "right_panel_file_preview_binary",
         "right_panel_file_preview_error_storage",
         "right_panel_file_preview_error_len",
+        "file_preview_edit_buffer",
+        "right_panel_file_preview_editing",
+        "right_panel_file_preview_status_storage",
+        "right_panel_file_preview_status_len",
         "file_preview_line_rows",
         "right_panel_showing_files",
         "rightPanelWidthPixels",
@@ -2000,6 +2018,38 @@ pub const Model = struct {
 
     pub fn file_preview_has_error(model: *const Model) bool {
         return model.right_panel_file_preview_error_len > 0;
+    }
+
+    pub fn file_preview_editing(model: *const Model) bool {
+        return model.right_panel_file_preview_editing;
+    }
+
+    pub fn file_preview_dirty(model: *const Model) bool {
+        return right_panel.isPreviewDirty(model);
+    }
+
+    pub fn file_preview_draft(model: *const Model) []const u8 {
+        return model.file_preview_edit_buffer.text();
+    }
+
+    pub fn file_preview_can_edit(model: *const Model) bool {
+        return right_panel.canStartPreviewEdit(model);
+    }
+
+    pub fn file_preview_can_save(model: *const Model) bool {
+        return right_panel.canSavePreview(model);
+    }
+
+    pub fn file_preview_can_reload(model: *const Model) bool {
+        return right_panel.canReloadPreview(model);
+    }
+
+    pub fn file_preview_status(model: *const Model) []const u8 {
+        return model.right_panel_file_preview_status_storage[0..model.right_panel_file_preview_status_len];
+    }
+
+    pub fn file_preview_has_status(model: *const Model) bool {
+        return model.right_panel_file_preview_status_len > 0;
     }
 
     pub fn right_panel_pane_min(model: *const Model) f32 {
