@@ -1,6 +1,6 @@
-# First-cut GitHub Releases for Faku desktop binaries.
-# Host-native `native build` + `native package` only. No eject, no
-# invented flags, no Apple notarize, not iOS/Android.
+# GitHub Releases for Faku: user-facing installers wrapping documented
+# Native package trees. No eject, no invented Native flags, no zip.
+# macOS: unsigned DMG. Linux: amd64 .deb. Windows: silent NSIS .exe.
 #
 # Flags come from https://native-sdk.dev/docs/cli and
 # `native package --help` (printed on each runner).
@@ -116,7 +116,14 @@ jobs:
           native package --help
       - name: Install Linux GTK host deps
         if: matrix.target == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev pkg-config zip
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev pkg-config dpkg-dev
+      - name: Install NSIS
+        if: matrix.target == 'windows'
+        run: |
+          set -euo pipefail
+          choco install nsis -y --no-progress
+          echo "C:\\Program Files (x86)\\NSIS" >> "$GITHUB_PATH"
+          echo "C:\\Program Files\\NSIS" >> "$GITHUB_PATH"
       - name: Build
         run: native build --yes
       - name: Package
@@ -149,7 +156,16 @@ jobs:
               echo "missing $pkg (native package default linux output)" >&2
               exit 1
             fi
-            (cd zig-out/package && zip -r "${GITHUB_WORKSPACE}/dist/faku-${VERSION}-linux-${ARCH}.zip" faku-linux)
+            if [[ "$(uname -m)" != "x86_64" ]]; then
+              echo "linux .deb is amd64 (ubuntu-latest x64); got $(uname -m)" >&2
+              exit 1
+            fi
+            command -v dpkg-deb >/dev/null 2>&1 || {
+              echo "dpkg-deb not found" >&2
+              exit 1
+            }
+            ./packaging/linux/build-deb.sh "$VERSION" "$pkg" \
+              "${GITHUB_WORKSPACE}/dist/faku_${VERSION}_amd64.deb"
           elif [[ "$TARGET" == windows ]]; then
             native package --target windows
             ls -la zig-out/package
@@ -158,20 +174,53 @@ jobs:
               echo "missing $pkg (native package default windows output)" >&2
               exit 1
             fi
+            if [[ ! -f "$pkg/faku.exe" ]]; then
+              echo "missing $pkg/faku.exe" >&2
+              ls -la "$pkg" >&2
+              exit 1
+            fi
+            command -v makensis >/dev/null 2>&1 || {
+              echo "makensis not on PATH after choco nsis" >&2
+              exit 1
+            }
             PY=python3
             command -v python3 >/dev/null 2>&1 || PY=python
-            "$PY" -c 'import pathlib, shutil, sys; src=pathlib.Path(sys.argv[1]); dest=pathlib.Path(sys.argv[2]); shutil.make_archive(str(dest.with_suffix("")), "zip", src.parent, src.name)' \
-              "$pkg" "dist/faku-${VERSION}-windows-${ARCH}.zip"
+            product_version="$("$PY" -c 'import re,sys
+p=re.findall(r"\d+", sys.argv[1])
+p=(p+["0","0","0","0"])[:4]
+print(".".join(p))' "$VERSION")"
+            to_mixed() {
+              if command -v cygpath >/dev/null 2>&1; then
+                cygpath -m "$1"
+              else
+                echo "$1"
+              fi
+            }
+            pkg_win=$(to_mixed "$pkg")
+            out_win=$(to_mixed "${GITHUB_WORKSPACE}/dist/faku-${VERSION}-windows-x64.exe")
+            nsi_win=$(to_mixed "${GITHUB_WORKSPACE}/packaging/windows/faku.nsi")
+            makensis \
+              -DVERSION="$VERSION" \
+              -DPRODUCT_VERSION="$product_version" \
+              -DPKGDIR="$pkg_win" \
+              -DOUTFILE="$out_win" \
+              "$nsi_win"
           else
             echo "unexpected target $TARGET" >&2
             exit 1
           fi
 
+          shopt -s nullglob
+          zips=(dist/*.zip dist/*.tar.gz)
+          if (( ${#zips[@]} )); then
+            echo "refusing zip/tarball artifacts: ${zips[*]}" >&2
+            exit 1
+          fi
           ls -la dist
       - uses: actions/upload-artifact@v4
         with:
           name: faku-${{ matrix.target }}
-          path: dist/faku-*
+          path: dist/*
           if-no-files-found: error
 
   publish:
@@ -188,7 +237,18 @@ jobs:
           set -euo pipefail
           cd dist
           ls -la
-          sha256sum faku-* | tee SHA256SUMS
+          shopt -s nullglob
+          zips=(*.zip *.tar.gz)
+          if (( ${#zips[@]} )); then
+            echo "refusing zip/tarball artifacts: ${zips[*]}" >&2
+            exit 1
+          fi
+          files=(*.dmg *.deb *.exe)
+          if (( ${#files[@]} != 3 )); then
+            echo "expected dmg + deb + exe, got: ${files[*]:-none}" >&2
+            exit 1
+          fi
+          sha256sum "${files[@]}" | tee SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: faku-release-${{ needs.meta.outputs.version }}
@@ -204,16 +264,16 @@ jobs:
           set -euo pipefail
           notes="$(mktemp)"
           cat > "$notes" <<EOF
-          Faku ${VERSION} desktop packages.
+          Faku ${VERSION} desktop installers.
 
-          Built host-native with documented \`native build\` / \`native package\`.
-          Not iOS/Android.
+          Built host-native with documented \`native build\` / \`native package\`, then wrapped for normal users.
+          Not iOS/Android. Experts compile with Native CLI.
 
           - macOS: unsigned \`.dmg\` (\`--signing none\`; no Apple identity / notarize)
-          - Linux: documented install tree zip (\`bin/\`, \`.desktop\`, hicolor icons)
-          - Windows: Native early directory zip (not MSI/NSIS)
+          - Linux: amd64 \`.deb\` (Debian/Ubuntu; GTK 4 runtime). Fedora/Arch compile with Native CLI.
+          - Windows: silent NSIS \`.exe\` (unsigned; SmartScreen). Double-click installs with no wizard. Not MSI.
           EOF
           gh release create "$TAG" \
             --title "$TAG" \
             --notes-file "$notes" \
-            dist/faku-* dist/SHA256SUMS
+            dist/*.dmg dist/*.deb dist/*.exe dist/SHA256SUMS
