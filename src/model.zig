@@ -1974,6 +1974,10 @@ pub const Model = struct {
             and model.right_panel_file_preview_error_len == 0;
     }
 
+    pub fn file_preview_line_rows(model: *const Model, arena: std.mem.Allocator) []const right_panel.FilePreviewLineRow {
+        return right_panel.previewLineRows(model, arena);
+    }
+
     pub fn file_preview_truncated(model: *const Model) bool {
         return model.right_panel_file_preview_truncated;
     }

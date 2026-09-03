@@ -964,8 +964,15 @@
                   </if>
                   <else>
                     <if test="{file_preview_has_body}">
-                      <scroll grow="1">
-                        <text wrap="true" foreground="text_muted">{file_preview_body}</text>
+                      <scroll grow="1" label="File preview body">
+                        <column>
+                          <for each="file_preview_line_rows" key="id" as="l">
+                            <row gap="8" cross="start">
+                              <text wrap="false" foreground="text_muted">{l.n_label}</text>
+                              <text wrap="true" grow="1">{l.text}</text>
+                            </row>
+                          </for>
+                        </column>
                       </scroll>
                     </if>
                   </else>

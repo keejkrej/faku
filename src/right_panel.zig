@@ -36,9 +36,11 @@
 //! Files tab ships a read-only bounded inline file preview (Faku-side
 //! `readFileAlloc`, 256KB cap, truncated label when larger, binary /
 //! non-UTF-8 honest empty state, unreadable one-line error, newlines
-//! kept, runtime-only, cleared on session switch / remove / panel hide;
-//! Open in editor still available). Not editing, save, syntax
-//! highlighting, live reload, Browser, Terminal (Native has no PTY).
+//! kept, first-cut line-number gutter on Native `for each` rows
+//! (`max_file_preview_line_rows`), runtime-only, cleared on session
+//! switch / remove / panel hide; Open in editor still available). Not
+//! editing, save, syntax highlighting, live reload, Browser, Terminal
+//! (Native has no PTY).
 //!
 //! Default closed: Waku `RightPanelSessionState::take_or_closed` uses
 //! `empty(false)` and persistence `default_right_panel_visibility` is
@@ -79,10 +81,27 @@ pub const indent_step: f32 = 12;
 /// Files-tab inline preview read cap (256KB). Truncation is labeled.
 pub const max_file_preview_bytes: usize = 256 * 1024;
 
+/// Cap Native gutter rows materialized for the preview body. Typical
+/// source in a 256KB window stays under this; dense one-char lines may
+/// stop early. File-size honesty stays the 256KB truncated label (no
+/// second truncation chrome).
+pub const max_file_preview_line_rows: usize = 2048;
+
 pub const binary_file_label = "Binary file — not shown";
 pub const truncated_file_label = "Truncated — showing first 256 KB";
 pub const unreadable_file_label = "Cannot read file";
 pub const missing_file_label = "File not found";
+
+/// Native `for each="file_preview_line_rows"` row. `id` is the 1-based
+/// line number (never 0). `text` is a slice into the preview buffer
+/// with the newline stripped (a trailing `\r` is dropped). Empty lines
+/// still get a number. Newline is a terminator: a trailing `\n` does
+/// not add an extra empty row.
+pub const FilePreviewLineRow = struct {
+    id: u32,
+    n_label: []const u8,
+    text: []const u8,
+};
 
 /// Files-tree clamp (Waku 184/140/360). Kept for tests and hide/Files.
 pub fn clampWidth(width: f32) f32 {
@@ -436,6 +455,52 @@ fn loadFilePreviewBody(model: *Model) void {
     model.right_panel_file_preview_truncated = read.truncated;
 }
 
+/// Numbered preview rows for Native bind. Slices `text` from the
+/// existing 256KB window; `n_label` is arena-owned. Empty when there
+/// is no text body (binary / error / closed).
+pub fn previewLineRows(model: *const Model, arena: std.mem.Allocator) []const FilePreviewLineRow {
+    if (!model.file_preview_has_body()) return &.{};
+    return previewLinesFromBody(model.file_preview_body(), arena);
+}
+
+/// Split a UTF-8 preview window into 1-based gutter rows.
+///
+/// Newline terminates a line: a trailing newline does not add an extra
+/// empty row. Mid-file empty lines still get a number. A file that is
+/// only a newline is one empty numbered row. Stops at
+/// `max_file_preview_line_rows`.
+pub fn previewLinesFromBody(body: []const u8, arena: std.mem.Allocator) []const FilePreviewLineRow {
+    if (body.len == 0) return &.{};
+    const out = arena.alloc(FilePreviewLineRow, max_file_preview_line_rows) catch return &.{};
+    var n: usize = 0;
+    var start: usize = 0;
+    var i: usize = 0;
+    while (i <= body.len and n < max_file_preview_line_rows) {
+        const at_end = i == body.len;
+        if (!at_end and body[i] != '\n') {
+            i += 1;
+            continue;
+        }
+        if (at_end and start == body.len) break;
+        var text = body[start..i];
+        if (text.len > 0 and text[text.len - 1] == '\r') {
+            text = text[0 .. text.len - 1];
+        }
+        const line_id: u32 = @intCast(n + 1);
+        const n_label = std.fmt.allocPrint(arena, "{d}", .{line_id}) catch return out[0..n];
+        out[n] = .{
+            .id = line_id,
+            .n_label = n_label,
+            .text = text,
+        };
+        n += 1;
+        if (at_end) break;
+        i += 1;
+        start = i;
+    }
+    return out[0..n];
+}
+
 /// Files-pane file click: select the row and load a bounded read-only
 /// inline preview. Does not open an external editor.
 pub fn selectCachedFile(model: *Model, id: u32) void {
@@ -775,7 +840,14 @@ test "inline preview caps at 256KB and labels truncation" {
     try std.testing.expectEqual(max_file_preview_bytes, model.right_panel_file_preview_len);
     try std.testing.expect(!model.file_preview_binary());
     try std.testing.expectEqualStrings("big.txt", model.file_preview_path());
-}
+    {
+        var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena_state.deinit();
+        const lines = model.file_preview_line_rows(arena_state.allocator());
+        try std.testing.expectEqual(@as(usize, 1), lines.len);
+        try std.testing.expectEqualStrings("1", lines[0].n_label);
+        try std.testing.expectEqual(max_file_preview_bytes, lines[0].text.len);
+    }
 
 test "inline preview rejects NUL and invalid UTF-8" {
     var tmp = std.testing.tmpDir(.{});
@@ -805,10 +877,12 @@ test "inline preview rejects NUL and invalid UTF-8" {
     try std.testing.expect(model.file_preview_binary());
     try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_len);
     try std.testing.expectEqualStrings(binary_file_label, binary_file_label);
+    try std.testing.expectEqual(@as(usize, 0), model.file_preview_line_rows(std.testing.allocator).len);
 
     selectCachedFile(&model, 2);
     try std.testing.expect(model.file_preview_binary());
     try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_len);
+    try std.testing.expectEqual(@as(usize, 0), model.file_preview_line_rows(std.testing.allocator).len);
 }
 
 test "inline preview missing path is a one-line error" {
@@ -832,6 +906,7 @@ test "inline preview missing path is a one-line error" {
     try std.testing.expectEqualStrings(missing_file_label, model.file_preview_error());
     try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_len);
     try std.testing.expect(!model.file_preview_binary());
+    try std.testing.expectEqual(@as(usize, 0), model.file_preview_line_rows(std.testing.allocator).len);
 }
 
 test "inline preview close, hide, and session switch free the heap buffer" {
@@ -857,20 +932,34 @@ test "inline preview close, hide, and session switch free the heap buffer" {
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "note.txt\n");
 
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
     selectCachedFile(&model, 1);
     try std.testing.expect(model.file_preview_has_body());
     try std.testing.expectEqualStrings("hello\nworld\n", model.file_preview_body());
     try std.testing.expect(model.right_panel_file_preview_storage.len != 0);
+    {
+        const lines = model.file_preview_line_rows(arena);
+        try std.testing.expectEqual(@as(usize, 2), lines.len);
+        try std.testing.expectEqualStrings("1", lines[0].n_label);
+        try std.testing.expectEqualStrings("hello", lines[0].text);
+        try std.testing.expectEqualStrings("2", lines[1].n_label);
+        try std.testing.expectEqualStrings("world", lines[1].text);
+    }
 
     clearFilePreview(&model);
     try std.testing.expectEqual(@as(u32, 0), model.right_panel_file_preview_id);
     try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_storage.len);
+    try std.testing.expectEqual(@as(usize, 0), model.file_preview_line_rows(arena).len);
 
     selectCachedFile(&model, 1);
     try std.testing.expect(model.right_panel_file_preview_storage.len != 0);
     model.hideRightPanel();
     try std.testing.expectEqual(@as(u32, 0), model.right_panel_file_preview_id);
     try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_storage.len);
+    try std.testing.expectEqual(@as(usize, 0), model.file_preview_line_rows(arena).len);
 
     model.showRightPanel();
     selectCachedFile(&model, 1);
@@ -879,6 +968,7 @@ test "inline preview close, hide, and session switch free the heap buffer" {
     palette_run.applySessionSelection(&model, &fx, second);
     try std.testing.expectEqual(@as(u32, 0), model.right_panel_file_preview_id);
     try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_storage.len);
+    try std.testing.expectEqual(@as(usize, 0), model.file_preview_line_rows(arena).len);
 
     model.selected = first;
     model.setSelectedProjectPath(project);
@@ -892,4 +982,71 @@ test "inline preview close, hide, and session switch free the heap buffer" {
     try std.testing.expect(open_editor.isEditorArgv(spawn.argv));
     try std.testing.expectEqualStrings(abs, spawn.argv[1]);
     clearFilePreview(&model);
+}
+
+test "preview gutter numbers 1..N; trailing newline is a terminator; empty lines keep a number" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    {
+        const rows = previewLinesFromBody("hello\nworld\n", arena);
+        try std.testing.expectEqual(@as(usize, 2), rows.len);
+        try std.testing.expectEqual(@as(u32, 1), rows[0].id);
+        try std.testing.expectEqualStrings("1", rows[0].n_label);
+        try std.testing.expectEqualStrings("hello", rows[0].text);
+        try std.testing.expectEqual(@as(u32, 2), rows[1].id);
+        try std.testing.expectEqualStrings("2", rows[1].n_label);
+        try std.testing.expectEqualStrings("world", rows[1].text);
+    }
+    {
+        const rows = previewLinesFromBody("hello\n\nworld\n", arena);
+        try std.testing.expectEqual(@as(usize, 3), rows.len);
+        try std.testing.expectEqualStrings("hello", rows[0].text);
+        try std.testing.expectEqualStrings("", rows[1].text);
+        try std.testing.expectEqualStrings("2", rows[1].n_label);
+        try std.testing.expectEqualStrings("world", rows[2].text);
+    }
+    {
+        const rows = previewLinesFromBody("solo", arena);
+        try std.testing.expectEqual(@as(usize, 1), rows.len);
+        try std.testing.expectEqualStrings("1", rows[0].n_label);
+        try std.testing.expectEqualStrings("solo", rows[0].text);
+    }
+    {
+        const rows = previewLinesFromBody("\n", arena);
+        try std.testing.expectEqual(@as(usize, 1), rows.len);
+        try std.testing.expectEqualStrings("1", rows[0].n_label);
+        try std.testing.expectEqualStrings("", rows[0].text);
+    }
+    {
+        const rows = previewLinesFromBody("a\r\nb\r\n", arena);
+        try std.testing.expectEqual(@as(usize, 2), rows.len);
+        try std.testing.expectEqualStrings("a", rows[0].text);
+        try std.testing.expectEqualStrings("b", rows[1].text);
+    }
+    {
+        const rows = previewLinesFromBody("", arena);
+        try std.testing.expectEqual(@as(usize, 0), rows.len);
+    }
+}
+
+test "preview gutter materializes at most max_file_preview_line_rows" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const over = max_file_preview_line_rows + 2;
+    const blob = try std.testing.allocator.alloc(u8, over * 2);
+    defer std.testing.allocator.free(blob);
+    var i: usize = 0;
+    while (i < over) : (i += 1) {
+        blob[i * 2] = 'x';
+        blob[i * 2 + 1] = '\n';
+    }
+    const rows = previewLinesFromBody(blob, arena);
+    try std.testing.expectEqual(max_file_preview_line_rows, rows.len);
+    try std.testing.expectEqual(@as(u32, 1), rows[0].id);
+    try std.testing.expectEqualStrings("x", rows[0].text);
+    try std.testing.expectEqual(@as(u32, @intCast(max_file_preview_line_rows)), rows[rows.len - 1].id);
+    try std.testing.expectEqualStrings("x", rows[rows.len - 1].text);
 }
