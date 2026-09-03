@@ -34,11 +34,13 @@ native dev --yes
 ```
 
 `native build` produces a binary. Need the Native CLI?
-`npm install -g @native-sdk/cli`. Push a `v*` tag to publish a GitHub
-Release (unsigned macOS DMG, amd64 `.deb`, silent NSIS `.exe`; no zip).
-Tag `v0.1.0` exists. macOS DMG and Linux `.deb` packaged. Remaining
-blocker was NSIS `-D` treating `\a` in `D:\a\` PKGDIR as an escape.
-This cut — see GitHub Releases below.
+`npm install -g @native-sdk/cli`. Push a `v*` tag (matching `version`
+in `app.json` and `app.zon`) to publish a GitHub Release: unsigned
+macOS `.dmg`, Debian/Ubuntu amd64 `.deb`, silent NSIS `.exe`. No zip.
+Fedora/Arch compile with Native CLI. Tag `v0.1.0` is on
+[GitHub Releases](https://github.com/keejkrej/faku/releases) with
+`faku-0.1.0-macos-arm64.dmg`, `faku_0.1.0_amd64.deb`, and
+`faku-0.1.0-windows-x64.exe`. Details below.
 
 ## Install fx
 
@@ -114,16 +116,11 @@ is created only for a `v*` tag, or when dispatch is given that tag.
 
 Honest about this cut:
 
-- Tag `v0.1.0` exists. A GitHub Release publishes only after macOS,
-  Linux, and Windows package jobs all succeed. macOS DMG and Linux
-  `.deb` succeeded after keeping `setup-zig` Windows-only. A later
-  tagged run still failed NSIS: absolute backslash PKGDIR
-  (`cygpath -w` → `D:\a\faku\...`) made `-D` treat `\a` as an escape,
-  so `File /r "${PKGDIR}\bin"` printed Usage. This cut passes
-  PKGDIR/OUTFILE/NSI as absolute forward-slash Windows paths
-  (`cygpath -m`) and joins in the script with `/`. Re-run the
-  Release workflow on the tag (do not retarget the tag from a
-  workflow-only fix).
+- Tag `v0.1.0` is published on
+  [GitHub Releases](https://github.com/keejkrej/faku/releases) with
+  `faku-0.1.0-macos-arm64.dmg`, `faku_0.1.0_amd64.deb`, and
+  `faku-0.1.0-windows-x64.exe`. A GitHub Release publishes only after
+  macOS, Linux, and Windows package jobs all succeed.
 - User-facing assets are an unsigned macOS `.dmg`, a Debian `.deb`
   (amd64, Debian/Ubuntu), and a silent NSIS `.exe`. No zip.
   Fedora/Arch and other distros compile with Native CLI.
