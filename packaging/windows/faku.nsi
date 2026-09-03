@@ -1,12 +1,13 @@
 ; Silent-by-default NSIS installer wrapping Native's early Windows
 ; package directory (zig-out/package/faku-windows: bin\faku.exe + ico +
-; assets). File /r preserves bin\. Double-click installs with no wizard.
-; /S still works.
+; assets). PKGDIR must be an absolute Windows path with backslashes.
+; File /r "${PKGDIR}\bin" preserves bin\. Double-click installs with
+; no wizard. /S still works.
 ;
 ; Required defines (passed by the release workflow):
 ;   VERSION          release version, e.g. 0.1.0
 ;   PRODUCT_VERSION  four-part, e.g. 0.1.0.0 (VIProductVersion)
-;   PKGDIR           path to the Native windows package directory
+;   PKGDIR           absolute Windows path to zig-out\package\faku-windows
 ;   OUTFILE          path to faku-<version>-windows-x64.exe
 
 Unicode True
@@ -41,14 +42,17 @@ VIAddVersionKey "FileDescription" "Faku installer"
 VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "LegalCopyright" "Faku"
 
-!if /FileExists "${PKGDIR}/app-icon.ico"
-  Icon "${PKGDIR}/app-icon.ico"
-  UninstallIcon "${PKGDIR}/app-icon.ico"
+!if /FileExists "${PKGDIR}\app-icon.ico"
+  Icon "${PKGDIR}\app-icon.ico"
+  UninstallIcon "${PKGDIR}\app-icon.ico"
 !endif
 
 Section "Install"
   SetOutPath "$INSTDIR"
-  File /r "${PKGDIR}/*.*"
+  File /r "${PKGDIR}\bin"
+  File /nonfatal "${PKGDIR}\app-icon.ico"
+  File /nonfatal "${PKGDIR}\README.txt"
+  File /r /nonfatal "${PKGDIR}\resources"
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   WriteRegStr HKLM "Software\Faku" "InstallDir" "$INSTDIR"
@@ -61,7 +65,7 @@ Section "Install"
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Faku" "NoRepair" 1
 
   CreateDirectory "$SMPROGRAMS\Faku"
-  !if /FileExists "${PKGDIR}/app-icon.ico"
+  !if /FileExists "${PKGDIR}\app-icon.ico"
     CreateShortCut "$SMPROGRAMS\Faku\Faku.lnk" "$INSTDIR\bin\faku.exe" "" "$INSTDIR\app-icon.ico"
   !else
     CreateShortCut "$SMPROGRAMS\Faku\Faku.lnk" "$INSTDIR\bin\faku.exe"
