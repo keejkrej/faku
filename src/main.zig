@@ -73,6 +73,7 @@ const update_mod = @import("update.zig");
 const boot_mod = @import("boot.zig");
 const shell_mod = @import("shell.zig");
 const layout_mod = @import("layout.zig");
+const effect_keys = @import("effect_keys.zig");
 const session_mod = @import("session.zig");
 const model_mod = @import("model.zig");
 const i18n = @import("i18n.zig");
@@ -176,26 +177,19 @@ pub const shell_scene = shell_mod.shell_scene;
 pub const app_icons = shell_mod.app_icons;
 pub const registerIcons = shell_mod.registerIcons;
 
-pub const stream_timer_key: u64 = 1;
-pub const fx_ask_key: u64 = 2;
+pub const stream_timer_key = effect_keys.stream_timer_key;
+pub const fx_ask_key = effect_keys.fx_ask_key;
 pub const fx_probe_key = fx_probe.fx_probe_key;
-pub const daemon_proxy_key_first: u64 = 4;
-/// Overlapping one-shot `fx acp` / `fx ask` children (queue drain while
-/// the previous process has not exited yet). Avoids probe/daemon keys.
-pub const fx_spawn_overlap_key_first: u64 = 64;
-pub const acp_cwd_fallback = ".";
+pub const daemon_proxy_key_first = effect_keys.daemon_proxy_key_first;
+pub const fx_spawn_overlap_key_first = effect_keys.fx_spawn_overlap_key_first;
+pub const acp_cwd_fallback = effect_keys.acp_cwd_fallback;
 pub const max_daemon_address = model_mod.max_daemon_address;
 pub const max_daemon_token = model_mod.max_daemon_token;
 pub const max_sidecar_path = model_mod.max_sidecar_path;
-pub const daemon_line_bytes: usize = 64 * 1024;
-pub const stream_interval_ms: u64 = 90;
-pub const stream_chunk_bytes: usize = 8;
-/// Overshoot for a programmatic jump to the transcript end. Native
-/// clamps `scroll` `value` against the content edge
-/// (`content_extent_y - viewport_extent_y`), so a large source offset
-/// lands on the newest turn after layout. Verified: native-sdk.dev
-/// scroll docs + engine clamp.
-pub const transcript_pin_offset: f32 = 1_000_000;
+pub const daemon_line_bytes = effect_keys.daemon_line_bytes;
+pub const stream_interval_ms = effect_keys.stream_interval_ms;
+pub const stream_chunk_bytes = effect_keys.stream_chunk_bytes;
+pub const transcript_pin_offset = effect_keys.transcript_pin_offset;
 /// One-shot OS maximize sidecar (`osascript` / `wmctrl` / `xdotool`).
 /// Distinct from fx ask / daemon / picker / clipboard keys. Native
 /// still has no `fx.maximizeWindow`; this spawn is the workaround.
@@ -520,6 +514,7 @@ test {
     _ = @import("boot.zig");
     _ = @import("shell.zig");
     _ = @import("layout.zig");
+    _ = @import("effect_keys.zig");
     _ = @import("session.zig");
     _ = @import("model.zig");
     _ = @import("i18n.zig");

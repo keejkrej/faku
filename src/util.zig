@@ -6,6 +6,7 @@
 //! `update` / `initFx` live in `update.zig`. `initialModel` lives in
 //! `boot.zig`. Shell scene / app icons live in `shell.zig`.
 //! Layout chrome widths live in `layout.zig`.
+//! Spawn / stream effect keys live in `effect_keys.zig`.
 //! `main()` stays in `main.zig`.
 //! Behavior is unchanged from the former `main` util helpers.
 
