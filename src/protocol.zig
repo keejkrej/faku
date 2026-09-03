@@ -7,7 +7,7 @@
 //! `WAKU_DAEMON_ADDRESS` keeps `fx ask` / the demo timer.
 //!
 //! First-party provider (this port's differentiator; Waku does not ship
-//! it): Tianyi's `fx` fork (https://github.com/keejkrej/fx). Live first
+//! it): the keejkrej/fx fork (https://github.com/keejkrej/fx). Live first
 //! path is one-shot `fx acp` (see main.zig / acp.zig). Probed ACP stdio
 //! providers (cursor / opencode / kimi `acp`, grok `agent stdio`) reuse
 //! that sidecar. Native stdin is one buffer at spawn time; this is not

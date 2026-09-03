@@ -8,7 +8,7 @@ does not implement.
 ## Product
 
 Faku = fx + Waku. A Native SDK Zig desktop for local coding agents.
-First-party provider is Tianyi's fx fork
+First-party provider is the keejkrej/fx fork
 (https://github.com/keejkrej/fx). Waku-protocol compatible. Faku is
 the window; waku-daemon can stay the brain. Chrome matches the stopped
 Waku-parity cut: chromeless 48px header, measured sidebar, composer
@@ -19,7 +19,7 @@ send circle.
 | Term | Meaning here |
 | --- | --- |
 | **Faku** | This desktop. Not a copy of Waku's Rust or TypeScript sources. |
-| **fx** | Tianyi's fork of vercel-labs/fx (https://github.com/keejkrej/fx). Default first-class provider. Install from GitHub Releases into `~/.fx/bin`, not fx.sh. Surfaces: interactive, `fx ask`, `fx acp`, `fx login` / `fx login grok` / `fx login codex`. |
+| **fx** | keejkrej/fx fork of vercel-labs/fx (https://github.com/keejkrej/fx). Default first-class provider. Install from GitHub Releases into `~/.fx/bin`, not fx.sh. Surfaces: interactive, `fx ask`, `fx acp`, `fx login` / `fx login grok` / `fx login codex`. |
 | **Waku** | Egoist's coding-agent app. Faku is Waku-shaped chrome + protocol, not an embedded daemon. |
 | **waku-daemon** | Optional brain. Talked to only through a one-shot sidecar when `WAKU_DAEMON_ADDRESS` (or persisted `last_daemon_address`) is set. Not embedded. |
 | **Native / Native SDK** | Vercel Native: markup + Zig Model / Msg / update loop. Effects are the only window-side I/O. |
