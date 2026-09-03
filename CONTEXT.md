@@ -532,11 +532,12 @@ Honest gaps this cut does not implement:
   a live Process, live Monitor, or live Subagent, and Dismiss when
   the selected row is a settled Monitor or Subagent; not Waku
   BackgroundWorkRegistry event/reconcile/driver-refresh parity)
-- First-cut GitHub Releases for macos/linux/windows via documented
-  `native package` (host-native; no eject). macOS CI is unsigned
-  (`--signing none`; no Apple identity / notarize). Linux is the
-  documented install-tree archive. Windows is Native's early
-  directory zip, not MSI/NSIS. Not iOS/Android.
+- First-cut GitHub Releases wrap documented `native package` trees
+  (host-native; no eject) as user-facing installers: unsigned macOS
+  DMG (`--signing none`; no Apple identity / notarize), amd64 Debian
+  `.deb` from the Linux FHS install tree, silent NSIS `.exe` from the
+  early Windows directory. No zip. Unsigned NSIS (SmartScreen).
+  Fedora/Arch compile with Native CLI. Not iOS/Android.
 - Further `main.zig` extract (`initialModel` / appearance boot live in
   `boot.zig`; icons + shell scene live in `shell.zig`; layout chrome
   lives in `layout.zig`; spawn / stream effect keys live in
