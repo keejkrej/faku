@@ -105,10 +105,12 @@ jobs:
             target: windows
     steps:
       - uses: actions/checkout@v4
-      # Same action vercel-labs/native CI uses on windows-2022. Native
-      # auto-downloads Zig on macOS/Linux; Windows has no managed
+      # Native auto-downloads Zig on macOS/Linux. Windows has no managed
       # toolchain, so 0.16.0 must be on PATH before `native build --yes`.
+      # setup-zig on macOS coincided with DMG ArchiveCreationFailed;
+      # the first tagged run packaged the DMG with Native's toolchain.
       - uses: vercel-labs/setup-zig@v1
+        if: matrix.target == 'windows'
         with:
           version: "0.16.0"
       - uses: actions/setup-node@v4
@@ -143,9 +145,15 @@ jobs:
             *) ARCH=x64 ;;
           esac
           mkdir -p dist
+          which zig || echo "zig not on PATH"
 
           if [[ "$TARGET" == macos ]]; then
-            native package --target macos --archive --signing none
+            if ! native package --target macos --archive --signing none; then
+              echo "native package --archive failed" >&2
+              ls -la zig-out/package >&2 || true
+              ls -la zig-out/bin >&2 || true
+              exit 1
+            fi
             ls -la zig-out/package
             shopt -s nullglob
             dmgs=(zig-out/package/*.dmg)
@@ -180,6 +188,7 @@ jobs:
               echo "missing $pkg (native package default windows output)" >&2
               exit 1
             fi
+            ls -la "$pkg"
             # Native windows is early directory packaging; CI lays the
             # exe under bin/ (same as the documented Linux tree).
             exe=""
@@ -210,16 +219,20 @@ jobs:
             # One line: a column-0 continuation terminates YAML `run: |`
             # so GitHub never registers `name: Release` / workflow_dispatch.
             product_version="$("$PY" -c 'import re,sys; p=re.findall(r"\d+", sys.argv[1]); p=(p+["0","0","0","0"])[:4]; print(".".join(p))' "$VERSION")"
-            to_mixed() {
+            # NSIS File /r does not recurse a relative mixed-slash PKGDIR
+            # from cygpath -m. Pass absolute Windows paths with backslashes.
+            to_win() {
               if command -v cygpath >/dev/null 2>&1; then
-                cygpath -m "$1"
+                cygpath -w "$1"
               else
                 echo "$1"
               fi
             }
-            pkg_win=$(to_mixed "$pkg")
-            out_win=$(to_mixed "${GITHUB_WORKSPACE}/dist/faku-${VERSION}-windows-x64.exe")
-            nsi_win=$(to_mixed "${GITHUB_WORKSPACE}/packaging/windows/faku.nsi")
+            pkg_abs="${GITHUB_WORKSPACE}/${pkg}"
+            pkg_win=$(to_win "$pkg_abs")
+            out_win=$(to_win "${GITHUB_WORKSPACE}/dist/faku-${VERSION}-windows-x64.exe")
+            nsi_win=$(to_win "${GITHUB_WORKSPACE}/packaging/windows/faku.nsi")
+            echo "makensis PKGDIR=$pkg_win OUTFILE=$out_win"
             makensis \
               -DVERSION="$VERSION" \
               -DPRODUCT_VERSION="$product_version" \

@@ -36,10 +36,10 @@ native dev --yes
 `native build` produces a binary. Need the Native CLI?
 `npm install -g @native-sdk/cli`. Push a `v*` tag to publish a GitHub
 Release (unsigned macOS DMG, amd64 `.deb`, silent NSIS `.exe`; no zip).
-Tag `v0.1.0` exists. Zig 0.16.0 is installed on Release runners. A later
-Windows package job created `faku-windows` but the workflow expected a
-root-level `faku.exe`; Native's Windows tree puts the binary under
-`bin/`. This cut looks there — see GitHub Releases below.
+Tag `v0.1.0` exists. Linux `.deb` packaged. Remaining blockers were
+NSIS `File /r` with a relative mixed-slash PKGDIR, and macOS DMG
+archive creation after `setup-zig` on that runner. This cut — see
+GitHub Releases below.
 
 ## Install fx
 
@@ -116,13 +116,15 @@ is created only for a `v*` tag, or when dispatch is given that tag.
 Honest about this cut:
 
 - Tag `v0.1.0` exists. A GitHub Release publishes only after macOS,
-  Linux, and Windows package jobs all succeed. Zig 0.16.0 bootstrap on
-  the Windows runner landed. A later tagged run still failed because
-  the workflow required `faku-windows/faku.exe` at the package root
-  while Native's Windows directory puts the binary at
-  `faku-windows/bin/faku.exe`. This cut resolves that path. Re-run the
-  Release workflow on the tag (do not retarget the tag from a
-  workflow-only fix).
+  Linux, and Windows package jobs all succeed. After the Windows
+  `bin/faku.exe` path fix, a later tagged run packaged Linux `.deb`
+  and failed on Windows NSIS (`File /r` of a relative mixed-slash
+  PKGDIR found no files) and macOS DMG (`ArchiveCreationFailed`
+  after `vercel-labs/setup-zig` on all OSes; the first tagged run
+  packaged the DMG with Native's macOS toolchain). This cut passes
+  PKGDIR/OUTFILE as absolute Windows paths (`cygpath -w`) and runs
+  `setup-zig` only on Windows. Re-run the Release workflow on the
+  tag (do not retarget the tag from a workflow-only fix).
 - User-facing assets are an unsigned macOS `.dmg`, a Debian `.deb`
   (amd64, Debian/Ubuntu), and a silent NSIS `.exe`. No zip.
   Fedora/Arch and other distros compile with Native CLI.
