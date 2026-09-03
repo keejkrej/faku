@@ -7,6 +7,7 @@
 //! `initialModel` / appearance boot live in `boot.zig`.
 //! Shell scene / app icons live in `shell.zig`.
 //! Layout chrome widths live in `layout.zig`.
+//! Spawn / stream effect keys live in `effect_keys.zig`.
 
 const main = @import("main.zig");
 const store = @import("store.zig");
