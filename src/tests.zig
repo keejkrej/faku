@@ -9012,6 +9012,7 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expect(model.right_panel_file_preview_open());
     try testing.expectEqualStrings("src/main.zig", model.file_preview_path());
     try testing.expectEqualStrings("pub fn main() void {}\n", model.file_preview_body());
+    try testing.expectEqualStrings("zig", model.file_preview_language());
     {
         const lines = model.file_preview_line_rows(arena);
         try testing.expectEqual(@as(usize, 1), lines.len);
@@ -9029,11 +9030,16 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expectEqual(Msg.open_right_panel_file_editor, tree.msgForPointer(open_editor_btn.id, .up).?);
     const close_preview = try expectButton(tree.root, "Close");
     try testing.expectEqual(Msg.close_right_panel_file_preview, tree.msgForPointer(close_preview.id, .up).?);
-    _ = try expectByText(tree.root, .text, "1");
-    _ = try expectByText(tree.root, .text, "pub fn main() void {}");
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "for each=\"file_preview_line_rows\"") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{l.n_label}") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{file_preview_body}") == null);
+    const preview_source = findTextContaining(tree.root, "pub fn main() void {}") orelse {
+        dumpTexts(tree.root, 0);
+        return error.WidgetNotFound;
+    };
+    try testing.expectEqualStrings("pub fn main() void {}\n", preview_source.text);
+    try testing.expect(preview_source.codeLineNumberDigits() > 0);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<code source=\"{file_preview_body}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "language=\"zig\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "line-numbers") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "for each=\"file_preview_line_rows\"") == null);
 
     main.update(&model, .open_right_panel_file_editor, &fx);
     const spawn = findOpenEditorSpawn(&fx) orelse return error.MissingOpenEditorSpawn;

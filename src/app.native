@@ -965,13 +965,58 @@
                   <else>
                     <if test="{file_preview_has_body}">
                       <scroll grow="1" label="File preview body">
-                        <column>
-                          <for each="file_preview_line_rows" key="id" as="l">
-                            <row gap="8" cross="start">
-                              <text wrap="false" foreground="text_muted">{l.n_label}</text>
-                              <text wrap="true" grow="1">{l.text}</text>
-                            </row>
-                          </for>
+                        <column grow="1">
+                          <if test="{file_preview_language == 'zig'}">
+                            <code source="{file_preview_body}" language="zig" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
+                          <if test="{file_preview_language == 'javascript'}">
+                            <code source="{file_preview_body}" language="javascript" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
+                          <if test="{file_preview_language == 'typescript'}">
+                            <code source="{file_preview_body}" language="typescript" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
+                          <if test="{file_preview_language == 'jsx'}">
+                            <code source="{file_preview_body}" language="jsx" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
+                          <if test="{file_preview_language == 'tsx'}">
+                            <code source="{file_preview_body}" language="tsx" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
+                          <if test="{file_preview_language == 'json'}">
+                            <code source="{file_preview_body}" language="json" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
+                          <if test="{file_preview_language == 'yaml'}">
+                            <code source="{file_preview_body}" language="yaml" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
+                          <if test="{file_preview_language == 'shell'}">
+                            <code source="{file_preview_body}" language="shell" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
+                          <if test="{file_preview_language == 'python'}">
+                            <code source="{file_preview_body}" language="python" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
+                          <if test="{file_preview_language == 'rust'}">
+                            <code source="{file_preview_body}" language="rust" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
+                          <if test="{file_preview_language == 'c'}">
+                            <code source="{file_preview_body}" language="c" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
+                          <if test="{file_preview_language == 'go'}">
+                            <code source="{file_preview_body}" language="go" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
+                          <if test="{file_preview_language == 'html'}">
+                            <code source="{file_preview_body}" language="html" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
+                          <if test="{file_preview_language == 'css'}">
+                            <code source="{file_preview_body}" language="css" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
+                          <if test="{file_preview_language == 'sql'}">
+                            <code source="{file_preview_body}" language="sql" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
+                          <if test="{file_preview_language == 'markdown'}">
+                            <code source="{file_preview_body}" language="markdown" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
+                          <if test="{file_preview_language == 'plain'}">
+                            <code source="{file_preview_body}" language="plain" line-numbers wrap="false" grow="1" label="File preview source" />
+                          </if>
                         </column>
                       </scroll>
                     </if>
