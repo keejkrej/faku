@@ -277,10 +277,13 @@ Command palette Show / Hide right panel toggles a first-cut Files +
 Diff + Background pane. Default closed. Files width persists (`right_panel_open` /
 `right_panel_width`); Diff and Background tabs are runtime-only (default Files). Files
 lists the same bounded `file_mention` cache used by composer `@`
-mentions. Diff hosts Environment Compare / Review (Branch,
+mentions, with a read-only bounded inline preview on file click
+(256KB cap, truncated / binary / unreadable honest states; Open in
+editor still available). Diff hosts Environment Compare / Review (Branch,
 Uncommitted, Staged, Unstaged, Committed, LastTurn). Background is the
 Environment Summary Process / Monitor / Subagent row surface (kind,
-title, live-or-settled status, Monitor / Subagent 512KB last-window log). Not Browser, Terminal (no Native PTY), compact File editor,
+title, live-or-settled status, Monitor / Subagent 512KB last-window log). Not Browser, Terminal (no Native PTY),
+editing / save / syntax highlighting / live reload for Files preview,
 or a full BackgroundWorkRegistry. Faku-side Monitor and Subagent Stop
 on one-shot `claude -p` ships (live Stop dismisses that live row;
 settled rows offer Dismiss; not Claude TaskStop mid-turn). Not daemon
@@ -543,6 +546,9 @@ Honest gaps this cut does not implement:
   lives in `layout.zig`; spawn / stream effect keys live in
   `effect_keys.zig`; remaining `main.zig` leftovers are
   re-exports + `main()` + demo seed strings)
+- Browser / Terminal / compact File editor (Files ships a
+  read-only 256KB inline preview; not editing, save, syntax
+  highlighting, or live reload. Native has no PTY)
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size

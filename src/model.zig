@@ -306,6 +306,7 @@ pub const RightPanelFileRow = struct {
     depth: u32,
     has_indent: bool,
     indent: f32,
+    selected: bool = false,
 };
 
 /// Settings Skills row. `id` is a 1-based index into the runtime
@@ -414,6 +415,10 @@ pub const Msg = union(enum) {
     right_panel_resized: f32,
     /// Files-pane file click. Payload is a 1-based file-mention cache id.
     open_right_panel_file: u32,
+    /// Files-pane inline preview: close and return to the tree.
+    close_right_panel_file_preview,
+    /// Files-pane preview header: Open in editor at the preview abs path.
+    open_right_panel_file_editor,
     /// Files-pane dir click. Payload is `file_mention_dir_id_base + index`.
     toggle_right_panel_dir: u32,
     /// Right-panel Files tab. Runtime-only; default when the panel opens.
@@ -764,6 +769,20 @@ pub const Model = struct {
     /// persisted to sessions.json this cut.
     right_panel_expanded_store: [file_mention.max_file_mention_dirs]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** file_mention.max_file_mention_dirs,
     right_panel_expanded_count: u32 = 0,
+    /// Runtime-only Files-tab inline preview. 1-based file-mention id;
+    /// 0 = tree only. Not persisted to sessions.json this cut.
+    right_panel_file_preview_id: u32 = 0,
+    right_panel_file_preview_relpath_storage: [file_mention.max_file_mention_path]u8 = [_]u8{0} ** file_mention.max_file_mention_path,
+    right_panel_file_preview_relpath_len: usize = 0,
+    right_panel_file_preview_abs_storage: [open_editor.max_open_path]u8 = [_]u8{0} ** open_editor.max_open_path,
+    right_panel_file_preview_abs_len: usize = 0,
+    /// Heap last-window for text preview (cap 256KB). Freed on clear.
+    right_panel_file_preview_storage: []u8 = &.{},
+    right_panel_file_preview_len: usize = 0,
+    right_panel_file_preview_truncated: bool = false,
+    right_panel_file_preview_binary: bool = false,
+    right_panel_file_preview_error_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
+    right_panel_file_preview_error_len: usize = 0,
     settings_open: bool = false,
     /// Runtime-only Settings General | Appearance | Providers | Skills |
     /// Usage | Computer Use page. Default General. Not persisted.
@@ -1293,6 +1312,17 @@ pub const Model = struct {
         "right_panel_width",
         "right_panel_tab",
         "right_panel_background_row_id",
+        "right_panel_file_preview_id",
+        "right_panel_file_preview_relpath_storage",
+        "right_panel_file_preview_relpath_len",
+        "right_panel_file_preview_abs_storage",
+        "right_panel_file_preview_abs_len",
+        "right_panel_file_preview_storage",
+        "right_panel_file_preview_len",
+        "right_panel_file_preview_truncated",
+        "right_panel_file_preview_binary",
+        "right_panel_file_preview_error_storage",
+        "right_panel_file_preview_error_len",
         "right_panel_showing_files",
         "rightPanelWidthPixels",
         "applyRightPanelWidth",
@@ -1926,6 +1956,40 @@ pub const Model = struct {
         return model.right_panel_showing_files() and right_panel.isLoading(model);
     }
 
+    pub fn right_panel_file_preview_open(model: *const Model) bool {
+        return model.right_panel_file_preview_id != 0;
+    }
+
+    pub fn file_preview_path(model: *const Model) []const u8 {
+        return model.right_panel_file_preview_relpath_storage[0..model.right_panel_file_preview_relpath_len];
+    }
+
+    pub fn file_preview_body(model: *const Model) []const u8 {
+        return model.right_panel_file_preview_storage[0..model.right_panel_file_preview_len];
+    }
+
+    pub fn file_preview_has_body(model: *const Model) bool {
+        return model.right_panel_file_preview_len > 0
+            and !model.right_panel_file_preview_binary
+            and model.right_panel_file_preview_error_len == 0;
+    }
+
+    pub fn file_preview_truncated(model: *const Model) bool {
+        return model.right_panel_file_preview_truncated;
+    }
+
+    pub fn file_preview_binary(model: *const Model) bool {
+        return model.right_panel_file_preview_binary;
+    }
+
+    pub fn file_preview_error(model: *const Model) []const u8 {
+        return model.right_panel_file_preview_error_storage[0..model.right_panel_file_preview_error_len];
+    }
+
+    pub fn file_preview_has_error(model: *const Model) bool {
+        return model.right_panel_file_preview_error_len > 0;
+    }
+
     pub fn right_panel_pane_min(model: *const Model) f32 {
         return if (model.right_panel_open) right_panel_min_width else 0;
     }
@@ -2539,6 +2603,7 @@ pub const Model = struct {
         model.right_panel_open = false;
         model.right_panel_tab = .files;
         model.clearRightPanelExpanded();
+        right_panel.clearFilePreview(model);
         model.right_panel_width = right_panel.clampWidthTab(model.right_panel_width, .files);
         model.syncRightPanelSplit();
     }

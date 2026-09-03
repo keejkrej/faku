@@ -34,6 +34,7 @@ const sidebar_dates = @import("sidebar_dates.zig");
 const goal = @import("goal.zig");
 const acp = @import("acp.zig");
 const environment_summary = @import("environment_summary.zig");
+const right_panel = @import("right_panel.zig");
 
 const canvas = native_sdk.canvas;
 const testing = std.testing;
@@ -8942,6 +8943,7 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     const id = model.addSession("files pane", .fx);
     model.selected = id;
     model.setSelectedProjectPath(project);
+    defer right_panel.clearFilePreview(&model);
 
     main.update(&model, .show_right_panel, &fx);
     try testing.expect(model.right_panel_open);
@@ -8957,6 +8959,15 @@ test "right panel Files list reads file_mention cache and derived dirs" {
         \\src/composer.zig
         \\README.md
     );
+    var src_dir_buf: [320]u8 = undefined;
+    const src_dir = try std.fmt.bufPrint(&src_dir_buf, "{s}/src", .{project});
+    try std.Io.Dir.cwd().createDirPath(testing.io, src_dir);
+    var main_path_buf: [320]u8 = undefined;
+    const main_path = try std.fmt.bufPrint(&main_path_buf, "{s}/src/main.zig", .{project});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = main_path,
+        .data = "pub fn main() void {}\n",
+    });
     {
         const rows = model.right_panel_file_rows(arena);
         try testing.expectEqual(@as(usize, 2), rows.len);
@@ -8997,10 +9008,30 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expectEqual(Msg{ .open_right_panel_file = 1 }, tree.msgForPointer(file_row.id, .up).?);
 
     main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
+    try testing.expect(findOpenEditorSpawn(&fx) == null);
+    try testing.expect(model.right_panel_file_preview_open());
+    try testing.expectEqualStrings("src/main.zig", model.file_preview_path());
+    try testing.expectEqualStrings("pub fn main() void {}\n", model.file_preview_body());
+    {
+        const preview_rows = model.right_panel_file_rows(arena);
+        try testing.expect(preview_rows[3].selected);
+    }
+
+    tree = try buildTree(arena, &model);
+    const open_editor_btn = try expectButton(tree.root, "Open in editor");
+    try testing.expectEqual(Msg.open_right_panel_file_editor, tree.msgForPointer(open_editor_btn.id, .up).?);
+    const close_preview = try expectButton(tree.root, "Close");
+    try testing.expectEqual(Msg.close_right_panel_file_preview, tree.msgForPointer(close_preview.id, .up).?);
+
+    main.update(&model, .open_right_panel_file_editor, &fx);
     const spawn = findOpenEditorSpawn(&fx) orelse return error.MissingOpenEditorSpawn;
     try testing.expect(open_editor.isEditorArgv(spawn.argv));
     try testing.expect(std.mem.endsWith(u8, spawn.argv[1], "/src/main.zig"));
     try testing.expect(std.mem.startsWith(u8, spawn.argv[1], project));
+
+    main.update(&model, .close_right_panel_file_preview, &fx);
+    try testing.expect(!model.right_panel_file_preview_open());
+    try testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_storage.len);
 
     main.update(&model, .{ .toggle_right_panel_dir = file_mention.file_mention_dir_id_base }, &fx);
     try testing.expectEqual(@as(usize, 2), model.right_panel_file_rows(arena).len);

@@ -301,7 +301,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.applyRightPanelResize(fraction);
             store.persistLayoutIfPossible(model);
         },
-        .open_right_panel_file => |id| right_panel.openCachedFile(model, fx, id),
+        .open_right_panel_file => |id| right_panel.selectCachedFile(model, id),
+        .close_right_panel_file_preview => right_panel.clearFilePreview(model),
+        .open_right_panel_file_editor => right_panel.openPreviewInEditor(model, fx),
         .toggle_right_panel_dir => |id| right_panel.toggleDir(model, id),
         .set_right_panel_tab_files => {
             right_panel.selectFiles(model, fx);
