@@ -991,44 +991,44 @@ test "preview gutter numbers 1..N; trailing newline is a terminator; empty lines
     const arena = arena_state.allocator();
 
     {
-        const rows = previewLinesFromBody("hello\nworld\n", arena);
-        try std.testing.expectEqual(@as(usize, 2), rows.len);
-        try std.testing.expectEqual(@as(u32, 1), rows[0].id);
-        try std.testing.expectEqualStrings("1", rows[0].n_label);
-        try std.testing.expectEqualStrings("hello", rows[0].text);
-        try std.testing.expectEqual(@as(u32, 2), rows[1].id);
-        try std.testing.expectEqualStrings("2", rows[1].n_label);
-        try std.testing.expectEqualStrings("world", rows[1].text);
+        const lines = previewLinesFromBody("hello\nworld\n", arena);
+        try std.testing.expectEqual(@as(usize, 2), lines.len);
+        try std.testing.expectEqual(@as(u32, 1), lines[0].id);
+        try std.testing.expectEqualStrings("1", lines[0].n_label);
+        try std.testing.expectEqualStrings("hello", lines[0].text);
+        try std.testing.expectEqual(@as(u32, 2), lines[1].id);
+        try std.testing.expectEqualStrings("2", lines[1].n_label);
+        try std.testing.expectEqualStrings("world", lines[1].text);
     }
     {
-        const rows = previewLinesFromBody("hello\n\nworld\n", arena);
-        try std.testing.expectEqual(@as(usize, 3), rows.len);
-        try std.testing.expectEqualStrings("hello", rows[0].text);
-        try std.testing.expectEqualStrings("", rows[1].text);
-        try std.testing.expectEqualStrings("2", rows[1].n_label);
-        try std.testing.expectEqualStrings("world", rows[2].text);
+        const lines = previewLinesFromBody("hello\n\nworld\n", arena);
+        try std.testing.expectEqual(@as(usize, 3), lines.len);
+        try std.testing.expectEqualStrings("hello", lines[0].text);
+        try std.testing.expectEqualStrings("", lines[1].text);
+        try std.testing.expectEqualStrings("2", lines[1].n_label);
+        try std.testing.expectEqualStrings("world", lines[2].text);
     }
     {
-        const rows = previewLinesFromBody("solo", arena);
-        try std.testing.expectEqual(@as(usize, 1), rows.len);
-        try std.testing.expectEqualStrings("1", rows[0].n_label);
-        try std.testing.expectEqualStrings("solo", rows[0].text);
+        const lines = previewLinesFromBody("solo", arena);
+        try std.testing.expectEqual(@as(usize, 1), lines.len);
+        try std.testing.expectEqualStrings("1", lines[0].n_label);
+        try std.testing.expectEqualStrings("solo", lines[0].text);
     }
     {
-        const rows = previewLinesFromBody("\n", arena);
-        try std.testing.expectEqual(@as(usize, 1), rows.len);
-        try std.testing.expectEqualStrings("1", rows[0].n_label);
-        try std.testing.expectEqualStrings("", rows[0].text);
+        const lines = previewLinesFromBody("\n", arena);
+        try std.testing.expectEqual(@as(usize, 1), lines.len);
+        try std.testing.expectEqualStrings("1", lines[0].n_label);
+        try std.testing.expectEqualStrings("", lines[0].text);
     }
     {
-        const rows = previewLinesFromBody("a\r\nb\r\n", arena);
-        try std.testing.expectEqual(@as(usize, 2), rows.len);
-        try std.testing.expectEqualStrings("a", rows[0].text);
-        try std.testing.expectEqualStrings("b", rows[1].text);
+        const lines = previewLinesFromBody("a\r\nb\r\n", arena);
+        try std.testing.expectEqual(@as(usize, 2), lines.len);
+        try std.testing.expectEqualStrings("a", lines[0].text);
+        try std.testing.expectEqualStrings("b", lines[1].text);
     }
     {
-        const rows = previewLinesFromBody("", arena);
-        try std.testing.expectEqual(@as(usize, 0), rows.len);
+        const lines = previewLinesFromBody("", arena);
+        try std.testing.expectEqual(@as(usize, 0), lines.len);
     }
 }
 
@@ -1044,10 +1044,10 @@ test "preview gutter materializes at most max_file_preview_line_rows" {
         blob[i * 2] = 'x';
         blob[i * 2 + 1] = '\n';
     }
-    const rows = previewLinesFromBody(blob, arena);
-    try std.testing.expectEqual(max_file_preview_line_rows, rows.len);
-    try std.testing.expectEqual(@as(u32, 1), rows[0].id);
-    try std.testing.expectEqualStrings("x", rows[0].text);
-    try std.testing.expectEqual(@as(u32, @intCast(max_file_preview_line_rows)), rows[rows.len - 1].id);
-    try std.testing.expectEqualStrings("x", rows[rows.len - 1].text);
+    const lines = previewLinesFromBody(blob, arena);
+    try std.testing.expectEqual(max_file_preview_line_rows, lines.len);
+    try std.testing.expectEqual(@as(u32, 1), lines[0].id);
+    try std.testing.expectEqualStrings("x", lines[0].text);
+    try std.testing.expectEqual(@as(u32, @intCast(max_file_preview_line_rows)), lines[lines.len - 1].id);
+    try std.testing.expectEqualStrings("x", lines[lines.len - 1].text);
 }
