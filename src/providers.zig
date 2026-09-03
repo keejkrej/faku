@@ -77,10 +77,10 @@ pub const codex_transport_note = "Live Send is one-shot codex exec when Availabl
 pub const amp_transport_note = "Live Send is one-shot amp -x / --execute when Available (`@path` when attached).";
 pub const pi_transport_note = "Live Send is one-shot pi --mode json when Available (`@path` when attached).";
 pub const apply_session_label = "Use for this session";
-/// Working keejkrej/fx Unix install script on the latest GitHub Release
-/// (v0.0.7+). Copied to the clipboard; never auto-run. Not fx.sh.
-/// Lands in `~/.fx/bin`. Windows uses install.ps1 (script on v0.0.7;
-/// Windows binary zips land in v0.0.8).
+/// Working keejkrej/fx Unix install script on the latest GitHub Release.
+/// Copied to the clipboard; never auto-run. Not fx.sh.
+/// Lands in `~/.fx/bin`. Windows uses `install.ps1` on the same latest
+/// release (Windows binary zips also ship there).
 pub const fx_install_command = "curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash";
 /// Convenience copy only. Fork pitch is also `fx login grok` / `fx login codex`.
 pub const fx_login_command = "fx login";
