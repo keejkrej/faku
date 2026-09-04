@@ -15,7 +15,11 @@
 //!   Linux:  wmctrl -r :ACTIVE: -b toggle,maximized_vert,maximized_horz
 //!           else xdotool getactivewindow windowstate --add
 //!           MAXIMIZED_VERT MAXIMIZED_HORZ
-//!   Windows: skipped (app.zon is macos/linux; no Windows spawn path)
+//!   Windows: powershell.exe -NoProfile -Command user32 ShowWindow
+//!            SW_MAXIMIZE on a Faku-named window, else the foreground
+//!            window (PATH-resolved `.exe` like sibling pickers; each
+//!            token its own argv slot). Missing PowerShell →
+//!            missing_exit. app.zon already includes windows.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -25,16 +29,17 @@ const main = @import("main.zig");
 const Model = main.Model;
 const Effects = main.Effects;
 
-/// One-shot OS maximize sidecar (`osascript` / `wmctrl` / `xdotool`).
-/// Distinct from fx ask / daemon / picker / clipboard keys. Native
-/// still has no `fx.maximizeWindow`; this spawn is the workaround.
+/// One-shot OS maximize sidecar (`osascript` / `wmctrl` / `xdotool` /
+/// Windows `powershell.exe` ShowWindow). Distinct from fx ask / daemon /
+/// picker / clipboard keys. Native still has no `fx.maximizeWindow`;
+/// this spawn is the workaround.
 pub const maximize_window_key: u64 = 30;
 
 pub const missing_exit: u8 = 2;
 
 pub const linux_missing_status = "No OS maximize (install wmctrl or xdotool).";
 pub const macos_missing_status = "No OS maximize (osascript missing).";
-pub const windows_missing_status = "Maximize is not available on Windows.";
+pub const windows_missing_status = "No OS maximize (powershell.exe missing).";
 
 pub const osascript_bin = "osascript";
 /// System Events zoom (green-button maximize), not fullscreen.
@@ -60,19 +65,35 @@ pub const xdotool_windowstate = "windowstate";
 pub const xdotool_add = "--add";
 pub const xdotool_vert = "MAXIMIZED_VERT";
 pub const xdotool_horz = "MAXIMIZED_HORZ";
+/// PATH-resolved Windows PowerShell (user32 ShowWindow, not WinForms).
+/// Explicit `.exe` suffix like sibling `explorer.exe` / `wt.exe` / `cmd.exe`.
+pub const powershell_bin = "powershell.exe";
+pub const powershell_noprofile = "-NoProfile";
+pub const powershell_command = "-Command";
+/// user32 ShowWindow SW_MAXIMIZE (3): restoreable maximize, not
+/// fullscreen exclusive. Prefer a window whose title contains "Faku"
+/// (FindWindow exact title, else Get-Process MainWindowTitle); else
+/// the foreground window (this app after the header / key chord).
+/// Add-Type / missing hwnd / exception → missing_exit (2). STA is
+/// not required (no WinForms). Distinct from pick_folder /
+/// pick_image OpenFileDialog / FolderBrowserDialog.
+pub const powershell_script =
+    "$ErrorActionPreference = 'Stop'; try { Add-Type -Name Win -Namespace Faku -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); [DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow(); [DllImport(\"user32.dll\", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string c, string n);'; $SW_MAXIMIZE = 3; $h = [Faku.Win]::FindWindow($null, 'Faku'); if ($h -eq [IntPtr]::Zero) { foreach ($p in Get-Process) { if ($p.MainWindowTitle -like '*Faku*') { $h = $p.MainWindowHandle; break } } }; if ($h -eq [IntPtr]::Zero) { $h = [Faku.Win]::GetForegroundWindow() }; if ($h -eq [IntPtr]::Zero) { exit 2 }; [void][Faku.Win]::ShowWindow($h, $SW_MAXIMIZE) } catch { exit 2 }";
 
-pub const Tool = enum { osascript, wmctrl, xdotool };
+pub const Tool = enum { osascript, wmctrl, xdotool, powershell };
 pub const Stage = enum { first, fallback };
 
 const osascript_argv = [_][]const u8{ osascript_bin, "-e", osascript_script };
 const wmctrl_argv = [_][]const u8{ wmctrl_bin, "-r", wmctrl_window, "-b", wmctrl_toggle };
 const xdotool_argv = [_][]const u8{ xdotool_bin, xdotool_getactive, xdotool_windowstate, xdotool_add, xdotool_vert, xdotool_horz };
+const powershell_argv = [_][]const u8{ powershell_bin, powershell_noprofile, powershell_command, powershell_script };
 
 pub fn argvFor(tool: Tool) []const []const u8 {
     return switch (tool) {
         .osascript => &osascript_argv,
         .wmctrl => &wmctrl_argv,
         .xdotool => &xdotool_argv,
+        .powershell => &powershell_argv,
     };
 }
 
@@ -83,6 +104,7 @@ pub fn hostTool(stage: Stage) ?Tool {
             .first => .wmctrl,
             .fallback => .xdotool,
         },
+        .windows => if (stage == .first) .powershell else null,
         else => null,
     };
 }
@@ -153,6 +175,9 @@ pub fn isMaximizeArgv(argv: []const []const u8) bool {
     if (std.mem.eql(u8, argv[0], xdotool_bin)) {
         return argvHas(argv, xdotool_getactive) and argvHas(argv, xdotool_vert);
     }
+    if (std.mem.eql(u8, argv[0], powershell_bin)) {
+        return argvHas(argv, powershell_command) and argvHas(argv, "ShowWindow") and argvHas(argv, "SW_MAXIMIZE");
+    }
     return false;
 }
 
@@ -195,7 +220,26 @@ test "linux xdotool argv adds MAXIMIZED_VERT and MAXIMIZED_HORZ" {
     try std.testing.expect(isMaximizeArgv(argv));
 }
 
-test "host first argv is the platform maximize tool; Windows is skipped" {
+test "windows maximize argv is powershell NoProfile Command ShowWindow SW_MAXIMIZE" {
+    const argv = argvFor(.powershell);
+    try std.testing.expectEqualStrings(powershell_bin, argv[0]);
+    try std.testing.expect(argvHas(argv, powershell_noprofile));
+    try std.testing.expect(argvHas(argv, powershell_command));
+    try std.testing.expect(argvHas(argv, "ShowWindow"));
+    try std.testing.expect(argvHas(argv, "SW_MAXIMIZE"));
+    try std.testing.expect(argvHas(argv, "GetForegroundWindow"));
+    try std.testing.expect(argvHas(argv, "Faku"));
+    try std.testing.expect(argvHas(argv, "user32.dll"));
+    try std.testing.expect(argvHas(argv, "exit 2"));
+    try std.testing.expect(!argvHas(argv, "-STA"));
+    try std.testing.expect(!argvHas(argv, "OpenFileDialog"));
+    try std.testing.expect(!argvHas(argv, "FolderBrowserDialog"));
+    try std.testing.expect(isMaximizeArgv(argv));
+    try std.testing.expectEqual(@as(usize, 4), argv.len);
+    try std.testing.expect(!isMaximizeArgv(&.{ powershell_bin, powershell_noprofile, powershell_command, "Get-Date" }));
+}
+
+test "host first argv is the platform maximize tool" {
     switch (builtin.os.tag) {
         .macos => {
             try std.testing.expectEqual(Tool.osascript, hostTool(.first).?);
@@ -205,9 +249,25 @@ test "host first argv is the platform maximize tool; Windows is skipped" {
             try std.testing.expectEqual(Tool.wmctrl, hostTool(.first).?);
             try std.testing.expectEqual(Tool.xdotool, hostTool(.fallback).?);
         },
+        .windows => {
+            try std.testing.expectEqual(Tool.powershell, hostTool(.first).?);
+            try std.testing.expect(hostTool(.fallback) == null);
+        },
         else => {
             try std.testing.expect(hostTool(.first) == null);
             try std.testing.expect(hostTool(.fallback) == null);
         },
     }
+}
+
+test "windows maximize argv is not a picker powershell argv" {
+    const pick_image = @import("pick_image.zig");
+    const pick_folder = @import("pick_folder.zig");
+    try std.testing.expect(isMaximizeArgv(argvFor(.powershell)));
+    try std.testing.expect(!isMaximizeArgv(pick_image.argvFor(.powershell)));
+    try std.testing.expect(!isMaximizeArgv(pick_folder.argvFor(.powershell)));
+    try std.testing.expect(!pick_image.isPickerArgv(argvFor(.powershell)));
+    try std.testing.expect(!pick_folder.isPickerArgv(argvFor(.powershell)));
+    try std.testing.expect(pick_image.isPickerArgv(pick_image.argvFor(.powershell)));
+    try std.testing.expect(pick_folder.isPickerArgv(pick_folder.argvFor(.powershell)));
 }
