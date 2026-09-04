@@ -23,9 +23,8 @@
 //! `git.exe -C <project_path>` (path is its own argv slot, not
 //! interpolated into a script). Count stdout is the same on
 //! Windows; CRLF is already trimmed in the line helpers. app.zon
-//! already includes windows. Remaining git modules (remotes,
-//! toplevel, common_dir, checkout/commit) still skip
-//! Windows this cut.
+//! already includes windows. Remaining git modules (toplevel,
+//! common_dir, checkout/commit) still skip Windows this cut.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_ahead_behind_key_first` (380+).

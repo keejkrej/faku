@@ -18,7 +18,7 @@
 //! interpolated into a script). Porcelain stdout is the same on
 //! Windows; CRLF is already trimmed in the line helpers. app.zon
 //! already includes windows. Remaining git modules (toplevel,
-//! remotes, checkout/commit) still skip Windows this cut.
+//! common_dir, checkout/commit) still skip Windows this cut.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_dirty_key_first` (300+).
