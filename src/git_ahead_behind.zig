@@ -2,26 +2,33 @@
 //!
 //! Native has no git/workspace effect. When the selected session has a
 //! non-empty `project_path` that exists, Faku `fx.spawn`s
-//! `git rev-list --left-right --count @{upstream}...HEAD` through the
-//! same `/bin/sh -c` chdir workaround `fx ask` uses
-//! (`fx_ask_chdir_script`). `@{upstream}...HEAD` is its own argv slot
-//! — never interpolated into the `-c` script (same pattern as Push
-//! `@{upstream}`). The first stdout line is `behind\tahead` (or
-//! space-separated). Left count = behind upstream; right count =
-//! ahead of upstream. Either side > 0 paints a muted `↑A ↓B` (omit a
-//! side when that count is 0). Both-zero / failed / empty / no
-//! upstream omits the label — this cut does not invent "synced" or
-//! "0 ahead". A separate ready / has-upstream bit (not the label)
-//! plus a remotes probe (480+) gates composer Push… the way Waku
-//! `can_push` does: ahead > 0, or no upstream and at least one
-//! remote (first-push `--set-upstream` path). In-flight and
-//! never-finished stay hidden so the row does not flash. Failed /
-//! empty remotes on the no-upstream path hide Push…. Not a live
-//! watch, not a base-ref picker, not Waku's daemon
-//! `InspectBranches`, and not Environment Summary.
+//! `git rev-list --left-right --count @{upstream}...HEAD`.
+//! `@{upstream}...HEAD` is its own argv slot — never interpolated
+//! into a script (same pattern as Push `@{upstream}`). The first
+//! stdout line is `behind\tahead` (or space-separated). Left count =
+//! behind upstream; right count = ahead of upstream. Either side > 0
+//! paints a muted `↑A ↓B` (omit a side when that count is 0).
+//! Both-zero / failed / empty / no upstream omits the label — this
+//! cut does not invent "synced" or "0 ahead". A separate ready /
+//! has-upstream bit (not the label) plus a remotes probe (480+)
+//! gates composer Push… the way Waku `can_push` does: ahead > 0, or
+//! no upstream and at least one remote (first-push `--set-upstream`
+//! path). In-flight and never-finished stay hidden so the row does
+//! not flash. Failed / empty remotes on the no-upstream path hide
+//! Push…. Not a live watch, not a base-ref picker, not Waku's
+//! daemon `InspectBranches`, and not Environment Summary.
 //!
-//! Spawn/line/exit orchestration lives here. Windows is skipped
-//! (app.zon is macos/linux; no Windows spawn path).
+//! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
+//! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
+//! `git.exe -C <project_path>` (path is its own argv slot, not
+//! interpolated into a script). Count stdout is the same on
+//! Windows; CRLF is already trimmed in the line helpers. app.zon
+//! already includes windows. Remaining git modules (remotes,
+//! numstat, toplevel, common_dir, checkout/commit) still skip
+//! Windows this cut.
+//!
+//! Spawn/line/exit orchestration lives here. Effect key stays
+//! `git_ahead_behind_key_first` (380+).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -46,6 +53,10 @@ pub const git_ahead_behind_key_first: u64 = 380;
 pub const max_git_ahead_behind_label: usize = 48;
 
 pub const git_bin = "git";
+/// PATH-resolved Windows Git (explicit `.exe` like sibling
+/// `powershell.exe` / `explorer.exe` / `wt.exe` / `cmd.exe`).
+pub const windows_git_bin = "git.exe";
+pub const git_c_flag = "-C";
 pub const git_rev_list_cmd = "rev-list";
 pub const git_left_right = "--left-right";
 pub const git_count = "--count";
@@ -54,14 +65,18 @@ pub const git_count = "--count";
 pub const git_upstream_range = "@{upstream}...HEAD";
 pub const sh_bin = "/bin/sh";
 
+/// Unix `/bin/sh -c` chdir + git rev-list --left-right --count (10).
+/// Windows `git.exe -C` is 7; this is the spawn buffer (max of the two).
 pub const argv_len: usize = 10;
+pub const unix_argv_len: usize = 10;
+pub const windows_argv_len: usize = 7;
 
 pub const AheadBehind = struct {
     behind: u64 = 0,
     ahead: u64 = 0,
 };
 
-pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+pub fn unixArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -74,11 +89,32 @@ pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
         git_count,
         git_upstream_range,
     };
-    return buf;
+    return buf[0..unix_argv_len];
 }
 
-pub fn isGitAheadBehindArgv(argv: []const []const u8) bool {
-    if (argv.len != argv_len) return false;
+/// Windows: `git.exe -C <project_path> rev-list --left-right --count
+/// @{upstream}...HEAD`. Path and range are their own argv slots (no
+/// `/bin/sh`, no packing into a cmd string).
+pub fn windowsArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_rev_list_cmd;
+    buf[4] = git_left_right;
+    buf[5] = git_count;
+    buf[6] = git_upstream_range;
+    return buf[0..windows_argv_len];
+}
+
+pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsArgvFor(cwd, buf),
+        else => unixArgvFor(cwd, buf),
+    };
+}
+
+fn isUnixGitAheadBehindArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -87,6 +123,26 @@ pub fn isGitAheadBehindArgv(argv: []const []const u8) bool {
     if (!std.mem.eql(u8, argv[7], git_left_right)) return false;
     if (!std.mem.eql(u8, argv[8], git_count)) return false;
     return std.mem.eql(u8, argv[9], git_upstream_range);
+}
+
+fn isWindowsGitAheadBehindArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_argv_len) return false;
+    const bin_ok = std.mem.eql(u8, argv[0], windows_git_bin) or std.mem.eql(u8, argv[0], git_bin);
+    if (!bin_ok) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_rev_list_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], git_left_right)) return false;
+    if (!std.mem.eql(u8, argv[5], git_count)) return false;
+    return std.mem.eql(u8, argv[6], git_upstream_range);
+}
+
+pub fn isGitAheadBehindArgv(argv: []const []const u8) bool {
+    return isUnixGitAheadBehindArgv(argv) or isWindowsGitAheadBehindArgv(argv);
+}
+
+pub fn probeSupported() bool {
+    return true;
 }
 
 /// First stdout line, trimmed. Empty / whitespace is not a count.
@@ -188,12 +244,12 @@ fn probePath(model: *const Model) []const u8 {
 }
 
 /// Cancel any in-flight probe, drop the label, and spawn again when the
-/// selected session has an existing `project_path`. Empty / missing /
-/// Windows skips the spawn so the label stays omitted.
+/// selected session has an existing `project_path`. Empty / missing
+/// skips the spawn so the label stays omitted.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     clearGitAheadBehind(model);
-    if (builtin.os.tag == .windows) return;
+    if (!probeSupported()) return;
     const cwd = probePath(model);
     if (cwd.len == 0) return;
 
@@ -253,8 +309,8 @@ test "argv is chdir script plus git rev-list --left-right --count @{upstream}...
     const git_numstat = @import("git_numstat.zig");
     const file_mention = @import("file_mention.zig");
     var buf: [argv_len][]const u8 = undefined;
-    const argv = argvFor("/tmp/faku-ahead", &buf);
-    try std.testing.expectEqual(@as(usize, 10), argv.len);
+    const argv = unixArgvFor("/tmp/faku-ahead", &buf);
+    try std.testing.expectEqual(@as(usize, unix_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -274,12 +330,12 @@ test "argv is chdir script plus git rev-list --left-right --count @{upstream}...
     const upstream = git_checkout.upstreamArgvFor("/tmp/faku-ahead", &upstream_buf);
     try std.testing.expect(!isGitAheadBehindArgv(upstream));
     try std.testing.expect(!git_checkout.isGitUpstreamArgv(argv));
-    var branch_buf: [8][]const u8 = undefined;
-    const branch = git_branch.argvFor("/tmp/faku-ahead", &branch_buf);
+    var branch_buf: [git_branch.argv_len][]const u8 = undefined;
+    const branch = git_branch.unixArgvFor("/tmp/faku-ahead", &branch_buf);
     try std.testing.expect(!isGitAheadBehindArgv(branch));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
-    var dirty_buf: [8][]const u8 = undefined;
-    const dirty = git_dirty.argvFor("/tmp/faku-ahead", &dirty_buf);
+    var dirty_buf: [git_dirty.argv_len][]const u8 = undefined;
+    const dirty = git_dirty.unixArgvFor("/tmp/faku-ahead", &dirty_buf);
     try std.testing.expect(!isGitAheadBehindArgv(dirty));
     try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
     var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
@@ -287,10 +343,73 @@ test "argv is chdir script plus git rev-list --left-right --count @{upstream}...
     try std.testing.expect(!isGitAheadBehindArgv(numstat));
     try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
     try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
+    var mention_buf: [file_mention.git_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitAheadBehindArgv(file_mention.unixArgvFor("/tmp/faku-ahead", &mention_buf)));
     try std.testing.expect(git_ahead_behind_key_first > git_checkout.git_worktree_add_key_first);
     try std.testing.expect(git_checkout.git_worktree_base_key_first > git_ahead_behind_key_first);
     try std.testing.expect(file_mention.file_mention_key_first > git_checkout.git_worktree_base_key_first);
     try std.testing.expect(git_ahead_behind_key_first > git_checkout.git_push_key_first);
+}
+
+test "windows git argv is git.exe -C PATH rev-list --left-right --count; path and range are own slots" {
+    const git_branch = @import("git_branch.zig");
+    const git_dirty = @import("git_dirty.zig");
+    const file_mention = @import("file_mention.zig");
+    var buf: [argv_len][]const u8 = undefined;
+    const cwd = "C:\\Users\\me\\proj";
+    const argv = windowsArgvFor(cwd, &buf);
+    try std.testing.expectEqual(@as(usize, windows_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+    try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+    try std.testing.expectEqualStrings(cwd, argv[2]);
+    try std.testing.expectEqualStrings(git_rev_list_cmd, argv[3]);
+    try std.testing.expectEqualStrings(git_left_right, argv[4]);
+    try std.testing.expectEqualStrings(git_count, argv[5]);
+    try std.testing.expectEqualStrings(git_upstream_range, argv[6]);
+    try std.testing.expectEqualStrings("@{upstream}...HEAD", argv[6]);
+    try std.testing.expect(isGitAheadBehindArgv(argv));
+    try std.testing.expect(!std.mem.eql(u8, argv[0], sh_bin));
+    try std.testing.expect(!isGitAheadBehindArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    var git_only: [argv_len][]const u8 = undefined;
+    git_only[0] = git_bin;
+    git_only[1] = git_c_flag;
+    git_only[2] = cwd;
+    git_only[3] = git_rev_list_cmd;
+    git_only[4] = git_left_right;
+    git_only[5] = git_count;
+    git_only[6] = git_upstream_range;
+    try std.testing.expect(isGitAheadBehindArgv(git_only[0..windows_argv_len]));
+    var branch_buf: [git_branch.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitAheadBehindArgv(git_branch.windowsArgvFor(cwd, &branch_buf)));
+    try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    var dirty_buf: [git_dirty.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitAheadBehindArgv(git_dirty.windowsArgvFor(cwd, &dirty_buf)));
+    try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
+    var mention_buf: [file_mention.git_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitAheadBehindArgv(file_mention.windowsArgvFor(cwd, &mention_buf)));
+    try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
+}
+
+test "host argvFor matches the process OS" {
+    var buf: [argv_len][]const u8 = undefined;
+    const argv = argvFor("/tmp/faku-ahead", &buf);
+    try std.testing.expect(isGitAheadBehindArgv(argv));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+            try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+            try std.testing.expectEqualStrings(git_upstream_range, argv[6]);
+        },
+        else => {
+            try std.testing.expectEqualStrings(sh_bin, argv[0]);
+            try std.testing.expectEqualStrings(git_upstream_range, argv[9]);
+        },
+    }
+}
+
+test "probeSupported is true on macOS, Linux, and Windows" {
+    try std.testing.expect(probeSupported());
 }
 
 test "parseAheadBehindLine is behind then ahead; label omits a zero side" {
