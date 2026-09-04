@@ -78,9 +78,11 @@
 //! Background, Browser, and Terminal bump toward Waku
 //! `DEFAULT_RIGHT_PANEL_WIDTH` (460) when the pane is still
 //! file-tree-narrow; first-cut max is 460 (Waku
-//! `RIGHT_PANEL_MAX_WIDTH` is 1000). Tab, selected Background row,
-//! Browser draft URL, and output are runtime-only (default `files`
-//! when the panel opens); not persisted this cut.
+//! `RIGHT_PANEL_MAX_WIDTH` is 1000). Selected tab and Browser draft URL
+//! persist on `sessions.json` extras (`right_panel_tab` / `browser_url`;
+//! missing / unknown tab → `files`, missing / empty URL → empty draft).
+//! Selected Background row, Files preview, directory expands, and
+//! output stay runtime-only. Default `files` when the panel opens.
 //!
 //! Directory expand/collapse is a runtime-only set of relative dir
 //! paths matching `file_mention.derivedDirParents` (no trailing
@@ -105,8 +107,34 @@ const Effects = main.Effects;
 const RightPanelFileRow = main.RightPanelFileRow;
 
 /// Runtime-only Files | Diff | Browser | Terminal | Background
-/// surface. Default `files` when the panel opens. Not persisted.
-pub const Tab = enum { files, diff, browser, terminal, background };
+/// surface. Default `files` when the panel opens. Tab name persists on
+/// `sessions.json` extras (`files` / `diff` / `browser` / `terminal` /
+/// `background`; missing / unknown → `files`).
+pub const Tab = enum {
+    files,
+    diff,
+    browser,
+    terminal,
+    background,
+
+    pub fn persistName(self: Tab) []const u8 {
+        return switch (self) {
+            .files => "files",
+            .diff => "diff",
+            .browser => "browser",
+            .terminal => "terminal",
+            .background => "background",
+        };
+    }
+
+    pub fn fromPersist(value: []const u8) Tab {
+        if (std.mem.eql(u8, value, "diff")) return .diff;
+        if (std.mem.eql(u8, value, "browser")) return .browser;
+        if (std.mem.eql(u8, value, "terminal")) return .terminal;
+        if (std.mem.eql(u8, value, "background")) return .background;
+        return .files;
+    }
+};
 
 /// Parked action that would discard a dirty Files preview buffer.
 /// Runtime-only; not persisted. Stored on Model as kind + id.
@@ -256,6 +284,25 @@ pub fn splitForWidth(model: *const Model, width: f32) f32 {
     const pane = clampWidthTab(width, model.right_panel_tab);
     const conversation = @max(0, rest - pane);
     return conversation / rest;
+}
+
+/// Restore open flag, tab, and width from sessions.json. Sets the tab
+/// before clamping so Diff / Browser / Terminal / Background use the
+/// wide max (not Files 360). When the panel is open on a wide tab,
+/// bump toward 460 the same way `selectDiff` / `selectBrowser` /
+/// `selectTerminal` / `selectBackground` would if the stored width is
+/// still file-tree-narrow. Does not start Compare, refresh mentions,
+/// or persist.
+pub fn applyPersisted(model: *Model, open: bool, tab: Tab, width_px: u32) void {
+    model.right_panel_open = open;
+    model.right_panel_tab = tab;
+    if (open and tab != .files) bumpWideTabWidth(model);
+    if (width_px != 0) {
+        model.right_panel_width = clampWidthTab(@floatFromInt(width_px), tab);
+    } else {
+        model.right_panel_width = clampWidthTab(model.right_panel_width, tab);
+    }
+    model.syncRightPanelSplit();
 }
 
 pub fn closedSplit() f32 {
@@ -440,7 +487,8 @@ pub fn selectDiff(model: *Model, fx: *Effects) void {
 /// bumps width toward 460 when still file-tree-narrow (same clamp as
 /// Diff). Non-zero `row_id` stores the selected Environment Summary
 /// row; `0` is the tab click (keep the current selection, empty
-/// state when none / gone). Does not persist the tab or row.
+/// state when none / gone). Tab persists via layout extras; the
+/// selected row does not.
 pub fn selectBackground(model: *Model, fx: *Effects, row_id: u32) void {
     const was_open = model.right_panel_open;
     model.right_panel_open = true;
@@ -454,8 +502,8 @@ pub fn selectBackground(model: *Model, fx: *Effects, row_id: u32) void {
 
 /// Browser tab. Opens the pane if closed, selects Browser, and bumps
 /// width toward 460 when still file-tree-narrow (same clamp as Diff).
-/// Native has no webview; the body is an OS-open URL field. Does not
-/// persist the tab or the draft URL.
+/// Native has no webview; the body is an OS-open URL field. Tab and
+/// draft URL persist via layout extras.
 pub fn selectBrowser(model: *Model, fx: *Effects) void {
     const was_open = model.right_panel_open;
     model.right_panel_open = true;
@@ -468,8 +516,8 @@ pub fn selectBrowser(model: *Model, fx: *Effects) void {
 
 /// Terminal tab. Opens the pane if closed, selects Terminal, and bumps
 /// width toward 460 when still file-tree-narrow (same clamp as Diff).
-/// Native has no PTY; the body is Open in Terminal. Does not persist
-/// the tab.
+/// Native has no PTY; the body is Open in Terminal. Tab persists via
+/// layout extras.
 pub fn selectTerminal(model: *Model, fx: *Effects) void {
     const was_open = model.right_panel_open;
     model.right_panel_open = true;
@@ -952,6 +1000,50 @@ test "Diff tab default 460 / max 460; Browser Terminal Background share Diff cla
     try std.testing.expectEqual(@as(f32, 400), clampWidthTab(400, .terminal));
     try std.testing.expectEqual(@as(f32, 360), clampWidthTab(400, .files));
     try std.testing.expectEqual(@as(f32, 360), clampWidthTab(460, .files));
+}
+
+test "tab persist names are stable lowercase; missing unknown is files" {
+    try std.testing.expectEqualStrings("files", Tab.files.persistName());
+    try std.testing.expectEqualStrings("diff", Tab.diff.persistName());
+    try std.testing.expectEqualStrings("browser", Tab.browser.persistName());
+    try std.testing.expectEqualStrings("terminal", Tab.terminal.persistName());
+    try std.testing.expectEqualStrings("background", Tab.background.persistName());
+    try std.testing.expectEqual(Tab.files, Tab.fromPersist(""));
+    try std.testing.expectEqual(Tab.files, Tab.fromPersist("nope"));
+    try std.testing.expectEqual(Tab.files, Tab.fromPersist("Files"));
+    try std.testing.expectEqual(Tab.files, Tab.fromPersist("files"));
+    try std.testing.expectEqual(Tab.diff, Tab.fromPersist("diff"));
+    try std.testing.expectEqual(Tab.browser, Tab.fromPersist("browser"));
+    try std.testing.expectEqual(Tab.terminal, Tab.fromPersist("terminal"));
+    try std.testing.expectEqual(Tab.background, Tab.fromPersist("background"));
+}
+
+test "applyPersisted restores wide tabs at Diff max, not Files 360" {
+    var model = Model{};
+    applyPersisted(&model, true, .diff, 460);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(Tab.diff, model.right_panel_tab);
+    try std.testing.expectEqual(@as(f32, 460), model.right_panel_width);
+
+    var browser = Model{};
+    applyPersisted(&browser, true, .browser, 460);
+    try std.testing.expectEqual(Tab.browser, browser.right_panel_tab);
+    try std.testing.expectEqual(@as(f32, 460), browser.right_panel_width);
+
+    var terminal = Model{};
+    applyPersisted(&terminal, true, .terminal, 460);
+    try std.testing.expectEqual(Tab.terminal, terminal.right_panel_tab);
+    try std.testing.expectEqual(@as(f32, 460), terminal.right_panel_width);
+
+    var background = Model{};
+    applyPersisted(&background, true, .background, 460);
+    try std.testing.expectEqual(Tab.background, background.right_panel_tab);
+    try std.testing.expectEqual(@as(f32, 460), background.right_panel_width);
+
+    var files = Model{};
+    applyPersisted(&files, true, .files, 460);
+    try std.testing.expectEqual(Tab.files, files.right_panel_tab);
+    try std.testing.expectEqual(@as(f32, 360), files.right_panel_width);
 }
 
 test "tab defaults to files; Diff Background Browser Terminal open the panel; Files↔wide tabs clamp width" {

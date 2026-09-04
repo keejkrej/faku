@@ -275,7 +275,11 @@ provider session fork.
 
 Command palette Show / Hide right panel toggles a first-cut Files +
 Diff + Browser + Terminal + Background pane. Default closed. Files width persists (`right_panel_open` /
-`right_panel_width`); Diff, Browser, Terminal, and Background tabs are runtime-only (default Files). Files
+`right_panel_width`). Selected tab persists (`right_panel_tab`: `files` /
+`diff` / `browser` / `terminal` / `background`; missing / unknown → Files).
+Browser draft URL persists (`browser_url`, raw, cap 2048; missing / empty /
+overflow → empty draft). Background row selection, Files preview content,
+and directory expands stay runtime-only. Files
 lists the same bounded `file_mention` cache used by composer `@`
 mentions, with a bounded inline preview on file click
 (256KB cap, truncated / binary / unreadable honest states; Native
@@ -287,7 +291,7 @@ text window to `<textarea>`, Save writes via Zig `std.fs` atomic
 replace, Reload re-reads disk and discards dirty; truncated stays
 Open-in-editor + Reload; still no live reload / FS watch). Diff hosts Environment Compare / Review (Branch,
 Uncommitted, Staged, Unstaged, Committed, LastTurn). Browser is an
-honest empty: Native has no webview; a runtime-only URL draft plus
+honest empty: Native has no webview; a persisted URL draft plus
 **Open in browser** spawns `open` / `xdg-open` (effect key 25; light
 `http://` / `https://` / bare-host→`https://` gate). Terminal is an
 honest empty: Native has no PTY; **Open in Terminal** reuses the
