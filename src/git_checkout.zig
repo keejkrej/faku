@@ -84,7 +84,9 @@
 //! Leftovers: force push / prune-alone / daemon `WorkspaceOperation`.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
-//! (app.zon is macos/linux; no Windows spawn path).
+//! this cut (app.zon already includes windows; no `git.exe -C`
+//! spawn path yet). Composer git_commit add/commit/amend uses
+//! `git.exe -C`; Push… still no-ops here.
 
 const std = @import("std");
 const builtin = @import("builtin");
