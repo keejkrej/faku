@@ -23,8 +23,8 @@
 //! `git.exe -C <project_path>` (path is its own argv slot, not
 //! interpolated into a script). Count stdout is the same on
 //! Windows; CRLF is already trimmed in the line helpers. app.zon
-//! already includes windows. Remaining git module (checkout) still
-//! skips Windows this cut.
+//! already includes windows. Remaining this cut: git_numstat
+//! untracked rows stay Unix-only.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_ahead_behind_key_first` (380+).

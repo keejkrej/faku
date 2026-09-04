@@ -19,8 +19,7 @@
 //! (path is its own argv slot, not interpolated into a script).
 //! Remote-name stdout is the same on Windows; CRLF is already trimmed
 //! in the line helpers. app.zon already includes windows. Remaining
-//! git module (checkout) still skips Windows this cut. Windows
-//! numstat untracked rows stay Unix-only.
+//! this cut: git_numstat untracked rows stay Unix-only.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_remotes_key_first` (480+).
@@ -58,17 +57,13 @@ pub const windows_argv_len: usize = 4;
 
 /// Unix: same 7-slot chdir script + `git remote` as Push remotes.
 pub fn unixArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
-    return git_checkout.remoteArgvFor(cwd, buf);
+    return git_checkout.unixRemoteArgvFor(cwd, buf);
 }
 
 /// Windows: `git.exe -C <project_path> remote`. Path is its own argv
 /// slot (no `/bin/sh`, no packing into a cmd string).
 pub fn windowsArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
-    buf[0] = windows_git_bin;
-    buf[1] = git_c_flag;
-    buf[2] = cwd;
-    buf[3] = git_remote_cmd;
-    return buf[0..windows_argv_len];
+    return git_checkout.windowsRemoteArgvFor(cwd, buf);
 }
 
 pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {

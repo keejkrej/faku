@@ -248,15 +248,18 @@ Do not invent Native APIs. Documented gaps this cut works around:
   Windows `file_mention` uses documented `git.exe -C <project_path>` and a
   PowerShell walk with `-Args` / `$args[0]` so the path stays its own argv
   slot (not interpolated into `-Command`). Composer git_branch / git_dirty /
-  git_ahead_behind / git_numstat / git_remotes / git_toplevel / git_common_dir / git_commit use the same `git.exe -C` pattern (no
-  PowerShell). git_commit add / cached-quiet preflight / commit / amend and
+  git_ahead_behind / git_numstat / git_remotes / git_toplevel / git_common_dir / git_commit / git_checkout use the same `git.exe -C` pattern (no
+  PowerShell except New worktree…). git_commit add / cached-quiet preflight / commit / amend and
   CommitSnapshot (tracked / cached) use `git.exe -C`; empty-message `fx ask`
   generate stays Unix-only. git_numstat on Windows is tracked `git diff --numstat HEAD --`
   only; untracked synthetic rows stay Unix-only. git_common_dir resolve
   treats Unix `/…` and Windows `X:\…` / `X:/…` as absolute and stores `/`
-  separators so nest FNV matches. Remaining git module
-  (checkout) still skips Windows this cut; composer Push… / Commit and
-  Push follow-on push still fail or no-op via `git_checkout.probeSupported`.
+  separators so nest FNV matches. git_checkout list / checkout / track /
+  create / delete / fetch / push / first-push / worktree-base use `git.exe -C`;
+  New worktree… is `powershell.exe -NoProfile -Command {scriptblock} -Args`
+  with parent, cwd, git.exe, flags, branch, dest, and optional base as argv
+  slots. Remaining this cut: empty-message `fx ask` generate (Unix-only),
+  git_numstat untracked rows (Unix-only), `review_diff.zig` still skips Windows.
 - No Native git effect. Git is sidecar `fx.spawn` of `git`.
 - No `fx.pickFile` / file-open effect. Folder and image pickers are OS
   sidecars.
@@ -276,10 +279,11 @@ worktree, dirty / numstat / ahead-behind) and Environment Compare are
 one-shot `git` spawns. Runtime-only labels are not stored on
 `sessions.json`. This is not Waku's daemon `InspectBranches` live
 watch, not `{project_id}` UUID nesting, and not force push.
-Windows probes and commit mutations (add / cached-quiet / commit /
+Windows probes, checkout / push / worktree, and commit mutations (add / cached-quiet / commit /
 amend / CommitSnapshot tracked-cached) use `git.exe -C <project_path>`;
-empty-message `fx ask` generate and checkout / push / worktree stay
-Unix / skip this cut. Windows numstat untracked rows stay Unix-only.
+New worktree… uses PowerShell `-Command` + `-Args`. Empty-message `fx ask`
+generate stays Unix-only this cut. Windows numstat untracked rows stay Unix-only.
+`review_diff.zig` still skips Windows.
 
 Send may snapshot the worktree (`worktree_snapshot_sha` /
 `worktree_turn_end_sha` / `worktree_turn_diff_sha`; refs under

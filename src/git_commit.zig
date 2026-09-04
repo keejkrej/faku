@@ -79,12 +79,11 @@
 //! cached is `git.exe -C PATH diff --cached --numstat --`;
 //! include-unstaged reuses `git_numstat.argvFor` (already Windows
 //! tracked-only). Empty-message `fx ask` generate stays Unix-only
-//! this cut — no in-repo Windows fx-ask chdir pattern. Push stays
-//! in `git_checkout.zig`, which still skips Windows: Commit and
-//! Push / Push-only / composer Push… fail or no-op via
-//! `git_checkout.probeSupported` (`beginPushAfterCommit` already
-//! sets `Could not push.`). app.zon already includes windows.
-//! Windows numstat untracked rows stay Unix-only.
+//! this cut — no in-repo Windows fx-ask chdir pattern. Push lives
+//! in `git_checkout.zig` and uses the same `git.exe -C` pattern
+//! (`probeSupported` is true on Windows). app.zon already includes
+//! windows. Windows numstat untracked rows stay Unix-only.
+//! `review_diff.zig` still skips Windows.
 //!
 //! Spawn/line/exit orchestration lives here. Effect keys stay
 //! `git_commit_key_first` (450+), `git_commit_numstat_key_first`
@@ -1462,6 +1461,10 @@ fn expectRejectsSiblingWindowsArgv(pred: *const fn ([]const []const u8) bool, cw
     try std.testing.expect(!pred(git_common_dir.windowsArgvFor(cwd, &common_buf)));
     var mention_buf: [file_mention.git_argv_len][]const u8 = undefined;
     try std.testing.expect(!pred(file_mention.windowsArgvFor(cwd, &mention_buf)));
+    var list_buf: [10][]const u8 = undefined;
+    try std.testing.expect(!pred(git_checkout.windowsListArgvFor(cwd, &list_buf)));
+    var push_buf: [7][]const u8 = undefined;
+    try std.testing.expect(!pred(git_checkout.windowsPushArgvFor(cwd, &push_buf)));
 }
 
 fn expectCommitMessageOwnSlot(argv: []const []const u8, message: []const u8) !void {
