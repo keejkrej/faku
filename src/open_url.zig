@@ -266,6 +266,7 @@ test "url argv is not reveal terminal or folder-picker argv" {
     try std.testing.expect(!isUrlArgv(pick_folder.argvFor(.osascript)));
     try std.testing.expect(!isUrlArgv(pick_folder.argvFor(.zenity)));
     try std.testing.expect(!isUrlArgv(pick_folder.argvFor(.kdialog)));
+    try std.testing.expect(!isUrlArgv(pick_folder.argvFor(.powershell)));
 }
 
 test "open_url_key is 25 and distinct from editor/terminal/reveal neighbors" {

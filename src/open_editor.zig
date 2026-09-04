@@ -380,6 +380,7 @@ test "editor argv is not reveal terminal or folder-picker argv" {
     try std.testing.expect(!isEditorArgv(pick_folder.argvFor(.osascript)));
     try std.testing.expect(!isEditorArgv(pick_folder.argvFor(.zenity)));
     try std.testing.expect(!isEditorArgv(pick_folder.argvFor(.kdialog)));
+    try std.testing.expect(!isEditorArgv(pick_folder.argvFor(.powershell)));
 }
 
 test "open_editor_key is 26 and distinct from terminal/reveal/pick neighbors" {
