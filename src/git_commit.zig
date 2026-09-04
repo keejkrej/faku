@@ -81,7 +81,8 @@
 //! `powershell.exe -NoProfile -Command {scriptblock} -Args`
 //! cwd, fx path, prompt (`$args[0]` / `$args[1]` / `$args[2]`;
 //! documented `ask --no-save --auto --json --` stay literals in
-//! the scriptblock — never interpolate cwd / fx path / prompt).
+//! the scriptblock — never interpolate cwd / fx path / prompt;
+//! `exit $LASTEXITCODE` keeps fx's status).
 //! Push lives
 //! in `git_checkout.zig` and uses the same `git.exe -C` pattern
 //! (`probeSupported` is true on Windows). app.zon already includes
@@ -688,11 +689,13 @@ pub fn generatePromptFor(include_unstaged: bool) []const u8 {
 /// Scriptblock + `$args[N]`: cwd, fx binary, and prompt are their
 /// own argv slots after `-Args`, not spliced into the `-Command`
 /// body. `Set-Location` then documented
-/// `fx ask --no-save --auto --json -- <prompt>`. Eight argv slots.
+/// `fx ask --no-save --auto --json -- <prompt>`. `$ErrorActionPreference='Stop'`
+/// does not throw on a native exe non-zero, so `exit $LASTEXITCODE`
+/// keeps fx's status (PowerShell does not `exec`). Eight argv slots.
 pub const powershell_generate_script =
     "{ $ErrorActionPreference='Stop'; Set-Location -LiteralPath $args[0]; & $args[1] " ++
     fx_ask_cmd ++ " " ++ fx_ask_no_save ++ " " ++ fx_ask_auto ++ " " ++ fx_ask_json ++ " " ++
-    fx_ask_dash ++ " $args[2] }";
+    fx_ask_dash ++ " $args[2]; exit $LASTEXITCODE }";
 
 /// `/bin/sh -c` chdir + `fx ask --no-save --auto --json -- <prompt>`.
 /// Documented fx-ask flags only. Prompt is its own argv slot.
@@ -3142,6 +3145,7 @@ fn expectGenerateArgv(argv: []const []const u8, cwd: []const u8, include_unstage
             try std.testing.expect(std.mem.indexOf(u8, argv[3], "$args[0]") != null);
             try std.testing.expect(std.mem.indexOf(u8, argv[3], "$args[1]") != null);
             try std.testing.expect(std.mem.indexOf(u8, argv[3], "$args[2]") != null);
+            try std.testing.expect(std.mem.indexOf(u8, argv[3], "exit $LASTEXITCODE") != null);
             try std.testing.expect(std.mem.indexOf(u8, argv[7], "--yolo") == null);
             try std.testing.expect(std.mem.indexOf(u8, argv[7], "--resume") == null);
         },
@@ -3237,6 +3241,7 @@ test "windows generate argv is powershell -Args cwd fx_path prompt; empty withou
     try std.testing.expect(std.mem.indexOf(u8, gen[3], "$args[0]") != null);
     try std.testing.expect(std.mem.indexOf(u8, gen[3], "$args[1]") != null);
     try std.testing.expect(std.mem.indexOf(u8, gen[3], "$args[2]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gen[3], "exit $LASTEXITCODE") != null);
     try std.testing.expect(std.mem.indexOf(u8, gen[3], fx_ask_cmd) != null);
     try std.testing.expect(std.mem.indexOf(u8, gen[3], fx_ask_no_save) != null);
     try std.testing.expect(std.mem.indexOf(u8, gen[3], fx_ask_auto) != null);
