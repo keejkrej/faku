@@ -5,7 +5,8 @@
 //!
 //!   macOS:  `open` + URL
 //!   Linux:  `xdg-open` + URL
-//!   Windows: skipped (honest status; no Windows spawn path this cut)
+//!   Windows: `cmd.exe /c start "" <url>` (empty title so `start`
+//!            does not eat the URL; each token is its own argv slot)
 //!
 //! This is not Waku's embedded `RightPanelSurface::Browser` / BrowserView.
 //! Spawn stdin is unused (write-once then close).
@@ -36,11 +37,17 @@ pub const missing_exit: u8 = 2;
 
 pub const linux_missing_status = "No OS browser (install xdg-open).";
 pub const macos_missing_status = "No OS browser (open missing).";
-pub const windows_missing_status = "Open in browser is not available on Windows.";
+pub const windows_missing_status = "No OS browser (cmd.exe missing).";
 pub const empty_url_status = "Enter a URL to open.";
 
 pub const macos_bin = "open";
 pub const linux_bin = "xdg-open";
+pub const windows_bin = "cmd.exe";
+pub const windows_c_flag = "/c";
+pub const windows_start = "start";
+/// Empty `start` window title. Required so `start` does not treat the
+/// URL as a title. Own argv slot — not interpolated into `/c`.
+pub const windows_empty_title = "";
 pub const https_prefix = "https://";
 
 /// Browser tab draft. Persisted raw on sessions.json extras
@@ -49,14 +56,15 @@ pub const max_url: usize = 2048;
 /// Draft plus `https://` when a bare host is prefixed.
 pub const max_spawn_url: usize = max_url + https_prefix.len;
 
-pub const Tool = enum { open, xdg_open };
+pub const Tool = enum { open, xdg_open, cmd_start };
 
-const argv_len: usize = 2;
+const argv_len: usize = 5;
 
 pub fn hostTool() ?Tool {
     return switch (builtin.os.tag) {
         .macos => .open,
         .linux => .xdg_open,
+        .windows => .cmd_start,
         else => null,
     };
 }
@@ -77,12 +85,26 @@ pub fn binFor(tool: Tool) []const u8 {
     return switch (tool) {
         .open => macos_bin,
         .xdg_open => linux_bin,
+        .cmd_start => windows_bin,
     };
 }
 
 pub fn argvForTool(tool: Tool, url: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
-    buf.* = .{ binFor(tool), url };
-    return buf;
+    switch (tool) {
+        .open, .xdg_open => {
+            buf[0] = binFor(tool);
+            buf[1] = url;
+            return buf[0..2];
+        },
+        .cmd_start => {
+            buf[0] = windows_bin;
+            buf[1] = windows_c_flag;
+            buf[2] = windows_start;
+            buf[3] = windows_empty_title;
+            buf[4] = url;
+            return buf[0..5];
+        },
+    }
 }
 
 pub fn argvFor(url: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
@@ -96,9 +118,18 @@ pub fn isHttpUrl(text: []const u8) bool {
 }
 
 pub fn isUrlArgv(argv: []const []const u8) bool {
-    if (argv.len != argv_len) return false;
-    const bin_ok = std.mem.eql(u8, argv[0], macos_bin) or std.mem.eql(u8, argv[0], linux_bin);
-    return bin_ok and isHttpUrl(argv[1]);
+    if (argv.len == 2) {
+        const bin_ok = std.mem.eql(u8, argv[0], macos_bin) or std.mem.eql(u8, argv[0], linux_bin);
+        return bin_ok and isHttpUrl(argv[1]);
+    }
+    if (argv.len == 5) {
+        return std.mem.eql(u8, argv[0], windows_bin) and
+            std.mem.eql(u8, argv[1], windows_c_flag) and
+            std.mem.eql(u8, argv[2], windows_start) and
+            argv[3].len == 0 and
+            isHttpUrl(argv[4]);
+    }
+    return false;
 }
 
 /// Trim, reject empty / whitespace-only, keep `http://` / `https://`,
@@ -165,7 +196,20 @@ test "linux argv is xdg-open on the URL" {
     try std.testing.expect(isUrlArgv(argv));
 }
 
-test "host tool is the platform URL opener; Windows is skipped" {
+test "windows argv is cmd.exe /c start empty-title URL" {
+    var buf: [argv_len][]const u8 = undefined;
+    const argv = argvForTool(.cmd_start, "https://example.com", &buf);
+    try std.testing.expectEqual(@as(usize, 5), argv.len);
+    try std.testing.expectEqualStrings(windows_bin, argv[0]);
+    try std.testing.expectEqualStrings(windows_c_flag, argv[1]);
+    try std.testing.expectEqualStrings(windows_start, argv[2]);
+    try std.testing.expectEqualStrings(windows_empty_title, argv[3]);
+    try std.testing.expectEqual(@as(usize, 0), argv[3].len);
+    try std.testing.expectEqualStrings("https://example.com", argv[4]);
+    try std.testing.expect(isUrlArgv(argv));
+}
+
+test "host tool is the platform URL opener" {
     switch (builtin.os.tag) {
         .macos => {
             try std.testing.expectEqual(Tool.open, hostTool().?);
@@ -174,6 +218,10 @@ test "host tool is the platform URL opener; Windows is skipped" {
         .linux => {
             try std.testing.expectEqual(Tool.xdg_open, hostTool().?);
             try std.testing.expectEqualStrings(linux_bin, hostBin().?);
+        },
+        .windows => {
+            try std.testing.expectEqual(Tool.cmd_start, hostTool().?);
+            try std.testing.expectEqualStrings(windows_bin, hostBin().?);
         },
         else => {
             try std.testing.expect(hostTool() == null);
@@ -203,6 +251,10 @@ test "url argv is not reveal terminal or folder-picker argv" {
     try std.testing.expect(!reveal_folder.isRevealArgv(url_argv));
     try std.testing.expect(!open_terminal.isTerminalArgv(url_argv));
     try std.testing.expect(!pick_folder.isPickerArgv(url_argv));
+    const windows_argv = argvForTool(.cmd_start, "https://example.com", &buf);
+    try std.testing.expect(!reveal_folder.isRevealArgv(windows_argv));
+    try std.testing.expect(!open_terminal.isTerminalArgv(windows_argv));
+    try std.testing.expect(!pick_folder.isPickerArgv(windows_argv));
     try std.testing.expect(!isUrlArgv(reveal_folder.argvFor("/tmp/proj", &reveal_buf)));
     try std.testing.expect(!isUrlArgv(open_terminal.argvForTool(.open_terminal, "/tmp/proj", &term_scratch)));
     try std.testing.expect(!isUrlArgv(open_terminal.argvForTool(.x_terminal_emulator, "/tmp/proj", &term_scratch)));

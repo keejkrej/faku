@@ -208,9 +208,10 @@ pub const pick_folder_key = pick_folder.pick_folder_key;
 /// pick_folder (29), maximize (30), pick_image (31), copy_turn (32).
 /// Native has no typed `fx.revealPath` on this Effects revision.
 pub const reveal_folder_key = reveal_folder.reveal_folder_key;
-/// One-shot OS URL-open sidecar (`open` / `xdg-open`). Distinct from
-/// open_editor (26), open_terminal (27), reveal_folder (28). Native has
-/// no documented webview effect on this cut.
+/// One-shot OS URL-open sidecar (`open` / `xdg-open` / Windows
+/// `cmd.exe /c start`). Distinct from open_editor (26), open_terminal
+/// (27), reveal_folder (28). Native has no documented webview effect
+/// on this cut.
 pub const open_url_key = open_url.open_url_key;
 /// One-shot OS terminal sidecar (`open -a Terminal` / `x-terminal-emulator`).
 /// Distinct from reveal_folder (28), pick_folder (29), maximize (30),
