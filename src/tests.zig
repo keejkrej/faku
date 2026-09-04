@@ -16974,7 +16974,15 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     const snap = findGitCommitNumstatSpawnKey(&fx, model.git_commit_numstat_key) orelse return error.MissingCommitNumstatSpawn;
     try testing.expect(git_commit.isGitCommitNumstatWorkingTreeArgv(snap.argv));
     try testing.expect(git_numstat.isGitNumstatArgv(snap.argv));
-    try testing.expectEqualStrings(git_numstat.numstat_untracked_script, snap.argv[7]);
+    switch (builtin.os.tag) {
+        .windows => {
+            try testing.expectEqualStrings(git_numstat.powershell_untracked_script, snap.argv[3]);
+            try testing.expectEqualStrings(git_numstat.powershell_args_flag, snap.argv[4]);
+        },
+        else => {
+            try testing.expectEqualStrings(git_numstat.numstat_untracked_script, snap.argv[7]);
+        },
+    }
     try fx.feedLine(snap.key, "3\t1\tsrc/a.zig\n");
     try fx.feedLine(snap.key, "5\t0\tnew.txt\n");
     drainEffects(&model, &fx);
@@ -17873,16 +17881,33 @@ fn findPendingGitCommitAmend(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(
 
 fn expectGitNumstatArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(git_numstat.isGitNumstatArgv(spawn.argv));
-    try testing.expectEqualStrings(git_numstat.sh_bin, spawn.argv[0]);
-    try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
-    try testing.expectEqualStrings(cwd, spawn.argv[4]);
-    try testing.expectEqualStrings(git_numstat.sh_bin, spawn.argv[5]);
-    try testing.expectEqualStrings("-c", spawn.argv[6]);
-    try testing.expectEqualStrings(git_numstat.numstat_untracked_script, spawn.argv[7]);
-    try testing.expect(std.mem.indexOf(u8, spawn.argv[7], git_numstat.git_numstat) != null);
-    try testing.expect(std.mem.indexOf(u8, spawn.argv[7], git_numstat.git_ls_files_others) != null);
-    try testing.expect(std.mem.indexOf(u8, spawn.argv[7], git_numstat.git_ls_files_exclude_standard) != null);
-    try testing.expect(std.mem.indexOf(u8, spawn.argv[7], git_numstat.grep_text_flag) != null);
+    switch (builtin.os.tag) {
+        .windows => {
+            try testing.expectEqualStrings(git_numstat.powershell_bin, spawn.argv[0]);
+            try testing.expectEqualStrings(git_numstat.powershell_noprofile, spawn.argv[1]);
+            try testing.expectEqualStrings(git_numstat.powershell_command, spawn.argv[2]);
+            try testing.expectEqualStrings(git_numstat.powershell_untracked_script, spawn.argv[3]);
+            try testing.expectEqualStrings(git_numstat.powershell_args_flag, spawn.argv[4]);
+            try testing.expectEqualStrings(cwd, spawn.argv[5]);
+            try testing.expect(std.mem.indexOf(u8, spawn.argv[3], cwd) == null);
+            try testing.expect(std.mem.indexOf(u8, spawn.argv[3], git_numstat.git_numstat) != null);
+            try testing.expect(std.mem.indexOf(u8, spawn.argv[3], git_numstat.git_ls_files_others) != null);
+            try testing.expect(std.mem.indexOf(u8, spawn.argv[3], git_numstat.git_ls_files_exclude_standard) != null);
+            try testing.expect(std.mem.indexOf(u8, spawn.argv[3], git_numstat.untracked_max_bytes_s) != null);
+        },
+        else => {
+            try testing.expectEqualStrings(git_numstat.sh_bin, spawn.argv[0]);
+            try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
+            try testing.expectEqualStrings(cwd, spawn.argv[4]);
+            try testing.expectEqualStrings(git_numstat.sh_bin, spawn.argv[5]);
+            try testing.expectEqualStrings("-c", spawn.argv[6]);
+            try testing.expectEqualStrings(git_numstat.numstat_untracked_script, spawn.argv[7]);
+            try testing.expect(std.mem.indexOf(u8, spawn.argv[7], git_numstat.git_numstat) != null);
+            try testing.expect(std.mem.indexOf(u8, spawn.argv[7], git_numstat.git_ls_files_others) != null);
+            try testing.expect(std.mem.indexOf(u8, spawn.argv[7], git_numstat.git_ls_files_exclude_standard) != null);
+            try testing.expect(std.mem.indexOf(u8, spawn.argv[7], git_numstat.grep_text_flag) != null);
+        },
+    }
     try testing.expect(spawn.key != main.fx_ask_key);
     try testing.expect(spawn.key != main.fx_probe_key);
     try testing.expect(spawn.key != main.maximize_window_key);

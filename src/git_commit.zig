@@ -54,7 +54,8 @@
 //! push is a no-op. Opening the card one-shots CommitSnapshot
 //! numstat (include-unstaged on reuses `git_numstat.argvFor`: Unix
 //! tracked `git diff --numstat HEAD --` plus untracked text-line
-//! additions; Windows tracked-only `git.exe -C`; index vs HEAD
+//! additions; Windows PowerShell untracked `N\t0\tpath` via the same
+//! `argvFor`; index vs HEAD
 //! `--cached` when off). The include-unstaged toggle cancels and
 //! re-probes. Amend
 //! is a runtime-only ghost toggle (default off; reset when the
@@ -77,12 +78,12 @@
 //! `git.exe -C PATH commit -m <message>`; amend is
 //! `git.exe -C PATH commit --amend -m <message>`; CommitSnapshot
 //! cached is `git.exe -C PATH diff --cached --numstat --`;
-//! include-unstaged reuses `git_numstat.argvFor` (already Windows
-//! tracked-only). Empty-message `fx ask` generate stays Unix-only
+//! include-unstaged reuses `git_numstat.argvFor` (Windows PowerShell
+//! untracked rows). Empty-message `fx ask` generate stays Unix-only
 //! this cut — no in-repo Windows fx-ask chdir pattern. Push lives
 //! in `git_checkout.zig` and uses the same `git.exe -C` pattern
 //! (`probeSupported` is true on Windows). app.zon already includes
-//! windows. Windows numstat untracked rows stay Unix-only.
+//! windows.
 //! Environment Compare / Review uses `git.exe -C` (Uncommitted
 //! untracked `?` rows stay Unix-only).
 //!
@@ -200,7 +201,7 @@ pub const amend_argv_len: usize = 10;
 pub const unix_amend_argv_len: usize = 10;
 pub const windows_amend_argv_len: usize = 7;
 /// Max CommitSnapshot argv slots. Unix cached is 10; include-unstaged
-/// reuses `git_numstat.argv_len` (8 Unix / 7 Windows) inside this
+/// reuses `git_numstat.argv_len` (8 Unix / 6 Windows) inside this
 /// buffer. Windows cached is 7.
 pub const commit_numstat_argv_len: usize = 10;
 pub const unix_commit_numstat_cached_argv_len: usize = 10;
@@ -613,8 +614,8 @@ pub fn unixCommitNumstatArgvFor(cwd: []const u8, include_unstaged: bool, buf: *[
     return unixCommitNumstatCachedArgvFor(cwd, buf);
 }
 
-/// Include-unstaged on: reuse `git_numstat.windowsArgvFor` (tracked
-/// `git.exe -C` numstat). Off: cached numstat.
+/// Include-unstaged on: reuse `git_numstat.windowsArgvFor` (PowerShell
+/// tracked numstat plus untracked `N\t0\tpath`). Off: cached numstat.
 pub fn windowsCommitNumstatArgvFor(cwd: []const u8, include_unstaged: bool, buf: *[commit_numstat_argv_len][]const u8) []const []const u8 {
     if (include_unstaged) {
         var work: [git_numstat.argv_len][]const u8 = undefined;
@@ -624,7 +625,7 @@ pub fn windowsCommitNumstatArgvFor(cwd: []const u8, include_unstaged: bool, buf:
 }
 
 /// Include-unstaged on: reuse `git_numstat.argvFor` (Unix untracked
-/// script / Windows tracked-only). Off: cached numstat.
+/// script / Windows PowerShell untracked). Off: cached numstat.
 pub fn commitNumstatArgvFor(cwd: []const u8, include_unstaged: bool, buf: *[commit_numstat_argv_len][]const u8) []const []const u8 {
     return switch (builtin.os.tag) {
         .windows => windowsCommitNumstatArgvFor(cwd, include_unstaged, buf),
@@ -1667,7 +1668,9 @@ test "host add/commit/amend/cached-quiet/numstat argvFor match the process OS" {
             try std.testing.expectEqualStrings(windows_git_bin, amend[0]);
             try std.testing.expectEqualStrings(windows_git_bin, quiet[0]);
             try std.testing.expectEqualStrings(windows_git_bin, snap[0]);
-            try std.testing.expectEqualStrings(windows_git_bin, work[0]);
+            try std.testing.expectEqualStrings(git_numstat.powershell_bin, work[0]);
+            try std.testing.expectEqualStrings(git_numstat.powershell_untracked_script, work[3]);
+            try std.testing.expectEqualStrings(git_numstat.powershell_args_flag, work[4]);
         },
         else => {
             try std.testing.expectEqualStrings(sh_bin, add[0]);
@@ -2829,18 +2832,18 @@ test "commit snapshot argv is numstat untracked script when include-unstaged and
     try std.testing.expect(std.mem.indexOf(u8, cached[2], git_numstat_flag) == null);
 }
 
-test "windows commit snapshot argv is git.exe -C tracked numstat when include-unstaged and --cached when off" {
+test "windows commit snapshot argv is powershell untracked numstat when include-unstaged and --cached when off" {
     const cwd = "C:\\Users\\me\\proj";
     var work_buf: [commit_numstat_argv_len][]const u8 = undefined;
     const work = windowsCommitNumstatArgvFor(cwd, true, &work_buf);
     try std.testing.expectEqual(git_numstat.windows_argv_len, work.len);
-    try std.testing.expectEqualStrings(windows_git_bin, work[0]);
-    try std.testing.expectEqualStrings(git_c_flag, work[1]);
-    try std.testing.expectEqualStrings(cwd, work[2]);
-    try std.testing.expectEqualStrings(git_diff_cmd, work[3]);
-    try std.testing.expectEqualStrings(git_numstat_flag, work[4]);
-    try std.testing.expectEqualStrings(git_numstat.git_head, work[5]);
-    try std.testing.expectEqualStrings(git_pathspec_dash, work[6]);
+    try std.testing.expectEqualStrings(git_numstat.powershell_bin, work[0]);
+    try std.testing.expectEqualStrings(git_numstat.powershell_noprofile, work[1]);
+    try std.testing.expectEqualStrings(git_numstat.powershell_command, work[2]);
+    try std.testing.expectEqualStrings(git_numstat.powershell_untracked_script, work[3]);
+    try std.testing.expectEqualStrings(git_numstat.powershell_args_flag, work[4]);
+    try std.testing.expectEqualStrings(cwd, work[5]);
+    try std.testing.expect(std.mem.indexOf(u8, work[3], cwd) == null);
     try std.testing.expect(git_numstat.isGitNumstatArgv(work));
     try std.testing.expect(isGitCommitNumstatWorkingTreeArgv(work));
     try std.testing.expect(!isGitCommitNumstatCachedArgv(work));
@@ -2900,9 +2903,10 @@ test "startCommit kicks a commit-snapshot probe that does not reuse project-row 
     try std.testing.expect(git_numstat.isGitNumstatArgv(probe.argv));
     switch (builtin.os.tag) {
         .windows => {
-            try std.testing.expectEqualStrings(project, probe.argv[2]);
-            try std.testing.expectEqualStrings(windows_git_bin, probe.argv[0]);
-            try std.testing.expectEqualStrings(git_numstat.git_head, probe.argv[5]);
+            try std.testing.expectEqualStrings(project, probe.argv[5]);
+            try std.testing.expectEqualStrings(git_numstat.powershell_bin, probe.argv[0]);
+            try std.testing.expectEqualStrings(git_numstat.powershell_untracked_script, probe.argv[3]);
+            try std.testing.expectEqualStrings(git_numstat.powershell_args_flag, probe.argv[4]);
         },
         else => {
             try std.testing.expectEqualStrings(project, probe.argv[4]);

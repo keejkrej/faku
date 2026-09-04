@@ -5,27 +5,29 @@
 //! non-empty `project_path` that exists, Faku `fx.spawn`s
 //! `git diff --numstat HEAD --`. Tracked binary rows (`-` in either
 //! column) are skipped. Zero / failed / empty omits the label — this
-//! cut does not invent "clean". Deletions stay tracked-only. On Unix,
-//! the same spawn also prints synthetic `N\t0\tpath` rows for
-//! untracked, non-ignored text files (`git ls-files --others
+//! cut does not invent "clean". Deletions stay tracked-only. The same
+//! spawn also prints synthetic `N\t0\tpath` rows for untracked,
+//! non-ignored text files (`git ls-files --others
 //! --exclude-standard`). Binary / unreadable / oversized (over 1 MiB)
-//! untracked files are skipped. The Commit… include-unstaged snapshot
-//! reuses `argvFor` / `numstat_untracked_script` on its own 460+ key
-//! band. Not Waku's daemon `InspectBranches`, not a live watch, not a
-//! staged/unstaged split, not Waku's Environment Summary, and not
-//! Review.
+//! / zero-line untracked files are skipped. The Commit… include-unstaged
+//! snapshot reuses `argvFor` on its own 460+ key band. Not Waku's
+//! daemon `InspectBranches`, not a live watch, not a staged/unstaged
+//! split, not Waku's Environment Summary, and not Review.
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`) plus a packed `numstat_untracked_script`
 //! (tracked numstat first, then find+grep untracked text rows).
-//! Windows cannot use `/bin/sh` or that untracked path:
-//! `git.exe -C <project_path> diff --numstat HEAD --` (path is its
-//! own argv slot, not interpolated into a script). Tracked numstat
-//! stdout is the same on Windows; CRLF is already trimmed in the line
-//! helpers. Untracked synthetic rows stay Unix-only this cut — no
-//! PowerShell untracked path. app.zon already includes windows.
-//! Remaining this cut: untracked synthetic rows stay Unix-only;
-//! empty-message `fx ask` commit generate stays Unix-only.
+//! Windows cannot use `/bin/sh`: `powershell.exe -NoProfile -Command
+//! {scriptblock} -Args <project_path>` (`$args[0]`; path is its own
+//! argv slot, not interpolated into `-Command`). After
+//! `Set-Location -LiteralPath $args[0]`, the script runs `git.exe
+//! diff --numstat HEAD --` then synthetic untracked `N\t0\tpath`
+//! rows (NUL-byte text check instead of Unix `grep -Iq`). Tracked
+//! numstat stdout is the same; CRLF is already trimmed in the line
+//! helpers. `parseNumstatLine` / `sumNumstat` already understand
+//! `N\t0\tpath`. app.zon already includes windows. Remaining this
+//! cut: empty-message `fx ask` commit generate stays Unix-only;
+//! Environment Compare Uncommitted untracked `?` rows stay Unix-only.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_numstat_key_first` (350+).
@@ -70,6 +72,13 @@ pub const git_ls_files_exclude_standard = "--exclude-standard";
 pub const sh_bin = "/bin/sh";
 pub const grep_bin = "grep";
 pub const grep_text_flag = "-Iq";
+/// PATH-resolved Windows PowerShell (no STA: this is git + file
+/// bytes, not WinForms). Explicit `.exe` like sibling maximize /
+/// pickers / `file_mention` walk.
+pub const powershell_bin = "powershell.exe";
+pub const powershell_noprofile = "-NoProfile";
+pub const powershell_command = "-Command";
+pub const powershell_args_flag = "-Args";
 
 /// Packed into one `-c` string so the spawn stays under Native
 /// `max_effect_argv` (16). Real numstat first; then synthetic
@@ -90,12 +99,21 @@ pub const numstat_untracked_script =
     \\done
 ;
 
+/// Scriptblock + `$args[0]`: project path is its own argv slot after
+/// `-Args`, not spliced into the `-Command` body. `Set-Location` then
+/// `git.exe diff --numstat HEAD --` (fail the spawn on non-zero), then
+/// `git.exe ls-files --others --exclude-standard`. Skip missing /
+/// non-file / over 1 MiB / NUL-byte (binary) / zero-line; print
+/// `N\t0\tpath` with `/` separators. Six argv slots total.
+pub const powershell_untracked_script =
+    "{ $ErrorActionPreference='Stop'; Set-Location -LiteralPath $args[0]; git.exe diff --numstat HEAD --; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; foreach ($f in @(git.exe ls-files --others --exclude-standard 2>$null)) { if (-not $f) { continue }; $f=[string]$f.Trim(); if (-not $f) { continue }; $item=Get-Item -LiteralPath $f -ErrorAction SilentlyContinue; if (-not $item -or $item.PSIsContainer) { continue }; if ($item.Length -gt 1048576) { continue }; try { $bytes=[System.IO.File]::ReadAllBytes($item.FullName) } catch { continue }; if ($bytes -contains 0) { continue }; $n=0; $i=0; while ($i -lt $bytes.Length) { $n++; while ($i -lt $bytes.Length -and $bytes[$i] -ne 10) { $i++ }; if ($i -lt $bytes.Length) { $i++ } }; if ($n -le 0) { continue }; $rel=($f -replace '\\\\','/'); Write-Output ('{0}'+[char]9+'0'+[char]9+'{1}' -f $n,$rel) } }";
+
 /// Unix `/bin/sh -c` chdir + nested `/bin/sh -c` +
-/// `numstat_untracked_script` (8). Windows `git.exe -C` tracked-only
-/// is 7; this is the spawn buffer (max of the two).
+/// `numstat_untracked_script` (8). Windows powershell `-Command` +
+/// `-Args` is 6; this is the spawn buffer (max of the two).
 pub const argv_len: usize = 8;
 pub const unix_argv_len: usize = 8;
-pub const windows_argv_len: usize = 7;
+pub const windows_argv_len: usize = 6;
 
 pub const NumstatDelta = struct {
     additions: u64 = 0,
@@ -116,17 +134,16 @@ pub fn unixArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const 
     return buf[0..unix_argv_len];
 }
 
-/// Windows: `git.exe -C <project_path> diff --numstat HEAD --`.
-/// Path is its own argv slot (no `/bin/sh`, no packing into a cmd
-/// string). Tracked-only — untracked synthetic rows stay Unix-only.
+/// Windows: `powershell.exe -NoProfile -Command {scriptblock} -Args
+/// <project_path>`. Path stays `$args[0]` — not interpolated into
+/// the `-Command` body. Tracked numstat plus untracked `N\t0\tpath`.
 pub fn windowsArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
-    buf[0] = windows_git_bin;
-    buf[1] = git_c_flag;
-    buf[2] = cwd;
-    buf[3] = git_diff_cmd;
-    buf[4] = git_numstat;
-    buf[5] = git_head;
-    buf[6] = git_pathspec_end;
+    buf[0] = powershell_bin;
+    buf[1] = powershell_noprofile;
+    buf[2] = powershell_command;
+    buf[3] = powershell_untracked_script;
+    buf[4] = powershell_args_flag;
+    buf[5] = cwd;
     return buf[0..windows_argv_len];
 }
 
@@ -153,14 +170,22 @@ fn isUnixGitNumstatArgv(argv: []const []const u8) bool {
 
 fn isWindowsGitNumstatArgv(argv: []const []const u8) bool {
     if (argv.len != windows_argv_len) return false;
-    const bin_ok = std.mem.eql(u8, argv[0], windows_git_bin) or std.mem.eql(u8, argv[0], git_bin);
-    if (!bin_ok) return false;
-    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
-    if (argv[2].len == 0) return false;
-    if (!std.mem.eql(u8, argv[3], git_diff_cmd)) return false;
-    if (!std.mem.eql(u8, argv[4], git_numstat)) return false;
-    if (!std.mem.eql(u8, argv[5], git_head)) return false;
-    return std.mem.eql(u8, argv[6], git_pathspec_end);
+    if (!std.mem.eql(u8, argv[0], powershell_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], powershell_noprofile)) return false;
+    if (!std.mem.eql(u8, argv[2], powershell_command)) return false;
+    if (!std.mem.eql(u8, argv[3], powershell_untracked_script)) return false;
+    if (!std.mem.eql(u8, argv[4], powershell_args_flag)) return false;
+    if (argv[5].len == 0) return false;
+    if (!scriptHas(argv[3], "$args[0]")) return false;
+    if (!scriptHas(argv[3], windows_git_bin)) return false;
+    if (!scriptHas(argv[3], git_diff_cmd)) return false;
+    if (!scriptHas(argv[3], git_numstat)) return false;
+    if (!scriptHas(argv[3], git_head)) return false;
+    if (!scriptHas(argv[3], git_ls_files_cmd)) return false;
+    if (!scriptHas(argv[3], git_ls_files_others)) return false;
+    if (!scriptHas(argv[3], git_ls_files_exclude_standard)) return false;
+    if (!scriptHas(argv[3], untracked_max_bytes_s)) return false;
+    return true;
 }
 
 pub fn isGitNumstatArgv(argv: []const []const u8) bool {
@@ -369,7 +394,7 @@ test "argv is chdir script plus numstat then untracked text rows" {
     try std.testing.expect(file_mention.file_mention_key_first > git_ahead_behind.git_ahead_behind_key_first);
 }
 
-test "windows git argv is git.exe -C PATH diff --numstat HEAD --; path is its own slot" {
+test "windows git argv is powershell scriptblock -Args PATH; path not in script" {
     const git_branch = @import("git_branch.zig");
     const git_dirty = @import("git_dirty.zig");
     const git_ahead_behind = @import("git_ahead_behind.zig");
@@ -379,16 +404,43 @@ test "windows git argv is git.exe -C PATH diff --numstat HEAD --; path is its ow
     const argv = windowsArgvFor(cwd, &buf);
     try std.testing.expectEqual(@as(usize, windows_argv_len), argv.len);
     try std.testing.expect(argv.len <= 16);
-    try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
-    try std.testing.expectEqualStrings(git_c_flag, argv[1]);
-    try std.testing.expectEqualStrings(cwd, argv[2]);
-    try std.testing.expectEqualStrings(git_diff_cmd, argv[3]);
-    try std.testing.expectEqualStrings(git_numstat, argv[4]);
-    try std.testing.expectEqualStrings(git_head, argv[5]);
-    try std.testing.expectEqualStrings(git_pathspec_end, argv[6]);
+    try std.testing.expectEqualStrings(powershell_bin, argv[0]);
+    try std.testing.expectEqualStrings(powershell_noprofile, argv[1]);
+    try std.testing.expectEqualStrings(powershell_command, argv[2]);
+    try std.testing.expectEqualStrings(powershell_untracked_script, argv[3]);
+    try std.testing.expectEqualStrings(powershell_args_flag, argv[4]);
+    try std.testing.expectEqualStrings(cwd, argv[5]);
     try std.testing.expect(isGitNumstatArgv(argv));
     try std.testing.expect(!std.mem.eql(u8, argv[0], sh_bin));
-    try std.testing.expect(!isGitNumstatArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    try std.testing.expect(!std.mem.eql(u8, argv[0], windows_git_bin));
+    try std.testing.expect(std.mem.indexOf(u8, argv[3], cwd) == null);
+    try std.testing.expect(scriptHas(argv[3], "$args[0]"));
+    try std.testing.expect(scriptHas(argv[3], "Set-Location"));
+    try std.testing.expect(scriptHas(argv[3], windows_git_bin));
+    try std.testing.expect(scriptHas(argv[3], git_diff_cmd));
+    try std.testing.expect(scriptHas(argv[3], git_numstat));
+    try std.testing.expect(scriptHas(argv[3], git_head));
+    try std.testing.expect(scriptHas(argv[3], git_ls_files_cmd));
+    try std.testing.expect(scriptHas(argv[3], git_ls_files_others));
+    try std.testing.expect(scriptHas(argv[3], git_ls_files_exclude_standard));
+    try std.testing.expect(scriptHas(argv[3], untracked_max_bytes_s));
+    try std.testing.expect(scriptHas(argv[3], "'{0}'+[char]9+'0'+[char]9+'{1}'"));
+    try std.testing.expect(!isGitNumstatArgv(&.{ powershell_bin, powershell_noprofile, powershell_command }));
+    try std.testing.expect(!isGitNumstatArgv(&.{
+        powershell_bin,
+        powershell_noprofile,
+        powershell_command,
+        powershell_untracked_script,
+        powershell_args_flag,
+    }));
+    try std.testing.expect(!isGitNumstatArgv(&.{
+        powershell_bin,
+        powershell_noprofile,
+        powershell_command,
+        "Get-Date",
+        powershell_args_flag,
+        cwd,
+    }));
     try std.testing.expect(!isGitNumstatArgv(&.{
         windows_git_bin,
         git_c_flag,
@@ -396,16 +448,8 @@ test "windows git argv is git.exe -C PATH diff --numstat HEAD --; path is its ow
         git_diff_cmd,
         git_numstat,
         git_head,
+        git_pathspec_end,
     }));
-    var git_only: [argv_len][]const u8 = undefined;
-    git_only[0] = git_bin;
-    git_only[1] = git_c_flag;
-    git_only[2] = cwd;
-    git_only[3] = git_diff_cmd;
-    git_only[4] = git_numstat;
-    git_only[5] = git_head;
-    git_only[6] = git_pathspec_end;
-    try std.testing.expect(isGitNumstatArgv(git_only[0..windows_argv_len]));
     var branch_buf: [git_branch.argv_len][]const u8 = undefined;
     try std.testing.expect(!isGitNumstatArgv(git_branch.windowsArgvFor(cwd, &branch_buf)));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
@@ -418,6 +462,9 @@ test "windows git argv is git.exe -C PATH diff --numstat HEAD --; path is its ow
     var mention_buf: [file_mention.git_argv_len][]const u8 = undefined;
     try std.testing.expect(!isGitNumstatArgv(file_mention.windowsArgvFor(cwd, &mention_buf)));
     try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
+    var walk_buf: [file_mention.walk_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitNumstatArgv(file_mention.windowsWalkArgvFor(cwd, &walk_buf)));
+    try std.testing.expect(!file_mention.isWalkArgv(argv));
 }
 
 test "host argvFor matches the process OS" {
@@ -426,12 +473,11 @@ test "host argvFor matches the process OS" {
     try std.testing.expect(isGitNumstatArgv(argv));
     switch (builtin.os.tag) {
         .windows => {
-            try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
-            try std.testing.expectEqualStrings(git_c_flag, argv[1]);
-            try std.testing.expectEqualStrings(git_diff_cmd, argv[3]);
-            try std.testing.expectEqualStrings(git_numstat, argv[4]);
-            try std.testing.expectEqualStrings(git_head, argv[5]);
-            try std.testing.expectEqualStrings(git_pathspec_end, argv[6]);
+            try std.testing.expectEqualStrings(powershell_bin, argv[0]);
+            try std.testing.expectEqualStrings(powershell_noprofile, argv[1]);
+            try std.testing.expectEqualStrings(powershell_command, argv[2]);
+            try std.testing.expectEqualStrings(powershell_untracked_script, argv[3]);
+            try std.testing.expectEqualStrings(powershell_args_flag, argv[4]);
         },
         else => {
             try std.testing.expectEqualStrings(sh_bin, argv[0]);
