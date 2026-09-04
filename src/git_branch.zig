@@ -2,16 +2,22 @@
 //!
 //! Native has no git/workspace effect. When the selected session has a
 //! non-empty `project_path` that exists, Faku `fx.spawn`s
-//! `git branch --show-current` through the same `/bin/sh -c` chdir
-//! workaround `fx ask` uses (`fx_ask_chdir_script`). Detached HEAD
-//! prints empty; a follow-up `git rev-parse --short HEAD` may fill
-//! the select label with a conservative short hex. Non-repos stay
-//! omitted. Local heads, remote-tracking checkout, create, safe
-//! delete, fetch, push, and New worktree… live in `git_checkout.zig`.
-//! Not Waku's daemon `InspectBranches` picker and not a live watch.
+//! `git branch --show-current`. Detached HEAD prints empty; a
+//! follow-up `git rev-parse --short HEAD` may fill the select label
+//! with a conservative short hex. Non-repos stay omitted. Local
+//! heads, remote-tracking checkout, create, safe delete, fetch,
+//! push, and New worktree… live in `git_checkout.zig`. Not Waku's
+//! daemon `InspectBranches` picker and not a live watch.
 //!
-//! Spawn/line/exit orchestration lives here. Windows is skipped
-//! (app.zon is macos/linux; no Windows spawn path).
+//! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
+//! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
+//! `git.exe -C <project_path>` (path is its own argv slot, not
+//! interpolated into a script). app.zon already includes windows.
+//! Remaining git modules (ahead-behind, toplevel, remotes, numstat,
+//! checkout/commit) still skip Windows this cut.
+//!
+//! Spawn/line/exit orchestration lives here. Effect key stays
+//! `git_branch_key_first` (200+).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -39,6 +45,10 @@ pub const min_short_sha: usize = 4;
 pub const max_short_sha: usize = 16;
 
 pub const git_bin = "git";
+/// PATH-resolved Windows Git (explicit `.exe` like sibling
+/// `powershell.exe` / `explorer.exe` / `wt.exe` / `cmd.exe`).
+pub const windows_git_bin = "git.exe";
+pub const git_c_flag = "-C";
 pub const git_branch_cmd = "branch";
 pub const git_show_current = "--show-current";
 pub const git_rev_parse_cmd = "rev-parse";
@@ -46,10 +56,18 @@ pub const git_short = "--short";
 pub const git_head = "HEAD";
 pub const sh_bin = "/bin/sh";
 
-const chdir_argv_len: usize = 8;
-const rev_parse_argv_len: usize = 9;
+/// Unix `/bin/sh -c` chdir + git branch --show-current (8). Windows
+/// `git.exe -C` is 5; this is the spawn buffer (max of the two).
+pub const argv_len: usize = 8;
+pub const unix_argv_len: usize = 8;
+pub const windows_argv_len: usize = 5;
+/// Unix `/bin/sh -c` chdir + git rev-parse --short HEAD (9). Windows
+/// `git.exe -C` is 6; this is the spawn buffer (max of the two).
+pub const rev_parse_argv_len: usize = 9;
+pub const unix_rev_parse_argv_len: usize = 9;
+pub const windows_rev_parse_argv_len: usize = 6;
 
-pub fn argvFor(cwd: []const u8, buf: *[chdir_argv_len][]const u8) []const []const u8 {
+pub fn unixArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -60,11 +78,29 @@ pub fn argvFor(cwd: []const u8, buf: *[chdir_argv_len][]const u8) []const []cons
         git_branch_cmd,
         git_show_current,
     };
-    return buf;
+    return buf[0..unix_argv_len];
 }
 
-pub fn isGitBranchArgv(argv: []const []const u8) bool {
-    if (argv.len != chdir_argv_len) return false;
+/// Windows: `git.exe -C <project_path> branch --show-current`. Path
+/// is its own argv slot (no `/bin/sh`, no packing into a cmd string).
+pub fn windowsArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_branch_cmd;
+    buf[4] = git_show_current;
+    return buf[0..windows_argv_len];
+}
+
+pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsArgvFor(cwd, buf),
+        else => unixArgvFor(cwd, buf),
+    };
+}
+
+fn isUnixGitBranchArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -73,7 +109,21 @@ pub fn isGitBranchArgv(argv: []const []const u8) bool {
     return std.mem.eql(u8, argv[7], git_show_current);
 }
 
-pub fn revParseArgvFor(cwd: []const u8, buf: *[rev_parse_argv_len][]const u8) []const []const u8 {
+fn isWindowsGitBranchArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_argv_len) return false;
+    const bin_ok = std.mem.eql(u8, argv[0], windows_git_bin) or std.mem.eql(u8, argv[0], git_bin);
+    if (!bin_ok) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_branch_cmd)) return false;
+    return std.mem.eql(u8, argv[4], git_show_current);
+}
+
+pub fn isGitBranchArgv(argv: []const []const u8) bool {
+    return isUnixGitBranchArgv(argv) or isWindowsGitBranchArgv(argv);
+}
+
+pub fn unixRevParseArgvFor(cwd: []const u8, buf: *[rev_parse_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -85,11 +135,30 @@ pub fn revParseArgvFor(cwd: []const u8, buf: *[rev_parse_argv_len][]const u8) []
         git_short,
         git_head,
     };
-    return buf;
+    return buf[0..unix_rev_parse_argv_len];
 }
 
-pub fn isGitRevParseArgv(argv: []const []const u8) bool {
-    if (argv.len != rev_parse_argv_len) return false;
+/// Windows: `git.exe -C <project_path> rev-parse --short HEAD`. Path
+/// is its own argv slot.
+pub fn windowsRevParseArgvFor(cwd: []const u8, buf: *[rev_parse_argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_rev_parse_cmd;
+    buf[4] = git_short;
+    buf[5] = git_head;
+    return buf[0..windows_rev_parse_argv_len];
+}
+
+pub fn revParseArgvFor(cwd: []const u8, buf: *[rev_parse_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsRevParseArgvFor(cwd, buf),
+        else => unixRevParseArgvFor(cwd, buf),
+    };
+}
+
+fn isUnixGitRevParseArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_rev_parse_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -97,6 +166,25 @@ pub fn isGitRevParseArgv(argv: []const []const u8) bool {
     if (!std.mem.eql(u8, argv[6], git_rev_parse_cmd)) return false;
     if (!std.mem.eql(u8, argv[7], git_short)) return false;
     return std.mem.eql(u8, argv[8], git_head);
+}
+
+fn isWindowsGitRevParseArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_rev_parse_argv_len) return false;
+    const bin_ok = std.mem.eql(u8, argv[0], windows_git_bin) or std.mem.eql(u8, argv[0], git_bin);
+    if (!bin_ok) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_rev_parse_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], git_short)) return false;
+    return std.mem.eql(u8, argv[5], git_head);
+}
+
+pub fn isGitRevParseArgv(argv: []const []const u8) bool {
+    return isUnixGitRevParseArgv(argv) or isWindowsGitRevParseArgv(argv);
+}
+
+pub fn probeSupported() bool {
+    return true;
 }
 
 /// First stdout line, trimmed. Empty / whitespace is not a branch.
@@ -179,12 +267,12 @@ fn probePath(model: *const Model) []const u8 {
 }
 
 /// Cancel any in-flight probe, drop the label, and spawn again when the
-/// selected session has an existing `project_path`. Empty / missing /
-/// Windows skips the spawn so the label stays omitted.
+/// selected session has an existing `project_path`. Empty / missing
+/// skips the spawn so the label stays omitted.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     clearGitBranch(model);
-    if (builtin.os.tag == .windows) return;
+    if (!probeSupported()) return;
     const cwd = probePath(model);
     if (cwd.len == 0) return;
 
@@ -195,7 +283,7 @@ pub fn refresh(model: *Model, fx: *Effects) void {
     model.git_branch_probe_is_rev_parse = false;
     writeFixed(&model.git_branch_probe_path_storage, &model.git_branch_probe_path_len, cwd);
 
-    var argv_buf: [chdir_argv_len][]const u8 = undefined;
+    var argv_buf: [argv_len][]const u8 = undefined;
     fx.spawn(.{
         .key = key,
         .argv = argvFor(cwd, &argv_buf),
@@ -205,6 +293,7 @@ pub fn refresh(model: *Model, fx: *Effects) void {
 }
 
 fn spawnRevParse(model: *Model, fx: *Effects, cwd: []const u8) void {
+    if (!probeSupported()) return;
     const key = model.next_git_branch_key;
     model.next_git_branch_key = key + 1;
     model.git_branch_key = key;
@@ -261,8 +350,11 @@ pub fn handleExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void
 }
 
 test "argv is chdir script plus git branch --show-current" {
-    var buf: [chdir_argv_len][]const u8 = undefined;
-    const argv = argvFor("/tmp/faku-git", &buf);
+    const git_dirty = @import("git_dirty.zig");
+    const file_mention = @import("file_mention.zig");
+    var buf: [argv_len][]const u8 = undefined;
+    const argv = unixArgvFor("/tmp/faku-git", &buf);
+    try std.testing.expectEqual(@as(usize, unix_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -273,6 +365,44 @@ test "argv is chdir script plus git branch --show-current" {
     try std.testing.expectEqualStrings(git_show_current, argv[7]);
     try std.testing.expect(isGitBranchArgv(argv));
     try std.testing.expect(!isGitBranchArgv(&.{ git_bin, git_branch_cmd, git_show_current }));
+    try std.testing.expect(!isGitRevParseArgv(argv));
+    var dirty_buf: [git_dirty.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitBranchArgv(git_dirty.unixArgvFor("/tmp/faku-git", &dirty_buf)));
+    try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
+    var mention_buf: [file_mention.git_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitBranchArgv(file_mention.unixArgvFor("/tmp/faku-git", &mention_buf)));
+    try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
+}
+
+test "windows git argv is git.exe -C PATH branch --show-current; path is its own slot" {
+    const git_dirty = @import("git_dirty.zig");
+    const file_mention = @import("file_mention.zig");
+    var buf: [argv_len][]const u8 = undefined;
+    const cwd = "C:\\Users\\me\\proj";
+    const argv = windowsArgvFor(cwd, &buf);
+    try std.testing.expectEqual(@as(usize, windows_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+    try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+    try std.testing.expectEqualStrings(cwd, argv[2]);
+    try std.testing.expectEqualStrings(git_branch_cmd, argv[3]);
+    try std.testing.expectEqualStrings(git_show_current, argv[4]);
+    try std.testing.expect(isGitBranchArgv(argv));
+    try std.testing.expect(!isGitRevParseArgv(argv));
+    try std.testing.expect(!isGitBranchArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    var git_only: [argv_len][]const u8 = undefined;
+    git_only[0] = git_bin;
+    git_only[1] = git_c_flag;
+    git_only[2] = cwd;
+    git_only[3] = git_branch_cmd;
+    git_only[4] = git_show_current;
+    try std.testing.expect(isGitBranchArgv(git_only[0..windows_argv_len]));
+    var dirty_buf: [git_dirty.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitBranchArgv(git_dirty.windowsArgvFor(cwd, &dirty_buf)));
+    try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
+    var mention_buf: [file_mention.git_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitBranchArgv(file_mention.windowsArgvFor(cwd, &mention_buf)));
+    try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
 }
 
 test "firstStdoutBranch trims one line; implausible names are omitted" {
@@ -295,7 +425,8 @@ test "firstStdoutBranch trims one line; implausible names are omitted" {
 
 test "rev-parse argv is chdir script plus git rev-parse --short HEAD" {
     var buf: [rev_parse_argv_len][]const u8 = undefined;
-    const argv = revParseArgvFor("/tmp/faku-sha", &buf);
+    const argv = unixRevParseArgvFor("/tmp/faku-sha", &buf);
+    try std.testing.expectEqual(@as(usize, unix_rev_parse_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -307,6 +438,62 @@ test "rev-parse argv is chdir script plus git rev-parse --short HEAD" {
     try std.testing.expect(isGitRevParseArgv(argv));
     try std.testing.expect(!isGitBranchArgv(argv));
     try std.testing.expect(!isGitRevParseArgv(&.{ git_bin, git_rev_parse_cmd, git_short, git_head }));
+}
+
+test "windows rev-parse argv is git.exe -C PATH rev-parse --short HEAD" {
+    var buf: [rev_parse_argv_len][]const u8 = undefined;
+    const cwd = "C:\\Users\\me\\proj";
+    const argv = windowsRevParseArgvFor(cwd, &buf);
+    try std.testing.expectEqual(@as(usize, windows_rev_parse_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+    try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+    try std.testing.expectEqualStrings(cwd, argv[2]);
+    try std.testing.expectEqualStrings(git_rev_parse_cmd, argv[3]);
+    try std.testing.expectEqualStrings(git_short, argv[4]);
+    try std.testing.expectEqualStrings(git_head, argv[5]);
+    try std.testing.expect(isGitRevParseArgv(argv));
+    try std.testing.expect(!isGitBranchArgv(argv));
+    try std.testing.expect(!isGitRevParseArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    var git_only: [rev_parse_argv_len][]const u8 = undefined;
+    git_only[0] = git_bin;
+    git_only[1] = git_c_flag;
+    git_only[2] = cwd;
+    git_only[3] = git_rev_parse_cmd;
+    git_only[4] = git_short;
+    git_only[5] = git_head;
+    try std.testing.expect(isGitRevParseArgv(git_only[0..windows_rev_parse_argv_len]));
+    var branch_buf: [argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitRevParseArgv(windowsArgvFor(cwd, &branch_buf)));
+}
+
+test "host argvFor and revParseArgvFor match the process OS" {
+    var branch_buf: [argv_len][]const u8 = undefined;
+    const branch = argvFor("/tmp/faku-git", &branch_buf);
+    try std.testing.expect(isGitBranchArgv(branch));
+    var rev_buf: [rev_parse_argv_len][]const u8 = undefined;
+    const rev = revParseArgvFor("/tmp/faku-sha", &rev_buf);
+    try std.testing.expect(isGitRevParseArgv(rev));
+    try std.testing.expect(!isGitRevParseArgv(branch));
+    try std.testing.expect(!isGitBranchArgv(rev));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(windows_git_bin, branch[0]);
+            try std.testing.expectEqualStrings(git_c_flag, branch[1]);
+            try std.testing.expectEqualStrings(windows_git_bin, rev[0]);
+            try std.testing.expectEqualStrings(git_c_flag, rev[1]);
+        },
+        else => {
+            try std.testing.expectEqualStrings(sh_bin, branch[0]);
+            try std.testing.expectEqualStrings(sh_bin, rev[0]);
+            try std.testing.expectEqualStrings(git_show_current, branch[7]);
+            try std.testing.expectEqualStrings(git_head, rev[8]);
+        },
+    }
+}
+
+test "probeSupported is true on macOS, Linux, and Windows" {
+    try std.testing.expect(probeSupported());
 }
 
 test "takeShortSha accepts conservative hex only" {

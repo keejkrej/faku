@@ -3,19 +3,26 @@
 //!
 //! Native has no git/workspace effect. When the selected session has a
 //! non-empty `project_path` that exists, Faku `fx.spawn`s
-//! `git status --porcelain` through the same `/bin/sh -c` chdir
-//! workaround `fx ask` uses (`fx_ask_chdir_script`). Non-empty stdout
-//! lines are counted as dirty files (porcelain one line per path).
-//! The same stdout also sets `has_staged` / `has_unstaged` with Waku
-//! `status_flags` rules (X not space/`?` → staged; Y not space or
-//! X is `?` → unstaged). Zero / failed / empty / cancel / session
-//! switch omits the label and clears both flags — this cut does not
-//! invent "clean". Not Waku's daemon `InspectBranches`, not a live
-//! watch, not commit-card snapshot numstat, and not Waku's Environment
-//! Summary.
+//! `git status --porcelain`. Non-empty stdout lines are counted as
+//! dirty files (porcelain one line per path). The same stdout also
+//! sets `has_staged` / `has_unstaged` with Waku `status_flags` rules
+//! (X not space/`?` → staged; Y not space or X is `?` → unstaged).
+//! Zero / failed / empty / cancel / session switch omits the label
+//! and clears both flags — this cut does not invent "clean". Not
+//! Waku's daemon `InspectBranches`, not a live watch, not commit-card
+//! snapshot numstat, and not Waku's Environment Summary.
 //!
-//! Spawn/line/exit orchestration lives here. Windows is skipped
-//! (app.zon is macos/linux; no Windows spawn path).
+//! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
+//! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
+//! `git.exe -C <project_path>` (path is its own argv slot, not
+//! interpolated into a script). Porcelain stdout is the same on
+//! Windows; CRLF is already trimmed in the line helpers. app.zon
+//! already includes windows. Remaining git modules (ahead-behind,
+//! toplevel, remotes, numstat, checkout/commit) still skip Windows
+//! this cut.
+//!
+//! Spawn/line/exit orchestration lives here. Effect key stays
+//! `git_dirty_key_first` (300+).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -38,13 +45,21 @@ pub const git_dirty_key_first: u64 = 300;
 pub const max_git_dirty_label: usize = 24;
 
 pub const git_bin = "git";
+/// PATH-resolved Windows Git (explicit `.exe` like sibling
+/// `powershell.exe` / `explorer.exe` / `wt.exe` / `cmd.exe`).
+pub const windows_git_bin = "git.exe";
+pub const git_c_flag = "-C";
 pub const git_status_cmd = "status";
 pub const git_porcelain = "--porcelain";
 pub const sh_bin = "/bin/sh";
 
-const chdir_argv_len: usize = 8;
+/// Unix `/bin/sh -c` chdir + git status --porcelain (8). Windows
+/// `git.exe -C` is 5; this is the spawn buffer (max of the two).
+pub const argv_len: usize = 8;
+pub const unix_argv_len: usize = 8;
+pub const windows_argv_len: usize = 5;
 
-pub fn argvFor(cwd: []const u8, buf: *[chdir_argv_len][]const u8) []const []const u8 {
+pub fn unixArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -55,17 +70,53 @@ pub fn argvFor(cwd: []const u8, buf: *[chdir_argv_len][]const u8) []const []cons
         git_status_cmd,
         git_porcelain,
     };
-    return buf;
+    return buf[0..unix_argv_len];
 }
 
-pub fn isGitDirtyArgv(argv: []const []const u8) bool {
-    if (argv.len != chdir_argv_len) return false;
+/// Windows: `git.exe -C <project_path> status --porcelain`. Path is
+/// its own argv slot (no `/bin/sh`, no packing into a cmd string).
+pub fn windowsArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_status_cmd;
+    buf[4] = git_porcelain;
+    return buf[0..windows_argv_len];
+}
+
+pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsArgvFor(cwd, buf),
+        else => unixArgvFor(cwd, buf),
+    };
+}
+
+fn isUnixGitDirtyArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_status_cmd)) return false;
     return std.mem.eql(u8, argv[7], git_porcelain);
+}
+
+fn isWindowsGitDirtyArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_argv_len) return false;
+    const bin_ok = std.mem.eql(u8, argv[0], windows_git_bin) or std.mem.eql(u8, argv[0], git_bin);
+    if (!bin_ok) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_status_cmd)) return false;
+    return std.mem.eql(u8, argv[4], git_porcelain);
+}
+
+pub fn isGitDirtyArgv(argv: []const []const u8) bool {
+    return isUnixGitDirtyArgv(argv) or isWindowsGitDirtyArgv(argv);
+}
+
+pub fn probeSupported() bool {
+    return true;
 }
 
 /// Non-empty porcelain lines (trim whitespace). Blank lines ignored.
@@ -172,12 +223,12 @@ fn probePath(model: *const Model) []const u8 {
 }
 
 /// Cancel any in-flight probe, drop the label, and spawn again when the
-/// selected session has an existing `project_path`. Empty / missing /
-/// Windows skips the spawn so the label stays omitted.
+/// selected session has an existing `project_path`. Empty / missing
+/// skips the spawn so the label stays omitted.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     clearGitDirty(model);
-    if (builtin.os.tag == .windows) return;
+    if (!probeSupported()) return;
     const cwd = probePath(model);
     if (cwd.len == 0) return;
 
@@ -187,7 +238,7 @@ pub fn refresh(model: *Model, fx: *Effects) void {
     model.git_dirty_probe_session = model.selected;
     writeFixed(&model.git_dirty_probe_path_storage, &model.git_dirty_probe_path_len, cwd);
 
-    var argv_buf: [chdir_argv_len][]const u8 = undefined;
+    var argv_buf: [argv_len][]const u8 = undefined;
     fx.spawn(.{
         .key = key,
         .argv = argvFor(cwd, &argv_buf),
@@ -227,8 +278,9 @@ test "argv is chdir script plus git status --porcelain" {
     const git_numstat = @import("git_numstat.zig");
     const git_ahead_behind = @import("git_ahead_behind.zig");
     const file_mention = @import("file_mention.zig");
-    var buf: [chdir_argv_len][]const u8 = undefined;
-    const argv = argvFor("/tmp/faku-dirty", &buf);
+    var buf: [argv_len][]const u8 = undefined;
+    const argv = unixArgvFor("/tmp/faku-dirty", &buf);
+    try std.testing.expectEqual(@as(usize, unix_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -239,8 +291,8 @@ test "argv is chdir script plus git status --porcelain" {
     try std.testing.expectEqualStrings(git_porcelain, argv[7]);
     try std.testing.expect(isGitDirtyArgv(argv));
     try std.testing.expect(!isGitDirtyArgv(&.{ git_bin, git_status_cmd, git_porcelain }));
-    var branch_buf: [8][]const u8 = undefined;
-    const branch = git_branch.argvFor("/tmp/faku-dirty", &branch_buf);
+    var branch_buf: [git_branch.argv_len][]const u8 = undefined;
+    const branch = git_branch.unixArgvFor("/tmp/faku-dirty", &branch_buf);
     try std.testing.expect(!isGitDirtyArgv(branch));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
@@ -252,10 +304,63 @@ test "argv is chdir script plus git status --porcelain" {
     try std.testing.expect(!isGitDirtyArgv(ahead));
     try std.testing.expect(!git_ahead_behind.isGitAheadBehindArgv(argv));
     try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
+    var mention_buf: [file_mention.git_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitDirtyArgv(file_mention.unixArgvFor("/tmp/faku-dirty", &mention_buf)));
     try std.testing.expect(git_dirty_key_first > git_branch.git_branch_key_first);
     try std.testing.expect(git_numstat.git_numstat_key_first > git_dirty_key_first);
     try std.testing.expect(git_ahead_behind.git_ahead_behind_key_first > git_numstat.git_numstat_key_first);
     try std.testing.expect(file_mention.file_mention_key_first > git_ahead_behind.git_ahead_behind_key_first);
+}
+
+test "windows git argv is git.exe -C PATH status --porcelain; path is its own slot" {
+    const git_branch = @import("git_branch.zig");
+    const file_mention = @import("file_mention.zig");
+    var buf: [argv_len][]const u8 = undefined;
+    const cwd = "C:\\Users\\me\\proj";
+    const argv = windowsArgvFor(cwd, &buf);
+    try std.testing.expectEqual(@as(usize, windows_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+    try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+    try std.testing.expectEqualStrings(cwd, argv[2]);
+    try std.testing.expectEqualStrings(git_status_cmd, argv[3]);
+    try std.testing.expectEqualStrings(git_porcelain, argv[4]);
+    try std.testing.expect(isGitDirtyArgv(argv));
+    try std.testing.expect(!isGitDirtyArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    var git_only: [argv_len][]const u8 = undefined;
+    git_only[0] = git_bin;
+    git_only[1] = git_c_flag;
+    git_only[2] = cwd;
+    git_only[3] = git_status_cmd;
+    git_only[4] = git_porcelain;
+    try std.testing.expect(isGitDirtyArgv(git_only[0..windows_argv_len]));
+    var branch_buf: [git_branch.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitDirtyArgv(git_branch.windowsArgvFor(cwd, &branch_buf)));
+    try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    var mention_buf: [file_mention.git_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitDirtyArgv(file_mention.windowsArgvFor(cwd, &mention_buf)));
+    try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
+}
+
+test "host argvFor matches the process OS" {
+    var buf: [argv_len][]const u8 = undefined;
+    const argv = argvFor("/tmp/faku-dirty", &buf);
+    try std.testing.expect(isGitDirtyArgv(argv));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+            try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+            try std.testing.expectEqualStrings(git_porcelain, argv[4]);
+        },
+        else => {
+            try std.testing.expectEqualStrings(sh_bin, argv[0]);
+            try std.testing.expectEqualStrings(git_porcelain, argv[7]);
+        },
+    }
+}
+
+test "probeSupported is true on macOS, Linux, and Windows" {
+    try std.testing.expect(probeSupported());
 }
 
 test "countNonEmptyLines ignores blanks; dirtyLabel is change/changes" {
