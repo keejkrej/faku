@@ -16413,6 +16413,7 @@ fn findGitPushShowCurrentSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpa
 
 fn expectGitPushArgv(spawn: anytype, cwd: []const u8) !void {
     try testing.expect(git_checkout.isGitPushArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitPushForceArgv(spawn.argv));
     try testing.expectEqual(@as(usize, 7), spawn.argv.len);
     try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
     try testing.expectEqualStrings(main.fx_ask_chdir_script, spawn.argv[2]);
@@ -16472,6 +16473,7 @@ fn expectGitRemoteArgv(spawn: anytype, cwd: []const u8) !void {
 
 fn expectGitSetUpstreamPushArgv(spawn: anytype, cwd: []const u8, remote: []const u8, branch: []const u8) !void {
     try testing.expect(git_checkout.isGitSetUpstreamPushArgv(spawn.argv));
+    try testing.expect(!git_checkout.isGitSetUpstreamPushForceArgv(spawn.argv));
     try testing.expect(!git_checkout.isGitPushArgv(spawn.argv));
     try testing.expectEqual(@as(usize, 10), spawn.argv.len);
     try testing.expectEqualStrings(git_checkout.sh_bin, spawn.argv[0]);
@@ -16547,10 +16549,28 @@ test "Push menu item one-shots git push; success refreshes; failure sets status"
     main.update(&model, tree.msgForPointer(push_item.id, .up).?, &fx);
     try testing.expect(!model.git_branch_picker_open);
     try testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try testing.expect(!model.git_push_confirm_active);
     model.phase = .idle;
 
     main.update(&model, .toggle_git_branch_picker, &fx);
     main.update(&model, .start_git_push, &fx);
+    try testing.expect(model.git_push_confirm_active);
+    try testing.expect(!model.git_push_force);
+    try testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try testing.expect(!model.git_branch_picker_open);
+    tree = try buildTree(arena, &model);
+    const force_off = try expectButtonMsg(tree, "Force", .toggle_git_push_force);
+    try testing.expect(!force_off.state.selected);
+    _ = try expectButtonMsg(tree, "Push", .confirm_git_push);
+    _ = try expectButtonMsg(tree, "Cancel", .cancel_git_push);
+    main.update(&model, tree.msgForPointer(force_off.id, .up).?, &fx);
+    try testing.expect(model.git_push_force);
+    tree = try buildTree(arena, &model);
+    const force_on = try expectButtonMsg(tree, "Force", .toggle_git_push_force);
+    try testing.expect(force_on.state.selected);
+    main.update(&model, tree.msgForPointer(force_on.id, .up).?, &fx);
+    try testing.expect(!model.git_push_force);
+    main.update(&model, .confirm_git_push, &fx);
     const pushed = try feedUpstreamPresent(&model, &fx, project);
     try expectGitPushArgv(pushed, project);
     try testing.expect(!model.git_branch_picker_open);
@@ -16584,6 +16604,7 @@ test "Push menu item one-shots git push; success refreshes; failure sets status"
     const fetch_in_flight = findGitFetchSpawnKey(&fx, model.git_fetch_key) orelse return error.MissingGitFetchInFlight;
     main.update(&model, .start_git_push, &fx);
     try testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try testing.expect(!model.git_push_confirm_active);
     try testing.expectEqual(fetch_in_flight.key, model.git_fetch_key);
     try fx.feedExit(fetch_in_flight.key, 1);
     drainEffects(&model, &fx);
@@ -16591,6 +16612,8 @@ test "Push menu item one-shots git push; success refreshes; failure sets status"
     model.clearAttachStatus();
 
     main.update(&model, .start_git_push, &fx);
+    try testing.expect(model.git_push_confirm_active);
+    main.update(&model, .confirm_git_push, &fx);
     const failed = try feedUpstreamPresent(&model, &fx, project);
     try expectGitPushArgv(failed, project);
     try fx.feedExit(failed.key, 1);
@@ -16602,6 +16625,8 @@ test "Push menu item one-shots git push; success refreshes; failure sets status"
 
     model.clearAttachStatus();
     main.update(&model, .start_git_push, &fx);
+    try testing.expect(model.git_push_confirm_active);
+    main.update(&model, .confirm_git_push, &fx);
     const cancel_spawn = try feedUpstreamPresent(&model, &fx, project);
     const cancel_key = cancel_spawn.key;
     try expectGitPushArgv(cancel_spawn, project);
@@ -16635,6 +16660,8 @@ test "Push without upstream set-upstreams origin; detached and no remotes are no
     try finishAheadBehindNoUpstream(&fx, &model);
 
     main.update(&model, .start_git_push, &fx);
+    try testing.expect(model.git_push_confirm_active);
+    main.update(&model, .confirm_git_push, &fx);
     const upstream = findGitUpstreamSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitUpstreamSpawn;
     try expectGitUpstreamArgv(upstream, project);
     try testing.expect(findGitPushSpawnKey(&fx, upstream.key) == null);
@@ -16666,6 +16693,8 @@ test "Push without upstream set-upstreams origin; detached and no remotes are no
     try finishAheadBehindNoUpstream(&fx, &model);
 
     main.update(&model, .start_git_push, &fx);
+    try testing.expect(model.git_push_confirm_active);
+    main.update(&model, .confirm_git_push, &fx);
     const no_remote_up = findGitUpstreamSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitNoRemoteUpstream;
     try fx.feedExit(no_remote_up.key, 1);
     drainEffects(&model, &fx);
@@ -16690,6 +16719,8 @@ test "Push without upstream set-upstreams origin; detached and no remotes are no
     try finishAheadBehindNoUpstream(&fx, &model);
 
     main.update(&model, .start_git_push, &fx);
+    try testing.expect(model.git_push_confirm_active);
+    main.update(&model, .confirm_git_push, &fx);
     const detached_up = findGitUpstreamSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitDetachedUpstream;
     try fx.feedExit(detached_up.key, 128);
     drainEffects(&model, &fx);
@@ -16708,6 +16739,8 @@ test "Push without upstream set-upstreams origin; detached and no remotes are no
 
     model.clearAttachStatus();
     main.update(&model, .start_git_push, &fx);
+    try testing.expect(model.git_push_confirm_active);
+    main.update(&model, .confirm_git_push, &fx);
     const show_up = findGitUpstreamSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitShowCurrentUpstream;
     try fx.feedExit(show_up.key, 128);
     drainEffects(&model, &fx);
@@ -16966,6 +16999,9 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     const amend = try expectButtonMsg(tree, "Amend", .toggle_git_commit_amend);
     try testing.expect(!amend.state.selected);
     try testing.expect(!model.git_commit_amend);
+    const commit_force = try expectButtonMsg(tree, "Force", .toggle_git_push_force);
+    try testing.expect(!commit_force.state.selected);
+    try testing.expect(!model.git_push_force);
     _ = try expectButtonMsg(tree, "Commit", .confirm_git_commit);
     _ = try expectButtonMsg(tree, "Commit and Push", .confirm_git_commit_and_push);
     _ = try expectButtonMsg(tree, "Push", .confirm_git_commit_push);
@@ -18728,6 +18764,8 @@ test "Push… follows Waku can_push: ahead or no-upstream with remotes; hides in
     try testing.expectEqual(Msg.start_git_push, tree.msgForPointer(push_item.id, .up).?);
 
     main.update(&model, .start_git_push, &fx);
+    try testing.expect(model.git_push_confirm_active);
+    main.update(&model, .confirm_git_push, &fx);
     try testing.expect(findGitUpstreamSpawnKey(&fx, model.git_push_key) != null);
 }
 
