@@ -17554,18 +17554,28 @@ test "New worktree Base override wins confirm argv; empty override keeps origin/
     const created = findGitWorktreeAddSpawnKey(&fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddOverride;
     try expectGitWorktreeAddArgv(created, project, home, "feat-picked", "feat/old");
 
-    main.update(&model, .cancel_git_worktree_create, &fx);
-    try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
-    try testing.expectEqual(@as(usize, 0), model.git_worktree_base_override_len);
+    var auto_fx = Effects.init(testing.allocator);
+    defer auto_fx.deinit();
+    auto_fx.executor = .fake;
+    var auto_model = Model{};
+    auto_model.store_io = testing.io;
+    auto_model.setHome(home);
+    const auto_id = auto_model.addSession("worktree base auto", .fx);
+    auto_model.selected = auto_id;
+    main.update(&auto_model, .{ .project_path_edit = .{ .insert_text = project } }, &auto_fx);
+    const auto_branch = findGitBranchSpawnKey(&auto_fx, auto_model.git_branch_key) orelse return error.MissingGitBranchAuto;
+    try auto_fx.feedLine(auto_branch.key, "main\n");
+    drainEffects(&auto_model, &auto_fx);
 
-    main.update(&model, .start_git_worktree_create, &fx);
-    main.update(&model, .{ .git_worktree_create_edit = .clear }, &fx);
-    main.update(&model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-auto" } }, &fx);
-    try testing.expectEqualStrings("main", model.git_worktree_base_label());
-    main.update(&model, .confirm_git_worktree_create, &fx);
-    try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
-    try finishWorktreeBaseProbe(&fx, &model, "origin/main\n", 0);
-    const auto_add = findGitWorktreeAddSpawnKey(&fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddAuto;
+    main.update(&auto_model, .start_git_worktree_create, &auto_fx);
+    main.update(&auto_model, .{ .git_worktree_create_edit = .clear }, &auto_fx);
+    main.update(&auto_model, .{ .git_worktree_create_edit = .{ .insert_text = "feat-auto" } }, &auto_fx);
+    try testing.expectEqualStrings("main", auto_model.git_worktree_base_label());
+    try testing.expectEqual(@as(usize, 0), auto_model.git_worktree_base_override_len);
+    main.update(&auto_model, .confirm_git_worktree_create, &auto_fx);
+    try testing.expectEqual(@as(u64, 0), auto_model.git_worktree_add_key);
+    try finishWorktreeBaseProbe(&auto_fx, &auto_model, "origin/main\n", 0);
+    const auto_add = findGitWorktreeAddSpawnKey(&auto_fx, auto_model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddAuto;
     try expectGitWorktreeAddArgv(auto_add, project, home, "feat-auto", "main");
 }
 

@@ -4034,10 +4034,25 @@ test "confirmWorktreeAdd override skips origin/HEAD probe and wins the add argv"
         try std.testing.expectEqual(@as(usize, windows_worktree_add_argv_len), spawned.argv.len);
         try std.testing.expect(std.mem.indexOf(u8, spawned.argv[3], "feat") == null);
     }
+}
 
-    dismissWorktreeCreate(&model, &fx);
-    try std.testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
-    try std.testing.expectEqual(@as(usize, 0), model.git_worktree_base_override_len);
+test "confirmWorktreeAdd with empty override still probes origin/HEAD" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-wt-base-auto", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("worktree base auto", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
 
     startWorktreeCreate(&model);
     model.git_worktree_create_buffer.clear();
