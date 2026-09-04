@@ -25,7 +25,7 @@
 //! helpers. Untracked synthetic rows stay Unix-only this cut — no
 //! PowerShell untracked path. app.zon already includes windows.
 //! Remaining this cut: untracked synthetic rows stay Unix-only;
-//! `review_diff.zig` still skips Windows.
+//! empty-message `fx ask` commit generate stays Unix-only.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_numstat_key_first` (350+).

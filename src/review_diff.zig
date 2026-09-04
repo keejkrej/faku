@@ -61,14 +61,14 @@
 //! makes git fail is `Could not show diff.` — no invented
 //! tree listing. Hunk
 //! spawn-key band 520+ is distinct from name-status 510+.
-//! All six use the `/bin/sh -c` `fx_ask_chdir_script` chdir
+//! Unix uses the `/bin/sh -c` `fx_ask_chdir_script` chdir
 //! workaround. Last-slot operands (`@{upstream}...HEAD` /
 //! `--cached` / `origin/HEAD...HEAD` / `main...HEAD` /
 //! `master...HEAD` / `<40-hex>..<40-hex>` / `<40-hex>` /
 //! `<40-hex>...HEAD`) are their
 //! own argv slots — never interpolated into `-c`. Uncommitted packs
 //! `HEAD` into the nested script (not a last-slot `HEAD`).
-//! Unstaged has no trailing operand, so its argv is 8 slots
+//! Unstaged has no trailing operand, so its Unix argv is 8 slots
 //! (the 9-slot detector still accepts Branch / Staged /
 //! Committed / LastTurn). Distinct
 //! spawn-key band 510+ (after git-common-dir
@@ -83,10 +83,25 @@
 //! LastTurn uses stored shas, not the refs, and not a
 //! `refs/waku/` Compare operand.
 //!
-//! Spawn/line/exit orchestration lives here. Windows is skipped
-//! this cut (app.zon already includes windows; no `git.exe -C`
-//! spawn path yet). Remaining leftover after composer git_checkout
-//! Windows.
+//! Windows cannot use `/bin/sh` or the Uncommitted nested
+//! `uncommitted_untracked_script`: `git.exe -C <project_path>`
+//! (path is its own argv slot, not interpolated into a script).
+//! Explicit `git.exe` like siblings. Name-status is
+//! `git.exe -C PATH diff --name-status [operand]`; Uncommitted
+//! is tracked-only `git.exe -C PATH diff --name-status HEAD`
+//! (no synthetic `?\tpath` rows this cut — same deferral as
+//! git_numstat untracked). Tracked hunks are
+//! `git.exe -C PATH diff [operand] -- <path>`. Untracked `?`
+//! hunks (`--no-index -- /dev/null`) stay Unix-only this cut;
+//! Uncommitted does not emit `?` rows on Windows, so those
+//! clicks do not appear. Name-status / hunk stdout is already
+//! CRLF-trimmed. app.zon already includes windows. Remaining
+//! leftovers this cut: git_numstat untracked synthetic rows
+//! (Unix-only), empty-message `fx ask` commit generate
+//! (Unix-only).
+//!
+//! Spawn/line/exit orchestration lives here. Effect keys stay
+//! name-status 510+ and hunk 520+.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -121,8 +136,9 @@ pub const review_diff_hunk_key_first: u64 = 520;
 
 /// Compare / header +/- open the Diff tab on Uncommitted when no
 /// compare is active. Uncommitted is first-cut
-/// tracked `git diff --name-status HEAD` plus untracked
-/// `git ls-files --others --exclude-standard` (`?` rows). Staged
+/// tracked `git diff --name-status HEAD` plus (Unix) untracked
+/// `git ls-files --others --exclude-standard` (`?` rows). Windows
+/// Uncommitted is tracked-only this cut. Staged
 /// is first-cut index vs HEAD `git diff --name-status --cached`.
 /// Unstaged is first-cut worktree vs index `git diff
 /// --name-status` (tracked only). Committed is first-cut
@@ -159,6 +175,10 @@ pub const max_review_diff_label: usize = 258;
 pub const max_review_diff_status: usize = 32;
 
 pub const git_bin = "git";
+/// PATH-resolved Windows Git (explicit `.exe` like sibling
+/// `powershell.exe` / `explorer.exe` / `wt.exe` / `cmd.exe`).
+pub const windows_git_bin = "git.exe";
+pub const git_c_flag = "-C";
 pub const git_diff_cmd = "diff";
 pub const git_name_status = "--name-status";
 pub const git_upstream_range = git_ahead_behind.git_upstream_range;
@@ -216,20 +236,37 @@ pub const uncommitted_untracked_script =
     \\done
 ;
 
-/// `/bin/sh -c` chdir + `git diff --name-status` + last-slot operand
-/// (Branch / Staged / Committed / LastTurn). Unstaged omits the
-/// operand. Uncommitted is chdir + nested `/bin/sh -c` + this script.
+/// Unix `/bin/sh -c` chdir + `git diff --name-status` + last-slot
+/// operand (Branch / Staged / Committed / LastTurn) is 9. Windows
+/// `git.exe -C` is 6; this is the spawn buffer (max of the two).
 pub const argv_len: usize = 9;
-/// Unstaged: same chdir prefix, no trailing operand.
+pub const unix_argv_len: usize = 9;
+pub const windows_argv_len: usize = 6;
+/// Unstaged: Unix chdir prefix, no trailing operand (8). Windows
+/// `git.exe -C PATH diff --name-status` is 5.
 pub const argv_len_unstaged: usize = 8;
-/// Uncommitted: chdir + `/bin/sh -c` + `uncommitted_untracked_script`.
+pub const unix_argv_len_unstaged: usize = 8;
+pub const windows_argv_len_unstaged: usize = 5;
+/// Uncommitted: Unix chdir + `/bin/sh -c` + `uncommitted_untracked_script`
+/// (8). Windows tracked-only `git.exe -C PATH diff --name-status HEAD`
+/// is 6.
 pub const argv_len_uncommitted: usize = 8;
-/// Hunk with operand: chdir + `git diff <operand> -- <path>`.
+pub const unix_argv_len_uncommitted: usize = 8;
+pub const windows_argv_len_uncommitted: usize = 6;
+/// Hunk with operand: Unix chdir + `git diff <operand> -- <path>` (10).
+/// Windows `git.exe -C PATH diff <operand> -- <path>` is 7.
 pub const argv_len_hunk: usize = 10;
-/// Unstaged hunk: chdir + `git diff -- <path>` (no operand).
+pub const unix_argv_len_hunk: usize = 10;
+pub const windows_argv_len_hunk: usize = 7;
+/// Unstaged hunk: Unix chdir + `git diff -- <path>` (9). Windows
+/// `git.exe -C PATH diff -- <path>` is 6.
 pub const argv_len_hunk_unstaged: usize = 9;
-/// Untracked `?` hunk: chdir + `git diff --no-index -- /dev/null <path>`.
+pub const unix_argv_len_hunk_unstaged: usize = 9;
+pub const windows_argv_len_hunk_unstaged: usize = 6;
+/// Untracked `?` hunk: Unix chdir + `git diff --no-index -- /dev/null <path>`
+/// (11). Unix-only this cut (Windows Uncommitted is tracked-only).
 pub const argv_len_hunk_untracked: usize = 11;
+pub const unix_argv_len_hunk_untracked: usize = 11;
 /// First-cut body cap. Extra stdout is dropped, not invented.
 pub const max_review_diff_hunk_lines: usize = 160;
 /// Enough for 160 short unified-diff lines. Longer lines still
@@ -279,9 +316,10 @@ pub const ChangedFile = struct {
 
 /// Last argv slot for sources that have one. Unstaged is `null`
 /// (`git diff --name-status` with no range / `--cached`).
-/// Uncommitted is `null` (`HEAD` lives in the nested script).
-/// Committed reads `committed_range` (default first probe is
-/// `origin/HEAD...HEAD`). LastTurn reads the captured
+/// Uncommitted is `null` (Unix packs `HEAD` in the nested
+/// script; Windows last-slot `HEAD` is filled by the argv
+/// builder). Committed reads `committed_range` (default first
+/// probe is `origin/HEAD...HEAD`). LastTurn reads the captured
 /// `diff..end` / `start..end`, snapshot `40-hex`, or rewind
 /// `<40-hex>...HEAD`.
 pub fn lastOperand(source: Source, committed_range: CommittedRange) ?[]const u8 {
@@ -308,8 +346,9 @@ pub fn lastOperandRange(
 }
 
 /// Hunk operand for the current Review source. Uncommitted tracked
-/// uses last-slot `HEAD` (name-status packs `HEAD` in the nested
-/// script). Unstaged omits the operand. Committed reads the range
+/// uses last-slot `HEAD` (Unix name-status packs `HEAD` in the
+/// nested script; Windows name-status last-slot is `HEAD`).
+/// Unstaged omits the operand. Committed reads the range
 /// that already succeeded — no origin/HEAD fall-through on a
 /// hunk click. LastTurn reuses the stored `diff..end` /
 /// `start..end`, snapshot `40-hex`, or rewind `<sha>...HEAD`.
@@ -437,27 +476,50 @@ fn captureLastTurnRange(model: *Model) bool {
     return true;
 }
 
-pub fn argvForSource(source: Source, cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
-    return argvForSourceRange(source, .origin, cwd, buf);
+fn windowsGitBinOk(bin: []const u8) bool {
+    return std.mem.eql(u8, bin, windows_git_bin) or std.mem.eql(u8, bin, git_bin);
 }
 
-pub fn argvForSourceRange(
+fn isKnownNameStatusOperand(last: []const u8) bool {
+    return std.mem.eql(u8, last, git_upstream_range) or
+        std.mem.eql(u8, last, git_cached_flag) or
+        std.mem.eql(u8, last, git_committed_range) or
+        std.mem.eql(u8, last, git_committed_range_main) or
+        std.mem.eql(u8, last, git_committed_range_master) or
+        isLastTurnRange(last);
+}
+
+fn isKnownHunkOperand(last: []const u8) bool {
+    return std.mem.eql(u8, last, git_upstream_range) or
+        std.mem.eql(u8, last, git_head) or
+        std.mem.eql(u8, last, git_cached_flag) or
+        std.mem.eql(u8, last, git_committed_range) or
+        std.mem.eql(u8, last, git_committed_range_main) or
+        std.mem.eql(u8, last, git_committed_range_master) or
+        isLastTurnRange(last);
+}
+
+pub fn unixArgvForSource(source: Source, cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    return unixArgvForSourceRange(source, .origin, cwd, buf);
+}
+
+pub fn unixArgvForSourceRange(
     source: Source,
     committed_range: CommittedRange,
     cwd: []const u8,
     buf: *[argv_len][]const u8,
 ) []const []const u8 {
-    return argvForSourceRangeWith(source, committed_range, "", cwd, buf);
+    return unixArgvForSourceRangeWith(source, committed_range, "", cwd, buf);
 }
 
-/// LastTurn name-status: 9-slot chdir + `git diff --name-status`
+/// Unix LastTurn name-status: 9-slot chdir + `git diff --name-status`
 /// + `diff..end` / `start..end`, snapshot `40-hex`, or rewind
 /// `<sha>...HEAD`. Operand is one own argv slot.
-pub fn argvForLastTurn(cwd: []const u8, last_turn_range: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
-    return argvForSourceRangeWith(.last_turn, .origin, last_turn_range, cwd, buf);
+pub fn unixArgvForLastTurn(cwd: []const u8, last_turn_range: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    return unixArgvForSourceRangeWith(.last_turn, .origin, last_turn_range, cwd, buf);
 }
 
-pub fn argvForSourceRangeWith(
+pub fn unixArgvForSourceRangeWith(
     source: Source,
     committed_range: CommittedRange,
     last_turn_range: []const u8,
@@ -473,19 +535,148 @@ pub fn argvForSourceRangeWith(
         buf[5] = sh_bin;
         buf[6] = "-c";
         buf[7] = uncommitted_untracked_script;
-        return buf[0..argv_len_uncommitted];
+        return buf[0..unix_argv_len_uncommitted];
     }
     buf[5] = git_bin;
     buf[6] = git_diff_cmd;
     buf[7] = git_name_status;
     if (lastOperandRange(source, committed_range, last_turn_range)) |operand| {
         buf[8] = operand;
-        return buf[0..argv_len];
+        return buf[0..unix_argv_len];
     }
-    return buf[0..argv_len_unstaged];
+    return buf[0..unix_argv_len_unstaged];
+}
+
+/// Windows: `git.exe -C <project_path> diff --name-status [operand]`.
+/// Path is its own argv slot. Uncommitted is tracked-only last-slot
+/// `HEAD` (no nested `/bin/sh`, no synthetic `?` rows).
+pub fn windowsArgvForSourceRangeWith(
+    source: Source,
+    committed_range: CommittedRange,
+    last_turn_range: []const u8,
+    cwd: []const u8,
+    buf: *[argv_len][]const u8,
+) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_diff_cmd;
+    buf[4] = git_name_status;
+    if (source == .uncommitted) {
+        buf[5] = git_head;
+        return buf[0..windows_argv_len_uncommitted];
+    }
+    if (lastOperandRange(source, committed_range, last_turn_range)) |operand| {
+        buf[5] = operand;
+        return buf[0..windows_argv_len];
+    }
+    return buf[0..windows_argv_len_unstaged];
+}
+
+pub fn argvForSource(source: Source, cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    return argvForSourceRange(source, .origin, cwd, buf);
+}
+
+pub fn argvForSourceRange(
+    source: Source,
+    committed_range: CommittedRange,
+    cwd: []const u8,
+    buf: *[argv_len][]const u8,
+) []const []const u8 {
+    return argvForSourceRangeWith(source, committed_range, "", cwd, buf);
+}
+
+/// LastTurn name-status. Operand is one own argv slot.
+pub fn argvForLastTurn(cwd: []const u8, last_turn_range: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    return argvForSourceRangeWith(.last_turn, .origin, last_turn_range, cwd, buf);
+}
+
+pub fn argvForSourceRangeWith(
+    source: Source,
+    committed_range: CommittedRange,
+    last_turn_range: []const u8,
+    cwd: []const u8,
+    buf: *[argv_len][]const u8,
+) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsArgvForSourceRangeWith(source, committed_range, last_turn_range, cwd, buf),
+        else => unixArgvForSourceRangeWith(source, committed_range, last_turn_range, cwd, buf),
+    };
+}
+
+pub fn unixArgvForHunk(
+    source: Source,
+    committed_range: CommittedRange,
+    cwd: []const u8,
+    path: []const u8,
+    buf: *[argv_len_hunk][]const u8,
+) []const []const u8 {
+    return unixArgvForHunkRange(source, committed_range, "", cwd, path, buf);
+}
+
+pub fn unixArgvForHunkLastTurn(
+    cwd: []const u8,
+    last_turn_range: []const u8,
+    path: []const u8,
+    buf: *[argv_len_hunk][]const u8,
+) []const []const u8 {
+    return unixArgvForHunkRange(.last_turn, .origin, last_turn_range, cwd, path, buf);
 }
 
 /// `/bin/sh -c <chdir> sh <cwd> git diff [operand] -- <path>`.
+/// `--` and the path are own argv slots. Never interpolate the
+/// path into `-c`.
+pub fn unixArgvForHunkRange(
+    source: Source,
+    committed_range: CommittedRange,
+    last_turn_range: []const u8,
+    cwd: []const u8,
+    path: []const u8,
+    buf: *[argv_len_hunk][]const u8,
+) []const []const u8 {
+    buf[0] = sh_bin;
+    buf[1] = "-c";
+    buf[2] = main.fx_ask_chdir_script;
+    buf[3] = "sh";
+    buf[4] = cwd;
+    buf[5] = git_bin;
+    buf[6] = git_diff_cmd;
+    if (hunkOperandRange(source, committed_range, last_turn_range)) |operand| {
+        buf[7] = operand;
+        buf[8] = git_pathspec_end;
+        buf[9] = path;
+        return buf[0..unix_argv_len_hunk];
+    }
+    buf[7] = git_pathspec_end;
+    buf[8] = path;
+    return buf[0..unix_argv_len_hunk_unstaged];
+}
+
+/// Windows: `git.exe -C <project_path> diff [operand] -- <path>`.
+/// `--` and the path are own argv slots. Unstaged omits the operand.
+pub fn windowsArgvForHunkRange(
+    source: Source,
+    committed_range: CommittedRange,
+    last_turn_range: []const u8,
+    cwd: []const u8,
+    path: []const u8,
+    buf: *[argv_len_hunk][]const u8,
+) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_diff_cmd;
+    if (hunkOperandRange(source, committed_range, last_turn_range)) |operand| {
+        buf[4] = operand;
+        buf[5] = git_pathspec_end;
+        buf[6] = path;
+        return buf[0..windows_argv_len_hunk];
+    }
+    buf[4] = git_pathspec_end;
+    buf[5] = path;
+    return buf[0..windows_argv_len_hunk_unstaged];
+}
+
 /// `--` and the path are own argv slots. Never interpolate the
 /// path into `-c`.
 pub fn argvForHunk(
@@ -517,27 +708,17 @@ pub fn argvForHunkRange(
     path: []const u8,
     buf: *[argv_len_hunk][]const u8,
 ) []const []const u8 {
-    buf[0] = sh_bin;
-    buf[1] = "-c";
-    buf[2] = main.fx_ask_chdir_script;
-    buf[3] = "sh";
-    buf[4] = cwd;
-    buf[5] = git_bin;
-    buf[6] = git_diff_cmd;
-    if (hunkOperandRange(source, committed_range, last_turn_range)) |operand| {
-        buf[7] = operand;
-        buf[8] = git_pathspec_end;
-        buf[9] = path;
-        return buf[0..argv_len_hunk];
-    }
-    buf[7] = git_pathspec_end;
-    buf[8] = path;
-    return buf[0..argv_len_hunk_unstaged];
+    return switch (builtin.os.tag) {
+        .windows => windowsArgvForHunkRange(source, committed_range, last_turn_range, cwd, path, buf),
+        else => unixArgvForHunkRange(source, committed_range, last_turn_range, cwd, path, buf),
+    };
 }
 
 /// `/bin/sh -c <chdir> sh <cwd> git diff --no-index -- /dev/null <path>`.
 /// `--no-index`, `--`, `/dev/null`, and the path are own argv slots.
-/// Never interpolate the path (or `/dev/null`) into `-c`.
+/// Never interpolate the path (or `/dev/null`) into `-c`. Unix-only
+/// this cut (Windows Uncommitted is tracked-only, so `?` rows do
+/// not appear).
 pub fn argvForUntrackedHunk(
     cwd: []const u8,
     path: []const u8,
@@ -554,17 +735,25 @@ pub fn argvForUntrackedHunk(
     buf[8] = git_pathspec_end;
     buf[9] = git_dev_null;
     buf[10] = path;
-    return buf[0..argv_len_hunk_untracked];
+    return buf[0..unix_argv_len_hunk_untracked];
 }
 
 /// Branch argv. `open` still uses this shape. Diff tab / header +/-
 /// default to Uncommitted via `ensureDiff`.
+pub fn unixArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    return unixArgvForSource(.branch, cwd, buf);
+}
+
+pub fn windowsArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    return windowsArgvForSourceRangeWith(.branch, .origin, "", cwd, buf);
+}
+
 pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
     return argvForSource(.branch, cwd, buf);
 }
 
-pub fn isGitReviewUncommittedArgv(argv: []const []const u8) bool {
-    if (argv.len != argv_len_uncommitted) return false;
+fn isUnixGitReviewUncommittedArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_argv_len_uncommitted) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -573,56 +762,86 @@ pub fn isGitReviewUncommittedArgv(argv: []const []const u8) bool {
     return std.mem.eql(u8, argv[7], uncommitted_untracked_script);
 }
 
-pub fn isGitReviewDiffArgv(argv: []const []const u8) bool {
-    if (isGitReviewUncommittedArgv(argv)) return true;
-    if (argv.len != argv_len and argv.len != argv_len_unstaged) return false;
+fn isWindowsGitReviewUncommittedArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_argv_len_uncommitted) return false;
+    if (!windowsGitBinOk(argv[0])) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_diff_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], git_name_status)) return false;
+    return std.mem.eql(u8, argv[5], git_head);
+}
+
+pub fn isGitReviewUncommittedArgv(argv: []const []const u8) bool {
+    return isUnixGitReviewUncommittedArgv(argv) or isWindowsGitReviewUncommittedArgv(argv);
+}
+
+fn isUnixGitReviewDiffArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_argv_len and argv.len != unix_argv_len_unstaged) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_diff_cmd)) return false;
     if (!std.mem.eql(u8, argv[7], git_name_status)) return false;
-    if (argv.len == argv_len_unstaged) return true;
-    const last = argv[8];
-    return std.mem.eql(u8, last, git_upstream_range) or
-        std.mem.eql(u8, last, git_cached_flag) or
-        std.mem.eql(u8, last, git_committed_range) or
-        std.mem.eql(u8, last, git_committed_range_main) or
-        std.mem.eql(u8, last, git_committed_range_master) or
-        isLastTurnRange(last);
+    if (argv.len == unix_argv_len_unstaged) return true;
+    return isKnownNameStatusOperand(argv[8]);
 }
 
-fn isKnownHunkOperand(last: []const u8) bool {
-    return std.mem.eql(u8, last, git_upstream_range) or
-        std.mem.eql(u8, last, git_head) or
-        std.mem.eql(u8, last, git_cached_flag) or
-        std.mem.eql(u8, last, git_committed_range) or
-        std.mem.eql(u8, last, git_committed_range_main) or
-        std.mem.eql(u8, last, git_committed_range_master) or
-        isLastTurnRange(last);
+fn isWindowsGitReviewDiffArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_argv_len and argv.len != windows_argv_len_unstaged) return false;
+    if (!windowsGitBinOk(argv[0])) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_diff_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], git_name_status)) return false;
+    if (argv.len == windows_argv_len_unstaged) return true;
+    return isKnownNameStatusOperand(argv[5]) or std.mem.eql(u8, argv[5], git_head);
 }
 
-/// Hunk argv: chdir + `git diff [operand] -- <path>`, or the
-/// 11-slot untracked `git diff --no-index -- /dev/null <path>`.
-/// Rejects name-status (`--name-status`) and Uncommitted nested `sh -c`.
-pub fn isGitReviewHunkArgv(argv: []const []const u8) bool {
-    if (argv.len != argv_len_hunk and
-        argv.len != argv_len_hunk_unstaged and
-        argv.len != argv_len_hunk_untracked) return false;
+pub fn isGitReviewDiffArgv(argv: []const []const u8) bool {
+    if (isGitReviewUncommittedArgv(argv)) return true;
+    return isUnixGitReviewDiffArgv(argv) or isWindowsGitReviewDiffArgv(argv);
+}
+
+fn isUnixGitReviewHunkArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_argv_len_hunk and
+        argv.len != unix_argv_len_hunk_unstaged and
+        argv.len != unix_argv_len_hunk_untracked) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_diff_cmd)) return false;
-    if (argv.len == argv_len_hunk_untracked) {
+    if (argv.len == unix_argv_len_hunk_untracked) {
         return std.mem.eql(u8, argv[7], git_no_index) and
             std.mem.eql(u8, argv[8], git_pathspec_end) and
             std.mem.eql(u8, argv[9], git_dev_null);
     }
-    if (argv.len == argv_len_hunk_unstaged) {
+    if (argv.len == unix_argv_len_hunk_unstaged) {
         return std.mem.eql(u8, argv[7], git_pathspec_end);
     }
     return isKnownHunkOperand(argv[7]) and std.mem.eql(u8, argv[8], git_pathspec_end);
+}
+
+fn isWindowsGitReviewHunkArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_argv_len_hunk and argv.len != windows_argv_len_hunk_unstaged) return false;
+    if (!windowsGitBinOk(argv[0])) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_diff_cmd)) return false;
+    if (argv.len == windows_argv_len_hunk_unstaged) {
+        return std.mem.eql(u8, argv[4], git_pathspec_end);
+    }
+    return isKnownHunkOperand(argv[4]) and std.mem.eql(u8, argv[5], git_pathspec_end);
+}
+
+/// Hunk argv: Unix chdir + `git diff [operand] -- <path>`, or the
+/// 11-slot untracked `git diff --no-index -- /dev/null <path>`;
+/// Windows `git.exe -C` tracked hunks. Rejects name-status
+/// (`--name-status`) and Uncommitted nested `sh -c`.
+pub fn isGitReviewHunkArgv(argv: []const []const u8) bool {
+    return isUnixGitReviewHunkArgv(argv) or isWindowsGitReviewHunkArgv(argv);
 }
 
 /// One `XY\tpath` or `R100\told\tnew` name-status row. Blank /
@@ -747,7 +966,7 @@ fn cancelHunkInFlight(model: *Model, fx: *Effects) void {
 }
 
 fn probeSupported() bool {
-    return builtin.os.tag != .windows;
+    return true;
 }
 
 fn probePath(model: *const Model) []const u8 {
@@ -858,8 +1077,6 @@ fn startProbe(model: *Model, fx: *Effects) void {
 /// and one-shot Branch name-status when cwd exists. Missing / Local
 /// path still opens the card with `No workspace.` Streaming and
 /// in-flight git mutations are a no-op (popover already closed).
-/// Windows skips the spawn and leaves the card with the fail
-/// status only when a workspace exists (no Windows spawn path).
 /// Environment Compare / Diff tab use `ensureDiff` instead.
 pub fn open(model: *Model, fx: *Effects) void {
     prepareCard(model, fx);
@@ -1093,7 +1310,7 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     const git_numstat = @import("git_numstat.zig");
     const file_mention = @import("file_mention.zig");
     var buf: [argv_len][]const u8 = undefined;
-    const argv = argvFor("/tmp/faku-review", &buf);
+    const argv = unixArgvFor("/tmp/faku-review", &buf);
     try std.testing.expectEqual(@as(usize, 9), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
@@ -1112,7 +1329,7 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_head) == null);
     try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_upstream_range }));
     var uncommitted_buf: [argv_len][]const u8 = undefined;
-    const uncommitted = argvForSource(.uncommitted, "/tmp/faku-review", &uncommitted_buf);
+    const uncommitted = unixArgvForSource(.uncommitted, "/tmp/faku-review", &uncommitted_buf);
     try std.testing.expectEqual(argv_len_uncommitted, uncommitted.len);
     try std.testing.expectEqualStrings(sh_bin, uncommitted[0]);
     try std.testing.expectEqualStrings("-c", uncommitted[1]);
@@ -1159,7 +1376,7 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
         git_head,
     }));
     var staged_buf: [argv_len][]const u8 = undefined;
-    const staged = argvForSource(.staged, "/tmp/faku-review", &staged_buf);
+    const staged = unixArgvForSource(.staged, "/tmp/faku-review", &staged_buf);
     try std.testing.expectEqual(@as(usize, 9), staged.len);
     try std.testing.expectEqualStrings(sh_bin, staged[0]);
     try std.testing.expectEqualStrings("-c", staged[1]);
@@ -1177,7 +1394,7 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expect(std.mem.indexOf(u8, staged[2], git_name_status) == null);
     try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_cached_flag }));
     var unstaged_buf: [argv_len][]const u8 = undefined;
-    const unstaged = argvForSource(.unstaged, "/tmp/faku-review", &unstaged_buf);
+    const unstaged = unixArgvForSource(.unstaged, "/tmp/faku-review", &unstaged_buf);
     try std.testing.expectEqual(@as(usize, 8), unstaged.len);
     try std.testing.expectEqual(argv_len_unstaged, unstaged.len);
     try std.testing.expectEqualStrings(sh_bin, unstaged[0]);
@@ -1195,7 +1412,7 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expect(std.mem.indexOf(u8, unstaged[2], "/tmp/faku-review") == null);
     try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status }));
     var committed_buf: [argv_len][]const u8 = undefined;
-    const committed = argvForSource(.committed, "/tmp/faku-review", &committed_buf);
+    const committed = unixArgvForSource(.committed, "/tmp/faku-review", &committed_buf);
     try std.testing.expectEqual(@as(usize, 9), committed.len);
     try std.testing.expectEqual(argv_len, committed.len);
     try std.testing.expectEqualStrings(sh_bin, committed[0]);
@@ -1221,14 +1438,14 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expect(std.mem.indexOf(u8, committed[2], git_upstream_range) == null);
     try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_committed_range }));
     var committed_main_buf: [argv_len][]const u8 = undefined;
-    const committed_main = argvForSourceRange(.committed, .main, "/tmp/faku-review", &committed_main_buf);
+    const committed_main = unixArgvForSourceRange(.committed, .main, "/tmp/faku-review", &committed_main_buf);
     try std.testing.expectEqual(@as(usize, 9), committed_main.len);
     try std.testing.expectEqualStrings(git_committed_range_main, committed_main[8]);
     try std.testing.expect(isGitReviewDiffArgv(committed_main));
     try std.testing.expect(std.mem.indexOf(u8, committed_main[2], git_committed_range_main) == null);
     try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_committed_range_main }));
     var committed_master_buf: [argv_len][]const u8 = undefined;
-    const committed_master = argvForSourceRange(.committed, .master, "/tmp/faku-review", &committed_master_buf);
+    const committed_master = unixArgvForSourceRange(.committed, .master, "/tmp/faku-review", &committed_master_buf);
     try std.testing.expectEqualStrings(git_committed_range_master, committed_master[8]);
     try std.testing.expect(isGitReviewDiffArgv(committed_master));
     try std.testing.expect(std.mem.indexOf(u8, committed_master[2], git_committed_range_master) == null);
@@ -1281,7 +1498,7 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expectEqualStrings(last_turn_range, lastOperandRange(.last_turn, .origin, last_turn_range).?);
     try std.testing.expect(lastOperand(.last_turn, .origin) == null);
     var last_turn_buf: [argv_len][]const u8 = undefined;
-    const last_turn = argvForLastTurn("/tmp/faku-review", last_turn_range, &last_turn_buf);
+    const last_turn = unixArgvForLastTurn("/tmp/faku-review", last_turn_range, &last_turn_buf);
     try std.testing.expectEqual(@as(usize, 9), last_turn.len);
     try std.testing.expectEqual(argv_len, last_turn.len);
     try std.testing.expectEqualStrings(sh_bin, last_turn[0]);
@@ -1296,13 +1513,13 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...HEAD", last_turn[8]);
     try std.testing.expect(isGitReviewDiffArgv(last_turn));
     var last_turn_two_dot_buf: [argv_len][]const u8 = undefined;
-    const last_turn_two_dot = argvForLastTurn("/tmp/faku-review", last_turn_snap, &last_turn_two_dot_buf);
+    const last_turn_two_dot = unixArgvForLastTurn("/tmp/faku-review", last_turn_snap, &last_turn_two_dot_buf);
     try std.testing.expectEqual(argv_len, last_turn_two_dot.len);
     try std.testing.expectEqualStrings(last_turn_sha, last_turn_two_dot[8]);
     try std.testing.expect(std.mem.indexOf(u8, last_turn_two_dot[8], git_last_turn_range_suffix) == null);
     try std.testing.expect(isGitReviewDiffArgv(last_turn_two_dot));
     var last_turn_start_end_argv_buf: [argv_len][]const u8 = undefined;
-    const last_turn_start_end_argv = argvForLastTurn("/tmp/faku-review", last_turn_start_end, &last_turn_start_end_argv_buf);
+    const last_turn_start_end_argv = unixArgvForLastTurn("/tmp/faku-review", last_turn_start_end, &last_turn_start_end_argv_buf);
     try std.testing.expectEqual(argv_len, last_turn_start_end_argv.len);
     try std.testing.expectEqualStrings(last_turn_start_end, last_turn_start_end_argv[8]);
     try std.testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", last_turn_start_end_argv[8]);
@@ -1361,10 +1578,224 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expect(argv_len_hunk_untracked < 16);
     try std.testing.expect(argv_len_hunk == 10);
     try std.testing.expect(argv_len_hunk_unstaged == 9);
+    try std.testing.expect(windows_argv_len == 6);
+    try std.testing.expect(windows_argv_len_unstaged == 5);
+    try std.testing.expect(windows_argv_len_uncommitted == 6);
+    try std.testing.expect(windows_argv_len_hunk == 7);
+    try std.testing.expect(windows_argv_len_hunk_unstaged == 6);
+    try std.testing.expect(windows_argv_len < 16);
+    try std.testing.expect(windows_argv_len_hunk < 16);
+}
+
+test "windows git argv is git.exe -C PATH; path is its own slot" {
+    const git_branch = @import("git_branch.zig");
+    const git_dirty = @import("git_dirty.zig");
+    const git_numstat = @import("git_numstat.zig");
+    const file_mention = @import("file_mention.zig");
+    const cwd = "C:\\Users\\me\\proj";
+    var buf: [argv_len][]const u8 = undefined;
+    const argv = windowsArgvFor(cwd, &buf);
+    try std.testing.expectEqual(@as(usize, windows_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+    try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+    try std.testing.expectEqualStrings(cwd, argv[2]);
+    try std.testing.expectEqualStrings(git_diff_cmd, argv[3]);
+    try std.testing.expectEqualStrings(git_name_status, argv[4]);
+    try std.testing.expectEqualStrings(git_upstream_range, argv[5]);
+    try std.testing.expect(isGitReviewDiffArgv(argv));
+    try std.testing.expect(!isGitReviewHunkArgv(argv));
+    try std.testing.expect(!isGitReviewUncommittedArgv(argv));
+    try std.testing.expect(!std.mem.eql(u8, argv[0], sh_bin));
+    try std.testing.expect(!isGitReviewDiffArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    try std.testing.expect(!isGitReviewDiffArgv(&.{
+        windows_git_bin,
+        git_c_flag,
+        cwd,
+        git_diff_cmd,
+    }));
+    var git_only: [argv_len][]const u8 = undefined;
+    git_only[0] = git_bin;
+    git_only[1] = git_c_flag;
+    git_only[2] = cwd;
+    git_only[3] = git_diff_cmd;
+    git_only[4] = git_name_status;
+    git_only[5] = git_upstream_range;
+    try std.testing.expect(isGitReviewDiffArgv(git_only[0..windows_argv_len]));
+
+    var uncommitted_buf: [argv_len][]const u8 = undefined;
+    const uncommitted = windowsArgvForSourceRangeWith(.uncommitted, .origin, "", cwd, &uncommitted_buf);
+    try std.testing.expectEqual(@as(usize, windows_argv_len_uncommitted), uncommitted.len);
+    try std.testing.expectEqualStrings(windows_git_bin, uncommitted[0]);
+    try std.testing.expectEqualStrings(git_c_flag, uncommitted[1]);
+    try std.testing.expectEqualStrings(cwd, uncommitted[2]);
+    try std.testing.expectEqualStrings(git_diff_cmd, uncommitted[3]);
+    try std.testing.expectEqualStrings(git_name_status, uncommitted[4]);
+    try std.testing.expectEqualStrings(git_head, uncommitted[5]);
+    try std.testing.expect(isGitReviewUncommittedArgv(uncommitted));
+    try std.testing.expect(isGitReviewDiffArgv(uncommitted));
+    try std.testing.expect(!isGitReviewHunkArgv(uncommitted));
+    try std.testing.expect(std.mem.indexOf(u8, uncommitted[2], git_head) == null);
+
+    var staged_buf: [argv_len][]const u8 = undefined;
+    const staged = windowsArgvForSourceRangeWith(.staged, .origin, "", cwd, &staged_buf);
+    try std.testing.expectEqual(@as(usize, windows_argv_len), staged.len);
+    try std.testing.expectEqualStrings(git_cached_flag, staged[5]);
+    try std.testing.expect(isGitReviewDiffArgv(staged));
+    try std.testing.expect(!isGitReviewUncommittedArgv(staged));
+
+    var unstaged_buf: [argv_len][]const u8 = undefined;
+    const unstaged = windowsArgvForSourceRangeWith(.unstaged, .origin, "", cwd, &unstaged_buf);
+    try std.testing.expectEqual(@as(usize, windows_argv_len_unstaged), unstaged.len);
+    try std.testing.expectEqualStrings(git_name_status, unstaged[4]);
+    try std.testing.expect(isGitReviewDiffArgv(unstaged));
+    try std.testing.expect(!isGitReviewUncommittedArgv(unstaged));
+    try std.testing.expect(!isGitReviewHunkArgv(unstaged));
+
+    var committed_buf: [argv_len][]const u8 = undefined;
+    const committed = windowsArgvForSourceRangeWith(.committed, .origin, "", cwd, &committed_buf);
+    try std.testing.expectEqualStrings(git_committed_range, committed[5]);
+    try std.testing.expect(isGitReviewDiffArgv(committed));
+    var committed_main_buf: [argv_len][]const u8 = undefined;
+    const committed_main = windowsArgvForSourceRangeWith(.committed, .main, "", cwd, &committed_main_buf);
+    try std.testing.expectEqualStrings(git_committed_range_main, committed_main[5]);
+    try std.testing.expect(isGitReviewDiffArgv(committed_main));
+    var committed_master_buf: [argv_len][]const u8 = undefined;
+    const committed_master = windowsArgvForSourceRangeWith(.committed, .master, "", cwd, &committed_master_buf);
+    try std.testing.expectEqualStrings(git_committed_range_master, committed_master[5]);
+    try std.testing.expect(isGitReviewDiffArgv(committed_master));
+
+    const last_turn_sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    var last_turn_range_buf: [last_turn_range_len]u8 = undefined;
+    const last_turn_range = formatLastTurnRange(last_turn_sha, &last_turn_range_buf) orelse return error.MissingLastTurnRange;
+    var last_turn_buf: [argv_len][]const u8 = undefined;
+    const last_turn = windowsArgvForSourceRangeWith(.last_turn, .origin, last_turn_range, cwd, &last_turn_buf);
+    try std.testing.expectEqual(@as(usize, windows_argv_len), last_turn.len);
+    try std.testing.expectEqualStrings(last_turn_range, last_turn[5]);
+    try std.testing.expect(isGitReviewDiffArgv(last_turn));
+    try std.testing.expect(std.mem.indexOf(u8, last_turn[2], last_turn_sha) == null);
+
+    var hunk_buf: [argv_len_hunk][]const u8 = undefined;
+    const hunk = windowsArgvForHunkRange(.branch, .origin, "", cwd, "src/a.zig", &hunk_buf);
+    try std.testing.expectEqual(@as(usize, windows_argv_len_hunk), hunk.len);
+    try std.testing.expectEqualStrings(windows_git_bin, hunk[0]);
+    try std.testing.expectEqualStrings(git_c_flag, hunk[1]);
+    try std.testing.expectEqualStrings(cwd, hunk[2]);
+    try std.testing.expectEqualStrings(git_diff_cmd, hunk[3]);
+    try std.testing.expectEqualStrings(git_upstream_range, hunk[4]);
+    try std.testing.expectEqualStrings(git_pathspec_end, hunk[5]);
+    try std.testing.expectEqualStrings("src/a.zig", hunk[6]);
+    try std.testing.expect(isGitReviewHunkArgv(hunk));
+    try std.testing.expect(!isGitReviewDiffArgv(hunk));
+    try std.testing.expect(std.mem.indexOf(u8, hunk[2], "src/a.zig") == null);
+
+    var uncommitted_hunk_buf: [argv_len_hunk][]const u8 = undefined;
+    const uncommitted_hunk = windowsArgvForHunkRange(.uncommitted, .origin, "", cwd, "tracked.zig", &uncommitted_hunk_buf);
+    try std.testing.expectEqual(@as(usize, windows_argv_len_hunk), uncommitted_hunk.len);
+    try std.testing.expectEqualStrings(git_head, uncommitted_hunk[4]);
+    try std.testing.expectEqualStrings(git_pathspec_end, uncommitted_hunk[5]);
+    try std.testing.expectEqualStrings("tracked.zig", uncommitted_hunk[6]);
+    try std.testing.expect(isGitReviewHunkArgv(uncommitted_hunk));
+    try std.testing.expect(!isGitReviewDiffArgv(uncommitted_hunk));
+    try std.testing.expect(!isGitReviewUncommittedArgv(uncommitted_hunk));
+
+    var unstaged_hunk_buf: [argv_len_hunk][]const u8 = undefined;
+    const unstaged_hunk = windowsArgvForHunkRange(.unstaged, .origin, "", cwd, "unstaged.zig", &unstaged_hunk_buf);
+    try std.testing.expectEqual(@as(usize, windows_argv_len_hunk_unstaged), unstaged_hunk.len);
+    try std.testing.expectEqualStrings(git_pathspec_end, unstaged_hunk[4]);
+    try std.testing.expectEqualStrings("unstaged.zig", unstaged_hunk[5]);
+    try std.testing.expect(isGitReviewHunkArgv(unstaged_hunk));
+    try std.testing.expect(!isGitReviewDiffArgv(unstaged_hunk));
+
+    var last_turn_hunk_buf: [argv_len_hunk][]const u8 = undefined;
+    const last_turn_hunk = windowsArgvForHunkRange(.last_turn, .origin, last_turn_range, cwd, "last-turn.zig", &last_turn_hunk_buf);
+    try std.testing.expectEqualStrings(last_turn_range, last_turn_hunk[4]);
+    try std.testing.expectEqualStrings(git_pathspec_end, last_turn_hunk[5]);
+    try std.testing.expectEqualStrings("last-turn.zig", last_turn_hunk[6]);
+    try std.testing.expect(isGitReviewHunkArgv(last_turn_hunk));
+
+    var untracked_buf: [argv_len_hunk_untracked][]const u8 = undefined;
+    const untracked = argvForUntrackedHunk(cwd, "new file.txt", &untracked_buf);
+    try std.testing.expectEqual(argv_len_hunk_untracked, untracked.len);
+    try std.testing.expectEqualStrings(sh_bin, untracked[0]);
+    try std.testing.expect(isGitReviewHunkArgv(untracked));
+    try std.testing.expect(!isGitReviewDiffArgv(untracked));
+
+    var branch_buf: [git_branch.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitReviewDiffArgv(git_branch.windowsArgvFor(cwd, &branch_buf)));
+    try std.testing.expect(!isGitReviewHunkArgv(git_branch.windowsArgvFor(cwd, &branch_buf)));
+    try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    var dirty_buf: [git_dirty.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitReviewDiffArgv(git_dirty.windowsArgvFor(cwd, &dirty_buf)));
+    try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
+    var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitReviewDiffArgv(git_numstat.windowsArgvFor(cwd, &numstat_buf)));
+    try std.testing.expect(!isGitReviewUncommittedArgv(git_numstat.windowsArgvFor(cwd, &numstat_buf)));
+    try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
+    var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitReviewDiffArgv(git_ahead_behind.windowsArgvFor(cwd, &ahead_buf)));
+    try std.testing.expect(!git_ahead_behind.isGitAheadBehindArgv(argv));
+    var mention_buf: [file_mention.git_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitReviewDiffArgv(file_mention.windowsArgvFor(cwd, &mention_buf)));
+    try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
+}
+
+test "host argvFor matches the process OS" {
+    var buf: [argv_len][]const u8 = undefined;
+    const argv = argvFor("/tmp/faku-review", &buf);
+    try std.testing.expect(isGitReviewDiffArgv(argv));
+    try std.testing.expect(!isGitReviewHunkArgv(argv));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+            try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+            try std.testing.expectEqualStrings(git_diff_cmd, argv[3]);
+            try std.testing.expectEqualStrings(git_name_status, argv[4]);
+            try std.testing.expectEqualStrings(git_upstream_range, argv[5]);
+        },
+        else => {
+            try std.testing.expectEqualStrings(sh_bin, argv[0]);
+            try std.testing.expectEqualStrings(git_name_status, argv[7]);
+            try std.testing.expectEqualStrings(git_upstream_range, argv[8]);
+        },
+    }
+    var uncommitted_buf: [argv_len][]const u8 = undefined;
+    const uncommitted = argvForSource(.uncommitted, "/tmp/faku-review", &uncommitted_buf);
+    try std.testing.expect(isGitReviewUncommittedArgv(uncommitted));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(git_head, uncommitted[5]);
+            try std.testing.expectEqualStrings(git_name_status, uncommitted[4]);
+        },
+        else => {
+            try std.testing.expectEqualStrings(uncommitted_untracked_script, uncommitted[7]);
+        },
+    }
+    var hunk_buf: [argv_len_hunk][]const u8 = undefined;
+    const hunk = argvForHunk(.branch, .origin, "/tmp/faku-review", "src/a.zig", &hunk_buf);
+    try std.testing.expect(isGitReviewHunkArgv(hunk));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(windows_git_bin, hunk[0]);
+            try std.testing.expectEqualStrings(git_pathspec_end, hunk[5]);
+            try std.testing.expectEqualStrings("src/a.zig", hunk[6]);
+        },
+        else => {
+            try std.testing.expectEqualStrings(sh_bin, hunk[0]);
+            try std.testing.expectEqualStrings(git_pathspec_end, hunk[8]);
+            try std.testing.expectEqualStrings("src/a.zig", hunk[9]);
+        },
+    }
+}
+
+test "probeSupported is true on macOS, Linux, and Windows" {
+    try std.testing.expect(probeSupported());
 }
 
 test "parseNameStatusLine is status letter plus path; rename uses dest" {
     try std.testing.expectEqualStrings("src/a.zig", parseNameStatusLine("M\tsrc/a.zig\n").?.path);
+    try std.testing.expectEqualStrings("src/a.zig", parseNameStatusLine("M\tsrc/a.zig\r\n").?.path);
+    try std.testing.expectEqual(@as(u8, 'M'), parseNameStatusLine("M\tsrc/a.zig\r\n").?.status);
     try std.testing.expectEqual(@as(u8, 'M'), parseNameStatusLine("M\tsrc/a.zig\n").?.status);
     try std.testing.expectEqual(@as(u8, 'A'), parseNameStatusLine("A\tnew.txt").?.status);
     try std.testing.expectEqualStrings("new.txt", parseNameStatusLine("A\tnew.txt").?.path);
@@ -1391,7 +1822,7 @@ test "parseNameStatusLine is status letter plus path; rename uses dest" {
 
 test "Uncommitted argv is nested sh -c; old HEAD-only argv is not Review" {
     var buf: [argv_len][]const u8 = undefined;
-    const argv = argvForSource(.uncommitted, "/tmp/faku-uncommitted", &buf);
+    const argv = unixArgvForSource(.uncommitted, "/tmp/faku-uncommitted", &buf);
     try std.testing.expectEqual(argv_len_uncommitted, argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[5]);
     try std.testing.expectEqualStrings("-c", argv[6]);
@@ -1417,7 +1848,7 @@ test "Uncommitted argv is nested sh -c; old HEAD-only argv is not Review" {
     try std.testing.expect(!isGitReviewUncommittedArgv(&old_head));
     try std.testing.expect(!isGitReviewDiffArgv(&old_head));
     var unstaged_buf: [argv_len][]const u8 = undefined;
-    const unstaged = argvForSource(.unstaged, "/tmp/faku-uncommitted", &unstaged_buf);
+    const unstaged = unixArgvForSource(.unstaged, "/tmp/faku-uncommitted", &unstaged_buf);
     try std.testing.expect(!isGitReviewUncommittedArgv(unstaged));
     try std.testing.expect(isGitReviewDiffArgv(unstaged));
 }
@@ -1544,7 +1975,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
         if (spawn.key == branch_key) branch_argv = spawn.argv;
     }
     try std.testing.expect(isGitReviewDiffArgv(branch_argv orelse return error.MissingBranchArgv));
-    try std.testing.expectEqualStrings(git_upstream_range, branch_argv.?[8]);
+    try expectNameStatusOperand(branch_argv.?, git_upstream_range);
     applyLine(&model, .{ .key = branch_key, .line = "M\tbranch-only.zig\n" });
     try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
 
@@ -1568,9 +1999,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (spawn.key == staged_key) staged_argv = spawn.argv;
     }
-    try std.testing.expect(isGitReviewDiffArgv(staged_argv orelse return error.MissingStagedArgv));
-    try std.testing.expectEqualStrings(git_cached_flag, staged_argv.?[8]);
-    try std.testing.expect(std.mem.indexOf(u8, staged_argv.?[2], git_cached_flag) == null);
+    try expectNameStatusOperand(staged_argv orelse return error.MissingStagedArgv, git_cached_flag);
     applyLine(&model, .{ .key = staged_key, .line = "A\tstaged.zig\n" });
     handleExit(&model, &fx, .{ .key = staged_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
@@ -1596,12 +2025,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (spawn.key == uncommitted_key) uncommitted_argv = spawn.argv;
     }
-    try std.testing.expect(isGitReviewDiffArgv(uncommitted_argv orelse return error.MissingUncommittedArgv));
-    try std.testing.expect(isGitReviewUncommittedArgv(uncommitted_argv.?));
-    try std.testing.expectEqual(argv_len_uncommitted, uncommitted_argv.?.len);
-    try std.testing.expectEqualStrings(uncommitted_untracked_script, uncommitted_argv.?[7]);
-    try std.testing.expect(std.mem.indexOf(u8, uncommitted_argv.?[2], git_head) == null);
-    try std.testing.expect(std.mem.indexOf(u8, uncommitted_argv.?[2], uncommitted_untracked_script) == null);
+    try expectUncommittedArgv(uncommitted_argv orelse return error.MissingUncommittedArgv);
     applyLine(&model, .{ .key = uncommitted_key, .line = "M\ttracked.zig\n?\tnew.txt\n" });
     handleExit(&model, &fx, .{ .key = uncommitted_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
@@ -1628,12 +2052,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (spawn.key == unstaged_key) unstaged_argv = spawn.argv;
     }
-    try std.testing.expect(isGitReviewDiffArgv(unstaged_argv orelse return error.MissingUnstagedArgv));
-    try std.testing.expectEqual(argv_len_unstaged, unstaged_argv.?.len);
-    try std.testing.expectEqualStrings(git_name_status, unstaged_argv.?[7]);
-    try std.testing.expect(std.mem.indexOf(u8, unstaged_argv.?[2], git_name_status) == null);
-    try std.testing.expect(std.mem.indexOf(u8, unstaged_argv.?[2], git_head) == null);
-    try std.testing.expect(std.mem.indexOf(u8, unstaged_argv.?[2], git_cached_flag) == null);
+    try expectUnstagedNameStatusArgv(unstaged_argv orelse return error.MissingUnstagedArgv);
     applyLine(&model, .{ .key = unstaged_key, .line = "M\tunstaged.zig\n" });
     handleExit(&model, &fx, .{ .key = unstaged_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
@@ -1659,12 +2078,8 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (spawn.key == committed_key) committed_argv = spawn.argv;
     }
-    try std.testing.expect(isGitReviewDiffArgv(committed_argv orelse return error.MissingCommittedArgv));
-    try std.testing.expectEqual(argv_len, committed_argv.?.len);
-    try std.testing.expectEqualStrings(git_committed_range, committed_argv.?[8]);
-    try std.testing.expectEqualStrings("origin/HEAD...HEAD", committed_argv.?[8]);
-    try std.testing.expect(std.mem.indexOf(u8, committed_argv.?[2], git_committed_range) == null);
-    try std.testing.expect(std.mem.indexOf(u8, committed_argv.?[2], git_upstream_range) == null);
+    try expectNameStatusOperand(committed_argv orelse return error.MissingCommittedArgv, git_committed_range);
+    try std.testing.expectEqualStrings("origin/HEAD...HEAD", git_committed_range);
     applyLine(&model, .{ .key = committed_key, .line = "M\tcommitted.zig\n" });
     handleExit(&model, &fx, .{ .key = committed_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
@@ -1683,9 +2098,8 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (spawn.key == back_key) back_argv = spawn.argv;
     }
-    try std.testing.expect(isGitReviewDiffArgv(back_argv orelse return error.MissingBranchBackArgv));
-    try std.testing.expectEqualStrings(git_upstream_range, back_argv.?[8]);
-    try std.testing.expectEqualStrings("@{upstream}...HEAD", back_argv.?[8]);
+    try expectNameStatusOperand(back_argv orelse return error.MissingBranchBackArgv, git_upstream_range);
+    try std.testing.expectEqualStrings("@{upstream}...HEAD", git_upstream_range);
 
     handleExit(&model, &fx, .{ .key = back_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqualStrings(empty_status, reviewDiffStatus(&model));
@@ -1721,6 +2135,86 @@ fn findSpawnArgv(fx: *Effects, key: u64) ?[]const []const u8 {
     return null;
 }
 
+fn expectNameStatusOperand(argv: []const []const u8, operand: []const u8) !void {
+    try std.testing.expect(isGitReviewDiffArgv(argv));
+    try std.testing.expect(!isGitReviewHunkArgv(argv));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqual(@as(usize, windows_argv_len), argv.len);
+            try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+            try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+            try std.testing.expectEqualStrings(git_diff_cmd, argv[3]);
+            try std.testing.expectEqualStrings(git_name_status, argv[4]);
+            try std.testing.expectEqualStrings(operand, argv[5]);
+        },
+        else => {
+            try std.testing.expectEqual(@as(usize, unix_argv_len), argv.len);
+            try std.testing.expectEqualStrings(operand, argv[8]);
+            try std.testing.expect(std.mem.indexOf(u8, argv[2], operand) == null);
+        },
+    }
+}
+
+fn expectUncommittedArgv(argv: []const []const u8) !void {
+    try std.testing.expect(isGitReviewUncommittedArgv(argv));
+    try std.testing.expect(isGitReviewDiffArgv(argv));
+    try std.testing.expect(!isGitReviewHunkArgv(argv));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqual(@as(usize, windows_argv_len_uncommitted), argv.len);
+            try std.testing.expectEqualStrings(git_head, argv[5]);
+            try std.testing.expectEqualStrings(git_name_status, argv[4]);
+        },
+        else => {
+            try std.testing.expectEqual(argv_len_uncommitted, argv.len);
+            try std.testing.expectEqualStrings(uncommitted_untracked_script, argv[7]);
+            try std.testing.expect(std.mem.indexOf(u8, argv[2], git_head) == null);
+            try std.testing.expect(std.mem.indexOf(u8, argv[2], uncommitted_untracked_script) == null);
+        },
+    }
+}
+
+fn expectUnstagedNameStatusArgv(argv: []const []const u8) !void {
+    try std.testing.expect(isGitReviewDiffArgv(argv));
+    try std.testing.expect(!isGitReviewUncommittedArgv(argv));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqual(@as(usize, windows_argv_len_unstaged), argv.len);
+            try std.testing.expectEqualStrings(git_name_status, argv[4]);
+        },
+        else => {
+            try std.testing.expectEqual(argv_len_unstaged, argv.len);
+            try std.testing.expectEqualStrings(git_name_status, argv[7]);
+            try std.testing.expect(std.mem.indexOf(u8, argv[2], git_name_status) == null);
+        },
+    }
+}
+
+fn expectHunkArgv(argv: []const []const u8, operand: ?[]const u8, path: []const u8) !void {
+    try std.testing.expect(isGitReviewHunkArgv(argv));
+    try std.testing.expect(!isGitReviewDiffArgv(argv));
+    try std.testing.expectEqualStrings(path, argv[argv.len - 1]);
+    try std.testing.expectEqualStrings(git_pathspec_end, argv[argv.len - 2]);
+    if (operand) |op| {
+        try std.testing.expectEqualStrings(op, argv[argv.len - 3]);
+    }
+    switch (builtin.os.tag) {
+        .windows => {
+            const want: usize = if (operand == null) windows_argv_len_hunk_unstaged else windows_argv_len_hunk;
+            try std.testing.expectEqual(want, argv.len);
+            try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+        },
+        else => {
+            const want: usize = if (operand == null) argv_len_hunk_unstaged else argv_len_hunk;
+            try std.testing.expectEqual(want, argv.len);
+            try std.testing.expect(std.mem.indexOf(u8, argv[2], path) == null);
+            if (operand) |op| {
+                try std.testing.expect(std.mem.indexOf(u8, argv[2], op) == null);
+            }
+        },
+    }
+}
+
 test "Committed missing origin/HEAD retries main then master; zero-file origin stays empty" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
@@ -1744,10 +2238,8 @@ test "Committed missing origin/HEAD retries main then master; zero-file origin s
     try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
     const origin_key = model.review_diff_key;
     const origin_argv = findSpawnArgv(&fx, origin_key) orelse return error.MissingOriginArgv;
-    try std.testing.expect(isGitReviewDiffArgv(origin_argv));
-    try std.testing.expectEqualStrings(git_committed_range, origin_argv[8]);
-    try std.testing.expectEqualStrings("origin/HEAD...HEAD", origin_argv[8]);
-    try std.testing.expect(std.mem.indexOf(u8, origin_argv[2], git_committed_range) == null);
+    try expectNameStatusOperand(origin_argv, git_committed_range);
+    try std.testing.expectEqualStrings("origin/HEAD...HEAD", git_committed_range);
 
     handleExit(&model, &fx, .{ .key = origin_key, .reason = .exited, .code = 128 });
     try std.testing.expect(model.review_diff_active);
@@ -1759,11 +2251,8 @@ test "Committed missing origin/HEAD retries main then master; zero-file origin s
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
     const main_key = model.review_diff_key;
     const main_argv = findSpawnArgv(&fx, main_key) orelse return error.MissingMainArgv;
-    try std.testing.expect(isGitReviewDiffArgv(main_argv));
-    try std.testing.expectEqual(argv_len, main_argv.len);
-    try std.testing.expectEqualStrings(git_committed_range_main, main_argv[8]);
-    try std.testing.expectEqualStrings("main...HEAD", main_argv[8]);
-    try std.testing.expect(std.mem.indexOf(u8, main_argv[2], git_committed_range_main) == null);
+    try expectNameStatusOperand(main_argv, git_committed_range_main);
+    try std.testing.expectEqualStrings("main...HEAD", git_committed_range_main);
 
     handleExit(&model, &fx, .{ .key = main_key, .reason = .exited, .code = 128 });
     try std.testing.expectEqual(Source.committed, model.review_diff_source);
@@ -1772,10 +2261,8 @@ test "Committed missing origin/HEAD retries main then master; zero-file origin s
     try std.testing.expect(model.review_diff_key != main_key);
     const master_key = model.review_diff_key;
     const master_argv = findSpawnArgv(&fx, master_key) orelse return error.MissingMasterArgv;
-    try std.testing.expect(isGitReviewDiffArgv(master_argv));
-    try std.testing.expectEqualStrings(git_committed_range_master, master_argv[8]);
-    try std.testing.expectEqualStrings("master...HEAD", master_argv[8]);
-    try std.testing.expect(std.mem.indexOf(u8, master_argv[2], git_committed_range_master) == null);
+    try expectNameStatusOperand(master_argv, git_committed_range_master);
+    try std.testing.expectEqualStrings("master...HEAD", git_committed_range_master);
 
     handleExit(&model, &fx, .{ .key = master_key, .reason = .exited, .code = 128 });
     try std.testing.expectEqualStrings(failed_status, reviewDiffStatus(&model));
@@ -1789,7 +2276,7 @@ test "Committed missing origin/HEAD retries main then master; zero-file origin s
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
     const empty_origin_key = model.review_diff_key;
     const empty_origin_argv = findSpawnArgv(&fx, empty_origin_key) orelse return error.MissingEmptyOriginArgv;
-    try std.testing.expectEqualStrings(git_committed_range, empty_origin_argv[8]);
+    try expectNameStatusOperand(empty_origin_argv, git_committed_range);
     handleExit(&model, &fx, .{ .key = empty_origin_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqualStrings(empty_status, reviewDiffStatus(&model));
     try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
@@ -1822,7 +2309,7 @@ test "Committed fallback does not hang after source switch or close" {
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
     const main_key = model.review_diff_key;
     const main_argv = findSpawnArgv(&fx, main_key) orelse return error.MissingMainBeforeSwitch;
-    try std.testing.expectEqualStrings(git_committed_range_main, main_argv[8]);
+    try expectNameStatusOperand(main_argv, git_committed_range_main);
 
     setSource(&model, &fx, .branch);
     try std.testing.expectEqual(Source.branch, model.review_diff_source);
@@ -1831,7 +2318,7 @@ test "Committed fallback does not hang after source switch or close" {
     try std.testing.expect(model.review_diff_key != main_key);
     const branch_key = model.review_diff_key;
     const branch_argv = findSpawnArgv(&fx, branch_key) orelse return error.MissingBranchAfterSwitch;
-    try std.testing.expectEqualStrings(git_upstream_range, branch_argv[8]);
+    try expectNameStatusOperand(branch_argv, git_upstream_range);
 
     handleExit(&model, &fx, .{ .key = main_key, .reason = .exited, .code = 128 });
     try std.testing.expectEqual(Source.branch, model.review_diff_source);
@@ -1844,7 +2331,7 @@ test "Committed fallback does not hang after source switch or close" {
     const origin_again = model.review_diff_key;
     const origin_again_argv = findSpawnArgv(&fx, origin_again) orelse return error.MissingOriginReselect;
     try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
-    try std.testing.expectEqualStrings(git_committed_range, origin_again_argv[8]);
+    try expectNameStatusOperand(origin_again_argv, git_committed_range);
     handleExit(&model, &fx, .{ .key = origin_again, .reason = .exited, .code = 128 });
     const main_again = model.review_diff_key;
     try std.testing.expectEqual(CommittedRange.main, model.review_diff_committed_range);
@@ -1906,12 +2393,8 @@ test "setSource last_turn with rewind sha spawns Comparing; without sha does not
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
     const last_turn_key = model.review_diff_key;
     const last_turn_argv = findSpawnArgv(&fx, last_turn_key) orelse return error.MissingLastTurnArgv;
-    try std.testing.expect(isGitReviewDiffArgv(last_turn_argv));
-    try std.testing.expectEqual(argv_len, last_turn_argv.len);
-    try std.testing.expectEqualStrings(range, last_turn_argv[8]);
-    try std.testing.expectEqualStrings("cccccccccccccccccccccccccccccccccccccccc...HEAD", last_turn_argv[8]);
-    try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[2], sha) == null);
-    try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[2], "HEAD~1") == null);
+    try expectNameStatusOperand(last_turn_argv, range);
+    try std.testing.expectEqualStrings("cccccccccccccccccccccccccccccccccccccccc...HEAD", range);
     try std.testing.expectEqualStrings(range, lastTurnRange(&model));
 
     applyLine(&model, .{ .key = last_turn_key, .line = "M\tlast-turn.zig\n" });
@@ -1927,12 +2410,8 @@ test "setSource last_turn with rewind sha spawns Comparing; without sha does not
     const hunk_key = model.review_diff_hunk_key;
     try std.testing.expect(hunk_key >= review_diff_hunk_key_first);
     const hunk_argv = findSpawnArgv(&fx, hunk_key) orelse return error.MissingLastTurnHunk;
-    try std.testing.expect(isGitReviewHunkArgv(hunk_argv));
-    try std.testing.expectEqualStrings(range, hunk_argv[7]);
-    try std.testing.expectEqualStrings(git_pathspec_end, hunk_argv[8]);
-    try std.testing.expectEqualStrings("last-turn.zig", hunk_argv[9]);
-    try std.testing.expect(std.mem.indexOf(u8, hunk_argv[2], sha) == null);
-    try std.testing.expect(std.mem.indexOf(u8, hunk_argv[7], "dddddddddddddddddddddddddddddddddddddddd") == null);
+    try expectHunkArgv(hunk_argv, range, "last-turn.zig");
+    try std.testing.expect(std.mem.indexOf(u8, hunk_argv[hunk_argv.len - 3], "dddddddddddddddddddddddddddddddddddddddd") == null);
 
     handleHunkExit(&model, &fx, .{ .key = hunk_key, .reason = .exited, .code = 0 });
     setSource(&model, &fx, .last_turn);
@@ -2000,12 +2479,9 @@ test "setSource last_turn with snapshot sha spawns two-dot; prefers snapshot ove
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
     const last_turn_argv = findSpawnArgv(&fx, model.review_diff_key) orelse return error.MissingLastTurnSnapArgv;
     try std.testing.expect(isGitReviewDiffArgv(last_turn_argv));
-    try std.testing.expectEqual(argv_len, last_turn_argv.len);
-    try std.testing.expectEqualStrings(snap, last_turn_argv[8]);
-    try std.testing.expectEqualStrings(snap_range, last_turn_argv[8]);
-    try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[8], git_last_turn_range_suffix) == null);
-    try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[2], snap) == null);
-    try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[2], rewind_sha) == null);
+    try expectNameStatusOperand(last_turn_argv, snap);
+    try std.testing.expectEqualStrings(snap, snap_range);
+    try std.testing.expect(std.mem.indexOf(u8, snap, git_last_turn_range_suffix) == null);
     try std.testing.expectEqualStrings(snap, lastTurnRange(&model));
 
     applyLine(&model, .{ .key = model.review_diff_key, .line = "M\tsnap.zig\n" });
@@ -2017,10 +2493,8 @@ test "setSource last_turn with snapshot sha spawns two-dot; prefers snapshot ove
     selectFile(&model, &fx, 1);
     const hunk_argv = findSpawnArgv(&fx, model.review_diff_hunk_key) orelse return error.MissingLastTurnSnapHunk;
     try std.testing.expect(isGitReviewHunkArgv(hunk_argv));
-    try std.testing.expectEqualStrings(snap, hunk_argv[7]);
-    try std.testing.expectEqualStrings(git_pathspec_end, hunk_argv[8]);
-    try std.testing.expectEqualStrings("snap.zig", hunk_argv[9]);
-    try std.testing.expect(std.mem.indexOf(u8, hunk_argv[7], git_last_turn_range_suffix) == null);
+    try expectHunkArgv(hunk_argv, snap, "snap.zig");
+    try std.testing.expect(std.mem.indexOf(u8, hunk_argv[hunk_argv.len - 3], git_last_turn_range_suffix) == null);
 }
 
 test "setSource last_turn prefers start..end when both snapshots exist" {
@@ -2064,14 +2538,10 @@ test "setSource last_turn prefers start..end when both snapshots exist" {
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
     const last_turn_argv = findSpawnArgv(&fx, model.review_diff_key) orelse return error.MissingLastTurnStartEndArgv;
     try std.testing.expect(isGitReviewDiffArgv(last_turn_argv));
-    try std.testing.expectEqual(argv_len, last_turn_argv.len);
-    try std.testing.expectEqualStrings(range, last_turn_argv[8]);
-    try std.testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", last_turn_argv[8]);
-    try std.testing.expectEqual(@as(usize, 82), last_turn_argv[8].len);
-    try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[8], "...") == null);
-    try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[2], start) == null);
-    try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[2], end) == null);
-    try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[2], rewind_sha) == null);
+    try expectNameStatusOperand(last_turn_argv, range);
+    try std.testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", range);
+    try std.testing.expectEqual(@as(usize, 82), range.len);
+    try std.testing.expect(std.mem.indexOf(u8, range, "...") == null);
     try std.testing.expectEqualStrings(range, lastTurnRange(&model));
 
     applyLine(&model, .{ .key = model.review_diff_key, .line = "M\tstart-end.zig\n" });
@@ -2084,11 +2554,8 @@ test "setSource last_turn prefers start..end when both snapshots exist" {
     selectFile(&model, &fx, 1);
     const hunk_argv = findSpawnArgv(&fx, model.review_diff_hunk_key) orelse return error.MissingLastTurnStartEndHunk;
     try std.testing.expect(isGitReviewHunkArgv(hunk_argv));
-    try std.testing.expectEqualStrings(range, hunk_argv[7]);
-    try std.testing.expectEqualStrings(git_pathspec_end, hunk_argv[8]);
-    try std.testing.expectEqualStrings("start-end.zig", hunk_argv[9]);
-    try std.testing.expect(std.mem.indexOf(u8, hunk_argv[2], start) == null);
-    try std.testing.expect(std.mem.indexOf(u8, hunk_argv[7], "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee") == null);
+    try expectHunkArgv(hunk_argv, range, "start-end.zig");
+    try std.testing.expect(std.mem.indexOf(u8, hunk_argv[hunk_argv.len - 3], "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee") == null);
 }
 
 test "setSource last_turn prefers diff..end when turn-diff and turn-end exist" {
@@ -2128,10 +2595,8 @@ test "setSource last_turn prefers diff..end when turn-diff and turn-end exist" {
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
     const last_turn_argv = findSpawnArgv(&fx, model.review_diff_key) orelse return error.MissingLastTurnDiffEndArgv;
     try std.testing.expect(isGitReviewDiffArgv(last_turn_argv));
-    try std.testing.expectEqual(argv_len, last_turn_argv.len);
-    try std.testing.expectEqualStrings(range, last_turn_argv[8]);
-    try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[8], start) == null);
-    try std.testing.expect(std.mem.indexOf(u8, last_turn_argv[2], diff) == null);
+    try expectNameStatusOperand(last_turn_argv, range);
+    try std.testing.expect(std.mem.indexOf(u8, range, start) == null);
     try std.testing.expectEqualStrings(range, lastTurnRange(&model));
 
     applyLine(&model, .{ .key = model.review_diff_key, .line = "M\tdiff-end.zig\n" });
@@ -2144,9 +2609,7 @@ test "setSource last_turn prefers diff..end when turn-diff and turn-end exist" {
     selectFile(&model, &fx, 1);
     const hunk_argv = findSpawnArgv(&fx, model.review_diff_hunk_key) orelse return error.MissingLastTurnDiffEndHunk;
     try std.testing.expect(isGitReviewHunkArgv(hunk_argv));
-    try std.testing.expectEqualStrings(range, hunk_argv[7]);
-    try std.testing.expectEqualStrings(git_pathspec_end, hunk_argv[8]);
-    try std.testing.expectEqualStrings("diff-end.zig", hunk_argv[9]);
+    try expectHunkArgv(hunk_argv, range, "diff-end.zig");
 }
 
 test "LastTurn start..end two-dot name-status is the edited path only" {
@@ -2189,7 +2652,7 @@ test "LastTurn start..end two-dot name-status is the edited path only" {
     try testing.expect(!isLastTurnRange(three));
 
     var argv_buf: [argv_len][]const u8 = undefined;
-    const argv = argvForLastTurn(path, range, &argv_buf);
+    const argv = unixArgvForLastTurn(path, range, &argv_buf);
     try testing.expectEqual(argv_len, argv.len);
     try testing.expectEqualStrings(range, argv[8]);
     try testing.expect(isGitReviewDiffArgv(argv));
@@ -2198,7 +2661,7 @@ test "LastTurn start..end two-dot name-status is the edited path only" {
     try testing.expect(std.mem.indexOf(u8, argv[2], range) == null);
 
     var hunk_buf: [argv_len_hunk][]const u8 = undefined;
-    const hunk = argvForHunkLastTurn(path, range, "keep-a.txt", &hunk_buf);
+    const hunk = unixArgvForHunkLastTurn(path, range, "keep-a.txt", &hunk_buf);
     try testing.expectEqual(argv_len_hunk, hunk.len);
     try testing.expectEqualStrings(range, hunk[7]);
     try testing.expectEqualStrings(git_pathspec_end, hunk[8]);
@@ -2243,7 +2706,7 @@ test "cap stays at 64; extra name-status rows are dropped" {
 
 test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" {
     var buf: [argv_len_hunk][]const u8 = undefined;
-    const branch = argvForHunk(.branch, .origin, "/tmp/faku-hunk", "src/a.zig", &buf);
+    const branch = unixArgvForHunk(.branch, .origin, "/tmp/faku-hunk", "src/a.zig", &buf);
     try std.testing.expectEqual(argv_len_hunk, branch.len);
     try std.testing.expectEqualStrings(sh_bin, branch[0]);
     try std.testing.expectEqualStrings("-c", branch[1]);
@@ -2261,7 +2724,7 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
     try std.testing.expect(std.mem.indexOf(u8, branch[2], "src/a.zig") == null);
 
     var uncommitted_buf: [argv_len_hunk][]const u8 = undefined;
-    const uncommitted = argvForHunk(.uncommitted, .origin, "/tmp/faku-hunk", "tracked.zig", &uncommitted_buf);
+    const uncommitted = unixArgvForHunk(.uncommitted, .origin, "/tmp/faku-hunk", "tracked.zig", &uncommitted_buf);
     try std.testing.expectEqual(argv_len_hunk, uncommitted.len);
     try std.testing.expectEqualStrings(git_head, uncommitted[7]);
     try std.testing.expectEqualStrings(git_pathspec_end, uncommitted[8]);
@@ -2272,7 +2735,7 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
     try std.testing.expect(std.mem.indexOf(u8, uncommitted[2], git_head) == null);
 
     var staged_buf: [argv_len_hunk][]const u8 = undefined;
-    const staged = argvForHunk(.staged, .origin, "/tmp/faku-hunk", "staged.zig", &staged_buf);
+    const staged = unixArgvForHunk(.staged, .origin, "/tmp/faku-hunk", "staged.zig", &staged_buf);
     try std.testing.expectEqualStrings(git_cached_flag, staged[7]);
     try std.testing.expectEqualStrings(git_pathspec_end, staged[8]);
     try std.testing.expectEqualStrings("staged.zig", staged[9]);
@@ -2281,7 +2744,7 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
     try std.testing.expect(std.mem.indexOf(u8, staged[2], git_cached_flag) == null);
 
     var unstaged_buf: [argv_len_hunk][]const u8 = undefined;
-    const unstaged = argvForHunk(.unstaged, .origin, "/tmp/faku-hunk", "unstaged.zig", &unstaged_buf);
+    const unstaged = unixArgvForHunk(.unstaged, .origin, "/tmp/faku-hunk", "unstaged.zig", &unstaged_buf);
     try std.testing.expectEqual(argv_len_hunk_unstaged, unstaged.len);
     try std.testing.expectEqualStrings(git_pathspec_end, unstaged[7]);
     try std.testing.expectEqualStrings("unstaged.zig", unstaged[8]);
@@ -2291,21 +2754,21 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
     try std.testing.expect(std.mem.indexOf(u8, unstaged[2], "unstaged.zig") == null);
 
     var committed_buf: [argv_len_hunk][]const u8 = undefined;
-    const committed = argvForHunk(.committed, .origin, "/tmp/faku-hunk", "committed.zig", &committed_buf);
+    const committed = unixArgvForHunk(.committed, .origin, "/tmp/faku-hunk", "committed.zig", &committed_buf);
     try std.testing.expectEqualStrings(git_committed_range, committed[7]);
     try std.testing.expectEqualStrings(git_pathspec_end, committed[8]);
     try std.testing.expect(isGitReviewHunkArgv(committed));
     try std.testing.expect(!isGitReviewDiffArgv(committed));
 
     var committed_main_buf: [argv_len_hunk][]const u8 = undefined;
-    const committed_main = argvForHunk(.committed, .main, "/tmp/faku-hunk", "committed.zig", &committed_main_buf);
+    const committed_main = unixArgvForHunk(.committed, .main, "/tmp/faku-hunk", "committed.zig", &committed_main_buf);
     try std.testing.expectEqualStrings(git_committed_range_main, committed_main[7]);
     try std.testing.expectEqualStrings(git_pathspec_end, committed_main[8]);
     try std.testing.expect(isGitReviewHunkArgv(committed_main));
     try std.testing.expect(!isGitReviewDiffArgv(committed_main));
 
     var committed_master_buf: [argv_len_hunk][]const u8 = undefined;
-    const committed_master = argvForHunk(.committed, .master, "/tmp/faku-hunk", "committed.zig", &committed_master_buf);
+    const committed_master = unixArgvForHunk(.committed, .master, "/tmp/faku-hunk", "committed.zig", &committed_master_buf);
     try std.testing.expectEqualStrings(git_committed_range_master, committed_master[7]);
     try std.testing.expect(isGitReviewHunkArgv(committed_master));
     try std.testing.expect(!isGitReviewDiffArgv(committed_master));
@@ -2314,7 +2777,7 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
     var last_turn_range_buf: [last_turn_range_len]u8 = undefined;
     const last_turn_range = formatLastTurnRange(last_turn_sha, &last_turn_range_buf) orelse return error.MissingLastTurnHunkRange;
     var last_turn_hunk_buf: [argv_len_hunk][]const u8 = undefined;
-    const last_turn_hunk = argvForHunkLastTurn("/tmp/faku-hunk", last_turn_range, "last-turn.zig", &last_turn_hunk_buf);
+    const last_turn_hunk = unixArgvForHunkLastTurn("/tmp/faku-hunk", last_turn_range, "last-turn.zig", &last_turn_hunk_buf);
     try std.testing.expectEqual(argv_len_hunk, last_turn_hunk.len);
     try std.testing.expectEqualStrings(last_turn_range, last_turn_hunk[7]);
     try std.testing.expectEqualStrings("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb...HEAD", last_turn_hunk[7]);
@@ -2328,7 +2791,7 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
     var last_turn_snap_buf: [last_turn_range_len]u8 = undefined;
     const last_turn_snap = formatLastTurnSnapshot(last_turn_sha, &last_turn_snap_buf) orelse return error.MissingLastTurnSnapHunkRange;
     var last_turn_snap_hunk_buf: [argv_len_hunk][]const u8 = undefined;
-    const last_turn_snap_hunk = argvForHunkLastTurn("/tmp/faku-hunk", last_turn_snap, "last-turn.zig", &last_turn_snap_hunk_buf);
+    const last_turn_snap_hunk = unixArgvForHunkLastTurn("/tmp/faku-hunk", last_turn_snap, "last-turn.zig", &last_turn_snap_hunk_buf);
     try std.testing.expectEqual(argv_len_hunk, last_turn_snap_hunk.len);
     try std.testing.expectEqualStrings(last_turn_sha, last_turn_snap_hunk[7]);
     try std.testing.expect(std.mem.indexOf(u8, last_turn_snap_hunk[7], git_last_turn_range_suffix) == null);
@@ -2341,7 +2804,7 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
         &last_turn_start_end_hunk_range_buf,
     ) orelse return error.MissingLastTurnStartEndHunkRange;
     var last_turn_start_end_hunk_buf: [argv_len_hunk][]const u8 = undefined;
-    const last_turn_start_end_hunk = argvForHunkLastTurn("/tmp/faku-hunk", last_turn_start_end_hunk_range, "last-turn.zig", &last_turn_start_end_hunk_buf);
+    const last_turn_start_end_hunk = unixArgvForHunkLastTurn("/tmp/faku-hunk", last_turn_start_end_hunk_range, "last-turn.zig", &last_turn_start_end_hunk_buf);
     try std.testing.expectEqual(argv_len_hunk, last_turn_start_end_hunk.len);
     try std.testing.expectEqualStrings(last_turn_start_end_hunk_range, last_turn_start_end_hunk[7]);
     try std.testing.expectEqualStrings("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb..cccccccccccccccccccccccccccccccccccccccc", last_turn_start_end_hunk[7]);
@@ -2388,29 +2851,29 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
 
 test "isGitReviewHunkArgv does not match name-status; name-status detector rejects hunks" {
     var name_buf: [argv_len][]const u8 = undefined;
-    const name = argvFor("/tmp/faku-hunk", &name_buf);
+    const name = unixArgvFor("/tmp/faku-hunk", &name_buf);
     try std.testing.expect(isGitReviewDiffArgv(name));
     try std.testing.expect(!isGitReviewHunkArgv(name));
 
     var uncommitted_buf: [argv_len][]const u8 = undefined;
-    const uncommitted = argvForSource(.uncommitted, "/tmp/faku-hunk", &uncommitted_buf);
+    const uncommitted = unixArgvForSource(.uncommitted, "/tmp/faku-hunk", &uncommitted_buf);
     try std.testing.expect(isGitReviewDiffArgv(uncommitted));
     try std.testing.expect(isGitReviewUncommittedArgv(uncommitted));
     try std.testing.expect(!isGitReviewHunkArgv(uncommitted));
 
     var unstaged_name_buf: [argv_len][]const u8 = undefined;
-    const unstaged_name = argvForSource(.unstaged, "/tmp/faku-hunk", &unstaged_name_buf);
+    const unstaged_name = unixArgvForSource(.unstaged, "/tmp/faku-hunk", &unstaged_name_buf);
     try std.testing.expect(isGitReviewDiffArgv(unstaged_name));
     try std.testing.expect(!isGitReviewHunkArgv(unstaged_name));
 
     var hunk_buf: [argv_len_hunk][]const u8 = undefined;
-    const hunk = argvForHunk(.branch, .origin, "/tmp/faku-hunk", "src/a.zig", &hunk_buf);
+    const hunk = unixArgvForHunk(.branch, .origin, "/tmp/faku-hunk", "src/a.zig", &hunk_buf);
     try std.testing.expect(isGitReviewHunkArgv(hunk));
     try std.testing.expect(!isGitReviewDiffArgv(hunk));
     try std.testing.expect(!isGitReviewUncommittedArgv(hunk));
 
     var unstaged_hunk_buf: [argv_len_hunk][]const u8 = undefined;
-    const unstaged_hunk = argvForHunk(.unstaged, .origin, "/tmp/faku-hunk", "src/a.zig", &unstaged_hunk_buf);
+    const unstaged_hunk = unixArgvForHunk(.unstaged, .origin, "/tmp/faku-hunk", "src/a.zig", &unstaged_hunk_buf);
     try std.testing.expect(isGitReviewHunkArgv(unstaged_hunk));
     try std.testing.expect(!isGitReviewDiffArgv(unstaged_hunk));
 
@@ -2439,7 +2902,7 @@ test "isGitReviewHunkArgv does not match name-status; name-status detector rejec
 test "hunk path and -- are own argv slots; space in path stays last-slot" {
     var buf: [argv_len_hunk][]const u8 = undefined;
     const path = "src/my file.zig";
-    const argv = argvForHunk(.branch, .origin, "/tmp/faku hunk", path, &buf);
+    const argv = unixArgvForHunk(.branch, .origin, "/tmp/faku hunk", path, &buf);
     try std.testing.expectEqual(argv_len_hunk, argv.len);
     try std.testing.expectEqualStrings(git_pathspec_end, argv[8]);
     try std.testing.expectEqualStrings(path, argv[9]);
@@ -2449,7 +2912,7 @@ test "hunk path and -- are own argv slots; space in path stays last-slot" {
     try std.testing.expect(!isGitReviewDiffArgv(argv));
 
     var unstaged_buf: [argv_len_hunk][]const u8 = undefined;
-    const unstaged = argvForHunk(.unstaged, .origin, "/tmp/faku hunk", path, &unstaged_buf);
+    const unstaged = unixArgvForHunk(.unstaged, .origin, "/tmp/faku hunk", path, &unstaged_buf);
     try std.testing.expectEqual(argv_len_hunk_unstaged, unstaged.len);
     try std.testing.expectEqualStrings(git_pathspec_end, unstaged[7]);
     try std.testing.expectEqualStrings(path, unstaged[8]);
@@ -2509,10 +2972,7 @@ test "clicking a tracked row fills capped patch text; empty and fail stay honest
     const hunk_argv = findSpawnArgv(&fx, hunk_key) orelse return error.MissingHunkArgv;
     try std.testing.expect(isGitReviewHunkArgv(hunk_argv));
     try std.testing.expect(!isGitReviewDiffArgv(hunk_argv));
-    try std.testing.expectEqualStrings(git_upstream_range, hunk_argv[7]);
-    try std.testing.expectEqualStrings(git_pathspec_end, hunk_argv[8]);
-    try std.testing.expectEqualStrings("src/a.zig", hunk_argv[9]);
-    try std.testing.expect(std.mem.indexOf(u8, hunk_argv[2], "src/a.zig") == null);
+    try expectHunkArgv(hunk_argv, git_upstream_range, "src/a.zig");
 
     applyHunkLine(&model, .{ .key = hunk_key, .line = "diff --git a/src/a.zig b/src/a.zig\n" });
     applyHunkLine(&model, .{ .key = hunk_key, .line = "--- a/src/a.zig\n+++ b/src/a.zig\n@@ -1 +1 @@\n-old\n+new\n" });
@@ -2529,7 +2989,7 @@ test "clicking a tracked row fills capped patch text; empty and fail stay honest
     try std.testing.expect(model.review_diff_hunk_key != hunk_key);
     const empty_key = model.review_diff_hunk_key;
     const empty_argv = findSpawnArgv(&fx, empty_key) orelse return error.MissingEmptyHunkArgv;
-    try std.testing.expectEqualStrings("new.txt", empty_argv[9]);
+    try std.testing.expectEqualStrings("new.txt", empty_argv[empty_argv.len - 1]);
     handleHunkExit(&model, &fx, .{ .key = empty_key, .reason = .exited, .code = 0 });
     try std.testing.expect(!hasReviewDiffHunk(&model));
     try std.testing.expectEqualStrings(hunk_empty_status, reviewDiffHunkStatus(&model));
@@ -2634,11 +3094,8 @@ test "clicking a ? untracked row one-shots git diff --no-index" {
     const tracked_argv = findSpawnArgv(&fx, model.review_diff_hunk_key) orelse return error.MissingTrackedHunk;
     try std.testing.expect(isGitReviewHunkArgv(tracked_argv));
     try std.testing.expect(!isGitReviewDiffArgv(tracked_argv));
-    try std.testing.expectEqual(argv_len_hunk, tracked_argv.len);
-    try std.testing.expectEqualStrings(git_head, tracked_argv[7]);
-    try std.testing.expectEqualStrings(git_pathspec_end, tracked_argv[8]);
-    try std.testing.expectEqualStrings("tracked.zig", tracked_argv[9]);
-    try std.testing.expect(!std.mem.eql(u8, tracked_argv[7], git_no_index));
+    try expectHunkArgv(tracked_argv, git_head, "tracked.zig");
+    try std.testing.expect(!std.mem.eql(u8, tracked_argv[tracked_argv.len - 3], git_no_index));
 }
 
 test "source switch and dismiss cancel in-flight hunk spawn" {
@@ -2683,7 +3140,7 @@ test "source switch and dismiss cancel in-flight hunk spawn" {
     const again = model.review_diff_hunk_key;
     try std.testing.expect(again != hunk_key);
     const staged_argv = findSpawnArgv(&fx, again) orelse return error.MissingStagedHunk;
-    try std.testing.expectEqualStrings(git_cached_flag, staged_argv[7]);
+    try expectHunkArgv(staged_argv, git_cached_flag, "staged.zig");
 
     dismiss(&model, &fx);
     try std.testing.expect(!model.review_diff_active);
@@ -2726,12 +3183,7 @@ test "Committed hunk uses the range that already succeeded" {
     selectFile(&model, &fx, 1);
     const hunk_key = model.review_diff_hunk_key;
     const hunk_argv = findSpawnArgv(&fx, hunk_key) orelse return error.MissingCommittedHunk;
-    try std.testing.expect(isGitReviewHunkArgv(hunk_argv));
-    try std.testing.expectEqualStrings(git_committed_range_main, hunk_argv[7]);
-    try std.testing.expectEqualStrings(git_pathspec_end, hunk_argv[8]);
-    try std.testing.expectEqualStrings("committed.zig", hunk_argv[9]);
-    try std.testing.expect(std.mem.indexOf(u8, hunk_argv[2], git_committed_range_main) == null);
-    try std.testing.expect(std.mem.indexOf(u8, hunk_argv[2], git_committed_range) == null);
+    try expectHunkArgv(hunk_argv, git_committed_range_main, "committed.zig");
 }
 
 fn initLastTurnRepo(allocator: std.mem.Allocator, io: std.Io, path: []const u8) ![]u8 {

@@ -106,8 +106,7 @@
 //! CRLF stdout is already trimmed in the line helpers. app.zon
 //! already includes windows. Remaining git leftovers this cut:
 //! git_numstat untracked synthetic rows (Unix-only), empty-message
-//! `fx ask` commit generate (Unix-only), `review_diff.zig` still
-//! Windows-skipped.
+//! `fx ask` commit generate (Unix-only).
 //!
 //! Spawn/line/exit orchestration lives here. Effect keys stay
 //! git_checkout bands (250+ list, 275+ checkout, 290+ create,
