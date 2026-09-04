@@ -196,9 +196,10 @@ pub const transcript_pin_offset = effect_keys.transcript_pin_offset;
 /// Distinct from fx ask / daemon / picker / clipboard keys. Native
 /// still has no `fx.maximizeWindow`; this spawn is the workaround.
 pub const maximize_window_key = maximize_window.maximize_window_key;
-/// One-shot OS image-picker sidecar (`osascript` / `zenity` / `kdialog`).
-/// Distinct from fx ask / daemon / clipboard / preview keys. Native has
-/// no `fx.pickFile`; this spawn is the documented workaround.
+/// One-shot OS image-picker sidecar (`osascript` / `zenity` / `kdialog` /
+/// Windows `powershell.exe` OpenFileDialog). Distinct from fx ask / daemon /
+/// clipboard / preview keys. Native has no `fx.pickFile`; this spawn is the
+/// documented workaround.
 pub const pick_image_key = attach_helpers.pick_image_key;
 /// One-shot OS folder-picker sidecar (`osascript` / `zenity` / `kdialog` /
 /// Windows `powershell.exe` FolderBrowserDialog). Distinct from pick_image

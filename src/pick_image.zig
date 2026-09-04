@@ -9,7 +9,11 @@
 //!
 //!   macOS:  osascript `choose file` of type public.image, POSIX path
 //!   Linux:  zenity --file-selection (image filter), else kdialog
-//!   Windows: skipped (app.zon is macos/linux; no Windows spawn path)
+//!   Windows: powershell.exe -NoProfile -STA OpenFileDialog
+//!            (System.Windows.Forms; PATH-resolved `.exe` like sibling
+//!            `explorer.exe` / `wt.exe` / `cmd.exe`; each token its
+//!            own argv slot). Cancel → empty stdout / cancel_exit.
+//!            Missing PowerShell → missing_exit / typed-path fallback.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -21,7 +25,7 @@ pub const error_prefix = "error:";
 
 pub const linux_missing_status = "No OS image picker (install zenity or kdialog). Type a path or drop a file.";
 pub const macos_missing_status = "No OS image picker (osascript missing). Type a path or drop a file.";
-pub const windows_missing_status = "Image picker is not available on Windows. Type a path or drop a file.";
+pub const windows_missing_status = "No OS image picker (powershell.exe missing). Type a path or drop a file.";
 
 pub const osascript_bin = "osascript";
 pub const osascript_script = "POSIX path of (choose file of type {\"public.image\"} with prompt \"Choose an image\")";
@@ -29,19 +33,34 @@ pub const zenity_bin = "zenity";
 pub const zenity_filter = "Images|*.png *.jpg *.jpeg *.gif *.webp *.bmp";
 pub const kdialog_bin = "kdialog";
 pub const kdialog_filter = "*.png *.jpg *.jpeg *.gif *.webp *.bmp";
+/// PATH-resolved Windows PowerShell (desktop WinForms). Explicit `.exe`
+/// suffix like sibling `explorer.exe` / `wt.exe` / `cmd.exe`.
+pub const powershell_bin = "powershell.exe";
+pub const powershell_noprofile = "-NoProfile";
+pub const powershell_sta = "-STA";
+pub const powershell_command = "-Command";
+/// STA OpenFileDialog: OK prints one absolute path; Cancel exits 1
+/// with no path; Add-Type / dialog failure exits missing_exit (2).
+/// Filter matches zenity/kdialog image extensions. Distinct from
+/// pick_folder FolderBrowserDialog.
+pub const powershell_filter = "Images|*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp";
+pub const powershell_script =
+    "$ErrorActionPreference = 'Stop'; try { Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Filter = '" ++ powershell_filter ++ "'; $d.Title = 'Choose an image'; $d.Multiselect = $false; if ($d.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { exit 1 }; Write-Output $d.FileName } catch { exit 2 }";
 
-pub const Picker = enum { osascript, zenity, kdialog };
+pub const Picker = enum { osascript, zenity, kdialog, powershell };
 pub const Stage = enum { first, fallback };
 
 const osascript_argv = [_][]const u8{ osascript_bin, "-e", osascript_script };
 const zenity_argv = [_][]const u8{ zenity_bin, "--file-selection", "--file-filter", zenity_filter };
 const kdialog_argv = [_][]const u8{ kdialog_bin, "--getopenfilename", ".", kdialog_filter };
+const powershell_argv = [_][]const u8{ powershell_bin, powershell_noprofile, powershell_sta, powershell_command, powershell_script };
 
 pub fn argvFor(picker: Picker) []const []const u8 {
     return switch (picker) {
         .osascript => &osascript_argv,
         .zenity => &zenity_argv,
         .kdialog => &kdialog_argv,
+        .powershell => &powershell_argv,
     };
 }
 
@@ -52,6 +71,7 @@ pub fn hostPicker(stage: Stage) ?Picker {
             .first => .zenity,
             .fallback => .kdialog,
         },
+        .windows => if (stage == .first) .powershell else null,
         else => null,
     };
 }
@@ -78,6 +98,9 @@ pub fn isPickerArgv(argv: []const []const u8) bool {
     }
     if (std.mem.eql(u8, argv[0], kdialog_bin)) {
         return argvHas(argv, "--getopenfilename");
+    }
+    if (std.mem.eql(u8, argv[0], powershell_bin)) {
+        return argvHas(argv, powershell_sta) and argvHas(argv, "OpenFileDialog");
     }
     return argv.len >= 2 and std.mem.eql(u8, argv[1], SUBCOMMAND);
 }
@@ -132,7 +155,34 @@ test "linux kdialog argv is getopenfilename" {
     try std.testing.expect(isPickerArgv(argv));
 }
 
-test "host first argv is the platform dialog; Windows is skipped" {
+test "windows picker argv is powershell STA OpenFileDialog" {
+    const argv = argvFor(.powershell);
+    try std.testing.expectEqualStrings(powershell_bin, argv[0]);
+    try std.testing.expect(argvHas(argv, powershell_noprofile));
+    try std.testing.expect(argvHas(argv, powershell_sta));
+    try std.testing.expect(argvHas(argv, powershell_command));
+    try std.testing.expect(argvHas(argv, "OpenFileDialog"));
+    try std.testing.expect(argvHas(argv, "System.Windows.Forms"));
+    try std.testing.expect(argvHas(argv, powershell_filter));
+    try std.testing.expect(argvHas(argv, "*.png"));
+    try std.testing.expect(argvHas(argv, "*.jpg"));
+    try std.testing.expect(argvHas(argv, "*.jpeg"));
+    try std.testing.expect(argvHas(argv, "*.gif"));
+    try std.testing.expect(argvHas(argv, "*.webp"));
+    try std.testing.expect(argvHas(argv, "*.bmp"));
+    try std.testing.expect(argvHas(argv, "Choose an image"));
+    try std.testing.expect(argvHas(argv, "Multiselect"));
+    try std.testing.expect(argvHas(argv, "Write-Output"));
+    try std.testing.expect(argvHas(argv, "FileName"));
+    try std.testing.expect(argvHas(argv, "exit 1"));
+    try std.testing.expect(argvHas(argv, "exit 2"));
+    try std.testing.expect(!argvHas(argv, "FolderBrowserDialog"));
+    try std.testing.expect(isPickerArgv(argv));
+    try std.testing.expectEqual(@as(usize, 5), argv.len);
+    try std.testing.expect(!isPickerArgv(&.{ powershell_bin, powershell_noprofile, powershell_sta, powershell_command, "Get-Date" }));
+}
+
+test "host first argv is the platform dialog" {
     switch (builtin.os.tag) {
         .macos => {
             try std.testing.expectEqual(Picker.osascript, hostPicker(.first).?);
@@ -142,11 +192,44 @@ test "host first argv is the platform dialog; Windows is skipped" {
             try std.testing.expectEqual(Picker.zenity, hostPicker(.first).?);
             try std.testing.expectEqual(Picker.kdialog, hostPicker(.fallback).?);
         },
+        .windows => {
+            try std.testing.expectEqual(Picker.powershell, hostPicker(.first).?);
+            try std.testing.expect(hostPicker(.fallback) == null);
+        },
         else => {
             try std.testing.expect(hostPicker(.first) == null);
             try std.testing.expect(hostPicker(.fallback) == null);
         },
     }
+}
+
+test "image argv is not a folder picker argv" {
+    const pick_folder = @import("pick_folder.zig");
+    const open_terminal = @import("open_terminal.zig");
+    const reveal_folder = @import("reveal_folder.zig");
+    const open_editor = @import("open_editor.zig");
+    var term_scratch: open_terminal.ArgvScratch = .{};
+    var reveal_buf: [2][]const u8 = undefined;
+    var editor_scratch: open_editor.ArgvScratch = .{};
+    try std.testing.expect(!pick_folder.isPickerArgv(argvFor(.osascript)));
+    try std.testing.expect(!pick_folder.isPickerArgv(argvFor(.zenity)));
+    try std.testing.expect(!pick_folder.isPickerArgv(argvFor(.kdialog)));
+    try std.testing.expect(!pick_folder.isPickerArgv(argvFor(.powershell)));
+    try std.testing.expect(!isPickerArgv(pick_folder.argvFor(.osascript)));
+    try std.testing.expect(!isPickerArgv(pick_folder.argvFor(.zenity)));
+    try std.testing.expect(!isPickerArgv(pick_folder.argvFor(.kdialog)));
+    try std.testing.expect(!isPickerArgv(pick_folder.argvFor(.powershell)));
+    try std.testing.expect(!isPickerArgv(open_terminal.argvForTool(.windows_terminal, "/tmp/proj", &term_scratch)));
+    try std.testing.expect(!isPickerArgv(open_terminal.argvForTool(.cmd_start, "/tmp/proj", &term_scratch)));
+    try std.testing.expect(!isPickerArgv(reveal_folder.argvForTool(.explorer, "/tmp/proj", &reveal_buf)));
+    try std.testing.expect(!isPickerArgv(open_editor.argvForTool(.windows_cursor, "/tmp/proj", &editor_scratch)));
+    try std.testing.expect(!isPickerArgv(open_editor.argvForTool(.windows_code, "/tmp/proj", &editor_scratch)));
+    try std.testing.expect(!open_terminal.isTerminalArgv(argvFor(.osascript)));
+    try std.testing.expect(!open_terminal.isTerminalArgv(argvFor(.zenity)));
+    try std.testing.expect(!open_terminal.isTerminalArgv(argvFor(.kdialog)));
+    try std.testing.expect(!open_terminal.isTerminalArgv(argvFor(.powershell)));
+    try std.testing.expect(!reveal_folder.isRevealArgv(argvFor(.powershell)));
+    try std.testing.expect(!open_editor.isEditorArgv(argvFor(.powershell)));
 }
 
 test "firstStdoutPath trims and takes one line; error: prefix is not a path" {

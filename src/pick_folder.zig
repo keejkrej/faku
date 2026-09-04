@@ -273,6 +273,7 @@ test "folder argv is not an image picker argv" {
     try std.testing.expect(!isPickerArgv(pick_image.argvFor(.osascript)));
     try std.testing.expect(!isPickerArgv(pick_image.argvFor(.zenity)));
     try std.testing.expect(!isPickerArgv(pick_image.argvFor(.kdialog)));
+    try std.testing.expect(!isPickerArgv(pick_image.argvFor(.powershell)));
     try std.testing.expect(!isPickerArgv(open_terminal.argvForTool(.windows_terminal, "/tmp/proj", &term_scratch)));
     try std.testing.expect(!isPickerArgv(open_terminal.argvForTool(.cmd_start, "/tmp/proj", &term_scratch)));
     try std.testing.expect(!isPickerArgv(reveal_folder.argvForTool(.explorer, "/tmp/proj", &reveal_buf)));

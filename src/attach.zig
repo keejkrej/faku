@@ -18,9 +18,10 @@ const Msg = main.Msg;
 const imagePathFromDrop = composer.imagePathFromDrop;
 const isAttachImagePath = composer.isAttachImagePath;
 
-/// One-shot OS image-picker sidecar (`osascript` / `zenity` / `kdialog`).
-/// Distinct from fx ask / daemon / clipboard / preview keys. Native has
-/// no `fx.pickFile`; this spawn is the documented workaround.
+/// One-shot OS image-picker sidecar (`osascript` / `zenity` / `kdialog` /
+/// Windows `powershell.exe` OpenFileDialog). Distinct from fx ask / daemon /
+/// clipboard / preview keys. Native has no `fx.pickFile`; this spawn is the
+/// documented workaround.
 pub const pick_image_key: u64 = 31;
 /// Caller-chosen ImageId for the composer attach preview. `fx.loadImage`
 /// uses this as the effect key (shared with spawn / clipboard / file).
