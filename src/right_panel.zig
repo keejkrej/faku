@@ -3,7 +3,7 @@
 //! Toggleable pane to the right of the conversation column. Files
 //! lists the selected session's project files from the existing
 //! `file_mention` cache (`git ls-files --cached --others
-//! --exclude-standard`, then the bounded find walk) plus derived
+//! --exclude-standard`, then the bounded walk) plus derived
 //! parent directories collected there. Diff shows the existing
 //! Environment Compare / Review body inline (source chips + status +
 //! file list + hunk text) via `review_diff` — not a second git probe
@@ -32,8 +32,9 @@
 //! Faku-side Dismiss, not Claude TaskStop / daemon
 //! `refreshBackgroundWork`; not live after `-p` exits). Not daemon
 //! `WorkspaceOperation::listTree` / browseDirectory / readTextFile.
-//! Not Waku's 50k-file index (cap 256). Windows stays empty this cut
-//! (`file_mention` already skips Windows).
+//! Not Waku's 50k-file index (cap 256). Windows probes the same
+//! cache (`git.exe -C` then a PowerShell walk; still not Waku's
+//! 50k index or a Native FS watcher).
 //!
 //! Files tab ships a bounded inline file preview (Faku-side
 //! `readFileAlloc`, 256KB cap, truncated label when larger, binary /
