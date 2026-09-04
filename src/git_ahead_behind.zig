@@ -24,7 +24,7 @@
 //! interpolated into a script). Count stdout is the same on
 //! Windows; CRLF is already trimmed in the line helpers. app.zon
 //! already includes windows. Remaining git modules (remotes,
-//! numstat, toplevel, common_dir, checkout/commit) still skip
+//! toplevel, common_dir, checkout/commit) still skip
 //! Windows this cut.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
@@ -339,7 +339,7 @@ test "argv is chdir script plus git rev-list --left-right --count @{upstream}...
     try std.testing.expect(!isGitAheadBehindArgv(dirty));
     try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
     var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
-    const numstat = git_numstat.argvFor("/tmp/faku-ahead", &numstat_buf);
+    const numstat = git_numstat.unixArgvFor("/tmp/faku-ahead", &numstat_buf);
     try std.testing.expect(!isGitAheadBehindArgv(numstat));
     try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
     try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
@@ -354,6 +354,7 @@ test "argv is chdir script plus git rev-list --left-right --count @{upstream}...
 test "windows git argv is git.exe -C PATH rev-list --left-right --count; path and range are own slots" {
     const git_branch = @import("git_branch.zig");
     const git_dirty = @import("git_dirty.zig");
+    const git_numstat = @import("git_numstat.zig");
     const file_mention = @import("file_mention.zig");
     var buf: [argv_len][]const u8 = undefined;
     const cwd = "C:\\Users\\me\\proj";
@@ -386,6 +387,9 @@ test "windows git argv is git.exe -C PATH rev-list --left-right --count; path an
     var dirty_buf: [git_dirty.argv_len][]const u8 = undefined;
     try std.testing.expect(!isGitAheadBehindArgv(git_dirty.windowsArgvFor(cwd, &dirty_buf)));
     try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
+    var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitAheadBehindArgv(git_numstat.windowsArgvFor(cwd, &numstat_buf)));
+    try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
     var mention_buf: [file_mention.git_argv_len][]const u8 = undefined;
     try std.testing.expect(!isGitAheadBehindArgv(file_mention.windowsArgvFor(cwd, &mention_buf)));
     try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));

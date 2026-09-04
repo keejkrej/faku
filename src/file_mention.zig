@@ -526,7 +526,7 @@ test "argv is chdir script plus git ls-files cached/others; not git branch" {
     const dirty = git_dirty.argvFor("/tmp/faku-ls", &dirty_buf);
     try std.testing.expect(!isGitLsFilesArgv(dirty));
     var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
-    const numstat = git_numstat.argvFor("/tmp/faku-ls", &numstat_buf);
+    const numstat = git_numstat.unixArgvFor("/tmp/faku-ls", &numstat_buf);
     try std.testing.expect(!isGitLsFilesArgv(numstat));
     try std.testing.expect(file_mention_key_first > git_numstat.git_numstat_key_first);
     try std.testing.expect(git_numstat.git_numstat_key_first > git_dirty.git_dirty_key_first);
