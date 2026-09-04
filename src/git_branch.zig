@@ -13,7 +13,6 @@
 //! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
 //! `git.exe -C <project_path>` (path is its own argv slot, not
 //! interpolated into a script). app.zon already includes windows.
-//! Remaining this cut: empty-message `fx ask` generate stays Unix-only.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_branch_key_first` (200+).
