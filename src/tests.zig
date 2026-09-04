@@ -4732,6 +4732,9 @@ test "open_terminal existing directory captures host terminal argv and leaves pr
         try testing.expectEqualStrings(open_terminal.macos_app_flag, spawn.argv[1]);
         try testing.expectEqualStrings(open_terminal.macos_app, spawn.argv[2]);
         try testing.expectEqualStrings(project, spawn.argv[3]);
+    } else if (spawn.argv.len == 3) {
+        try testing.expectEqualStrings(open_terminal.windows_d_flag, spawn.argv[1]);
+        try testing.expectEqualStrings(project, spawn.argv[2]);
     } else {
         try testing.expectEqual(@as(usize, 2), spawn.argv.len);
         try testing.expect(std.mem.startsWith(u8, spawn.argv[1], open_terminal.working_directory_prefix));
