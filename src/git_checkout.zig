@@ -104,9 +104,7 @@
 //! `git.exe -C PATH push --set-upstream <remote> <branch>`; worktree
 //! base is `git.exe -C PATH symbolic-ref --quiet --short refs/remotes/origin/HEAD`.
 //! CRLF stdout is already trimmed in the line helpers. app.zon
-//! already includes windows. Remaining git leftovers this cut:
-//! Environment Compare Uncommitted untracked `?` rows / `--no-index`
-//! hunks stay Unix-only.
+//! already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Effect keys stay
 //! git_checkout bands (250+ list, 275+ checkout, 290+ create,
