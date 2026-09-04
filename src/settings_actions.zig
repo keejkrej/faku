@@ -93,6 +93,10 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
         git_checkout.closeDelete(model);
         return;
     }
+    if (model.git_push_confirm_active) {
+        git_checkout.cancelPushConfirm(model);
+        return;
+    }
     if (model.image_attach_active) {
         model.closeImageAttach();
         return;
@@ -368,6 +372,7 @@ pub fn handleToggleGitBranchPicker(model: *Model) void {
         model.settings_effort_picker_open = false;
         model.goal_status_picker_open = false;
         git_checkout.closeDelete(model);
+        git_checkout.closePushConfirm(model);
     }
     model.toggleGitBranchPicker();
 }
@@ -424,6 +429,18 @@ pub fn handleStartGitFetch(model: *Model, fx: *Effects) void {
 
 pub fn handleStartGitPush(model: *Model, fx: *Effects) void {
     git_checkout.startPush(model, fx);
+}
+
+pub fn handleConfirmGitPush(model: *Model, fx: *Effects) void {
+    git_checkout.confirmPush(model, fx);
+}
+
+pub fn handleCancelGitPush(model: *Model) void {
+    git_checkout.cancelPushConfirm(model);
+}
+
+pub fn handleToggleGitPushForce(model: *Model, fx: *Effects) void {
+    git_checkout.togglePushForce(model, fx);
 }
 
 pub fn handleStartGitWorktreeCreate(model: *Model, fx: *Effects) void {

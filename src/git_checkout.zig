@@ -35,15 +35,21 @@
 //! and a remotes probe found at least one remote (first-push
 //! `--set-upstream` path). Hidden while those probes are in flight
 //! and when it resolved an upstream with ahead 0. Failed / empty
-//! remotes on the no-upstream path hide Push…. Push… probes
-//! `@{upstream}` and
-//! one-shots `git push` when that name exists (`push` its own argv
-//! slot). When there is no upstream it one-shots
+//! remotes on the no-upstream path hide Push…. Menu Push… opens a
+//! first-cut confirm row (ghost Force + Push + Cancel; same card UX
+//! as Delete branch…). Force is runtime-only, default off, reset
+//! when that confirm or Commit… opens, not persisted. Confirm keeps
+//! today's gates and probes `@{upstream}`, then one-shots `git push`
+//! when that name exists (`push` its own argv slot). When there is
+//! no upstream it one-shots
 //! `git push --set-upstream <remote> <branch>`
 //! (`--set-upstream`, remote, and branch each their own argv slot;
 //! remote prefers `origin` from `git remote`, else the first name).
-//! Detached HEAD or no remotes set a short composer status and do
-//! not spawn a push. New worktree… prefills the runtime-only card
+//! When Force is on, `--force` is its own argv slot after `push`
+//! (before `--set-upstream` / remote / branch). Off matches today's
+//! non-force push exactly. Commit… in-dialog Push and Commit and
+//! Push honor the same Force toggle. Detached HEAD or no remotes
+//! set a short composer status and do not spawn a push. New worktree… prefills the runtime-only card
 //! from a prompt slug of the selected session title (empty /
 //! non-ascii-only → `new-worktree`; user can still edit). Confirm
 //! probes `git symbolic-ref --quiet --short refs/remotes/origin/HEAD`
@@ -77,8 +83,8 @@
 //! the next free candidate the same way. Exhausted candidates set
 //! status and leave `project_path` alone. Success retargets the
 //! selected session `project_path` to the dest actually used. Not
-//! force push, not daemon `WorkspaceOperation::Push` / `NewWorktree`,
-//! not `InspectCommit` / `Commit`. Cap is 64 local heads plus 32
+//! daemon `WorkspaceOperation::Push` / `NewWorktree`, not
+//! `InspectCommit` / `Commit`. Cap is 64 local heads plus 32
 //! remote-tracking names that have no local counterpart (skip
 //! symbolic `*/HEAD`), sorted lexicographically. Not Waku's daemon
 //! `InspectBranches` picker, live watch, `waku/` prefix /
@@ -87,7 +93,7 @@
 //! or Environment Summary. Composer Push… still
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
-//! Leftovers: force push / prune-alone / daemon `WorkspaceOperation`.
+//! Leftovers: prune-alone / daemon `WorkspaceOperation`.
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
@@ -98,10 +104,11 @@
 //! `git.exe -C PATH checkout --track <name>`; create is
 //! `git.exe -C PATH checkout -b <name>`; delete is
 //! `git.exe -C PATH branch -d|-D <name>`; fetch is
-//! `git.exe -C PATH fetch --prune`; push is `git.exe -C PATH push`;
+//! `git.exe -C PATH fetch --prune`; push is `git.exe -C PATH push`
+//! or `git.exe -C PATH push --force`;
 //! upstream is `git.exe -C PATH rev-parse --abbrev-ref --symbolic-full-name @{upstream}`;
 //! remotes is `git.exe -C PATH remote`; set-upstream is
-//! `git.exe -C PATH push --set-upstream <remote> <branch>`; worktree
+//! `git.exe -C PATH push [--force] --set-upstream <remote> <branch>`; worktree
 //! base is `git.exe -C PATH symbolic-ref --quiet --short refs/remotes/origin/HEAD`.
 //! CRLF stdout is already trimmed in the line helpers. app.zon
 //! already includes windows.
@@ -236,6 +243,7 @@ pub const git_delete_force_flag = "-D";
 pub const git_fetch_cmd = "fetch";
 pub const git_prune_flag = "--prune";
 pub const git_push_cmd = "push";
+pub const git_push_force_flag = "--force";
 pub const git_set_upstream_flag = "--set-upstream";
 pub const git_remote_cmd = "remote";
 pub const git_rev_parse_cmd = git_branch.git_rev_parse_cmd;
@@ -307,10 +315,13 @@ const windows_delete_argv_len: usize = 6;
 const fetch_argv_len: usize = 8;
 const unix_fetch_argv_len: usize = 8;
 const windows_fetch_argv_len: usize = 5;
-/// Unix `/bin/sh -c` chdir + git push (7). Windows `git.exe -C` is 4.
-const push_argv_len: usize = 7;
+/// Unix `/bin/sh -c` chdir + git push (7) or git push --force (8).
+/// Windows `git.exe -C` is 4 / 5. Buffer is the max (Unix force).
+pub const push_argv_len: usize = 8;
 const unix_push_argv_len: usize = 7;
+const unix_push_force_argv_len: usize = 8;
 const windows_push_argv_len: usize = 4;
+const windows_push_force_argv_len: usize = 5;
 /// Unix `/bin/sh -c` chdir + git rev-parse --abbrev-ref
 /// --symbolic-full-name @{upstream} (10). Windows `git.exe -C` is 7.
 const upstream_argv_len: usize = 10;
@@ -321,11 +332,13 @@ pub const remote_argv_len: usize = 7;
 pub const unix_remote_argv_len: usize = 7;
 pub const windows_remote_argv_len: usize = 4;
 const show_current_argv_len: usize = 8;
-/// Unix `/bin/sh -c` chdir + git push --set-upstream (10). Windows
-/// `git.exe -C` is 7.
-const set_upstream_push_argv_len: usize = 10;
+/// Unix `/bin/sh -c` chdir + git push --set-upstream (10) or
+/// git push --force --set-upstream (11). Windows `git.exe -C` is 7 / 8.
+const set_upstream_push_argv_len: usize = 11;
 const unix_set_upstream_push_argv_len: usize = 10;
+const unix_set_upstream_push_force_argv_len: usize = 11;
 const windows_set_upstream_push_argv_len: usize = 7;
+const windows_set_upstream_push_force_argv_len: usize = 8;
 /// Unix mkdir+chdir + git worktree add -b (12 / 13 with base).
 /// Windows powershell `-Command` + `-Args` is 13 / 14; this is
 /// the spawn buffer (max of the two).
@@ -768,29 +781,48 @@ pub fn isGitFetchArgv(argv: []const []const u8) bool {
     return isUnixGitFetchArgv(argv) or isWindowsGitFetchArgv(argv);
 }
 
-/// `git push` with no extra flags — `push` is its own argv slot,
-/// never interpolated into the `-c` script. Not `--set-upstream`,
-/// not `-u`, not `--force`, not `--tags`.
-pub fn unixPushArgvFor(cwd: []const u8, buf: *[push_argv_len][]const u8) []const []const u8 {
-    buf.* = .{
-        sh_bin,
-        "-c",
-        main.fx_ask_chdir_script,
-        "sh",
-        cwd,
-        git_bin,
-        git_push_cmd,
-    };
-    return buf[0..unix_push_argv_len];
+/// `git push` — `push` is its own argv slot, never interpolated
+/// into the `-c` script. Optional `--force` is its own slot after
+/// `push`. Not `--set-upstream`, not `-u`, not `--force-with-lease`,
+/// not `--tags`.
+fn writeUnixPushArgv(cwd: []const u8, force: bool, buf: *[push_argv_len][]const u8) []const []const u8 {
+    buf[0] = sh_bin;
+    buf[1] = "-c";
+    buf[2] = main.fx_ask_chdir_script;
+    buf[3] = "sh";
+    buf[4] = cwd;
+    buf[5] = git_bin;
+    buf[6] = git_push_cmd;
+    if (!force) return buf[0..unix_push_argv_len];
+    buf[7] = git_push_force_flag;
+    return buf[0..unix_push_force_argv_len];
 }
 
-/// Windows: `git.exe -C <project_path> push`.
-pub fn windowsPushArgvFor(cwd: []const u8, buf: *[push_argv_len][]const u8) []const []const u8 {
+pub fn unixPushArgvFor(cwd: []const u8, buf: *[push_argv_len][]const u8) []const []const u8 {
+    return writeUnixPushArgv(cwd, false, buf);
+}
+
+pub fn unixPushForceArgvFor(cwd: []const u8, buf: *[push_argv_len][]const u8) []const []const u8 {
+    return writeUnixPushArgv(cwd, true, buf);
+}
+
+/// Windows: `git.exe -C <project_path> push` (optional `--force`).
+fn writeWindowsPushArgv(cwd: []const u8, force: bool, buf: *[push_argv_len][]const u8) []const []const u8 {
     buf[0] = windows_git_bin;
     buf[1] = git_c_flag;
     buf[2] = cwd;
     buf[3] = git_push_cmd;
-    return buf[0..windows_push_argv_len];
+    if (!force) return buf[0..windows_push_argv_len];
+    buf[4] = git_push_force_flag;
+    return buf[0..windows_push_force_argv_len];
+}
+
+pub fn windowsPushArgvFor(cwd: []const u8, buf: *[push_argv_len][]const u8) []const []const u8 {
+    return writeWindowsPushArgv(cwd, false, buf);
+}
+
+pub fn windowsPushForceArgvFor(cwd: []const u8, buf: *[push_argv_len][]const u8) []const []const u8 {
+    return writeWindowsPushArgv(cwd, true, buf);
 }
 
 pub fn pushArgvFor(cwd: []const u8, buf: *[push_argv_len][]const u8) []const []const u8 {
@@ -800,25 +832,44 @@ pub fn pushArgvFor(cwd: []const u8, buf: *[push_argv_len][]const u8) []const []c
     };
 }
 
+pub fn pushForceArgvFor(cwd: []const u8, buf: *[push_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsPushForceArgvFor(cwd, buf),
+        else => unixPushForceArgvFor(cwd, buf),
+    };
+}
+
 fn isUnixGitPushArgv(argv: []const []const u8) bool {
-    if (argv.len != unix_push_argv_len) return false;
+    const force = argv.len == unix_push_force_argv_len;
+    if (!force and argv.len != unix_push_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
-    return std.mem.eql(u8, argv[6], git_push_cmd);
+    if (!std.mem.eql(u8, argv[6], git_push_cmd)) return false;
+    if (!force) return true;
+    return std.mem.eql(u8, argv[7], git_push_force_flag);
 }
 
 fn isWindowsGitPushArgv(argv: []const []const u8) bool {
-    if (argv.len != windows_push_argv_len) return false;
+    const force = argv.len == windows_push_force_argv_len;
+    if (!force and argv.len != windows_push_argv_len) return false;
     if (!windowsGitBinOk(argv[0])) return false;
     if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
     if (argv[2].len == 0) return false;
-    return std.mem.eql(u8, argv[3], git_push_cmd);
+    if (!std.mem.eql(u8, argv[3], git_push_cmd)) return false;
+    if (!force) return true;
+    return std.mem.eql(u8, argv[4], git_push_force_flag);
 }
 
 pub fn isGitPushArgv(argv: []const []const u8) bool {
     return isUnixGitPushArgv(argv) or isWindowsGitPushArgv(argv);
+}
+
+pub fn isGitPushForceArgv(argv: []const []const u8) bool {
+    if (isUnixGitPushArgv(argv)) return argv.len == unix_push_force_argv_len;
+    if (isWindowsGitPushArgv(argv)) return argv.len == windows_push_force_argv_len;
+    return false;
 }
 
 /// `git rev-parse --abbrev-ref --symbolic-full-name @{upstream}`.
@@ -940,36 +991,61 @@ pub fn isGitRemoteArgv(argv: []const []const u8) bool {
 
 /// `git push --set-upstream <remote> <branch>` — flag, remote, and
 /// branch each their own argv slot, never interpolated into the `-c`
-/// script. Rejects implausible names so a raw string never reaches
-/// the shell script. Not `-u`, not `--force`.
+/// script. Optional `--force` is its own slot after `push` and
+/// before `--set-upstream`. Rejects implausible names so a raw
+/// string never reaches the shell script. Not `-u`, not
+/// `--force-with-lease`.
+fn writeUnixSetUpstreamPushArgv(
+    cwd: []const u8,
+    remote: []const u8,
+    branch: []const u8,
+    force: bool,
+    buf: *[set_upstream_push_argv_len][]const u8,
+) ?[]const []const u8 {
+    if (!isPlausibleRemoteName(remote)) return null;
+    if (!git_branch.isPlausibleBranchName(branch)) return null;
+    buf[0] = sh_bin;
+    buf[1] = "-c";
+    buf[2] = main.fx_ask_chdir_script;
+    buf[3] = "sh";
+    buf[4] = cwd;
+    buf[5] = git_bin;
+    buf[6] = git_push_cmd;
+    var i: usize = 7;
+    if (force) {
+        buf[i] = git_push_force_flag;
+        i += 1;
+    }
+    buf[i] = git_set_upstream_flag;
+    buf[i + 1] = remote;
+    buf[i + 2] = branch;
+    return buf[0 .. i + 3];
+}
+
 pub fn unixSetUpstreamPushArgvFor(
     cwd: []const u8,
     remote: []const u8,
     branch: []const u8,
     buf: *[set_upstream_push_argv_len][]const u8,
 ) ?[]const []const u8 {
-    if (!isPlausibleRemoteName(remote)) return null;
-    if (!git_branch.isPlausibleBranchName(branch)) return null;
-    buf.* = .{
-        sh_bin,
-        "-c",
-        main.fx_ask_chdir_script,
-        "sh",
-        cwd,
-        git_bin,
-        git_push_cmd,
-        git_set_upstream_flag,
-        remote,
-        branch,
-    };
-    return buf[0..unix_set_upstream_push_argv_len];
+    return writeUnixSetUpstreamPushArgv(cwd, remote, branch, false, buf);
 }
 
-/// Windows: `git.exe -C <project_path> push --set-upstream <remote> <branch>`.
-pub fn windowsSetUpstreamPushArgvFor(
+pub fn unixSetUpstreamPushForceArgvFor(
     cwd: []const u8,
     remote: []const u8,
     branch: []const u8,
+    buf: *[set_upstream_push_argv_len][]const u8,
+) ?[]const []const u8 {
+    return writeUnixSetUpstreamPushArgv(cwd, remote, branch, true, buf);
+}
+
+/// Windows: `git.exe -C <project_path> push [--force] --set-upstream <remote> <branch>`.
+fn writeWindowsSetUpstreamPushArgv(
+    cwd: []const u8,
+    remote: []const u8,
+    branch: []const u8,
+    force: bool,
     buf: *[set_upstream_push_argv_len][]const u8,
 ) ?[]const []const u8 {
     if (!isPlausibleRemoteName(remote)) return null;
@@ -978,10 +1054,33 @@ pub fn windowsSetUpstreamPushArgvFor(
     buf[1] = git_c_flag;
     buf[2] = cwd;
     buf[3] = git_push_cmd;
-    buf[4] = git_set_upstream_flag;
-    buf[5] = remote;
-    buf[6] = branch;
-    return buf[0..windows_set_upstream_push_argv_len];
+    var i: usize = 4;
+    if (force) {
+        buf[i] = git_push_force_flag;
+        i += 1;
+    }
+    buf[i] = git_set_upstream_flag;
+    buf[i + 1] = remote;
+    buf[i + 2] = branch;
+    return buf[0 .. i + 3];
+}
+
+pub fn windowsSetUpstreamPushArgvFor(
+    cwd: []const u8,
+    remote: []const u8,
+    branch: []const u8,
+    buf: *[set_upstream_push_argv_len][]const u8,
+) ?[]const []const u8 {
+    return writeWindowsSetUpstreamPushArgv(cwd, remote, branch, false, buf);
+}
+
+pub fn windowsSetUpstreamPushForceArgvFor(
+    cwd: []const u8,
+    remote: []const u8,
+    branch: []const u8,
+    buf: *[set_upstream_push_argv_len][]const u8,
+) ?[]const []const u8 {
+    return writeWindowsSetUpstreamPushArgv(cwd, remote, branch, true, buf);
 }
 
 pub fn setUpstreamPushArgvFor(
@@ -996,31 +1095,61 @@ pub fn setUpstreamPushArgvFor(
     };
 }
 
+pub fn setUpstreamPushForceArgvFor(
+    cwd: []const u8,
+    remote: []const u8,
+    branch: []const u8,
+    buf: *[set_upstream_push_argv_len][]const u8,
+) ?[]const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsSetUpstreamPushForceArgvFor(cwd, remote, branch, buf),
+        else => unixSetUpstreamPushForceArgvFor(cwd, remote, branch, buf),
+    };
+}
+
 fn isUnixGitSetUpstreamPushArgv(argv: []const []const u8) bool {
-    if (argv.len != unix_set_upstream_push_argv_len) return false;
+    const force = argv.len == unix_set_upstream_push_force_argv_len;
+    if (!force and argv.len != unix_set_upstream_push_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_push_cmd)) return false;
-    if (!std.mem.eql(u8, argv[7], git_set_upstream_flag)) return false;
-    if (!isPlausibleRemoteName(argv[8])) return false;
-    return git_branch.isPlausibleBranchName(argv[9]);
+    var i: usize = 7;
+    if (force) {
+        if (!std.mem.eql(u8, argv[i], git_push_force_flag)) return false;
+        i += 1;
+    }
+    if (!std.mem.eql(u8, argv[i], git_set_upstream_flag)) return false;
+    if (!isPlausibleRemoteName(argv[i + 1])) return false;
+    return git_branch.isPlausibleBranchName(argv[i + 2]);
 }
 
 fn isWindowsGitSetUpstreamPushArgv(argv: []const []const u8) bool {
-    if (argv.len != windows_set_upstream_push_argv_len) return false;
+    const force = argv.len == windows_set_upstream_push_force_argv_len;
+    if (!force and argv.len != windows_set_upstream_push_argv_len) return false;
     if (!windowsGitBinOk(argv[0])) return false;
     if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
     if (argv[2].len == 0) return false;
     if (!std.mem.eql(u8, argv[3], git_push_cmd)) return false;
-    if (!std.mem.eql(u8, argv[4], git_set_upstream_flag)) return false;
-    if (!isPlausibleRemoteName(argv[5])) return false;
-    return git_branch.isPlausibleBranchName(argv[6]);
+    var i: usize = 4;
+    if (force) {
+        if (!std.mem.eql(u8, argv[i], git_push_force_flag)) return false;
+        i += 1;
+    }
+    if (!std.mem.eql(u8, argv[i], git_set_upstream_flag)) return false;
+    if (!isPlausibleRemoteName(argv[i + 1])) return false;
+    return git_branch.isPlausibleBranchName(argv[i + 2]);
 }
 
 pub fn isGitSetUpstreamPushArgv(argv: []const []const u8) bool {
     return isUnixGitSetUpstreamPushArgv(argv) or isWindowsGitSetUpstreamPushArgv(argv);
+}
+
+pub fn isGitSetUpstreamPushForceArgv(argv: []const []const u8) bool {
+    if (isUnixGitSetUpstreamPushArgv(argv)) return argv.len == unix_set_upstream_push_force_argv_len;
+    if (isWindowsGitSetUpstreamPushArgv(argv)) return argv.len == windows_set_upstream_push_force_argv_len;
+    return false;
 }
 
 /// Non-empty first stdout line means `@{upstream}` resolved.
@@ -1729,11 +1858,24 @@ pub fn closeDelete(model: *Model) void {
     model.git_branch_delete_force = false;
 }
 
+/// Hide the Push… confirm row without resetting Force (Commit…
+/// in-dialog Push may still need the toggle).
+pub fn closePushConfirm(model: *Model) void {
+    model.git_push_confirm_active = false;
+}
+
+/// Esc / Cancel on the Push… confirm row. Resets Force.
+pub fn cancelPushConfirm(model: *Model) void {
+    closePushConfirm(model);
+    model.git_push_force = false;
+}
+
 /// Dismiss the select list and open the runtime-only create card.
 /// Draft name is not persisted.
 pub fn startCreate(model: *Model) void {
     closePicker(model);
     closeDelete(model);
+    closePushConfirm(model);
     closeWorktreeCreate(model);
     closeCommitCard(model);
     model.closeProjectEdit();
@@ -1748,6 +1890,7 @@ pub fn startWorktreeCreate(model: *Model) void {
     closePicker(model);
     closeCreate(model);
     closeDelete(model);
+    closePushConfirm(model);
     closeWorktreeCreate(model);
     closeCommitCard(model);
     model.closeProjectEdit();
@@ -1765,6 +1908,7 @@ pub fn startDelete(model: *Model) void {
     closePicker(model);
     closeCreate(model);
     closeWorktreeCreate(model);
+    closePushConfirm(model);
     closeCommitCard(model);
     model.closeProjectEdit();
     model.git_branch_delete_active = true;
@@ -1798,6 +1942,14 @@ pub fn toggleDeleteForce(model: *Model, fx: *Effects) void {
     _ = fx;
     if (model.git_delete_key != 0) return;
     model.git_branch_delete_force = !model.git_branch_delete_force;
+}
+
+/// Runtime-only Push… / Commit… Force toggle. Default off. Not
+/// persisted. No-op while a push spawn is in flight.
+pub fn togglePushForce(model: *Model, fx: *Effects) void {
+    _ = fx;
+    if (model.git_push_key != 0) return;
+    model.git_push_force = !model.git_push_force;
 }
 
 fn appendListedBranch(model: *Model, name: []const u8, remote: bool, occupied: bool) void {
@@ -1953,7 +2105,11 @@ fn spawnBarePush(model: *Model, fx: *Effects) void {
         return;
     }
     var argv_buf: [push_argv_len][]const u8 = undefined;
-    spawnPushCmd(model, fx, cwd, pushArgvFor(cwd, &argv_buf), .push);
+    const argv = if (model.git_push_force)
+        pushForceArgvFor(cwd, &argv_buf)
+    else
+        pushArgvFor(cwd, &argv_buf);
+    spawnPushCmd(model, fx, cwd, argv, .push);
 }
 
 fn spawnShowCurrent(model: *Model, fx: *Effects) void {
@@ -1984,7 +2140,10 @@ fn spawnSetUpstreamPush(model: *Model, fx: *Effects) void {
         return;
     }
     var argv_buf: [set_upstream_push_argv_len][]const u8 = undefined;
-    const argv = setUpstreamPushArgvFor(cwd, gitPushRemote(model), gitPushBranch(model), &argv_buf) orelse {
+    const argv = (if (model.git_push_force)
+        setUpstreamPushForceArgvFor(cwd, gitPushRemote(model), gitPushBranch(model), &argv_buf)
+    else
+        setUpstreamPushArgvFor(cwd, gitPushRemote(model), gitPushBranch(model), &argv_buf)) orelse {
         failPush(model);
         return;
     };
@@ -2053,6 +2212,7 @@ pub fn refresh(model: *Model, fx: *Effects) void {
     closeCreate(model);
     closeWorktreeCreate(model);
     closeDelete(model);
+    closePushConfirm(model);
     if (model.git_commit_generate_key != 0) {
         fx.cancel(model.git_commit_generate_key);
         model.git_commit_generate_key = 0;
@@ -2344,6 +2504,7 @@ pub fn startFetch(model: *Model, fx: *Effects) void {
     closeCreate(model);
     closeWorktreeCreate(model);
     closeDelete(model);
+    closePushConfirm(model);
     dropCommitSnapshot(model, fx);
     closeCommitCard(model);
     if (gitMutationInFlight(model)) return;
@@ -2392,6 +2553,7 @@ fn preparePushUi(model: *Model, fx: *Effects, keep_commit_card: bool) void {
     closeCreate(model);
     closeWorktreeCreate(model);
     closeDelete(model);
+    closePushConfirm(model);
     dropCommitSnapshot(model, fx);
     if (!keep_commit_card) closeCommitCard(model);
 }
@@ -2406,25 +2568,36 @@ fn startGatedPush(model: *Model, fx: *Effects) void {
     spawnUpstreamProbe(model, fx, cwd);
 }
 
-/// Composer menu Push…. Closes any open Commit… card, then probes
-/// `@{upstream}`. A resolved upstream one-shots `git push` (no extra
-/// flags). No upstream one-shots
-/// `git push --set-upstream <remote> <branch>` after resolving the
-/// current branch and a remote (`origin` preferred). Detached HEAD
-/// or no remotes set `Could not push.` and do not spawn a push. Not
-/// force, not daemon `WorkspaceOperation::Push`. Offered only when
+/// Composer menu Push…. Opens a first-cut confirm row (ghost Force
+/// + Push + Cancel). Does not spawn until `confirmPush`. Resets
+/// Force to off. Closes any open Commit… card. Offered only when
 /// `canPushGitBranch` (Waku `can_push` with
 /// remotes-required-for-first-push). Busy session or in-flight
 /// checkout/create/delete/fetch/push is a no-op. Does not require
 /// an open Commit… card.
 pub fn startPush(model: *Model, fx: *Effects) void {
     preparePushUi(model, fx, false);
+    if (!git_ahead_behind.canPushGitBranch(model)) return;
+    if (gitMutationInFlight(model)) return;
+    if (model.is_streaming()) return;
+    if (!probeSupported()) return;
+    if (probePath(model).len == 0) return;
+    model.git_push_force = false;
+    model.git_push_confirm_active = true;
+}
+
+/// Confirm on the Push… row. Same `canPushGitBranch` gates and
+/// probe sequence as today's Push…: `@{upstream}` then bare
+/// `git push`, or remotes then `git push --set-upstream`. When
+/// Force is on, `--force` is its own argv slot after `push`.
+pub fn confirmPush(model: *Model, fx: *Effects) void {
+    if (!model.git_push_confirm_active) return;
     startGatedPush(model, fx);
 }
 
 /// Gated Push… from the Commit… card. Same `canPushGitBranch`
-/// gates as `startPush`, but keeps the card open so Native can
-/// show Pushing… until the push terminates.
+/// gates as `confirmPush`, but keeps the card open so Native can
+/// show Pushing… until the push terminates. Honors `git_push_force`.
 pub fn startPushFromCommitCard(model: *Model, fx: *Effects) void {
     preparePushUi(model, fx, true);
     startGatedPush(model, fx);
@@ -2489,12 +2662,14 @@ pub fn handlePushExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) 
     if (!current) {
         resetPushState(model);
         closeCommitCard(model);
+        closePushConfirm(model);
         return;
     }
     switch (phase) {
         .idle => {
             resetPushState(model);
             closeCommitCard(model);
+            closePushConfirm(model);
         },
         .upstream => {
             if (exit.reason == .exited and exit.code == 0 and has_upstream) {
@@ -3126,6 +3301,7 @@ test "push argv is git push with no extra flags and is not fetch/checkout/create
     try std.testing.expectEqualStrings(git_bin, argv[5]);
     try std.testing.expectEqualStrings(git_push_cmd, argv[6]);
     try std.testing.expect(isGitPushArgv(argv));
+    try std.testing.expect(!isGitPushForceArgv(argv));
     try std.testing.expect(!isGitFetchArgv(argv));
     try std.testing.expect(!isGitDeleteArgv(argv));
     try std.testing.expect(!isGitCreateArgv(argv));
@@ -3196,7 +3372,44 @@ test "push argv is git push with no extra flags and is not fetch/checkout/create
     try std.testing.expect(file_mention.file_mention_key_first > git_ahead_behind.git_ahead_behind_key_first);
 }
 
-test "worktree name sanitization refuses empty, slash, and implausible names" {
+test "force push argv is git push --force as its own slot and still classifies as push" {
+    var buf: [push_argv_len][]const u8 = undefined;
+    const argv = unixPushForceArgvFor("/tmp/faku-push-force", &buf);
+    try std.testing.expectEqual(@as(usize, unix_push_force_argv_len), argv.len);
+    try std.testing.expectEqualStrings(sh_bin, argv[0]);
+    try std.testing.expectEqualStrings("-c", argv[1]);
+    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+    try std.testing.expectEqualStrings("sh", argv[3]);
+    try std.testing.expectEqualStrings("/tmp/faku-push-force", argv[4]);
+    try std.testing.expectEqualStrings(git_bin, argv[5]);
+    try std.testing.expectEqualStrings(git_push_cmd, argv[6]);
+    try std.testing.expectEqualStrings(git_push_force_flag, argv[7]);
+    try std.testing.expect(isGitPushArgv(argv));
+    try std.testing.expect(isGitPushForceArgv(argv));
+    try std.testing.expect(!isGitSetUpstreamPushArgv(argv));
+    try std.testing.expect(!isGitFetchArgv(argv));
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_push_cmd) == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_push_force_flag) == null);
+    try std.testing.expect(!isGitPushArgv(&.{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-push-force",
+        git_bin,
+        git_push_cmd,
+        "--force-with-lease",
+    }));
+    try std.testing.expect(!isGitPushForceArgv(&.{
+        sh_bin,
+        "-c",
+        main.fx_ask_chdir_script,
+        "sh",
+        "/tmp/faku-push-force",
+        git_bin,
+        git_push_cmd,
+    }));
+}
     try std.testing.expectEqualStrings("feat", sanitizeWorktreeName("feat").?);
     try std.testing.expectEqualStrings("feat-foo", sanitizeWorktreeName("  feat-foo  ").?);
     try std.testing.expect(sanitizeWorktreeName("") == null);
@@ -3628,6 +3841,7 @@ test "set-upstream push argv keeps flag, remote, and branch as their own slots" 
     try std.testing.expectEqualStrings("origin", argv[8]);
     try std.testing.expectEqualStrings("feat/new", argv[9]);
     try std.testing.expect(isGitSetUpstreamPushArgv(argv));
+    try std.testing.expect(!isGitSetUpstreamPushForceArgv(argv));
     try std.testing.expect(!isGitPushArgv(argv));
     try std.testing.expect(!isGitFetchArgv(argv));
     try std.testing.expect(!isGitUpstreamArgv(argv));
@@ -3665,7 +3879,23 @@ test "set-upstream push argv keeps flag, remote, and branch as their own slots" 
     }));
 }
 
-test "upstream argv is rev-parse symbolic-full-name @{upstream}" {
+test "force set-upstream push argv keeps --force after push as its own slot" {
+    var buf: [set_upstream_push_argv_len][]const u8 = undefined;
+    const argv = unixSetUpstreamPushForceArgvFor("/tmp/faku-push-u-force", "origin", "feat/new", &buf).?;
+    try std.testing.expectEqual(@as(usize, unix_set_upstream_push_force_argv_len), argv.len);
+    try std.testing.expectEqualStrings(git_push_cmd, argv[6]);
+    try std.testing.expectEqualStrings(git_push_force_flag, argv[7]);
+    try std.testing.expectEqualStrings(git_set_upstream_flag, argv[8]);
+    try std.testing.expectEqualStrings("origin", argv[9]);
+    try std.testing.expectEqualStrings("feat/new", argv[10]);
+    try std.testing.expect(isGitSetUpstreamPushArgv(argv));
+    try std.testing.expect(isGitSetUpstreamPushForceArgv(argv));
+    try std.testing.expect(!isGitPushArgv(argv));
+    try std.testing.expect(!isGitPushForceArgv(argv));
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_push_force_flag) == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_set_upstream_flag) == null);
+    try std.testing.expect(unixSetUpstreamPushForceArgvFor("/tmp/faku-push-u-force", "origin", "not a branch", &buf) == null);
+}
     var buf: [upstream_argv_len][]const u8 = undefined;
     const argv = unixUpstreamArgvFor("/tmp/faku-up", &buf);
     try std.testing.expectEqual(@as(usize, 10), argv.len);
@@ -3802,9 +4032,18 @@ test "windows git argv is git.exe -C PATH; path is its own slot" {
     try std.testing.expectEqual(@as(usize, windows_push_argv_len), pushed.len);
     try std.testing.expectEqualStrings(git_push_cmd, pushed[3]);
     try std.testing.expect(isGitPushArgv(pushed));
+    try std.testing.expect(!isGitPushForceArgv(pushed));
     try std.testing.expect(!isGitSetUpstreamPushArgv(pushed));
     try std.testing.expect(!isGitPushArgv(&.{ windows_git_bin, git_c_flag, cwd }));
     try expectRejectsSiblingWindowsArgv(&isGitPushArgv, cwd);
+    const pushed_force = windowsPushForceArgvFor(cwd, &push_buf);
+    try std.testing.expectEqual(@as(usize, windows_push_force_argv_len), pushed_force.len);
+    try std.testing.expectEqualStrings(git_push_cmd, pushed_force[3]);
+    try std.testing.expectEqualStrings(git_push_force_flag, pushed_force[4]);
+    try std.testing.expect(isGitPushArgv(pushed_force));
+    try std.testing.expect(isGitPushForceArgv(pushed_force));
+    try std.testing.expect(!isGitSetUpstreamPushArgv(pushed_force));
+    try expectRejectsSiblingWindowsArgv(&isGitPushForceArgv, cwd);
 
     var up_buf: [upstream_argv_len][]const u8 = undefined;
     const up = windowsUpstreamArgvFor(cwd, &up_buf);
@@ -3838,9 +4077,21 @@ test "windows git argv is git.exe -C PATH; path is its own slot" {
     try std.testing.expectEqualStrings("origin", set_up[5]);
     try std.testing.expectEqualStrings("feat/new", set_up[6]);
     try std.testing.expect(isGitSetUpstreamPushArgv(set_up));
+    try std.testing.expect(!isGitSetUpstreamPushForceArgv(set_up));
     try std.testing.expect(!isGitPushArgv(set_up));
     try expectRejectsSiblingWindowsArgv(&isGitSetUpstreamPushArgv, cwd);
     try std.testing.expect(windowsSetUpstreamPushArgvFor(cwd, "origin", "not a branch", &set_buf) == null);
+    const set_force = windowsSetUpstreamPushForceArgvFor(cwd, "origin", "feat/new", &set_buf).?;
+    try std.testing.expectEqual(@as(usize, windows_set_upstream_push_force_argv_len), set_force.len);
+    try std.testing.expectEqualStrings(git_push_cmd, set_force[3]);
+    try std.testing.expectEqualStrings(git_push_force_flag, set_force[4]);
+    try std.testing.expectEqualStrings(git_set_upstream_flag, set_force[5]);
+    try std.testing.expectEqualStrings("origin", set_force[6]);
+    try std.testing.expectEqualStrings("feat/new", set_force[7]);
+    try std.testing.expect(isGitSetUpstreamPushArgv(set_force));
+    try std.testing.expect(isGitSetUpstreamPushForceArgv(set_force));
+    try std.testing.expect(!isGitPushArgv(set_force));
+    try expectRejectsSiblingWindowsArgv(&isGitSetUpstreamPushForceArgv, cwd);
 
     var base_buf: [worktree_base_argv_len][]const u8 = undefined;
     const base = windowsWorktreeBaseArgvFor(cwd, &base_buf);
@@ -4306,18 +4557,159 @@ test "startPush does not require an open commit card and closes one if open" {
     try std.testing.expect(!model.git_commit_active);
 
     startPush(&model, &fx);
+    try std.testing.expect(model.git_push_confirm_active);
+    try std.testing.expect(!model.git_push_force);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expect(!model.has_git_commit_pushing());
+    confirmPush(&model, &fx);
     try std.testing.expect(model.git_push_key >= git_push_key_first);
     try std.testing.expectEqual(GitPushPhase.upstream, model.git_push_phase);
-    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expect(model.git_push_confirm_active);
     try std.testing.expect(!model.has_git_commit_pushing());
 
     model.git_push_key = 0;
     model.git_push_phase = .idle;
+    cancelPush(&model, &fx);
     model.git_commit_active = true;
+    model.git_push_force = true;
     startPush(&model, &fx);
     try std.testing.expect(!model.git_commit_active);
     try std.testing.expect(!model.has_git_commit_pushing());
+    try std.testing.expect(model.git_push_confirm_active);
+    try std.testing.expect(!model.git_push_force);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    confirmPush(&model, &fx);
     try std.testing.expect(model.git_push_key >= git_push_key_first);
+}
+
+test "startPush resets Force to off" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-push-force-reset", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("push force reset", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_has_upstream = true;
+    model.git_ahead_behind_ahead = 1;
+    model.git_push_force = true;
+    startPush(&model, &fx);
+    try std.testing.expect(model.git_push_confirm_active);
+    try std.testing.expect(!model.git_push_force);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+}
+
+test "togglePushForce defaults off, flips, and no-ops while push is in flight" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-push-force-toggle", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("push force toggle", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_has_upstream = true;
+    model.git_ahead_behind_ahead = 1;
+    try std.testing.expect(!model.git_push_force);
+    startPush(&model, &fx);
+    try std.testing.expect(!model.git_push_force);
+    togglePushForce(&model, &fx);
+    try std.testing.expect(model.git_push_force);
+    togglePushForce(&model, &fx);
+    try std.testing.expect(!model.git_push_force);
+    togglePushForce(&model, &fx);
+    try std.testing.expect(model.git_push_force);
+
+    confirmPush(&model, &fx);
+    try std.testing.expect(model.git_push_key >= git_push_key_first);
+    togglePushForce(&model, &fx);
+    try std.testing.expect(model.git_push_force);
+    model.git_push_key = 0;
+    togglePushForce(&model, &fx);
+    try std.testing.expect(!model.git_push_force);
+
+    model.git_push_force = true;
+    cancelPushConfirm(&model);
+    try std.testing.expect(!model.git_push_confirm_active);
+    try std.testing.expect(!model.git_push_force);
+}
+
+test "confirmPush picks --force from the Force toggle" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-push-force-spawn", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("push force spawn", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_has_upstream = true;
+    model.git_ahead_behind_ahead = 1;
+
+    startPush(&model, &fx);
+    try std.testing.expect(!model.git_push_force);
+    confirmPush(&model, &fx);
+    const up = pendingSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitUpstreamSpawn;
+    try std.testing.expect(isGitUpstreamArgv(up.argv));
+    applyPushLine(&model, .{ .key = up.key, .line = "origin/main\n" });
+    handlePushExit(&model, &fx, .{ .key = up.key, .reason = .exited, .code = 0 });
+    const safe = pendingSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitPushSpawn;
+    try std.testing.expect(isGitPushArgv(safe.argv));
+    try std.testing.expect(!isGitPushForceArgv(safe.argv));
+    try std.testing.expectEqualStrings(git_push_cmd, safe.argv[safe.argv.len - 1]);
+    if (std.mem.eql(u8, safe.argv[0], sh_bin)) {
+        try std.testing.expect(std.mem.indexOf(u8, safe.argv[2], git_push_force_flag) == null);
+    }
+    handlePushExit(&model, &fx, .{ .key = safe.key, .reason = .exited, .code = 1 });
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(model.git_push_confirm_active);
+    try std.testing.expectEqualStrings(push_failed_status, model.attach_status());
+
+    togglePushForce(&model, &fx);
+    try std.testing.expect(model.git_push_force);
+    confirmPush(&model, &fx);
+    const up_force = pendingSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitUpstreamForceSpawn;
+    applyPushLine(&model, .{ .key = up_force.key, .line = "origin/main\n" });
+    handlePushExit(&model, &fx, .{ .key = up_force.key, .reason = .exited, .code = 0 });
+    const forced = pendingSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitPushForceSpawn;
+    try std.testing.expect(isGitPushForceArgv(forced.argv));
+    try std.testing.expect(isGitPushArgv(forced.argv));
+    try std.testing.expectEqualStrings(git_push_force_flag, forced.argv[forced.argv.len - 1]);
+    try std.testing.expectEqualStrings(git_push_cmd, forced.argv[forced.argv.len - 2]);
+    if (std.mem.eql(u8, forced.argv[0], sh_bin)) {
+        try std.testing.expect(std.mem.indexOf(u8, forced.argv[2], git_push_force_flag) == null);
+    }
+    try std.testing.expect(forced.key != safe.key);
+
+    handlePushExit(&model, &fx, .{ .key = forced.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!model.git_push_confirm_active);
 }
 
 test "beginPushAfterCommit keeps an open commit card until push exit" {

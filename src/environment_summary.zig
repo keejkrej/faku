@@ -128,8 +128,9 @@
 //! Dismiss all settled for the selected session, and
 //! first-cut right-panel Background ship; not Waku
 //! BackgroundWorkRegistry event/reconcile/driver parity.
-//! Not transcript checkpoint +/-. Not force push (Waku
-//! `git_commit::push` has no `--force`).
+//! Not transcript checkpoint +/-. First-cut Force push ships on
+//! composer Push… / Commit… (runtime-only ghost); not prune-alone
+//! / daemon `WorkspaceOperation`.
 
 const std = @import("std");
 const main = @import("main.zig");

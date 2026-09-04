@@ -512,6 +512,9 @@ pub const Msg = union(enum) {
     toggle_git_branch_delete_force,
     start_git_fetch,
     start_git_push,
+    confirm_git_push,
+    cancel_git_push,
+    toggle_git_push_force,
     start_git_worktree_create,
     git_worktree_create_edit: canvas.TextInputEvent,
     confirm_git_worktree_create,
@@ -745,6 +748,12 @@ pub const Model = struct {
     /// when the card opens. Not persisted. Force on one-shots
     /// `git branch -D`; off is `-d`.
     git_branch_delete_force: bool = false,
+    /// Runtime-only Push… confirm card. Not persisted.
+    git_push_confirm_active: bool = false,
+    /// Runtime-only Push… / Commit… Force toggle. Default off. Reset
+    /// when Push confirm or Commit… opens. Not persisted. Force on
+    /// one-shots `git push --force`; off is today's non-force push.
+    git_push_force: bool = false,
     /// Runtime-only select on the delete card. Not persisted.
     git_branch_delete_picker_open: bool = false,
     palette_highlight: u32 = 0,
@@ -3761,6 +3770,7 @@ pub const Model = struct {
         git_checkout.closeCreate(model);
         git_checkout.closeWorktreeCreate(model);
         git_checkout.closeDelete(model);
+        git_checkout.closePushConfirm(model);
         git_commit_mod.closeCommit(model);
         model.review_diff_active = false;
         model.project_edit_active = true;

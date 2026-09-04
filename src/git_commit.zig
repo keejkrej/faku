@@ -64,8 +64,11 @@
 //! Push is offered only when Amend is off, `canCommitGit`, and
 //! first-push remotes are OK (known upstream, or remotes ready
 //! with at least one remote). Push-only is offered only when
-//! Amend is off and `canPushGitBranch`.
-//! Not force, and not daemon `WorkspaceOperation`.
+//! Amend is off and `canPushGitBranch`. First-cut Force ghost on
+//! this row (runtime-only `git_push_force`; default off; reset when
+//! the card opens; not persisted) is honored by in-dialog Push and
+//! Commit and Push (`--force` its own argv slot). Not daemon
+//! `WorkspaceOperation`.
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
@@ -948,6 +951,7 @@ pub fn closeCommit(model: *Model) void {
     model.git_commit_generate_stdout_len = 0;
     model.git_commit_then_push = false;
     model.git_commit_amend = false;
+    model.git_push_force = false;
     clearCommitNumstat(model);
 }
 
@@ -1008,6 +1012,7 @@ fn prepareCommitCard(model: *Model, fx: *Effects) void {
     git_checkout.closeCreate(model);
     git_checkout.closeWorktreeCreate(model);
     git_checkout.closeDelete(model);
+    git_checkout.closePushConfirm(model);
     dropCommitNumstat(model, fx);
     closeCommit(model);
     review_diff.close(model, fx);
@@ -1022,6 +1027,7 @@ fn activateCommitCard(model: *Model, fx: *Effects) void {
     if (probePath(model).len == 0) return;
     model.git_commit_include_unstaged = true;
     model.git_commit_amend = false;
+    model.git_push_force = false;
     model.git_commit_active = true;
     refreshCommitNumstat(model, fx);
 }
@@ -1029,7 +1035,8 @@ fn activateCommitCard(model: *Model, fx: *Effects) void {
 /// Dismiss the select list and other git cards, then open the
 /// runtime-only Commit… card and one-shot CommitSnapshot numstat
 /// for the default include-unstaged mode. Draft message is not
-/// persisted. Resets include-unstaged to on and Amend to off.
+/// persisted. Resets include-unstaged to on, Amend to off, and
+/// Force to off.
 /// No-op when gated, a git mutation is in flight, the
 /// session is streaming, or cwd is missing.
 pub fn startCommit(model: *Model, fx: *Effects) void {
@@ -1452,7 +1459,7 @@ test "commit argv is chdir script plus git commit -m and its own message slot" {
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_message_flag) == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "fix dirty count") == null);
 
-    var push_buf: [7][]const u8 = undefined;
+    var push_buf: [git_checkout.push_argv_len][]const u8 = undefined;
     const push = git_checkout.pushArgvFor("/tmp/faku-commit", &push_buf);
     try std.testing.expect(!isGitCommitArgv(push));
     try std.testing.expect(!isGitCommitAddArgv(push));
@@ -1548,7 +1555,7 @@ fn expectRejectsSiblingWindowsArgv(pred: *const fn ([]const []const u8) bool, cw
     try std.testing.expect(!pred(file_mention.windowsArgvFor(cwd, &mention_buf)));
     var list_buf: [10][]const u8 = undefined;
     try std.testing.expect(!pred(git_checkout.windowsListArgvFor(cwd, &list_buf)));
-    var push_buf: [7][]const u8 = undefined;
+    var push_buf: [git_checkout.push_argv_len][]const u8 = undefined;
     try std.testing.expect(!pred(git_checkout.windowsPushArgvFor(cwd, &push_buf)));
 }
 
@@ -2860,7 +2867,7 @@ test "cached-quiet other exit or spawn failure is Could not commit" {
     try std.testing.expect(model.git_commit_active);
 }
 
-test "startCommit resets include_unstaged to true and amend to false" {
+test "startCommit resets include_unstaged to true, amend to false, and Force to off" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -2878,10 +2885,12 @@ test "startCommit resets include_unstaged to true and amend to false" {
     markDirtyStaged(&model, 1);
     model.git_commit_include_unstaged = false;
     model.git_commit_amend = true;
+    model.git_push_force = true;
     startCommit(&model, &fx);
     try std.testing.expect(model.git_commit_active);
     try std.testing.expect(model.git_commit_include_unstaged);
     try std.testing.expect(!model.git_commit_amend);
+    try std.testing.expect(!model.git_push_force);
 }
 
 test "commit snapshot argv is numstat untracked script when include-unstaged and --cached when off" {

@@ -1110,6 +1110,7 @@ fn prepareCard(model: *Model, fx: *Effects) void {
     git_checkout.closeCreate(model);
     git_checkout.closeWorktreeCreate(model);
     git_checkout.closeDelete(model);
+    git_checkout.closePushConfirm(model);
     model.closeProjectEdit();
     close(model, fx);
 }
