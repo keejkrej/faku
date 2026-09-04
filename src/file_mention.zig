@@ -519,10 +519,10 @@ test "argv is chdir script plus git ls-files cached/others; not git branch" {
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
     try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
-    var branch_buf: [8][]const u8 = undefined;
+    var branch_buf: [git_branch.argv_len][]const u8 = undefined;
     const branch = git_branch.argvFor("/tmp/faku-ls", &branch_buf);
     try std.testing.expect(!isGitLsFilesArgv(branch));
-    var dirty_buf: [8][]const u8 = undefined;
+    var dirty_buf: [git_dirty.argv_len][]const u8 = undefined;
     const dirty = git_dirty.argvFor("/tmp/faku-ls", &dirty_buf);
     try std.testing.expect(!isGitLsFilesArgv(dirty));
     var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
@@ -558,6 +558,14 @@ test "windows git argv is git.exe -C PATH ls-files; path is its own slot" {
     git_only[5] = git_ls_files_others;
     git_only[6] = git_ls_files_exclude_standard;
     try std.testing.expect(isGitLsFilesArgv(git_only[0..windows_git_argv_len]));
+    const git_branch = @import("git_branch.zig");
+    const git_dirty = @import("git_dirty.zig");
+    try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
+    var branch_buf: [git_branch.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitLsFilesArgv(git_branch.windowsArgvFor(cwd, &branch_buf)));
+    var dirty_buf: [git_dirty.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitLsFilesArgv(git_dirty.windowsArgvFor(cwd, &dirty_buf)));
 }
 
 test "walk argv is chdir script plus find maxdepth 8 skips; not git" {
