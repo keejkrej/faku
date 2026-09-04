@@ -256,6 +256,7 @@ test "url argv is not reveal terminal or folder-picker argv" {
     try std.testing.expect(!open_terminal.isTerminalArgv(windows_argv));
     try std.testing.expect(!pick_folder.isPickerArgv(windows_argv));
     try std.testing.expect(!isUrlArgv(reveal_folder.argvFor("/tmp/proj", &reveal_buf)));
+    try std.testing.expect(!isUrlArgv(reveal_folder.argvForTool(.explorer, "/tmp/proj", &reveal_buf)));
     try std.testing.expect(!isUrlArgv(open_terminal.argvForTool(.open_terminal, "/tmp/proj", &term_scratch)));
     try std.testing.expect(!isUrlArgv(open_terminal.argvForTool(.x_terminal_emulator, "/tmp/proj", &term_scratch)));
     try std.testing.expect(!isUrlArgv(open_terminal.argvForTool(.windows_terminal, "/tmp/proj", &term_scratch)));

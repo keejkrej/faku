@@ -312,6 +312,7 @@ test "editor argv is not reveal terminal or folder-picker argv" {
     try std.testing.expect(!pick_folder.isPickerArgv(argvForTool(.cursor, "/tmp/proj", &scratch)));
     try std.testing.expect(!pick_folder.isPickerArgv(argvForTool(.open_cursor, "/tmp/proj", &scratch)));
     try std.testing.expect(!isEditorArgv(reveal_folder.argvFor("/tmp/proj", &reveal_buf)));
+    try std.testing.expect(!isEditorArgv(reveal_folder.argvForTool(.explorer, "/tmp/proj", &reveal_buf)));
     try std.testing.expect(!isEditorArgv(open_terminal.argvForTool(.open_terminal, "/tmp/proj", &term_scratch)));
     try std.testing.expect(!isEditorArgv(open_terminal.argvForTool(.x_terminal_emulator, "/tmp/proj", &term_scratch)));
     try std.testing.expect(!isEditorArgv(open_terminal.argvForTool(.windows_terminal, "/tmp/proj", &term_scratch)));

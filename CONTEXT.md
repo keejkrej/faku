@@ -248,7 +248,8 @@ Do not invent Native APIs. Documented gaps this cut works around:
 - No Native git effect. Git is sidecar `fx.spawn` of `git`.
 - No `fx.pickFile` / file-open effect. Folder and image pickers are OS
   sidecars.
-- No `fx.revealPath`. Reveal folder is `open` / `xdg-open`.
+- No `fx.revealPath`. Reveal folder is `open` / `xdg-open` / Windows
+  `explorer.exe PATH`.
 - No `fx.maximizeWindow`. Maximize is an OS zoom sidecar.
 - No window-focus observation, caret API, PTY, FS watcher, or debounce
   timer.
