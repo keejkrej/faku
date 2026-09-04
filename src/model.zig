@@ -815,6 +815,16 @@ pub const Model = struct {
     /// Runtime-only parked discard for a dirty Files preview. Not persisted.
     file_preview_pending_kind: right_panel.PendingDiscardKind = .none,
     file_preview_pending_id: u32 = 0,
+    /// Runtime-only disk fingerprint for Files preview live reload.
+    /// `file.stat` size + mtime (ns since epoch). Not sessions.json.
+    /// Native has no FS watcher this cut; poll piggybacks `now_ms` /
+    /// the stream tick.
+    right_panel_file_preview_disk_size: u64 = 0,
+    right_panel_file_preview_disk_mtime_ns: i64 = 0,
+    right_panel_file_preview_disk_valid: bool = false,
+    /// Last Files-preview disk poll (`now_ms`). Null until the first
+    /// poll. Throttles to `file_preview_disk_poll_interval_ms`.
+    file_preview_disk_poll_ms: ?i64 = null,
     settings_open: bool = false,
     /// Runtime-only Settings General | Appearance | Providers | Skills |
     /// Usage | Computer Use page. Default General. Not persisted.
@@ -1373,6 +1383,10 @@ pub const Model = struct {
         "right_panel_file_preview_status_len",
         "file_preview_pending_kind",
         "file_preview_pending_id",
+        "right_panel_file_preview_disk_size",
+        "right_panel_file_preview_disk_mtime_ns",
+        "right_panel_file_preview_disk_valid",
+        "file_preview_disk_poll_ms",
         "file_preview_line_rows",
         "rightPanelWidthPixels",
         "applyRightPanelWidth",

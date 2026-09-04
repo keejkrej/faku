@@ -66,10 +66,13 @@
 //! keeps the dirty editor open, and asks Discard vs Keep editing.
 //! Discard runs the parked action; Keep editing clears the park.
 //! Successful Save, Reload, or the buffer matching the loaded body
-//! (dirty becomes false) clears the pending confirm. Not live reload /
-//! FS watch (Native has none), not an embedded Browser / Terminal
-//! (those tabs are OS-open workarounds; Native has no PTY / webview),
-//! or autosave.
+//! (dirty becomes false) clears the pending confirm. First-cut live
+//! reload polls the open preview file's `stat` size + mtime on the
+//! TEA `update` tick (same `now_ms` piggyback as Background's 100ms
+//! render cache; Native has no FS watcher / dedicated timer). Dirty
+//! buffers are never auto-reloaded. Not a real FS watcher / Native
+//! watch API, not an embedded Browser / Terminal (those tabs are
+//! OS-open workarounds; Native has no PTY / webview), or autosave.
 //!
 //! Default closed: Waku `RightPanelSessionState::take_or_closed` uses
 //! `empty(false)` and persistence `default_right_panel_visibility` is
@@ -165,6 +168,12 @@ pub const indent_step: f32 = 12;
 
 /// Files-tab inline preview read cap (256KB). Truncation is labeled.
 pub const max_file_preview_bytes: usize = 256 * 1024;
+
+/// First-cut Files preview live reload. Stat size + mtime at most
+/// once per this many milliseconds of `model.now_ms`. Piggybacks the
+/// update loop / stream tick; Native has no FS watcher / dedicated
+/// timer this cut.
+pub const file_preview_disk_poll_interval_ms: i64 = 500;
 
 /// Cap Native gutter rows materialized for the preview body. Typical
 /// source in a 256KB window stays under this; dense one-char lines may
@@ -542,6 +551,8 @@ pub fn clearFilePreview(model: *Model) void {
     model.right_panel_file_preview_editing = false;
     model.file_preview_edit_buffer.clear();
     model.right_panel_file_preview_status_len = 0;
+    clearPreviewDiskFingerprint(model);
+    model.file_preview_disk_poll_ms = null;
     clearPendingDiscard(model);
 }
 
@@ -750,10 +761,12 @@ fn loadFilePreviewBody(model: *Model) void {
     const io = model.store_io;
     if (io == null or abs.len == 0) {
         setPreviewError(model, unreadable_file_label);
+        clearPreviewDiskFingerprint(model);
         return;
     }
     const read = readPreviewWindow(io.?, abs) catch |err| {
         setPreviewError(model, previewReadError(err));
+        clearPreviewDiskFingerprint(model);
         return;
     };
     defer std.heap.page_allocator.free(read.bytes);
@@ -764,6 +777,7 @@ fn loadFilePreviewBody(model: *Model) void {
         read.bytes;
     const window = utf8PreviewPrefix(raw) orelse {
         model.right_panel_file_preview_binary = true;
+        refreshPreviewDiskFingerprint(model);
         return;
     };
 
@@ -775,6 +789,7 @@ fn loadFilePreviewBody(model: *Model) void {
     model.right_panel_file_preview_storage = buf;
     model.right_panel_file_preview_len = window.len;
     model.right_panel_file_preview_truncated = read.truncated;
+    refreshPreviewDiskFingerprint(model);
 }
 
 /// Numbered preview rows for Native bind. Slices `text` from the
@@ -942,6 +957,7 @@ pub fn saveFilePreview(model: *Model) void {
     model.right_panel_file_preview_editing = false;
     model.file_preview_edit_buffer.clear();
     model.right_panel_file_preview_status_len = 0;
+    refreshPreviewDiskFingerprint(model);
     clearPendingDiscard(model);
 }
 
@@ -962,6 +978,83 @@ pub fn reloadFilePreview(model: *Model) void {
     }
     model.right_panel_file_preview_status_len = 0;
     clearPendingIfClean(model);
+}
+
+const PreviewDiskFingerprint = struct {
+    size: u64,
+    mtime_ns: i64,
+};
+
+/// Zig `File.Stat.mtime` is ns since epoch: a raw integer on some
+/// std cuts, `Io.Timestamp{ .nanoseconds }` on others. Compile against
+/// whichever this repo's Zig exposes.
+fn mtimeToNs(mtime: anytype) i64 {
+    return switch (@typeInfo(@TypeOf(mtime))) {
+        .int => @intCast(mtime),
+        .@"struct" => @intCast(mtime.nanoseconds),
+        else => @compileError("unexpected File.Stat.mtime type"),
+    };
+}
+
+fn statPreviewAbs(io: std.Io, abs: []const u8) !PreviewDiskFingerprint {
+    var file = try std.Io.Dir.cwd().openFile(io, abs, .{});
+    defer file.close(io);
+    const st = try file.stat(io);
+    return .{
+        .size = st.size,
+        .mtime_ns = mtimeToNs(st.mtime),
+    };
+}
+
+fn clearPreviewDiskFingerprint(model: *Model) void {
+    model.right_panel_file_preview_disk_size = 0;
+    model.right_panel_file_preview_disk_mtime_ns = 0;
+    model.right_panel_file_preview_disk_valid = false;
+}
+
+fn refreshPreviewDiskFingerprint(model: *Model) void {
+    clearPreviewDiskFingerprint(model);
+    const io = model.store_io orelse return;
+    const abs = model.right_panel_file_preview_abs_storage[0..model.right_panel_file_preview_abs_len];
+    if (abs.len == 0) return;
+    const fp = statPreviewAbs(io, abs) catch return;
+    model.right_panel_file_preview_disk_size = fp.size;
+    model.right_panel_file_preview_disk_mtime_ns = fp.mtime_ns;
+    model.right_panel_file_preview_disk_valid = true;
+}
+
+/// Poll the open Files preview's disk fingerprint on the TEA `update`
+/// tick. No-op when closed, missing abs path, no `store_io`, or dirty.
+/// Throttled to `file_preview_disk_poll_interval_ms` of `model.now_ms`.
+/// Size or mtime change (or a failed stat) reuses `reloadFilePreview`.
+/// Native has no FS watcher / dedicated timer this cut. Returns true
+/// when a reload ran.
+pub fn pollFilePreviewDisk(model: *Model) bool {
+    if (model.right_panel_file_preview_id == 0) return false;
+    if (model.right_panel_file_preview_abs_len == 0) return false;
+    const io = model.store_io orelse return false;
+    if (isPreviewDirty(model)) return false;
+
+    if (model.file_preview_disk_poll_ms) |last| {
+        if (model.now_ms >= last and model.now_ms - last < file_preview_disk_poll_interval_ms) {
+            return false;
+        }
+    }
+    model.file_preview_disk_poll_ms = model.now_ms;
+
+    const abs = model.right_panel_file_preview_abs_storage[0..model.right_panel_file_preview_abs_len];
+    const fp = statPreviewAbs(io, abs) catch {
+        reloadFilePreview(model);
+        return true;
+    };
+    if (model.right_panel_file_preview_disk_valid and
+        fp.size == model.right_panel_file_preview_disk_size and
+        fp.mtime_ns == model.right_panel_file_preview_disk_mtime_ns)
+    {
+        return false;
+    }
+    reloadFilePreview(model);
+    return true;
 }
 
 pub fn openCachedFile(model: *Model, fx: *Effects, id: u32) void {
@@ -1918,4 +2011,110 @@ test "clean preview still switches and closes without confirm" {
     model.hideRightPanel();
     try std.testing.expect(!model.right_panel_open);
     try std.testing.expect(!model.right_panel_file_preview_open());
+}
+
+test "clean preview poll reloads when size or mtime changes" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-poll-clean-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, abs, "hello\n");
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview poll clean", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    defer clearFilePreview(&model);
+
+    selectCachedFile(&model, 1);
+    try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
+    try std.testing.expect(model.right_panel_file_preview_disk_valid);
+    try std.testing.expect(!model.file_preview_editing());
+
+    try writePreviewFile(std.testing.io, abs, "from disk\n");
+    model.now_ms = file_preview_disk_poll_interval_ms;
+    try std.testing.expect(pollFilePreviewDisk(&model));
+    try std.testing.expectEqualStrings("from disk\n", model.file_preview_body());
+    try std.testing.expect(!model.file_preview_editing());
+    try std.testing.expect(!model.file_preview_dirty());
+    try std.testing.expect(model.right_panel_file_preview_disk_valid);
+}
+
+test "dirty preview poll leaves body and buffer unchanged" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-poll-dirty-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, abs, "hello\n");
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview poll dirty", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    defer clearFilePreview(&model);
+
+    selectCachedFile(&model, 1);
+    startFilePreviewEdit(&model);
+    applyFilePreviewEdit(&model, .{ .insert_text = "dirty" });
+    try std.testing.expect(model.file_preview_dirty());
+    try std.testing.expectEqualStrings("hello\ndirty", model.file_preview_draft());
+
+    try writePreviewFile(std.testing.io, abs, "from disk\n");
+    model.now_ms = file_preview_disk_poll_interval_ms;
+    try std.testing.expect(!pollFilePreviewDisk(&model));
+    try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
+    try std.testing.expectEqualStrings("hello\ndirty", model.file_preview_draft());
+    try std.testing.expect(model.file_preview_dirty());
+    try std.testing.expect(model.file_preview_editing());
+}
+
+test "preview disk poll is throttled to the interval" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-poll-throttle-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, abs, "hello\n");
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview poll throttle", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    defer clearFilePreview(&model);
+
+    selectCachedFile(&model, 1);
+    try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
+
+    model.now_ms = 1_000;
+    try std.testing.expect(!pollFilePreviewDisk(&model));
+    try std.testing.expectEqual(@as(i64, 1_000), model.file_preview_disk_poll_ms.?);
+
+    try writePreviewFile(std.testing.io, abs, "changed\n");
+    try std.testing.expect(!pollFilePreviewDisk(&model));
+    try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
+
+    model.now_ms = 1_000 + file_preview_disk_poll_interval_ms - 1;
+    try std.testing.expect(!pollFilePreviewDisk(&model));
+    try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
+
+    model.now_ms = 1_000 + file_preview_disk_poll_interval_ms;
+    try std.testing.expect(pollFilePreviewDisk(&model));
+    try std.testing.expectEqualStrings("changed\n", model.file_preview_body());
 }
