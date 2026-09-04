@@ -424,8 +424,7 @@ test "windows git argv is powershell scriptblock -Args PATH; path not in script"
     try std.testing.expect(scriptHas(argv[3], git_ls_files_others));
     try std.testing.expect(scriptHas(argv[3], git_ls_files_exclude_standard));
     try std.testing.expect(scriptHas(argv[3], untracked_max_bytes_s));
-    try std.testing.expect(scriptHas(argv[3], "[char]9"));
-    try std.testing.expect(scriptHas(argv[3], "'0'"));
+    try std.testing.expect(scriptHas(argv[3], "'{0}'+[char]9+'0'+[char]9+'{1}'"));
     try std.testing.expect(!isGitNumstatArgv(&.{ powershell_bin, powershell_noprofile, powershell_command }));
     try std.testing.expect(!isGitNumstatArgv(&.{
         powershell_bin,
