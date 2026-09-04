@@ -26,8 +26,7 @@
 //! numstat stdout is the same; CRLF is already trimmed in the line
 //! helpers. `parseNumstatLine` / `sumNumstat` already understand
 //! `N\t0\tpath`. app.zon already includes windows. Remaining this
-//! cut: empty-message `fx ask` commit generate stays Unix-only;
-//! Environment Compare Uncommitted untracked `?` rows stay Unix-only.
+//! cut: Environment Compare Uncommitted untracked `?` rows stay Unix-only.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_numstat_key_first` (350+).

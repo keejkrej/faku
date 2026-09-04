@@ -249,9 +249,13 @@ Do not invent Native APIs. Documented gaps this cut works around:
   PowerShell walk with `-Args` / `$args[0]` so the path stays its own argv
   slot (not interpolated into `-Command`). Composer git_branch / git_dirty /
   git_ahead_behind / git_remotes / git_toplevel / git_common_dir / git_commit / git_checkout / review_diff use the same `git.exe -C` pattern (no
-  PowerShell except New worktree… and git_numstat untracked). git_commit add / cached-quiet preflight / commit / amend and
+  PowerShell except New worktree…, git_numstat untracked, and empty-message
+  `fx ask` generate). git_commit add / cached-quiet preflight / commit / amend and
   CommitSnapshot (tracked / cached) use `git.exe -C`; empty-message `fx ask`
-  generate stays Unix-only. git_numstat on Windows is `powershell.exe
+  generate is `powershell.exe -NoProfile -Command {scriptblock} -Args`
+  cwd, fx path, prompt (`$args[0]` / `$args[1]` / `$args[2]`; documented
+  `ask --no-save --auto --json --` literals stay in the scriptblock).
+  git_numstat on Windows is `powershell.exe
   -NoProfile -Command {scriptblock} -Args <project_path>` (`$args[0]`;
   tracked `git.exe diff --numstat HEAD --` plus untracked synthetic
   `N\t0\tpath` rows). git_common_dir resolve
@@ -260,9 +264,8 @@ Do not invent Native APIs. Documented gaps this cut works around:
   create / delete / fetch / push / first-push / worktree-base use `git.exe -C`;
   New worktree… is `powershell.exe -NoProfile -Command {scriptblock} -Args`
   with parent, cwd, git.exe, flags, branch, dest, and optional base as argv
-  slots. Remaining this cut: empty-message `fx ask` generate (Unix-only).
-  Environment Compare / Review uses `git.exe -C`; Uncommitted untracked
-  `?` rows stay Unix-only.
+  slots. Remaining this cut: Environment Compare Uncommitted untracked
+  `?` rows / `--no-index` hunks stay Unix-only.
 - No Native git effect. Git is sidecar `fx.spawn` of `git`.
 - No `fx.pickFile` / file-open effect. Folder and image pickers are OS
   sidecars.
@@ -284,10 +287,9 @@ one-shot `git` spawns. Runtime-only labels are not stored on
 watch, not `{project_id}` UUID nesting, and not force push.
 Windows probes, checkout / push / worktree, and commit mutations (add / cached-quiet / commit /
 amend / CommitSnapshot tracked-cached) use `git.exe -C <project_path>`;
-New worktree… and git_numstat untracked rows use PowerShell `-Command` + `-Args`. Empty-message `fx ask`
-generate stays Unix-only this cut.
+New worktree…, git_numstat untracked rows, and empty-message `fx ask` generate use PowerShell `-Command` + `-Args`.
 Environment Compare / Review uses `git.exe -C`; Uncommitted untracked
-`?` rows stay Unix-only.
+`?` rows / `--no-index` hunks stay Unix-only.
 
 Send may snapshot the worktree (`worktree_snapshot_sha` /
 `worktree_turn_end_sha` / `worktree_turn_diff_sha`; refs under

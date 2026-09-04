@@ -21,11 +21,9 @@
 //! `chars().take(200)`). Empty / whitespace on Commit / Commit and
 //! Push / Amend Confirm one-shots documented
 //! `fx ask --no-save --auto --json` when `fx_available` and `fxPath`
-//! are set (Unix only this cut), fills the normalized subject, then
-//! auto-proceeds into the same add/preflight/commit (or amend) path.
-//! If fx is unavailable, the path is empty, or the host is Windows
-//! (`generateAvailable` is false: Native `SpawnOptions` has no cwd
-//! and Windows cannot use `/bin/sh` chdir), it sets
+//! are set, fills the normalized subject, then auto-proceeds into
+//! the same add/preflight/commit (or amend) path. If fx is
+//! unavailable or the path is empty, it sets
 //! `Enter a commit message.` and does not spawn. Generate fail
 //! / empty output keeps the card open with
 //! `Could not generate a commit message.` In-dialog pending
@@ -79,13 +77,18 @@
 //! `git.exe -C PATH commit --amend -m <message>`; CommitSnapshot
 //! cached is `git.exe -C PATH diff --cached --numstat --`;
 //! include-unstaged reuses `git_numstat.argvFor` (Windows PowerShell
-//! untracked rows). Empty-message `fx ask` generate stays Unix-only
-//! this cut — no in-repo Windows fx-ask chdir pattern. Push lives
+//! untracked rows). Empty-message `fx ask` generate is
+//! `powershell.exe -NoProfile -Command {scriptblock} -Args`
+//! cwd, fx path, prompt (`$args[0]` / `$args[1]` / `$args[2]`;
+//! documented `ask --no-save --auto --json --` stay literals in
+//! the scriptblock — never interpolate cwd / fx path / prompt;
+//! `exit $LASTEXITCODE` keeps fx's status).
+//! Push lives
 //! in `git_checkout.zig` and uses the same `git.exe -C` pattern
 //! (`probeSupported` is true on Windows). app.zon already includes
 //! windows.
 //! Environment Compare / Review uses `git.exe -C` (Uncommitted
-//! untracked `?` rows stay Unix-only).
+//! untracked `?` rows / `--no-index` hunks stay Unix-only).
 //!
 //! Spawn/line/exit orchestration lives here. Effect keys stay
 //! `git_commit_key_first` (450+), `git_commit_numstat_key_first`
@@ -179,6 +182,13 @@ pub const git_numstat_flag = git_numstat.git_numstat;
 pub const git_cached_flag = "--cached";
 pub const git_quiet_flag = "--quiet";
 pub const sh_bin = git_branch.sh_bin;
+/// PATH-resolved Windows PowerShell (no STA: this is fx ask, not
+/// WinForms). Explicit `.exe` like sibling maximize / pickers /
+/// git_numstat.
+pub const powershell_bin = git_numstat.powershell_bin;
+pub const powershell_noprofile = git_numstat.powershell_noprofile;
+pub const powershell_command = git_numstat.powershell_command;
+pub const powershell_args_flag = git_numstat.powershell_args_flag;
 
 /// Unix `/bin/sh -c` chdir + git add -A -- . (10). Windows
 /// `git.exe -C` is 7; this is the spawn buffer (max of the two).
@@ -206,7 +216,12 @@ pub const windows_amend_argv_len: usize = 7;
 pub const commit_numstat_argv_len: usize = 10;
 pub const unix_commit_numstat_cached_argv_len: usize = 10;
 pub const windows_commit_numstat_cached_argv_len: usize = 7;
+/// Unix `/bin/sh -c` chdir + `fx ask --no-save --auto --json --
+/// <prompt>` (12). Windows powershell `-Command` + `-Args` is 8;
+/// this is the spawn buffer (max of the two).
 pub const generate_argv_len: usize = 12;
+pub const unix_generate_argv_len: usize = 12;
+pub const windows_generate_argv_len: usize = 8;
 
 fn probeSupported() bool {
     return true;
@@ -671,10 +686,20 @@ pub fn generatePromptFor(include_unstaged: bool) []const u8 {
     return generate_prompt_staged;
 }
 
+/// Scriptblock + `$args[N]`: cwd, fx binary, and prompt are their
+/// own argv slots after `-Args`, not spliced into the `-Command`
+/// body. `Set-Location` then documented
+/// `fx ask --no-save --auto --json -- <prompt>`. `$ErrorActionPreference='Stop'`
+/// does not throw on a native exe non-zero, so `exit $LASTEXITCODE`
+/// keeps fx's status (PowerShell does not `exec`). Eight argv slots.
+pub const powershell_generate_script =
+    "{ $ErrorActionPreference='Stop'; Set-Location -LiteralPath $args[0]; & $args[1] " ++
+    fx_ask_cmd ++ " " ++ fx_ask_no_save ++ " " ++ fx_ask_auto ++ " " ++ fx_ask_json ++ " " ++
+    fx_ask_dash ++ " $args[2]; exit $LASTEXITCODE }";
+
 /// `/bin/sh -c` chdir + `fx ask --no-save --auto --json -- <prompt>`.
 /// Documented fx-ask flags only. Prompt is its own argv slot.
-/// Unix-only this cut (Windows `generateAvailable` is false).
-pub fn generateArgvFor(
+pub fn unixGenerateArgvFor(
     cwd: []const u8,
     fx_path: []const u8,
     include_unstaged: bool,
@@ -694,11 +719,50 @@ pub fn generateArgvFor(
         fx_ask_dash,
         generatePromptFor(include_unstaged),
     };
-    return buf;
+    return buf[0..unix_generate_argv_len];
 }
 
-pub fn isGitCommitGenerateArgv(argv: []const []const u8) bool {
-    if (argv.len != generate_argv_len) return false;
+/// Windows: `powershell.exe -NoProfile -Command {scriptblock} -Args
+/// <cwd> <fx_path> <prompt>`. Cwd, fx binary, and prompt stay
+/// `$args[0]` / `$args[1]` / `$args[2]` — not interpolated into
+/// the `-Command` body. Documented fx-ask flags stay literals in
+/// the scriptblock.
+pub fn windowsGenerateArgvFor(
+    cwd: []const u8,
+    fx_path: []const u8,
+    include_unstaged: bool,
+    buf: *[generate_argv_len][]const u8,
+) []const []const u8 {
+    buf[0] = powershell_bin;
+    buf[1] = powershell_noprofile;
+    buf[2] = powershell_command;
+    buf[3] = powershell_generate_script;
+    buf[4] = powershell_args_flag;
+    buf[5] = cwd;
+    buf[6] = fx_path;
+    buf[7] = generatePromptFor(include_unstaged);
+    return buf[0..windows_generate_argv_len];
+}
+
+pub fn generateArgvFor(
+    cwd: []const u8,
+    fx_path: []const u8,
+    include_unstaged: bool,
+    buf: *[generate_argv_len][]const u8,
+) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsGenerateArgvFor(cwd, fx_path, include_unstaged, buf),
+        else => unixGenerateArgvFor(cwd, fx_path, include_unstaged, buf),
+    };
+}
+
+fn isGeneratePrompt(prompt: []const u8) bool {
+    return std.mem.eql(u8, prompt, generate_prompt_include_unstaged) or
+        std.mem.eql(u8, prompt, generate_prompt_staged);
+}
+
+fn isUnixGitCommitGenerateArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_generate_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -707,6 +771,24 @@ pub fn isGitCommitGenerateArgv(argv: []const []const u8) bool {
     if (!std.mem.eql(u8, argv[8], fx_ask_auto)) return false;
     if (!std.mem.eql(u8, argv[9], fx_ask_json)) return false;
     return std.mem.eql(u8, argv[10], fx_ask_dash);
+}
+
+fn isWindowsGitCommitGenerateArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_generate_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], powershell_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], powershell_noprofile)) return false;
+    if (!std.mem.eql(u8, argv[2], powershell_command)) return false;
+    if (!std.mem.eql(u8, argv[3], powershell_generate_script)) return false;
+    if (!std.mem.eql(u8, argv[4], powershell_args_flag)) return false;
+    if (argv[5].len == 0) return false;
+    if (argv[6].len == 0) return false;
+    if (argv[7].len == 0) return false;
+    if (std.mem.eql(u8, argv[7], argv[5])) return false;
+    return isGeneratePrompt(argv[7]);
+}
+
+pub fn isGitCommitGenerateArgv(argv: []const []const u8) bool {
+    return isUnixGitCommitGenerateArgv(argv) or isWindowsGitCommitGenerateArgv(argv);
 }
 
 pub fn gitCommitNumstatLabel(model: *const Model) []const u8 {
@@ -1046,7 +1128,6 @@ fn failNothingStaged(model: *Model) void {
 }
 
 fn generateAvailable(model: *const Model) bool {
-    if (builtin.os.tag == .windows) return false;
     return model.fx_available and model.fxPath().len > 0;
 }
 
@@ -1142,8 +1223,8 @@ fn confirmCommitWith(model: *Model, fx: *Effects, then_push: bool) void {
 /// `git add -A -- .` then `git diff --cached --quiet --` then
 /// `git commit -m` when include-unstaged is on; otherwise the same
 /// preflight then `git commit -m` only. Empty / whitespace one-shots
-/// `fx ask` generate when fx is available on Unix, then auto-proceeds;
-/// if fx is not available or the host is Windows it sets
+/// `fx ask` generate when fx is available, then auto-proceeds;
+/// if fx is not available it sets
 /// `Enter a commit message.` and does not spawn. Confirm while
 /// generate is in flight is a no-op. Gated / busy / in-flight /
 /// missing cwd is a no-op. Commit-only: does not start a push after
@@ -1637,7 +1718,7 @@ test "windows cached-quiet argv is git.exe -C PATH diff --cached --quiet --" {
     try expectRejectsSiblingWindowsArgv(&isGitCommitNumstatCachedArgv, cwd);
 }
 
-test "host add/commit/amend/cached-quiet/numstat argvFor match the process OS" {
+test "host add/commit/amend/cached-quiet/numstat/generate argvFor match the process OS" {
     var add_buf: [add_argv_len][]const u8 = undefined;
     const add = addArgvFor("/tmp/faku-commit", &add_buf);
     try std.testing.expect(isGitCommitAddArgv(add));
@@ -1660,6 +1741,9 @@ test "host add/commit/amend/cached-quiet/numstat argvFor match the process OS" {
     const work = commitNumstatArgvFor("/tmp/faku-commit", true, &work_buf);
     try std.testing.expect(isGitCommitNumstatWorkingTreeArgv(work));
     try std.testing.expect(git_numstat.isGitNumstatArgv(work));
+    var gen_buf: [generate_argv_len][]const u8 = undefined;
+    const gen = generateArgvFor("/tmp/faku-commit", "fx", true, &gen_buf);
+    try std.testing.expect(isGitCommitGenerateArgv(gen));
     switch (builtin.os.tag) {
         .windows => {
             try std.testing.expectEqualStrings(windows_git_bin, add[0]);
@@ -1671,6 +1755,10 @@ test "host add/commit/amend/cached-quiet/numstat argvFor match the process OS" {
             try std.testing.expectEqualStrings(git_numstat.powershell_bin, work[0]);
             try std.testing.expectEqualStrings(git_numstat.powershell_untracked_script, work[3]);
             try std.testing.expectEqualStrings(git_numstat.powershell_args_flag, work[4]);
+            try std.testing.expectEqualStrings(powershell_bin, gen[0]);
+            try std.testing.expectEqualStrings(powershell_generate_script, gen[3]);
+            try std.testing.expectEqualStrings(powershell_args_flag, gen[4]);
+            try std.testing.expectEqual(@as(usize, windows_generate_argv_len), gen.len);
         },
         else => {
             try std.testing.expectEqualStrings(sh_bin, add[0]);
@@ -1680,6 +1768,9 @@ test "host add/commit/amend/cached-quiet/numstat argvFor match the process OS" {
             try std.testing.expectEqualStrings(sh_bin, snap[0]);
             try std.testing.expectEqualStrings(sh_bin, work[0]);
             try std.testing.expectEqualStrings(git_numstat.numstat_untracked_script, work[7]);
+            try std.testing.expectEqualStrings(sh_bin, gen[0]);
+            try std.testing.expectEqualStrings(main.fx_ask_chdir_script, gen[2]);
+            try std.testing.expectEqual(@as(usize, unix_generate_argv_len), gen.len);
         },
     }
 }
@@ -2437,7 +2528,6 @@ test "confirmPushOnly no-ops when canPushGitBranch is false" {
 }
 
 test "confirmPushOnly no-ops while generate or add is in flight" {
-    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -3037,23 +3127,49 @@ fn enableFx(model: *Model) void {
 
 fn expectGenerateArgv(argv: []const []const u8, cwd: []const u8, include_unstaged: bool) !void {
     try std.testing.expect(isGitCommitGenerateArgv(argv));
-    try std.testing.expectEqualStrings(sh_bin, argv[0]);
-    try std.testing.expectEqualStrings("-c", argv[1]);
-    try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
-    try std.testing.expectEqualStrings("sh", argv[3]);
-    try std.testing.expectEqualStrings(cwd, argv[4]);
-    try std.testing.expectEqualStrings("fx", argv[5]);
-    try std.testing.expectEqualStrings(fx_ask_cmd, argv[6]);
-    try std.testing.expectEqualStrings(fx_ask_no_save, argv[7]);
-    try std.testing.expectEqualStrings(fx_ask_auto, argv[8]);
-    try std.testing.expectEqualStrings(fx_ask_json, argv[9]);
-    try std.testing.expectEqualStrings(fx_ask_dash, argv[10]);
-    try std.testing.expectEqualStrings(generatePromptFor(include_unstaged), argv[11]);
-    try std.testing.expect(std.mem.indexOf(u8, argv[2], fx_ask_cmd) == null);
-    try std.testing.expect(std.mem.indexOf(u8, argv[2], generatePromptFor(include_unstaged)) == null);
-    try std.testing.expect(std.mem.indexOf(u8, argv[2], fx_ask_no_save) == null);
-    try std.testing.expect(std.mem.indexOf(u8, argv[11], "--yolo") == null);
-    try std.testing.expect(std.mem.indexOf(u8, argv[11], "--resume") == null);
+    const prompt = generatePromptFor(include_unstaged);
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqual(@as(usize, windows_generate_argv_len), argv.len);
+            try std.testing.expectEqualStrings(powershell_bin, argv[0]);
+            try std.testing.expectEqualStrings(powershell_noprofile, argv[1]);
+            try std.testing.expectEqualStrings(powershell_command, argv[2]);
+            try std.testing.expectEqualStrings(powershell_generate_script, argv[3]);
+            try std.testing.expectEqualStrings(powershell_args_flag, argv[4]);
+            try std.testing.expectEqualStrings(cwd, argv[5]);
+            try std.testing.expectEqualStrings("fx", argv[6]);
+            try std.testing.expectEqualStrings(prompt, argv[7]);
+            try std.testing.expect(std.mem.indexOf(u8, argv[3], cwd) == null);
+            try std.testing.expect(std.mem.indexOf(u8, argv[3], argv[6]) == null);
+            try std.testing.expect(std.mem.indexOf(u8, argv[3], prompt) == null);
+            try std.testing.expect(std.mem.indexOf(u8, argv[3], "$args[0]") != null);
+            try std.testing.expect(std.mem.indexOf(u8, argv[3], "$args[1]") != null);
+            try std.testing.expect(std.mem.indexOf(u8, argv[3], "$args[2]") != null);
+            try std.testing.expect(std.mem.indexOf(u8, argv[3], "exit $LASTEXITCODE") != null);
+            try std.testing.expect(std.mem.indexOf(u8, argv[7], "--yolo") == null);
+            try std.testing.expect(std.mem.indexOf(u8, argv[7], "--resume") == null);
+        },
+        else => {
+            try std.testing.expectEqual(@as(usize, unix_generate_argv_len), argv.len);
+            try std.testing.expectEqualStrings(sh_bin, argv[0]);
+            try std.testing.expectEqualStrings("-c", argv[1]);
+            try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
+            try std.testing.expectEqualStrings("sh", argv[3]);
+            try std.testing.expectEqualStrings(cwd, argv[4]);
+            try std.testing.expectEqualStrings("fx", argv[5]);
+            try std.testing.expectEqualStrings(fx_ask_cmd, argv[6]);
+            try std.testing.expectEqualStrings(fx_ask_no_save, argv[7]);
+            try std.testing.expectEqualStrings(fx_ask_auto, argv[8]);
+            try std.testing.expectEqualStrings(fx_ask_json, argv[9]);
+            try std.testing.expectEqualStrings(fx_ask_dash, argv[10]);
+            try std.testing.expectEqualStrings(prompt, argv[11]);
+            try std.testing.expect(std.mem.indexOf(u8, argv[2], fx_ask_cmd) == null);
+            try std.testing.expect(std.mem.indexOf(u8, argv[2], prompt) == null);
+            try std.testing.expect(std.mem.indexOf(u8, argv[2], fx_ask_no_save) == null);
+            try std.testing.expect(std.mem.indexOf(u8, argv[11], "--yolo") == null);
+            try std.testing.expect(std.mem.indexOf(u8, argv[11], "--resume") == null);
+        },
+    }
     var i: usize = 0;
     while (i < argv.len) : (i += 1) {
         try std.testing.expect(!std.mem.eql(u8, argv[i], "--yolo"));
@@ -3068,16 +3184,29 @@ fn expectGenerateArgv(argv: []const []const u8, cwd: []const u8, include_unstage
 test "generate argv is chdir plus fx ask with documented flags and a prompt slot" {
     var on_buf: [generate_argv_len][]const u8 = undefined;
     const on_argv = generateArgvFor("/tmp/faku-generate", "fx", true, &on_buf);
-    try std.testing.expectEqual(@as(usize, 12), on_argv.len);
     try expectGenerateArgv(on_argv, "/tmp/faku-generate", true);
-    try std.testing.expect(std.mem.indexOf(u8, on_argv[11], "unstaged") != null);
-    try std.testing.expect(std.mem.indexOf(u8, on_argv[11], "untracked") != null);
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqual(@as(usize, windows_generate_argv_len), on_argv.len);
+            try std.testing.expectEqualStrings(powershell_bin, on_argv[0]);
+            try std.testing.expect(std.mem.indexOf(u8, on_argv[3], "/tmp/faku-generate") == null);
+            try std.testing.expect(std.mem.indexOf(u8, on_argv[3], "fx") == null);
+            try std.testing.expect(std.mem.indexOf(u8, on_argv[7], "unstaged") != null);
+            try std.testing.expect(std.mem.indexOf(u8, on_argv[7], "untracked") != null);
+        },
+        else => {
+            try std.testing.expectEqual(@as(usize, unix_generate_argv_len), on_argv.len);
+            try std.testing.expect(std.mem.indexOf(u8, on_argv[11], "unstaged") != null);
+            try std.testing.expect(std.mem.indexOf(u8, on_argv[11], "untracked") != null);
+        },
+    }
 
     var off_buf: [generate_argv_len][]const u8 = undefined;
     const off_argv = generateArgvFor("/tmp/faku-generate", "fx", false, &off_buf);
     try expectGenerateArgv(off_argv, "/tmp/faku-generate", false);
-    try std.testing.expect(std.mem.indexOf(u8, off_argv[11], "staged changes only") != null);
-    try std.testing.expect(!std.mem.eql(u8, on_argv[11], off_argv[11]));
+    const off_prompt_slot: usize = if (builtin.os.tag == .windows) 7 else 11;
+    try std.testing.expect(std.mem.indexOf(u8, off_argv[off_prompt_slot], "staged changes only") != null);
+    try std.testing.expect(!std.mem.eql(u8, on_argv[off_prompt_slot], off_argv[off_prompt_slot]));
 }
 
 test "takeGeneratedSubject prefers JSON output then first stdout line" {
@@ -3088,16 +3217,56 @@ test "takeGeneratedSubject prefers JSON output then first stdout line" {
     try std.testing.expect(takeGeneratedSubject("   \n", &buf) == null);
 }
 
-test "empty plus fx available on Windows sets Enter a commit message and does not spawn sh" {
+test "windows generate argv is powershell -Args cwd fx_path prompt; empty without fx asks for a message" {
     var gen_buf: [generate_argv_len][]const u8 = undefined;
-    const gen = generateArgvFor("C:\\Users\\me\\proj", "fx", true, &gen_buf);
-    try std.testing.expectEqualStrings(sh_bin, gen[0]);
-    try std.testing.expectEqualStrings("-c", gen[1]);
-    try std.testing.expectEqualStrings("C:\\Users\\me\\proj", gen[4]);
-    try std.testing.expect(std.mem.indexOf(u8, gen[2], "C:\\Users\\me\\proj") == null);
+    const cwd = "C:\\Users\\me\\proj";
+    const fx_path = "C:\\Users\\me\\.fx\\bin\\fx.exe";
+    const gen = windowsGenerateArgvFor(cwd, fx_path, true, &gen_buf);
+    try std.testing.expectEqual(@as(usize, windows_generate_argv_len), gen.len);
+    try std.testing.expect(gen.len <= 16);
+    try std.testing.expectEqualStrings(powershell_bin, gen[0]);
+    try std.testing.expectEqualStrings(powershell_noprofile, gen[1]);
+    try std.testing.expectEqualStrings(powershell_command, gen[2]);
+    try std.testing.expectEqualStrings(powershell_generate_script, gen[3]);
+    try std.testing.expectEqualStrings(powershell_args_flag, gen[4]);
+    try std.testing.expectEqualStrings(cwd, gen[5]);
+    try std.testing.expectEqualStrings(fx_path, gen[6]);
+    try std.testing.expectEqualStrings(generate_prompt_include_unstaged, gen[7]);
+    try std.testing.expect(isGitCommitGenerateArgv(gen));
+    try std.testing.expect(!std.mem.eql(u8, gen[0], sh_bin));
     try std.testing.expect(!std.mem.eql(u8, gen[0], windows_git_bin));
-
-    if (builtin.os.tag != .windows) return;
+    try std.testing.expect(std.mem.indexOf(u8, gen[3], cwd) == null);
+    try std.testing.expect(std.mem.indexOf(u8, gen[3], fx_path) == null);
+    try std.testing.expect(std.mem.indexOf(u8, gen[3], generate_prompt_include_unstaged) == null);
+    try std.testing.expect(std.mem.indexOf(u8, gen[3], "$args[0]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gen[3], "$args[1]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gen[3], "$args[2]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gen[3], "exit $LASTEXITCODE") != null);
+    try std.testing.expect(std.mem.indexOf(u8, gen[3], fx_ask_cmd) != null);
+    try std.testing.expect(std.mem.indexOf(u8, gen[3], fx_ask_no_save) != null);
+    try std.testing.expect(std.mem.indexOf(u8, gen[3], fx_ask_auto) != null);
+    try std.testing.expect(std.mem.indexOf(u8, gen[3], fx_ask_json) != null);
+    try std.testing.expect(!isGitCommitGenerateArgv(&.{ powershell_bin, powershell_noprofile, powershell_command }));
+    try std.testing.expect(!isGitCommitGenerateArgv(&.{
+        powershell_bin,
+        powershell_noprofile,
+        powershell_command,
+        powershell_generate_script,
+        powershell_args_flag,
+        cwd,
+        fx_path,
+    }));
+    try std.testing.expect(!isGitCommitGenerateArgv(&.{
+        powershell_bin,
+        powershell_noprofile,
+        powershell_command,
+        git_numstat.powershell_untracked_script,
+        powershell_args_flag,
+        cwd,
+        fx_path,
+        generate_prompt_include_unstaged,
+    }));
+    try expectRejectsSiblingWindowsArgv(&isGitCommitGenerateArgv, cwd);
 
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
@@ -3111,7 +3280,6 @@ test "empty plus fx available on Windows sets Enter a commit message and does no
 
     var model = Model{};
     model.store_io = std.testing.io;
-    enableFx(&model);
     const id = model.addSession("commit generate win", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
@@ -3125,10 +3293,24 @@ test "empty plus fx available on Windows sets Enter a commit message and does no
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
     try std.testing.expectEqualStrings(empty_message_status, model.attach_status());
     try std.testing.expect(model.git_commit_active);
+
+    if (builtin.os.tag != .windows) return;
+
+    model.clearAttachStatus();
+    enableFx(&model);
+    confirmCommit(&model, &fx);
+    try std.testing.expect(model.git_commit_generate_key != 0);
+    const spawn = findPending(&fx, model.git_commit_generate_key, &isGitCommitGenerateArgv) orelse return error.MissingGenerateSpawn;
+    try expectGenerateArgv(spawn.argv, project, true);
+    try std.testing.expectEqualStrings(powershell_bin, spawn.argv[0]);
+    try std.testing.expectEqualStrings(powershell_generate_script, spawn.argv[3]);
+    try std.testing.expectEqualStrings(powershell_args_flag, spawn.argv[4]);
+    try std.testing.expectEqualStrings(project, spawn.argv[5]);
+    try std.testing.expect(std.mem.indexOf(u8, spawn.argv[3], project) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
 }
 
 test "empty plus fx available one-shots generate; include_unstaged changes the prompt" {
-    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -3177,7 +3359,6 @@ test "empty plus fx available one-shots generate; include_unstaged changes the p
 }
 
 test "generate success fills the subject and auto-adds" {
-    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -3214,7 +3395,6 @@ test "generate success fills the subject and auto-adds" {
 }
 
 test "generate JSON output then commit when include_unstaged is off" {
-    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -3248,7 +3428,6 @@ test "generate JSON output then commit when include_unstaged is off" {
 }
 
 test "generate then commit and push starts push only after successful commit" {
-    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -3292,7 +3471,6 @@ test "generate then commit and push starts push only after successful commit" {
 }
 
 test "generate fail or empty stdout keeps the card open and does not commit" {
-    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -3346,7 +3524,6 @@ test "generate fail or empty stdout keeps the card open and does not commit" {
 }
 
 test "cancel or session-switch drops generate and does not commit" {
-    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -3394,7 +3571,6 @@ test "cancel or session-switch drops generate and does not commit" {
 }
 
 test "confirm while generating is a no-op" {
-    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -3723,7 +3899,6 @@ test "Push-only shows Pushing not Committing" {
 }
 
 test "generate shows Generating only" {
-    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -3919,7 +4094,6 @@ test "confirm amend add-then-preflight then git commit --amend -m" {
 }
 
 test "amend empty plus fx available generates then amends" {
-    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;

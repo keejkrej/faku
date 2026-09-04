@@ -96,9 +96,8 @@
 //! Uncommitted does not emit `?` rows on Windows, so those
 //! clicks do not appear. Name-status / hunk stdout is already
 //! CRLF-trimmed. app.zon already includes windows. Remaining
-//! leftovers this cut: git_numstat untracked synthetic rows
-//! (Unix-only), empty-message `fx ask` commit generate
-//! (Unix-only).
+//! leftovers this cut: Uncommitted untracked `?` rows /
+//! `--no-index` hunks stay Unix-only.
 //!
 //! Spawn/line/exit orchestration lives here. Effect keys stay
 //! name-status 510+ and hunk 520+.
