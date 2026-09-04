@@ -15,15 +15,18 @@
 //! off it skips add and one-shots the same cached-quiet preflight
 //! then commit / amend. Every flag and operand is its own argv slot —
 //! never interpolated into the `-c` script
-//! (`fx_ask_chdir_script`). `--amend`, `-m`, and the message are
-//! each their own slot. Message is trimmed, taken as a single
-//! line, and capped at 200 chars (Waku `chars().take(200)`). Empty
-//! / whitespace on Commit / Commit and Push / Amend Confirm
-//! one-shots documented `fx ask --no-save --auto --json` when
-//! `fx_available` and `fxPath` are set, fills the normalized
-//! subject, then auto-proceeds into the same add/preflight/commit
-//! (or amend) path. If fx is unavailable or the path is empty, it
-//! sets `Enter a commit message.` and does not spawn. Generate fail
+//! (`fx_ask_chdir_script`) or a Windows cmd string. `--amend`, `-m`,
+//! and the message are each their own slot. Message is trimmed,
+//! taken as a single line, and capped at 200 chars (Waku
+//! `chars().take(200)`). Empty / whitespace on Commit / Commit and
+//! Push / Amend Confirm one-shots documented
+//! `fx ask --no-save --auto --json` when `fx_available` and `fxPath`
+//! are set (Unix only this cut), fills the normalized subject, then
+//! auto-proceeds into the same add/preflight/commit (or amend) path.
+//! If fx is unavailable, the path is empty, or the host is Windows
+//! (`generateAvailable` is false: Native `SpawnOptions` has no cwd
+//! and Windows cannot use `/bin/sh` chdir), it sets
+//! `Enter a commit message.` and does not spawn. Generate fail
 //! / empty output keeps the card open with
 //! `Could not generate a commit message.` In-dialog pending
 //! labels stay muted extra lines on the card (not on the action
@@ -49,10 +52,11 @@
 //! message is fine.
 //! In-flight generate, add/preflight/commit, or a card-originated
 //! push is a no-op. Opening the card one-shots CommitSnapshot
-//! numstat (include-unstaged on reuses the project-row
-//! `git_numstat` script: tracked `git diff --numstat HEAD --` plus
-//! untracked text-line additions; index vs HEAD `--cached` when
-//! off). The include-unstaged toggle cancels and re-probes. Amend
+//! numstat (include-unstaged on reuses `git_numstat.argvFor`: Unix
+//! tracked `git diff --numstat HEAD --` plus untracked text-line
+//! additions; Windows tracked-only `git.exe -C`; index vs HEAD
+//! `--cached` when off). The include-unstaged toggle cancels and
+//! re-probes. Amend
 //! is a runtime-only ghost toggle (default off; reset when the
 //! card opens; not persisted) and does not re-probe. Cancel / Esc /
 //! session-switch drop an in-flight generate/add/preflight/commit,
@@ -64,8 +68,27 @@
 //! Amend is off and `canPushGitBranch`.
 //! Not force, and not daemon `WorkspaceOperation`.
 //!
-//! Spawn/line/exit orchestration lives here. Windows is skipped
-//! (app.zon is macos/linux; no Windows spawn path).
+//! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
+//! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
+//! `git.exe -C <project_path>` (path is its own argv slot, not
+//! interpolated into a script). Explicit `git.exe` like siblings.
+//! Add is `git.exe -C PATH add -A -- .`; cached quiet is
+//! `git.exe -C PATH diff --cached --quiet --`; commit is
+//! `git.exe -C PATH commit -m <message>`; amend is
+//! `git.exe -C PATH commit --amend -m <message>`; CommitSnapshot
+//! cached is `git.exe -C PATH diff --cached --numstat --`;
+//! include-unstaged reuses `git_numstat.argvFor` (already Windows
+//! tracked-only). Empty-message `fx ask` generate stays Unix-only
+//! this cut — no in-repo Windows fx-ask chdir pattern. Push stays
+//! in `git_checkout.zig`, which still skips Windows: Commit and
+//! Push / Push-only / composer Push… fail or no-op via
+//! `git_checkout.probeSupported` (`beginPushAfterCommit` already
+//! sets `Could not push.`). app.zon already includes windows.
+//! Windows numstat untracked rows stay Unix-only.
+//!
+//! Spawn/line/exit orchestration lives here. Effect keys stay
+//! `git_commit_key_first` (450+), `git_commit_numstat_key_first`
+//! (460+), `git_commit_generate_key_first` (470+).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -139,6 +162,10 @@ pub const GitCommitPhase = enum(u8) {
 };
 
 pub const git_bin = git_branch.git_bin;
+/// PATH-resolved Windows Git (explicit `.exe` like sibling
+/// `powershell.exe` / `explorer.exe` / `wt.exe` / `cmd.exe`).
+pub const windows_git_bin = git_branch.windows_git_bin;
+pub const git_c_flag = git_branch.git_c_flag;
 pub const git_add_cmd = "add";
 pub const git_add_all_flag = "-A";
 pub const git_pathspec_dash = "--";
@@ -152,17 +179,36 @@ pub const git_cached_flag = "--cached";
 pub const git_quiet_flag = "--quiet";
 pub const sh_bin = git_branch.sh_bin;
 
+/// Unix `/bin/sh -c` chdir + git add -A -- . (10). Windows
+/// `git.exe -C` is 7; this is the spawn buffer (max of the two).
 pub const add_argv_len: usize = 10;
+pub const unix_add_argv_len: usize = 10;
+pub const windows_add_argv_len: usize = 7;
+/// Unix `/bin/sh -c` chdir + git diff --cached --quiet -- (10).
+/// Windows `git.exe -C` is 7; this is the spawn buffer (max of the two).
 pub const cached_quiet_argv_len: usize = 10;
+pub const unix_cached_quiet_argv_len: usize = 10;
+pub const windows_cached_quiet_argv_len: usize = 7;
+/// Unix `/bin/sh -c` chdir + git commit -m <message> (9). Windows
+/// `git.exe -C` is 6; this is the spawn buffer (max of the two).
 pub const commit_argv_len: usize = 9;
+pub const unix_commit_argv_len: usize = 9;
+pub const windows_commit_argv_len: usize = 6;
+/// Unix `/bin/sh -c` chdir + git commit --amend -m <message> (10).
+/// Windows `git.exe -C` is 7; this is the spawn buffer (max of the two).
 pub const amend_argv_len: usize = 10;
-/// Max CommitSnapshot argv slots. Cached is 10; include-unstaged
-/// reuses `git_numstat.argv_len` (8) inside this buffer.
+pub const unix_amend_argv_len: usize = 10;
+pub const windows_amend_argv_len: usize = 7;
+/// Max CommitSnapshot argv slots. Unix cached is 10; include-unstaged
+/// reuses `git_numstat.argv_len` (8 Unix / 7 Windows) inside this
+/// buffer. Windows cached is 7.
 pub const commit_numstat_argv_len: usize = 10;
+pub const unix_commit_numstat_cached_argv_len: usize = 10;
+pub const windows_commit_numstat_cached_argv_len: usize = 7;
 pub const generate_argv_len: usize = 12;
 
 fn probeSupported() bool {
-    return builtin.os.tag != .windows;
+    return true;
 }
 
 fn probePath(model: *const Model) []const u8 {
@@ -249,7 +295,7 @@ pub fn normalizeMessage(raw: []const u8, out: *[max_commit_message]u8) ?[]const 
     return out[0..n];
 }
 
-pub fn addArgvFor(cwd: []const u8, buf: *[add_argv_len][]const u8) []const []const u8 {
+pub fn unixAddArgvFor(cwd: []const u8, buf: *[add_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -262,11 +308,31 @@ pub fn addArgvFor(cwd: []const u8, buf: *[add_argv_len][]const u8) []const []con
         git_pathspec_dash,
         git_pathspec_dot,
     };
-    return buf;
+    return buf[0..unix_add_argv_len];
 }
 
-pub fn isGitCommitAddArgv(argv: []const []const u8) bool {
-    if (argv.len != add_argv_len) return false;
+/// Windows: `git.exe -C <project_path> add -A -- .`. Path is its
+/// own argv slot (no `/bin/sh`, no packing into a cmd string).
+pub fn windowsAddArgvFor(cwd: []const u8, buf: *[add_argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_add_cmd;
+    buf[4] = git_add_all_flag;
+    buf[5] = git_pathspec_dash;
+    buf[6] = git_pathspec_dot;
+    return buf[0..windows_add_argv_len];
+}
+
+pub fn addArgvFor(cwd: []const u8, buf: *[add_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsAddArgvFor(cwd, buf),
+        else => unixAddArgvFor(cwd, buf),
+    };
+}
+
+fn isUnixGitCommitAddArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_add_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -277,7 +343,23 @@ pub fn isGitCommitAddArgv(argv: []const []const u8) bool {
     return std.mem.eql(u8, argv[9], git_pathspec_dot);
 }
 
-pub fn commitArgvFor(cwd: []const u8, message: []const u8, buf: *[commit_argv_len][]const u8) []const []const u8 {
+fn isWindowsGitCommitAddArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_add_argv_len) return false;
+    const bin_ok = std.mem.eql(u8, argv[0], windows_git_bin) or std.mem.eql(u8, argv[0], git_bin);
+    if (!bin_ok) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_add_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], git_add_all_flag)) return false;
+    if (!std.mem.eql(u8, argv[5], git_pathspec_dash)) return false;
+    return std.mem.eql(u8, argv[6], git_pathspec_dot);
+}
+
+pub fn isGitCommitAddArgv(argv: []const []const u8) bool {
+    return isUnixGitCommitAddArgv(argv) or isWindowsGitCommitAddArgv(argv);
+}
+
+pub fn unixCommitArgvFor(cwd: []const u8, message: []const u8, buf: *[commit_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -289,11 +371,30 @@ pub fn commitArgvFor(cwd: []const u8, message: []const u8, buf: *[commit_argv_le
         git_message_flag,
         message,
     };
-    return buf;
+    return buf[0..unix_commit_argv_len];
 }
 
-pub fn isGitCommitArgv(argv: []const []const u8) bool {
-    if (argv.len != commit_argv_len) return false;
+/// Windows: `git.exe -C <project_path> commit -m <message>`. Path
+/// and message are their own argv slots.
+pub fn windowsCommitArgvFor(cwd: []const u8, message: []const u8, buf: *[commit_argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_commit_cmd;
+    buf[4] = git_message_flag;
+    buf[5] = message;
+    return buf[0..windows_commit_argv_len];
+}
+
+pub fn commitArgvFor(cwd: []const u8, message: []const u8, buf: *[commit_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsCommitArgvFor(cwd, message, buf),
+        else => unixCommitArgvFor(cwd, message, buf),
+    };
+}
+
+fn isUnixGitCommitArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_commit_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -302,9 +403,23 @@ pub fn isGitCommitArgv(argv: []const []const u8) bool {
     return std.mem.eql(u8, argv[7], git_message_flag);
 }
 
+fn isWindowsGitCommitArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_commit_argv_len) return false;
+    const bin_ok = std.mem.eql(u8, argv[0], windows_git_bin) or std.mem.eql(u8, argv[0], git_bin);
+    if (!bin_ok) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_commit_cmd)) return false;
+    return std.mem.eql(u8, argv[4], git_message_flag);
+}
+
+pub fn isGitCommitArgv(argv: []const []const u8) bool {
+    return isUnixGitCommitArgv(argv) or isWindowsGitCommitArgv(argv);
+}
+
 /// `git commit --amend -m <message>`. `--amend`, `-m`, and the
 /// message each their own argv slot — never glued onto `-m`.
-pub fn amendArgvFor(cwd: []const u8, message: []const u8, buf: *[amend_argv_len][]const u8) []const []const u8 {
+pub fn unixAmendArgvFor(cwd: []const u8, message: []const u8, buf: *[amend_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -317,11 +432,31 @@ pub fn amendArgvFor(cwd: []const u8, message: []const u8, buf: *[amend_argv_len]
         git_message_flag,
         message,
     };
-    return buf;
+    return buf[0..unix_amend_argv_len];
 }
 
-pub fn isGitCommitAmendArgv(argv: []const []const u8) bool {
-    if (argv.len != amend_argv_len) return false;
+/// Windows: `git.exe -C <project_path> commit --amend -m <message>`.
+/// Path, `--amend`, `-m`, and the message are each their own argv slot.
+pub fn windowsAmendArgvFor(cwd: []const u8, message: []const u8, buf: *[amend_argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_commit_cmd;
+    buf[4] = git_amend_flag;
+    buf[5] = git_message_flag;
+    buf[6] = message;
+    return buf[0..windows_amend_argv_len];
+}
+
+pub fn amendArgvFor(cwd: []const u8, message: []const u8, buf: *[amend_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsAmendArgvFor(cwd, message, buf),
+        else => unixAmendArgvFor(cwd, message, buf),
+    };
+}
+
+fn isUnixGitCommitAmendArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_amend_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -331,11 +466,26 @@ pub fn isGitCommitAmendArgv(argv: []const []const u8) bool {
     return std.mem.eql(u8, argv[8], git_message_flag);
 }
 
+fn isWindowsGitCommitAmendArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_amend_argv_len) return false;
+    const bin_ok = std.mem.eql(u8, argv[0], windows_git_bin) or std.mem.eql(u8, argv[0], git_bin);
+    if (!bin_ok) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_commit_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], git_amend_flag)) return false;
+    return std.mem.eql(u8, argv[5], git_message_flag);
+}
+
+pub fn isGitCommitAmendArgv(argv: []const []const u8) bool {
+    return isUnixGitCommitAmendArgv(argv) or isWindowsGitCommitAmendArgv(argv);
+}
+
 /// `git diff --cached --quiet --`. Same chdir script as add/commit;
 /// every flag is its own argv slot. Distinct from CommitSnapshot
 /// cached numstat (`--numstat`) and the project-row working-tree
 /// numstat script.
-pub fn cachedQuietArgvFor(cwd: []const u8, buf: *[cached_quiet_argv_len][]const u8) []const []const u8 {
+pub fn unixCachedQuietArgvFor(cwd: []const u8, buf: *[cached_quiet_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -348,11 +498,31 @@ pub fn cachedQuietArgvFor(cwd: []const u8, buf: *[cached_quiet_argv_len][]const 
         git_quiet_flag,
         git_pathspec_dash,
     };
-    return buf;
+    return buf[0..unix_cached_quiet_argv_len];
 }
 
-pub fn isGitCommitCachedQuietArgv(argv: []const []const u8) bool {
-    if (argv.len != cached_quiet_argv_len) return false;
+/// Windows: `git.exe -C <project_path> diff --cached --quiet --`.
+/// Path is its own argv slot.
+pub fn windowsCachedQuietArgvFor(cwd: []const u8, buf: *[cached_quiet_argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_diff_cmd;
+    buf[4] = git_cached_flag;
+    buf[5] = git_quiet_flag;
+    buf[6] = git_pathspec_dash;
+    return buf[0..windows_cached_quiet_argv_len];
+}
+
+pub fn cachedQuietArgvFor(cwd: []const u8, buf: *[cached_quiet_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsCachedQuietArgvFor(cwd, buf),
+        else => unixCachedQuietArgvFor(cwd, buf),
+    };
+}
+
+fn isUnixGitCommitCachedQuietArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_cached_quiet_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -363,8 +533,24 @@ pub fn isGitCommitCachedQuietArgv(argv: []const []const u8) bool {
     return std.mem.eql(u8, argv[9], git_pathspec_dash);
 }
 
-fn isChdirGitDiffArgv(argv: []const []const u8) bool {
-    if (argv.len != commit_numstat_argv_len) return false;
+fn isWindowsGitCommitCachedQuietArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_cached_quiet_argv_len) return false;
+    const bin_ok = std.mem.eql(u8, argv[0], windows_git_bin) or std.mem.eql(u8, argv[0], git_bin);
+    if (!bin_ok) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_diff_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], git_cached_flag)) return false;
+    if (!std.mem.eql(u8, argv[5], git_quiet_flag)) return false;
+    return std.mem.eql(u8, argv[6], git_pathspec_dash);
+}
+
+pub fn isGitCommitCachedQuietArgv(argv: []const []const u8) bool {
+    return isUnixGitCommitCachedQuietArgv(argv) or isWindowsGitCommitCachedQuietArgv(argv);
+}
+
+fn isUnixChdirGitDiffArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_commit_numstat_cached_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -374,7 +560,7 @@ fn isChdirGitDiffArgv(argv: []const []const u8) bool {
 
 /// Index vs HEAD: `git diff --cached --numstat --`. Staged only;
 /// no untracked rows.
-pub fn commitNumstatCachedArgvFor(cwd: []const u8, buf: *[commit_numstat_argv_len][]const u8) []const []const u8 {
+pub fn unixCommitNumstatCachedArgvFor(cwd: []const u8, buf: *[commit_numstat_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -387,21 +573,63 @@ pub fn commitNumstatCachedArgvFor(cwd: []const u8, buf: *[commit_numstat_argv_le
         git_numstat_flag,
         git_pathspec_dash,
     };
-    return buf;
+    return buf[0..unix_commit_numstat_cached_argv_len];
 }
 
-/// Include-unstaged on: reuse `git_numstat.argvFor` (len 8, inner
+/// Windows: `git.exe -C <project_path> diff --cached --numstat --`.
+/// Path is its own argv slot. Staged only; no untracked rows.
+pub fn windowsCommitNumstatCachedArgvFor(cwd: []const u8, buf: *[commit_numstat_argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_diff_cmd;
+    buf[4] = git_cached_flag;
+    buf[5] = git_numstat_flag;
+    buf[6] = git_pathspec_dash;
+    return buf[0..windows_commit_numstat_cached_argv_len];
+}
+
+pub fn commitNumstatCachedArgvFor(cwd: []const u8, buf: *[commit_numstat_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsCommitNumstatCachedArgvFor(cwd, buf),
+        else => unixCommitNumstatCachedArgvFor(cwd, buf),
+    };
+}
+
+fn copyNumstatArgv(argv: []const []const u8, buf: *[commit_numstat_argv_len][]const u8) []const []const u8 {
+    for (argv, 0..) |slot, i| buf[i] = slot;
+    return buf[0..argv.len];
+}
+
+/// Include-unstaged on: reuse `git_numstat` unix argv (len 8, inner
 /// `sh -c` + `numstat_untracked_script`). Off: cached numstat
 /// (len 10). Cwd stays its own argv slot; nothing is interpolated
 /// into the chdir `-c` script.
-pub fn commitNumstatArgvFor(cwd: []const u8, include_unstaged: bool, buf: *[commit_numstat_argv_len][]const u8) []const []const u8 {
+pub fn unixCommitNumstatArgvFor(cwd: []const u8, include_unstaged: bool, buf: *[commit_numstat_argv_len][]const u8) []const []const u8 {
     if (include_unstaged) {
         var work: [git_numstat.argv_len][]const u8 = undefined;
-        const argv = git_numstat.argvFor(cwd, &work);
-        for (argv, 0..) |slot, i| buf[i] = slot;
-        return buf[0..argv.len];
+        return copyNumstatArgv(git_numstat.unixArgvFor(cwd, &work), buf);
     }
-    return commitNumstatCachedArgvFor(cwd, buf);
+    return unixCommitNumstatCachedArgvFor(cwd, buf);
+}
+
+/// Include-unstaged on: reuse `git_numstat.windowsArgvFor` (tracked
+/// `git.exe -C` numstat). Off: cached numstat.
+pub fn windowsCommitNumstatArgvFor(cwd: []const u8, include_unstaged: bool, buf: *[commit_numstat_argv_len][]const u8) []const []const u8 {
+    if (include_unstaged) {
+        var work: [git_numstat.argv_len][]const u8 = undefined;
+        return copyNumstatArgv(git_numstat.windowsArgvFor(cwd, &work), buf);
+    }
+    return windowsCommitNumstatCachedArgvFor(cwd, buf);
+}
+
+/// Include-unstaged on: reuse `git_numstat.argvFor` (Unix untracked
+/// script / Windows tracked-only). Off: cached numstat.
+pub fn commitNumstatArgvFor(cwd: []const u8, include_unstaged: bool, buf: *[commit_numstat_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsCommitNumstatArgvFor(cwd, include_unstaged, buf),
+        else => unixCommitNumstatArgvFor(cwd, include_unstaged, buf),
+    };
 }
 
 /// Include-unstaged on: same argv as the project-row probe.
@@ -410,11 +638,27 @@ pub fn isGitCommitNumstatWorkingTreeArgv(argv: []const []const u8) bool {
     return git_numstat.isGitNumstatArgv(argv);
 }
 
-pub fn isGitCommitNumstatCachedArgv(argv: []const []const u8) bool {
-    if (!isChdirGitDiffArgv(argv)) return false;
+fn isUnixGitCommitNumstatCachedArgv(argv: []const []const u8) bool {
+    if (!isUnixChdirGitDiffArgv(argv)) return false;
     if (!std.mem.eql(u8, argv[7], git_cached_flag)) return false;
     if (!std.mem.eql(u8, argv[8], git_numstat_flag)) return false;
     return std.mem.eql(u8, argv[9], git_pathspec_dash);
+}
+
+fn isWindowsGitCommitNumstatCachedArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_commit_numstat_cached_argv_len) return false;
+    const bin_ok = std.mem.eql(u8, argv[0], windows_git_bin) or std.mem.eql(u8, argv[0], git_bin);
+    if (!bin_ok) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_diff_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], git_cached_flag)) return false;
+    if (!std.mem.eql(u8, argv[5], git_numstat_flag)) return false;
+    return std.mem.eql(u8, argv[6], git_pathspec_dash);
+}
+
+pub fn isGitCommitNumstatCachedArgv(argv: []const []const u8) bool {
+    return isUnixGitCommitNumstatCachedArgv(argv) or isWindowsGitCommitNumstatCachedArgv(argv);
 }
 
 pub fn isGitCommitNumstatArgv(argv: []const []const u8) bool {
@@ -428,6 +672,7 @@ pub fn generatePromptFor(include_unstaged: bool) []const u8 {
 
 /// `/bin/sh -c` chdir + `fx ask --no-save --auto --json -- <prompt>`.
 /// Documented fx-ask flags only. Prompt is its own argv slot.
+/// Unix-only this cut (Windows `generateAvailable` is false).
 pub fn generateArgvFor(
     cwd: []const u8,
     fx_path: []const u8,
@@ -563,8 +808,8 @@ fn commitNumstatStillCurrent(model: *const Model) bool {
 
 /// Cancel any in-flight snapshot probe, drop the label, and spawn
 /// again for the current include-unstaged mode when the Commit… card
-/// is open and cwd exists. Empty / missing / Windows skips the spawn
-/// so the label stays omitted.
+/// is open and cwd exists. Empty / missing skips the spawn so the
+/// label stays omitted.
 pub fn refreshCommitNumstat(model: *Model, fx: *Effects) void {
     cancelCommitNumstat(model, fx);
     clearCommitNumstat(model);
@@ -712,7 +957,7 @@ pub fn startCommit(model: *Model, fx: *Effects) void {
 /// `canCommitGit` so a clean tree can still Push-only. Composer
 /// Commit… stays on `startCommit`. Card action buttons stay gated.
 /// No-op when a git mutation is in flight, the session is
-/// streaming, cwd is missing, or Windows.
+/// streaming, or cwd is missing.
 pub fn openCommitDialog(model: *Model, fx: *Effects) void {
     prepareCommitCard(model, fx);
     activateCommitCard(model, fx);
@@ -800,6 +1045,7 @@ fn failNothingStaged(model: *Model) void {
 }
 
 fn generateAvailable(model: *const Model) bool {
+    if (builtin.os.tag == .windows) return false;
     return model.fx_available and model.fxPath().len > 0;
 }
 
@@ -895,11 +1141,12 @@ fn confirmCommitWith(model: *Model, fx: *Effects, then_push: bool) void {
 /// `git add -A -- .` then `git diff --cached --quiet --` then
 /// `git commit -m` when include-unstaged is on; otherwise the same
 /// preflight then `git commit -m` only. Empty / whitespace one-shots
-/// `fx ask` generate when fx is available, then auto-proceeds; if fx
-/// is not available it sets `Enter a commit message.` and does not
-/// spawn. Confirm while generate is in flight is a no-op. Gated /
-/// busy / in-flight / missing cwd is a no-op. Commit-only: does not
-/// start a push after success.
+/// `fx ask` generate when fx is available on Unix, then auto-proceeds;
+/// if fx is not available or the host is Windows it sets
+/// `Enter a commit message.` and does not spawn. Confirm while
+/// generate is in flight is a no-op. Gated / busy / in-flight /
+/// missing cwd is a no-op. Commit-only: does not start a push after
+/// success.
 pub fn confirmCommit(model: *Model, fx: *Effects) void {
     confirmCommitWith(model, fx, false);
 }
@@ -1067,8 +1314,8 @@ pub fn handleCommitExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
 
 test "add argv is chdir script plus git add -A -- ." {
     var buf: [add_argv_len][]const u8 = undefined;
-    const argv = addArgvFor("/tmp/faku-commit", &buf);
-    try std.testing.expectEqual(@as(usize, 10), argv.len);
+    const argv = unixAddArgvFor("/tmp/faku-commit", &buf);
+    try std.testing.expectEqual(@as(usize, unix_add_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -1100,8 +1347,8 @@ test "add argv is chdir script plus git add -A -- ." {
 
 test "commit argv is chdir script plus git commit -m and its own message slot" {
     var buf: [commit_argv_len][]const u8 = undefined;
-    const argv = commitArgvFor("/tmp/faku-commit", "fix dirty count", &buf);
-    try std.testing.expectEqual(@as(usize, 9), argv.len);
+    const argv = unixCommitArgvFor("/tmp/faku-commit", "fix dirty count", &buf);
+    try std.testing.expectEqual(@as(usize, unix_commit_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -1134,8 +1381,8 @@ test "commit argv is chdir script plus git commit -m and its own message slot" {
 
 test "amend argv is chdir script plus git commit --amend -m and its own message slot" {
     var buf: [amend_argv_len][]const u8 = undefined;
-    const argv = amendArgvFor("/tmp/faku-amend", "fix dirty count", &buf);
-    try std.testing.expectEqual(@as(usize, 10), argv.len);
+    const argv = unixAmendArgvFor("/tmp/faku-amend", "fix dirty count", &buf);
+    try std.testing.expectEqual(@as(usize, unix_amend_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -1159,15 +1406,15 @@ test "amend argv is chdir script plus git commit --amend -m and its own message 
     try std.testing.expect(!std.mem.eql(u8, argv[7], git_message_flag));
 
     var commit_buf: [commit_argv_len][]const u8 = undefined;
-    const commit = commitArgvFor("/tmp/faku-amend", "fix dirty count", &commit_buf);
+    const commit = unixCommitArgvFor("/tmp/faku-amend", "fix dirty count", &commit_buf);
     try std.testing.expect(isGitCommitArgv(commit));
     try std.testing.expect(!isGitCommitAmendArgv(commit));
 }
 
 test "cached-quiet argv is chdir script plus git diff --cached --quiet --" {
     var buf: [cached_quiet_argv_len][]const u8 = undefined;
-    const argv = cachedQuietArgvFor("/tmp/faku-commit", &buf);
-    try std.testing.expectEqual(@as(usize, 10), argv.len);
+    const argv = unixCachedQuietArgvFor("/tmp/faku-commit", &buf);
+    try std.testing.expectEqual(@as(usize, unix_cached_quiet_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -1191,9 +1438,247 @@ test "cached-quiet argv is chdir script plus git diff --cached --quiet --" {
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_quiet_flag) == null);
 
     var numstat_buf: [commit_numstat_argv_len][]const u8 = undefined;
-    const cached_numstat = commitNumstatCachedArgvFor("/tmp/faku-commit", &numstat_buf);
+    const cached_numstat = unixCommitNumstatCachedArgvFor("/tmp/faku-commit", &numstat_buf);
     try std.testing.expect(isGitCommitNumstatCachedArgv(cached_numstat));
     try std.testing.expect(!isGitCommitCachedQuietArgv(cached_numstat));
+}
+
+fn expectRejectsSiblingWindowsArgv(pred: *const fn ([]const []const u8) bool, cwd: []const u8) !void {
+    const git_toplevel = @import("git_toplevel.zig");
+    const git_common_dir = @import("git_common_dir.zig");
+    var branch_buf: [git_branch.argv_len][]const u8 = undefined;
+    try std.testing.expect(!pred(git_branch.windowsArgvFor(cwd, &branch_buf)));
+    var dirty_buf: [git_dirty.argv_len][]const u8 = undefined;
+    try std.testing.expect(!pred(git_dirty.windowsArgvFor(cwd, &dirty_buf)));
+    var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
+    try std.testing.expect(!pred(git_numstat.windowsArgvFor(cwd, &numstat_buf)));
+    var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;
+    try std.testing.expect(!pred(git_ahead_behind.windowsArgvFor(cwd, &ahead_buf)));
+    var remotes_buf: [git_remotes.argv_len][]const u8 = undefined;
+    try std.testing.expect(!pred(git_remotes.windowsArgvFor(cwd, &remotes_buf)));
+    var top_buf: [git_toplevel.argv_len][]const u8 = undefined;
+    try std.testing.expect(!pred(git_toplevel.windowsArgvFor(cwd, &top_buf)));
+    var common_buf: [git_common_dir.argv_len][]const u8 = undefined;
+    try std.testing.expect(!pred(git_common_dir.windowsArgvFor(cwd, &common_buf)));
+    var mention_buf: [file_mention.git_argv_len][]const u8 = undefined;
+    try std.testing.expect(!pred(file_mention.windowsArgvFor(cwd, &mention_buf)));
+}
+
+fn expectCommitMessageOwnSlot(argv: []const []const u8, message: []const u8) !void {
+    try std.testing.expect(argv.len > 0);
+    try std.testing.expectEqualStrings(message, argv[argv.len - 1]);
+    if (std.mem.eql(u8, argv[0], sh_bin)) {
+        try std.testing.expect(std.mem.indexOf(u8, argv[2], message) == null);
+    }
+}
+
+fn expectAmendOwnSlots(argv: []const []const u8, message: []const u8) !void {
+    try std.testing.expect(isGitCommitAmendArgv(argv));
+    try expectCommitMessageOwnSlot(argv, message);
+    if (std.mem.eql(u8, argv[0], sh_bin)) {
+        try std.testing.expectEqualStrings(git_amend_flag, argv[7]);
+        try std.testing.expectEqualStrings(git_message_flag, argv[8]);
+        try std.testing.expect(std.mem.indexOf(u8, argv[2], git_amend_flag) == null);
+    } else {
+        try std.testing.expectEqualStrings(git_amend_flag, argv[4]);
+        try std.testing.expectEqualStrings(git_message_flag, argv[5]);
+    }
+}
+
+test "windows add argv is git.exe -C PATH add -A -- .; path is its own slot" {
+    var buf: [add_argv_len][]const u8 = undefined;
+    const cwd = "C:\\Users\\me\\proj";
+    const argv = windowsAddArgvFor(cwd, &buf);
+    try std.testing.expectEqual(@as(usize, windows_add_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+    try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+    try std.testing.expectEqualStrings(cwd, argv[2]);
+    try std.testing.expectEqualStrings(git_add_cmd, argv[3]);
+    try std.testing.expectEqualStrings(git_add_all_flag, argv[4]);
+    try std.testing.expectEqualStrings(git_pathspec_dash, argv[5]);
+    try std.testing.expectEqualStrings(git_pathspec_dot, argv[6]);
+    try std.testing.expect(isGitCommitAddArgv(argv));
+    try std.testing.expect(!isGitCommitArgv(argv));
+    try std.testing.expect(!isGitCommitAmendArgv(argv));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(argv));
+    try std.testing.expect(!isGitCommitNumstatArgv(argv));
+    try std.testing.expect(!std.mem.eql(u8, argv[0], sh_bin));
+    try std.testing.expect(!isGitCommitAddArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    var git_only: [add_argv_len][]const u8 = undefined;
+    git_only[0] = git_bin;
+    git_only[1] = git_c_flag;
+    git_only[2] = cwd;
+    git_only[3] = git_add_cmd;
+    git_only[4] = git_add_all_flag;
+    git_only[5] = git_pathspec_dash;
+    git_only[6] = git_pathspec_dot;
+    try std.testing.expect(isGitCommitAddArgv(git_only[0..windows_add_argv_len]));
+    try expectRejectsSiblingWindowsArgv(&isGitCommitAddArgv, cwd);
+    try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
+    try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
+    try std.testing.expect(!git_ahead_behind.isGitAheadBehindArgv(argv));
+    try std.testing.expect(!git_remotes.isGitRemotesArgv(argv));
+    try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
+}
+
+test "windows commit argv is git.exe -C PATH commit -m; path and message are own slots" {
+    var buf: [commit_argv_len][]const u8 = undefined;
+    const cwd = "C:\\Users\\me\\proj";
+    const argv = windowsCommitArgvFor(cwd, "fix dirty count", &buf);
+    try std.testing.expectEqual(@as(usize, windows_commit_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+    try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+    try std.testing.expectEqualStrings(cwd, argv[2]);
+    try std.testing.expectEqualStrings(git_commit_cmd, argv[3]);
+    try std.testing.expectEqualStrings(git_message_flag, argv[4]);
+    try std.testing.expectEqualStrings("fix dirty count", argv[5]);
+    try std.testing.expect(isGitCommitArgv(argv));
+    try std.testing.expect(!isGitCommitAmendArgv(argv));
+    try std.testing.expect(!isGitCommitAddArgv(argv));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(argv));
+    try std.testing.expect(!isGitCommitNumstatArgv(argv));
+    try std.testing.expect(!isGitCommitArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    var git_only: [commit_argv_len][]const u8 = undefined;
+    git_only[0] = git_bin;
+    git_only[1] = git_c_flag;
+    git_only[2] = cwd;
+    git_only[3] = git_commit_cmd;
+    git_only[4] = git_message_flag;
+    git_only[5] = "fix dirty count";
+    try std.testing.expect(isGitCommitArgv(git_only[0..windows_commit_argv_len]));
+    try expectRejectsSiblingWindowsArgv(&isGitCommitArgv, cwd);
+}
+
+test "windows amend argv is git.exe -C PATH commit --amend -m; flags stay own slots" {
+    var buf: [amend_argv_len][]const u8 = undefined;
+    const cwd = "C:\\Users\\me\\proj";
+    const argv = windowsAmendArgvFor(cwd, "fix dirty count", &buf);
+    try std.testing.expectEqual(@as(usize, windows_amend_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+    try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+    try std.testing.expectEqualStrings(cwd, argv[2]);
+    try std.testing.expectEqualStrings(git_commit_cmd, argv[3]);
+    try std.testing.expectEqualStrings(git_amend_flag, argv[4]);
+    try std.testing.expectEqualStrings(git_message_flag, argv[5]);
+    try std.testing.expectEqualStrings("fix dirty count", argv[6]);
+    try std.testing.expect(isGitCommitAmendArgv(argv));
+    try std.testing.expect(!isGitCommitArgv(argv));
+    try std.testing.expect(!isGitCommitAddArgv(argv));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(argv));
+    try std.testing.expect(!isGitCommitAmendArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    var git_only: [amend_argv_len][]const u8 = undefined;
+    git_only[0] = git_bin;
+    git_only[1] = git_c_flag;
+    git_only[2] = cwd;
+    git_only[3] = git_commit_cmd;
+    git_only[4] = git_amend_flag;
+    git_only[5] = git_message_flag;
+    git_only[6] = "fix dirty count";
+    try std.testing.expect(isGitCommitAmendArgv(git_only[0..windows_amend_argv_len]));
+    var commit_buf: [commit_argv_len][]const u8 = undefined;
+    const commit = windowsCommitArgvFor(cwd, "fix dirty count", &commit_buf);
+    try std.testing.expect(isGitCommitArgv(commit));
+    try std.testing.expect(!isGitCommitAmendArgv(commit));
+    try expectRejectsSiblingWindowsArgv(&isGitCommitAmendArgv, cwd);
+}
+
+test "windows cached-quiet argv is git.exe -C PATH diff --cached --quiet --" {
+    var buf: [cached_quiet_argv_len][]const u8 = undefined;
+    const cwd = "C:\\Users\\me\\proj";
+    const argv = windowsCachedQuietArgvFor(cwd, &buf);
+    try std.testing.expectEqual(@as(usize, windows_cached_quiet_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+    try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+    try std.testing.expectEqualStrings(cwd, argv[2]);
+    try std.testing.expectEqualStrings(git_diff_cmd, argv[3]);
+    try std.testing.expectEqualStrings(git_cached_flag, argv[4]);
+    try std.testing.expectEqualStrings(git_quiet_flag, argv[5]);
+    try std.testing.expectEqualStrings(git_pathspec_dash, argv[6]);
+    try std.testing.expect(isGitCommitCachedQuietArgv(argv));
+    try std.testing.expect(!isGitCommitAddArgv(argv));
+    try std.testing.expect(!isGitCommitArgv(argv));
+    try std.testing.expect(!isGitCommitNumstatArgv(argv));
+    try std.testing.expect(!isGitCommitNumstatCachedArgv(argv));
+    try std.testing.expect(!isGitCommitNumstatWorkingTreeArgv(argv));
+    try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    var git_only: [cached_quiet_argv_len][]const u8 = undefined;
+    git_only[0] = git_bin;
+    git_only[1] = git_c_flag;
+    git_only[2] = cwd;
+    git_only[3] = git_diff_cmd;
+    git_only[4] = git_cached_flag;
+    git_only[5] = git_quiet_flag;
+    git_only[6] = git_pathspec_dash;
+    try std.testing.expect(isGitCommitCachedQuietArgv(git_only[0..windows_cached_quiet_argv_len]));
+    var numstat_buf: [commit_numstat_argv_len][]const u8 = undefined;
+    const cached_numstat = windowsCommitNumstatCachedArgvFor(cwd, &numstat_buf);
+    try std.testing.expectEqual(@as(usize, windows_commit_numstat_cached_argv_len), cached_numstat.len);
+    try std.testing.expectEqualStrings(windows_git_bin, cached_numstat[0]);
+    try std.testing.expectEqualStrings(git_c_flag, cached_numstat[1]);
+    try std.testing.expectEqualStrings(cwd, cached_numstat[2]);
+    try std.testing.expectEqualStrings(git_diff_cmd, cached_numstat[3]);
+    try std.testing.expectEqualStrings(git_cached_flag, cached_numstat[4]);
+    try std.testing.expectEqualStrings(git_numstat_flag, cached_numstat[5]);
+    try std.testing.expectEqualStrings(git_pathspec_dash, cached_numstat[6]);
+    try std.testing.expect(isGitCommitNumstatCachedArgv(cached_numstat));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(cached_numstat));
+    try expectRejectsSiblingWindowsArgv(&isGitCommitCachedQuietArgv, cwd);
+    try expectRejectsSiblingWindowsArgv(&isGitCommitNumstatCachedArgv, cwd);
+}
+
+test "host add/commit/amend/cached-quiet/numstat argvFor match the process OS" {
+    var add_buf: [add_argv_len][]const u8 = undefined;
+    const add = addArgvFor("/tmp/faku-commit", &add_buf);
+    try std.testing.expect(isGitCommitAddArgv(add));
+    var commit_buf: [commit_argv_len][]const u8 = undefined;
+    const commit = commitArgvFor("/tmp/faku-commit", "fix dirty count", &commit_buf);
+    try std.testing.expect(isGitCommitArgv(commit));
+    try std.testing.expect(!isGitCommitAmendArgv(commit));
+    var amend_buf: [amend_argv_len][]const u8 = undefined;
+    const amend = amendArgvFor("/tmp/faku-commit", "fix dirty count", &amend_buf);
+    try std.testing.expect(isGitCommitAmendArgv(amend));
+    try std.testing.expect(!isGitCommitArgv(amend));
+    var quiet_buf: [cached_quiet_argv_len][]const u8 = undefined;
+    const quiet = cachedQuietArgvFor("/tmp/faku-commit", &quiet_buf);
+    try std.testing.expect(isGitCommitCachedQuietArgv(quiet));
+    var snap_buf: [commit_numstat_argv_len][]const u8 = undefined;
+    const snap = commitNumstatArgvFor("/tmp/faku-commit", false, &snap_buf);
+    try std.testing.expect(isGitCommitNumstatCachedArgv(snap));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(snap));
+    var work_buf: [commit_numstat_argv_len][]const u8 = undefined;
+    const work = commitNumstatArgvFor("/tmp/faku-commit", true, &work_buf);
+    try std.testing.expect(isGitCommitNumstatWorkingTreeArgv(work));
+    try std.testing.expect(git_numstat.isGitNumstatArgv(work));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(windows_git_bin, add[0]);
+            try std.testing.expectEqualStrings(git_c_flag, add[1]);
+            try std.testing.expectEqualStrings(windows_git_bin, commit[0]);
+            try std.testing.expectEqualStrings(windows_git_bin, amend[0]);
+            try std.testing.expectEqualStrings(windows_git_bin, quiet[0]);
+            try std.testing.expectEqualStrings(windows_git_bin, snap[0]);
+            try std.testing.expectEqualStrings(windows_git_bin, work[0]);
+        },
+        else => {
+            try std.testing.expectEqualStrings(sh_bin, add[0]);
+            try std.testing.expectEqualStrings(sh_bin, commit[0]);
+            try std.testing.expectEqualStrings(sh_bin, amend[0]);
+            try std.testing.expectEqualStrings(sh_bin, quiet[0]);
+            try std.testing.expectEqualStrings(sh_bin, snap[0]);
+            try std.testing.expectEqualStrings(sh_bin, work[0]);
+            try std.testing.expectEqualStrings(git_numstat.numstat_untracked_script, work[7]);
+        },
+    }
+}
+
+test "probeSupported is true on macOS, Linux, and Windows" {
+    try std.testing.expect(probeSupported());
 }
 
 test "empty or whitespace message does not spawn" {
@@ -1419,8 +1904,7 @@ test "commit success refreshes the same workspace probes as other git mutations"
     try std.testing.expect(model.git_commit_key != add.key);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
     const commit = try advanceCachedQuietToCommit(&model, &fx);
-    try std.testing.expectEqualStrings("wrap the dirty probe", commit.argv[8]);
-    try std.testing.expect(std.mem.indexOf(u8, commit.argv[2], "wrap the dirty probe") == null);
+    try expectCommitMessageOwnSlot(commit.argv, "wrap the dirty probe");
     try std.testing.expect(commit.key >= git_commit_key_first);
     try std.testing.expect(commit.key > file_mention.file_mention_key_first + 9);
 
@@ -1665,8 +2149,7 @@ test "confirm and push with a message add-then-commit then starts the push probe
     try std.testing.expectEqual(GitCommitPhase.cached_quiet, model.git_commit_phase);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
     const commit = try advanceCachedQuietToCommit(&model, &fx);
-    try std.testing.expectEqualStrings("ship the dirty probe", commit.argv[8]);
-    try std.testing.expect(std.mem.indexOf(u8, commit.argv[2], "ship the dirty probe") == null);
+    try expectCommitMessageOwnSlot(commit.argv, "ship the dirty probe");
     try std.testing.expect(commit.key != add.key);
     try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
 
@@ -1947,6 +2430,7 @@ test "confirmPushOnly no-ops when canPushGitBranch is false" {
 }
 
 test "confirmPushOnly no-ops while generate or add is in flight" {
+    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -2109,7 +2593,7 @@ test "confirm skips add when include_unstaged is false" {
     try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) == null);
     try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitArgv) == null);
     const commit = try advanceCachedQuietToCommit(&model, &fx);
-    try std.testing.expectEqualStrings("staged only", commit.argv[8]);
+    try expectCommitMessageOwnSlot(commit.argv, "staged only");
     try std.testing.expect(commit.key >= git_commit_key_first);
 
     handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 0 });
@@ -2147,7 +2631,7 @@ test "confirm and push skips add when include_unstaged is false" {
     try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) == null);
     try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitArgv) == null);
     const commit = try advanceCachedQuietToCommit(&model, &fx);
-    try std.testing.expectEqualStrings("ship staged", commit.argv[8]);
+    try expectCommitMessageOwnSlot(commit.argv, "ship staged");
 
     handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 0 });
     try std.testing.expect(model.git_commit_active);
@@ -2303,8 +2787,8 @@ test "startCommit resets include_unstaged to true and amend to false" {
 
 test "commit snapshot argv is numstat untracked script when include-unstaged and --cached when off" {
     var work_buf: [commit_numstat_argv_len][]const u8 = undefined;
-    const work = commitNumstatArgvFor("/tmp/faku-commit-snap", true, &work_buf);
-    try std.testing.expectEqual(git_numstat.argv_len, work.len);
+    const work = unixCommitNumstatArgvFor("/tmp/faku-commit-snap", true, &work_buf);
+    try std.testing.expectEqual(git_numstat.unix_argv_len, work.len);
     try std.testing.expectEqualStrings(sh_bin, work[0]);
     try std.testing.expectEqualStrings("-c", work[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, work[2]);
@@ -2326,8 +2810,8 @@ test "commit snapshot argv is numstat untracked script when include-unstaged and
     try std.testing.expect(std.mem.indexOf(u8, work[7], git_numstat.untracked_max_bytes_s) != null);
 
     var cached_buf: [commit_numstat_argv_len][]const u8 = undefined;
-    const cached = commitNumstatArgvFor("/tmp/faku-commit-snap", false, &cached_buf);
-    try std.testing.expectEqual(@as(usize, 10), cached.len);
+    const cached = unixCommitNumstatArgvFor("/tmp/faku-commit-snap", false, &cached_buf);
+    try std.testing.expectEqual(@as(usize, unix_commit_numstat_cached_argv_len), cached.len);
     try std.testing.expectEqualStrings(git_diff_cmd, cached[6]);
     try std.testing.expectEqualStrings(git_cached_flag, cached[7]);
     try std.testing.expectEqualStrings(git_numstat_flag, cached[8]);
@@ -2339,6 +2823,42 @@ test "commit snapshot argv is numstat untracked script when include-unstaged and
     try std.testing.expect(!git_numstat.isGitNumstatArgv(cached));
     try std.testing.expect(std.mem.indexOf(u8, cached[2], git_cached_flag) == null);
     try std.testing.expect(std.mem.indexOf(u8, cached[2], git_numstat_flag) == null);
+}
+
+test "windows commit snapshot argv is git.exe -C tracked numstat when include-unstaged and --cached when off" {
+    const cwd = "C:\\Users\\me\\proj";
+    var work_buf: [commit_numstat_argv_len][]const u8 = undefined;
+    const work = windowsCommitNumstatArgvFor(cwd, true, &work_buf);
+    try std.testing.expectEqual(git_numstat.windows_argv_len, work.len);
+    try std.testing.expectEqualStrings(windows_git_bin, work[0]);
+    try std.testing.expectEqualStrings(git_c_flag, work[1]);
+    try std.testing.expectEqualStrings(cwd, work[2]);
+    try std.testing.expectEqualStrings(git_diff_cmd, work[3]);
+    try std.testing.expectEqualStrings(git_numstat_flag, work[4]);
+    try std.testing.expectEqualStrings(git_numstat.git_head, work[5]);
+    try std.testing.expectEqualStrings(git_pathspec_dash, work[6]);
+    try std.testing.expect(git_numstat.isGitNumstatArgv(work));
+    try std.testing.expect(isGitCommitNumstatWorkingTreeArgv(work));
+    try std.testing.expect(!isGitCommitNumstatCachedArgv(work));
+    try std.testing.expect(isGitCommitNumstatArgv(work));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(work));
+    try std.testing.expect(!isGitCommitAddArgv(work));
+
+    var cached_buf: [commit_numstat_argv_len][]const u8 = undefined;
+    const cached = windowsCommitNumstatArgvFor(cwd, false, &cached_buf);
+    try std.testing.expectEqual(@as(usize, windows_commit_numstat_cached_argv_len), cached.len);
+    try std.testing.expectEqualStrings(windows_git_bin, cached[0]);
+    try std.testing.expectEqualStrings(git_c_flag, cached[1]);
+    try std.testing.expectEqualStrings(cwd, cached[2]);
+    try std.testing.expectEqualStrings(git_diff_cmd, cached[3]);
+    try std.testing.expectEqualStrings(git_cached_flag, cached[4]);
+    try std.testing.expectEqualStrings(git_numstat_flag, cached[5]);
+    try std.testing.expectEqualStrings(git_pathspec_dash, cached[6]);
+    try std.testing.expect(isGitCommitNumstatCachedArgv(cached));
+    try std.testing.expect(!isGitCommitNumstatWorkingTreeArgv(cached));
+    try std.testing.expect(isGitCommitNumstatArgv(cached));
+    try std.testing.expect(!isGitCommitCachedQuietArgv(cached));
+    try std.testing.expect(!git_numstat.isGitNumstatArgv(cached));
 }
 
 test "startCommit kicks a commit-snapshot probe that does not reuse project-row numstat keys" {
@@ -2373,10 +2893,18 @@ test "startCommit kicks a commit-snapshot probe that does not reuse project-row 
     try std.testing.expect(probe.key >= git_commit_numstat_key_first);
     try std.testing.expect(probe.key != model.git_numstat_key);
     try std.testing.expect(probe.key != model.git_commit_key);
-    try std.testing.expectEqualStrings(project, probe.argv[4]);
-    try std.testing.expect(!isGitCommitNumstatCachedArgv(probe.argv));
     try std.testing.expect(git_numstat.isGitNumstatArgv(probe.argv));
-    try std.testing.expectEqualStrings(git_numstat.numstat_untracked_script, probe.argv[7]);
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(project, probe.argv[2]);
+            try std.testing.expectEqualStrings(windows_git_bin, probe.argv[0]);
+            try std.testing.expectEqualStrings(git_numstat.git_head, probe.argv[5]);
+        },
+        else => {
+            try std.testing.expectEqualStrings(project, probe.argv[4]);
+            try std.testing.expectEqualStrings(git_numstat.numstat_untracked_script, probe.argv[7]);
+        },
+    }
 }
 
 test "commit snapshot label omits zero fail empty and in-flight" {
@@ -2552,7 +3080,47 @@ test "takeGeneratedSubject prefers JSON output then first stdout line" {
     try std.testing.expect(takeGeneratedSubject("   \n", &buf) == null);
 }
 
+test "empty plus fx available on Windows sets Enter a commit message and does not spawn sh" {
+    var gen_buf: [generate_argv_len][]const u8 = undefined;
+    const gen = generateArgvFor("C:\\Users\\me\\proj", "fx", true, &gen_buf);
+    try std.testing.expectEqualStrings(sh_bin, gen[0]);
+    try std.testing.expectEqualStrings("-c", gen[1]);
+    try std.testing.expectEqualStrings("C:\\Users\\me\\proj", gen[4]);
+    try std.testing.expect(std.mem.indexOf(u8, gen[2], "C:\\Users\\me\\proj") == null);
+    try std.testing.expect(!std.mem.eql(u8, gen[0], windows_git_bin));
+
+    if (builtin.os.tag != .windows) return;
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-generate-win", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    enableFx(&model);
+    const id = model.addSession("commit generate win", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+
+    startCommit(&model, &fx);
+    confirmCommit(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_generate_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitGenerateArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
+    try std.testing.expectEqualStrings(empty_message_status, model.attach_status());
+    try std.testing.expect(model.git_commit_active);
+}
+
 test "empty plus fx available one-shots generate; include_unstaged changes the prompt" {
+    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -2601,6 +3169,7 @@ test "empty plus fx available one-shots generate; include_unstaged changes the p
 }
 
 test "generate success fills the subject and auto-adds" {
+    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -2632,11 +3201,12 @@ test "generate success fills the subject and auto-adds" {
     try std.testing.expect(add.key != gen.key);
     handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
     const commit = try advanceCachedQuietToCommit(&model, &fx);
-    try std.testing.expectEqualStrings("wrap the dirty probe", commit.argv[8]);
+    try expectCommitMessageOwnSlot(commit.argv, "wrap the dirty probe");
     try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
 }
 
 test "generate JSON output then commit when include_unstaged is off" {
+    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -2666,10 +3236,11 @@ test "generate JSON output then commit when include_unstaged is off" {
     try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) == null);
     try std.testing.expect(findPending(&fx, model.git_commit_key, &isGitCommitArgv) == null);
     const commit = try advanceCachedQuietToCommit(&model, &fx);
-    try std.testing.expectEqualStrings("staged only", commit.argv[8]);
+    try expectCommitMessageOwnSlot(commit.argv, "staged only");
 }
 
 test "generate then commit and push starts push only after successful commit" {
+    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -2702,7 +3273,7 @@ test "generate then commit and push starts push only after successful commit" {
     handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
     const commit = try advanceCachedQuietToCommit(&model, &fx);
-    try std.testing.expectEqualStrings("ship the dirty probe", commit.argv[8]);
+    try expectCommitMessageOwnSlot(commit.argv, "ship the dirty probe");
     try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
     handleCommitExit(&model, &fx, .{ .key = commit.key, .reason = .exited, .code = 0 });
     try std.testing.expect(model.git_commit_active);
@@ -2713,6 +3284,7 @@ test "generate then commit and push starts push only after successful commit" {
 }
 
 test "generate fail or empty stdout keeps the card open and does not commit" {
+    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -2766,6 +3338,7 @@ test "generate fail or empty stdout keeps the card open and does not commit" {
 }
 
 test "cancel or session-switch drops generate and does not commit" {
+    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -2813,6 +3386,7 @@ test "cancel or session-switch drops generate and does not commit" {
 }
 
 test "confirm while generating is a no-op" {
+    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -3141,6 +3715,7 @@ test "Push-only shows Pushing not Committing" {
 }
 
 test "generate shows Generating only" {
+    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -3323,11 +3898,7 @@ test "confirm amend add-then-preflight then git commit --amend -m" {
     try expectCommitPendingEx(&model, false, false, false, false, true);
     try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
     const amend = try advanceCachedQuietToAmend(&model, &fx);
-    try std.testing.expectEqualStrings(git_amend_flag, amend.argv[7]);
-    try std.testing.expectEqualStrings(git_message_flag, amend.argv[8]);
-    try std.testing.expectEqualStrings("wrap the dirty probe", amend.argv[9]);
-    try std.testing.expect(std.mem.indexOf(u8, amend.argv[2], git_amend_flag) == null);
-    try std.testing.expect(std.mem.indexOf(u8, amend.argv[2], "wrap the dirty probe") == null);
+    try expectAmendOwnSlots(amend.argv, "wrap the dirty probe");
     try std.testing.expect(amend.key != add.key);
     try expectCommitPendingEx(&model, false, false, false, false, true);
     try std.testing.expect(!hasGitCommitCommitting(&model));
@@ -3340,6 +3911,7 @@ test "confirm amend add-then-preflight then git commit --amend -m" {
 }
 
 test "amend empty plus fx available generates then amends" {
+    if (builtin.os.tag == .windows) return;
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -3375,7 +3947,7 @@ test "amend empty plus fx available generates then amends" {
     const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
     handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
     const amend = try advanceCachedQuietToAmend(&model, &fx);
-    try std.testing.expectEqualStrings("wrap the dirty probe", amend.argv[9]);
+    try expectAmendOwnSlots(amend.argv, "wrap the dirty probe");
     try std.testing.expect(isGitCommitAmendArgv(amend.argv));
     try std.testing.expect(!isGitCommitArgv(amend.argv));
 }

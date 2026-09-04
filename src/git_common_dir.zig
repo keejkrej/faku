@@ -29,8 +29,8 @@
 //! stdout is the same on Windows; CRLF is already trimmed in the
 //! line helpers. Relative `.git` joins a Unix or Windows
 //! drive-letter absolute base. app.zon already includes windows.
-//! Remaining git modules (checkout/commit) still skip Windows this
-//! cut. Windows numstat untracked rows stay Unix-only.
+//! Remaining git module (checkout) still skips Windows this cut.
+//! Windows numstat untracked rows stay Unix-only.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_common_dir_key_first` (500+).
