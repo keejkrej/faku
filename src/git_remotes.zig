@@ -19,8 +19,8 @@
 //! (path is its own argv slot, not interpolated into a script).
 //! Remote-name stdout is the same on Windows; CRLF is already trimmed
 //! in the line helpers. app.zon already includes windows. Remaining
-//! git modules (common_dir, checkout/commit) still skip Windows this
-//! cut. Windows numstat untracked rows stay Unix-only.
+//! git modules (checkout/commit) still skip Windows this cut. Windows
+//! numstat untracked rows stay Unix-only.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_remotes_key_first` (480+).

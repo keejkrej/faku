@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const protocol = @import("protocol.zig");
@@ -18506,8 +18507,15 @@ test "changing session or project_path cancels the previous ahead/behind probe" 
     const first_common = findGitCommonDirSpawnKey(&fx, model.git_common_dir_key) orelse return error.MissingGitCommonDirSpawn;
     try testing.expect(first_common.key >= main.git_common_dir_key_first);
     try testing.expect(first_common.key > first_toplevel.key);
-    try testing.expectEqualStrings(git_common_dir.git_common_dir_flag, first_common.argv[7]);
-    try testing.expect(std.mem.indexOf(u8, first_common.argv[2], git_common_dir.git_common_dir_flag) == null);
+    switch (builtin.os.tag) {
+        .windows => {
+            try testing.expectEqualStrings(git_common_dir.git_common_dir_flag, first_common.argv[first_common.argv.len - 1]);
+        },
+        else => {
+            try testing.expectEqualStrings(git_common_dir.git_common_dir_flag, first_common.argv[7]);
+            try testing.expect(std.mem.indexOf(u8, first_common.argv[2], git_common_dir.git_common_dir_flag) == null);
+        },
+    }
     try fx.feedLine(first_key, "0\t2\n");
     drainEffects(&model, &fx);
     try testing.expectEqualStrings("↑2", model.git_ahead_behind_label());
