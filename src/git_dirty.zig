@@ -18,7 +18,7 @@
 //! interpolated into a script). Porcelain stdout is the same on
 //! Windows; CRLF is already trimmed in the line helpers. app.zon
 //! already includes windows. Remaining git modules (toplevel,
-//! remotes, numstat, checkout/commit) still skip Windows this cut.
+//! remotes, checkout/commit) still skip Windows this cut.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_dirty_key_first` (300+).
@@ -295,7 +295,7 @@ test "argv is chdir script plus git status --porcelain" {
     try std.testing.expect(!isGitDirtyArgv(branch));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
-    const numstat = git_numstat.argvFor("/tmp/faku-dirty", &numstat_buf);
+    const numstat = git_numstat.unixArgvFor("/tmp/faku-dirty", &numstat_buf);
     try std.testing.expect(!isGitDirtyArgv(numstat));
     try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
     var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;

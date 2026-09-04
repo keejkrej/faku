@@ -2,22 +2,34 @@
 //! composer project row.
 //!
 //! Native has no git/workspace effect. When the selected session has a
-//! non-empty `project_path` that exists, Faku `fx.spawn`s a combined
-//! `/bin/sh -c` script through the same chdir workaround `fx ask` uses
-//! (`fx_ask_chdir_script`). The script prints `git diff --numstat HEAD --`
-//! then synthetic `N\t0\tpath` rows for untracked, non-ignored text
-//! files (`git ls-files --others --exclude-standard`). Binary /
-//! unreadable / oversized (over 1 MiB) untracked files are skipped.
-//! Tracked binary rows (`-` in either column) are skipped as before.
-//! Zero / failed / empty omits the label — this cut does not invent
-//! "clean". Deletions stay tracked-only. The Commit… include-unstaged
-//! snapshot reuses `argvFor` / `numstat_untracked_script` on its
-//! own 460+ key band. Not Waku's daemon `InspectBranches`, not a
-//! live watch, not a staged/unstaged split, not Waku's Environment
-//! Summary, and not Review.
+//! non-empty `project_path` that exists, Faku `fx.spawn`s
+//! `git diff --numstat HEAD --`. Tracked binary rows (`-` in either
+//! column) are skipped. Zero / failed / empty omits the label — this
+//! cut does not invent "clean". Deletions stay tracked-only. On Unix,
+//! the same spawn also prints synthetic `N\t0\tpath` rows for
+//! untracked, non-ignored text files (`git ls-files --others
+//! --exclude-standard`). Binary / unreadable / oversized (over 1 MiB)
+//! untracked files are skipped. The Commit… include-unstaged snapshot
+//! reuses `argvFor` / `numstat_untracked_script` on its own 460+ key
+//! band. Not Waku's daemon `InspectBranches`, not a live watch, not a
+//! staged/unstaged split, not Waku's Environment Summary, and not
+//! Review.
 //!
-//! Spawn/line/exit orchestration lives here. Windows is skipped
-//! (app.zon is macos/linux; no Windows spawn path).
+//! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
+//! (`fx_ask_chdir_script`) plus a packed `numstat_untracked_script`
+//! (tracked numstat first, then find+grep untracked text rows).
+//! Windows cannot use `/bin/sh` or that untracked path:
+//! `git.exe -C <project_path> diff --numstat HEAD --` (path is its
+//! own argv slot, not interpolated into a script). Tracked numstat
+//! stdout is the same on Windows; CRLF is already trimmed in the line
+//! helpers. Untracked synthetic rows stay Unix-only this cut — no
+//! PowerShell untracked path. app.zon already includes windows.
+//! Remaining git modules (remotes, toplevel, common_dir,
+//! checkout/commit) still skip Windows this cut. Windows numstat is
+//! tracked-only.
+//!
+//! Spawn/line/exit orchestration lives here. Effect key stays
+//! `git_numstat_key_first` (350+).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -45,6 +57,10 @@ pub const untracked_max_bytes: u32 = 1 * 1024 * 1024;
 pub const untracked_max_bytes_s = "1048576";
 
 pub const git_bin = "git";
+/// PATH-resolved Windows Git (explicit `.exe` like sibling
+/// `powershell.exe` / `explorer.exe` / `wt.exe` / `cmd.exe`).
+pub const windows_git_bin = "git.exe";
+pub const git_c_flag = "-C";
 pub const git_diff_cmd = "diff";
 pub const git_numstat = "--numstat";
 pub const git_head = "HEAD";
@@ -75,15 +91,19 @@ pub const numstat_untracked_script =
     \\done
 ;
 
-/// `/bin/sh -c` chdir + `/bin/sh -c` + `numstat_untracked_script`.
+/// Unix `/bin/sh -c` chdir + nested `/bin/sh -c` +
+/// `numstat_untracked_script` (8). Windows `git.exe -C` tracked-only
+/// is 7; this is the spawn buffer (max of the two).
 pub const argv_len: usize = 8;
+pub const unix_argv_len: usize = 8;
+pub const windows_argv_len: usize = 7;
 
 pub const NumstatDelta = struct {
     additions: u64 = 0,
     deletions: u64 = 0,
 };
 
-pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+pub fn unixArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -94,21 +114,62 @@ pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
         "-c",
         numstat_untracked_script,
     };
-    return buf;
+    return buf[0..unix_argv_len];
+}
+
+/// Windows: `git.exe -C <project_path> diff --numstat HEAD --`.
+/// Path is its own argv slot (no `/bin/sh`, no packing into a cmd
+/// string). Tracked-only — untracked synthetic rows stay Unix-only.
+pub fn windowsArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_diff_cmd;
+    buf[4] = git_numstat;
+    buf[5] = git_head;
+    buf[6] = git_pathspec_end;
+    return buf[0..windows_argv_len];
+}
+
+pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsArgvFor(cwd, buf),
+        else => unixArgvFor(cwd, buf),
+    };
 }
 
 fn scriptHas(script: []const u8, needle: []const u8) bool {
     return std.mem.indexOf(u8, script, needle) != null;
 }
 
-pub fn isGitNumstatArgv(argv: []const []const u8) bool {
-    if (argv.len != argv_len) return false;
+fn isUnixGitNumstatArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[6], "-c")) return false;
     return std.mem.eql(u8, argv[7], numstat_untracked_script);
+}
+
+fn isWindowsGitNumstatArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_argv_len) return false;
+    const bin_ok = std.mem.eql(u8, argv[0], windows_git_bin) or std.mem.eql(u8, argv[0], git_bin);
+    if (!bin_ok) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_diff_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], git_numstat)) return false;
+    if (!std.mem.eql(u8, argv[5], git_head)) return false;
+    return std.mem.eql(u8, argv[6], git_pathspec_end);
+}
+
+pub fn isGitNumstatArgv(argv: []const []const u8) bool {
+    return isUnixGitNumstatArgv(argv) or isWindowsGitNumstatArgv(argv);
+}
+
+pub fn probeSupported() bool {
+    return true;
 }
 
 /// One `added\tdeleted\tpath` row. Binary (`-` in either column) and
@@ -196,12 +257,12 @@ fn probePath(model: *const Model) []const u8 {
 }
 
 /// Cancel any in-flight probe, drop the label, and spawn again when the
-/// selected session has an existing `project_path`. Empty / missing /
-/// Windows skips the spawn so the label stays omitted.
+/// selected session has an existing `project_path`. Empty / missing
+/// skips the spawn so the label stays omitted.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     clearGitNumstat(model);
-    if (builtin.os.tag == .windows) return;
+    if (!probeSupported()) return;
     const cwd = probePath(model);
     if (cwd.len == 0) return;
 
@@ -249,7 +310,8 @@ test "argv is chdir script plus numstat then untracked text rows" {
     const git_ahead_behind = @import("git_ahead_behind.zig");
     const file_mention = @import("file_mention.zig");
     var buf: [argv_len][]const u8 = undefined;
-    const argv = argvFor("/tmp/faku-numstat", &buf);
+    const argv = unixArgvFor("/tmp/faku-numstat", &buf);
+    try std.testing.expectEqual(@as(usize, unix_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -282,24 +344,24 @@ test "argv is chdir script plus numstat then untracked text rows" {
     try std.testing.expect(scriptHas(argv[7], grep_text_flag));
     try std.testing.expect(scriptHas(argv[7], untracked_max_bytes_s));
     try std.testing.expect(scriptHas(argv[7], "\\t0\\t"));
-    var branch_buf: [8][]const u8 = undefined;
-    const branch = git_branch.argvFor("/tmp/faku-numstat", &branch_buf);
+    var branch_buf: [git_branch.argv_len][]const u8 = undefined;
+    const branch = git_branch.unixArgvFor("/tmp/faku-numstat", &branch_buf);
     try std.testing.expect(!isGitNumstatArgv(branch));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
-    var dirty_buf: [8][]const u8 = undefined;
-    const dirty = git_dirty.argvFor("/tmp/faku-numstat", &dirty_buf);
+    var dirty_buf: [git_dirty.argv_len][]const u8 = undefined;
+    const dirty = git_dirty.unixArgvFor("/tmp/faku-numstat", &dirty_buf);
     try std.testing.expect(!isGitNumstatArgv(dirty));
     try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
     var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;
-    const ahead = git_ahead_behind.argvFor("/tmp/faku-numstat", &ahead_buf);
+    const ahead = git_ahead_behind.unixArgvFor("/tmp/faku-numstat", &ahead_buf);
     try std.testing.expect(!isGitNumstatArgv(ahead));
     try std.testing.expect(!git_ahead_behind.isGitAheadBehindArgv(argv));
-    var mention_buf: [10][]const u8 = undefined;
-    const mention = file_mention.argvFor("/tmp/faku-numstat", &mention_buf);
+    var mention_buf: [file_mention.git_argv_len][]const u8 = undefined;
+    const mention = file_mention.unixArgvFor("/tmp/faku-numstat", &mention_buf);
     try std.testing.expect(!isGitNumstatArgv(mention));
     try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
-    var walk_buf: [8][]const u8 = undefined;
-    const walk = file_mention.walkArgvFor("/tmp/faku-numstat", &walk_buf);
+    var walk_buf: [file_mention.walk_argv_len][]const u8 = undefined;
+    const walk = file_mention.unixWalkArgvFor("/tmp/faku-numstat", &walk_buf);
     try std.testing.expect(!isGitNumstatArgv(walk));
     try std.testing.expect(!file_mention.isWalkArgv(argv));
     try std.testing.expect(git_numstat_key_first > git_dirty.git_dirty_key_first);
@@ -308,10 +370,86 @@ test "argv is chdir script plus numstat then untracked text rows" {
     try std.testing.expect(file_mention.file_mention_key_first > git_ahead_behind.git_ahead_behind_key_first);
 }
 
+test "windows git argv is git.exe -C PATH diff --numstat HEAD --; path is its own slot" {
+    const git_branch = @import("git_branch.zig");
+    const git_dirty = @import("git_dirty.zig");
+    const git_ahead_behind = @import("git_ahead_behind.zig");
+    const file_mention = @import("file_mention.zig");
+    var buf: [argv_len][]const u8 = undefined;
+    const cwd = "C:\\Users\\me\\proj";
+    const argv = windowsArgvFor(cwd, &buf);
+    try std.testing.expectEqual(@as(usize, windows_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+    try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+    try std.testing.expectEqualStrings(cwd, argv[2]);
+    try std.testing.expectEqualStrings(git_diff_cmd, argv[3]);
+    try std.testing.expectEqualStrings(git_numstat, argv[4]);
+    try std.testing.expectEqualStrings(git_head, argv[5]);
+    try std.testing.expectEqualStrings(git_pathspec_end, argv[6]);
+    try std.testing.expect(isGitNumstatArgv(argv));
+    try std.testing.expect(!std.mem.eql(u8, argv[0], sh_bin));
+    try std.testing.expect(!isGitNumstatArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    try std.testing.expect(!isGitNumstatArgv(&.{
+        windows_git_bin,
+        git_c_flag,
+        cwd,
+        git_diff_cmd,
+        git_numstat,
+        git_head,
+    }));
+    var git_only: [argv_len][]const u8 = undefined;
+    git_only[0] = git_bin;
+    git_only[1] = git_c_flag;
+    git_only[2] = cwd;
+    git_only[3] = git_diff_cmd;
+    git_only[4] = git_numstat;
+    git_only[5] = git_head;
+    git_only[6] = git_pathspec_end;
+    try std.testing.expect(isGitNumstatArgv(git_only[0..windows_argv_len]));
+    var branch_buf: [git_branch.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitNumstatArgv(git_branch.windowsArgvFor(cwd, &branch_buf)));
+    try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    var dirty_buf: [git_dirty.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitNumstatArgv(git_dirty.windowsArgvFor(cwd, &dirty_buf)));
+    try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
+    var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitNumstatArgv(git_ahead_behind.windowsArgvFor(cwd, &ahead_buf)));
+    try std.testing.expect(!git_ahead_behind.isGitAheadBehindArgv(argv));
+    var mention_buf: [file_mention.git_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitNumstatArgv(file_mention.windowsArgvFor(cwd, &mention_buf)));
+    try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
+}
+
+test "host argvFor matches the process OS" {
+    var buf: [argv_len][]const u8 = undefined;
+    const argv = argvFor("/tmp/faku-numstat", &buf);
+    try std.testing.expect(isGitNumstatArgv(argv));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+            try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+            try std.testing.expectEqualStrings(git_diff_cmd, argv[3]);
+            try std.testing.expectEqualStrings(git_numstat, argv[4]);
+            try std.testing.expectEqualStrings(git_head, argv[5]);
+            try std.testing.expectEqualStrings(git_pathspec_end, argv[6]);
+        },
+        else => {
+            try std.testing.expectEqualStrings(sh_bin, argv[0]);
+            try std.testing.expectEqualStrings(numstat_untracked_script, argv[7]);
+        },
+    }
+}
+
+test "probeSupported is true on macOS, Linux, and Windows" {
+    try std.testing.expect(probeSupported());
+}
+
 test "sumNumstat skips binary and blanks; untracked rows add to +; numstatLabel omits zero" {
     try std.testing.expectEqual(NumstatDelta{}, sumNumstat(""));
     try std.testing.expectEqual(NumstatDelta{}, sumNumstat("   \n\n  \t"));
     try std.testing.expectEqual(NumstatDelta{ .additions = 3, .deletions = 1 }, sumNumstat("3\t1\tsrc/a.zig\n"));
+    try std.testing.expectEqual(NumstatDelta{ .additions = 3, .deletions = 1 }, sumNumstat("3\t1\tsrc/a.zig\r\n"));
     try std.testing.expectEqual(NumstatDelta{ .additions = 12, .deletions = 0 }, sumNumstat("12\t0\tbar.txt"));
     try std.testing.expectEqual(NumstatDelta{ .additions = 0, .deletions = 4 }, sumNumstat("0\t4\tdel.txt\n"));
     try std.testing.expectEqual(NumstatDelta{}, sumNumstat("-\t-\timage.png\n"));

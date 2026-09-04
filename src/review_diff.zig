@@ -1343,7 +1343,7 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     const dirty = git_dirty.argvFor("/tmp/faku-review", &dirty_buf);
     try std.testing.expect(!isGitReviewDiffArgv(dirty));
     var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
-    const numstat = git_numstat.argvFor("/tmp/faku-review", &numstat_buf);
+    const numstat = git_numstat.unixArgvFor("/tmp/faku-review", &numstat_buf);
     try std.testing.expect(!isGitReviewDiffArgv(numstat));
     try std.testing.expect(!isGitReviewUncommittedArgv(numstat));
     try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
