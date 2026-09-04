@@ -8,7 +8,8 @@
 //!
 //!   macOS:  `open` on the directory (Finder)
 //!   Linux:  `xdg-open` on the directory (Files / Nautilus / xdg)
-//!   Windows: skipped (app.zon is macos/linux; no Windows spawn path)
+//!   Windows: `explorer.exe PATH` (Explorer on the directory; PATH-resolved
+//!            like sibling `wt.exe` / `cmd.exe`; each token its own argv slot)
 //!
 //! This is not Waku's Open-in app picker and not an invented Native
 //! effect. Spawn stdin is unused (write-once then close).
@@ -30,13 +31,14 @@ pub const missing_exit: u8 = 2;
 
 pub const linux_missing_status = "No OS folder reveal (install xdg-open).";
 pub const macos_missing_status = "No OS folder reveal (open missing).";
-pub const windows_missing_status = "Reveal folder is not available on Windows.";
+pub const windows_missing_status = "No OS folder reveal (explorer.exe missing).";
 pub const no_project_status = "No project folder to reveal.";
 
 pub const macos_bin = "open";
 pub const linux_bin = "xdg-open";
+pub const windows_bin = "explorer.exe";
 
-pub const Tool = enum { open, xdg_open };
+pub const Tool = enum { open, xdg_open, explorer };
 
 const argv_len: usize = 2;
 
@@ -44,6 +46,7 @@ pub fn hostTool() ?Tool {
     return switch (builtin.os.tag) {
         .macos => .open,
         .linux => .xdg_open,
+        .windows => .explorer,
         else => null,
     };
 }
@@ -64,6 +67,7 @@ pub fn binFor(tool: Tool) []const u8 {
     return switch (tool) {
         .open => macos_bin,
         .xdg_open => linux_bin,
+        .explorer => windows_bin,
     };
 }
 
@@ -78,9 +82,12 @@ pub fn argvFor(path: []const u8, buf: *[argv_len][]const u8) []const []const u8 
 
 pub fn isRevealArgv(argv: []const []const u8) bool {
     if (argv.len != argv_len) return false;
-    const bin_ok = std.mem.eql(u8, argv[0], macos_bin) or std.mem.eql(u8, argv[0], linux_bin);
+    const bin_ok = std.mem.eql(u8, argv[0], macos_bin) or
+        std.mem.eql(u8, argv[0], linux_bin) or
+        std.mem.eql(u8, argv[0], windows_bin);
     if (!bin_ok) return false;
     // URL opens are `open_url` (`http://` / `https://`), not folder reveal.
+    // Windows URL opens are `cmd.exe /c start "" <url>` (len 5), not explorer.
     return !looksLikeHttpUrl(argv[1]);
 }
 
@@ -162,7 +169,16 @@ test "linux argv is xdg-open on the directory" {
     try std.testing.expect(isRevealArgv(argv));
 }
 
-test "host tool is the platform file manager; Windows is skipped" {
+test "windows argv is explorer.exe on the directory" {
+    var buf: [argv_len][]const u8 = undefined;
+    const argv = argvForTool(.explorer, "/tmp/proj", &buf);
+    try std.testing.expectEqual(@as(usize, 2), argv.len);
+    try std.testing.expectEqualStrings(windows_bin, argv[0]);
+    try std.testing.expectEqualStrings("/tmp/proj", argv[1]);
+    try std.testing.expect(isRevealArgv(argv));
+}
+
+test "host tool is the platform file manager" {
     switch (builtin.os.tag) {
         .macos => {
             try std.testing.expectEqual(Tool.open, hostTool().?);
@@ -172,6 +188,10 @@ test "host tool is the platform file manager; Windows is skipped" {
             try std.testing.expectEqual(Tool.xdg_open, hostTool().?);
             try std.testing.expectEqualStrings(linux_bin, hostBin().?);
         },
+        .windows => {
+            try std.testing.expectEqual(Tool.explorer, hostTool().?);
+            try std.testing.expectEqualStrings(windows_bin, hostBin().?);
+        },
         else => {
             try std.testing.expect(hostTool() == null);
             try std.testing.expect(hostBin() == null);
@@ -179,11 +199,23 @@ test "host tool is the platform file manager; Windows is skipped" {
     }
 }
 
-test "reveal argv is not a folder-picker argv" {
+test "reveal argv is not url terminal editor or folder-picker argv" {
     const pick_folder = @import("pick_folder.zig");
     const open_terminal = @import("open_terminal.zig");
+    const open_url = @import("open_url.zig");
+    const open_editor = @import("open_editor.zig");
     var buf: [argv_len][]const u8 = undefined;
+    var url_buf: [5][]const u8 = undefined;
     var term_scratch: open_terminal.ArgvScratch = .{};
+    var editor_scratch: open_editor.ArgvScratch = .{};
+
+    const explorer = argvForTool(.explorer, "/tmp/proj", &buf);
+    try std.testing.expect(isRevealArgv(explorer));
+    try std.testing.expect(!pick_folder.isPickerArgv(explorer));
+    try std.testing.expect(!open_terminal.isTerminalArgv(explorer));
+    try std.testing.expect(!open_url.isUrlArgv(explorer));
+    try std.testing.expect(!open_editor.isEditorArgv(explorer));
+
     try std.testing.expect(!pick_folder.isPickerArgv(argvFor("/tmp/proj", &buf)));
     try std.testing.expect(!isRevealArgv(pick_folder.argvFor(.osascript)));
     try std.testing.expect(!isRevealArgv(pick_folder.argvFor(.zenity)));
@@ -192,6 +224,14 @@ test "reveal argv is not a folder-picker argv" {
     try std.testing.expect(!isRevealArgv(open_terminal.argvForTool(.windows_terminal, "/tmp/proj", &term_scratch)));
     try std.testing.expect(!isRevealArgv(open_terminal.argvForTool(.cmd_start, "/tmp/proj", &term_scratch)));
     try std.testing.expect(!open_terminal.isTerminalArgv(argvFor("/tmp/proj", &buf)));
+    try std.testing.expect(!open_terminal.isTerminalArgv(explorer));
+    try std.testing.expect(!isRevealArgv(open_url.argvForTool(.open, "https://example.com", &url_buf)));
+    try std.testing.expect(!isRevealArgv(open_url.argvForTool(.xdg_open, "https://example.com", &url_buf)));
+    try std.testing.expect(!isRevealArgv(open_url.argvForTool(.cmd_start, "https://example.com", &url_buf)));
+    try std.testing.expect(!isRevealArgv(open_editor.argvForTool(.cursor, "/tmp/proj", &editor_scratch)));
+    try std.testing.expect(!isRevealArgv(open_editor.argvForTool(.code, "/tmp/proj", &editor_scratch)));
+    try std.testing.expect(!isRevealArgv(open_editor.argvForTool(.open_cursor, "/tmp/proj", &editor_scratch)));
+    try std.testing.expect(!isRevealArgv(open_editor.argvForTool(.open_vscode, "/tmp/proj", &editor_scratch)));
 }
 
 test "reveal_folder_key is distinct from pick_folder and neighbors" {

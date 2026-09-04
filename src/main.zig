@@ -204,7 +204,7 @@ pub const pick_image_key = attach_helpers.pick_image_key;
 /// Distinct from pick_image (31), maximize (30), copy_turn (32). Native
 /// has no `fx.pickFile`; this spawn is the documented workaround.
 pub const pick_folder_key = pick_folder.pick_folder_key;
-/// One-shot OS file-manager sidecar (`open` / `xdg-open`). Distinct from
+/// One-shot OS file-manager sidecar (`open` / `xdg-open` / Windows `explorer.exe`). Distinct from
 /// pick_folder (29), maximize (30), pick_image (31), copy_turn (32).
 /// Native has no typed `fx.revealPath` on this Effects revision.
 pub const reveal_folder_key = reveal_folder.reveal_folder_key;

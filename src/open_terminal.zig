@@ -339,6 +339,7 @@ test "terminal argv is not reveal or folder-picker argv" {
     try std.testing.expect(!pick_folder.isPickerArgv(argvForTool(.windows_terminal, "/tmp/proj", &scratch)));
     try std.testing.expect(!pick_folder.isPickerArgv(argvForTool(.cmd_start, "/tmp/proj", &scratch)));
     try std.testing.expect(!isTerminalArgv(reveal_folder.argvFor("/tmp/proj", &reveal_buf)));
+    try std.testing.expect(!isTerminalArgv(reveal_folder.argvForTool(.explorer, "/tmp/proj", &reveal_buf)));
     try std.testing.expect(!isTerminalArgv(pick_folder.argvFor(.osascript)));
     try std.testing.expect(!isTerminalArgv(pick_folder.argvFor(.zenity)));
     try std.testing.expect(!isTerminalArgv(pick_folder.argvFor(.kdialog)));
