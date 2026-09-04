@@ -519,6 +519,9 @@ pub const Msg = union(enum) {
     git_worktree_create_edit: canvas.TextInputEvent,
     confirm_git_worktree_create,
     cancel_git_worktree_create,
+    toggle_git_worktree_base_picker,
+    close_git_worktree_base_picker,
+    pick_git_worktree_base: []const u8,
     start_git_commit,
     /// Header Environment dropdown. Runtime-only; not persisted.
     toggle_environment_summary,
@@ -674,6 +677,8 @@ pub const Model = struct {
     git_branch_create_active: bool = false,
     /// Runtime-only New worktree… create card. Draft name is not persisted.
     git_worktree_create_active: bool = false,
+    /// Runtime-only New worktree… Base picker. Not persisted.
+    git_worktree_base_picker_open: bool = false,
     /// Runtime-only Commit… card. Draft message is not persisted.
     git_commit_active: bool = false,
     /// Runtime-only header Environment dropdown. Not persisted.
@@ -975,6 +980,11 @@ pub const Model = struct {
     next_git_worktree_base_key: u64 = git_checkout.git_worktree_base_key_first,
     git_worktree_base_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     git_worktree_base_len: usize = 0,
+    /// Runtime-only New worktree… Base override. Listed unoccupied
+    /// local head. Not persisted to sessions.json. Reset when the
+    /// card opens or is cancelled.
+    git_worktree_base_override_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
+    git_worktree_base_override_len: usize = 0,
     git_commit_key: u64 = 0,
     next_git_commit_key: u64 = git_commit_mod.git_commit_key_first,
     git_commit_probe_session: u32 = 0,
@@ -1478,6 +1488,8 @@ pub const Model = struct {
         "next_git_worktree_base_key",
         "git_worktree_base_storage",
         "git_worktree_base_len",
+        "git_worktree_base_override_storage",
+        "git_worktree_base_override_len",
         "git_commit_key",
         "next_git_commit_key",
         "git_commit_probe_session",
@@ -1634,6 +1646,7 @@ pub const Model = struct {
         "closeGitBranchPicker",
         "toggleGitBranchDeletePicker",
         "closeGitBranchDeletePicker",
+        "closeGitWorktreeBasePicker",
         "closeComposerPickers",
         "access_selected_ask",
         "access_selected_auto",
@@ -1790,6 +1803,7 @@ pub const Model = struct {
         model.goal_status_picker_open = false;
         model.git_branch_picker_open = false;
         model.git_branch_delete_picker_open = false;
+        model.git_worktree_base_picker_open = false;
         model.environment_summary_open = false;
     }
 
@@ -1842,6 +1856,10 @@ pub const Model = struct {
 
     pub fn closeGitBranchDeletePicker(model: *Model) void {
         git_checkout.closeDeletePicker(model);
+    }
+
+    pub fn closeGitWorktreeBasePicker(model: *Model) void {
+        git_checkout.closeWorktreeBasePicker(model);
     }
 
     pub fn toggleGitBranchDeletePicker(model: *Model) void {
@@ -3759,6 +3777,37 @@ pub const Model = struct {
 
     pub fn git_worktree_create(model: *const Model) []const u8 {
         return model.git_worktree_create_buffer.text();
+    }
+
+    /// Effective New worktree… Base label. Override if set, else
+    /// resolved / composer branch, else `HEAD`.
+    pub fn git_worktree_base_label(model: *const Model) []const u8 {
+        return git_checkout.gitWorktreeBaseLabel(model);
+    }
+
+    /// Listed unoccupied local heads for the New worktree… Base
+    /// picker. Skips remotes and occupied locals.
+    pub fn git_worktree_base_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
+        const selected = git_checkout.gitWorktreeBaseOverride(model);
+        const n = model.git_branch_list_count;
+        if (n == 0) return &.{};
+        const out = arena.alloc(ChipPickerRow, n) catch return &.{};
+        var written: usize = 0;
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            if (git_checkout.listedBranchIsRemote(model, i)) continue;
+            if (git_checkout.listedBranchIsOccupied(model, i)) continue;
+            const name = git_checkout.listedBranch(model, i);
+            if (name.len == 0) continue;
+            out[written] = .{
+                .row_id = @intCast(written + 1),
+                .id = name,
+                .label = name,
+                .selected = std.mem.eql(u8, selected, name),
+            };
+            written += 1;
+        }
+        return out[0..written];
     }
 
     pub fn git_commit(model: *const Model) []const u8 {

@@ -129,8 +129,9 @@
 //! first-cut right-panel Background ship; not Waku
 //! BackgroundWorkRegistry event/reconcile/driver parity.
 //! Not transcript checkpoint +/-. First-cut Force push ships on
-//! composer Push… / Commit… (runtime-only ghost); not prune-alone
-//! / daemon `WorkspaceOperation`.
+//! composer Push… / Commit… (runtime-only ghost). New worktree…
+//! first-cut Base picker ships. Leftovers: defer-until-Send
+//! workspace mode / stash / merge / daemon `WorkspaceOperation`.
 
 const std = @import("std");
 const main = @import("main.zig");
