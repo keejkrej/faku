@@ -234,7 +234,7 @@ test "argv is chdir script plus git rev-parse --git-common-dir as own slots" {
     try std.testing.expect(!isGitCommonDirArgv(remotes));
     try std.testing.expect(!git_remotes.isGitRemotesArgv(argv));
     var top_buf: [git_toplevel.argv_len][]const u8 = undefined;
-    const top = git_toplevel.argvFor("/tmp/faku-common-dir", &top_buf);
+    const top = git_toplevel.unixArgvFor("/tmp/faku-common-dir", &top_buf);
     try std.testing.expect(!isGitCommonDirArgv(top));
     try std.testing.expect(!git_toplevel.isGitToplevelArgv(argv));
     try std.testing.expect(git_common_dir_key_first >= 500);
