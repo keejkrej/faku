@@ -247,10 +247,10 @@ Do not invent Native APIs. Documented gaps this cut works around:
   `/bin/sh -c 'cd -- "$1" && shift && exec "$@"'`. `PWD` is not used.
   Windows `file_mention` uses documented `git.exe -C <project_path>` and a
   PowerShell walk with `-Args` / `$args[0]` so the path stays its own argv
-  slot (not interpolated into `-Command`). Composer git_branch / git_dirty
-  use the same `git.exe -C` pattern (no PowerShell). Remaining git modules
-  (ahead-behind, toplevel, remotes, numstat, checkout/commit) still skip
-  Windows this cut.
+  slot (not interpolated into `-Command`). Composer git_branch / git_dirty /
+  git_ahead_behind use the same `git.exe -C` pattern (no PowerShell).
+  Remaining git modules (toplevel, remotes, numstat, checkout/commit)
+  still skip Windows this cut.
 - No Native git effect. Git is sidecar `fx.spawn` of `git`.
 - No `fx.pickFile` / file-open effect. Folder and image pickers are OS
   sidecars.
