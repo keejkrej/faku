@@ -9411,7 +9411,7 @@ test "right panel Browser Open in browser spawns key-25 URL sidecar; empty URL i
     try testing.expect(open_url.isUrlArgv(spawn.argv));
     try testing.expect(!reveal_folder.isRevealArgv(spawn.argv));
     try testing.expectEqualStrings(open_url.hostBin().?, spawn.argv[0]);
-    try testing.expectEqualStrings("https://example.com/path", spawn.argv[1]);
+    try testing.expectEqualStrings("https://example.com/path", spawn.argv[spawn.argv.len - 1]);
 
     try fx.feedExit(spawn.key, 0);
     drainEffects(&model, &fx);

@@ -292,8 +292,10 @@ replace, Reload re-reads disk and discards dirty; truncated stays
 Open-in-editor + Reload; still no live reload / FS watch). Diff hosts Environment Compare / Review (Branch,
 Uncommitted, Staged, Unstaged, Committed, LastTurn). Browser is an
 honest empty: Native has no webview; a persisted URL draft plus
-**Open in browser** spawns `open` / `xdg-open` (effect key 25; light
-`http://` / `https://` / bare-host→`https://` gate). Terminal is an
+**Open in browser** spawns `open` / `xdg-open` / Windows
+`cmd.exe /c start "" <url>` (effect key 25; empty `start` title so
+the URL is not eaten; light `http://` / `https://` /
+bare-host→`https://` gate). Terminal is an
 honest empty: Native has no PTY; **Open in Terminal** reuses the
 composer host-terminal sidecar. Background is the
 Environment Summary Process / Monitor / Subagent row surface (kind,
@@ -564,7 +566,8 @@ Honest gaps this cut does not implement:
   re-exports + `main()` + demo seed strings)
 - Embedded BrowserView / alacritty PTY (right-panel Browser and
   Terminal first-cuts ship as OS-open workarounds: system browser via
-  `open` / `xdg-open`, host terminal via existing Open in Terminal;
+  `open` / `xdg-open` / Windows `cmd.exe /c start "" <url>`, host
+  terminal via existing Open in Terminal;
   Native has no PTY or documented webview effect. Compact File editor:
   Files ships a
   256KB inline preview with Native `<code>` highlighting and
