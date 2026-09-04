@@ -289,7 +289,8 @@ Cargo.toml → `plain`; Native numbered mode omits the gutter above 128
 logical lines but keeps the source; first-cut Edit switches a full
 text window to `<textarea>`, Save writes via Zig `std.fs` atomic
 replace, Reload re-reads disk and discards dirty; truncated stays
-Open-in-editor + Reload; still no live reload / FS watch). Diff hosts Environment Compare / Review (Branch,
+Open-in-editor + Reload; first-cut live reload via mtime/size poll
+on the update tick — still not a real FS watcher / Native watch API). Diff hosts Environment Compare / Review (Branch,
 Uncommitted, Staged, Unstaged, Committed, LastTurn). Browser is an
 honest empty: Native has no webview; a persisted URL draft plus
 **Open in browser** spawns `open` / `xdg-open` / Windows
@@ -573,8 +574,9 @@ Honest gaps this cut does not implement:
   256KB inline preview with Native `<code>` highlighting and
   `line-numbers`; language from a documented lexer name, unknown →
   plain. First-cut Edit / Save / Reload ships: textarea while dirty,
-  Zig `std.fs` atomic write, Reload discards unsaved edits. Not live
-  reload / FS watch)
+  Zig `std.fs` atomic write, Reload discards unsaved edits. First-cut
+  live reload via mtime/size poll on the update tick. Not a real FS
+  watcher / Native watch API)
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size
