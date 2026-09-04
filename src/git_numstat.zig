@@ -25,8 +25,7 @@
 //! rows (NUL-byte text check instead of Unix `grep -Iq`). Tracked
 //! numstat stdout is the same; CRLF is already trimmed in the line
 //! helpers. `parseNumstatLine` / `sumNumstat` already understand
-//! `N\t0\tpath`. app.zon already includes windows. Remaining this
-//! cut: Environment Compare Uncommitted untracked `?` rows stay Unix-only.
+//! `N\t0\tpath`. app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_numstat_key_first` (350+).

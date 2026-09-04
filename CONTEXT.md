@@ -249,8 +249,8 @@ Do not invent Native APIs. Documented gaps this cut works around:
   PowerShell walk with `-Args` / `$args[0]` so the path stays its own argv
   slot (not interpolated into `-Command`). Composer git_branch / git_dirty /
   git_ahead_behind / git_remotes / git_toplevel / git_common_dir / git_commit / git_checkout / review_diff use the same `git.exe -C` pattern (no
-  PowerShell except New worktree…, git_numstat untracked, and empty-message
-  `fx ask` generate). git_commit add / cached-quiet preflight / commit / amend and
+  PowerShell except New worktree…, git_numstat untracked, empty-message
+  `fx ask` generate, and Environment Compare Uncommitted name-status). git_commit add / cached-quiet preflight / commit / amend and
   CommitSnapshot (tracked / cached) use `git.exe -C`; empty-message `fx ask`
   generate is `powershell.exe -NoProfile -Command {scriptblock} -Args`
   cwd, fx path, prompt (`$args[0]` / `$args[1]` / `$args[2]`; documented
@@ -258,14 +258,17 @@ Do not invent Native APIs. Documented gaps this cut works around:
   git_numstat on Windows is `powershell.exe
   -NoProfile -Command {scriptblock} -Args <project_path>` (`$args[0]`;
   tracked `git.exe diff --numstat HEAD --` plus untracked synthetic
-  `N\t0\tpath` rows). git_common_dir resolve
+  `N\t0\tpath` rows). Review Uncommitted name-status is the same
+  PowerShell `-Command` + `-Args` shape with a distinct script body
+  (`git.exe diff --name-status HEAD` plus synthetic `?\tpath`; no
+  binary / 1MiB / zero-line filters). Untracked `?` hunks are
+  `git.exe -C PATH diff --no-index -- NUL <path>`. git_common_dir resolve
   treats Unix `/…` and Windows `X:\…` / `X:/…` as absolute and stores `/`
   separators so nest FNV matches. git_checkout list / checkout / track /
   create / delete / fetch / push / first-push / worktree-base use `git.exe -C`;
   New worktree… is `powershell.exe -NoProfile -Command {scriptblock} -Args`
   with parent, cwd, git.exe, flags, branch, dest, and optional base as argv
-  slots. Remaining this cut: Environment Compare Uncommitted untracked
-  `?` rows / `--no-index` hunks stay Unix-only.
+  slots.
 - No Native git effect. Git is sidecar `fx.spawn` of `git`.
 - No `fx.pickFile` / file-open effect. Folder and image pickers are OS
   sidecars.
@@ -287,9 +290,11 @@ one-shot `git` spawns. Runtime-only labels are not stored on
 watch, not `{project_id}` UUID nesting, and not force push.
 Windows probes, checkout / push / worktree, and commit mutations (add / cached-quiet / commit /
 amend / CommitSnapshot tracked-cached) use `git.exe -C <project_path>`;
-New worktree…, git_numstat untracked rows, and empty-message `fx ask` generate use PowerShell `-Command` + `-Args`.
-Environment Compare / Review uses `git.exe -C`; Uncommitted untracked
-`?` rows / `--no-index` hunks stay Unix-only.
+New worktree…, git_numstat untracked rows, empty-message `fx ask` generate, and
+Environment Compare Uncommitted name-status use PowerShell `-Command` + `-Args`.
+Environment Compare / Review Branch / Staged / Unstaged / Committed / LastTurn
+stay `git.exe -C`; Uncommitted untracked `?` rows are PowerShell synthetic
+`?\tpath`, and `?` hunks are `git.exe -C … diff --no-index -- NUL <path>`.
 
 Send may snapshot the worktree (`worktree_snapshot_sha` /
 `worktree_turn_end_sha` / `worktree_turn_diff_sha`; refs under

@@ -86,9 +86,11 @@
 //! Push lives
 //! in `git_checkout.zig` and uses the same `git.exe -C` pattern
 //! (`probeSupported` is true on Windows). app.zon already includes
-//! windows.
-//! Environment Compare / Review uses `git.exe -C` (Uncommitted
-//! untracked `?` rows / `--no-index` hunks stay Unix-only).
+//! windows. Environment Compare / Review Branch / Staged /
+//! Unstaged / Committed / LastTurn use `git.exe -C`; Uncommitted
+//! name-status is PowerShell `-Command` + `-Args` (synthetic
+//! `?\tpath`); untracked hunks are `git.exe -C … --no-index --
+//! NUL <path>`.
 //!
 //! Spawn/line/exit orchestration lives here. Effect keys stay
 //! `git_commit_key_first` (450+), `git_commit_numstat_key_first`

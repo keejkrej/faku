@@ -18267,6 +18267,59 @@ fn findGitReviewHunkSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(
     return null;
 }
 
+fn expectGitReviewUncommittedArgv(argv: []const []const u8) !void {
+    try testing.expect(review_diff.isGitReviewUncommittedArgv(argv));
+    try testing.expect(review_diff.isGitReviewDiffArgv(argv));
+    try testing.expect(!review_diff.isGitReviewHunkArgv(argv));
+    switch (builtin.os.tag) {
+        .windows => {
+            try testing.expectEqual(@as(usize, review_diff.windows_argv_len_uncommitted), argv.len);
+            try testing.expectEqualStrings(review_diff.powershell_bin, argv[0]);
+            try testing.expectEqualStrings(review_diff.powershell_noprofile, argv[1]);
+            try testing.expectEqualStrings(review_diff.powershell_command, argv[2]);
+            try testing.expectEqualStrings(review_diff.powershell_uncommitted_untracked_script, argv[3]);
+            try testing.expectEqualStrings(review_diff.powershell_args_flag, argv[4]);
+            try testing.expect(argv[5].len > 0);
+            try testing.expect(std.mem.indexOf(u8, argv[3], argv[5]) == null);
+            try testing.expect(std.mem.indexOf(u8, argv[3], "$args[0]") != null);
+            try testing.expect(std.mem.indexOf(u8, argv[3], review_diff.git_name_status) != null);
+            try testing.expect(std.mem.indexOf(u8, argv[3], review_diff.git_ls_files_others) != null);
+            try testing.expect(std.mem.indexOf(u8, argv[3], "--numstat") == null);
+        },
+        else => {
+            try testing.expectEqual(review_diff.argv_len_uncommitted, argv.len);
+            try testing.expectEqualStrings(review_diff.uncommitted_untracked_script, argv[7]);
+            try testing.expect(std.mem.indexOf(u8, argv[2], "HEAD") == null);
+            try testing.expect(std.mem.indexOf(u8, argv[2], review_diff.uncommitted_untracked_script) == null);
+        },
+    }
+}
+
+fn expectGitReviewUntrackedHunkArgv(argv: []const []const u8, path: []const u8) !void {
+    try testing.expect(review_diff.isGitReviewHunkArgv(argv));
+    try testing.expect(!review_diff.isGitReviewDiffArgv(argv));
+    try testing.expectEqualStrings(path, argv[argv.len - 1]);
+    switch (builtin.os.tag) {
+        .windows => {
+            try testing.expectEqual(review_diff.windows_argv_len_hunk_untracked, argv.len);
+            try testing.expectEqualStrings(review_diff.windows_git_bin, argv[0]);
+            try testing.expectEqualStrings(review_diff.git_no_index, argv[4]);
+            try testing.expectEqualStrings(review_diff.git_pathspec_end, argv[5]);
+            try testing.expectEqualStrings(review_diff.git_nul, argv[6]);
+            try testing.expect(std.mem.indexOf(u8, argv[2], path) == null);
+            try testing.expect(std.mem.indexOf(u8, argv[2], review_diff.git_nul) == null);
+        },
+        else => {
+            try testing.expectEqual(review_diff.unix_argv_len_hunk_untracked, argv.len);
+            try testing.expectEqualStrings(review_diff.git_no_index, argv[7]);
+            try testing.expectEqualStrings(review_diff.git_pathspec_end, argv[8]);
+            try testing.expectEqualStrings(review_diff.git_dev_null, argv[9]);
+            try testing.expect(std.mem.indexOf(u8, argv[2], path) == null);
+            try testing.expect(std.mem.indexOf(u8, argv[2], review_diff.git_dev_null) == null);
+        },
+    }
+}
+
 fn finishGitRemotesIfInFlight(fx: *Effects, model: *Model, line: []const u8) !void {
     if (model.git_remotes_key == 0) return;
     const spawn = findGitRemotesSpawnKey(fx, model.git_remotes_key) orelse return error.MissingGitRemotesSpawn;
@@ -20972,9 +21025,7 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
 
     const spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffSpawn;
     try testing.expect(review_diff.isGitReviewDiffArgv(spawn.argv));
-    try testing.expect(review_diff.isGitReviewUncommittedArgv(spawn.argv));
-    try testing.expectEqualStrings(review_diff.uncommitted_untracked_script, spawn.argv[7]);
-    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], "HEAD") == null);
+    try expectGitReviewUncommittedArgv(spawn.argv);
     try testing.expect(spawn.key >= main.review_diff_key_first);
     try testing.expect(spawn.key != model.git_ahead_behind_key);
     try testing.expect(spawn.key != model.git_common_dir_key);
@@ -21151,11 +21202,7 @@ test "Review source row switches Uncommitted and re-probes name-status plus untr
 
     const uncommitted_spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffUncommitted;
     try testing.expect(review_diff.isGitReviewDiffArgv(uncommitted_spawn.argv));
-    try testing.expect(review_diff.isGitReviewUncommittedArgv(uncommitted_spawn.argv));
-    try testing.expectEqual(review_diff.argv_len_uncommitted, uncommitted_spawn.argv.len);
-    try testing.expectEqualStrings(review_diff.uncommitted_untracked_script, uncommitted_spawn.argv[7]);
-    try testing.expect(std.mem.indexOf(u8, uncommitted_spawn.argv[2], "HEAD") == null);
-    try testing.expect(std.mem.indexOf(u8, uncommitted_spawn.argv[2], review_diff.uncommitted_untracked_script) == null);
+    try expectGitReviewUncommittedArgv(uncommitted_spawn.argv);
     try testing.expect(uncommitted_spawn.key >= main.review_diff_key_first);
     try testing.expect(uncommitted_spawn.key != model.git_numstat_key);
 
@@ -21176,14 +21223,7 @@ test "Review source row switches Uncommitted and re-probes name-status plus untr
     try testing.expectEqual(@as(u32, 2), model.review_diff_selected_id);
     try testing.expect(model.review_diff_hunk_key >= main.review_diff_hunk_key_first);
     const untracked_hunk = findGitReviewHunkSpawnKey(&fx, model.review_diff_hunk_key) orelse return error.MissingUntrackedHunk;
-    try testing.expect(review_diff.isGitReviewHunkArgv(untracked_hunk.argv));
-    try testing.expect(!review_diff.isGitReviewDiffArgv(untracked_hunk.argv));
-    try testing.expectEqual(review_diff.argv_len_hunk_untracked, untracked_hunk.argv.len);
-    try testing.expectEqualStrings(review_diff.git_no_index, untracked_hunk.argv[7]);
-    try testing.expectEqualStrings(review_diff.git_pathspec_end, untracked_hunk.argv[8]);
-    try testing.expectEqualStrings(review_diff.git_dev_null, untracked_hunk.argv[9]);
-    try testing.expectEqualStrings("new.txt", untracked_hunk.argv[10]);
-    try testing.expect(std.mem.indexOf(u8, untracked_hunk.argv[2], "new.txt") == null);
+    try expectGitReviewUntrackedHunkArgv(untracked_hunk.argv, "new.txt");
     try fx.feedLine(untracked_hunk.key, "diff --git a/new.txt b/new.txt\n+hello\n");
     drainEffects(&model, &fx);
     try fx.feedExit(untracked_hunk.key, 1);
@@ -21222,8 +21262,7 @@ test "Review source row switches Uncommitted and re-probes name-status plus untr
 
     main.update(&model, .set_review_diff_source_uncommitted, &fx);
     const fail_spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffUncommittedFail;
-    try testing.expect(review_diff.isGitReviewUncommittedArgv(fail_spawn.argv));
-    try testing.expectEqualStrings(review_diff.uncommitted_untracked_script, fail_spawn.argv[7]);
+    try expectGitReviewUncommittedArgv(fail_spawn.argv);
     try fx.feedExit(fail_spawn.key, 128);
     drainEffects(&model, &fx);
     try testing.expectEqualStrings(review_diff.failed_status, model.review_diff_status());
@@ -21272,8 +21311,7 @@ test "Review source row switches Staged and re-probes --cached name-status" {
     try testing.expect(!model.review_diff_source_last_turn());
     const initial_key = model.review_diff_key;
     const initial_spawn = findGitReviewDiffSpawnKey(&fx, initial_key) orelse return error.MissingReviewDiffUncommitted;
-    try testing.expect(review_diff.isGitReviewUncommittedArgv(initial_spawn.argv));
-    try testing.expectEqualStrings(review_diff.uncommitted_untracked_script, initial_spawn.argv[7]);
+    try expectGitReviewUncommittedArgv(initial_spawn.argv);
 
     var tree = try buildTree(arena, &model);
     const staged_off = try expectButtonMsg(tree, "Staged", .set_review_diff_source_staged);
@@ -21383,8 +21421,7 @@ test "Review source row switches Unstaged and re-probes worktree name-status" {
     try testing.expect(!model.review_diff_source_last_turn());
     const initial_key = model.review_diff_key;
     const initial_spawn = findGitReviewDiffSpawnKey(&fx, initial_key) orelse return error.MissingReviewDiffUncommitted;
-    try testing.expect(review_diff.isGitReviewUncommittedArgv(initial_spawn.argv));
-    try testing.expectEqualStrings(review_diff.uncommitted_untracked_script, initial_spawn.argv[7]);
+    try expectGitReviewUncommittedArgv(initial_spawn.argv);
 
     var tree = try buildTree(arena, &model);
     const unstaged_off = try expectButtonMsg(tree, "Unstaged", .set_review_diff_source_unstaged);
@@ -21496,8 +21533,7 @@ test "Review source row switches Committed and re-probes origin/HEAD...HEAD name
     try testing.expect(!model.review_diff_source_last_turn());
     const initial_key = model.review_diff_key;
     const initial_spawn = findGitReviewDiffSpawnKey(&fx, initial_key) orelse return error.MissingReviewDiffUncommitted;
-    try testing.expect(review_diff.isGitReviewUncommittedArgv(initial_spawn.argv));
-    try testing.expectEqualStrings(review_diff.uncommitted_untracked_script, initial_spawn.argv[7]);
+    try expectGitReviewUncommittedArgv(initial_spawn.argv);
 
     var tree = try buildTree(arena, &model);
     const committed_off = try expectButtonMsg(tree, "Committed", .set_review_diff_source_committed);
@@ -21622,8 +21658,7 @@ test "Review source row switches Last turn and re-probes rewind sha...HEAD name-
     try testing.expect(!model.review_diff_source_last_turn());
     const initial_key = model.review_diff_key;
     const initial_spawn = findGitReviewDiffSpawnKey(&fx, initial_key) orelse return error.MissingReviewDiffUncommitted;
-    try testing.expect(review_diff.isGitReviewUncommittedArgv(initial_spawn.argv));
-    try testing.expectEqualStrings(review_diff.uncommitted_untracked_script, initial_spawn.argv[7]);
+    try expectGitReviewUncommittedArgv(initial_spawn.argv);
 
     var tree = try buildTree(arena, &model);
     const last_turn_off = try expectButtonMsg(tree, "Last turn", .set_review_diff_source_last_turn);
@@ -21878,9 +21913,7 @@ test "header Environment +/- opens the same Review card as Compare" {
 
     const spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffSpawn;
     try testing.expect(review_diff.isGitReviewDiffArgv(spawn.argv));
-    try testing.expect(review_diff.isGitReviewUncommittedArgv(spawn.argv));
-    try testing.expectEqualStrings(review_diff.uncommitted_untracked_script, spawn.argv[7]);
-    try testing.expect(std.mem.indexOf(u8, spawn.argv[2], "HEAD") == null);
+    try expectGitReviewUncommittedArgv(spawn.argv);
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Review");

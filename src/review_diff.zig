@@ -11,8 +11,10 @@
 //! first-cut: tracked `git diff --name-status HEAD` plus
 //! untracked, non-ignored paths from
 //! `git ls-files --others --exclude-standard` (synthetic
-//! `?\tpath` rows; no text-only / size filter). Packed under
-//! Native `max_effect_argv` as chdir + nested `/bin/sh -c`.
+//! `?\tpath` rows; no text-only / size filter). Unix packs
+//! this under Native `max_effect_argv` as chdir + nested
+//! `/bin/sh -c`; Windows Uncommitted uses PowerShell
+//! `-Command` + `-Args`.
 //! Staged is a switchable first-cut: one-shot
 //! `git diff --name-status --cached` (index vs HEAD;
 //! untracked cannot appear unless already staged). Unstaged is a
@@ -53,11 +55,14 @@
 //! already succeeded, or the stored LastTurn range).
 //! `--` and the path are own argv slots.
 //! Uncommitted `?` rows one-shot
-//! `git diff --no-index -- /dev/null <path>` (POSIX empty
-//! left side; `--no-index` implies `--exit-code`, so exit 1
-//! with a body is a successful patch). `--no-index`, `--`,
-//! `/dev/null`, and the path are own argv slots (11 total;
-//! under Native `max_effect_argv` 16). A `?` directory that
+//! `git diff --no-index -- /dev/null <path>` on Unix (POSIX
+//! empty left side) and `git.exe -C PATH diff --no-index --
+//! NUL <path>` on Windows (`NUL` is the Git for Windows
+//! null device). `--no-index` implies `--exit-code`, so
+//! exit 1 with a body is a successful patch. `--no-index`,
+//! `--`, `/dev/null` / `NUL`, and the path are own argv
+//! slots (Unix 11 / Windows 8; under Native
+//! `max_effect_argv` 16). A `?` directory that
 //! makes git fail is `Could not show diff.` — no invented
 //! tree listing. Hunk
 //! spawn-key band 520+ is distinct from name-status 510+.
@@ -84,20 +89,24 @@
 //! `refs/waku/` Compare operand.
 //!
 //! Windows cannot use `/bin/sh` or the Uncommitted nested
-//! `uncommitted_untracked_script`: `git.exe -C <project_path>`
-//! (path is its own argv slot, not interpolated into a script).
-//! Explicit `git.exe` like siblings. Name-status is
-//! `git.exe -C PATH diff --name-status [operand]`; Uncommitted
-//! is tracked-only `git.exe -C PATH diff --name-status HEAD`
-//! (no synthetic `?\tpath` rows this cut — same deferral as
-//! git_numstat untracked). Tracked hunks are
-//! `git.exe -C PATH diff [operand] -- <path>`. Untracked `?`
-//! hunks (`--no-index -- /dev/null`) stay Unix-only this cut;
-//! Uncommitted does not emit `?` rows on Windows, so those
-//! clicks do not appear. Name-status / hunk stdout is already
-//! CRLF-trimmed. app.zon already includes windows. Remaining
-//! leftovers this cut: Uncommitted untracked `?` rows /
-//! `--no-index` hunks stay Unix-only.
+//! `uncommitted_untracked_script`. Branch / Staged /
+//! Unstaged / Committed / LastTurn name-status and tracked
+//! hunks stay `git.exe -C <project_path>` (path is its own
+//! argv slot). Explicit `git.exe` like siblings. Uncommitted
+//! name-status is `powershell.exe -NoProfile -Command
+//! {scriptblock} -Args <project_path>` (`$args[0]`; path is
+//! its own argv slot, not interpolated into `-Command`).
+//! After `Set-Location -LiteralPath $args[0]`, the script
+//! runs `git.exe diff --name-status HEAD` then synthetic
+//! `?\tpath` rows from `git.exe ls-files --others
+//! --exclude-standard` (every non-empty path; no
+//! git_numstat binary / 1MiB / zero-line filters). Distinct
+//! script body from `git_numstat.windowsArgvFor`. Tracked
+//! hunks are `git.exe -C PATH diff [operand] -- <path>`.
+//! Untracked `?` hunks are `git.exe -C PATH diff --no-index
+//! -- NUL <path>` (`NUL` and the path are own argv slots).
+//! Name-status / hunk stdout is already CRLF-trimmed.
+//! app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Effect keys stay
 //! name-status 510+ and hunk 520+.
@@ -127,7 +136,8 @@ const writeFixed = main.writeFixed;
 pub const review_diff_key_first: u64 = 510;
 
 /// One-shot Review `git diff [operand] -- <path>` hunk probe,
-/// or untracked `git diff --no-index -- /dev/null <path>`.
+/// or untracked `git diff --no-index -- /dev/null <path>`
+/// (Unix) / `NUL` (Windows).
 /// Distinct from name-status 510+. Band is 520+. Incremented
 /// per file click so a cancelled spawn cannot paint a later
 /// click or session.
@@ -135,9 +145,10 @@ pub const review_diff_hunk_key_first: u64 = 520;
 
 /// Compare / header +/- open the Diff tab on Uncommitted when no
 /// compare is active. Uncommitted is first-cut
-/// tracked `git diff --name-status HEAD` plus (Unix) untracked
-/// `git ls-files --others --exclude-standard` (`?` rows). Windows
-/// Uncommitted is tracked-only this cut. Staged
+/// tracked `git diff --name-status HEAD` plus untracked
+/// `git ls-files --others --exclude-standard` (`?` rows;
+/// Unix nested `uncommitted_untracked_script`, Windows
+/// PowerShell `$args[0]`). Staged
 /// is first-cut index vs HEAD `git diff --name-status --cached`.
 /// Unstaged is first-cut worktree vs index `git diff
 /// --name-status` (tracked only). Committed is first-cut
@@ -220,7 +231,17 @@ pub const git_no_index = "--no-index";
 /// POSIX empty left side for `--no-index`. Own argv slot.
 /// Never interpolated into `-c`.
 pub const git_dev_null = "/dev/null";
+/// Windows null device (Git for Windows `--no-index` left
+/// side). Own argv slot. Never interpolated into a script.
+pub const git_nul = "NUL";
 pub const sh_bin = "/bin/sh";
+/// PATH-resolved Windows PowerShell (no STA: this is git
+/// stdout, not WinForms). Explicit `.exe` like sibling
+/// maximize / pickers / `git_numstat`.
+pub const powershell_bin = "powershell.exe";
+pub const powershell_noprofile = "-NoProfile";
+pub const powershell_command = "-Command";
+pub const powershell_args_flag = "-Args";
 
 /// Packed into one `-c` string so Uncommitted stays under Native
 /// `max_effect_argv` (16). Real `git diff --name-status HEAD`
@@ -235,6 +256,16 @@ pub const uncommitted_untracked_script =
     \\done
 ;
 
+/// Scriptblock + `$args[0]`: project path is its own argv slot after
+/// `-Args`, not spliced into the `-Command` body. `Set-Location` then
+/// `git.exe diff --name-status HEAD` (fail the spawn on non-zero; do
+/// not invent untracked), then `git.exe ls-files --others
+/// --exclude-standard`. Skip empty; print `?\tpath` with `/`
+/// separators. No binary / 1MiB / zero-line filters (unlike
+/// `git_numstat.powershell_untracked_script`). Six argv slots total.
+pub const powershell_uncommitted_untracked_script =
+    "{ $ErrorActionPreference='Stop'; Set-Location -LiteralPath $args[0]; git.exe diff --name-status HEAD; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; foreach ($f in @(git.exe ls-files --others --exclude-standard 2>$null)) { if (-not $f) { continue }; $rel=([string]$f -replace '\\\\','/'); if (-not $rel) { continue }; Write-Output ('?'+[char]9+'{0}' -f $rel) } }";
+
 /// Unix `/bin/sh -c` chdir + `git diff --name-status` + last-slot
 /// operand (Branch / Staged / Committed / LastTurn) is 9. Windows
 /// `git.exe -C` is 6; this is the spawn buffer (max of the two).
@@ -247,8 +278,7 @@ pub const argv_len_unstaged: usize = 8;
 pub const unix_argv_len_unstaged: usize = 8;
 pub const windows_argv_len_unstaged: usize = 5;
 /// Uncommitted: Unix chdir + `/bin/sh -c` + `uncommitted_untracked_script`
-/// (8). Windows tracked-only `git.exe -C PATH diff --name-status HEAD`
-/// is 6.
+/// (8). Windows powershell `-Command` + `-Args` is 6.
 pub const argv_len_uncommitted: usize = 8;
 pub const unix_argv_len_uncommitted: usize = 8;
 pub const windows_argv_len_uncommitted: usize = 6;
@@ -263,9 +293,11 @@ pub const argv_len_hunk_unstaged: usize = 9;
 pub const unix_argv_len_hunk_unstaged: usize = 9;
 pub const windows_argv_len_hunk_unstaged: usize = 6;
 /// Untracked `?` hunk: Unix chdir + `git diff --no-index -- /dev/null <path>`
-/// (11). Unix-only this cut (Windows Uncommitted is tracked-only).
+/// (11). Windows `git.exe -C PATH diff --no-index -- NUL <path>` is 8.
+/// `argv_len_hunk_untracked` is the spawn buffer (max of the two).
 pub const argv_len_hunk_untracked: usize = 11;
 pub const unix_argv_len_hunk_untracked: usize = 11;
+pub const windows_argv_len_hunk_untracked: usize = 8;
 /// First-cut body cap. Extra stdout is dropped, not invented.
 pub const max_review_diff_hunk_lines: usize = 160;
 /// Enough for 160 short unified-diff lines. Longer lines still
@@ -479,6 +511,10 @@ fn windowsGitBinOk(bin: []const u8) bool {
     return std.mem.eql(u8, bin, windows_git_bin) or std.mem.eql(u8, bin, git_bin);
 }
 
+fn scriptHas(script: []const u8, needle: []const u8) bool {
+    return std.mem.indexOf(u8, script, needle) != null;
+}
+
 fn isKnownNameStatusOperand(last: []const u8) bool {
     return std.mem.eql(u8, last, git_upstream_range) or
         std.mem.eql(u8, last, git_cached_flag) or
@@ -546,9 +582,11 @@ pub fn unixArgvForSourceRangeWith(
     return buf[0..unix_argv_len_unstaged];
 }
 
-/// Windows: `git.exe -C <project_path> diff --name-status [operand]`.
-/// Path is its own argv slot. Uncommitted is tracked-only last-slot
-/// `HEAD` (no nested `/bin/sh`, no synthetic `?` rows).
+/// Windows: Branch / Staged / Unstaged / Committed / LastTurn stay
+/// `git.exe -C <project_path> diff --name-status [operand]`.
+/// Path is its own argv slot. Uncommitted is powershell
+/// `-Command` + `-Args` (`$args[0]`; tracked name-status plus
+/// synthetic `?\tpath`).
 pub fn windowsArgvForSourceRangeWith(
     source: Source,
     committed_range: CommittedRange,
@@ -556,15 +594,20 @@ pub fn windowsArgvForSourceRangeWith(
     cwd: []const u8,
     buf: *[argv_len][]const u8,
 ) []const []const u8 {
+    if (source == .uncommitted) {
+        buf[0] = powershell_bin;
+        buf[1] = powershell_noprofile;
+        buf[2] = powershell_command;
+        buf[3] = powershell_uncommitted_untracked_script;
+        buf[4] = powershell_args_flag;
+        buf[5] = cwd;
+        return buf[0..windows_argv_len_uncommitted];
+    }
     buf[0] = windows_git_bin;
     buf[1] = git_c_flag;
     buf[2] = cwd;
     buf[3] = git_diff_cmd;
     buf[4] = git_name_status;
-    if (source == .uncommitted) {
-        buf[5] = git_head;
-        return buf[0..windows_argv_len_uncommitted];
-    }
     if (lastOperandRange(source, committed_range, last_turn_range)) |operand| {
         buf[5] = operand;
         return buf[0..windows_argv_len];
@@ -715,10 +758,8 @@ pub fn argvForHunkRange(
 
 /// `/bin/sh -c <chdir> sh <cwd> git diff --no-index -- /dev/null <path>`.
 /// `--no-index`, `--`, `/dev/null`, and the path are own argv slots.
-/// Never interpolate the path (or `/dev/null`) into `-c`. Unix-only
-/// this cut (Windows Uncommitted is tracked-only, so `?` rows do
-/// not appear).
-pub fn argvForUntrackedHunk(
+/// Never interpolate the path (or `/dev/null`) into `-c`.
+pub fn unixArgvForUntrackedHunk(
     cwd: []const u8,
     path: []const u8,
     buf: *[argv_len_hunk_untracked][]const u8,
@@ -735,6 +776,36 @@ pub fn argvForUntrackedHunk(
     buf[9] = git_dev_null;
     buf[10] = path;
     return buf[0..unix_argv_len_hunk_untracked];
+}
+
+/// Windows: `git.exe -C <project_path> diff --no-index -- NUL <path>`.
+/// `--no-index`, `--`, `NUL`, and the path are own argv slots.
+/// Never interpolate the path (or `NUL`) into a script.
+pub fn windowsArgvForUntrackedHunk(
+    cwd: []const u8,
+    path: []const u8,
+    buf: *[argv_len_hunk_untracked][]const u8,
+) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_diff_cmd;
+    buf[4] = git_no_index;
+    buf[5] = git_pathspec_end;
+    buf[6] = git_nul;
+    buf[7] = path;
+    return buf[0..windows_argv_len_hunk_untracked];
+}
+
+pub fn argvForUntrackedHunk(
+    cwd: []const u8,
+    path: []const u8,
+    buf: *[argv_len_hunk_untracked][]const u8,
+) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsArgvForUntrackedHunk(cwd, path, buf),
+        else => unixArgvForUntrackedHunk(cwd, path, buf),
+    };
 }
 
 /// Branch argv. `open` still uses this shape. Diff tab / header +/-
@@ -763,12 +834,22 @@ fn isUnixGitReviewUncommittedArgv(argv: []const []const u8) bool {
 
 fn isWindowsGitReviewUncommittedArgv(argv: []const []const u8) bool {
     if (argv.len != windows_argv_len_uncommitted) return false;
-    if (!windowsGitBinOk(argv[0])) return false;
-    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
-    if (argv[2].len == 0) return false;
-    if (!std.mem.eql(u8, argv[3], git_diff_cmd)) return false;
-    if (!std.mem.eql(u8, argv[4], git_name_status)) return false;
-    return std.mem.eql(u8, argv[5], git_head);
+    if (!std.mem.eql(u8, argv[0], powershell_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], powershell_noprofile)) return false;
+    if (!std.mem.eql(u8, argv[2], powershell_command)) return false;
+    if (!std.mem.eql(u8, argv[3], powershell_uncommitted_untracked_script)) return false;
+    if (!std.mem.eql(u8, argv[4], powershell_args_flag)) return false;
+    if (argv[5].len == 0) return false;
+    if (!scriptHas(argv[3], "$args[0]")) return false;
+    if (!scriptHas(argv[3], windows_git_bin)) return false;
+    if (!scriptHas(argv[3], git_diff_cmd)) return false;
+    if (!scriptHas(argv[3], git_name_status)) return false;
+    if (!scriptHas(argv[3], git_head)) return false;
+    if (!scriptHas(argv[3], git_ls_files_cmd)) return false;
+    if (!scriptHas(argv[3], git_ls_files_others)) return false;
+    if (!scriptHas(argv[3], git_ls_files_exclude_standard)) return false;
+    if (scriptHas(argv[3], "--numstat")) return false;
+    return true;
 }
 
 pub fn isGitReviewUncommittedArgv(argv: []const []const u8) bool {
@@ -795,7 +876,7 @@ fn isWindowsGitReviewDiffArgv(argv: []const []const u8) bool {
     if (!std.mem.eql(u8, argv[3], git_diff_cmd)) return false;
     if (!std.mem.eql(u8, argv[4], git_name_status)) return false;
     if (argv.len == windows_argv_len_unstaged) return true;
-    return isKnownNameStatusOperand(argv[5]) or std.mem.eql(u8, argv[5], git_head);
+    return isKnownNameStatusOperand(argv[5]);
 }
 
 pub fn isGitReviewDiffArgv(argv: []const []const u8) bool {
@@ -824,11 +905,18 @@ fn isUnixGitReviewHunkArgv(argv: []const []const u8) bool {
 }
 
 fn isWindowsGitReviewHunkArgv(argv: []const []const u8) bool {
-    if (argv.len != windows_argv_len_hunk and argv.len != windows_argv_len_hunk_unstaged) return false;
+    if (argv.len != windows_argv_len_hunk and
+        argv.len != windows_argv_len_hunk_unstaged and
+        argv.len != windows_argv_len_hunk_untracked) return false;
     if (!windowsGitBinOk(argv[0])) return false;
     if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
     if (argv[2].len == 0) return false;
     if (!std.mem.eql(u8, argv[3], git_diff_cmd)) return false;
+    if (argv.len == windows_argv_len_hunk_untracked) {
+        return std.mem.eql(u8, argv[4], git_no_index) and
+            std.mem.eql(u8, argv[5], git_pathspec_end) and
+            std.mem.eql(u8, argv[6], git_nul);
+    }
     if (argv.len == windows_argv_len_hunk_unstaged) {
         return std.mem.eql(u8, argv[4], git_pathspec_end);
     }
@@ -837,8 +925,10 @@ fn isWindowsGitReviewHunkArgv(argv: []const []const u8) bool {
 
 /// Hunk argv: Unix chdir + `git diff [operand] -- <path>`, or the
 /// 11-slot untracked `git diff --no-index -- /dev/null <path>`;
-/// Windows `git.exe -C` tracked hunks. Rejects name-status
-/// (`--name-status`) and Uncommitted nested `sh -c`.
+/// Windows `git.exe -C` tracked hunks or 8-slot untracked
+/// `git.exe -C PATH diff --no-index -- NUL <path>`. Rejects
+/// name-status (`--name-status`) and Uncommitted nested `sh -c`
+/// / PowerShell.
 pub fn isGitReviewHunkArgv(argv: []const []const u8) bool {
     return isUnixGitReviewHunkArgv(argv) or isWindowsGitReviewHunkArgv(argv);
 }
@@ -1184,8 +1274,9 @@ fn startHunkProbe(model: *Model, fx: *Effects, file_path: []const u8, no_index: 
 
 /// Click a 1-based Review file row. Tracked rows one-shot a hunk
 /// probe for the current source (`argvForHunk`). Untracked `?`
-/// one-shots `git diff --no-index -- /dev/null <path>`. Cancels
-/// any in-flight hunk and clears the previous body.
+/// one-shots `git diff --no-index -- /dev/null <path>` (Unix) or
+/// `git.exe -C PATH diff --no-index -- NUL <path>` (Windows).
+/// Cancels any in-flight hunk and clears the previous body.
 pub fn selectFile(model: *Model, fx: *Effects, id: u32) void {
     if (!model.review_diff_active) return;
     if (id == 0 or id > model.review_diff_file_count) return;
@@ -1574,7 +1665,10 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expect(review_diff_hunk_key_first >= 520);
     try std.testing.expect(review_diff_hunk_key_first > review_diff_key_first);
     try std.testing.expect(argv_len_hunk_untracked == 11);
+    try std.testing.expect(unix_argv_len_hunk_untracked == 11);
+    try std.testing.expect(windows_argv_len_hunk_untracked == 8);
     try std.testing.expect(argv_len_hunk_untracked < 16);
+    try std.testing.expect(windows_argv_len_hunk_untracked < 16);
     try std.testing.expect(argv_len_hunk == 10);
     try std.testing.expect(argv_len_hunk_unstaged == 9);
     try std.testing.expect(windows_argv_len == 6);
@@ -1625,16 +1719,63 @@ test "windows git argv is git.exe -C PATH; path is its own slot" {
     var uncommitted_buf: [argv_len][]const u8 = undefined;
     const uncommitted = windowsArgvForSourceRangeWith(.uncommitted, .origin, "", cwd, &uncommitted_buf);
     try std.testing.expectEqual(@as(usize, windows_argv_len_uncommitted), uncommitted.len);
-    try std.testing.expectEqualStrings(windows_git_bin, uncommitted[0]);
-    try std.testing.expectEqualStrings(git_c_flag, uncommitted[1]);
-    try std.testing.expectEqualStrings(cwd, uncommitted[2]);
-    try std.testing.expectEqualStrings(git_diff_cmd, uncommitted[3]);
-    try std.testing.expectEqualStrings(git_name_status, uncommitted[4]);
-    try std.testing.expectEqualStrings(git_head, uncommitted[5]);
+    try std.testing.expect(uncommitted.len <= 16);
+    try std.testing.expectEqualStrings(powershell_bin, uncommitted[0]);
+    try std.testing.expectEqualStrings(powershell_noprofile, uncommitted[1]);
+    try std.testing.expectEqualStrings(powershell_command, uncommitted[2]);
+    try std.testing.expectEqualStrings(powershell_uncommitted_untracked_script, uncommitted[3]);
+    try std.testing.expectEqualStrings(powershell_args_flag, uncommitted[4]);
+    try std.testing.expectEqualStrings(cwd, uncommitted[5]);
     try std.testing.expect(isGitReviewUncommittedArgv(uncommitted));
     try std.testing.expect(isGitReviewDiffArgv(uncommitted));
     try std.testing.expect(!isGitReviewHunkArgv(uncommitted));
-    try std.testing.expect(std.mem.indexOf(u8, uncommitted[2], git_head) == null);
+    try std.testing.expect(!std.mem.eql(u8, uncommitted[0], sh_bin));
+    try std.testing.expect(!std.mem.eql(u8, uncommitted[0], windows_git_bin));
+    try std.testing.expect(std.mem.indexOf(u8, uncommitted[3], cwd) == null);
+    try std.testing.expect(scriptHas(uncommitted[3], "$args[0]"));
+    try std.testing.expect(scriptHas(uncommitted[3], "Set-Location"));
+    try std.testing.expect(scriptHas(uncommitted[3], windows_git_bin));
+    try std.testing.expect(scriptHas(uncommitted[3], git_diff_cmd));
+    try std.testing.expect(scriptHas(uncommitted[3], git_name_status));
+    try std.testing.expect(scriptHas(uncommitted[3], git_head));
+    try std.testing.expect(scriptHas(uncommitted[3], git_ls_files_cmd));
+    try std.testing.expect(scriptHas(uncommitted[3], git_ls_files_others));
+    try std.testing.expect(scriptHas(uncommitted[3], git_ls_files_exclude_standard));
+    try std.testing.expect(scriptHas(uncommitted[3], "'?'+[char]9+'{0}'"));
+    try std.testing.expect(!scriptHas(uncommitted[3], "--numstat"));
+    try std.testing.expect(!scriptHas(uncommitted[3], "1048576"));
+    try std.testing.expect(!isGitReviewUncommittedArgv(&.{ powershell_bin, powershell_noprofile, powershell_command }));
+    try std.testing.expect(!isGitReviewUncommittedArgv(&.{
+        powershell_bin,
+        powershell_noprofile,
+        powershell_command,
+        powershell_uncommitted_untracked_script,
+        powershell_args_flag,
+    }));
+    try std.testing.expect(!isGitReviewUncommittedArgv(&.{
+        powershell_bin,
+        powershell_noprofile,
+        powershell_command,
+        "Get-Date",
+        powershell_args_flag,
+        cwd,
+    }));
+    try std.testing.expect(!isGitReviewDiffArgv(&.{
+        windows_git_bin,
+        git_c_flag,
+        cwd,
+        git_diff_cmd,
+        git_name_status,
+        git_head,
+    }));
+    try std.testing.expect(!isGitReviewUncommittedArgv(&.{
+        windows_git_bin,
+        git_c_flag,
+        cwd,
+        git_diff_cmd,
+        git_name_status,
+        git_head,
+    }));
 
     var staged_buf: [argv_len][]const u8 = undefined;
     const staged = windowsArgvForSourceRangeWith(.staged, .origin, "", cwd, &staged_buf);
@@ -1714,11 +1855,43 @@ test "windows git argv is git.exe -C PATH; path is its own slot" {
     try std.testing.expect(isGitReviewHunkArgv(last_turn_hunk));
 
     var untracked_buf: [argv_len_hunk_untracked][]const u8 = undefined;
-    const untracked = argvForUntrackedHunk(cwd, "new file.txt", &untracked_buf);
-    try std.testing.expectEqual(argv_len_hunk_untracked, untracked.len);
-    try std.testing.expectEqualStrings(sh_bin, untracked[0]);
+    const untracked = windowsArgvForUntrackedHunk(cwd, "new file.txt", &untracked_buf);
+    try std.testing.expectEqual(@as(usize, windows_argv_len_hunk_untracked), untracked.len);
+    try std.testing.expect(untracked.len <= 16);
+    try std.testing.expectEqualStrings(windows_git_bin, untracked[0]);
+    try std.testing.expectEqualStrings(git_c_flag, untracked[1]);
+    try std.testing.expectEqualStrings(cwd, untracked[2]);
+    try std.testing.expectEqualStrings(git_diff_cmd, untracked[3]);
+    try std.testing.expectEqualStrings(git_no_index, untracked[4]);
+    try std.testing.expectEqualStrings("--no-index", untracked[4]);
+    try std.testing.expectEqualStrings(git_pathspec_end, untracked[5]);
+    try std.testing.expectEqualStrings(git_nul, untracked[6]);
+    try std.testing.expectEqualStrings("NUL", untracked[6]);
+    try std.testing.expectEqualStrings("new file.txt", untracked[7]);
     try std.testing.expect(isGitReviewHunkArgv(untracked));
     try std.testing.expect(!isGitReviewDiffArgv(untracked));
+    try std.testing.expect(!isGitReviewUncommittedArgv(untracked));
+    try std.testing.expect(std.mem.indexOf(u8, untracked[2], git_no_index) == null);
+    try std.testing.expect(std.mem.indexOf(u8, untracked[2], git_nul) == null);
+    try std.testing.expect(std.mem.indexOf(u8, untracked[2], "new file.txt") == null);
+    try std.testing.expect(!isGitReviewHunkArgv(&.{
+        windows_git_bin,
+        git_c_flag,
+        cwd,
+        git_diff_cmd,
+        git_no_index,
+        git_pathspec_end,
+        git_nul,
+    }));
+    try std.testing.expect(!isGitReviewHunkArgv(&.{
+        windows_git_bin,
+        git_c_flag,
+        cwd,
+        git_diff_cmd,
+        git_name_status,
+        git_head,
+    }));
+    try std.testing.expect(!isGitReviewHunkArgv(uncommitted));
 
     var branch_buf: [git_branch.argv_len][]const u8 = undefined;
     try std.testing.expect(!isGitReviewDiffArgv(git_branch.windowsArgvFor(cwd, &branch_buf)));
@@ -1731,6 +1904,8 @@ test "windows git argv is git.exe -C PATH; path is its own slot" {
     try std.testing.expect(!isGitReviewDiffArgv(git_numstat.windowsArgvFor(cwd, &numstat_buf)));
     try std.testing.expect(!isGitReviewUncommittedArgv(git_numstat.windowsArgvFor(cwd, &numstat_buf)));
     try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
+    try std.testing.expect(!git_numstat.isGitNumstatArgv(uncommitted));
+    try std.testing.expect(!std.mem.eql(u8, uncommitted[3], git_numstat.powershell_untracked_script));
     var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;
     try std.testing.expect(!isGitReviewDiffArgv(git_ahead_behind.windowsArgvFor(cwd, &ahead_buf)));
     try std.testing.expect(!git_ahead_behind.isGitAheadBehindArgv(argv));
@@ -1763,8 +1938,11 @@ test "host argvFor matches the process OS" {
     try std.testing.expect(isGitReviewUncommittedArgv(uncommitted));
     switch (builtin.os.tag) {
         .windows => {
-            try std.testing.expectEqualStrings(git_head, uncommitted[5]);
-            try std.testing.expectEqualStrings(git_name_status, uncommitted[4]);
+            try std.testing.expectEqualStrings(powershell_bin, uncommitted[0]);
+            try std.testing.expectEqualStrings(powershell_noprofile, uncommitted[1]);
+            try std.testing.expectEqualStrings(powershell_command, uncommitted[2]);
+            try std.testing.expectEqualStrings(powershell_uncommitted_untracked_script, uncommitted[3]);
+            try std.testing.expectEqualStrings(powershell_args_flag, uncommitted[4]);
         },
         else => {
             try std.testing.expectEqualStrings(uncommitted_untracked_script, uncommitted[7]);
@@ -1783,6 +1961,24 @@ test "host argvFor matches the process OS" {
             try std.testing.expectEqualStrings(sh_bin, hunk[0]);
             try std.testing.expectEqualStrings(git_pathspec_end, hunk[8]);
             try std.testing.expectEqualStrings("src/a.zig", hunk[9]);
+        },
+    }
+    var untracked_buf: [argv_len_hunk_untracked][]const u8 = undefined;
+    const untracked = argvForUntrackedHunk("/tmp/faku-review", "new file.txt", &untracked_buf);
+    try std.testing.expect(isGitReviewHunkArgv(untracked));
+    try std.testing.expect(!isGitReviewDiffArgv(untracked));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(windows_git_bin, untracked[0]);
+            try std.testing.expectEqualStrings(git_no_index, untracked[4]);
+            try std.testing.expectEqualStrings(git_nul, untracked[6]);
+            try std.testing.expectEqualStrings("new file.txt", untracked[7]);
+        },
+        else => {
+            try std.testing.expectEqualStrings(sh_bin, untracked[0]);
+            try std.testing.expectEqualStrings(git_no_index, untracked[7]);
+            try std.testing.expectEqualStrings(git_dev_null, untracked[9]);
+            try std.testing.expectEqualStrings("new file.txt", untracked[10]);
         },
     }
 }
@@ -2122,10 +2318,6 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     try std.testing.expectEqual(Source.branch, model.review_diff_source);
 }
 
-fn scriptHas(script: []const u8, needle: []const u8) bool {
-    return std.mem.indexOf(u8, script, needle) != null;
-}
-
 fn findSpawnArgv(fx: *Effects, key: u64) ?[]const []const u8 {
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
@@ -2161,8 +2353,10 @@ fn expectUncommittedArgv(argv: []const []const u8) !void {
     switch (builtin.os.tag) {
         .windows => {
             try std.testing.expectEqual(@as(usize, windows_argv_len_uncommitted), argv.len);
-            try std.testing.expectEqualStrings(git_head, argv[5]);
-            try std.testing.expectEqualStrings(git_name_status, argv[4]);
+            try std.testing.expectEqualStrings(powershell_bin, argv[0]);
+            try std.testing.expectEqualStrings(powershell_uncommitted_untracked_script, argv[3]);
+            try std.testing.expectEqualStrings(powershell_args_flag, argv[4]);
+            try std.testing.expect(std.mem.indexOf(u8, argv[3], argv[5]) == null);
         },
         else => {
             try std.testing.expectEqual(argv_len_uncommitted, argv.len);
@@ -2829,8 +3023,8 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
     try std.testing.expect(!isGitReviewHunkArgv(&head_tilde_hunk));
 
     var untracked_buf: [argv_len_hunk_untracked][]const u8 = undefined;
-    const untracked = argvForUntrackedHunk("/tmp/faku-hunk", "new file.txt", &untracked_buf);
-    try std.testing.expectEqual(argv_len_hunk_untracked, untracked.len);
+    const untracked = unixArgvForUntrackedHunk("/tmp/faku-hunk", "new file.txt", &untracked_buf);
+    try std.testing.expectEqual(unix_argv_len_hunk_untracked, untracked.len);
     try std.testing.expectEqual(@as(usize, 11), untracked.len);
     try std.testing.expectEqualStrings(git_bin, untracked[5]);
     try std.testing.expectEqualStrings(git_diff_cmd, untracked[6]);
@@ -2877,7 +3071,7 @@ test "isGitReviewHunkArgv does not match name-status; name-status detector rejec
     try std.testing.expect(!isGitReviewDiffArgv(unstaged_hunk));
 
     var untracked_buf: [argv_len_hunk_untracked][]const u8 = undefined;
-    const untracked = argvForUntrackedHunk("/tmp/faku-hunk", "new file.txt", &untracked_buf);
+    const untracked = unixArgvForUntrackedHunk("/tmp/faku-hunk", "new file.txt", &untracked_buf);
     try std.testing.expect(isGitReviewHunkArgv(untracked));
     try std.testing.expect(!isGitReviewDiffArgv(untracked));
     try std.testing.expect(!isGitReviewUncommittedArgv(untracked));
@@ -2920,8 +3114,8 @@ test "hunk path and -- are own argv slots; space in path stays last-slot" {
 
     var untracked_buf: [argv_len_hunk_untracked][]const u8 = undefined;
     const untracked_path = "new file.txt";
-    const untracked = argvForUntrackedHunk("/tmp/faku hunk", untracked_path, &untracked_buf);
-    try std.testing.expectEqual(argv_len_hunk_untracked, untracked.len);
+    const untracked = unixArgvForUntrackedHunk("/tmp/faku hunk", untracked_path, &untracked_buf);
+    try std.testing.expectEqual(unix_argv_len_hunk_untracked, untracked.len);
     try std.testing.expectEqualStrings(git_no_index, untracked[7]);
     try std.testing.expectEqualStrings(git_pathspec_end, untracked[8]);
     try std.testing.expectEqualStrings(git_dev_null, untracked[9]);
@@ -3048,15 +3242,31 @@ test "clicking a ? untracked row one-shots git diff --no-index" {
     const untracked_argv = findSpawnArgv(&fx, untracked_key) orelse return error.MissingUntrackedHunk;
     try std.testing.expect(isGitReviewHunkArgv(untracked_argv));
     try std.testing.expect(!isGitReviewDiffArgv(untracked_argv));
-    try std.testing.expectEqual(argv_len_hunk_untracked, untracked_argv.len);
-    try std.testing.expectEqualStrings(git_bin, untracked_argv[5]);
-    try std.testing.expectEqualStrings(git_diff_cmd, untracked_argv[6]);
-    try std.testing.expectEqualStrings(git_no_index, untracked_argv[7]);
-    try std.testing.expectEqualStrings(git_pathspec_end, untracked_argv[8]);
-    try std.testing.expectEqualStrings(git_dev_null, untracked_argv[9]);
-    try std.testing.expectEqualStrings("new file.txt", untracked_argv[10]);
-    try std.testing.expect(std.mem.indexOf(u8, untracked_argv[2], "new file.txt") == null);
-    try std.testing.expect(std.mem.indexOf(u8, untracked_argv[2], git_dev_null) == null);
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqual(windows_argv_len_hunk_untracked, untracked_argv.len);
+            try std.testing.expectEqualStrings(windows_git_bin, untracked_argv[0]);
+            try std.testing.expectEqualStrings(git_c_flag, untracked_argv[1]);
+            try std.testing.expectEqualStrings(git_diff_cmd, untracked_argv[3]);
+            try std.testing.expectEqualStrings(git_no_index, untracked_argv[4]);
+            try std.testing.expectEqualStrings(git_pathspec_end, untracked_argv[5]);
+            try std.testing.expectEqualStrings(git_nul, untracked_argv[6]);
+            try std.testing.expectEqualStrings("new file.txt", untracked_argv[7]);
+            try std.testing.expect(std.mem.indexOf(u8, untracked_argv[2], "new file.txt") == null);
+            try std.testing.expect(std.mem.indexOf(u8, untracked_argv[2], git_nul) == null);
+        },
+        else => {
+            try std.testing.expectEqual(unix_argv_len_hunk_untracked, untracked_argv.len);
+            try std.testing.expectEqualStrings(git_bin, untracked_argv[5]);
+            try std.testing.expectEqualStrings(git_diff_cmd, untracked_argv[6]);
+            try std.testing.expectEqualStrings(git_no_index, untracked_argv[7]);
+            try std.testing.expectEqualStrings(git_pathspec_end, untracked_argv[8]);
+            try std.testing.expectEqualStrings(git_dev_null, untracked_argv[9]);
+            try std.testing.expectEqualStrings("new file.txt", untracked_argv[10]);
+            try std.testing.expect(std.mem.indexOf(u8, untracked_argv[2], "new file.txt") == null);
+            try std.testing.expect(std.mem.indexOf(u8, untracked_argv[2], git_dev_null) == null);
+        },
+    }
 
     applyHunkLine(&model, .{ .key = untracked_key, .line = "diff --git a/new file.txt b/new file.txt\n+hello\n" });
     handleHunkExit(&model, &fx, .{ .key = untracked_key, .reason = .exited, .code = 1 });
