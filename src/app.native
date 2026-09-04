@@ -680,6 +680,17 @@
             <if test="{git_worktree_create_active}">
               <row gap="8" cross="center">
                 <text-field grow="1" placeholder="New worktree name" text="{git_worktree_create}" on-input="git_worktree_create_edit" autofocus="true" />
+                <text wrap="false" overflow="ellipsis" foreground="text_muted">{git_worktree_base_label}</text>
+                <stack>
+                  <button variant="ghost" size="sm" on-press="toggle_git_worktree_base_picker">Base</button>
+                  <if test="{git_worktree_base_picker_open}">
+                    <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_git_worktree_base_picker">
+                      <for each="git_worktree_base_rows" key="row_id" as="w">
+                        <menu-item selected="{w.selected}" on-press="pick_git_worktree_base:{w.id}">{w.label}</menu-item>
+                      </for>
+                    </dropdown-menu>
+                  </if>
+                </stack>
                 <button variant="ghost" size="sm" on-press="confirm_git_worktree_create">Create</button>
                 <button variant="ghost" size="sm" on-press="cancel_git_worktree_create">Cancel</button>
               </row>

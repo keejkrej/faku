@@ -73,6 +73,10 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
         git_checkout.closeDeletePicker(model);
         return;
     }
+    if (model.git_worktree_base_picker_open) {
+        git_checkout.closeWorktreeBasePicker(model);
+        return;
+    }
     if (model.git_branch_create_active) {
         git_checkout.closeCreate(model);
         return;
@@ -458,6 +462,14 @@ pub fn handleConfirmGitWorktreeCreate(model: *Model, fx: *Effects) void {
 
 pub fn handleCancelGitWorktreeCreate(model: *Model, fx: *Effects) void {
     git_checkout.dismissWorktreeCreate(model, fx);
+}
+
+pub fn handleToggleGitWorktreeBasePicker(model: *Model) void {
+    git_checkout.toggleWorktreeBasePicker(model);
+}
+
+pub fn handlePickGitWorktreeBase(model: *Model, name: []const u8) void {
+    git_checkout.pickWorktreeBaseName(model, name);
 }
 
 pub fn handleStartGitCommit(model: *Model, fx: *Effects) void {

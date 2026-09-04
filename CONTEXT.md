@@ -290,8 +290,12 @@ one-shot `git` spawns. Runtime-only labels are not stored on
 watch, not `{project_id}` UUID nesting. First-cut composer Force
 push ships (runtime-only ghost toggle on Push… confirm and
 Commit…; default off; reset when those cards open; not persisted;
-`--force` its own argv slot after `push`). Leftovers: prune-alone /
-daemon `WorkspaceOperation`.
+`--force` its own argv slot after `push`). New worktree… first-cut
+Base picker ships (listed unoccupied local heads; runtime-only
+override; default still today's origin/HEAD probe then composer
+branch label then omit/HEAD). Leftovers: defer-until-Send workspace
+mode / stash / merge / daemon `WorkspaceOperation`. Fetch already
+`--prune`; there is no prune-alone menu (not in Waku).
 Windows probes, checkout / push / worktree, and commit mutations (add / cached-quiet / commit /
 amend / CommitSnapshot tracked-cached) use `git.exe -C <project_path>`;
 New worktree…, git_numstat untracked rows, empty-message `fx ask` generate, and

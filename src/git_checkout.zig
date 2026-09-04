@@ -51,7 +51,14 @@
 //! Push honor the same Force toggle. Detached HEAD or no remotes
 //! set a short composer status and do not spawn a push. New worktree… prefills the runtime-only card
 //! from a prompt slug of the selected session title (empty /
-//! non-ascii-only → `new-worktree`; user can still edit). Confirm
+//! non-ascii-only → `new-worktree`; user can still edit). A first-cut
+//! ghost Base control on that card picks a listed unoccupied local
+//! head as the worktree start-point (runtime-only override; not
+//! persisted; remotes and occupied locals are omitted, same refusal
+//! as checkout/delete; reset when the card opens or is cancelled).
+//! Confirm uses that override as the trailing `git worktree add -b
+//! … <path> <base>` argv slot when it is non-empty (own slot; skip
+//! the origin/HEAD probe). When the override is empty, confirm
 //! probes `git symbolic-ref --quiet --short refs/remotes/origin/HEAD`
 //! (chdir script; no interpolation; key band 390+) then one-shots
 //! `git worktree add -b faku/<name> <path>` with that default base
@@ -88,12 +95,12 @@
 //! remote-tracking names that have no local counterpart (skip
 //! symbolic `*/HEAD`), sorted lexicographically. Not Waku's daemon
 //! `InspectBranches` picker, live watch, `waku/` prefix /
-//! `~/.waku/worktrees/{project_id}` UUID nest, defer-until-Send
-//! workspace mode, base-ref picker UI, prune-alone, stash, merge,
-//! or Environment Summary. Composer Push… still
+//! `~/.waku/worktrees/{project_id}` UUID nest. Composer Push… still
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
-//! Leftovers: prune-alone / daemon `WorkspaceOperation`.
+//! Leftovers: defer-until-Send workspace mode / stash / merge /
+//! daemon `WorkspaceOperation`. Fetch already `--prune`; there is
+//! no prune-alone menu (not in Waku).
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
@@ -260,6 +267,9 @@ pub const git_origin_head_ref = "refs/remotes/origin/HEAD";
 pub const worktree_branch_prefix = "faku/";
 pub const worktree_parent_suffix = ".faku/worktrees";
 pub const worktree_slug_default = "new-worktree";
+/// Honest New worktree… Base label when no override and no
+/// resolved / composer branch is available (detached / empty).
+pub const worktree_base_fallback_label = "HEAD";
 pub const max_worktree_slug_bytes: usize = 48;
 pub const max_worktree_slug_words: usize = 6;
 /// Native one-shot cap: `slug`, `slug-2`, … `slug-8`. Not Waku's
@@ -1802,6 +1812,20 @@ fn isListedNonCurrent(model: *const Model, name: []const u8) bool {
     return false;
 }
 
+/// Listed unoccupied local head. Remotes and occupied locals are
+/// omitted so a Base pick matches checkout/delete refusal. Current
+/// is allowed (unlike delete).
+fn isListedLocalUnoccupied(model: *const Model, name: []const u8) bool {
+    if (!git_branch.isPlausibleBranchName(name)) return false;
+    var i: usize = 0;
+    while (i < model.git_branch_list_count) : (i += 1) {
+        if (listedBranchIsRemote(model, i)) continue;
+        if (listedBranchIsOccupied(model, i)) continue;
+        if (std.mem.eql(u8, listedBranch(model, i), name)) return true;
+    }
+    return false;
+}
+
 pub fn clearListedBranches(model: *Model) void {
     model.git_branch_list_count = 0;
 }
@@ -1818,6 +1842,8 @@ pub fn closeCreate(model: *Model) void {
 pub fn closeWorktreeCreate(model: *Model) void {
     model.git_worktree_create_active = false;
     model.git_worktree_create_buffer.clear();
+    model.git_worktree_base_picker_open = false;
+    model.git_worktree_base_override_len = 0;
 }
 
 fn closeCommitCard(model: *Model) void {
@@ -1884,8 +1910,9 @@ pub fn startCreate(model: *Model) void {
 
 /// Dismiss the select list and open the runtime-only New worktree…
 /// card. Prefills a prompt slug from the selected session title
-/// (`new-worktree` when that slugs empty). Draft name is not
-/// persisted; the user can still edit.
+/// (`new-worktree` when that slugs empty). Draft name and Base
+/// override are not persisted; the user can still edit. Resets the
+/// runtime-only base override and closes the Base picker.
 pub fn startWorktreeCreate(model: *Model) void {
     closePicker(model);
     closeCreate(model);
@@ -1919,6 +1946,27 @@ pub fn startDelete(model: *Model) void {
 
 pub fn closeDeletePicker(model: *Model) void {
     model.git_branch_delete_picker_open = false;
+}
+
+pub fn closeWorktreeBasePicker(model: *Model) void {
+    model.git_worktree_base_picker_open = false;
+}
+
+pub fn toggleWorktreeBasePicker(model: *Model) void {
+    if (!model.git_worktree_create_active) {
+        model.git_worktree_base_picker_open = false;
+        return;
+    }
+    model.git_worktree_base_picker_open = !model.git_worktree_base_picker_open;
+}
+
+/// Remember a listed unoccupied local head as the New worktree…
+/// base override. Does not spawn. Remotes and occupied names are
+/// refused. Not persisted.
+pub fn pickWorktreeBaseName(model: *Model, name: []const u8) void {
+    model.git_worktree_base_picker_open = false;
+    if (!isListedLocalUnoccupied(model, name)) return;
+    writeFixed(&model.git_worktree_base_override_storage, &model.git_worktree_base_override_len, name);
 }
 
 pub fn toggleDeletePicker(model: *Model) void {
@@ -2704,8 +2752,32 @@ pub fn handlePushExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) 
     }
 }
 
+pub fn gitWorktreeBaseOverride(model: *const Model) []const u8 {
+    return model.git_worktree_base_override_storage[0..model.git_worktree_base_override_len];
+}
+
 fn gitWorktreeBase(model: *const Model) []const u8 {
     return model.git_worktree_base_storage[0..model.git_worktree_base_len];
+}
+
+/// Trailing `git worktree add` base: override wins when non-empty,
+/// else the origin/HEAD probe result (or composer-label fallback).
+fn gitWorktreeAddBase(model: *const Model) []const u8 {
+    const override = gitWorktreeBaseOverride(model);
+    if (override.len > 0) return override;
+    return gitWorktreeBase(model);
+}
+
+/// Effective Base label on the New worktree… card. Override if set,
+/// else resolved origin/HEAD / composer-label fallback already stored
+/// on confirm, else the current composer branch, else `HEAD`.
+pub fn gitWorktreeBaseLabel(model: *const Model) []const u8 {
+    const override = gitWorktreeBaseOverride(model);
+    if (override.len > 0) return override;
+    const resolved = gitWorktreeBase(model);
+    if (resolved.len > 0) return resolved;
+    if (pushBranchFromLabel(git_branch.gitBranchLabel(model))) |branch| return branch;
+    return worktree_base_fallback_label;
 }
 
 fn gitWorktreeAddSlug(model: *const Model) []const u8 {
@@ -2762,7 +2834,7 @@ fn spawnWorktreeAdd(model: *Model, fx: *Effects) void {
     const slash = std.mem.lastIndexOfScalar(u8, stored_dest, '/') orelse return;
     const stored_parent = stored_dest[0..slash];
     var argv_buf: [worktree_add_argv_len][]const u8 = undefined;
-    const argv = worktreeAddArgvFor(stored_cwd, stored_parent, stored_branch, stored_dest, gitWorktreeBase(model), &argv_buf) orelse return;
+    const argv = worktreeAddArgvFor(stored_cwd, stored_parent, stored_branch, stored_dest, gitWorktreeAddBase(model), &argv_buf) orelse return;
 
     const key = model.next_git_worktree_add_key;
     model.next_git_worktree_add_key = key + 1;
@@ -2775,8 +2847,10 @@ fn spawnWorktreeAdd(model: *Model, fx: *Effects) void {
     });
 }
 
-/// Confirm the New worktree… card: a safe name probes
-/// `refs/remotes/origin/HEAD` then one-shots
+/// Confirm the New worktree… card: a non-empty Base override skips
+/// the origin/HEAD probe and one-shots `git worktree add -b
+/// faku/<name> <path> <override>`. When the override is empty, a
+/// safe name probes `refs/remotes/origin/HEAD` then one-shots
 /// `mkdir -p ~/.faku/worktrees/<nest>` plus
 /// `git worktree add -b faku/<name> <path> [base]`. Occupied dest
 /// or listed `faku/<name>` walks Waku candidates (`slug` …
@@ -2811,6 +2885,11 @@ pub fn confirmWorktreeAdd(model: *Model, fx: *Effects) void {
     const stored_dest = model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len];
     if (!std.mem.startsWith(u8, stored_dest, parent)) return;
     if (stored_dest.len <= parent.len or stored_dest[parent.len] != '/') return;
+
+    if (gitWorktreeBaseOverride(model).len > 0) {
+        spawnWorktreeAdd(model, fx);
+        return;
+    }
 
     const key = model.next_git_worktree_base_key;
     model.next_git_worktree_base_key = key + 1;
@@ -3826,6 +3905,169 @@ test "startWorktreeCreate prefills a prompt slug from the session title" {
     model.selected = non_ascii;
     startWorktreeCreate(&model);
     try std.testing.expectEqualStrings("new-worktree", model.git_worktree_create());
+}
+
+test "startWorktreeCreate and cancel reset the Base override and picker" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("worktree base", .fx);
+    model.selected = id;
+    model.git_branch_list_store[0].set("main", false, false);
+    model.git_branch_list_store[1].set("feat", false, false);
+    model.git_branch_list_count = 2;
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+
+    startWorktreeCreate(&model);
+    try std.testing.expect(model.git_worktree_create_active);
+    try std.testing.expect(!model.git_worktree_base_picker_open);
+    try std.testing.expectEqual(@as(usize, 0), model.git_worktree_base_override_len);
+    try std.testing.expectEqualStrings("main", gitWorktreeBaseLabel(&model));
+
+    toggleWorktreeBasePicker(&model);
+    try std.testing.expect(model.git_worktree_base_picker_open);
+    pickWorktreeBaseName(&model, "feat");
+    try std.testing.expect(!model.git_worktree_base_picker_open);
+    try std.testing.expectEqualStrings("feat", gitWorktreeBaseOverride(&model));
+    try std.testing.expectEqualStrings("feat", gitWorktreeBaseLabel(&model));
+
+    startWorktreeCreate(&model);
+    try std.testing.expectEqual(@as(usize, 0), model.git_worktree_base_override_len);
+    try std.testing.expect(!model.git_worktree_base_picker_open);
+    try std.testing.expectEqualStrings("main", gitWorktreeBaseLabel(&model));
+
+    pickWorktreeBaseName(&model, "feat");
+    try std.testing.expectEqualStrings("feat", gitWorktreeBaseOverride(&model));
+    dismissWorktreeCreate(&model, &fx);
+    try std.testing.expect(!model.git_worktree_create_active);
+    try std.testing.expectEqual(@as(usize, 0), model.git_worktree_base_override_len);
+    try std.testing.expect(!model.git_worktree_base_picker_open);
+}
+
+test "pickWorktreeBaseName keeps listed locals and refuses remotes and occupied" {
+    var model = Model{};
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    model.git_branch_list_store[0].set("main", false, false);
+    model.git_branch_list_store[1].set("feat", false, false);
+    model.git_branch_list_store[2].set("busy", false, true);
+    model.git_branch_list_store[3].set("origin/main", true, false);
+    model.git_branch_list_count = 4;
+    model.git_worktree_create_active = true;
+
+    pickWorktreeBaseName(&model, "origin/main");
+    try std.testing.expectEqual(@as(usize, 0), model.git_worktree_base_override_len);
+    pickWorktreeBaseName(&model, "busy");
+    try std.testing.expectEqual(@as(usize, 0), model.git_worktree_base_override_len);
+    pickWorktreeBaseName(&model, "not-listed");
+    try std.testing.expectEqual(@as(usize, 0), model.git_worktree_base_override_len);
+
+    model.git_worktree_base_picker_open = true;
+    pickWorktreeBaseName(&model, "main");
+    try std.testing.expect(!model.git_worktree_base_picker_open);
+    try std.testing.expectEqualStrings("main", gitWorktreeBaseOverride(&model));
+    pickWorktreeBaseName(&model, "feat");
+    try std.testing.expectEqualStrings("feat", gitWorktreeBaseOverride(&model));
+}
+
+test "gitWorktreeBaseLabel prefers override then resolved then branch then HEAD" {
+    var model = Model{};
+    try std.testing.expectEqualStrings(worktree_base_fallback_label, gitWorktreeBaseLabel(&model));
+
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "a1b2c3d");
+    try std.testing.expectEqualStrings(worktree_base_fallback_label, gitWorktreeBaseLabel(&model));
+
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "develop");
+    try std.testing.expectEqualStrings("develop", gitWorktreeBaseLabel(&model));
+
+    writeFixed(&model.git_worktree_base_storage, &model.git_worktree_base_len, "main");
+    try std.testing.expectEqualStrings("main", gitWorktreeBaseLabel(&model));
+
+    writeFixed(&model.git_worktree_base_override_storage, &model.git_worktree_base_override_len, "feat");
+    try std.testing.expectEqualStrings("feat", gitWorktreeBaseLabel(&model));
+}
+
+test "confirmWorktreeAdd override skips origin/HEAD probe and wins the add argv" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-wt-base", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var home_buf: [256]u8 = undefined;
+    const home = try std.fmt.bufPrint(&home_buf, "/tmp/faku-wt-base-{s}", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, home);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setHome(home);
+    const id = model.addSession("worktree base override", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    model.git_branch_list_store[0].set("main", false, false);
+    model.git_branch_list_store[1].set("feat", false, false);
+    model.git_branch_list_count = 2;
+
+    startWorktreeCreate(&model);
+    model.git_worktree_create_buffer.clear();
+    model.git_worktree_create_buffer.apply(.{ .insert_text = "feat-new" });
+    writeFixed(&model.git_worktree_base_storage, &model.git_worktree_base_len, "main");
+    pickWorktreeBaseName(&model, "feat");
+    try std.testing.expectEqualStrings("feat", gitWorktreeBaseOverride(&model));
+
+    confirmWorktreeAdd(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.git_worktree_base_key);
+    try std.testing.expect(model.git_worktree_add_key >= git_worktree_add_key_first);
+    const spawned = pendingSpawnKey(&fx, model.git_worktree_add_key) orelse return error.MissingGitWorktreeAddOverride;
+    try std.testing.expect(isGitWorktreeAddArgv(spawned.argv));
+    try std.testing.expectEqualStrings("feat", spawned.argv[spawned.argv.len - 1]);
+    try std.testing.expect(!isGitWorktreeBaseArgv(spawned.argv));
+    if (std.mem.eql(u8, spawned.argv[0], sh_bin)) {
+        try std.testing.expectEqual(@as(usize, unix_worktree_add_argv_len), spawned.argv.len);
+        try std.testing.expect(std.mem.indexOf(u8, spawned.argv[2], "feat") == null);
+    } else {
+        try std.testing.expectEqual(@as(usize, windows_worktree_add_argv_len), spawned.argv.len);
+        try std.testing.expect(std.mem.indexOf(u8, spawned.argv[3], "feat") == null);
+    }
+}
+
+test "confirmWorktreeAdd with empty override still probes origin/HEAD" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-wt-base-auto", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var home_buf: [256]u8 = undefined;
+    const home = try std.fmt.bufPrint(&home_buf, "/tmp/faku-wt-base-auto-{s}", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, home);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setHome(home);
+    const id = model.addSession("worktree base auto", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+
+    startWorktreeCreate(&model);
+    model.git_worktree_create_buffer.clear();
+    model.git_worktree_create_buffer.apply(.{ .insert_text = "feat-auto" });
+    try std.testing.expectEqual(@as(usize, 0), model.git_worktree_base_override_len);
+    confirmWorktreeAdd(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    try std.testing.expect(model.git_worktree_base_key >= git_worktree_base_key_first);
+    const probe = pendingSpawnKey(&fx, model.git_worktree_base_key) orelse return error.MissingGitWorktreeBaseProbe;
+    try std.testing.expect(isGitWorktreeBaseArgv(probe.argv));
+    try std.testing.expect(!isGitWorktreeAddArgv(probe.argv));
 }
 
 test "set-upstream push argv keeps flag, remote, and branch as their own slots" {
