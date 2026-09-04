@@ -13,8 +13,8 @@
 //! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
 //! `git.exe -C <project_path>` (path is its own argv slot, not
 //! interpolated into a script). app.zon already includes windows.
-//! Remaining git modules (toplevel, common_dir, checkout/commit)
-//! still skip Windows this cut.
+//! Remaining git modules (common_dir, checkout/commit) still skip
+//! Windows this cut.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_branch_key_first` (200+).

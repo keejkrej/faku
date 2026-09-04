@@ -24,8 +24,8 @@
 //! stdout is the same on Windows; CRLF is already trimmed in the line
 //! helpers. Untracked synthetic rows stay Unix-only this cut — no
 //! PowerShell untracked path. app.zon already includes windows.
-//! Remaining git modules (toplevel, common_dir, checkout/commit)
-//! still skip Windows this cut. Windows numstat is tracked-only.
+//! Remaining git modules (common_dir, checkout/commit) still skip
+//! Windows this cut. Windows numstat is tracked-only.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_numstat_key_first` (350+).
