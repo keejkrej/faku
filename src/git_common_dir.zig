@@ -3,26 +3,37 @@
 //!
 //! Native has no git/workspace effect. When the selected session has a
 //! non-empty `project_path` that exists, Faku `fx.spawn`s
-//! `git rev-parse --git-common-dir` through the same `/bin/sh -c`
-//! chdir workaround `fx ask` uses (`fx_ask_chdir_script`). Every
-//! flag and operand is its own argv slot — never interpolated into
-//! the `-c` script. Reuses `git_checkout.git_bin` / `sh_bin`. Git
-//! often prints a relative path such as `.git`; that is resolved to
-//! an absolute path against the ready `--show-toplevel` root when
-//! that probe finished, else the probe cwd, before it is stored. A
-//! ready bit plus that absolute path let New worktree… nest under a
+//! `git rev-parse --git-common-dir`. Every flag and operand is its own
+//! argv slot — never interpolated into a script. Reuses
+//! `git_checkout.git_bin` / `sh_bin` on Unix. Git often prints a
+//! relative path such as `.git`; that is resolved to an absolute path
+//! against the ready `--show-toplevel` root when that probe finished,
+//! else the probe cwd, before it is stored. Absolute means Unix `/…`
+//! or a Windows drive-letter path (`X:\…` / `X:/…`); stored results
+//! normalize `\` to `/` so nest FNV identity matches across separators.
+//! A ready bit plus that absolute path let New worktree… nest under a
 //! shared FNV so linked worktrees of the same repo share
-//! `~/.faku/worktrees/<nest>/`. Occupancy stays on
-//! `git_toplevel.zig` (`worktreepath` equal to ready show-toplevel).
-//! Failed / empty / cancel leave ready false and the path empty so
-//! nest falls back to ready show-toplevel, then today's
-//! `project_path` heuristic. Distinct spawn-key band (500+); does
-//! not share toplevel (490+). Runtime-only (not `sessions.json`).
-//! Not a live watch, not an invented Native git effect, and not
-//! occupancy.
+//! `~/.faku/worktrees/<nest>/`.
+//! Occupancy stays on `git_toplevel.zig` (`worktreepath` equal to
+//! ready show-toplevel). Failed / empty / cancel leave ready false
+//! and the path empty so nest falls back to ready show-toplevel, then
+//! today's `project_path` heuristic. Distinct spawn-key band (500+);
+//! does not share toplevel (490+). Runtime-only (not
+//! `sessions.json`). Not a live watch, not an invented Native git
+//! effect, and not occupancy.
 //!
-//! Spawn/line/exit orchestration lives here. Windows is skipped
-//! (app.zon is macos/linux; no Windows spawn path).
+//! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
+//! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
+//! `git.exe -C <project_path> rev-parse --git-common-dir` (path is
+//! its own argv slot, not interpolated into a script). Common-dir
+//! stdout is the same on Windows; CRLF is already trimmed in the
+//! line helpers. Relative `.git` joins a Unix or Windows
+//! drive-letter absolute base. app.zon already includes windows.
+//! Remaining git modules (checkout/commit) still skip Windows this
+//! cut. Windows numstat untracked rows stay Unix-only.
+//!
+//! Spawn/line/exit orchestration lives here. Effect key stays
+//! `git_common_dir_key_first` (500+).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -41,31 +52,80 @@ const writeFixed = main.writeFixed;
 /// cancelled spawn cannot paint a later session.
 pub const git_common_dir_key_first: u64 = 500;
 
+pub const git_bin = git_checkout.git_bin;
+/// PATH-resolved Windows Git (explicit `.exe` like sibling
+/// `powershell.exe` / `explorer.exe` / `wt.exe` / `cmd.exe`).
+pub const windows_git_bin = git_toplevel.windows_git_bin;
+pub const git_c_flag = git_toplevel.git_c_flag;
+pub const sh_bin = git_checkout.sh_bin;
 pub const git_common_dir_flag = "--git-common-dir";
-pub const argv_len: usize = 8;
 
-pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+/// Unix `/bin/sh -c` chdir + git rev-parse --git-common-dir (8).
+/// Windows `git.exe -C` is 5; this is the spawn buffer (max of the two).
+pub const argv_len: usize = 8;
+pub const unix_argv_len: usize = 8;
+pub const windows_argv_len: usize = 5;
+
+/// Unix: same 8-slot chdir script + `git rev-parse --git-common-dir`.
+pub fn unixArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
     buf.* = .{
-        git_checkout.sh_bin,
+        sh_bin,
         "-c",
         main.fx_ask_chdir_script,
         "sh",
         cwd,
-        git_checkout.git_bin,
+        git_bin,
         git_checkout.git_rev_parse_cmd,
         git_common_dir_flag,
     };
-    return buf;
+    return buf[0..unix_argv_len];
+}
+
+/// Windows: `git.exe -C <project_path> rev-parse --git-common-dir`.
+/// Path is its own argv slot (no `/bin/sh`, no packing into a cmd
+/// string).
+pub fn windowsArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_checkout.git_rev_parse_cmd;
+    buf[4] = git_common_dir_flag;
+    return buf[0..windows_argv_len];
+}
+
+pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsArgvFor(cwd, buf),
+        else => unixArgvFor(cwd, buf),
+    };
+}
+
+fn isUnixGitCommonDirArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], "-c")) return false;
+    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
+    if (!std.mem.eql(u8, argv[5], git_bin)) return false;
+    if (!std.mem.eql(u8, argv[6], git_checkout.git_rev_parse_cmd)) return false;
+    return std.mem.eql(u8, argv[7], git_common_dir_flag);
+}
+
+fn isWindowsGitCommonDirArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_argv_len) return false;
+    const bin_ok = std.mem.eql(u8, argv[0], windows_git_bin) or std.mem.eql(u8, argv[0], git_bin);
+    if (!bin_ok) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_checkout.git_rev_parse_cmd)) return false;
+    return std.mem.eql(u8, argv[4], git_common_dir_flag);
 }
 
 pub fn isGitCommonDirArgv(argv: []const []const u8) bool {
-    if (argv.len != argv_len) return false;
-    if (!std.mem.eql(u8, argv[0], git_checkout.sh_bin)) return false;
-    if (!std.mem.eql(u8, argv[1], "-c")) return false;
-    if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
-    if (!std.mem.eql(u8, argv[5], git_checkout.git_bin)) return false;
-    if (!std.mem.eql(u8, argv[6], git_checkout.git_rev_parse_cmd)) return false;
-    return std.mem.eql(u8, argv[7], git_common_dir_flag);
+    return isUnixGitCommonDirArgv(argv) or isWindowsGitCommonDirArgv(argv);
+}
+
+pub fn probeSupported() bool {
+    return true;
 }
 
 /// First stdout line, trimmed. Empty / whitespace is not a path.
@@ -88,28 +148,51 @@ pub fn parseCommonDirLine(raw: []const u8) []const u8 {
     return line;
 }
 
+/// Unix `/…` or Windows drive-letter absolute (`X:\…` / `X:/…`).
+/// Letter is case-insensitive. Not UNC.
+pub fn isAbsoluteCommonDir(path: []const u8) bool {
+    if (path.len == 0) return false;
+    if (path[0] == '/') return true;
+    if (path.len < 3) return false;
+    if (!std.ascii.isAlphabetic(path[0])) return false;
+    if (path[1] != ':') return false;
+    return path[2] == '/' or path[2] == '\\';
+}
+
+fn slashNormalizeInPlace(path: []u8) void {
+    for (path) |*ch| {
+        if (ch.* == '\\') ch.* = '/';
+    }
+}
+
 /// Resolve a parsed common-dir print to an absolute path. Absolute
-/// prints are kept. Relative prints join `base` (ready toplevel or
-/// probe cwd). Empty / `..` / NUL / missing absolute base /
-/// overflow → empty.
+/// prints (Unix `/…` or Windows `X:\…` / `X:/…`) are kept. Relative
+/// prints join `base` (ready toplevel or probe cwd) when that base is
+/// also Unix or Windows drive-letter absolute. Stored results
+/// normalize `\` to `/` so nest FNV matches across separators. Empty /
+/// `..` / NUL / missing absolute base / overflow → empty.
 pub fn resolveCommonDir(raw: []const u8, base: []const u8, buf: []u8) []const u8 {
     const line = parseCommonDirLine(raw);
     if (line.len == 0) return "";
-    if (line[0] == '/') {
+    if (isAbsoluteCommonDir(line)) {
         if (line.len > buf.len) return "";
         @memcpy(buf[0..line.len], line);
+        slashNormalizeInPlace(buf[0..line.len]);
         return buf[0..line.len];
     }
     const root = std.mem.trim(u8, base, " \t\r\n");
-    if (root.len == 0 or root[0] != '/') return "";
+    if (root.len == 0 or !isAbsoluteCommonDir(root)) return "";
     if (std.mem.indexOf(u8, root, "..") != null) return "";
     if (std.mem.indexOfScalar(u8, root, 0) != null) return "";
-    const sep: []const u8 = if (root[root.len - 1] == '/') "" else "/";
-    const needed = root.len + sep.len + line.len;
+    const last = root[root.len - 1];
+    const need_sep = last != '/' and last != '\\';
+    const sep_len: usize = if (need_sep) 1 else 0;
+    const needed = root.len + sep_len + line.len;
     if (needed > buf.len or needed > main.max_project_path) return "";
     @memcpy(buf[0..root.len], root);
-    if (sep.len == 1) buf[root.len] = '/';
-    @memcpy(buf[root.len + sep.len ..][0..line.len], line);
+    if (need_sep) buf[root.len] = '/';
+    @memcpy(buf[root.len + sep_len ..][0..line.len], line);
+    slashNormalizeInPlace(buf[0..needed]);
     return buf[0..needed];
 }
 
@@ -159,11 +242,11 @@ fn storeResolved(model: *Model, raw: []const u8) void {
 
 /// Cancel any in-flight probe, drop ready/path, and spawn again when
 /// the selected session has an existing `project_path`. Empty /
-/// missing / Windows skips the spawn so consumers keep the fallback.
+/// missing skips the spawn so consumers keep the fallback.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     clearGitCommonDir(model);
-    if (builtin.os.tag == .windows) return;
+    if (!probeSupported()) return;
     const cwd = probePath(model);
     if (cwd.len == 0) return;
 
@@ -205,7 +288,7 @@ pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
         return;
     }
     const stored = gitCommonDirPath(model);
-    if (parseCommonDirLine(stored).len == 0 or stored[0] != '/') {
+    if (parseCommonDirLine(stored).len == 0 or !isAbsoluteCommonDir(stored)) {
         clearGitCommonDir(model);
         return;
     }
@@ -215,22 +298,22 @@ pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
 test "argv is chdir script plus git rev-parse --git-common-dir as own slots" {
     const git_remotes = @import("git_remotes.zig");
     var buf: [argv_len][]const u8 = undefined;
-    const argv = argvFor("/tmp/faku-common-dir", &buf);
-    try std.testing.expectEqual(@as(usize, 8), argv.len);
-    try std.testing.expectEqualStrings(git_checkout.sh_bin, argv[0]);
+    const argv = unixArgvFor("/tmp/faku-common-dir", &buf);
+    try std.testing.expectEqual(@as(usize, unix_argv_len), argv.len);
+    try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-common-dir", argv[4]);
-    try std.testing.expectEqualStrings(git_checkout.git_bin, argv[5]);
+    try std.testing.expectEqualStrings(git_bin, argv[5]);
     try std.testing.expectEqualStrings(git_checkout.git_rev_parse_cmd, argv[6]);
     try std.testing.expectEqualStrings(git_common_dir_flag, argv[7]);
     try std.testing.expect(isGitCommonDirArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_checkout.git_rev_parse_cmd) == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_common_dir_flag) == null);
-    try std.testing.expect(!isGitCommonDirArgv(&.{ git_checkout.git_bin, git_checkout.git_rev_parse_cmd, git_common_dir_flag }));
+    try std.testing.expect(!isGitCommonDirArgv(&.{ git_bin, git_checkout.git_rev_parse_cmd, git_common_dir_flag }));
     var remotes_buf: [git_remotes.argv_len][]const u8 = undefined;
-    const remotes = git_remotes.argvFor("/tmp/faku-common-dir", &remotes_buf);
+    const remotes = git_remotes.unixArgvFor("/tmp/faku-common-dir", &remotes_buf);
     try std.testing.expect(!isGitCommonDirArgv(remotes));
     try std.testing.expect(!git_remotes.isGitRemotesArgv(argv));
     var top_buf: [git_toplevel.argv_len][]const u8 = undefined;
@@ -240,6 +323,84 @@ test "argv is chdir script plus git rev-parse --git-common-dir as own slots" {
     try std.testing.expect(git_common_dir_key_first >= 500);
     try std.testing.expect(git_common_dir_key_first > git_toplevel.git_toplevel_key_first);
     try std.testing.expect(git_toplevel.git_toplevel_key_first >= 490);
+}
+
+test "windows git argv is git.exe -C PATH rev-parse --git-common-dir; path is its own slot" {
+    const git_branch = @import("git_branch.zig");
+    const git_dirty = @import("git_dirty.zig");
+    const git_ahead_behind = @import("git_ahead_behind.zig");
+    const git_numstat = @import("git_numstat.zig");
+    const git_remotes = @import("git_remotes.zig");
+    const file_mention = @import("file_mention.zig");
+    var buf: [argv_len][]const u8 = undefined;
+    const cwd = "C:\\Users\\me\\proj";
+    const argv = windowsArgvFor(cwd, &buf);
+    try std.testing.expectEqual(@as(usize, windows_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+    try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+    try std.testing.expectEqualStrings(cwd, argv[2]);
+    try std.testing.expectEqualStrings(git_checkout.git_rev_parse_cmd, argv[3]);
+    try std.testing.expectEqualStrings(git_common_dir_flag, argv[4]);
+    try std.testing.expect(isGitCommonDirArgv(argv));
+    try std.testing.expect(!std.mem.eql(u8, argv[0], sh_bin));
+    try std.testing.expect(!isGitCommonDirArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    try std.testing.expect(!isGitCommonDirArgv(&.{
+        windows_git_bin,
+        git_c_flag,
+        cwd,
+        git_checkout.git_rev_parse_cmd,
+    }));
+    var git_only: [argv_len][]const u8 = undefined;
+    git_only[0] = git_bin;
+    git_only[1] = git_c_flag;
+    git_only[2] = cwd;
+    git_only[3] = git_checkout.git_rev_parse_cmd;
+    git_only[4] = git_common_dir_flag;
+    try std.testing.expect(isGitCommonDirArgv(git_only[0..windows_argv_len]));
+    var top_buf: [git_toplevel.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitCommonDirArgv(git_toplevel.windowsArgvFor(cwd, &top_buf)));
+    try std.testing.expect(!git_toplevel.isGitToplevelArgv(argv));
+    var remotes_buf: [git_remotes.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitCommonDirArgv(git_remotes.windowsArgvFor(cwd, &remotes_buf)));
+    try std.testing.expect(!git_remotes.isGitRemotesArgv(argv));
+    var branch_buf: [git_branch.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitCommonDirArgv(git_branch.windowsArgvFor(cwd, &branch_buf)));
+    try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    var dirty_buf: [git_dirty.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitCommonDirArgv(git_dirty.windowsArgvFor(cwd, &dirty_buf)));
+    try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
+    var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitCommonDirArgv(git_ahead_behind.windowsArgvFor(cwd, &ahead_buf)));
+    try std.testing.expect(!git_ahead_behind.isGitAheadBehindArgv(argv));
+    var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitCommonDirArgv(git_numstat.windowsArgvFor(cwd, &numstat_buf)));
+    try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
+    var mention_buf: [file_mention.git_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitCommonDirArgv(file_mention.windowsArgvFor(cwd, &mention_buf)));
+    try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
+}
+
+test "host argvFor matches the process OS" {
+    var buf: [argv_len][]const u8 = undefined;
+    const argv = argvFor("/tmp/faku-common-dir", &buf);
+    try std.testing.expect(isGitCommonDirArgv(argv));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+            try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+            try std.testing.expectEqualStrings(git_checkout.git_rev_parse_cmd, argv[3]);
+            try std.testing.expectEqualStrings(git_common_dir_flag, argv[4]);
+        },
+        else => {
+            try std.testing.expectEqualStrings(sh_bin, argv[0]);
+            try std.testing.expectEqualStrings(git_common_dir_flag, argv[7]);
+        },
+    }
+}
+
+test "probeSupported is true on macOS, Linux, and Windows" {
+    try std.testing.expect(probeSupported());
 }
 
 test "resolveCommonDir keeps absolute and joins relative against base" {
@@ -267,6 +428,81 @@ test "resolveCommonDir keeps absolute and joins relative against base" {
     try std.testing.expectEqualStrings("", resolveCommonDir(".git", "", buf[0..]));
     const with_nul = ".git\x00x";
     try std.testing.expectEqualStrings("", resolveCommonDir(with_nul, "/tmp/proj", buf[0..]));
+}
+
+test "resolveCommonDir keeps Windows drive-letter absolute and joins .git" {
+    var buf: [main.max_project_path]u8 = undefined;
+    try std.testing.expectEqualStrings(
+        "C:/Users/me/proj/.git",
+        resolveCommonDir("  C:\\Users\\me\\proj\\.git  \n", "/tmp/other", buf[0..]),
+    );
+    try std.testing.expectEqualStrings(
+        "C:/Users/me/proj/.git",
+        resolveCommonDir("C:/Users/me/proj/.git\n", "C:\\other", buf[0..]),
+    );
+    try std.testing.expectEqualStrings(
+        "c:/proj/.git",
+        resolveCommonDir("c:\\proj\\.git", "relative", buf[0..]),
+    );
+    try std.testing.expectEqualStrings(
+        "C:/proj/.git",
+        resolveCommonDir(".git\n", "C:/proj", buf[0..]),
+    );
+    try std.testing.expectEqualStrings(
+        "C:/proj/.git",
+        resolveCommonDir(".git", "C:\\proj", buf[0..]),
+    );
+    try std.testing.expectEqualStrings(
+        "C:/proj/.git",
+        resolveCommonDir(".git", "C:\\proj\\", buf[0..]),
+    );
+    try std.testing.expectEqualStrings(
+        "/tmp/proj/.git",
+        resolveCommonDir(".git", "/tmp/proj", buf[0..]),
+    );
+    try std.testing.expectEqualStrings("", resolveCommonDir("..\n", "C:/proj", buf[0..]));
+    try std.testing.expectEqualStrings("", resolveCommonDir("C:\\proj\\..\\.git", "C:/proj", buf[0..]));
+    try std.testing.expectEqualStrings("", resolveCommonDir(".git", "relative", buf[0..]));
+    try std.testing.expectEqualStrings("", resolveCommonDir(".git", "C:proj", buf[0..]));
+    try std.testing.expect(isAbsoluteCommonDir("/tmp/repo/.git"));
+    try std.testing.expect(isAbsoluteCommonDir("C:\\Users\\me\\.git"));
+    try std.testing.expect(isAbsoluteCommonDir("C:/Users/me/.git"));
+    try std.testing.expect(!isAbsoluteCommonDir(".git"));
+    try std.testing.expect(!isAbsoluteCommonDir("relative"));
+}
+
+test "handleExit ready accepts slash-normalized Windows drive-letter common-dir" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-common-win", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("common-dir windows ready", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    refresh(&model, &fx);
+    const key = model.git_common_dir_key;
+    applyLine(&model, .{ .key = key, .line = "  C:\\Users\\me\\proj\\.git  \n" });
+    try std.testing.expectEqualStrings("C:/Users/me/proj/.git", gitCommonDirPath(&model));
+    handleExit(&model, .{ .key = key, .reason = .exited, .code = 0 });
+    try std.testing.expect(model.git_common_dir_ready);
+    try std.testing.expectEqualStrings("C:/Users/me/proj/.git", readyPath(&model));
+
+    refresh(&model, &fx);
+    const key2 = model.git_common_dir_key;
+    writeFixed(&model.git_toplevel_path_storage, &model.git_toplevel_path_len, "C:\\canonical");
+    model.git_toplevel_ready = true;
+    applyLine(&model, .{ .key = key2, .line = ".git\n" });
+    handleExit(&model, .{ .key = key2, .reason = .exited, .code = 0 });
+    try std.testing.expectEqualStrings("C:/canonical/.git", readyPath(&model));
 }
 
 test "refresh one-shots git-common-dir on a distinct key; empty fail and success" {
@@ -306,9 +542,17 @@ test "refresh one-shots git-common-dir on a distinct key; empty fail and success
     try std.testing.expect(spawn.key >= git_common_dir_key_first);
     try std.testing.expect(spawn.key != git_checkout.git_push_key_first);
     try std.testing.expect(spawn.key != git_toplevel.git_toplevel_key_first);
-    try std.testing.expectEqualStrings(project, spawn.argv[4]);
-    try std.testing.expectEqualStrings(git_common_dir_flag, spawn.argv[7]);
-    try std.testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_common_dir_flag) == null);
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(project, spawn.argv[2]);
+            try std.testing.expectEqualStrings(git_common_dir_flag, spawn.argv[spawn.argv.len - 1]);
+        },
+        else => {
+            try std.testing.expectEqualStrings(project, spawn.argv[4]);
+            try std.testing.expectEqualStrings(git_common_dir_flag, spawn.argv[7]);
+            try std.testing.expect(std.mem.indexOf(u8, spawn.argv[2], git_common_dir_flag) == null);
+        },
+    }
 
     applyLine(&model, .{ .key = spawn.key, .line = "  /tmp/shared.git  \n" });
     try std.testing.expectEqualStrings("/tmp/shared.git", gitCommonDirPath(&model));

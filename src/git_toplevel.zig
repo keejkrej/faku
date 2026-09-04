@@ -24,8 +24,8 @@
 //! its own argv slot, not interpolated into a script). Toplevel
 //! stdout is the same on Windows; CRLF is already trimmed in the
 //! line helpers. app.zon already includes windows. Remaining git
-//! modules (common_dir, checkout/commit) still skip Windows this
-//! cut. Windows numstat untracked rows stay Unix-only.
+//! modules (checkout/commit) still skip Windows this cut. Windows
+//! numstat untracked rows stay Unix-only.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_toplevel_key_first` (490+).
@@ -259,6 +259,7 @@ test "windows git argv is git.exe -C PATH rev-parse --show-toplevel; path is its
     const git_ahead_behind = @import("git_ahead_behind.zig");
     const git_numstat = @import("git_numstat.zig");
     const git_remotes = @import("git_remotes.zig");
+    const git_common_dir = @import("git_common_dir.zig");
     const file_mention = @import("file_mention.zig");
     var buf: [argv_len][]const u8 = undefined;
     const cwd = "C:\\Users\\me\\proj";
@@ -289,6 +290,9 @@ test "windows git argv is git.exe -C PATH rev-parse --show-toplevel; path is its
     var remotes_buf: [git_remotes.argv_len][]const u8 = undefined;
     try std.testing.expect(!isGitToplevelArgv(git_remotes.windowsArgvFor(cwd, &remotes_buf)));
     try std.testing.expect(!git_remotes.isGitRemotesArgv(argv));
+    var common_buf: [git_common_dir.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitToplevelArgv(git_common_dir.windowsArgvFor(cwd, &common_buf)));
+    try std.testing.expect(!git_common_dir.isGitCommonDirArgv(argv));
     var branch_buf: [git_branch.argv_len][]const u8 = undefined;
     try std.testing.expect(!isGitToplevelArgv(git_branch.windowsArgvFor(cwd, &branch_buf)));
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
