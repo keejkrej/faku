@@ -83,7 +83,8 @@
 //! in `git_checkout.zig` and uses the same `git.exe -C` pattern
 //! (`probeSupported` is true on Windows). app.zon already includes
 //! windows. Windows numstat untracked rows stay Unix-only.
-//! `review_diff.zig` still skips Windows.
+//! Environment Compare / Review uses `git.exe -C` (Uncommitted
+//! untracked `?` rows stay Unix-only).
 //!
 //! Spawn/line/exit orchestration lives here. Effect keys stay
 //! `git_commit_key_first` (450+), `git_commit_numstat_key_first`
