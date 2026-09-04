@@ -2,23 +2,31 @@
 //!
 //! Native has no git/workspace/file-index effect. When the selected
 //! session has a non-empty `project_path` that exists, Faku `fx.spawn`s
-//! `git ls-files --cached --others --exclude-standard` through the
-//! same `/bin/sh -c` chdir workaround `fx ask` uses
-//! (`fx_ask_chdir_script`). Git is authoritative for a repo: success
-//! with zero files stays empty (do not walk — that would dump
-//! `node_modules`). Only when that spawn cannot run or exits
-//! non-zero does a bounded `find` walk fill the same runtime cache.
-//! First-N stdout paths stay on the Model — not `sessions.json`.
+//! `git ls-files --cached --others --exclude-standard`. Git is
+//! authoritative for a repo: success with zero files stays empty (do
+//! not walk — that would dump `node_modules`). Only when that spawn
+//! cannot run or exits non-zero does a bounded walk fill the same
+//! runtime cache. First-N stdout paths stay on the Model — not
+//! `sessions.json`.
 //!
-//! Not Waku's 50k-file index or caret-aware trigger. Visible `@`
-//! rows are scored over this bounded file cache (plus derived parent
-//! directories at row time) in `composer.fileMentionScore` — not
-//! first-N contains in cache order. The sidecar stdout and this
-//! cache stay files-only. Windows stays empty this cut. Not
+//! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
+//! (`fx_ask_chdir_script`) plus a packed `find -maxdepth 8`. Windows
+//! cannot use `/bin/sh` or `find`: `git.exe -C <project_path>` (path
+//! is its own argv slot, not interpolated into a script) then a
+//! `powershell.exe -NoProfile -Command {…} -Args <project_path>`
+//! walk (`$args[0]`; same skip names / depth 8 / cap 256). `\` stdout
+//! paths are normalized to `/` so Files / `@` rows match the Unix
+//! cache shape. app.zon already includes windows. Still not Waku's
+//! 50k-file index, not a Native FS watcher, not caret-aware.
+//!
+//! Visible `@` rows are scored over this bounded file cache (plus
+//! derived parent directories at row time) in
+//! `composer.fileMentionScore` — not first-N contains in cache
+//! order. The sidecar stdout and this cache stay files-only. Not
 //! Open-in, not copy path, not a daemon catalog.
 //!
-//! Spawn/line/exit orchestration lives here. Windows is skipped
-//! (app.zon is macos/linux; no Windows spawn path).
+//! Spawn/line/exit orchestration lives here. Effect key stays
+//! `file_mention_key_first` (400+).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -48,6 +56,10 @@ pub const file_mention_dir_id_base: u32 = 1000;
 pub const max_file_mention_dirs: usize = 256;
 
 pub const git_bin = "git";
+/// PATH-resolved Windows Git (explicit `.exe` like sibling
+/// `powershell.exe` / `explorer.exe` / `wt.exe` / `cmd.exe`).
+pub const windows_git_bin = "git.exe";
+pub const git_c_flag = "-C";
 pub const git_ls_files_cmd = "ls-files";
 pub const git_ls_files_cached = "--cached";
 pub const git_ls_files_others = "--others";
@@ -82,9 +94,30 @@ pub const walk_skip_names = [_][]const u8{
 pub const find_walk_script =
     "find . -maxdepth 8 ! -name . \\( -name node_modules -o -name target -o -name dist -o -name build -o -name out -o -name vendor -o -name __pycache__ -o -name '.*' \\) -prune -o -type f -print";
 
-const git_argv_len: usize = 10;
-/// `/bin/sh -c` chdir + `/bin/sh -c` + `find_walk_script`.
-const walk_argv_len: usize = 8;
+/// PATH-resolved Windows PowerShell (no STA: this is Get-ChildItem,
+/// not WinForms). Explicit `.exe` like sibling maximize / pickers.
+pub const powershell_bin = "powershell.exe";
+pub const powershell_noprofile = "-NoProfile";
+pub const powershell_command = "-Command";
+pub const powershell_args_flag = "-Args";
+/// Scriptblock + `$args[0]`: project path is its own argv slot after
+/// `-Args`, not spliced into the `-Command` body. Files only, depth 8,
+/// same skip names / dot dirs as `find_walk_script`, relative paths
+/// with `/`, cap `max_file_mentions` (256). Six argv slots total.
+pub const powershell_walk_script =
+    "{ $ErrorActionPreference='Stop'; $script:root=$args[0].TrimEnd('\\','/'); $script:skip=@('node_modules','target','dist','build','out','vendor','__pycache__'); $script:n=0; function Walk($dir,$depth){ if($script:n -ge 256){return}; foreach($item in (Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue)){ if($script:n -ge 256){return}; $d=$depth+1; if($d -gt 8){continue}; $name=$item.Name; if($name.StartsWith('.')){continue}; if($script:skip -contains $name){continue}; if($item.PSIsContainer){ if($d -lt 8){ Walk $item.FullName $d } } else { $rel=$item.FullName.Substring($script:root.Length).TrimStart('\\','/'); Write-Output ($rel -replace '\\\\','/'); $script:n++ } } }; Walk $script:root 0 }";
+
+/// Unix `/bin/sh -c` chdir + git ls-files (10). Windows `git.exe -C`
+/// is 7; this is the spawn buffer (max of the two).
+pub const git_argv_len: usize = 10;
+pub const unix_git_argv_len: usize = 10;
+pub const windows_git_argv_len: usize = 7;
+/// Unix `/bin/sh -c` chdir + `/bin/sh -c` + `find_walk_script` (8).
+/// Windows powershell `-Command` + `-Args` is 6; this is the spawn
+/// buffer (max of the two).
+pub const walk_argv_len: usize = 8;
+pub const unix_walk_argv_len: usize = 8;
+pub const windows_walk_argv_len: usize = 6;
 
 pub const CachedPath = struct {
     storage: [max_file_mention_path]u8 = [_]u8{0} ** max_file_mention_path,
@@ -96,10 +129,11 @@ pub const CachedPath = struct {
 
     pub fn set(self: *CachedPath, path: []const u8) void {
         writeFixed(&self.storage, &self.len, path);
+        slashNormalizeInPlace(self.storage[0..self.len]);
     }
 };
 
-pub fn argvFor(cwd: []const u8, buf: *[git_argv_len][]const u8) []const []const u8 {
+pub fn unixArgvFor(cwd: []const u8, buf: *[git_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -112,11 +146,32 @@ pub fn argvFor(cwd: []const u8, buf: *[git_argv_len][]const u8) []const []const 
         git_ls_files_others,
         git_ls_files_exclude_standard,
     };
-    return buf;
+    return buf[0..unix_git_argv_len];
 }
 
-pub fn isGitLsFilesArgv(argv: []const []const u8) bool {
-    if (argv.len != git_argv_len) return false;
+/// Windows: `git.exe -C <project_path> ls-files --cached --others
+/// --exclude-standard`. Path is its own argv slot (no `/bin/sh`, no
+/// packing into a cmd string).
+pub fn windowsArgvFor(cwd: []const u8, buf: *[git_argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_ls_files_cmd;
+    buf[4] = git_ls_files_cached;
+    buf[5] = git_ls_files_others;
+    buf[6] = git_ls_files_exclude_standard;
+    return buf[0..windows_git_argv_len];
+}
+
+pub fn argvFor(cwd: []const u8, buf: *[git_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsArgvFor(cwd, buf),
+        else => unixArgvFor(cwd, buf),
+    };
+}
+
+fn isUnixGitLsFilesArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_git_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -127,7 +182,23 @@ pub fn isGitLsFilesArgv(argv: []const []const u8) bool {
     return std.mem.eql(u8, argv[9], git_ls_files_exclude_standard);
 }
 
-pub fn walkArgvFor(cwd: []const u8, buf: *[walk_argv_len][]const u8) []const []const u8 {
+fn isWindowsGitLsFilesArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_git_argv_len) return false;
+    const bin_ok = std.mem.eql(u8, argv[0], windows_git_bin) or std.mem.eql(u8, argv[0], git_bin);
+    if (!bin_ok) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_ls_files_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], git_ls_files_cached)) return false;
+    if (!std.mem.eql(u8, argv[5], git_ls_files_others)) return false;
+    return std.mem.eql(u8, argv[6], git_ls_files_exclude_standard);
+}
+
+pub fn isGitLsFilesArgv(argv: []const []const u8) bool {
+    return isUnixGitLsFilesArgv(argv) or isWindowsGitLsFilesArgv(argv);
+}
+
+pub fn unixWalkArgvFor(cwd: []const u8, buf: *[walk_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -138,15 +209,35 @@ pub fn walkArgvFor(cwd: []const u8, buf: *[walk_argv_len][]const u8) []const []c
         "-c",
         find_walk_script,
     };
-    return buf;
+    return buf[0..unix_walk_argv_len];
+}
+
+/// Windows: `powershell.exe -NoProfile -Command {scriptblock} -Args
+/// <project_path>`. Path stays `$args[0]` — not interpolated into
+/// the `-Command` body.
+pub fn windowsWalkArgvFor(cwd: []const u8, buf: *[walk_argv_len][]const u8) []const []const u8 {
+    buf[0] = powershell_bin;
+    buf[1] = powershell_noprofile;
+    buf[2] = powershell_command;
+    buf[3] = powershell_walk_script;
+    buf[4] = powershell_args_flag;
+    buf[5] = cwd;
+    return buf[0..windows_walk_argv_len];
+}
+
+pub fn walkArgvFor(cwd: []const u8, buf: *[walk_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsWalkArgvFor(cwd, buf),
+        else => unixWalkArgvFor(cwd, buf),
+    };
 }
 
 fn scriptHas(script: []const u8, needle: []const u8) bool {
     return std.mem.indexOf(u8, script, needle) != null;
 }
 
-pub fn isWalkArgv(argv: []const []const u8) bool {
-    if (argv.len != walk_argv_len) return false;
+fn isUnixWalkArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_walk_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -164,8 +255,30 @@ pub fn isWalkArgv(argv: []const []const u8) bool {
     return true;
 }
 
+fn isWindowsWalkArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_walk_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], powershell_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], powershell_noprofile)) return false;
+    if (!std.mem.eql(u8, argv[2], powershell_command)) return false;
+    if (!std.mem.eql(u8, argv[3], powershell_walk_script)) return false;
+    if (!std.mem.eql(u8, argv[4], powershell_args_flag)) return false;
+    if (argv[5].len == 0) return false;
+    if (!scriptHas(argv[3], "$args[0]")) return false;
+    if (!scriptHas(argv[3], find_maxdepth)) return false;
+    if (!scriptHas(argv[3], "256")) return false;
+    if (!scriptHas(argv[3], "StartsWith('.'")) return false;
+    inline for (walk_skip_names) |name| {
+        if (!scriptHas(argv[3], name)) return false;
+    }
+    return true;
+}
+
+pub fn isWalkArgv(argv: []const []const u8) bool {
+    return isUnixWalkArgv(argv) or isWindowsWalkArgv(argv);
+}
+
 pub fn probeSupported() bool {
-    return builtin.os.tag != .windows;
+    return true;
 }
 
 pub fn cachedCount(model: *const Model) u32 {
@@ -272,9 +385,8 @@ pub fn probePath(model: *const Model) []const u8 {
 
 /// Cancel any in-flight probe, drop the cache, and spawn git ls-files
 /// when the selected session has an existing `project_path`. Empty /
-/// missing / Windows skips both git and the walk so the mention list
-/// stays hidden. A failed git spawn falls back to the walk in
-/// `handleExit`.
+/// missing skips both git and the walk so the mention list stays
+/// hidden. A failed git spawn falls back to the walk in `handleExit`.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     clearCache(model);
@@ -323,17 +435,28 @@ fn probeStillCurrent(model: *const Model) bool {
     return std.mem.eql(u8, path, probed);
 }
 
-/// Strip a leading `./` (`find -print` emits `./src/a.zig`; git does
-/// not). `.` and empty are not files.
+/// Strip a leading `./` or `.\` (`find -print` emits `./src/a.zig`;
+/// git does not). `.` and empty are not files. Backslash → `/` happens
+/// in `CachedPath.set` so Windows walk stdout matches Unix cache shape.
 pub fn normalizeStdoutPath(raw: []const u8) []const u8 {
     const trimmed = std.mem.trim(u8, raw, " \t\r\n");
-    const path = if (std.mem.startsWith(u8, trimmed, "./")) trimmed[2..] else trimmed;
-    if (path.len == 0 or std.mem.eql(u8, path, ".")) return "";
+    const path = if (std.mem.startsWith(u8, trimmed, "./") or std.mem.startsWith(u8, trimmed, ".\\"))
+        trimmed[2..]
+    else
+        trimmed;
+    if (path.len == 0 or std.mem.eql(u8, path, ".") or std.mem.eql(u8, path, "\\")) return "";
     return path;
+}
+
+fn slashNormalizeInPlace(path: []u8) void {
+    for (path) |*ch| {
+        if (ch.* == '\\') ch.* = '/';
+    }
 }
 
 /// Append trimmed non-empty stdout paths until `max_file_mentions`.
 /// Later lines are dropped — this is not Waku's 50k-file index.
+/// Windows `\` separators become `/` in `CachedPath.set`.
 pub fn applyStdoutPaths(model: *Model, raw: []const u8) void {
     var it = std.mem.splitScalar(u8, raw, '\n');
     while (it.next()) |line| {
@@ -370,7 +493,8 @@ test "argv is chdir script plus git ls-files cached/others; not git branch" {
     const git_dirty = @import("git_dirty.zig");
     const git_numstat = @import("git_numstat.zig");
     var buf: [git_argv_len][]const u8 = undefined;
-    const argv = argvFor("/tmp/faku-ls", &buf);
+    const argv = unixArgvFor("/tmp/faku-ls", &buf);
+    try std.testing.expectEqual(@as(usize, unix_git_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -409,12 +533,40 @@ test "argv is chdir script plus git ls-files cached/others; not git branch" {
     try std.testing.expect(git_dirty.git_dirty_key_first > git_branch.git_branch_key_first);
 }
 
+test "windows git argv is git.exe -C PATH ls-files; path is its own slot" {
+    var buf: [git_argv_len][]const u8 = undefined;
+    const cwd = "C:\\Users\\me\\proj";
+    const argv = windowsArgvFor(cwd, &buf);
+    try std.testing.expectEqual(@as(usize, windows_git_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+    try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+    try std.testing.expectEqualStrings(cwd, argv[2]);
+    try std.testing.expectEqualStrings(git_ls_files_cmd, argv[3]);
+    try std.testing.expectEqualStrings(git_ls_files_cached, argv[4]);
+    try std.testing.expectEqualStrings(git_ls_files_others, argv[5]);
+    try std.testing.expectEqualStrings(git_ls_files_exclude_standard, argv[6]);
+    try std.testing.expect(isGitLsFilesArgv(argv));
+    try std.testing.expect(!isWalkArgv(argv));
+    try std.testing.expect(!isGitLsFilesArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    var git_only: [git_argv_len][]const u8 = undefined;
+    git_only[0] = git_bin;
+    git_only[1] = git_c_flag;
+    git_only[2] = cwd;
+    git_only[3] = git_ls_files_cmd;
+    git_only[4] = git_ls_files_cached;
+    git_only[5] = git_ls_files_others;
+    git_only[6] = git_ls_files_exclude_standard;
+    try std.testing.expect(isGitLsFilesArgv(git_only[0..windows_git_argv_len]));
+}
+
 test "walk argv is chdir script plus find maxdepth 8 skips; not git" {
     const git_branch = @import("git_branch.zig");
     const git_dirty = @import("git_dirty.zig");
     const git_numstat = @import("git_numstat.zig");
     var buf: [walk_argv_len][]const u8 = undefined;
-    const argv = walkArgvFor("/tmp/faku-walk", &buf);
+    const argv = unixWalkArgvFor("/tmp/faku-walk", &buf);
+    try std.testing.expectEqual(@as(usize, unix_walk_argv_len), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -438,7 +590,65 @@ test "walk argv is chdir script plus find maxdepth 8 skips; not git" {
     }
     try std.testing.expect(!isWalkArgv(&.{ find_bin, find_walk_script }));
     var git_buf: [git_argv_len][]const u8 = undefined;
-    try std.testing.expect(!isWalkArgv(argvFor("/tmp/faku-walk", &git_buf)));
+    try std.testing.expect(!isWalkArgv(unixArgvFor("/tmp/faku-walk", &git_buf)));
+}
+
+test "windows walk argv is powershell scriptblock -Args PATH; path not in script" {
+    var buf: [walk_argv_len][]const u8 = undefined;
+    const cwd = "C:\\Users\\me\\proj";
+    const argv = windowsWalkArgvFor(cwd, &buf);
+    try std.testing.expectEqual(@as(usize, windows_walk_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expectEqualStrings(powershell_bin, argv[0]);
+    try std.testing.expectEqualStrings(powershell_noprofile, argv[1]);
+    try std.testing.expectEqualStrings(powershell_command, argv[2]);
+    try std.testing.expectEqualStrings(powershell_walk_script, argv[3]);
+    try std.testing.expectEqualStrings(powershell_args_flag, argv[4]);
+    try std.testing.expectEqualStrings(cwd, argv[5]);
+    try std.testing.expect(isWalkArgv(argv));
+    try std.testing.expect(!isGitLsFilesArgv(argv));
+    try std.testing.expect(std.mem.indexOf(u8, argv[3], cwd) == null);
+    try std.testing.expect(scriptHas(argv[3], "$args[0]"));
+    try std.testing.expect(scriptHas(argv[3], find_maxdepth));
+    try std.testing.expect(scriptHas(argv[3], "256"));
+    try std.testing.expect(scriptHas(argv[3], "StartsWith('.'"));
+    inline for (walk_skip_names) |name| {
+        try std.testing.expect(scriptHas(argv[3], name));
+    }
+    try std.testing.expect(!isWalkArgv(&.{
+        powershell_bin,
+        powershell_noprofile,
+        powershell_command,
+        "Get-Date",
+        powershell_args_flag,
+        cwd,
+    }));
+    var git_buf: [git_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isWalkArgv(windowsArgvFor(cwd, &git_buf)));
+}
+
+test "host argvFor and walkArgvFor match the process OS" {
+    var git_buf: [git_argv_len][]const u8 = undefined;
+    const git_argv = argvFor("/tmp/faku-ls", &git_buf);
+    try std.testing.expect(isGitLsFilesArgv(git_argv));
+    var walk_buf: [walk_argv_len][]const u8 = undefined;
+    const walk_argv = walkArgvFor("/tmp/faku-walk", &walk_buf);
+    try std.testing.expect(isWalkArgv(walk_argv));
+    try std.testing.expect(!isWalkArgv(git_argv));
+    try std.testing.expect(!isGitLsFilesArgv(walk_argv));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(windows_git_bin, git_argv[0]);
+            try std.testing.expectEqualStrings(git_c_flag, git_argv[1]);
+            try std.testing.expectEqualStrings(powershell_bin, walk_argv[0]);
+            try std.testing.expectEqualStrings(powershell_args_flag, walk_argv[4]);
+        },
+        else => {
+            try std.testing.expectEqualStrings(sh_bin, git_argv[0]);
+            try std.testing.expectEqualStrings(sh_bin, walk_argv[0]);
+            try std.testing.expectEqualStrings(find_walk_script, walk_argv[7]);
+        },
+    }
 }
 
 test "applyStdoutPaths keeps first N; empty lines skipped" {
@@ -457,6 +667,20 @@ test "applyStdoutPaths keeps first N; empty lines skipped" {
     try std.testing.expectEqualStrings("", normalizeStdoutPath("./"));
     try std.testing.expectEqualStrings("", normalizeStdoutPath("./."));
     try std.testing.expectEqualStrings("src/a.zig", normalizeStdoutPath("./src/a.zig"));
+    try std.testing.expectEqualStrings("", normalizeStdoutPath(".\\"));
+    try std.testing.expectEqualStrings("src\\a.zig", normalizeStdoutPath(".\\src\\a.zig"));
+
+    clearCache(&model);
+    applyStdoutPaths(&model, "src\\lib\\a.zig\n.\\b.zig\nfoo\\bar.txt\n");
+    try std.testing.expectEqual(@as(u32, 3), cachedCount(&model));
+    try std.testing.expectEqualStrings("src/lib/a.zig", cachedPath(&model, 0));
+    try std.testing.expectEqualStrings("b.zig", cachedPath(&model, 1));
+    try std.testing.expectEqualStrings("foo/bar.txt", cachedPath(&model, 2));
+    var slash_parents: [max_file_mention_dirs][]const u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 3), derivedDirParents(&model, &slash_parents));
+    try std.testing.expectEqualStrings("src/lib", slash_parents[0]);
+    try std.testing.expectEqualStrings("src", slash_parents[1]);
+    try std.testing.expectEqualStrings("foo", slash_parents[2]);
 
     var overflow: [max_file_mentions * 2 + 16]u8 = undefined;
     var n: usize = 0;
@@ -472,12 +696,8 @@ test "applyStdoutPaths keeps first N; empty lines skipped" {
     try std.testing.expectEqual(@as(u32, max_file_mentions), cachedCount(&model));
 }
 
-test "probeSupported is false only on Windows" {
-    if (builtin.os.tag == .windows) {
-        try std.testing.expect(!probeSupported());
-    } else {
-        try std.testing.expect(probeSupported());
-    }
+test "probeSupported is true on macOS, Linux, and Windows" {
+    try std.testing.expect(probeSupported());
 }
 
 test "collectDerivedDirParents unique ancestors; skip empty and dot" {

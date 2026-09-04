@@ -243,8 +243,12 @@ Do not invent Native APIs. Documented gaps this cut works around:
 - `fx.spawn` writes one stdin buffer, then closes stdin.
 - `SpawnOptions` has no `env` field. Prefix `/usr/bin/env KEY=val` on
   the child only; do not export on the Faku process.
-- `SpawnOptions` has no `cwd` field. `fx ask` and git probes chdir via
+- `SpawnOptions` has no `cwd` field. `fx ask` and Unix git probes chdir via
   `/bin/sh -c 'cd -- "$1" && shift && exec "$@"'`. `PWD` is not used.
+  Windows `file_mention` uses documented `git.exe -C <project_path>` and a
+  PowerShell walk with `-Args` / `$args[0]` so the path stays its own argv
+  slot (not interpolated into `-Command`). Composer git_branch / git_dirty /
+  other git modules still skip Windows this cut.
 - No Native git effect. Git is sidecar `fx.spawn` of `git`.
 - No `fx.pickFile` / file-open effect. Folder and image pickers are OS
   sidecars.
@@ -255,7 +259,7 @@ Do not invent Native APIs. Documented gaps this cut works around:
   timer.
 
 Every git flag and operand is its own **argv slot**. Never interpolate
-user strings into the chdir `-c` script.
+user strings into the chdir `-c` script or a PowerShell `-Command` body.
 
 ## Sidecar git
 
@@ -282,7 +286,9 @@ Browser draft URL persists (`browser_url`, raw, cap 2048; missing / empty /
 overflow → empty draft). Background row selection, Files preview content,
 and directory expands stay runtime-only. Files
 lists the same bounded `file_mention` cache used by composer `@`
-mentions, with a bounded inline preview on file click
+mentions (git ls-files, then a bounded walk; Windows `git.exe -C` /
+PowerShell walk with `-Args`; still not Waku's 50k index or a Native
+FS watcher), with a bounded inline preview on file click
 (256KB cap, truncated / binary / unreadable honest states; Native
 `<code>` highlighting with `line-numbers`; language is a documented
 lexer name from the path, unknown / Dockerfile / Makefile /
