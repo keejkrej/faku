@@ -220,6 +220,7 @@ test "reveal argv is not url terminal editor or folder-picker argv" {
     try std.testing.expect(!isRevealArgv(pick_folder.argvFor(.osascript)));
     try std.testing.expect(!isRevealArgv(pick_folder.argvFor(.zenity)));
     try std.testing.expect(!isRevealArgv(pick_folder.argvFor(.kdialog)));
+    try std.testing.expect(!isRevealArgv(pick_folder.argvFor(.powershell)));
     try std.testing.expect(!isRevealArgv(open_terminal.argvForTool(.open_terminal, "/tmp/proj", &term_scratch)));
     try std.testing.expect(!isRevealArgv(open_terminal.argvForTool(.windows_terminal, "/tmp/proj", &term_scratch)));
     try std.testing.expect(!isRevealArgv(open_terminal.argvForTool(.cmd_start, "/tmp/proj", &term_scratch)));

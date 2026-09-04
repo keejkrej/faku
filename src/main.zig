@@ -200,9 +200,10 @@ pub const maximize_window_key = maximize_window.maximize_window_key;
 /// Distinct from fx ask / daemon / clipboard / preview keys. Native has
 /// no `fx.pickFile`; this spawn is the documented workaround.
 pub const pick_image_key = attach_helpers.pick_image_key;
-/// One-shot OS folder-picker sidecar (`osascript` / `zenity` / `kdialog`).
-/// Distinct from pick_image (31), maximize (30), copy_turn (32). Native
-/// has no `fx.pickFile`; this spawn is the documented workaround.
+/// One-shot OS folder-picker sidecar (`osascript` / `zenity` / `kdialog` /
+/// Windows `powershell.exe` FolderBrowserDialog). Distinct from pick_image
+/// (31), maximize (30), copy_turn (32). Native has no `fx.pickFile`; this
+/// spawn is the documented workaround.
 pub const pick_folder_key = pick_folder.pick_folder_key;
 /// One-shot OS file-manager sidecar (`open` / `xdg-open` / Windows `explorer.exe`). Distinct from
 /// pick_folder (29), maximize (30), pick_image (31), copy_turn (32).

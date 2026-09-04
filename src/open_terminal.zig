@@ -343,6 +343,7 @@ test "terminal argv is not reveal or folder-picker argv" {
     try std.testing.expect(!isTerminalArgv(pick_folder.argvFor(.osascript)));
     try std.testing.expect(!isTerminalArgv(pick_folder.argvFor(.zenity)));
     try std.testing.expect(!isTerminalArgv(pick_folder.argvFor(.kdialog)));
+    try std.testing.expect(!isTerminalArgv(pick_folder.argvFor(.powershell)));
 }
 
 test "open_terminal_key is 27 and distinct from reveal/pick neighbors" {
