@@ -23,9 +23,8 @@
 //! `git.exe -C <project_path> rev-parse --show-toplevel` (path is
 //! its own argv slot, not interpolated into a script). Toplevel
 //! stdout is the same on Windows; CRLF is already trimmed in the
-//! line helpers. app.zon already includes windows. Remaining git
-//! module (checkout) still skips Windows this cut. Windows
-//! numstat untracked rows stay Unix-only.
+//! line helpers. app.zon already includes windows. Remaining this
+//! cut: git_numstat untracked rows stay Unix-only.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_toplevel_key_first` (490+).

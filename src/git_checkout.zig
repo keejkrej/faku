@@ -52,7 +52,11 @@
 //! as its own trailing argv slot when one resolves (`-b`, the
 //! branch, the path, and the optional base each their own slot;
 //! `mkdir -p` of `~/.faku/worktrees/<nest>` via a fixed script and
-//! the parent as an argv slot). `origin/<name>` prefers `<name>`
+//! the parent as an argv slot). Windows cannot use `/bin/sh`:
+//! `powershell.exe -NoProfile -Command {scriptblock} -Args` with
+//! parent, cwd, `git.exe`, `worktree`, `add`, `-b`, branch, dest,
+//! and optional base each their own argv slot (paths never inside
+//! the scriptblock). `origin/<name>` prefers `<name>`
 //! when that is a plausible branch; otherwise the whole
 //! `origin/<name>` string when it is a safe argv. Failed / empty /
 //! exit 1 falls back to the cached composer branch label
@@ -63,7 +67,9 @@
 //! absolute when git prints a relative path like `.git`, when that
 //! probe finished, else the ready `show-toplevel` root, else the
 //! probe cwd used for `git worktree add`; not a daemon UUID /
-//! `{project_id}`). A taken dest
+//! `{project_id}`). Stored dest/parent slash-normalize `\` to `/`
+//! so nest FNV + dest identity is stable on Windows drive-letter
+//! homes (`USERPROFILE`). A taken dest
 //! directory or listed local
 //! `faku/<name>` skips to the next Waku candidate (`slug`,
 //! `slug-2`, … `slug-8`; cap 8 because Native is one-shot, not
@@ -83,10 +89,30 @@
 //! keeps it open with in-dialog Pushing… until the push ends.
 //! Leftovers: force push / prune-alone / daemon `WorkspaceOperation`.
 //!
-//! Spawn/line/exit orchestration lives here. Windows is skipped
-//! this cut (app.zon already includes windows; no `git.exe -C`
-//! spawn path yet). Composer git_commit add/commit/amend uses
-//! `git.exe -C`; Push… still no-ops here.
+//! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
+//! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
+//! `git.exe -C <project_path>` (path is its own argv slot, not
+//! interpolated into a script). Explicit `git.exe` like siblings.
+//! List is `git.exe -C PATH for-each-ref --format=%(refname)%00%(worktreepath) refs/heads refs/remotes`;
+//! checkout is `git.exe -C PATH checkout <name>`; track is
+//! `git.exe -C PATH checkout --track <name>`; create is
+//! `git.exe -C PATH checkout -b <name>`; delete is
+//! `git.exe -C PATH branch -d|-D <name>`; fetch is
+//! `git.exe -C PATH fetch --prune`; push is `git.exe -C PATH push`;
+//! upstream is `git.exe -C PATH rev-parse --abbrev-ref --symbolic-full-name @{upstream}`;
+//! remotes is `git.exe -C PATH remote`; set-upstream is
+//! `git.exe -C PATH push --set-upstream <remote> <branch>`; worktree
+//! base is `git.exe -C PATH symbolic-ref --quiet --short refs/remotes/origin/HEAD`.
+//! CRLF stdout is already trimmed in the line helpers. app.zon
+//! already includes windows. Remaining git leftovers this cut:
+//! git_numstat untracked synthetic rows (Unix-only), empty-message
+//! `fx ask` commit generate (Unix-only), `review_diff.zig` still
+//! Windows-skipped.
+//!
+//! Spawn/line/exit orchestration lives here. Effect keys stay
+//! git_checkout bands (250+ list, 275+ checkout, 290+ create,
+//! 320+ delete, 340+ fetch, 360+ push, 370+ worktree add,
+//! 390+ worktree base).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -194,6 +220,10 @@ pub const push_failed_status = "Could not push.";
 pub const worktree_add_failed_status = "Could not create worktree.";
 
 pub const git_bin = git_branch.git_bin;
+/// PATH-resolved Windows Git (explicit `.exe` like sibling
+/// `powershell.exe` / `explorer.exe` / `wt.exe` / `cmd.exe`).
+pub const windows_git_bin = git_branch.windows_git_bin;
+pub const git_c_flag = git_branch.git_c_flag;
 pub const git_for_each_ref_cmd = "for-each-ref";
 pub const git_refname_format = "--format=%(refname)%00%(worktreepath)";
 pub const git_heads_ref = "refs/heads";
@@ -238,21 +268,84 @@ pub const worktree_nest_key_len: usize = 16;
 /// argv slots — never interpolated into this script.
 pub const git_worktree_mkdir_chdir_script = "mkdir -p -- \"$1\" && cd -- \"$2\" && shift 2 && exec \"$@\"";
 pub const sh_bin = git_branch.sh_bin;
+pub const powershell_bin = file_mention.powershell_bin;
+pub const powershell_noprofile = file_mention.powershell_noprofile;
+pub const powershell_command = file_mention.powershell_command;
+pub const powershell_args_flag = file_mention.powershell_args_flag;
+/// Windows analog of `git_worktree_mkdir_chdir_script`: mkdir parent
+/// (`$args[0]`), chdir to the repo (`$args[1]`), then invoke git
+/// from the remaining `-Args` slots (`git.exe`, `worktree`, `add`,
+/// `-b`, branch, dest, optional base). Paths are never inside this
+/// scriptblock. `exit $LASTEXITCODE` keeps git's status (PowerShell
+/// does not `exec`).
+pub const git_worktree_mkdir_chdir_ps_script = "{ $ErrorActionPreference='Stop'; New-Item -ItemType Directory -Force -LiteralPath $args[0] | Out-Null; Set-Location -LiteralPath $args[1]; if ($args.Length -ge 9) { & $args[2] $args[3] $args[4] $args[5] $args[6] $args[7] $args[8] } else { & $args[2] $args[3] $args[4] $args[5] $args[6] $args[7] }; exit $LASTEXITCODE }";
 
+/// Unix `/bin/sh -c` chdir + git for-each-ref (10). Windows
+/// `git.exe -C` is 7; this is the spawn buffer (max of the two).
 const list_argv_len: usize = 10;
+const unix_list_argv_len: usize = 10;
+const windows_list_argv_len: usize = 7;
+/// Unix `/bin/sh -c` chdir + git checkout <name> (8). Windows
+/// `git.exe -C` is 5.
 const checkout_argv_len: usize = 8;
+const unix_checkout_argv_len: usize = 8;
+const windows_checkout_argv_len: usize = 5;
+/// Unix `/bin/sh -c` chdir + git checkout --track <name> (9).
+/// Windows `git.exe -C` is 6.
 const track_checkout_argv_len: usize = 9;
+const unix_track_checkout_argv_len: usize = 9;
+const windows_track_checkout_argv_len: usize = 6;
+/// Unix `/bin/sh -c` chdir + git checkout -b <name> (9). Windows
+/// `git.exe -C` is 6.
 const create_argv_len: usize = 9;
+const unix_create_argv_len: usize = 9;
+const windows_create_argv_len: usize = 6;
+/// Unix `/bin/sh -c` chdir + git branch -d|-D <name> (9). Windows
+/// `git.exe -C` is 6.
 const delete_argv_len: usize = 9;
+const unix_delete_argv_len: usize = 9;
+const windows_delete_argv_len: usize = 6;
+/// Unix `/bin/sh -c` chdir + git fetch --prune (8). Windows
+/// `git.exe -C` is 5.
 const fetch_argv_len: usize = 8;
+const unix_fetch_argv_len: usize = 8;
+const windows_fetch_argv_len: usize = 5;
+/// Unix `/bin/sh -c` chdir + git push (7). Windows `git.exe -C` is 4.
 const push_argv_len: usize = 7;
+const unix_push_argv_len: usize = 7;
+const windows_push_argv_len: usize = 4;
+/// Unix `/bin/sh -c` chdir + git rev-parse --abbrev-ref
+/// --symbolic-full-name @{upstream} (10). Windows `git.exe -C` is 7.
 const upstream_argv_len: usize = 10;
+const unix_upstream_argv_len: usize = 10;
+const windows_upstream_argv_len: usize = 7;
+/// Unix `/bin/sh -c` chdir + git remote (7). Windows `git.exe -C` is 4.
 pub const remote_argv_len: usize = 7;
+pub const unix_remote_argv_len: usize = 7;
+pub const windows_remote_argv_len: usize = 4;
 const show_current_argv_len: usize = 8;
+/// Unix `/bin/sh -c` chdir + git push --set-upstream (10). Windows
+/// `git.exe -C` is 7.
 const set_upstream_push_argv_len: usize = 10;
-const worktree_add_no_base_argv_len: usize = 12;
-const worktree_add_argv_len: usize = 13;
+const unix_set_upstream_push_argv_len: usize = 10;
+const windows_set_upstream_push_argv_len: usize = 7;
+/// Unix mkdir+chdir + git worktree add -b (12 / 13 with base).
+/// Windows powershell `-Command` + `-Args` is 13 / 14; this is
+/// the spawn buffer (max of the two).
+const unix_worktree_add_no_base_argv_len: usize = 12;
+const unix_worktree_add_argv_len: usize = 13;
+const windows_worktree_add_no_base_argv_len: usize = 13;
+const windows_worktree_add_argv_len: usize = 14;
+const worktree_add_argv_len: usize = 14;
+/// Unix `/bin/sh -c` chdir + git symbolic-ref (10). Windows
+/// `git.exe -C` is 7.
 const worktree_base_argv_len: usize = 10;
+const unix_worktree_base_argv_len: usize = 10;
+const windows_worktree_base_argv_len: usize = 7;
+
+fn windowsGitBinOk(bin: []const u8) bool {
+    return std.mem.eql(u8, bin, windows_git_bin) or std.mem.eql(u8, bin, git_bin);
+}
 
 pub const CachedBranch = struct {
     storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
@@ -277,7 +370,7 @@ pub const ParsedRef = struct {
     occupied: bool = false,
 };
 
-pub fn listArgvFor(cwd: []const u8, buf: *[list_argv_len][]const u8) []const []const u8 {
+pub fn unixListArgvFor(cwd: []const u8, buf: *[list_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -290,11 +383,31 @@ pub fn listArgvFor(cwd: []const u8, buf: *[list_argv_len][]const u8) []const []c
         git_heads_ref,
         git_remotes_ref,
     };
-    return buf;
+    return buf[0..unix_list_argv_len];
 }
 
-pub fn isGitBranchListArgv(argv: []const []const u8) bool {
-    if (argv.len != list_argv_len) return false;
+/// Windows: `git.exe -C <project_path> for-each-ref --format=… refs/heads refs/remotes`.
+/// Path is its own argv slot (no `/bin/sh`, no packing into a cmd string).
+pub fn windowsListArgvFor(cwd: []const u8, buf: *[list_argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_for_each_ref_cmd;
+    buf[4] = git_refname_format;
+    buf[5] = git_heads_ref;
+    buf[6] = git_remotes_ref;
+    return buf[0..windows_list_argv_len];
+}
+
+pub fn listArgvFor(cwd: []const u8, buf: *[list_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsListArgvFor(cwd, buf),
+        else => unixListArgvFor(cwd, buf),
+    };
+}
+
+fn isUnixGitBranchListArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_list_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -305,10 +418,25 @@ pub fn isGitBranchListArgv(argv: []const []const u8) bool {
     return std.mem.eql(u8, argv[9], git_remotes_ref);
 }
 
+fn isWindowsGitBranchListArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_list_argv_len) return false;
+    if (!windowsGitBinOk(argv[0])) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_for_each_ref_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], git_refname_format)) return false;
+    if (!std.mem.eql(u8, argv[5], git_heads_ref)) return false;
+    return std.mem.eql(u8, argv[6], git_remotes_ref);
+}
+
+pub fn isGitBranchListArgv(argv: []const []const u8) bool {
+    return isUnixGitBranchListArgv(argv) or isWindowsGitBranchListArgv(argv);
+}
+
 /// `git checkout <name>` as a trailing argv slot. Rejects names that
 /// fail `isPlausibleBranchName` so a raw string never reaches the
 /// shell script.
-pub fn checkoutArgvFor(cwd: []const u8, name: []const u8, buf: *[checkout_argv_len][]const u8) ?[]const []const u8 {
+pub fn unixCheckoutArgvFor(cwd: []const u8, name: []const u8, buf: *[checkout_argv_len][]const u8) ?[]const []const u8 {
     if (!git_branch.isPlausibleBranchName(name)) return null;
     buf.* = .{
         sh_bin,
@@ -320,11 +448,30 @@ pub fn checkoutArgvFor(cwd: []const u8, name: []const u8, buf: *[checkout_argv_l
         git_checkout_cmd,
         name,
     };
-    return buf;
+    return buf[0..unix_checkout_argv_len];
 }
 
-pub fn isGitCheckoutArgv(argv: []const []const u8) bool {
-    if (argv.len != checkout_argv_len) return false;
+/// Windows: `git.exe -C <project_path> checkout <name>`. Path and
+/// name are their own argv slots.
+pub fn windowsCheckoutArgvFor(cwd: []const u8, name: []const u8, buf: *[checkout_argv_len][]const u8) ?[]const []const u8 {
+    if (!git_branch.isPlausibleBranchName(name)) return null;
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_checkout_cmd;
+    buf[4] = name;
+    return buf[0..windows_checkout_argv_len];
+}
+
+pub fn checkoutArgvFor(cwd: []const u8, name: []const u8, buf: *[checkout_argv_len][]const u8) ?[]const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsCheckoutArgvFor(cwd, name, buf),
+        else => unixCheckoutArgvFor(cwd, name, buf),
+    };
+}
+
+fn isUnixGitCheckoutArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_checkout_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -333,10 +480,23 @@ pub fn isGitCheckoutArgv(argv: []const []const u8) bool {
     return git_branch.isPlausibleBranchName(argv[7]);
 }
 
+fn isWindowsGitCheckoutArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_checkout_argv_len) return false;
+    if (!windowsGitBinOk(argv[0])) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_checkout_cmd)) return false;
+    return git_branch.isPlausibleBranchName(argv[4]);
+}
+
+pub fn isGitCheckoutArgv(argv: []const []const u8) bool {
+    return isUnixGitCheckoutArgv(argv) or isWindowsGitCheckoutArgv(argv);
+}
+
 /// `git checkout --track <name>` as trailing argv slots. Rejects names
 /// that fail `isPlausibleBranchName` so a raw string never reaches the
 /// shell script.
-pub fn trackCheckoutArgvFor(cwd: []const u8, name: []const u8, buf: *[track_checkout_argv_len][]const u8) ?[]const []const u8 {
+pub fn unixTrackCheckoutArgvFor(cwd: []const u8, name: []const u8, buf: *[track_checkout_argv_len][]const u8) ?[]const []const u8 {
     if (!git_branch.isPlausibleBranchName(name)) return null;
     buf.* = .{
         sh_bin,
@@ -349,11 +509,30 @@ pub fn trackCheckoutArgvFor(cwd: []const u8, name: []const u8, buf: *[track_chec
         git_track_flag,
         name,
     };
-    return buf;
+    return buf[0..unix_track_checkout_argv_len];
 }
 
-pub fn isGitTrackCheckoutArgv(argv: []const []const u8) bool {
-    if (argv.len != track_checkout_argv_len) return false;
+/// Windows: `git.exe -C <project_path> checkout --track <name>`.
+pub fn windowsTrackCheckoutArgvFor(cwd: []const u8, name: []const u8, buf: *[track_checkout_argv_len][]const u8) ?[]const []const u8 {
+    if (!git_branch.isPlausibleBranchName(name)) return null;
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_checkout_cmd;
+    buf[4] = git_track_flag;
+    buf[5] = name;
+    return buf[0..windows_track_checkout_argv_len];
+}
+
+pub fn trackCheckoutArgvFor(cwd: []const u8, name: []const u8, buf: *[track_checkout_argv_len][]const u8) ?[]const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsTrackCheckoutArgvFor(cwd, name, buf),
+        else => unixTrackCheckoutArgvFor(cwd, name, buf),
+    };
+}
+
+fn isUnixGitTrackCheckoutArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_track_checkout_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -363,10 +542,24 @@ pub fn isGitTrackCheckoutArgv(argv: []const []const u8) bool {
     return git_branch.isPlausibleBranchName(argv[8]);
 }
 
+fn isWindowsGitTrackCheckoutArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_track_checkout_argv_len) return false;
+    if (!windowsGitBinOk(argv[0])) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_checkout_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], git_track_flag)) return false;
+    return git_branch.isPlausibleBranchName(argv[5]);
+}
+
+pub fn isGitTrackCheckoutArgv(argv: []const []const u8) bool {
+    return isUnixGitTrackCheckoutArgv(argv) or isWindowsGitTrackCheckoutArgv(argv);
+}
+
 /// `git checkout -b <name>` with the name as a trailing argv slot.
 /// Rejects names that fail `isPlausibleBranchName` so a raw string
 /// never reaches the shell script.
-pub fn createArgvFor(cwd: []const u8, name: []const u8, buf: *[create_argv_len][]const u8) ?[]const []const u8 {
+pub fn unixCreateArgvFor(cwd: []const u8, name: []const u8, buf: *[create_argv_len][]const u8) ?[]const []const u8 {
     if (!git_branch.isPlausibleBranchName(name)) return null;
     buf.* = .{
         sh_bin,
@@ -379,11 +572,30 @@ pub fn createArgvFor(cwd: []const u8, name: []const u8, buf: *[create_argv_len][
         git_create_b_flag,
         name,
     };
-    return buf;
+    return buf[0..unix_create_argv_len];
 }
 
-pub fn isGitCreateArgv(argv: []const []const u8) bool {
-    if (argv.len != create_argv_len) return false;
+/// Windows: `git.exe -C <project_path> checkout -b <name>`.
+pub fn windowsCreateArgvFor(cwd: []const u8, name: []const u8, buf: *[create_argv_len][]const u8) ?[]const []const u8 {
+    if (!git_branch.isPlausibleBranchName(name)) return null;
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_checkout_cmd;
+    buf[4] = git_create_b_flag;
+    buf[5] = name;
+    return buf[0..windows_create_argv_len];
+}
+
+pub fn createArgvFor(cwd: []const u8, name: []const u8, buf: *[create_argv_len][]const u8) ?[]const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsCreateArgvFor(cwd, name, buf),
+        else => unixCreateArgvFor(cwd, name, buf),
+    };
+}
+
+fn isUnixGitCreateArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_create_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -393,7 +605,21 @@ pub fn isGitCreateArgv(argv: []const []const u8) bool {
     return git_branch.isPlausibleBranchName(argv[8]);
 }
 
-fn deleteArgvWithFlag(cwd: []const u8, name: []const u8, flag: []const u8, buf: *[delete_argv_len][]const u8) ?[]const []const u8 {
+fn isWindowsGitCreateArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_create_argv_len) return false;
+    if (!windowsGitBinOk(argv[0])) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_checkout_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], git_create_b_flag)) return false;
+    return git_branch.isPlausibleBranchName(argv[5]);
+}
+
+pub fn isGitCreateArgv(argv: []const []const u8) bool {
+    return isUnixGitCreateArgv(argv) or isWindowsGitCreateArgv(argv);
+}
+
+fn unixDeleteArgvWithFlag(cwd: []const u8, name: []const u8, flag: []const u8, buf: *[delete_argv_len][]const u8) ?[]const []const u8 {
     if (!git_branch.isPlausibleBranchName(name)) return null;
     buf.* = .{
         sh_bin,
@@ -406,11 +632,29 @@ fn deleteArgvWithFlag(cwd: []const u8, name: []const u8, flag: []const u8, buf: 
         flag,
         name,
     };
-    return buf;
+    return buf[0..unix_delete_argv_len];
 }
 
-fn isGitDeleteArgvWithFlag(argv: []const []const u8, flag: []const u8) bool {
-    if (argv.len != delete_argv_len) return false;
+fn windowsDeleteArgvWithFlag(cwd: []const u8, name: []const u8, flag: []const u8, buf: *[delete_argv_len][]const u8) ?[]const []const u8 {
+    if (!git_branch.isPlausibleBranchName(name)) return null;
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_branch_cmd;
+    buf[4] = flag;
+    buf[5] = name;
+    return buf[0..windows_delete_argv_len];
+}
+
+fn deleteArgvWithFlag(cwd: []const u8, name: []const u8, flag: []const u8, buf: *[delete_argv_len][]const u8) ?[]const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsDeleteArgvWithFlag(cwd, name, flag, buf),
+        else => unixDeleteArgvWithFlag(cwd, name, flag, buf),
+    };
+}
+
+fn isUnixGitDeleteArgvWithFlag(argv: []const []const u8, flag: []const u8) bool {
+    if (argv.len != unix_delete_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -420,9 +664,31 @@ fn isGitDeleteArgvWithFlag(argv: []const []const u8, flag: []const u8) bool {
     return git_branch.isPlausibleBranchName(argv[8]);
 }
 
+fn isWindowsGitDeleteArgvWithFlag(argv: []const []const u8, flag: []const u8) bool {
+    if (argv.len != windows_delete_argv_len) return false;
+    if (!windowsGitBinOk(argv[0])) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_branch_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], flag)) return false;
+    return git_branch.isPlausibleBranchName(argv[5]);
+}
+
+fn isGitDeleteArgvWithFlag(argv: []const []const u8, flag: []const u8) bool {
+    return isUnixGitDeleteArgvWithFlag(argv, flag) or isWindowsGitDeleteArgvWithFlag(argv, flag);
+}
+
 /// `git branch -d <name>` with the name as a trailing argv slot.
 /// Rejects names that fail `isPlausibleBranchName` so a raw string
 /// never reaches the shell script. Never emits `-D`.
+pub fn unixDeleteArgvFor(cwd: []const u8, name: []const u8, buf: *[delete_argv_len][]const u8) ?[]const []const u8 {
+    return unixDeleteArgvWithFlag(cwd, name, git_delete_d_flag, buf);
+}
+
+pub fn windowsDeleteArgvFor(cwd: []const u8, name: []const u8, buf: *[delete_argv_len][]const u8) ?[]const []const u8 {
+    return windowsDeleteArgvWithFlag(cwd, name, git_delete_d_flag, buf);
+}
+
 pub fn deleteArgvFor(cwd: []const u8, name: []const u8, buf: *[delete_argv_len][]const u8) ?[]const []const u8 {
     return deleteArgvWithFlag(cwd, name, git_delete_d_flag, buf);
 }
@@ -433,6 +699,14 @@ pub fn isGitDeleteArgv(argv: []const []const u8) bool {
 
 /// `git branch -D <name>` with the name as a trailing argv slot.
 /// Same plausibility gate as `deleteArgvFor`. `-D` is its own slot.
+pub fn unixDeleteForceArgvFor(cwd: []const u8, name: []const u8, buf: *[delete_argv_len][]const u8) ?[]const []const u8 {
+    return unixDeleteArgvWithFlag(cwd, name, git_delete_force_flag, buf);
+}
+
+pub fn windowsDeleteForceArgvFor(cwd: []const u8, name: []const u8, buf: *[delete_argv_len][]const u8) ?[]const []const u8 {
+    return windowsDeleteArgvWithFlag(cwd, name, git_delete_force_flag, buf);
+}
+
 pub fn deleteForceArgvFor(cwd: []const u8, name: []const u8, buf: *[delete_argv_len][]const u8) ?[]const []const u8 {
     return deleteArgvWithFlag(cwd, name, git_delete_force_flag, buf);
 }
@@ -443,7 +717,7 @@ pub fn isGitDeleteForceArgv(argv: []const []const u8) bool {
 
 /// `git fetch --prune` with `--prune` as its own argv slot — never
 /// interpolated into the `-c` script.
-pub fn fetchArgvFor(cwd: []const u8, buf: *[fetch_argv_len][]const u8) []const []const u8 {
+pub fn unixFetchArgvFor(cwd: []const u8, buf: *[fetch_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -454,11 +728,28 @@ pub fn fetchArgvFor(cwd: []const u8, buf: *[fetch_argv_len][]const u8) []const [
         git_fetch_cmd,
         git_prune_flag,
     };
-    return buf;
+    return buf[0..unix_fetch_argv_len];
 }
 
-pub fn isGitFetchArgv(argv: []const []const u8) bool {
-    if (argv.len != fetch_argv_len) return false;
+/// Windows: `git.exe -C <project_path> fetch --prune`.
+pub fn windowsFetchArgvFor(cwd: []const u8, buf: *[fetch_argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_fetch_cmd;
+    buf[4] = git_prune_flag;
+    return buf[0..windows_fetch_argv_len];
+}
+
+pub fn fetchArgvFor(cwd: []const u8, buf: *[fetch_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsFetchArgvFor(cwd, buf),
+        else => unixFetchArgvFor(cwd, buf),
+    };
+}
+
+fn isUnixGitFetchArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_fetch_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -467,10 +758,23 @@ pub fn isGitFetchArgv(argv: []const []const u8) bool {
     return std.mem.eql(u8, argv[7], git_prune_flag);
 }
 
+fn isWindowsGitFetchArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_fetch_argv_len) return false;
+    if (!windowsGitBinOk(argv[0])) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_fetch_cmd)) return false;
+    return std.mem.eql(u8, argv[4], git_prune_flag);
+}
+
+pub fn isGitFetchArgv(argv: []const []const u8) bool {
+    return isUnixGitFetchArgv(argv) or isWindowsGitFetchArgv(argv);
+}
+
 /// `git push` with no extra flags — `push` is its own argv slot,
 /// never interpolated into the `-c` script. Not `--set-upstream`,
 /// not `-u`, not `--force`, not `--tags`.
-pub fn pushArgvFor(cwd: []const u8, buf: *[push_argv_len][]const u8) []const []const u8 {
+pub fn unixPushArgvFor(cwd: []const u8, buf: *[push_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -480,11 +784,27 @@ pub fn pushArgvFor(cwd: []const u8, buf: *[push_argv_len][]const u8) []const []c
         git_bin,
         git_push_cmd,
     };
-    return buf;
+    return buf[0..unix_push_argv_len];
 }
 
-pub fn isGitPushArgv(argv: []const []const u8) bool {
-    if (argv.len != push_argv_len) return false;
+/// Windows: `git.exe -C <project_path> push`.
+pub fn windowsPushArgvFor(cwd: []const u8, buf: *[push_argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_push_cmd;
+    return buf[0..windows_push_argv_len];
+}
+
+pub fn pushArgvFor(cwd: []const u8, buf: *[push_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsPushArgvFor(cwd, buf),
+        else => unixPushArgvFor(cwd, buf),
+    };
+}
+
+fn isUnixGitPushArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_push_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -492,10 +812,22 @@ pub fn isGitPushArgv(argv: []const []const u8) bool {
     return std.mem.eql(u8, argv[6], git_push_cmd);
 }
 
+fn isWindowsGitPushArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_push_argv_len) return false;
+    if (!windowsGitBinOk(argv[0])) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    return std.mem.eql(u8, argv[3], git_push_cmd);
+}
+
+pub fn isGitPushArgv(argv: []const []const u8) bool {
+    return isUnixGitPushArgv(argv) or isWindowsGitPushArgv(argv);
+}
+
 /// `git rev-parse --abbrev-ref --symbolic-full-name @{upstream}`.
 /// `@{upstream}` is its own argv slot — never interpolated into the
 /// `-c` script. Missing / failed stdout means no upstream.
-pub fn upstreamArgvFor(cwd: []const u8, buf: *[upstream_argv_len][]const u8) []const []const u8 {
+pub fn unixUpstreamArgvFor(cwd: []const u8, buf: *[upstream_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -508,11 +840,31 @@ pub fn upstreamArgvFor(cwd: []const u8, buf: *[upstream_argv_len][]const u8) []c
         git_symbolic_full_name,
         git_upstream_rev,
     };
-    return buf;
+    return buf[0..unix_upstream_argv_len];
 }
 
-pub fn isGitUpstreamArgv(argv: []const []const u8) bool {
-    if (argv.len != upstream_argv_len) return false;
+/// Windows: `git.exe -C <project_path> rev-parse --abbrev-ref
+/// --symbolic-full-name @{upstream}`. Same flags as Unix.
+pub fn windowsUpstreamArgvFor(cwd: []const u8, buf: *[upstream_argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_rev_parse_cmd;
+    buf[4] = git_abbrev_ref;
+    buf[5] = git_symbolic_full_name;
+    buf[6] = git_upstream_rev;
+    return buf[0..windows_upstream_argv_len];
+}
+
+pub fn upstreamArgvFor(cwd: []const u8, buf: *[upstream_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsUpstreamArgvFor(cwd, buf),
+        else => unixUpstreamArgvFor(cwd, buf),
+    };
+}
+
+fn isUnixGitUpstreamArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_upstream_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -523,8 +875,23 @@ pub fn isGitUpstreamArgv(argv: []const []const u8) bool {
     return std.mem.eql(u8, argv[9], git_upstream_rev);
 }
 
+fn isWindowsGitUpstreamArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_upstream_argv_len) return false;
+    if (!windowsGitBinOk(argv[0])) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_rev_parse_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], git_abbrev_ref)) return false;
+    if (!std.mem.eql(u8, argv[5], git_symbolic_full_name)) return false;
+    return std.mem.eql(u8, argv[6], git_upstream_rev);
+}
+
+pub fn isGitUpstreamArgv(argv: []const []const u8) bool {
+    return isUnixGitUpstreamArgv(argv) or isWindowsGitUpstreamArgv(argv);
+}
+
 /// `git remote` with `remote` as its own argv slot.
-pub fn remoteArgvFor(cwd: []const u8, buf: *[remote_argv_len][]const u8) []const []const u8 {
+pub fn unixRemoteArgvFor(cwd: []const u8, buf: *[remote_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -534,11 +901,27 @@ pub fn remoteArgvFor(cwd: []const u8, buf: *[remote_argv_len][]const u8) []const
         git_bin,
         git_remote_cmd,
     };
-    return buf;
+    return buf[0..unix_remote_argv_len];
 }
 
-pub fn isGitRemoteArgv(argv: []const []const u8) bool {
-    if (argv.len != remote_argv_len) return false;
+/// Windows: `git.exe -C <project_path> remote`.
+pub fn windowsRemoteArgvFor(cwd: []const u8, buf: *[remote_argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_remote_cmd;
+    return buf[0..windows_remote_argv_len];
+}
+
+pub fn remoteArgvFor(cwd: []const u8, buf: *[remote_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsRemoteArgvFor(cwd, buf),
+        else => unixRemoteArgvFor(cwd, buf),
+    };
+}
+
+fn isUnixGitRemoteArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_remote_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -546,11 +929,23 @@ pub fn isGitRemoteArgv(argv: []const []const u8) bool {
     return std.mem.eql(u8, argv[6], git_remote_cmd);
 }
 
+fn isWindowsGitRemoteArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_remote_argv_len) return false;
+    if (!windowsGitBinOk(argv[0])) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    return std.mem.eql(u8, argv[3], git_remote_cmd);
+}
+
+pub fn isGitRemoteArgv(argv: []const []const u8) bool {
+    return isUnixGitRemoteArgv(argv) or isWindowsGitRemoteArgv(argv);
+}
+
 /// `git push --set-upstream <remote> <branch>` — flag, remote, and
 /// branch each their own argv slot, never interpolated into the `-c`
 /// script. Rejects implausible names so a raw string never reaches
 /// the shell script. Not `-u`, not `--force`.
-pub fn setUpstreamPushArgvFor(
+pub fn unixSetUpstreamPushArgvFor(
     cwd: []const u8,
     remote: []const u8,
     branch: []const u8,
@@ -570,11 +965,42 @@ pub fn setUpstreamPushArgvFor(
         remote,
         branch,
     };
-    return buf;
+    return buf[0..unix_set_upstream_push_argv_len];
 }
 
-pub fn isGitSetUpstreamPushArgv(argv: []const []const u8) bool {
-    if (argv.len != set_upstream_push_argv_len) return false;
+/// Windows: `git.exe -C <project_path> push --set-upstream <remote> <branch>`.
+pub fn windowsSetUpstreamPushArgvFor(
+    cwd: []const u8,
+    remote: []const u8,
+    branch: []const u8,
+    buf: *[set_upstream_push_argv_len][]const u8,
+) ?[]const []const u8 {
+    if (!isPlausibleRemoteName(remote)) return null;
+    if (!git_branch.isPlausibleBranchName(branch)) return null;
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_push_cmd;
+    buf[4] = git_set_upstream_flag;
+    buf[5] = remote;
+    buf[6] = branch;
+    return buf[0..windows_set_upstream_push_argv_len];
+}
+
+pub fn setUpstreamPushArgvFor(
+    cwd: []const u8,
+    remote: []const u8,
+    branch: []const u8,
+    buf: *[set_upstream_push_argv_len][]const u8,
+) ?[]const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsSetUpstreamPushArgvFor(cwd, remote, branch, buf),
+        else => unixSetUpstreamPushArgvFor(cwd, remote, branch, buf),
+    };
+}
+
+fn isUnixGitSetUpstreamPushArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_set_upstream_push_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -583,6 +1009,21 @@ pub fn isGitSetUpstreamPushArgv(argv: []const []const u8) bool {
     if (!std.mem.eql(u8, argv[7], git_set_upstream_flag)) return false;
     if (!isPlausibleRemoteName(argv[8])) return false;
     return git_branch.isPlausibleBranchName(argv[9]);
+}
+
+fn isWindowsGitSetUpstreamPushArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_set_upstream_push_argv_len) return false;
+    if (!windowsGitBinOk(argv[0])) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_push_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], git_set_upstream_flag)) return false;
+    if (!isPlausibleRemoteName(argv[5])) return false;
+    return git_branch.isPlausibleBranchName(argv[6]);
+}
+
+pub fn isGitSetUpstreamPushArgv(argv: []const []const u8) bool {
+    return isUnixGitSetUpstreamPushArgv(argv) or isWindowsGitSetUpstreamPushArgv(argv);
 }
 
 /// Non-empty first stdout line means `@{upstream}` resolved.
@@ -670,7 +1111,7 @@ pub fn worktreeBaseFromSymbolicRef(raw: []const u8) ?[]const u8 {
 
 /// `git symbolic-ref --quiet --short refs/remotes/origin/HEAD` as
 /// trailing argv slots — never interpolated into the `-c` script.
-pub fn worktreeBaseArgvFor(cwd: []const u8, buf: *[worktree_base_argv_len][]const u8) []const []const u8 {
+pub fn unixWorktreeBaseArgvFor(cwd: []const u8, buf: *[worktree_base_argv_len][]const u8) []const []const u8 {
     buf.* = .{
         sh_bin,
         "-c",
@@ -683,11 +1124,30 @@ pub fn worktreeBaseArgvFor(cwd: []const u8, buf: *[worktree_base_argv_len][]cons
         git_short_flag,
         git_origin_head_ref,
     };
-    return buf;
+    return buf[0..unix_worktree_base_argv_len];
 }
 
-pub fn isGitWorktreeBaseArgv(argv: []const []const u8) bool {
-    if (argv.len != worktree_base_argv_len) return false;
+/// Windows: `git.exe -C <project_path> symbolic-ref --quiet --short refs/remotes/origin/HEAD`.
+pub fn windowsWorktreeBaseArgvFor(cwd: []const u8, buf: *[worktree_base_argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_symbolic_ref_cmd;
+    buf[4] = git_quiet_flag;
+    buf[5] = git_short_flag;
+    buf[6] = git_origin_head_ref;
+    return buf[0..windows_worktree_base_argv_len];
+}
+
+pub fn worktreeBaseArgvFor(cwd: []const u8, buf: *[worktree_base_argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsWorktreeBaseArgvFor(cwd, buf),
+        else => unixWorktreeBaseArgvFor(cwd, buf),
+    };
+}
+
+fn isUnixGitWorktreeBaseArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_worktree_base_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
@@ -696,6 +1156,21 @@ pub fn isGitWorktreeBaseArgv(argv: []const []const u8) bool {
     if (!std.mem.eql(u8, argv[7], git_quiet_flag)) return false;
     if (!std.mem.eql(u8, argv[8], git_short_flag)) return false;
     return std.mem.eql(u8, argv[9], git_origin_head_ref);
+}
+
+fn isWindowsGitWorktreeBaseArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_worktree_base_argv_len) return false;
+    if (!windowsGitBinOk(argv[0])) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    if (!std.mem.eql(u8, argv[3], git_symbolic_ref_cmd)) return false;
+    if (!std.mem.eql(u8, argv[4], git_quiet_flag)) return false;
+    if (!std.mem.eql(u8, argv[5], git_short_flag)) return false;
+    return std.mem.eql(u8, argv[6], git_origin_head_ref);
+}
+
+pub fn isGitWorktreeBaseArgv(argv: []const []const u8) bool {
+    return isUnixGitWorktreeBaseArgv(argv) or isWindowsGitWorktreeBaseArgv(argv);
 }
 
 /// Trim + `isPlausibleBranchName`, and refuse `/` so the dest is one
@@ -756,10 +1231,12 @@ pub fn worktreeParentPath(home: []const u8, project_path: []const u8, buf: []u8)
 pub fn worktreeParentPathFor(home: []const u8, project_path: []const u8, buf: []u8, model: ?*const Model) ?[]const u8 {
     const trimmed = std.mem.trim(u8, home, " \t\r\n");
     if (trimmed.len == 0) return null;
-    if (trimmed[0] != '/') return null;
+    if (!git_common_dir.isAbsoluteCommonDir(trimmed)) return null;
     var nest_buf: [worktree_nest_key_len]u8 = undefined;
     const nest = worktreeNestKeyFor(project_path, nest_buf[0..], model) orelse return null;
-    return std.fmt.bufPrint(buf, "{s}/{s}/{s}", .{ trimmed, worktree_parent_suffix, nest }) catch null;
+    const printed = std.fmt.bufPrint(buf, "{s}/{s}/{s}", .{ trimmed, worktree_parent_suffix, nest }) catch return null;
+    slashNormalizeInPlace(printed);
+    return printed;
 }
 
 pub fn worktreeDestPath(home: []const u8, project_path: []const u8, name: []const u8, buf: []u8) ?[]const u8 {
@@ -799,17 +1276,52 @@ pub fn worktreeCandidateOccupied(path_exists: bool, local_branch_exists: bool) b
 
 pub fn isSafeWorktreePath(path: []const u8) bool {
     if (path.len == 0 or path.len > main.max_project_path) return false;
-    if (path[0] != '/') return false;
+    if (!git_common_dir.isAbsoluteCommonDir(path)) return false;
     if (std.mem.indexOf(u8, path, "..") != null) return false;
     if (std.mem.indexOfScalar(u8, path, 0) != null) return false;
     return true;
 }
 
-/// `mkdir -p -- <parent> && cd -- <cwd> && git worktree add -b <branch> <path> [base]`.
+fn slashNormalizeInPlace(path: []u8) void {
+    for (path) |*ch| {
+        if (ch.* == '\\') ch.* = '/';
+    }
+}
+
+fn slashNormalizedEql(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |ca, cb| {
+        const na: u8 = if (ca == '\\') '/' else ca;
+        const nb: u8 = if (cb == '\\') '/' else cb;
+        if (na != nb) return false;
+    }
+    return true;
+}
+
+fn slashNormalizedStartsWith(haystack: []const u8, needle: []const u8) bool {
+    if (haystack.len < needle.len) return false;
+    return slashNormalizedEql(haystack[0..needle.len], needle);
+}
+
+fn isPathSep(c: u8) bool {
+    return c == '/' or c == '\\';
+}
+
+fn worktreeAddSlotsOk(cwd: []const u8, parent: []const u8, branch: []const u8, path: []const u8, base: []const u8) bool {
+    if (cwd.len == 0 or !isSafeWorktreePath(parent) or !isSafeWorktreePath(path)) return false;
+    if (!git_branch.isPlausibleBranchName(branch)) return false;
+    if (!std.mem.startsWith(u8, branch, worktree_branch_prefix)) return false;
+    if (sanitizeWorktreeName(branch[worktree_branch_prefix.len..]) == null) return false;
+    if (!std.mem.startsWith(u8, path, parent)) return false;
+    if (base.len > 0 and !git_branch.isPlausibleBranchName(base)) return false;
+    return true;
+}
+
+/// Unix: `mkdir -p -- <parent> && cd -- <cwd> && git worktree add -b <branch> <path> [base]`.
 /// Parent, cwd, branch, path, and optional base are argv slots.
 /// Empty `base` omits the trailing slot (today's HEAD). Rejects
 /// unsafe names so a raw string never reaches the shell script.
-pub fn worktreeAddArgvFor(
+pub fn unixWorktreeAddArgvFor(
     cwd: []const u8,
     parent: []const u8,
     branch: []const u8,
@@ -817,12 +1329,7 @@ pub fn worktreeAddArgvFor(
     base: []const u8,
     buf: *[worktree_add_argv_len][]const u8,
 ) ?[]const []const u8 {
-    if (cwd.len == 0 or !isSafeWorktreePath(parent) or !isSafeWorktreePath(path)) return null;
-    if (!git_branch.isPlausibleBranchName(branch)) return null;
-    if (!std.mem.startsWith(u8, branch, worktree_branch_prefix)) return null;
-    if (sanitizeWorktreeName(branch[worktree_branch_prefix.len..]) == null) return null;
-    if (!std.mem.startsWith(u8, path, parent)) return null;
-    if (base.len > 0 and !git_branch.isPlausibleBranchName(base)) return null;
+    if (!worktreeAddSlotsOk(cwd, parent, branch, path, base)) return null;
     buf[0] = sh_bin;
     buf[1] = "-c";
     buf[2] = git_worktree_mkdir_chdir_script;
@@ -835,13 +1342,58 @@ pub fn worktreeAddArgvFor(
     buf[9] = git_create_b_flag;
     buf[10] = branch;
     buf[11] = path;
-    if (base.len == 0) return buf[0..worktree_add_no_base_argv_len];
+    if (base.len == 0) return buf[0..unix_worktree_add_no_base_argv_len];
     buf[12] = base;
-    return buf[0..worktree_add_argv_len];
+    return buf[0..unix_worktree_add_argv_len];
 }
 
-pub fn isGitWorktreeAddArgv(argv: []const []const u8) bool {
-    if (argv.len != worktree_add_no_base_argv_len and argv.len != worktree_add_argv_len) return false;
+/// Windows: `powershell.exe -NoProfile -Command {scriptblock} -Args`
+/// parent, cwd, git.exe, worktree, add, -b, branch, dest, [base].
+/// Paths are never inside the scriptblock. Empty `base` omits the
+/// trailing slot (today's HEAD), same as Unix.
+pub fn windowsWorktreeAddArgvFor(
+    cwd: []const u8,
+    parent: []const u8,
+    branch: []const u8,
+    path: []const u8,
+    base: []const u8,
+    buf: *[worktree_add_argv_len][]const u8,
+) ?[]const []const u8 {
+    if (!worktreeAddSlotsOk(cwd, parent, branch, path, base)) return null;
+    buf[0] = powershell_bin;
+    buf[1] = powershell_noprofile;
+    buf[2] = powershell_command;
+    buf[3] = git_worktree_mkdir_chdir_ps_script;
+    buf[4] = powershell_args_flag;
+    buf[5] = parent;
+    buf[6] = cwd;
+    buf[7] = windows_git_bin;
+    buf[8] = git_worktree_cmd;
+    buf[9] = git_worktree_add_cmd;
+    buf[10] = git_create_b_flag;
+    buf[11] = branch;
+    buf[12] = path;
+    if (base.len == 0) return buf[0..windows_worktree_add_no_base_argv_len];
+    buf[13] = base;
+    return buf[0..windows_worktree_add_argv_len];
+}
+
+pub fn worktreeAddArgvFor(
+    cwd: []const u8,
+    parent: []const u8,
+    branch: []const u8,
+    path: []const u8,
+    base: []const u8,
+    buf: *[worktree_add_argv_len][]const u8,
+) ?[]const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsWorktreeAddArgvFor(cwd, parent, branch, path, base, buf),
+        else => unixWorktreeAddArgvFor(cwd, parent, branch, path, base, buf),
+    };
+}
+
+fn isUnixGitWorktreeAddArgv(argv: []const []const u8) bool {
+    if (argv.len != unix_worktree_add_no_base_argv_len and argv.len != unix_worktree_add_argv_len) return false;
     if (!std.mem.eql(u8, argv[0], sh_bin)) return false;
     if (!std.mem.eql(u8, argv[1], "-c")) return false;
     if (!std.mem.eql(u8, argv[2], git_worktree_mkdir_chdir_script)) return false;
@@ -855,8 +1407,33 @@ pub fn isGitWorktreeAddArgv(argv: []const []const u8) bool {
     if (!std.mem.startsWith(u8, argv[10], worktree_branch_prefix)) return false;
     if (sanitizeWorktreeName(argv[10][worktree_branch_prefix.len..]) == null) return false;
     if (!isSafeWorktreePath(argv[11])) return false;
-    if (argv.len == worktree_add_argv_len) return git_branch.isPlausibleBranchName(argv[12]);
+    if (argv.len == unix_worktree_add_argv_len) return git_branch.isPlausibleBranchName(argv[12]);
     return true;
+}
+
+fn isWindowsGitWorktreeAddArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_worktree_add_no_base_argv_len and argv.len != windows_worktree_add_argv_len) return false;
+    if (!std.mem.eql(u8, argv[0], powershell_bin)) return false;
+    if (!std.mem.eql(u8, argv[1], powershell_noprofile)) return false;
+    if (!std.mem.eql(u8, argv[2], powershell_command)) return false;
+    if (!std.mem.eql(u8, argv[3], git_worktree_mkdir_chdir_ps_script)) return false;
+    if (!std.mem.eql(u8, argv[4], powershell_args_flag)) return false;
+    if (!isSafeWorktreePath(argv[5])) return false;
+    if (argv[6].len == 0) return false;
+    if (!windowsGitBinOk(argv[7])) return false;
+    if (!std.mem.eql(u8, argv[8], git_worktree_cmd)) return false;
+    if (!std.mem.eql(u8, argv[9], git_worktree_add_cmd)) return false;
+    if (!std.mem.eql(u8, argv[10], git_create_b_flag)) return false;
+    if (!git_branch.isPlausibleBranchName(argv[11])) return false;
+    if (!std.mem.startsWith(u8, argv[11], worktree_branch_prefix)) return false;
+    if (sanitizeWorktreeName(argv[11][worktree_branch_prefix.len..]) == null) return false;
+    if (!isSafeWorktreePath(argv[12])) return false;
+    if (argv.len == windows_worktree_add_argv_len) return git_branch.isPlausibleBranchName(argv[13]);
+    return true;
+}
+
+pub fn isGitWorktreeAddArgv(argv: []const []const u8) bool {
+    return isUnixGitWorktreeAddArgv(argv) or isWindowsGitWorktreeAddArgv(argv);
 }
 
 fn parsedRefLessThan(_: void, a: ParsedRef, b: ParsedRef) bool {
@@ -895,12 +1472,12 @@ pub fn isThisWorktreePathFor(worktreepath: []const u8, project_path: []const u8,
     const wt = std.mem.trim(u8, worktreepath, " \t\r\n");
     if (model) |m| {
         const top = std.mem.trim(u8, git_toplevel.readyPath(m), " \t\r\n");
-        if (top.len > 0) return wt.len > 0 and std.mem.eql(u8, wt, top);
+        if (top.len > 0) return wt.len > 0 and slashNormalizedEql(wt, top);
     }
     const proj = std.mem.trim(u8, project_path, " \t\r\n");
     if (wt.len == 0 or proj.len == 0) return false;
-    if (std.mem.eql(u8, wt, proj)) return true;
-    return proj.len > wt.len and std.mem.startsWith(u8, proj, wt) and proj[wt.len] == '/';
+    if (slashNormalizedEql(wt, proj)) return true;
+    return proj.len > wt.len and slashNormalizedStartsWith(proj, wt) and isPathSep(proj[wt.len]);
 }
 
 /// Local heads only. Non-empty trimmed worktreepath that is not this
@@ -1449,7 +2026,7 @@ fn cancelWorktreeBase(model: *Model, fx: *Effects) void {
 }
 
 fn probeSupported() bool {
-    return builtin.os.tag != .windows;
+    return true;
 }
 
 fn probePath(model: *const Model) []const u8 {
@@ -1463,7 +2040,7 @@ fn probePath(model: *const Model) []const u8 {
 /// Cancel any in-flight list / checkout / create / delete / fetch /
 /// push / worktree-add, drop the cached heads and remotes, and spawn
 /// `for-each-ref` when the selected session has an existing
-/// `project_path`. Empty / missing / Windows skips the spawn so the
+/// `project_path`. Empty / missing skips the spawn so the
 /// picker stays omitted unless `has_git_branch` is already true.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelList(model, fx);
@@ -1864,7 +2441,7 @@ pub fn startPushFromCommitCard(model: *Model, fx: *Effects) void {
 /// card open for in-dialog Pushing…; composer `startPush` still
 /// closes it. Sets `Could not push.` and dismisses the card when
 /// the probe cannot start (missing cwd, streaming, another git
-/// mutation, Windows). Detached HEAD / no remotes still fail later
+/// mutation). Detached HEAD / no remotes still fail later
 /// in `handlePushExit` the same way as Push…. Does not re-check
 /// remotes-required-for-first-push vs ahead: the Commit and Push
 /// UI gate is what hides no-remotes first-push.
@@ -2134,7 +2711,7 @@ fn pendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
 
 test "list argv is chdir script plus for-each-ref refs/heads and refs/remotes" {
     var buf: [list_argv_len][]const u8 = undefined;
-    const argv = listArgvFor("/tmp/faku-heads", &buf);
+    const argv = unixListArgvFor("/tmp/faku-heads", &buf);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -2183,7 +2760,7 @@ test "list argv is chdir script plus for-each-ref refs/heads and refs/remotes" {
 
 test "checkout argv keeps the name as its own slot and rejects implausible names" {
     var buf: [checkout_argv_len][]const u8 = undefined;
-    const argv = checkoutArgvFor("/tmp/faku-co", "feat/composer", &buf).?;
+    const argv = unixCheckoutArgvFor("/tmp/faku-co", "feat/composer", &buf).?;
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("/tmp/faku-co", argv[4]);
@@ -2201,14 +2778,14 @@ test "checkout argv keeps the name as its own slot and rejects implausible names
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "feat/composer") == null);
 
-    try std.testing.expect(checkoutArgvFor("/tmp/faku-co", "not a branch", &buf) == null);
-    try std.testing.expect(checkoutArgvFor("/tmp/faku-co", "../escape", &buf) == null);
-    try std.testing.expect(checkoutArgvFor("/tmp/faku-co", "/abs", &buf) == null);
-    try std.testing.expect(checkoutArgvFor("/tmp/faku-co", ".hidden", &buf) == null);
-    try std.testing.expect(checkoutArgvFor("/tmp/faku-co", "trailing.", &buf) == null);
-    try std.testing.expect(checkoutArgvFor("/tmp/faku-co", "@", &buf) == null);
-    try std.testing.expect(checkoutArgvFor("/tmp/faku-co", "foo@{bar", &buf) == null);
-    try std.testing.expect(checkoutArgvFor("/tmp/faku-co", "", &buf) == null);
+    try std.testing.expect(unixCheckoutArgvFor("/tmp/faku-co", "not a branch", &buf) == null);
+    try std.testing.expect(unixCheckoutArgvFor("/tmp/faku-co", "../escape", &buf) == null);
+    try std.testing.expect(unixCheckoutArgvFor("/tmp/faku-co", "/abs", &buf) == null);
+    try std.testing.expect(unixCheckoutArgvFor("/tmp/faku-co", ".hidden", &buf) == null);
+    try std.testing.expect(unixCheckoutArgvFor("/tmp/faku-co", "trailing.", &buf) == null);
+    try std.testing.expect(unixCheckoutArgvFor("/tmp/faku-co", "@", &buf) == null);
+    try std.testing.expect(unixCheckoutArgvFor("/tmp/faku-co", "foo@{bar", &buf) == null);
+    try std.testing.expect(unixCheckoutArgvFor("/tmp/faku-co", "", &buf) == null);
     try std.testing.expect(git_checkout_key_first > git_branch_list_key_first);
     try std.testing.expect(git_create_key_first > git_checkout_key_first);
     try std.testing.expect(git_branch_list_key_first > git_branch.git_branch_key_first);
@@ -2224,7 +2801,7 @@ test "checkout argv keeps the name as its own slot and rejects implausible names
 
 test "track checkout argv is checkout --track with the name as its own slot and rejects implausible names" {
     var buf: [track_checkout_argv_len][]const u8 = undefined;
-    const argv = trackCheckoutArgvFor("/tmp/faku-track", "origin/feat", &buf).?;
+    const argv = unixTrackCheckoutArgvFor("/tmp/faku-track", "origin/feat", &buf).?;
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -2246,19 +2823,19 @@ test "track checkout argv is checkout --track with the name as its own slot and 
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "origin/feat") == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "--track") == null);
 
-    try std.testing.expect(trackCheckoutArgvFor("/tmp/faku-track", "not a branch", &buf) == null);
-    try std.testing.expect(trackCheckoutArgvFor("/tmp/faku-track", "../escape", &buf) == null);
-    try std.testing.expect(trackCheckoutArgvFor("/tmp/faku-track", "/abs", &buf) == null);
-    try std.testing.expect(trackCheckoutArgvFor("/tmp/faku-track", ".hidden", &buf) == null);
-    try std.testing.expect(trackCheckoutArgvFor("/tmp/faku-track", "trailing.", &buf) == null);
-    try std.testing.expect(trackCheckoutArgvFor("/tmp/faku-track", "@", &buf) == null);
-    try std.testing.expect(trackCheckoutArgvFor("/tmp/faku-track", "foo@{bar", &buf) == null);
-    try std.testing.expect(trackCheckoutArgvFor("/tmp/faku-track", "", &buf) == null);
+    try std.testing.expect(unixTrackCheckoutArgvFor("/tmp/faku-track", "not a branch", &buf) == null);
+    try std.testing.expect(unixTrackCheckoutArgvFor("/tmp/faku-track", "../escape", &buf) == null);
+    try std.testing.expect(unixTrackCheckoutArgvFor("/tmp/faku-track", "/abs", &buf) == null);
+    try std.testing.expect(unixTrackCheckoutArgvFor("/tmp/faku-track", ".hidden", &buf) == null);
+    try std.testing.expect(unixTrackCheckoutArgvFor("/tmp/faku-track", "trailing.", &buf) == null);
+    try std.testing.expect(unixTrackCheckoutArgvFor("/tmp/faku-track", "@", &buf) == null);
+    try std.testing.expect(unixTrackCheckoutArgvFor("/tmp/faku-track", "foo@{bar", &buf) == null);
+    try std.testing.expect(unixTrackCheckoutArgvFor("/tmp/faku-track", "", &buf) == null);
 }
 
 test "create argv is checkout -b with the name as its own slot and rejects implausible names" {
     var buf: [create_argv_len][]const u8 = undefined;
-    const argv = createArgvFor("/tmp/faku-new", "feat/new-branch", &buf).?;
+    const argv = unixCreateArgvFor("/tmp/faku-new", "feat/new-branch", &buf).?;
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -2279,19 +2856,19 @@ test "create argv is checkout -b with the name as its own slot and rejects impla
     try std.testing.expect(!git_branch.isGitBranchArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "feat/new-branch") == null);
 
-    try std.testing.expect(createArgvFor("/tmp/faku-new", "not a branch", &buf) == null);
-    try std.testing.expect(createArgvFor("/tmp/faku-new", "../escape", &buf) == null);
-    try std.testing.expect(createArgvFor("/tmp/faku-new", "/abs", &buf) == null);
-    try std.testing.expect(createArgvFor("/tmp/faku-new", ".hidden", &buf) == null);
-    try std.testing.expect(createArgvFor("/tmp/faku-new", "trailing.", &buf) == null);
-    try std.testing.expect(createArgvFor("/tmp/faku-new", "@", &buf) == null);
-    try std.testing.expect(createArgvFor("/tmp/faku-new", "foo@{bar", &buf) == null);
-    try std.testing.expect(createArgvFor("/tmp/faku-new", "", &buf) == null);
+    try std.testing.expect(unixCreateArgvFor("/tmp/faku-new", "not a branch", &buf) == null);
+    try std.testing.expect(unixCreateArgvFor("/tmp/faku-new", "../escape", &buf) == null);
+    try std.testing.expect(unixCreateArgvFor("/tmp/faku-new", "/abs", &buf) == null);
+    try std.testing.expect(unixCreateArgvFor("/tmp/faku-new", ".hidden", &buf) == null);
+    try std.testing.expect(unixCreateArgvFor("/tmp/faku-new", "trailing.", &buf) == null);
+    try std.testing.expect(unixCreateArgvFor("/tmp/faku-new", "@", &buf) == null);
+    try std.testing.expect(unixCreateArgvFor("/tmp/faku-new", "foo@{bar", &buf) == null);
+    try std.testing.expect(unixCreateArgvFor("/tmp/faku-new", "", &buf) == null);
 }
 
 test "delete argv is branch -d with the name as its own slot and rejects implausible names" {
     var buf: [delete_argv_len][]const u8 = undefined;
-    const argv = deleteArgvFor("/tmp/faku-del", "feat/old-branch", &buf).?;
+    const argv = unixDeleteArgvFor("/tmp/faku-del", "feat/old-branch", &buf).?;
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -2314,14 +2891,14 @@ test "delete argv is branch -d with the name as its own slot and rejects implaus
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "feat/old-branch") == null);
     try std.testing.expect(!std.mem.eql(u8, argv[7], "-D"));
 
-    try std.testing.expect(deleteArgvFor("/tmp/faku-del", "not a branch", &buf) == null);
-    try std.testing.expect(deleteArgvFor("/tmp/faku-del", "../escape", &buf) == null);
-    try std.testing.expect(deleteArgvFor("/tmp/faku-del", "/abs", &buf) == null);
-    try std.testing.expect(deleteArgvFor("/tmp/faku-del", ".hidden", &buf) == null);
-    try std.testing.expect(deleteArgvFor("/tmp/faku-del", "trailing.", &buf) == null);
-    try std.testing.expect(deleteArgvFor("/tmp/faku-del", "@", &buf) == null);
-    try std.testing.expect(deleteArgvFor("/tmp/faku-del", "foo@{bar", &buf) == null);
-    try std.testing.expect(deleteArgvFor("/tmp/faku-del", "", &buf) == null);
+    try std.testing.expect(unixDeleteArgvFor("/tmp/faku-del", "not a branch", &buf) == null);
+    try std.testing.expect(unixDeleteArgvFor("/tmp/faku-del", "../escape", &buf) == null);
+    try std.testing.expect(unixDeleteArgvFor("/tmp/faku-del", "/abs", &buf) == null);
+    try std.testing.expect(unixDeleteArgvFor("/tmp/faku-del", ".hidden", &buf) == null);
+    try std.testing.expect(unixDeleteArgvFor("/tmp/faku-del", "trailing.", &buf) == null);
+    try std.testing.expect(unixDeleteArgvFor("/tmp/faku-del", "@", &buf) == null);
+    try std.testing.expect(unixDeleteArgvFor("/tmp/faku-del", "foo@{bar", &buf) == null);
+    try std.testing.expect(unixDeleteArgvFor("/tmp/faku-del", "", &buf) == null);
     try std.testing.expect(!isGitDeleteArgv(&.{
         sh_bin,
         "-c",
@@ -2337,7 +2914,7 @@ test "delete argv is branch -d with the name as its own slot and rejects implaus
 
 test "force delete argv is branch -D with the name as its own slot and rejects implausible names" {
     var buf: [delete_argv_len][]const u8 = undefined;
-    const argv = deleteForceArgvFor("/tmp/faku-del", "feat/old-branch", &buf).?;
+    const argv = unixDeleteForceArgvFor("/tmp/faku-del", "feat/old-branch", &buf).?;
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -2361,14 +2938,14 @@ test "force delete argv is branch -D with the name as its own slot and rejects i
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_delete_force_flag) == null);
     try std.testing.expect(!std.mem.eql(u8, argv[7], git_delete_d_flag));
 
-    try std.testing.expect(deleteForceArgvFor("/tmp/faku-del", "not a branch", &buf) == null);
-    try std.testing.expect(deleteForceArgvFor("/tmp/faku-del", "../escape", &buf) == null);
-    try std.testing.expect(deleteForceArgvFor("/tmp/faku-del", "/abs", &buf) == null);
-    try std.testing.expect(deleteForceArgvFor("/tmp/faku-del", ".hidden", &buf) == null);
-    try std.testing.expect(deleteForceArgvFor("/tmp/faku-del", "trailing.", &buf) == null);
-    try std.testing.expect(deleteForceArgvFor("/tmp/faku-del", "@", &buf) == null);
-    try std.testing.expect(deleteForceArgvFor("/tmp/faku-del", "foo@{bar", &buf) == null);
-    try std.testing.expect(deleteForceArgvFor("/tmp/faku-del", "", &buf) == null);
+    try std.testing.expect(unixDeleteForceArgvFor("/tmp/faku-del", "not a branch", &buf) == null);
+    try std.testing.expect(unixDeleteForceArgvFor("/tmp/faku-del", "../escape", &buf) == null);
+    try std.testing.expect(unixDeleteForceArgvFor("/tmp/faku-del", "/abs", &buf) == null);
+    try std.testing.expect(unixDeleteForceArgvFor("/tmp/faku-del", ".hidden", &buf) == null);
+    try std.testing.expect(unixDeleteForceArgvFor("/tmp/faku-del", "trailing.", &buf) == null);
+    try std.testing.expect(unixDeleteForceArgvFor("/tmp/faku-del", "@", &buf) == null);
+    try std.testing.expect(unixDeleteForceArgvFor("/tmp/faku-del", "foo@{bar", &buf) == null);
+    try std.testing.expect(unixDeleteForceArgvFor("/tmp/faku-del", "", &buf) == null);
     try std.testing.expect(!isGitDeleteForceArgv(&.{
         sh_bin,
         "-c",
@@ -2448,9 +3025,11 @@ test "confirmDelete picks -d vs -D from the Force toggle" {
     const safe = pendingSpawnKey(&fx, model.git_delete_key) orelse return error.MissingGitDeleteSpawn;
     try std.testing.expect(isGitDeleteArgv(safe.argv));
     try std.testing.expect(!isGitDeleteForceArgv(safe.argv));
-    try std.testing.expectEqualStrings(git_delete_d_flag, safe.argv[7]);
-    try std.testing.expectEqualStrings("feat/old", safe.argv[8]);
-    try std.testing.expect(std.mem.indexOf(u8, safe.argv[2], git_delete_d_flag) == null);
+    try std.testing.expectEqualStrings(git_delete_d_flag, safe.argv[safe.argv.len - 2]);
+    try std.testing.expectEqualStrings("feat/old", safe.argv[safe.argv.len - 1]);
+    if (std.mem.eql(u8, safe.argv[0], sh_bin)) {
+        try std.testing.expect(std.mem.indexOf(u8, safe.argv[2], git_delete_d_flag) == null);
+    }
     try std.testing.expect(safe.key >= git_delete_key_first);
     try std.testing.expect(safe.key < git_fetch_key_first);
 
@@ -2465,9 +3044,11 @@ test "confirmDelete picks -d vs -D from the Force toggle" {
     const forced = pendingSpawnKey(&fx, model.git_delete_key) orelse return error.MissingGitDeleteForceSpawn;
     try std.testing.expect(isGitDeleteForceArgv(forced.argv));
     try std.testing.expect(!isGitDeleteArgv(forced.argv));
-    try std.testing.expectEqualStrings(git_delete_force_flag, forced.argv[7]);
-    try std.testing.expectEqualStrings("feat/old", forced.argv[8]);
-    try std.testing.expect(std.mem.indexOf(u8, forced.argv[2], git_delete_force_flag) == null);
+    try std.testing.expectEqualStrings(git_delete_force_flag, forced.argv[forced.argv.len - 2]);
+    try std.testing.expectEqualStrings("feat/old", forced.argv[forced.argv.len - 1]);
+    if (std.mem.eql(u8, forced.argv[0], sh_bin)) {
+        try std.testing.expect(std.mem.indexOf(u8, forced.argv[2], git_delete_force_flag) == null);
+    }
     try std.testing.expect(forced.key >= git_delete_key_first);
     try std.testing.expect(forced.key < git_fetch_key_first);
     try std.testing.expect(forced.key != safe.key);
@@ -2480,7 +3061,7 @@ test "confirmDelete picks -d vs -D from the Force toggle" {
 
 test "fetch argv is fetch --prune as its own slot and is not fetch-without-prune" {
     var buf: [fetch_argv_len][]const u8 = undefined;
-    const argv = fetchArgvFor("/tmp/faku-fetch", &buf);
+    const argv = unixFetchArgvFor("/tmp/faku-fetch", &buf);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -2538,7 +3119,7 @@ test "fetch argv is fetch --prune as its own slot and is not fetch-without-prune
 
 test "push argv is git push with no extra flags and is not fetch/checkout/create/delete" {
     var buf: [push_argv_len][]const u8 = undefined;
-    const argv = pushArgvFor("/tmp/faku-push", &buf);
+    const argv = unixPushArgvFor("/tmp/faku-push", &buf);
     try std.testing.expectEqual(@as(usize, 7), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
@@ -2666,6 +3247,31 @@ test "worktreeNestKey is stable FNV-1a and dest nests under it" {
     try std.testing.expect(worktreeParentPath("/home/u", "", path_buf[0..]) == null);
     try std.testing.expect(worktreeParentPath("/home/u", "..", path_buf[0..]) == null);
     try std.testing.expectEqualStrings(
+        "C:/Users/u/.faku/worktrees/2599eb06cf360587",
+        worktreeParentPath("C:\\Users\\u", "/tmp/proj", path_buf[0..]).?,
+    );
+    try std.testing.expectEqualStrings(
+        "C:/Users/u/.faku/worktrees/2599eb06cf360587",
+        worktreeParentPath("C:/Users/u", "/tmp/proj", path_buf[0..]).?,
+    );
+    try std.testing.expectEqualStrings(
+        "C:/Users/u/.faku/worktrees/2599eb06cf360587/feat",
+        worktreeDestPath("C:\\Users\\u", "/tmp/proj", "feat", path_buf[0..]).?,
+    );
+    try std.testing.expectEqualStrings(
+        "C:/Users/u/.faku/worktrees/2599eb06cf360587/feat",
+        worktreeDestPath("C:/Users/u", "/tmp/proj", "feat", path_buf[0..]).?,
+    );
+    try std.testing.expect(worktreeParentPath("Users\\u", "/tmp/proj", path_buf[0..]) == null);
+    try std.testing.expect(worktreeDestPath("relative", "/tmp/proj", "feat", path_buf[0..]) == null);
+    try std.testing.expect(isSafeWorktreePath("/home/u/.faku/worktrees/2599eb06cf360587/feat"));
+    try std.testing.expect(isSafeWorktreePath("C:/Users/u/.faku/worktrees/2599eb06cf360587/feat"));
+    try std.testing.expect(isSafeWorktreePath("C:\\Users\\u\\.faku\\worktrees\\nest\\feat"));
+    try std.testing.expect(!isSafeWorktreePath("relative"));
+    try std.testing.expect(!isSafeWorktreePath("../escape"));
+    try std.testing.expect(!isSafeWorktreePath(""));
+    try std.testing.expect(!isSafeWorktreePath("/tmp/proj/../other"));
+    try std.testing.expectEqualStrings(
         "/home/u/.faku/worktrees/2599eb06cf360587/feat",
         worktreeDestPath("/home/u", "/tmp/proj", "feat", path_buf[0..]).?,
     );
@@ -2732,7 +3338,7 @@ test "worktreeBaseFromSymbolicRef prefers origin local name then whole ref" {
 
 test "worktree base argv is symbolic-ref --quiet --short origin/HEAD" {
     var buf: [worktree_base_argv_len][]const u8 = undefined;
-    const argv = worktreeBaseArgvFor("/tmp/faku-wt-base", &buf);
+    const argv = unixWorktreeBaseArgvFor("/tmp/faku-wt-base", &buf);
     try std.testing.expectEqual(@as(usize, 10), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
@@ -2763,7 +3369,7 @@ test "worktree add argv is mkdir+chdir plus worktree add -b with and without bas
     try std.testing.expectEqualStrings("/home/u/.faku/worktrees/7d4ac9355fd03f74", parent);
     try std.testing.expectEqualStrings("/home/u/.faku/worktrees/7d4ac9355fd03f74/feat", dest);
 
-    const argv = worktreeAddArgvFor(
+    const argv = unixWorktreeAddArgvFor(
         "/tmp/faku-repo",
         parent,
         "faku/feat",
@@ -2798,7 +3404,7 @@ test "worktree add argv is mkdir+chdir plus worktree add -b with and without bas
     try std.testing.expect(std.mem.indexOf(u8, argv[2], dest) == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "feat") == null);
 
-    const with_base = worktreeAddArgvFor(
+    const with_base = unixWorktreeAddArgvFor(
         "/tmp/faku-repo",
         parent,
         "faku/feat",
@@ -2813,7 +3419,7 @@ test "worktree add argv is mkdir+chdir plus worktree add -b with and without bas
     try std.testing.expect(isGitWorktreeAddArgv(with_base));
     try std.testing.expect(std.mem.indexOf(u8, with_base[2], "main") == null);
 
-    const origin_base = worktreeAddArgvFor(
+    const origin_base = unixWorktreeAddArgvFor(
         "/tmp/faku-repo",
         parent,
         "faku/feat",
@@ -2824,13 +3430,13 @@ test "worktree add argv is mkdir+chdir plus worktree add -b with and without bas
     try std.testing.expectEqualStrings("origin/main", origin_base[12]);
     try std.testing.expect(isGitWorktreeAddArgv(origin_base));
 
-    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", parent, "feat", dest, "", &buf) == null);
-    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", parent, "faku/feat/foo", dest, "", &buf) == null);
-    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", "relative", "faku/feat", dest, "", &buf) == null);
-    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", parent, "faku/feat", "/tmp/other/feat", "", &buf) == null);
-    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", parent, "faku/feat", "/home/u/.faku/worktrees/feat", "", &buf) == null);
-    try std.testing.expect(worktreeAddArgvFor("", parent, "faku/feat", dest, "", &buf) == null);
-    try std.testing.expect(worktreeAddArgvFor("/tmp/repo", parent, "faku/feat", dest, "not a branch", &buf) == null);
+    try std.testing.expect(unixWorktreeAddArgvFor("/tmp/repo", parent, "feat", dest, "", &buf) == null);
+    try std.testing.expect(unixWorktreeAddArgvFor("/tmp/repo", parent, "faku/feat/foo", dest, "", &buf) == null);
+    try std.testing.expect(unixWorktreeAddArgvFor("/tmp/repo", "relative", "faku/feat", dest, "", &buf) == null);
+    try std.testing.expect(unixWorktreeAddArgvFor("/tmp/repo", parent, "faku/feat", "/tmp/other/feat", "", &buf) == null);
+    try std.testing.expect(unixWorktreeAddArgvFor("/tmp/repo", parent, "faku/feat", "/home/u/.faku/worktrees/feat", "", &buf) == null);
+    try std.testing.expect(unixWorktreeAddArgvFor("", parent, "faku/feat", dest, "", &buf) == null);
+    try std.testing.expect(unixWorktreeAddArgvFor("/tmp/repo", parent, "faku/feat", dest, "not a branch", &buf) == null);
     try std.testing.expect(!isGitWorktreeAddArgv(&.{
         sh_bin,
         "-c",
@@ -2921,9 +3527,13 @@ test "handleWorktreeAddExit retries slug-2 and success retargets that dest" {
     const spawn = fx.pendingSpawnAt(0).?;
     try std.testing.expect(isGitWorktreeAddArgv(spawn.argv));
     try std.testing.expectEqual(git_worktree_add_key_first + 1, spawn.key);
-    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/2599eb06cf360587", spawn.argv[4]);
-    try std.testing.expectEqualStrings("faku/feat-2", spawn.argv[10]);
-    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/2599eb06cf360587/feat-2", spawn.argv[11]);
+    try std.testing.expectEqualStrings("faku/feat-2", spawn.argv[spawn.argv.len - 2]);
+    try std.testing.expectEqualStrings("/home/u/.faku/worktrees/2599eb06cf360587/feat-2", spawn.argv[spawn.argv.len - 1]);
+    if (std.mem.eql(u8, spawn.argv[0], sh_bin)) {
+        try std.testing.expectEqualStrings("/home/u/.faku/worktrees/2599eb06cf360587", spawn.argv[4]);
+    } else {
+        try std.testing.expectEqualStrings("/home/u/.faku/worktrees/2599eb06cf360587", spawn.argv[5]);
+    }
 
     const dest_two = model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len];
     const ok = handleWorktreeAddExit(&model, &fx, .{ .key = git_worktree_add_key_first + 1, .reason = .exited, .code = 0 });
@@ -3008,7 +3618,7 @@ test "startWorktreeCreate prefills a prompt slug from the session title" {
 
 test "set-upstream push argv keeps flag, remote, and branch as their own slots" {
     var buf: [set_upstream_push_argv_len][]const u8 = undefined;
-    const argv = setUpstreamPushArgvFor("/tmp/faku-push-u", "origin", "feat/new", &buf).?;
+    const argv = unixSetUpstreamPushArgvFor("/tmp/faku-push-u", "origin", "feat/new", &buf).?;
     try std.testing.expectEqual(@as(usize, 10), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
@@ -3031,10 +3641,10 @@ test "set-upstream push argv keeps flag, remote, and branch as their own slots" 
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "origin") == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], "feat/new") == null);
 
-    try std.testing.expect(setUpstreamPushArgvFor("/tmp/faku-push-u", "origin", "not a branch", &buf) == null);
-    try std.testing.expect(setUpstreamPushArgvFor("/tmp/faku-push-u", "../escape", "main", &buf) == null);
-    try std.testing.expect(setUpstreamPushArgvFor("/tmp/faku-push-u", "", "main", &buf) == null);
-    try std.testing.expect(setUpstreamPushArgvFor("/tmp/faku-push-u", "origin", "", &buf) == null);
+    try std.testing.expect(unixSetUpstreamPushArgvFor("/tmp/faku-push-u", "origin", "not a branch", &buf) == null);
+    try std.testing.expect(unixSetUpstreamPushArgvFor("/tmp/faku-push-u", "../escape", "main", &buf) == null);
+    try std.testing.expect(unixSetUpstreamPushArgvFor("/tmp/faku-push-u", "", "main", &buf) == null);
+    try std.testing.expect(unixSetUpstreamPushArgvFor("/tmp/faku-push-u", "origin", "", &buf) == null);
     try std.testing.expect(!isGitSetUpstreamPushArgv(&.{
         sh_bin,
         "-c",
@@ -3060,7 +3670,7 @@ test "set-upstream push argv keeps flag, remote, and branch as their own slots" 
 
 test "upstream argv is rev-parse symbolic-full-name @{upstream}" {
     var buf: [upstream_argv_len][]const u8 = undefined;
-    const argv = upstreamArgvFor("/tmp/faku-up", &buf);
+    const argv = unixUpstreamArgvFor("/tmp/faku-up", &buf);
     try std.testing.expectEqual(@as(usize, 10), argv.len);
     try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
@@ -3079,7 +3689,7 @@ test "upstream argv is rev-parse symbolic-full-name @{upstream}" {
 
 test "remote argv is git remote and is not bare push" {
     var buf: [remote_argv_len][]const u8 = undefined;
-    const argv = remoteArgvFor("/tmp/faku-remote", &buf);
+    const argv = unixRemoteArgvFor("/tmp/faku-remote", &buf);
     try std.testing.expectEqual(@as(usize, 7), argv.len);
     try std.testing.expectEqualStrings(git_remote_cmd, argv[6]);
     try std.testing.expect(isGitRemoteArgv(argv));
@@ -3087,6 +3697,287 @@ test "remote argv is git remote and is not bare push" {
     try std.testing.expect(!isGitSetUpstreamPushArgv(argv));
     try std.testing.expect(!isGitUpstreamArgv(argv));
     try std.testing.expect(!isGitFetchArgv(argv));
+}
+
+fn expectRejectsSiblingWindowsArgv(pred: *const fn ([]const []const u8) bool, cwd: []const u8) !void {
+    var branch_buf: [git_branch.argv_len][]const u8 = undefined;
+    try std.testing.expect(!pred(git_branch.windowsArgvFor(cwd, &branch_buf)));
+    var dirty_buf: [git_dirty.argv_len][]const u8 = undefined;
+    try std.testing.expect(!pred(git_dirty.windowsArgvFor(cwd, &dirty_buf)));
+    var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
+    try std.testing.expect(!pred(git_numstat.windowsArgvFor(cwd, &numstat_buf)));
+    var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;
+    try std.testing.expect(!pred(git_ahead_behind.windowsArgvFor(cwd, &ahead_buf)));
+    var remotes_buf: [git_remotes.argv_len][]const u8 = undefined;
+    try std.testing.expect(!pred(git_remotes.windowsArgvFor(cwd, &remotes_buf)));
+    var top_buf: [git_toplevel.argv_len][]const u8 = undefined;
+    try std.testing.expect(!pred(git_toplevel.windowsArgvFor(cwd, &top_buf)));
+    var common_buf: [git_common_dir.argv_len][]const u8 = undefined;
+    try std.testing.expect(!pred(git_common_dir.windowsArgvFor(cwd, &common_buf)));
+    var mention_buf: [file_mention.git_argv_len][]const u8 = undefined;
+    try std.testing.expect(!pred(file_mention.windowsArgvFor(cwd, &mention_buf)));
+    try std.testing.expect(!pred(&.{ windows_git_bin, git_c_flag, cwd, "add", "-A", "--", "." }));
+    try std.testing.expect(!pred(&.{ windows_git_bin, git_c_flag, cwd, "commit", "-m", "msg" }));
+}
+
+test "windows git argv is git.exe -C PATH; path is its own slot" {
+    const cwd = "C:\\Users\\me\\proj";
+    var list_buf: [list_argv_len][]const u8 = undefined;
+    const list = windowsListArgvFor(cwd, &list_buf);
+    try std.testing.expectEqual(@as(usize, windows_list_argv_len), list.len);
+    try std.testing.expect(list.len <= 16);
+    try std.testing.expectEqualStrings(windows_git_bin, list[0]);
+    try std.testing.expectEqualStrings(git_c_flag, list[1]);
+    try std.testing.expectEqualStrings(cwd, list[2]);
+    try std.testing.expectEqualStrings(git_for_each_ref_cmd, list[3]);
+    try std.testing.expectEqualStrings(git_refname_format, list[4]);
+    try std.testing.expectEqualStrings(git_heads_ref, list[5]);
+    try std.testing.expectEqualStrings(git_remotes_ref, list[6]);
+    try std.testing.expect(isGitBranchListArgv(list));
+    try std.testing.expect(!isGitCheckoutArgv(list));
+    try std.testing.expect(!isGitBranchListArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    var git_only: [list_argv_len][]const u8 = undefined;
+    git_only[0] = git_bin;
+    git_only[1] = git_c_flag;
+    git_only[2] = cwd;
+    git_only[3] = git_for_each_ref_cmd;
+    git_only[4] = git_refname_format;
+    git_only[5] = git_heads_ref;
+    git_only[6] = git_remotes_ref;
+    try std.testing.expect(isGitBranchListArgv(git_only[0..windows_list_argv_len]));
+    try expectRejectsSiblingWindowsArgv(&isGitBranchListArgv, cwd);
+
+    var co_buf: [checkout_argv_len][]const u8 = undefined;
+    const co = windowsCheckoutArgvFor(cwd, "feat/composer", &co_buf).?;
+    try std.testing.expectEqual(@as(usize, windows_checkout_argv_len), co.len);
+    try std.testing.expectEqualStrings(git_checkout_cmd, co[3]);
+    try std.testing.expectEqualStrings("feat/composer", co[4]);
+    try std.testing.expect(isGitCheckoutArgv(co));
+    try std.testing.expect(!isGitTrackCheckoutArgv(co));
+    try std.testing.expect(!isGitCreateArgv(co));
+    try std.testing.expect(!isGitCheckoutArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    try expectRejectsSiblingWindowsArgv(&isGitCheckoutArgv, cwd);
+    try std.testing.expect(windowsCheckoutArgvFor(cwd, "not a branch", &co_buf) == null);
+
+    var track_buf: [track_checkout_argv_len][]const u8 = undefined;
+    const track = windowsTrackCheckoutArgvFor(cwd, "origin/feat", &track_buf).?;
+    try std.testing.expectEqual(@as(usize, windows_track_checkout_argv_len), track.len);
+    try std.testing.expectEqualStrings(git_track_flag, track[4]);
+    try std.testing.expectEqualStrings("origin/feat", track[5]);
+    try std.testing.expect(isGitTrackCheckoutArgv(track));
+    try std.testing.expect(!isGitCheckoutArgv(track));
+    try std.testing.expect(!isGitTrackCheckoutArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    try expectRejectsSiblingWindowsArgv(&isGitTrackCheckoutArgv, cwd);
+
+    var create_buf: [create_argv_len][]const u8 = undefined;
+    const created = windowsCreateArgvFor(cwd, "feat/new", &create_buf).?;
+    try std.testing.expectEqual(@as(usize, windows_create_argv_len), created.len);
+    try std.testing.expectEqualStrings(git_create_b_flag, created[4]);
+    try std.testing.expect(isGitCreateArgv(created));
+    try std.testing.expect(!isGitCheckoutArgv(created));
+    try expectRejectsSiblingWindowsArgv(&isGitCreateArgv, cwd);
+
+    var del_buf: [delete_argv_len][]const u8 = undefined;
+    const del = windowsDeleteArgvFor(cwd, "feat/old", &del_buf).?;
+    try std.testing.expectEqual(@as(usize, windows_delete_argv_len), del.len);
+    try std.testing.expectEqualStrings(git_branch_cmd, del[3]);
+    try std.testing.expectEqualStrings(git_delete_d_flag, del[4]);
+    try std.testing.expect(isGitDeleteArgv(del));
+    try std.testing.expect(!isGitDeleteForceArgv(del));
+    try expectRejectsSiblingWindowsArgv(&isGitDeleteArgv, cwd);
+    const forced = windowsDeleteForceArgvFor(cwd, "feat/old", &del_buf).?;
+    try std.testing.expectEqualStrings(git_delete_force_flag, forced[4]);
+    try std.testing.expect(isGitDeleteForceArgv(forced));
+    try std.testing.expect(!isGitDeleteArgv(forced));
+    try expectRejectsSiblingWindowsArgv(&isGitDeleteForceArgv, cwd);
+
+    var fetch_buf: [fetch_argv_len][]const u8 = undefined;
+    const fetched = windowsFetchArgvFor(cwd, &fetch_buf);
+    try std.testing.expectEqual(@as(usize, windows_fetch_argv_len), fetched.len);
+    try std.testing.expectEqualStrings(git_fetch_cmd, fetched[3]);
+    try std.testing.expectEqualStrings(git_prune_flag, fetched[4]);
+    try std.testing.expect(isGitFetchArgv(fetched));
+    try std.testing.expect(!isGitFetchArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    try expectRejectsSiblingWindowsArgv(&isGitFetchArgv, cwd);
+
+    var push_buf: [push_argv_len][]const u8 = undefined;
+    const pushed = windowsPushArgvFor(cwd, &push_buf);
+    try std.testing.expectEqual(@as(usize, windows_push_argv_len), pushed.len);
+    try std.testing.expectEqualStrings(git_push_cmd, pushed[3]);
+    try std.testing.expect(isGitPushArgv(pushed));
+    try std.testing.expect(!isGitSetUpstreamPushArgv(pushed));
+    try std.testing.expect(!isGitPushArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    try expectRejectsSiblingWindowsArgv(&isGitPushArgv, cwd);
+
+    var up_buf: [upstream_argv_len][]const u8 = undefined;
+    const up = windowsUpstreamArgvFor(cwd, &up_buf);
+    try std.testing.expectEqual(@as(usize, windows_upstream_argv_len), up.len);
+    try std.testing.expectEqualStrings(git_rev_parse_cmd, up[3]);
+    try std.testing.expectEqualStrings(git_abbrev_ref, up[4]);
+    try std.testing.expectEqualStrings(git_symbolic_full_name, up[5]);
+    try std.testing.expectEqualStrings(git_upstream_rev, up[6]);
+    try std.testing.expect(isGitUpstreamArgv(up));
+    try std.testing.expect(!git_branch.isGitRevParseArgv(up));
+    try std.testing.expect(!isGitUpstreamArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    try expectRejectsSiblingWindowsArgv(&isGitUpstreamArgv, cwd);
+
+    var remote_buf: [remote_argv_len][]const u8 = undefined;
+    const remote = windowsRemoteArgvFor(cwd, &remote_buf);
+    try std.testing.expectEqual(@as(usize, windows_remote_argv_len), remote.len);
+    try std.testing.expectEqualStrings(git_remote_cmd, remote[3]);
+    try std.testing.expect(isGitRemoteArgv(remote));
+    try std.testing.expect(git_remotes.isGitRemotesArgv(remote));
+    try std.testing.expect(!isGitPushArgv(remote));
+    try std.testing.expect(!isGitRemoteArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    var branch_buf: [git_branch.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitRemoteArgv(git_branch.windowsArgvFor(cwd, &branch_buf)));
+    var dirty_buf: [git_dirty.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitRemoteArgv(git_dirty.windowsArgvFor(cwd, &dirty_buf)));
+
+    var set_buf: [set_upstream_push_argv_len][]const u8 = undefined;
+    const set_up = windowsSetUpstreamPushArgvFor(cwd, "origin", "feat/new", &set_buf).?;
+    try std.testing.expectEqual(@as(usize, windows_set_upstream_push_argv_len), set_up.len);
+    try std.testing.expectEqualStrings(git_set_upstream_flag, set_up[4]);
+    try std.testing.expectEqualStrings("origin", set_up[5]);
+    try std.testing.expectEqualStrings("feat/new", set_up[6]);
+    try std.testing.expect(isGitSetUpstreamPushArgv(set_up));
+    try std.testing.expect(!isGitPushArgv(set_up));
+    try expectRejectsSiblingWindowsArgv(&isGitSetUpstreamPushArgv, cwd);
+    try std.testing.expect(windowsSetUpstreamPushArgvFor(cwd, "origin", "not a branch", &set_buf) == null);
+
+    var base_buf: [worktree_base_argv_len][]const u8 = undefined;
+    const base = windowsWorktreeBaseArgvFor(cwd, &base_buf);
+    try std.testing.expectEqual(@as(usize, windows_worktree_base_argv_len), base.len);
+    try std.testing.expectEqualStrings(git_symbolic_ref_cmd, base[3]);
+    try std.testing.expectEqualStrings(git_quiet_flag, base[4]);
+    try std.testing.expectEqualStrings(git_short_flag, base[5]);
+    try std.testing.expectEqualStrings(git_origin_head_ref, base[6]);
+    try std.testing.expect(isGitWorktreeBaseArgv(base));
+    try std.testing.expect(!isGitWorktreeAddArgv(base));
+    try std.testing.expect(!isGitWorktreeBaseArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    try expectRejectsSiblingWindowsArgv(&isGitWorktreeBaseArgv, cwd);
+}
+
+test "windows worktree add argv is powershell -Command + -Args; paths stay slots" {
+    var buf: [worktree_add_argv_len][]const u8 = undefined;
+    var parent_buf: [main.max_project_path]u8 = undefined;
+    const parent = worktreeParentPath("C:\\Users\\u", "C:\\tmp\\faku-repo", parent_buf[0..]).?;
+    var dest_buf: [main.max_project_path]u8 = undefined;
+    const dest = worktreeDestPath("C:\\Users\\u", "C:\\tmp\\faku-repo", "feat", dest_buf[0..]).?;
+    try std.testing.expect(std.mem.startsWith(u8, parent, "C:/Users/u/.faku/worktrees/"));
+    try std.testing.expect(std.mem.startsWith(u8, dest, parent));
+    try std.testing.expect(std.mem.endsWith(u8, dest, "/feat"));
+    try std.testing.expect(std.mem.indexOfScalar(u8, parent, '\\') == null);
+    try std.testing.expect(std.mem.indexOfScalar(u8, dest, '\\') == null);
+
+    const argv = windowsWorktreeAddArgvFor("C:\\tmp\\faku-repo", parent, "faku/feat", dest, "", &buf).?;
+    try std.testing.expectEqual(@as(usize, windows_worktree_add_no_base_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expectEqualStrings(powershell_bin, argv[0]);
+    try std.testing.expectEqualStrings(powershell_noprofile, argv[1]);
+    try std.testing.expectEqualStrings(powershell_command, argv[2]);
+    try std.testing.expectEqualStrings(git_worktree_mkdir_chdir_ps_script, argv[3]);
+    try std.testing.expectEqualStrings(powershell_args_flag, argv[4]);
+    try std.testing.expectEqualStrings(parent, argv[5]);
+    try std.testing.expectEqualStrings("C:\\tmp\\faku-repo", argv[6]);
+    try std.testing.expectEqualStrings(windows_git_bin, argv[7]);
+    try std.testing.expectEqualStrings(git_worktree_cmd, argv[8]);
+    try std.testing.expectEqualStrings(git_worktree_add_cmd, argv[9]);
+    try std.testing.expectEqualStrings(git_create_b_flag, argv[10]);
+    try std.testing.expectEqualStrings("faku/feat", argv[11]);
+    try std.testing.expectEqualStrings(dest, argv[12]);
+    try std.testing.expect(isGitWorktreeAddArgv(argv));
+    try std.testing.expect(!isGitWorktreeBaseArgv(argv));
+    try std.testing.expect(!isGitCreateArgv(argv));
+    try std.testing.expect(!file_mention.isWalkArgv(argv));
+    try std.testing.expect(std.mem.indexOf(u8, argv[3], parent) == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[3], dest) == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[3], "faku/feat") == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[3], "C:\\tmp\\faku-repo") == null);
+    try expectRejectsSiblingWindowsArgv(&isGitWorktreeAddArgv, "C:\\tmp\\faku-repo");
+    var walk_buf: [file_mention.walk_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitWorktreeAddArgv(file_mention.windowsWalkArgvFor("C:\\tmp\\faku-repo", &walk_buf)));
+
+    const with_base = windowsWorktreeAddArgvFor("C:\\tmp\\faku-repo", parent, "faku/feat", dest, "main", &buf).?;
+    try std.testing.expectEqual(@as(usize, windows_worktree_add_argv_len), with_base.len);
+    try std.testing.expectEqualStrings("main", with_base[13]);
+    try std.testing.expect(isGitWorktreeAddArgv(with_base));
+    try std.testing.expect(std.mem.indexOf(u8, with_base[3], "main") == null);
+
+    try std.testing.expect(windowsWorktreeAddArgvFor("C:\\tmp\\repo", parent, "feat", dest, "", &buf) == null);
+    try std.testing.expect(windowsWorktreeAddArgvFor("C:\\tmp\\repo", "relative", "faku/feat", dest, "", &buf) == null);
+    try std.testing.expect(!isGitWorktreeAddArgv(&.{
+        powershell_bin,
+        powershell_noprofile,
+        powershell_command,
+        git_worktree_mkdir_chdir_ps_script,
+        powershell_args_flag,
+        parent,
+    }));
+}
+
+test "host argvFor matches the process OS" {
+    var list_buf: [list_argv_len][]const u8 = undefined;
+    const list = listArgvFor("/tmp/faku-heads", &list_buf);
+    try std.testing.expect(isGitBranchListArgv(list));
+    var co_buf: [checkout_argv_len][]const u8 = undefined;
+    const co = checkoutArgvFor("/tmp/faku-co", "feat", &co_buf).?;
+    try std.testing.expect(isGitCheckoutArgv(co));
+    var track_buf: [track_checkout_argv_len][]const u8 = undefined;
+    const track = trackCheckoutArgvFor("/tmp/faku-track", "origin/feat", &track_buf).?;
+    try std.testing.expect(isGitTrackCheckoutArgv(track));
+    var create_buf: [create_argv_len][]const u8 = undefined;
+    const created = createArgvFor("/tmp/faku-new", "feat/new", &create_buf).?;
+    try std.testing.expect(isGitCreateArgv(created));
+    var del_buf: [delete_argv_len][]const u8 = undefined;
+    const del = deleteArgvFor("/tmp/faku-del", "feat/old", &del_buf).?;
+    try std.testing.expect(isGitDeleteArgv(del));
+    var fetch_buf: [fetch_argv_len][]const u8 = undefined;
+    const fetched = fetchArgvFor("/tmp/faku-fetch", &fetch_buf);
+    try std.testing.expect(isGitFetchArgv(fetched));
+    var push_buf: [push_argv_len][]const u8 = undefined;
+    const pushed = pushArgvFor("/tmp/faku-push", &push_buf);
+    try std.testing.expect(isGitPushArgv(pushed));
+    var up_buf: [upstream_argv_len][]const u8 = undefined;
+    const up = upstreamArgvFor("/tmp/faku-up", &up_buf);
+    try std.testing.expect(isGitUpstreamArgv(up));
+    var remote_buf: [remote_argv_len][]const u8 = undefined;
+    const remote = remoteArgvFor("/tmp/faku-remote", &remote_buf);
+    try std.testing.expect(isGitRemoteArgv(remote));
+    var set_buf: [set_upstream_push_argv_len][]const u8 = undefined;
+    const set_up = setUpstreamPushArgvFor("/tmp/faku-push-u", "origin", "feat/new", &set_buf).?;
+    try std.testing.expect(isGitSetUpstreamPushArgv(set_up));
+    var base_buf: [worktree_base_argv_len][]const u8 = undefined;
+    const base = worktreeBaseArgvFor("/tmp/faku-wt-base", &base_buf);
+    try std.testing.expect(isGitWorktreeBaseArgv(base));
+    var parent_buf: [main.max_project_path]u8 = undefined;
+    const parent = worktreeParentPath("/home/u", "/tmp/faku-repo", parent_buf[0..]).?;
+    var dest_buf: [main.max_project_path]u8 = undefined;
+    const dest = worktreeDestPath("/home/u", "/tmp/faku-repo", "feat", dest_buf[0..]).?;
+    var wt_buf: [worktree_add_argv_len][]const u8 = undefined;
+    const wt = worktreeAddArgvFor("/tmp/faku-repo", parent, "faku/feat", dest, "", &wt_buf).?;
+    try std.testing.expect(isGitWorktreeAddArgv(wt));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(windows_git_bin, list[0]);
+            try std.testing.expectEqualStrings(git_c_flag, list[1]);
+            try std.testing.expectEqualStrings(windows_git_bin, co[0]);
+            try std.testing.expectEqualStrings(windows_git_bin, pushed[0]);
+            try std.testing.expectEqualStrings(powershell_bin, wt[0]);
+            try std.testing.expectEqualStrings(powershell_args_flag, wt[4]);
+        },
+        else => {
+            try std.testing.expectEqualStrings(sh_bin, list[0]);
+            try std.testing.expectEqualStrings(sh_bin, co[0]);
+            try std.testing.expectEqualStrings(sh_bin, pushed[0]);
+            try std.testing.expectEqualStrings(sh_bin, wt[0]);
+            try std.testing.expectEqualStrings(git_worktree_mkdir_chdir_script, wt[2]);
+        },
+    }
+}
+
+test "probeSupported is true on macOS, Linux, and Windows" {
+    try std.testing.expect(probeSupported());
 }
 
 test "pickRemoteName prefers origin then first plausible name" {
@@ -3209,6 +4100,9 @@ test "collectStdoutRefs occupancy is local-only via project_path heuristic" {
         .{ .raw = "refs/heads/feat\x00/tmp/proj\n", .project_path = "/tmp/proj", .name = "feat", .remote = false, .occupied = false },
         .{ .raw = "refs/heads/feat\x00/tmp/proj\n", .project_path = "/tmp/proj/src", .name = "feat", .remote = false, .occupied = false },
         .{ .raw = "refs/remotes/origin/occupied\x00/whatever\n", .project_path = "/tmp/proj", .name = "origin/occupied", .remote = true, .occupied = false },
+        .{ .raw = "refs/heads/feat\x00C:\\tmp\\proj\n", .project_path = "C:/tmp/proj", .name = "feat", .remote = false, .occupied = false },
+        .{ .raw = "refs/heads/feat\x00C:\\tmp\\proj\n", .project_path = "C:/tmp/proj/src", .name = "feat", .remote = false, .occupied = false },
+        .{ .raw = "refs/heads/occupied\x00C:\\tmp\\other\n", .project_path = "C:/tmp/proj", .name = "occupied", .remote = false, .occupied = true },
     };
     var refs: [max_listed_branches]ParsedRef = undefined;
     for (cases) |case| {
@@ -3218,6 +4112,12 @@ test "collectStdoutRefs occupancy is local-only via project_path heuristic" {
         try std.testing.expectEqual(case.remote, refs[0].remote);
         try std.testing.expectEqual(case.occupied, refs[0].occupied);
     }
+
+    try std.testing.expect(isThisWorktreePath("C:\\tmp\\proj", "C:/tmp/proj"));
+    try std.testing.expect(isThisWorktreePath("C:\\tmp\\proj", "C:/tmp/proj/src"));
+    try std.testing.expect(isThisWorktreePath("C:/tmp/proj", "C:\\tmp\\proj\\src"));
+    try std.testing.expect(!isThisWorktreePath("", "C:/tmp/proj"));
+    try std.testing.expect(!isThisWorktreePath("C:\\tmp\\other", "C:/tmp/proj"));
 
     const mixed =
         "refs/heads/main\x00\n" ++

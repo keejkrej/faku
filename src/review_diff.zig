@@ -84,7 +84,9 @@
 //! `refs/waku/` Compare operand.
 //!
 //! Spawn/line/exit orchestration lives here. Windows is skipped
-//! (app.zon is macos/linux; no Windows spawn path).
+//! this cut (app.zon already includes windows; no `git.exe -C`
+//! spawn path yet). Remaining leftover after composer git_checkout
+//! Windows.
 
 const std = @import("std");
 const builtin = @import("builtin");
