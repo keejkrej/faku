@@ -298,7 +298,10 @@ honest empty: Native has no webview; a persisted URL draft plus
 the URL is not eaten; light `http://` / `https://` /
 bare-host→`https://` gate). Terminal is an
 honest empty: Native has no PTY; **Open in Terminal** reuses the
-composer host-terminal sidecar. Background is the
+composer host-terminal sidecar (`open -a Terminal` / `x-terminal-emulator`
+else `gnome-terminal` / Windows `wt.exe -d` else
+`cmd.exe /c start "" /D <path> cmd.exe`; effect key 27; empty `start`
+title so `/D` is not eaten). Background is the
 Environment Summary Process / Monitor / Subagent row surface (kind,
 title, live-or-settled status, Monitor / Subagent 512KB last-window log). Not an embedded BrowserView or alacritty PTY,
 or a full BackgroundWorkRegistry. Faku-side Monitor and Subagent Stop
@@ -568,7 +571,9 @@ Honest gaps this cut does not implement:
 - Embedded BrowserView / alacritty PTY (right-panel Browser and
   Terminal first-cuts ship as OS-open workarounds: system browser via
   `open` / `xdg-open` / Windows `cmd.exe /c start "" <url>`, host
-  terminal via existing Open in Terminal;
+  terminal via existing Open in Terminal (`open -a Terminal` /
+  `x-terminal-emulator` / Windows `wt.exe -d` then
+  `cmd.exe /c start "" /D`);
   Native has no PTY or documented webview effect. Compact File editor:
   Files ships a
   256KB inline preview with Native `<code>` highlighting and

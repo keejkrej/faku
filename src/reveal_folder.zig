@@ -181,11 +181,17 @@ test "host tool is the platform file manager; Windows is skipped" {
 
 test "reveal argv is not a folder-picker argv" {
     const pick_folder = @import("pick_folder.zig");
+    const open_terminal = @import("open_terminal.zig");
     var buf: [argv_len][]const u8 = undefined;
+    var term_scratch: open_terminal.ArgvScratch = .{};
     try std.testing.expect(!pick_folder.isPickerArgv(argvFor("/tmp/proj", &buf)));
     try std.testing.expect(!isRevealArgv(pick_folder.argvFor(.osascript)));
     try std.testing.expect(!isRevealArgv(pick_folder.argvFor(.zenity)));
     try std.testing.expect(!isRevealArgv(pick_folder.argvFor(.kdialog)));
+    try std.testing.expect(!isRevealArgv(open_terminal.argvForTool(.open_terminal, "/tmp/proj", &term_scratch)));
+    try std.testing.expect(!isRevealArgv(open_terminal.argvForTool(.windows_terminal, "/tmp/proj", &term_scratch)));
+    try std.testing.expect(!isRevealArgv(open_terminal.argvForTool(.cmd_start, "/tmp/proj", &term_scratch)));
+    try std.testing.expect(!open_terminal.isTerminalArgv(argvFor("/tmp/proj", &buf)));
 }
 
 test "reveal_folder_key is distinct from pick_folder and neighbors" {

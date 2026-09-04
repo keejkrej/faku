@@ -223,12 +223,19 @@ test "host first argv is the platform folder dialog; Windows is skipped" {
 
 test "folder argv is not an image picker argv" {
     const pick_image = @import("pick_image.zig");
+    const open_terminal = @import("open_terminal.zig");
+    var term_scratch: open_terminal.ArgvScratch = .{};
     try std.testing.expect(!pick_image.isPickerArgv(argvFor(.osascript)));
     try std.testing.expect(!pick_image.isPickerArgv(argvFor(.zenity)));
     try std.testing.expect(!pick_image.isPickerArgv(argvFor(.kdialog)));
     try std.testing.expect(!isPickerArgv(pick_image.argvFor(.osascript)));
     try std.testing.expect(!isPickerArgv(pick_image.argvFor(.zenity)));
     try std.testing.expect(!isPickerArgv(pick_image.argvFor(.kdialog)));
+    try std.testing.expect(!isPickerArgv(open_terminal.argvForTool(.windows_terminal, "/tmp/proj", &term_scratch)));
+    try std.testing.expect(!isPickerArgv(open_terminal.argvForTool(.cmd_start, "/tmp/proj", &term_scratch)));
+    try std.testing.expect(!open_terminal.isTerminalArgv(argvFor(.osascript)));
+    try std.testing.expect(!open_terminal.isTerminalArgv(argvFor(.zenity)));
+    try std.testing.expect(!open_terminal.isTerminalArgv(argvFor(.kdialog)));
 }
 
 test "firstStdoutPath trims and takes one line; error: prefix is not a path" {

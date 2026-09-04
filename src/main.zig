@@ -213,10 +213,11 @@ pub const reveal_folder_key = reveal_folder.reveal_folder_key;
 /// (27), reveal_folder (28). Native has no documented webview effect
 /// on this cut.
 pub const open_url_key = open_url.open_url_key;
-/// One-shot OS terminal sidecar (`open -a Terminal` / `x-terminal-emulator`).
-/// Distinct from reveal_folder (28), pick_folder (29), maximize (30),
-/// pick_image (31), copy_turn (32). Native has no typed open-terminal
-/// effect on this Effects revision.
+/// One-shot OS terminal sidecar (`open -a Terminal` / `x-terminal-emulator` /
+/// Windows `wt.exe -d` then `cmd.exe /c start "" /D`). Distinct from
+/// reveal_folder (28), pick_folder (29), maximize (30), pick_image (31),
+/// copy_turn (32). Native has no typed open-terminal effect on this
+/// Effects revision.
 pub const open_terminal_key = open_terminal.open_terminal_key;
 /// One-shot OS editor sidecar (`cursor` / `code`, macOS `open -a`).
 /// Distinct from open_terminal (27), reveal_folder (28), pick_folder (29),
