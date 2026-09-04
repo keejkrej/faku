@@ -9,7 +9,9 @@
 //!   macOS fallbacks if those bins are missing:
 //!     `open -a Cursor PATH`, then `open -a "Visual Studio Code" PATH`.
 //!   Linux: only `cursor` then `code` (no flatpak/snap URLs).
-//!   Windows: skipped (app.zon is macos/linux; no Windows spawn path)
+//!   Windows: PATH-resolved `cursor.cmd` then `code.cmd` (CreateProcess-style
+//!            spawn needs the `.cmd` shim suffix; same product cut as unix
+//!            cursor/code; no `open -a`, no app picker).
 //!
 //! This is the third honest cut of Waku 0.1.11 "Open in.." — Cursor /
 //! VS Code only, not a full app picker, not a persisted `open_in_app`,
@@ -39,7 +41,7 @@ pub const missing_exit: u8 = 2;
 
 pub const linux_missing_status = "No OS editor (install cursor or code).";
 pub const macos_missing_status = "Cursor / VS Code / open missing";
-pub const windows_missing_status = "Open in Editor is not available on Windows.";
+pub const windows_missing_status = "No OS editor (install cursor or code).";
 pub const no_project_status = "No project folder for Editor.";
 
 pub const cursor_bin = "cursor";
@@ -48,8 +50,12 @@ pub const macos_bin = "open";
 pub const macos_app_flag = "-a";
 pub const macos_cursor_app = "Cursor";
 pub const macos_vscode_app = "Visual Studio Code";
+/// Windows PATH shims (VS Code / Cursor install `code.cmd` / `cursor.cmd`
+/// into PATH). Explicit suffix like sibling `wt.exe` / `explorer.exe`.
+pub const windows_cursor_bin = "cursor.cmd";
+pub const windows_code_bin = "code.cmd";
 
-pub const Tool = enum { cursor, code, open_cursor, open_vscode };
+pub const Tool = enum { cursor, code, open_cursor, open_vscode, windows_cursor, windows_code };
 pub const Stage = enum { first, fallback, macos_cursor_app, macos_vscode_app };
 
 const argv_cap: usize = 4;
@@ -69,6 +75,11 @@ pub fn hostTool(stage: Stage) ?Tool {
         .linux => switch (stage) {
             .first => .cursor,
             .fallback => .code,
+            .macos_cursor_app, .macos_vscode_app => null,
+        },
+        .windows => switch (stage) {
+            .first => .windows_cursor,
+            .fallback => .windows_code,
             .macos_cursor_app, .macos_vscode_app => null,
         },
         else => null,
@@ -103,6 +114,8 @@ pub fn binFor(tool: Tool) []const u8 {
         .cursor => cursor_bin,
         .code => code_bin,
         .open_cursor, .open_vscode => macos_bin,
+        .windows_cursor => windows_cursor_bin,
+        .windows_code => windows_code_bin,
     };
 }
 
@@ -110,13 +123,13 @@ pub fn appFor(tool: Tool) ?[]const u8 {
     return switch (tool) {
         .open_cursor => macos_cursor_app,
         .open_vscode => macos_vscode_app,
-        .cursor, .code => null,
+        .cursor, .code, .windows_cursor, .windows_code => null,
     };
 }
 
 pub fn argvForTool(tool: Tool, path: []const u8, scratch: *ArgvScratch) []const []const u8 {
     return switch (tool) {
-        .cursor, .code => {
+        .cursor, .code, .windows_cursor, .windows_code => {
             scratch.slots = .{ binFor(tool), path, "", "" };
             return scratch.slots[0..2];
         },
@@ -133,7 +146,10 @@ pub fn argvFor(stage: Stage, path: []const u8, scratch: *ArgvScratch) ?[]const [
 
 pub fn isEditorArgv(argv: []const []const u8) bool {
     if (argv.len == 2) {
-        return std.mem.eql(u8, argv[0], cursor_bin) or std.mem.eql(u8, argv[0], code_bin);
+        return std.mem.eql(u8, argv[0], cursor_bin) or
+            std.mem.eql(u8, argv[0], code_bin) or
+            std.mem.eql(u8, argv[0], windows_cursor_bin) or
+            std.mem.eql(u8, argv[0], windows_code_bin);
     }
     if (argv.len == 4) {
         if (!std.mem.eql(u8, argv[0], macos_bin) or !std.mem.eql(u8, argv[1], macos_app_flag)) return false;
@@ -162,7 +178,8 @@ pub fn startOpenEditor(model: *Model, fx: *Effects) void {
     startOpenEditorAt(model, fx, path);
 }
 
-/// Same `cursor` / `code` / `open -a` argv as directory Open in Editor,
+/// Same `cursor` / `code` / `open -a` / Windows `cursor.cmd` / `code.cmd`
+/// argv as directory Open in Editor,
 /// with `path` as the sole path argument. Files-pane clicks pass an
 /// absolute file path; the directory button still passes `project_path`.
 pub fn startOpenEditorAt(model: *Model, fx: *Effects, path: []const u8) void {
@@ -242,6 +259,33 @@ test "code argv is code PATH" {
     try std.testing.expect(isEditorArgv(argv));
 }
 
+test "windows cursor argv is cursor.cmd PATH" {
+    var scratch: ArgvScratch = .{};
+    const argv = argvForTool(.windows_cursor, "/tmp/proj", &scratch);
+    try std.testing.expectEqual(@as(usize, 2), argv.len);
+    try std.testing.expectEqualStrings(windows_cursor_bin, argv[0]);
+    try std.testing.expectEqualStrings("/tmp/proj", argv[1]);
+    try std.testing.expect(isEditorArgv(argv));
+}
+
+test "windows cursor argv with a file path stays bin PATH" {
+    var scratch: ArgvScratch = .{};
+    const argv = argvForTool(.windows_cursor, "/tmp/proj/src/main.zig", &scratch);
+    try std.testing.expectEqual(@as(usize, 2), argv.len);
+    try std.testing.expectEqualStrings(windows_cursor_bin, argv[0]);
+    try std.testing.expectEqualStrings("/tmp/proj/src/main.zig", argv[1]);
+    try std.testing.expect(isEditorArgv(argv));
+}
+
+test "windows code argv is code.cmd PATH" {
+    var scratch: ArgvScratch = .{};
+    const argv = argvForTool(.windows_code, "/tmp/proj", &scratch);
+    try std.testing.expectEqual(@as(usize, 2), argv.len);
+    try std.testing.expectEqualStrings(windows_code_bin, argv[0]);
+    try std.testing.expectEqualStrings("/tmp/proj", argv[1]);
+    try std.testing.expect(isEditorArgv(argv));
+}
+
 test "macos Cursor app argv is open -a Cursor PATH" {
     var scratch: ArgvScratch = .{};
     const argv = argvForTool(.open_cursor, "/tmp/proj", &scratch);
@@ -264,7 +308,7 @@ test "macos VS Code app argv is open -a Visual Studio Code PATH" {
     try std.testing.expect(isEditorArgv(argv));
 }
 
-test "host first argv is cursor then code; macOS has app fallbacks; Windows is skipped" {
+test "host first argv is cursor then code; macOS has app fallbacks; Windows is cursor.cmd then code.cmd" {
     switch (builtin.os.tag) {
         .macos => {
             try std.testing.expectEqual(Tool.cursor, hostTool(.first).?);
@@ -288,6 +332,16 @@ test "host first argv is cursor then code; macOS has app fallbacks; Windows is s
             try std.testing.expectEqual(Stage.fallback, nextStage(.first).?);
             try std.testing.expect(nextStage(.fallback) == null);
         },
+        .windows => {
+            try std.testing.expectEqual(Tool.windows_cursor, hostTool(.first).?);
+            try std.testing.expectEqual(Tool.windows_code, hostTool(.fallback).?);
+            try std.testing.expect(hostTool(.macos_cursor_app) == null);
+            try std.testing.expect(hostTool(.macos_vscode_app) == null);
+            try std.testing.expectEqualStrings(windows_cursor_bin, hostBin(.first).?);
+            try std.testing.expectEqualStrings(windows_code_bin, hostBin(.fallback).?);
+            try std.testing.expectEqual(Stage.fallback, nextStage(.first).?);
+            try std.testing.expect(nextStage(.fallback) == null);
+        },
         else => {
             try std.testing.expect(hostTool(.first) == null);
             try std.testing.expect(hostTool(.fallback) == null);
@@ -305,12 +359,18 @@ test "editor argv is not reveal terminal or folder-picker argv" {
     try std.testing.expect(!reveal_folder.isRevealArgv(argvForTool(.code, "/tmp/proj", &scratch)));
     try std.testing.expect(!reveal_folder.isRevealArgv(argvForTool(.open_cursor, "/tmp/proj", &scratch)));
     try std.testing.expect(!reveal_folder.isRevealArgv(argvForTool(.open_vscode, "/tmp/proj", &scratch)));
+    try std.testing.expect(!reveal_folder.isRevealArgv(argvForTool(.windows_cursor, "/tmp/proj", &scratch)));
+    try std.testing.expect(!reveal_folder.isRevealArgv(argvForTool(.windows_code, "/tmp/proj", &scratch)));
     try std.testing.expect(!open_terminal.isTerminalArgv(argvForTool(.cursor, "/tmp/proj", &scratch)));
     try std.testing.expect(!open_terminal.isTerminalArgv(argvForTool(.code, "/tmp/proj", &scratch)));
     try std.testing.expect(!open_terminal.isTerminalArgv(argvForTool(.open_cursor, "/tmp/proj", &scratch)));
     try std.testing.expect(!open_terminal.isTerminalArgv(argvForTool(.open_vscode, "/tmp/proj", &scratch)));
+    try std.testing.expect(!open_terminal.isTerminalArgv(argvForTool(.windows_cursor, "/tmp/proj", &scratch)));
+    try std.testing.expect(!open_terminal.isTerminalArgv(argvForTool(.windows_code, "/tmp/proj", &scratch)));
     try std.testing.expect(!pick_folder.isPickerArgv(argvForTool(.cursor, "/tmp/proj", &scratch)));
     try std.testing.expect(!pick_folder.isPickerArgv(argvForTool(.open_cursor, "/tmp/proj", &scratch)));
+    try std.testing.expect(!pick_folder.isPickerArgv(argvForTool(.windows_cursor, "/tmp/proj", &scratch)));
+    try std.testing.expect(!pick_folder.isPickerArgv(argvForTool(.windows_code, "/tmp/proj", &scratch)));
     try std.testing.expect(!isEditorArgv(reveal_folder.argvFor("/tmp/proj", &reveal_buf)));
     try std.testing.expect(!isEditorArgv(reveal_folder.argvForTool(.explorer, "/tmp/proj", &reveal_buf)));
     try std.testing.expect(!isEditorArgv(open_terminal.argvForTool(.open_terminal, "/tmp/proj", &term_scratch)));
