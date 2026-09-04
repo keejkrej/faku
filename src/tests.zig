@@ -16995,7 +16995,7 @@ test "Commit menu item opens a message card before Push; empty confirm does not 
     try testing.expect(findByText(tree.root, .text, "Committing and pushing…") == null);
     try testing.expect(findByText(tree.root, .text, "Pushing…") == null);
     const include = try expectButtonMsg(tree, "Include unstaged", .toggle_git_commit_include_unstaged);
-    try testing.expectEqual(include.state.selected);
+    try testing.expect(include.state.selected);
     const amend = try expectButtonMsg(tree, "Amend", .toggle_git_commit_amend);
     try testing.expect(!amend.state.selected);
     try testing.expect(!model.git_commit_amend);

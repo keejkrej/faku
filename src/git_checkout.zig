@@ -3410,6 +3410,8 @@ test "force push argv is git push --force as its own slot and still classifies a
         git_push_cmd,
     }));
 }
+
+test "worktree name sanitization refuses empty, slash, and implausible names" {
     try std.testing.expectEqualStrings("feat", sanitizeWorktreeName("feat").?);
     try std.testing.expectEqualStrings("feat-foo", sanitizeWorktreeName("  feat-foo  ").?);
     try std.testing.expect(sanitizeWorktreeName("") == null);
@@ -3896,6 +3898,8 @@ test "force set-upstream push argv keeps --force after push as its own slot" {
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_set_upstream_flag) == null);
     try std.testing.expect(unixSetUpstreamPushForceArgvFor("/tmp/faku-push-u-force", "origin", "not a branch", &buf) == null);
 }
+
+test "upstream argv is rev-parse symbolic-full-name @{upstream}" {
     var buf: [upstream_argv_len][]const u8 = undefined;
     const argv = unixUpstreamArgvFor("/tmp/faku-up", &buf);
     try std.testing.expectEqual(@as(usize, 10), argv.len);
