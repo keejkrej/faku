@@ -13,9 +13,13 @@
 //! a session hydrates its turns,
 //! `queued_messages`, `rewind_refs`, `worktree_snapshot_sha`, `worktree_turn_end_sha`, `worktree_turn_diff_sha`, and last-known context usage. Document extras also keep
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
-//! plus `right_panel_open` / `right_panel_width` for the first-cut Files +
-//! Diff + Browser + Terminal + Background pane (default closed; Waku
-//! file-tree 184px; Diff, Browser, Terminal, and Background tabs are
+//! plus `right_panel_open` / `right_panel_width` / `right_panel_tab` /
+//! `browser_url` for the first-cut Files + Diff + Browser + Terminal +
+//! Background pane (default closed; Waku file-tree 184px; tab is
+//! `files` / `diff` / `browser` / `terminal` / `background`, missing or
+//! unknown → `files`; Browser draft URL is raw text capped at
+//! `open_url.max_url`, missing / empty / overflow-refused → empty;
+//! Background row, Files preview, and directory expands stay
 //! runtime-only),
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
@@ -56,6 +60,8 @@ const main = @import("main.zig");
 const protocol = @import("protocol.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const rewind = @import("rewind.zig");
+const right_panel = @import("right_panel.zig");
+const open_url = @import("open_url.zig");
 
 const Model = main.Model;
 const Role = main.Role;
@@ -316,7 +322,8 @@ pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void
 }
 
 /// Merge-only write of layout extras (`sidebar_collapsed`,
-/// `sidebar_width`, `right_panel_open`, `right_panel_width`). Does not
+/// `sidebar_width`, `right_panel_open`, `right_panel_width`,
+/// `right_panel_tab`, `browser_url`). Does not
 /// create `sessions.json` and does not spawn a daemon sidecar. Missing
 /// / corrupt catalogs are a no-op.
 pub fn persistLayoutIfPossible(model: *const Model) void {
@@ -370,6 +377,8 @@ fn applySidebarExtras(document: *Document, model: *const Model) void {
     document.sidebar_width = model.sidebarWidthPixels();
     document.right_panel_open = model.right_panel_open;
     document.right_panel_width = model.rightPanelWidthPixels();
+    document.right_panel_tab = model.right_panel_tab;
+    document.browser_url = model.browser_url();
 }
 
 fn applySettingsExtras(document: *Document, model: *const Model) void {
@@ -848,6 +857,8 @@ const Document = struct {
     sidebar_width: u32 = 0,
     right_panel_open: bool = false,
     right_panel_width: u32 = 0,
+    right_panel_tab: right_panel.Tab = .files,
+    browser_url: []const u8 = "",
     folders: []StoredFolder = &.{},
     collapsed_folder_ids: []u32 = &.{},
     sessions: []StoredSession = &.{},
@@ -871,6 +882,8 @@ const Document = struct {
             .sidebar_width = model.sidebarWidthPixels(),
             .right_panel_open = model.right_panel_open,
             .right_panel_width = model.rightPanelWidthPixels(),
+            .right_panel_tab = model.right_panel_tab,
+            .browser_url = model.browser_url(),
             .sessions = &.{},
         };
     }
@@ -927,8 +940,8 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.language_preference = document.language_preference;
     model.sidebar_collapsed = document.sidebar_collapsed;
     model.applySidebarWidth(document.sidebar_width);
-    model.right_panel_open = document.right_panel_open;
-    model.applyRightPanelWidth(document.right_panel_width);
+    right_panel.applyPersisted(model, document.right_panel_open, document.right_panel_tab, document.right_panel_width);
+    applyPersistedBrowserUrl(model, document.browser_url);
     model.syncSidebarSplit();
     for (document.folders) |folder| {
         const collapsed = folderIdCollapsed(document.collapsed_folder_ids, folder.id);
@@ -1206,6 +1219,8 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .sidebar_width = jsonUint(obj.get("sidebar_width")) orelse 0,
         .right_panel_open = jsonBool(obj.get("right_panel_open")) orelse false,
         .right_panel_width = jsonUint(obj.get("right_panel_width")) orelse 0,
+        .right_panel_tab = right_panel.Tab.fromPersist(jsonString(obj.get("right_panel_tab")) orelse ""),
+        .browser_url = persistedBrowserUrl(jsonString(obj.get("browser_url")) orelse ""),
         .next_folder_id = jsonUint(obj.get("next_folder_id")) orelse 1,
         .folders = try parseFolders(arena, obj.get("folders")),
         .collapsed_folder_ids = try parseUintList(arena, obj.get("collapsed_folder_ids")),
@@ -1433,6 +1448,23 @@ fn jsonString(value: ?std.json.Value) ?[]const u8 {
     };
 }
 
+/// Raw Browser draft. Missing / empty → empty. Longer than
+/// `open_url.max_url` is refused (empty), not truncated mid-URL.
+fn persistedBrowserUrl(raw: []const u8) []const u8 {
+    if (raw.len == 0 or raw.len > open_url.max_url) return "";
+    return raw;
+}
+
+/// Restore into `browser_url_buffer` the same way composer drafts use
+/// `TextBuffer.set`. Empty clears.
+fn applyPersistedBrowserUrl(model: *Model, url: []const u8) void {
+    if (url.len == 0) {
+        model.browser_url_buffer.clear();
+        return;
+    }
+    model.browser_url_buffer.set(url);
+}
+
 fn jsonBool(value: ?std.json.Value) ?bool {
     const item = value orelse return null;
     return switch (item) {
@@ -1503,6 +1535,10 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try out.appendSlice(allocator, if (document.right_panel_open) "true" else "false");
     try out.appendSlice(allocator, ",\"right_panel_width\":");
     try appendUint(&out, allocator, document.right_panel_width);
+    try out.appendSlice(allocator, ",\"right_panel_tab\":");
+    try appendJsonString(&out, allocator, document.right_panel_tab.persistName());
+    try out.appendSlice(allocator, ",\"browser_url\":");
+    try appendJsonString(&out, allocator, document.browser_url);
     try out.appendSlice(allocator, ",\"next_folder_id\":");
     try appendUint(&out, allocator, document.next_folder_id);
     try out.appendSlice(allocator, ",\"folders\":[");
@@ -2133,7 +2169,7 @@ test "right panel open flag and width reload from document extras" {
     try testing.expectEqual(@as(f32, 1.0), restored.right_panel_split);
 }
 
-test "Background tab, selected row, and output are not written to sessions.json" {
+test "Background tab persists; selected row and output are not written to sessions.json" {
     const testing = std.testing;
     const environment_summary = @import("environment_summary.zig");
     var tmp = testing.tmpDir(.{});
@@ -2178,8 +2214,8 @@ test "Background tab, selected row, and output are not written to sessions.json"
     defer allocator.free(bytes);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_open\":true") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_width\":460") != null);
-    try testing.expect(std.mem.indexOf(u8, bytes, "right_panel_tab") == null);
-    try testing.expect(std.mem.indexOf(u8, bytes, "browser_url") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_tab\":\"background\"") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"browser_url\":\"\"") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "right_panel_background") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "file_preview") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "background_work") == null);
@@ -2195,10 +2231,135 @@ test "Background tab, selected row, and output are not written to sessions.json"
     loaded.store_io = io;
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
     try testing.expect(loaded.right_panel_open);
-    try testing.expect(loaded.right_panel_tab_files());
+    try testing.expect(loaded.right_panel_tab_background());
+    try testing.expectEqual(@as(u32, 460), loaded.rightPanelWidthPixels());
+    try testing.expectEqualStrings("", loaded.browser_url());
     try testing.expectEqual(@as(u32, 0), loaded.right_panel_background_row_id);
     try testing.expectEqual(@as(u32, 0), loaded.right_panel_file_preview_id);
     try testing.expect(loaded.background_work_empty());
+}
+
+test "right_panel_tab round-trips each value; missing or unknown loads as files" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"right_panel_open":true,"right_panel_width":460,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var missing = Model{};
+    missing.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&missing, allocator, io));
+    try testing.expect(missing.right_panel_open);
+    try testing.expect(missing.right_panel_tab_files());
+    try testing.expectEqualStrings("", missing.browser_url());
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"right_panel_open":true,"right_panel_width":460,"right_panel_tab":"nope","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var unknown = Model{};
+    unknown.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&unknown, allocator, io));
+    try testing.expect(unknown.right_panel_tab_files());
+
+    const tabs = [_]right_panel.Tab{ .files, .diff, .browser, .terminal, .background };
+    for (tabs) |tab| {
+        var source = Model{};
+        source.task_state_loaded = true;
+        source.setStoreDir(dir);
+        source.store_io = io;
+        const id = source.addSession("tab later", .fx);
+        _ = source.appendTurn(id, .user, "remember the tab");
+        try saveSession(&source, id, allocator, io);
+        source.right_panel_open = true;
+        source.right_panel_tab = tab;
+        source.right_panel_width = if (tab == .files) 220 else 460;
+        source.syncRightPanelSplit();
+        persistLayoutIfPossible(&source);
+
+        var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const path = catalogPath(dir, &path_buf).?;
+        const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_document_bytes));
+        defer allocator.free(bytes);
+        var expect_tab: [64]u8 = undefined;
+        const tab_needle = try std.fmt.bufPrint(&expect_tab, "\"right_panel_tab\":\"{s}\"", .{tab.persistName()});
+        try testing.expect(std.mem.indexOf(u8, bytes, tab_needle) != null);
+
+        var loaded = Model{};
+        loaded.setStoreDir(dir);
+        loaded.store_io = io;
+        try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+        try testing.expect(loaded.right_panel_open);
+        try testing.expectEqual(tab, loaded.right_panel_tab);
+        if (tab == .files) {
+            try testing.expectEqual(@as(u32, 220), loaded.rightPanelWidthPixels());
+        } else {
+            try testing.expectEqual(@as(u32, 460), loaded.rightPanelWidthPixels());
+        }
+    }
+}
+
+test "browser_url round-trips raw draft including bare host; overflow is refused" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("url later", .fx);
+    _ = source.appendTurn(id, .user, "remember the url");
+    try saveSession(&source, id, allocator, io);
+    source.right_panel_open = true;
+    source.right_panel_tab = .browser;
+    source.right_panel_width = 460;
+    source.syncRightPanelSplit();
+    source.browser_url_buffer.set("  example.com/path  ");
+    persistLayoutIfPossible(&source);
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = catalogPath(dir, &path_buf).?;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_document_bytes));
+    defer allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"browser_url\":\"  example.com/path  \"") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_tab\":\"browser\"") != null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expect(loaded.right_panel_open);
+    try testing.expect(loaded.right_panel_tab_browser());
+    try testing.expectEqualStrings("  example.com/path  ", loaded.browser_url());
+    try testing.expectEqual(@as(u32, 460), loaded.rightPanelWidthPixels());
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"right_panel_open":true,"right_panel_width":460,"right_panel_tab":"browser","browser_url":"example.com","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var bare = Model{};
+    bare.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&bare, allocator, io));
+    try testing.expectEqualStrings("example.com", bare.browser_url());
+
+    var overflow_json = std.ArrayList(u8).empty;
+    defer overflow_json.deinit(allocator);
+    try overflow_json.appendSlice(allocator, "{\"version\":1,\"selected\":1,\"next_id\":2,\"next_turn_id\":2,\"next_queued_id\":1,\"browser_url\":\"");
+    try overflow_json.appendNTimes(allocator, 'a', open_url.max_url + 1);
+    try overflow_json.appendSlice(allocator, "\",\"sessions\":[{\"id\":1,\"title\":\"legacy\",\"provider\":\"fx\",\"untitled\":false,\"has_started\":true,\"turns\":[{\"id\":1,\"role\":\"user\",\"body\":\"hi\"}],\"queued_messages\":[]}]}");
+    try writeRaw(io, dir, overflow_json.items);
+    var overflow = Model{};
+    overflow.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&overflow, allocator, io));
+    try testing.expectEqualStrings("", overflow.browser_url());
 }
 
 test "settings extras persist last_model access path and daemon; missing catalog is not created" {

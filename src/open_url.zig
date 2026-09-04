@@ -43,7 +43,8 @@ pub const macos_bin = "open";
 pub const linux_bin = "xdg-open";
 pub const https_prefix = "https://";
 
-/// Runtime-only Browser tab draft. Not persisted to sessions.json.
+/// Browser tab draft. Persisted raw on sessions.json extras
+/// (`browser_url`); cap is this max. Missing / empty / overflow → empty.
 pub const max_url: usize = 2048;
 /// Draft plus `https://` when a bare host is prefixed.
 pub const max_spawn_url: usize = max_url + https_prefix.len;

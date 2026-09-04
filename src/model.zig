@@ -434,13 +434,14 @@ pub const Msg = union(enum) {
     file_preview_keep_editing,
     /// Files-pane dir click. Payload is `file_mention_dir_id_base + index`.
     toggle_right_panel_dir: u32,
-    /// Right-panel Files tab. Runtime-only; default when the panel opens.
+    /// Right-panel Files tab. Default when the panel opens. Persisted.
     set_right_panel_tab_files,
     /// Right-panel Diff tab. Opens the pane if closed and starts Compare.
     set_right_panel_tab_diff,
-    /// Right-panel Browser tab. Runtime-only OS-open URL field; not a webview.
+    /// Right-panel Browser tab. OS-open URL field; not a webview. Tab
+    /// and draft URL persist.
     set_right_panel_tab_browser,
-    /// Right-panel Terminal tab. Runtime-only Open in Terminal; not a PTY.
+    /// Right-panel Terminal tab. Open in Terminal; not a PTY. Tab persists.
     set_right_panel_tab_terminal,
     /// Right-panel Background tab. Runtime-only; empty state when no
     /// selected Environment Summary row is visible.
@@ -775,12 +776,12 @@ pub const Model = struct {
     right_panel_split: f32 = default_right_panel_split,
     /// Last pane width in pixels. Files tab clamps to the file-tree
     /// 184/140/360. Diff, Browser, Terminal, and Background tabs may
-    /// bump toward Waku `DEFAULT_RIGHT_PANEL_WIDTH` 460. Tab is
-    /// runtime-only; hide reclamps to the file-tree max.
+    /// bump toward Waku `DEFAULT_RIGHT_PANEL_WIDTH` 460. Hide reclamps
+    /// to the file-tree max.
     right_panel_width: f32 = right_panel_default_width,
-    /// Runtime-only Files | Diff | Browser | Terminal | Background
-    /// surface. Default `files` when the panel opens. Not persisted
-    /// to sessions.json this cut.
+    /// Files | Diff | Browser | Terminal | Background surface. Default
+    /// `files` when the panel opens. Persisted on sessions.json extras
+    /// (`right_panel_tab`); missing / unknown → `files`.
     right_panel_tab: right_panel.Tab = .files,
     /// Runtime-only selected Environment Summary Background row id.
     /// 0 = none. Not persisted to sessions.json this cut.
@@ -869,7 +870,9 @@ pub const Model = struct {
     open_url_live: bool = false,
     open_url_storage: [open_url.max_spawn_url]u8 = [_]u8{0} ** open_url.max_spawn_url,
     open_url_len: usize = 0,
-    /// Runtime-only Browser tab URL draft. Not persisted to sessions.json.
+    /// Browser tab URL draft. Persisted on sessions.json extras
+    /// (`browser_url`, raw, cap `open_url.max_url`). Missing / empty →
+    /// empty draft.
     browser_url_buffer: canvas.TextBuffer(open_url.max_url) = .{},
     open_terminal_live: bool = false,
     open_terminal_tried_fallback: bool = false,
