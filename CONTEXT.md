@@ -250,7 +250,9 @@ Do not invent Native APIs. Documented gaps this cut works around:
   slot (not interpolated into `-Command`). Composer git_branch / git_dirty /
   git_ahead_behind / git_numstat / git_remotes / git_toplevel / git_common_dir use the same `git.exe -C` pattern (no
   PowerShell). git_numstat on Windows is tracked `git diff --numstat HEAD --`
-  only; untracked synthetic rows stay Unix-only. Remaining git modules
+  only; untracked synthetic rows stay Unix-only. git_common_dir resolve
+  treats Unix `/…` and Windows `X:\…` / `X:/…` as absolute and stores `/`
+  separators so nest FNV matches. Remaining git modules
   (checkout/commit) still skip Windows this cut.
 - No Native git effect. Git is sidecar `fx.spawn` of `git`.
 - No `fx.pickFile` / file-open effect. Folder and image pickers are OS

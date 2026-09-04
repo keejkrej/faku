@@ -8,9 +8,12 @@
 //! `git_checkout.git_bin` / `sh_bin` on Unix. Git often prints a
 //! relative path such as `.git`; that is resolved to an absolute path
 //! against the ready `--show-toplevel` root when that probe finished,
-//! else the probe cwd, before it is stored. A ready bit plus that
-//! absolute path let New worktree… nest under a shared FNV so linked
-//! worktrees of the same repo share `~/.faku/worktrees/<nest>/`.
+//! else the probe cwd, before it is stored. Absolute means Unix `/…`
+//! or a Windows drive-letter path (`X:\…` / `X:/…`); stored results
+//! normalize `\` to `/` so nest FNV identity matches across separators.
+//! A ready bit plus that absolute path let New worktree… nest under a
+//! shared FNV so linked worktrees of the same repo share
+//! `~/.faku/worktrees/<nest>/`.
 //! Occupancy stays on `git_toplevel.zig` (`worktreepath` equal to
 //! ready show-toplevel). Failed / empty / cancel leave ready false
 //! and the path empty so nest falls back to ready show-toplevel, then
@@ -24,9 +27,10 @@
 //! `git.exe -C <project_path> rev-parse --git-common-dir` (path is
 //! its own argv slot, not interpolated into a script). Common-dir
 //! stdout is the same on Windows; CRLF is already trimmed in the
-//! line helpers. app.zon already includes windows. Remaining git
-//! modules (checkout/commit) still skip Windows this cut. Windows
-//! numstat untracked rows stay Unix-only.
+//! line helpers. Relative `.git` joins a Unix or Windows
+//! drive-letter absolute base. app.zon already includes windows.
+//! Remaining git modules (checkout/commit) still skip Windows this
+//! cut. Windows numstat untracked rows stay Unix-only.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
 //! `git_common_dir_key_first` (500+).
@@ -144,28 +148,51 @@ pub fn parseCommonDirLine(raw: []const u8) []const u8 {
     return line;
 }
 
+/// Unix `/…` or Windows drive-letter absolute (`X:\…` / `X:/…`).
+/// Letter is case-insensitive. Not UNC.
+pub fn isAbsoluteCommonDir(path: []const u8) bool {
+    if (path.len == 0) return false;
+    if (path[0] == '/') return true;
+    if (path.len < 3) return false;
+    if (!std.ascii.isAlphabetic(path[0])) return false;
+    if (path[1] != ':') return false;
+    return path[2] == '/' or path[2] == '\\';
+}
+
+fn slashNormalizeInPlace(path: []u8) void {
+    for (path) |*ch| {
+        if (ch.* == '\\') ch.* = '/';
+    }
+}
+
 /// Resolve a parsed common-dir print to an absolute path. Absolute
-/// prints are kept. Relative prints join `base` (ready toplevel or
-/// probe cwd). Empty / `..` / NUL / missing absolute base /
-/// overflow → empty.
+/// prints (Unix `/…` or Windows `X:\…` / `X:/…`) are kept. Relative
+/// prints join `base` (ready toplevel or probe cwd) when that base is
+/// also Unix or Windows drive-letter absolute. Stored results
+/// normalize `\` to `/` so nest FNV matches across separators. Empty /
+/// `..` / NUL / missing absolute base / overflow → empty.
 pub fn resolveCommonDir(raw: []const u8, base: []const u8, buf: []u8) []const u8 {
     const line = parseCommonDirLine(raw);
     if (line.len == 0) return "";
-    if (line[0] == '/') {
+    if (isAbsoluteCommonDir(line)) {
         if (line.len > buf.len) return "";
         @memcpy(buf[0..line.len], line);
+        slashNormalizeInPlace(buf[0..line.len]);
         return buf[0..line.len];
     }
     const root = std.mem.trim(u8, base, " \t\r\n");
-    if (root.len == 0 or root[0] != '/') return "";
+    if (root.len == 0 or !isAbsoluteCommonDir(root)) return "";
     if (std.mem.indexOf(u8, root, "..") != null) return "";
     if (std.mem.indexOfScalar(u8, root, 0) != null) return "";
-    const sep: []const u8 = if (root[root.len - 1] == '/') "" else "/";
-    const needed = root.len + sep.len + line.len;
+    const last = root[root.len - 1];
+    const need_sep = last != '/' and last != '\\';
+    const sep_len: usize = if (need_sep) 1 else 0;
+    const needed = root.len + sep_len + line.len;
     if (needed > buf.len or needed > main.max_project_path) return "";
     @memcpy(buf[0..root.len], root);
-    if (sep.len == 1) buf[root.len] = '/';
-    @memcpy(buf[root.len + sep.len ..][0..line.len], line);
+    if (need_sep) buf[root.len] = '/';
+    @memcpy(buf[root.len + sep_len ..][0..line.len], line);
+    slashNormalizeInPlace(buf[0..needed]);
     return buf[0..needed];
 }
 
@@ -261,7 +288,7 @@ pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
         return;
     }
     const stored = gitCommonDirPath(model);
-    if (parseCommonDirLine(stored).len == 0 or stored[0] != '/') {
+    if (parseCommonDirLine(stored).len == 0 or !isAbsoluteCommonDir(stored)) {
         clearGitCommonDir(model);
         return;
     }
@@ -401,6 +428,81 @@ test "resolveCommonDir keeps absolute and joins relative against base" {
     try std.testing.expectEqualStrings("", resolveCommonDir(".git", "", buf[0..]));
     const with_nul = ".git\x00x";
     try std.testing.expectEqualStrings("", resolveCommonDir(with_nul, "/tmp/proj", buf[0..]));
+}
+
+test "resolveCommonDir keeps Windows drive-letter absolute and joins .git" {
+    var buf: [main.max_project_path]u8 = undefined;
+    try std.testing.expectEqualStrings(
+        "C:/Users/me/proj/.git",
+        resolveCommonDir("  C:\\Users\\me\\proj\\.git  \n", "/tmp/other", buf[0..]),
+    );
+    try std.testing.expectEqualStrings(
+        "C:/Users/me/proj/.git",
+        resolveCommonDir("C:/Users/me/proj/.git\n", "C:\\other", buf[0..]),
+    );
+    try std.testing.expectEqualStrings(
+        "c:/proj/.git",
+        resolveCommonDir("c:\\proj\\.git", "relative", buf[0..]),
+    );
+    try std.testing.expectEqualStrings(
+        "C:/proj/.git",
+        resolveCommonDir(".git\n", "C:/proj", buf[0..]),
+    );
+    try std.testing.expectEqualStrings(
+        "C:/proj/.git",
+        resolveCommonDir(".git", "C:\\proj", buf[0..]),
+    );
+    try std.testing.expectEqualStrings(
+        "C:/proj/.git",
+        resolveCommonDir(".git", "C:\\proj\\", buf[0..]),
+    );
+    try std.testing.expectEqualStrings(
+        "/tmp/proj/.git",
+        resolveCommonDir(".git", "/tmp/proj", buf[0..]),
+    );
+    try std.testing.expectEqualStrings("", resolveCommonDir("..\n", "C:/proj", buf[0..]));
+    try std.testing.expectEqualStrings("", resolveCommonDir("C:\\proj\\..\\.git", "C:/proj", buf[0..]));
+    try std.testing.expectEqualStrings("", resolveCommonDir(".git", "relative", buf[0..]));
+    try std.testing.expectEqualStrings("", resolveCommonDir(".git", "C:proj", buf[0..]));
+    try std.testing.expect(isAbsoluteCommonDir("/tmp/repo/.git"));
+    try std.testing.expect(isAbsoluteCommonDir("C:\\Users\\me\\.git"));
+    try std.testing.expect(isAbsoluteCommonDir("C:/Users/me/.git"));
+    try std.testing.expect(!isAbsoluteCommonDir(".git"));
+    try std.testing.expect(!isAbsoluteCommonDir("relative"));
+}
+
+test "handleExit ready accepts slash-normalized Windows drive-letter common-dir" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-common-win", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("common-dir windows ready", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    refresh(&model, &fx);
+    const key = model.git_common_dir_key;
+    applyLine(&model, .{ .key = key, .line = "  C:\\Users\\me\\proj\\.git  \n" });
+    try std.testing.expectEqualStrings("C:/Users/me/proj/.git", gitCommonDirPath(&model));
+    handleExit(&model, .{ .key = key, .reason = .exited, .code = 0 });
+    try std.testing.expect(model.git_common_dir_ready);
+    try std.testing.expectEqualStrings("C:/Users/me/proj/.git", readyPath(&model));
+
+    refresh(&model, &fx);
+    const key2 = model.git_common_dir_key;
+    writeFixed(&model.git_toplevel_path_storage, &model.git_toplevel_path_len, "C:\\canonical");
+    model.git_toplevel_ready = true;
+    applyLine(&model, .{ .key = key2, .line = ".git\n" });
+    handleExit(&model, .{ .key = key2, .reason = .exited, .code = 0 });
+    try std.testing.expectEqualStrings("C:/canonical/.git", readyPath(&model));
 }
 
 test "refresh one-shots git-common-dir on a distinct key; empty fail and success" {
