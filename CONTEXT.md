@@ -248,10 +248,10 @@ Do not invent Native APIs. Documented gaps this cut works around:
   Windows `file_mention` uses documented `git.exe -C <project_path>` and a
   PowerShell walk with `-Args` / `$args[0]` so the path stays its own argv
   slot (not interpolated into `-Command`). Composer git_branch / git_dirty /
-  git_ahead_behind / git_numstat use the same `git.exe -C` pattern (no
+  git_ahead_behind / git_numstat / git_remotes use the same `git.exe -C` pattern (no
   PowerShell). git_numstat on Windows is tracked `git diff --numstat HEAD --`
   only; untracked synthetic rows stay Unix-only. Remaining git modules
-  (toplevel, remotes, checkout/commit) still skip Windows this cut.
+  (toplevel, common_dir, checkout/commit) still skip Windows this cut.
 - No Native git effect. Git is sidecar `fx.spawn` of `git`.
 - No `fx.pickFile` / file-open effect. Folder and image pickers are OS
   sidecars.

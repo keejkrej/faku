@@ -1,22 +1,29 @@
 //! One-shot `git remote` probe for Waku first-push remotes.
 //!
 //! Native has no git/workspace effect. When the selected session has a
-//! non-empty `project_path` that exists, Faku `fx.spawn`s `git remote`
-//! through the same `/bin/sh -c` chdir workaround `fx ask` uses
-//! (`fx_ask_chdir_script`). Reuses `git_checkout.remoteArgvFor` /
-//! `isGitRemoteArgv` (`remote` its own argv slot — never interpolated
-//! into the `-c` script). Prefer `origin` if listed, else the first
-//! plausible name — same as Push `applyRemoteCandidate` /
-//! `pickRemoteName`. A ready bit plus `has_remote` gate composer
-//! Push… and Commit and Push on the no-upstream path. Failed / empty
-//! does not invent remotes. In-flight and never-finished stay hidden
-//! so the row does not flash. Distinct spawn-key band (480+); does
-//! not share `git_push_key`'s remotes phase. Runtime-only (not
-//! `sessions.json`). Not a live remotes watch, not an invented Native
-//! git effect. Canonicalize of `project_path` is `git_toplevel.zig`.
+//! non-empty `project_path` that exists, Faku `fx.spawn`s `git remote`.
+//! Prefer `origin` if listed, else the first plausible name — same as
+//! Push `applyRemoteCandidate` / `pickRemoteName`. A ready bit plus
+//! `has_remote` gate composer Push… and Commit and Push on the
+//! no-upstream path. Failed / empty does not invent remotes.
+//! In-flight and never-finished stay hidden so the row does not flash.
+//! Distinct spawn-key band (480+); does not share `git_push_key`'s
+//! remotes phase. Runtime-only (not `sessions.json`). Not a live
+//! remotes watch, not an invented Native git effect. Canonicalize of
+//! `project_path` is `git_toplevel.zig`.
 //!
-//! Spawn/line/exit orchestration lives here. Windows is skipped
-//! (app.zon is macos/linux; no Windows spawn path).
+//! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
+//! (`fx_ask_chdir_script`) via `git_checkout.remoteArgvFor` (`remote`
+//! its own argv slot — never interpolated into the `-c` script).
+//! Windows cannot use `/bin/sh`: `git.exe -C <project_path> remote`
+//! (path is its own argv slot, not interpolated into a script).
+//! Remote-name stdout is the same on Windows; CRLF is already trimmed
+//! in the line helpers. app.zon already includes windows. Remaining
+//! git modules (toplevel, common_dir, checkout/commit) still skip
+//! Windows this cut. Windows numstat untracked rows stay Unix-only.
+//!
+//! Spawn/line/exit orchestration lives here. Effect key stays
+//! `git_remotes_key_first` (480+).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -35,14 +42,61 @@ const writeFixed = main.writeFixed;
 /// later session.
 pub const git_remotes_key_first: u64 = 480;
 
-pub const argv_len = git_checkout.remote_argv_len;
+pub const git_bin = "git";
+/// PATH-resolved Windows Git (explicit `.exe` like sibling
+/// `powershell.exe` / `explorer.exe` / `wt.exe` / `cmd.exe`).
+pub const windows_git_bin = "git.exe";
+pub const git_c_flag = "-C";
+pub const git_remote_cmd = git_checkout.git_remote_cmd;
+pub const sh_bin = "/bin/sh";
 
-pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+/// Unix `/bin/sh -c` chdir + git remote (7). Windows `git.exe -C`
+/// is 4; this is the spawn buffer (max of the two).
+pub const argv_len: usize = 7;
+pub const unix_argv_len: usize = 7;
+pub const windows_argv_len: usize = 4;
+
+/// Unix: same 7-slot chdir script + `git remote` as Push remotes.
+pub fn unixArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
     return git_checkout.remoteArgvFor(cwd, buf);
 }
 
-pub fn isGitRemotesArgv(argv: []const []const u8) bool {
+/// Windows: `git.exe -C <project_path> remote`. Path is its own argv
+/// slot (no `/bin/sh`, no packing into a cmd string).
+pub fn windowsArgvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    buf[0] = windows_git_bin;
+    buf[1] = git_c_flag;
+    buf[2] = cwd;
+    buf[3] = git_remote_cmd;
+    return buf[0..windows_argv_len];
+}
+
+pub fn argvFor(cwd: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => windowsArgvFor(cwd, buf),
+        else => unixArgvFor(cwd, buf),
+    };
+}
+
+fn isUnixGitRemotesArgv(argv: []const []const u8) bool {
     return git_checkout.isGitRemoteArgv(argv);
+}
+
+fn isWindowsGitRemotesArgv(argv: []const []const u8) bool {
+    if (argv.len != windows_argv_len) return false;
+    const bin_ok = std.mem.eql(u8, argv[0], windows_git_bin) or std.mem.eql(u8, argv[0], git_bin);
+    if (!bin_ok) return false;
+    if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
+    if (argv[2].len == 0) return false;
+    return std.mem.eql(u8, argv[3], git_remote_cmd);
+}
+
+pub fn isGitRemotesArgv(argv: []const []const u8) bool {
+    return isUnixGitRemotesArgv(argv) or isWindowsGitRemotesArgv(argv);
+}
+
+pub fn probeSupported() bool {
+    return true;
 }
 
 pub fn hasGitRemote(model: *const Model) bool {
@@ -89,11 +143,11 @@ fn probePath(model: *const Model) []const u8 {
 
 /// Cancel any in-flight probe, drop has_remote, and spawn again when
 /// the selected session has an existing `project_path`. Empty /
-/// missing / Windows skips the spawn so first-push stays hidden.
+/// missing skips the spawn so first-push stays hidden.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     clearGitRemotes(model);
-    if (builtin.os.tag == .windows) return;
+    if (!probeSupported()) return;
     const cwd = probePath(model);
     if (cwd.len == 0) return;
 
@@ -147,26 +201,88 @@ pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
 test "argv is chdir script plus git remote as its own slot" {
     const git_ahead_behind = @import("git_ahead_behind.zig");
     var buf: [argv_len][]const u8 = undefined;
-    const argv = argvFor("/tmp/faku-remotes", &buf);
-    try std.testing.expectEqual(@as(usize, 7), argv.len);
-    try std.testing.expectEqualStrings(git_checkout.sh_bin, argv[0]);
+    const argv = unixArgvFor("/tmp/faku-remotes", &buf);
+    try std.testing.expectEqual(@as(usize, unix_argv_len), argv.len);
+    try std.testing.expectEqualStrings(sh_bin, argv[0]);
     try std.testing.expectEqualStrings("-c", argv[1]);
     try std.testing.expectEqualStrings(main.fx_ask_chdir_script, argv[2]);
     try std.testing.expectEqualStrings("sh", argv[3]);
     try std.testing.expectEqualStrings("/tmp/faku-remotes", argv[4]);
-    try std.testing.expectEqualStrings(git_checkout.git_bin, argv[5]);
-    try std.testing.expectEqualStrings(git_checkout.git_remote_cmd, argv[6]);
+    try std.testing.expectEqualStrings(git_bin, argv[5]);
+    try std.testing.expectEqualStrings(git_remote_cmd, argv[6]);
     try std.testing.expect(isGitRemotesArgv(argv));
     try std.testing.expect(git_checkout.isGitRemoteArgv(argv));
-    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_checkout.git_remote_cmd) == null);
-    try std.testing.expect(!isGitRemotesArgv(&.{ git_checkout.git_bin, git_checkout.git_remote_cmd }));
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_remote_cmd) == null);
+    try std.testing.expect(!isGitRemotesArgv(&.{ git_bin, git_remote_cmd }));
     var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;
-    const ahead = git_ahead_behind.argvFor("/tmp/faku-remotes", &ahead_buf);
+    const ahead = git_ahead_behind.unixArgvFor("/tmp/faku-remotes", &ahead_buf);
     try std.testing.expect(!isGitRemotesArgv(ahead));
     try std.testing.expect(!git_ahead_behind.isGitAheadBehindArgv(argv));
     try std.testing.expect(git_remotes_key_first >= 480);
     try std.testing.expect(git_remotes_key_first > 470);
     try std.testing.expect(git_remotes_key_first > git_checkout.git_push_key_first);
+}
+
+test "windows git argv is git.exe -C PATH remote; path is its own slot" {
+    const git_branch = @import("git_branch.zig");
+    const git_dirty = @import("git_dirty.zig");
+    const git_ahead_behind = @import("git_ahead_behind.zig");
+    const git_numstat = @import("git_numstat.zig");
+    const file_mention = @import("file_mention.zig");
+    var buf: [argv_len][]const u8 = undefined;
+    const cwd = "C:\\Users\\me\\proj";
+    const argv = windowsArgvFor(cwd, &buf);
+    try std.testing.expectEqual(@as(usize, windows_argv_len), argv.len);
+    try std.testing.expect(argv.len <= 16);
+    try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+    try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+    try std.testing.expectEqualStrings(cwd, argv[2]);
+    try std.testing.expectEqualStrings(git_remote_cmd, argv[3]);
+    try std.testing.expect(isGitRemotesArgv(argv));
+    try std.testing.expect(!std.mem.eql(u8, argv[0], sh_bin));
+    try std.testing.expect(!isGitRemotesArgv(&.{ windows_git_bin, git_c_flag, cwd }));
+    var git_only: [argv_len][]const u8 = undefined;
+    git_only[0] = git_bin;
+    git_only[1] = git_c_flag;
+    git_only[2] = cwd;
+    git_only[3] = git_remote_cmd;
+    try std.testing.expect(isGitRemotesArgv(git_only[0..windows_argv_len]));
+    var branch_buf: [git_branch.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitRemotesArgv(git_branch.windowsArgvFor(cwd, &branch_buf)));
+    try std.testing.expect(!git_branch.isGitBranchArgv(argv));
+    var dirty_buf: [git_dirty.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitRemotesArgv(git_dirty.windowsArgvFor(cwd, &dirty_buf)));
+    try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
+    var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitRemotesArgv(git_ahead_behind.windowsArgvFor(cwd, &ahead_buf)));
+    try std.testing.expect(!git_ahead_behind.isGitAheadBehindArgv(argv));
+    var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitRemotesArgv(git_numstat.windowsArgvFor(cwd, &numstat_buf)));
+    try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
+    var mention_buf: [file_mention.git_argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitRemotesArgv(file_mention.windowsArgvFor(cwd, &mention_buf)));
+    try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
+}
+
+test "host argvFor matches the process OS" {
+    var buf: [argv_len][]const u8 = undefined;
+    const argv = argvFor("/tmp/faku-remotes", &buf);
+    try std.testing.expect(isGitRemotesArgv(argv));
+    switch (builtin.os.tag) {
+        .windows => {
+            try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
+            try std.testing.expectEqualStrings(git_c_flag, argv[1]);
+            try std.testing.expectEqualStrings(git_remote_cmd, argv[3]);
+        },
+        else => {
+            try std.testing.expectEqualStrings(sh_bin, argv[0]);
+            try std.testing.expectEqualStrings(git_remote_cmd, argv[6]);
+        },
+    }
+}
+
+test "probeSupported is true on macOS, Linux, and Windows" {
+    try std.testing.expect(probeSupported());
 }
 
 test "refresh one-shots git remote on a distinct key; empty fail and origin" {
