@@ -4046,9 +4046,13 @@ test "confirmWorktreeAdd with empty override still probes origin/HEAD" {
     var project_buf: [256]u8 = undefined;
     const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-wt-base-auto", .{tmp.sub_path[0..]});
     try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var home_buf: [256]u8 = undefined;
+    const home = try std.fmt.bufPrint(&home_buf, "/tmp/faku-wt-base-auto-{s}", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, home);
 
     var model = Model{};
     model.store_io = std.testing.io;
+    model.setHome(home);
     const id = model.addSession("worktree base auto", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
