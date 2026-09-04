@@ -219,7 +219,7 @@ pub const open_url_key = open_url.open_url_key;
 /// copy_turn (32). Native has no typed open-terminal effect on this
 /// Effects revision.
 pub const open_terminal_key = open_terminal.open_terminal_key;
-/// One-shot OS editor sidecar (`cursor` / `code`, macOS `open -a`).
+/// One-shot OS editor sidecar (`cursor` / `code`, macOS `open -a`, Windows `cursor.cmd` / `code.cmd`).
 /// Distinct from open_terminal (27), reveal_folder (28), pick_folder (29),
 /// maximize (30), pick_image (31), copy_turn (32). Native has no typed
 /// open-editor effect on this Effects revision.

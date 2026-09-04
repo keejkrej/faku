@@ -232,6 +232,8 @@ test "reveal argv is not url terminal editor or folder-picker argv" {
     try std.testing.expect(!isRevealArgv(open_editor.argvForTool(.code, "/tmp/proj", &editor_scratch)));
     try std.testing.expect(!isRevealArgv(open_editor.argvForTool(.open_cursor, "/tmp/proj", &editor_scratch)));
     try std.testing.expect(!isRevealArgv(open_editor.argvForTool(.open_vscode, "/tmp/proj", &editor_scratch)));
+    try std.testing.expect(!isRevealArgv(open_editor.argvForTool(.windows_cursor, "/tmp/proj", &editor_scratch)));
+    try std.testing.expect(!isRevealArgv(open_editor.argvForTool(.windows_code, "/tmp/proj", &editor_scratch)));
 }
 
 test "reveal_folder_key is distinct from pick_folder and neighbors" {
