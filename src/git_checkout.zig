@@ -4,8 +4,10 @@
 //!
 //! Native has no git/workspace effect. When the selected session has a
 //! non-empty `project_path` that exists, Faku prefers hello + daemon
-//! `WorkspaceOperation::InspectBranches` when `WAKU_DAEMON_ADDRESS` or
-//! persisted `last_daemon_address` is set, else `fx.spawn`s
+//! `WorkspaceOperation::InspectBranches` (list) and
+//! `WorkspaceOperation::CheckoutBranch` (local-head checkout / New
+//! branch create) when `WAKU_DAEMON_ADDRESS` or persisted
+//! `last_daemon_address` is set, else `fx.spawn`s
 //! `git for-each-ref --format=%(refname)%00%(worktreepath) refs/heads refs/remotes`
 //! through the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`). `%(refname)` (not `:short`) is required
@@ -119,7 +121,16 @@
 //! (`refs/heads`); first-cut omits remote-tracking rows when the
 //! daemon path succeeds (leftover: remotes-on-daemon-list). Local
 //! `for-each-ref` (heads+remotes) remains the no-daemon path. Not a
-//! live watch. Not daemon `CheckoutBranch` / `InspectCommit`.
+//! live watch. First-cut daemon `WorkspaceOperation::CheckoutBranch`
+//! ships on picker local-head checkout (`create: false`) and New
+//! branch confirm (`create: true`) when a daemon address is set
+//! (nil request-frame session/runtime ids; `{ "type":
+//! "checkoutBranch", "cwd", "branch", "create" }`; ok is nested
+//! `branchChanged` + snake_case `BranchSnapshot`). Native 4 KiB
+//! stdin overflow falls back to today's local `git checkout` /
+//! `git checkout -b`. Remote-tracking `--track` stays local git.
+//! Missing address keeps today's local path. Not daemon
+//! `InspectCommit`.
 //! Cap is 64 local heads plus 32
 //! remote-tracking names that have no local counterpart (skip
 //! symbolic `*/HEAD`), sorted lexicographically. Not Waku's live
@@ -128,9 +139,9 @@
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
 //! Leftovers: other daemon `WorkspaceOperation` variants
-//! (CheckoutBranch, CaptureTurn, ListTree, InspectCommit,
-//! GenerateCommitMessage, CollectReviewDiff, ref ops,
-//! remotes-on-daemon-list, amend/force over daemon, …). Fetch
+//! (CaptureTurn, ListTree, InspectCommit, GenerateCommitMessage,
+//! CollectReviewDiff, ref ops, remotes-on-daemon-list, amend/force
+//! over daemon, remote `--track` over daemon, …). Fetch
 //! already `--prune`; there is no prune-alone menu (not in Waku).
 //! First-cut defer-until-Send Work in reuses this same add path on
 //! Send (`session_workspace`) when no daemon address is set;
@@ -168,7 +179,11 @@
 //! and Push stay local git). First-cut daemon
 //! `WorkspaceOperation::InspectBranches` reuses `next_daemon_key`
 //! assigned onto `git_branch_list_key` so `applyListLine` /
-//! `handleListExit` still own the picker.
+//! `handleListExit` still own the picker. First-cut daemon
+//! `WorkspaceOperation::CheckoutBranch` reuses `next_daemon_key`
+//! assigned onto `git_checkout_key` (`create: false`) or
+//! `git_create_key` (`create: true`) so `handleCheckoutExit` /
+//! `handleCreateExit` still own the flow.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -2163,12 +2178,14 @@ fn cancelCheckout(model: *Model, fx: *Effects) void {
     if (model.git_checkout_key == 0) return;
     fx.cancel(model.git_checkout_key);
     model.git_checkout_key = 0;
+    model.git_checkout_via_daemon = false;
 }
 
 fn cancelCreate(model: *Model, fx: *Effects) void {
     if (model.git_create_key == 0) return;
     fx.cancel(model.git_create_key);
     model.git_create_key = 0;
+    model.git_create_via_daemon = false;
 }
 
 fn cancelDelete(model: *Model, fx: *Effects) void {
@@ -2696,9 +2713,50 @@ pub fn pickBranch(model: *Model, fx: *Effects, name: []const u8) void {
         return;
     }
 
+    if (trySpawnDaemonCheckoutBranch(model, fx, cwd, name, false)) return;
     var argv_buf: [checkout_argv_len][]const u8 = undefined;
     const argv = checkoutArgvFor(cwd, name, &argv_buf) orelse return;
     spawnCheckout(model, fx, cwd, argv);
+}
+
+/// Best-effort hello + `WorkspaceOperation::CheckoutBranch` when a
+/// daemon address is set. Own daemon spawn key assigned to
+/// `git_checkout_key` (`create: false`) or `git_create_key`
+/// (`create: true`) so existing exit handlers still own the flow.
+/// Missing address or Native 4 KiB stdin overflow returns false and
+/// leaves local `git checkout` / `git checkout -b`.
+fn trySpawnDaemonCheckoutBranch(model: *Model, fx: *Effects, cwd: []const u8, branch: []const u8, create: bool) bool {
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{ .checkout_branch = .{ .cwd = cwd, .branch = branch, .create = create } },
+    }) catch return false;
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    if (create) {
+        model.git_create_key = key;
+        model.git_create_via_daemon = true;
+        model.git_create_probe_session = model.selected;
+        writeFixed(&model.git_create_probe_path_storage, &model.git_create_probe_path_len, cwd);
+    } else {
+        cancelCheckout(model, fx);
+        model.git_checkout_key = key;
+        model.git_checkout_via_daemon = true;
+        model.git_checkout_probe_session = model.selected;
+        writeFixed(&model.git_checkout_probe_path_storage, &model.git_checkout_probe_path_len, cwd);
+    }
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
 }
 
 fn spawnCheckout(model: *Model, fx: *Effects, cwd: []const u8, argv: []const []const u8) void {
@@ -2706,6 +2764,7 @@ fn spawnCheckout(model: *Model, fx: *Effects, cwd: []const u8, argv: []const []c
     const key = model.next_git_checkout_key;
     model.next_git_checkout_key = key + 1;
     model.git_checkout_key = key;
+    model.git_checkout_via_daemon = false;
     model.git_checkout_probe_session = model.selected;
     writeFixed(&model.git_checkout_probe_path_storage, &model.git_checkout_probe_path_len, cwd);
 
@@ -2717,10 +2776,33 @@ fn spawnCheckout(model: *Model, fx: *Effects, cwd: []const u8, argv: []const []c
     });
 }
 
+pub fn applyCheckoutLine(model: *Model, line: native_sdk.EffectLine) void {
+    if (line.key != model.git_checkout_key or model.git_checkout_key == 0) return;
+    if (!checkoutStillCurrent(model)) return;
+    if (!model.git_checkout_via_daemon) return;
+    applyDaemonBranchChangedLine(model, line.line);
+}
+
+pub fn applyCreateLine(model: *Model, line: native_sdk.EffectLine) void {
+    if (line.key != model.git_create_key or model.git_create_key == 0) return;
+    if (!createStillCurrent(model)) return;
+    if (!model.git_create_via_daemon) return;
+    applyDaemonBranchChangedLine(model, line.line);
+}
+
+fn applyDaemonBranchChangedLine(model: *Model, raw: []const u8) void {
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseBranchChanged(arena_state.allocator(), raw);
+    if (!parsed.ok) return;
+    git_branch.applySnapshotLabels(model, parsed.current, parsed.detached_head);
+}
+
 pub fn handleCheckoutExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (exit.key != model.git_checkout_key or model.git_checkout_key == 0) return;
     const current = checkoutStillCurrent(model);
     model.git_checkout_key = 0;
+    model.git_checkout_via_daemon = false;
     if (!current) return;
     if (exit.reason == .exited and exit.code == 0) {
         refreshWorkspaceProbes(model, fx);
@@ -2741,12 +2823,15 @@ pub fn confirmCreate(model: *Model, fx: *Effects) void {
     const cwd = probePath(model);
     if (cwd.len == 0) return;
 
+    if (trySpawnDaemonCheckoutBranch(model, fx, cwd, name, true)) return;
+
     var argv_buf: [create_argv_len][]const u8 = undefined;
     const argv = createArgvFor(cwd, name, &argv_buf) orelse return;
 
     const key = model.next_git_create_key;
     model.next_git_create_key = key + 1;
     model.git_create_key = key;
+    model.git_create_via_daemon = false;
     model.git_create_probe_session = model.selected;
     writeFixed(&model.git_create_probe_path_storage, &model.git_create_probe_path_len, cwd);
 
@@ -2762,6 +2847,7 @@ pub fn handleCreateExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
     if (exit.key != model.git_create_key or model.git_create_key == 0) return;
     const current = createStillCurrent(model);
     model.git_create_key = 0;
+    model.git_create_via_daemon = false;
     if (!current) return;
     if (exit.reason == .exited and exit.code == 0) {
         closeCreate(model);
@@ -5711,4 +5797,297 @@ test "InspectBranches null snapshot falls back to local for-each-ref" {
     try std.testing.expect(isGitBranchListArgv(list.argv));
     try std.testing.expect(!isDaemonWorkspacePushArgv(list.argv));
     try std.testing.expectEqualStrings("", list.stdin);
+}
+
+const branch_changed_feat_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"branchChanged\",\"snapshot\":{\"repository\":\"/tmp/faku\",\"current\":\"feat\",\"detached_head\":null,\"default_branch\":\"main\",\"branches\":[{\"name\":\"feat\",\"checked_out_elsewhere\":false},{\"name\":\"main\",\"checked_out_elsewhere\":false}],\"additions\":0,\"deletions\":0}}}}}";
+const branch_changed_new_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"branchChanged\",\"snapshot\":{\"repository\":\"/tmp/faku\",\"current\":\"feat/new\",\"detached_head\":null,\"default_branch\":\"main\",\"branches\":[{\"name\":\"feat/new\",\"checked_out_elsewhere\":false},{\"name\":\"main\",\"checked_out_elsewhere\":false}],\"additions\":0,\"deletions\":0}}}}}";
+const workspace_error_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}";
+
+test "pickBranch with a daemon address spawns CheckoutBranch sidecar create false" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-co-daemon", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("checkout daemon", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    model.git_branch_list_store[0].set("feat", false, false);
+    model.git_branch_list_count = 1;
+
+    pickBranch(&model, &fx, "feat");
+    const sidecar = pendingSpawnKey(&fx, model.git_checkout_key) orelse return error.MissingDaemonCheckoutSpawn;
+    try std.testing.expect(isDaemonWorkspacePushArgv(sidecar.argv));
+    try std.testing.expect(!isGitCheckoutArgv(sidecar.argv));
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"checkoutBranch\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"cwd\":\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"branch\":\"feat\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"create\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"create\":true") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(model.git_checkout_via_daemon);
+    try std.testing.expectEqual(sidecar.key, model.git_checkout_key);
+}
+
+test "pickBranch without a daemon address still uses local git checkout" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-co-local", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setSidecarPath("faku");
+    const id = model.addSession("checkout local", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    model.git_branch_list_store[0].set("feat", false, false);
+    model.git_branch_list_count = 1;
+    try std.testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+
+    pickBranch(&model, &fx, "feat");
+    const spawned = pendingSpawnKey(&fx, model.git_checkout_key) orelse return error.MissingGitCheckoutSpawn;
+    try std.testing.expect(isGitCheckoutArgv(spawned.argv));
+    try std.testing.expect(!isDaemonWorkspacePushArgv(spawned.argv));
+    try std.testing.expectEqualStrings("", spawned.stdin);
+    try std.testing.expect(!model.git_checkout_via_daemon);
+    try std.testing.expect(spawned.key >= git_checkout_key_first);
+}
+
+test "pickBranch remote-tracking with a daemon address still uses local --track" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-co-track", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("checkout track daemon", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    model.git_branch_list_store[0].set("origin/feat", true, false);
+    model.git_branch_list_count = 1;
+
+    pickBranch(&model, &fx, "origin/feat");
+    const spawned = pendingSpawnKey(&fx, model.git_checkout_key) orelse return error.MissingGitTrackCheckoutSpawn;
+    try std.testing.expect(isGitTrackCheckoutArgv(spawned.argv));
+    try std.testing.expect(!isDaemonWorkspacePushArgv(spawned.argv));
+    try std.testing.expectEqualStrings("", spawned.stdin);
+    try std.testing.expect(!model.git_checkout_via_daemon);
+}
+
+test "CheckoutBranch sidecar applies current on BranchChanged and failed response does not pretend success" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-co-fill", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("checkout fill", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    model.git_branch_list_store[0].set("feat", false, false);
+    model.git_branch_list_count = 1;
+
+    pickBranch(&model, &fx, "feat");
+    const sidecar = pendingSpawnKey(&fx, model.git_checkout_key) orelse return error.MissingDaemonCheckoutFill;
+    applyCheckoutLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"hello\"}" });
+    try std.testing.expectEqualStrings("main", git_branch.gitBranchLabel(&model));
+    applyCheckoutLine(&model, .{ .key = sidecar.key, .line = branch_changed_feat_line });
+    try std.testing.expectEqualStrings("feat", git_branch.gitBranchLabel(&model));
+    try std.testing.expect(model.git_checkout_via_daemon);
+    handleCheckoutExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.git_checkout_key);
+    try std.testing.expect(!model.git_checkout_via_daemon);
+    try std.testing.expect(model.git_branch_key != 0);
+
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    pickBranch(&model, &fx, "feat");
+    const fail = pendingSpawnKey(&fx, model.git_checkout_key) orelse return error.MissingDaemonCheckoutFail;
+    applyCheckoutLine(&model, .{ .key = fail.key, .line = workspace_error_line });
+    try std.testing.expectEqualStrings("main", git_branch.gitBranchLabel(&model));
+    handleCheckoutExit(&model, &fx, .{ .key = fail.key, .reason = .exited, .code = 1 });
+    try std.testing.expectEqual(@as(u64, 0), model.git_checkout_key);
+    try std.testing.expect(!model.git_checkout_via_daemon);
+    try std.testing.expectEqualStrings("main", git_branch.gitBranchLabel(&model));
+    try std.testing.expectEqualStrings(checkout_failed_status, model.attach_status());
+}
+
+test "confirmCreate with a daemon address spawns CheckoutBranch sidecar create true" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-create-daemon", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("create daemon", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    startCreate(&model);
+    model.git_branch_create_buffer.apply(.{ .insert_text = "feat/new" });
+    confirmCreate(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.git_create_key) orelse return error.MissingDaemonCreateSpawn;
+    try std.testing.expect(isDaemonWorkspacePushArgv(sidecar.argv));
+    try std.testing.expect(!isGitCreateArgv(sidecar.argv));
+    try std.testing.expectEqualStrings("10.0.0.2:9", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"checkoutBranch\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"branch\":\"feat/new\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"create\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"create\":false") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(model.git_create_via_daemon);
+    try std.testing.expect(model.git_branch_create_active);
+
+    applyCreateLine(&model, .{ .key = sidecar.key, .line = branch_changed_new_line });
+    try std.testing.expectEqualStrings("feat/new", git_branch.gitBranchLabel(&model));
+    handleCreateExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.git_create_key);
+    try std.testing.expect(!model.git_create_via_daemon);
+    try std.testing.expect(!model.git_branch_create_active);
+}
+
+test "confirmCreate without a daemon address still uses local git checkout -b" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-create-local", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setSidecarPath("faku");
+    const id = model.addSession("create local", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    startCreate(&model);
+    model.git_branch_create_buffer.apply(.{ .insert_text = "feat/new" });
+    confirmCreate(&model, &fx);
+    const spawned = pendingSpawnKey(&fx, model.git_create_key) orelse return error.MissingGitCreateSpawn;
+    try std.testing.expect(isGitCreateArgv(spawned.argv));
+    try std.testing.expect(!isDaemonWorkspacePushArgv(spawned.argv));
+    try std.testing.expectEqualStrings("", spawned.stdin);
+    try std.testing.expect(!model.git_create_via_daemon);
+    try std.testing.expect(spawned.key >= git_create_key_first);
+}
+
+test "CheckoutBranch stdin overflow falls back to local git checkout" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-co-overflow", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("checkout overflow", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    model.git_branch_list_store[0].set("feat", false, false);
+    model.git_branch_list_count = 1;
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, daemon_proxy.writeWorkspaceStdin(&tiny, .{
+        .token = model.daemonToken(),
+        .operation = .{ .checkout_branch = .{ .cwd = project, .branch = "feat", .create = false } },
+    }));
+    try std.testing.expectError(error.NoSpaceLeft, daemon_proxy.writeWorkspaceStdin(&tiny, .{
+        .operation = .{ .checkout_branch = .{ .cwd = project, .branch = "feat/new", .create = true } },
+    }));
+
+    pickBranch(&model, &fx, "feat");
+    const sidecar = pendingSpawnKey(&fx, model.git_checkout_key) orelse return error.MissingDaemonCheckoutAfterOverflowCheck;
+    try std.testing.expect(isDaemonWorkspacePushArgv(sidecar.argv));
+}
+
+test "failed CheckoutBranch create response does not pretend success" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-create-fail", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("create fail", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    startCreate(&model);
+    model.git_branch_create_buffer.apply(.{ .insert_text = "feat/new" });
+    confirmCreate(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.git_create_key) orelse return error.MissingDaemonCreateFail;
+    applyCreateLine(&model, .{ .key = sidecar.key, .line = workspace_error_line });
+    try std.testing.expectEqualStrings("main", git_branch.gitBranchLabel(&model));
+    handleCreateExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
+    try std.testing.expectEqual(@as(u64, 0), model.git_create_key);
+    try std.testing.expect(!model.git_create_via_daemon);
+    try std.testing.expect(model.git_branch_create_active);
+    try std.testing.expectEqualStrings("main", git_branch.gitBranchLabel(&model));
+    try std.testing.expectEqualStrings(create_failed_status, model.attach_status());
 }

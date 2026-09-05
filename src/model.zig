@@ -958,11 +958,20 @@ pub const Model = struct {
     git_checkout_probe_session: u32 = 0,
     git_checkout_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_checkout_probe_path_len: usize = 0,
+    /// True while the in-flight `git_checkout_key` is a daemon-proxy
+    /// CheckoutBranch sidecar (`create: false`). Line handlers parse
+    /// `branchChanged` instead of git checkout stdout. Runtime only;
+    /// not persisted.
+    git_checkout_via_daemon: bool = false,
     git_create_key: u64 = 0,
     next_git_create_key: u64 = git_checkout.git_create_key_first,
     git_create_probe_session: u32 = 0,
     git_create_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_create_probe_path_len: usize = 0,
+    /// True while the in-flight `git_create_key` is a daemon-proxy
+    /// CheckoutBranch sidecar (`create: true`). Runtime only; not
+    /// persisted.
+    git_create_via_daemon: bool = false,
     git_delete_key: u64 = 0,
     next_git_delete_key: u64 = git_checkout.git_delete_key_first,
     git_delete_probe_session: u32 = 0,
@@ -1476,11 +1485,13 @@ pub const Model = struct {
         "git_checkout_probe_session",
         "git_checkout_probe_path_storage",
         "git_checkout_probe_path_len",
+        "git_checkout_via_daemon",
         "git_create_key",
         "next_git_create_key",
         "git_create_probe_session",
         "git_create_probe_path_storage",
         "git_create_probe_path_len",
+        "git_create_via_daemon",
         "git_delete_key",
         "next_git_delete_key",
         "git_delete_probe_session",

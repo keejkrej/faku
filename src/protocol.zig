@@ -123,8 +123,12 @@
 //! `{ "type": "commit", "cwd", "message", "include_unstaged", "push" }`
 //! (bools JSON true/false; no amend and no force on daemon Commit), and
 //! `WorkspaceOperation::InspectBranches`
-//! `{ "type": "inspectBranches", "cwd": "<path>" }` (`cwd` stays cwd).
-//! This cut ships Push, CreateWorktree, Commit, and InspectBranches.
+//! `{ "type": "inspectBranches", "cwd": "<path>" }` (`cwd` stays cwd), and
+//! `WorkspaceOperation::CheckoutBranch`
+//! `{ "type": "checkoutBranch", "cwd", "branch", "create" }` (bool
+//! JSON true/false; `create: false` is checkout, `create: true` is
+//! create-and-checkout). This cut ships Push, CreateWorktree, Commit,
+//! InspectBranches, and CheckoutBranch.
 //! There is no force flag on daemon Push. An ok outcome is
 //! `ResponsePayload::Workspace { result }` where Push and Commit
 //! yield `WorkspaceResult::Ack` — wire `outcome.payload`
@@ -132,14 +136,18 @@
 //! `ack`) — CreateWorktree yields
 //! `WorkspaceResult::WorktreeCreated` — wire
 //! `result: { "type": "worktreeCreated", "worktree": { "path",
-//! "branch" } }` (not a bare ack) — and InspectBranches yields
+//! "branch" } }` (not a bare ack) — InspectBranches yields
 //! `WorkspaceResult::Branches` — wire
 //! `result: { "type": "branches", "snapshot": <BranchSnapshot|null> }`
 //! nested under `outcome.payload` `{ "type": "workspace", "result": … }`
-//! (not a bare branches object). `BranchSnapshot` / `BranchEntry` have
-//! no serde rename_all: snake_case `repository`, `current`,
-//! `detached_head`, `default_branch`, `branches`, `additions`,
-//! `deletions`; entries are `name` + `checked_out_elsewhere`. A
+//! (not a bare branches object) — and CheckoutBranch yields
+//! `WorkspaceResult::BranchChanged` — wire
+//! `result: { "type": "branchChanged", "snapshot": { …BranchSnapshot… } }`
+//! nested under `outcome.payload` (not a bare ack). `BranchSnapshot` /
+//! `BranchEntry` have no serde rename_all: snake_case `repository`,
+//! `current`, `detached_head`, `default_branch`, `branches`,
+//! `additions`, `deletions`; entries are `name` +
+//! `checked_out_elsewhere`. A
 //! non-nil `requestId` is required (nil is a notify). Wait for a
 //! `response` frame (ok or error), not a driver event.
 //!
@@ -337,7 +345,8 @@ pub fn defaultStartOptions() StartOptions {
 /// `goal` is the Codex `/goal` first cut (set/clear/refresh over the
 /// daemon sidecar). It is not an fx / ACP method. `workspace` is
 /// first-cut `WorkspaceOperation::Push`, `CreateWorktree`,
-/// `Commit`, and `InspectBranches` (hello + workspace sidecar).
+/// `Commit`, `InspectBranches`, and `CheckoutBranch` (hello +
+/// workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -503,10 +512,10 @@ pub const GoalOperation = union(GoalKind) {
 /// `WorkspaceOperation` tagged `type` (Waku serde camelCase `type`).
 /// First-cut ships `Push { cwd }`, `CreateWorktree` (snake_case
 /// fields; `base_branch` string or JSON null), `Commit`
-/// `{ cwd, message, include_unstaged, push }`, and `InspectBranches
-/// { cwd }`. No force flag on Push or Commit. No amend on daemon
-/// Commit.
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches };
+/// `{ cwd, message, include_unstaged, push }`, `InspectBranches
+/// { cwd }`, and `CheckoutBranch { cwd, branch, create }`. No force
+/// flag on Push or Commit. No amend on daemon Commit.
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch };
 
 pub const WorkspacePush = struct {
     cwd: []const u8,
@@ -531,15 +540,23 @@ pub const WorkspaceInspectBranches = struct {
     cwd: []const u8,
 };
 
+pub const WorkspaceCheckoutBranch = struct {
+    cwd: []const u8,
+    branch: []const u8,
+    create: bool,
+};
+
 pub const WorkspaceOperation = union(WorkspaceKind) {
     push: WorkspacePush,
     create_worktree: WorkspaceCreateWorktree,
     commit: WorkspaceCommit,
     inspect_branches: WorkspaceInspectBranches,
+    checkout_branch: WorkspaceCheckoutBranch,
 };
 
-/// Local heads from an ok `branches` workspace result. Waku lists
-/// `refs/heads` only (no remotes). Slices alias the JSON arena.
+/// Local heads from an ok `branches` or `branchChanged` workspace
+/// result. Waku lists `refs/heads` only (no remotes). Slices alias
+/// the JSON arena.
 pub const max_parsed_branches: usize = 64;
 
 pub const ParsedBranchEntry = struct {
@@ -793,8 +810,8 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// Request frame wrapping verified `command: { type: "workspace", operation }`.
 /// Same request-frame shape as `writeGoal`. Waku `WorkspaceClient::request`
 /// uses nil `sessionId` and nil `runtimeId` for workspace RPCs. Callers
-/// for Push, CreateWorktree, Commit, and InspectBranches pass
-/// `NIL_UUID` for those ids.
+/// for Push, CreateWorktree, Commit, InspectBranches, and
+/// CheckoutBranch pass `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
 /// Timeout 120s.
@@ -856,6 +873,15 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
         .inspect_branches => |args| {
             try cur.write("{\"type\":\"inspectBranches\",\"cwd\":");
             try writeJsonString(cur, args.cwd);
+            try cur.write("}");
+        },
+        .checkout_branch => |args| {
+            try cur.write("{\"type\":\"checkoutBranch\",\"cwd\":");
+            try writeJsonString(cur, args.cwd);
+            try cur.write(",\"branch\":");
+            try writeJsonString(cur, args.branch);
+            try cur.write(",\"create\":");
+            try writeBool(cur, args.create);
             try cur.write("}");
         },
     }
@@ -1288,9 +1314,22 @@ pub fn parseWorktreeCreated(allocator: std.mem.Allocator, line: []const u8) Pars
 /// missing fields, camelCase occupancy, or an empty `branches` array
 /// are rejected. Slices alias `allocator`.
 pub fn parseBranches(allocator: std.mem.Allocator, line: []const u8) ParsedBranches {
+    return parseWorkspaceSnapshot(allocator, line, "branches");
+}
+
+/// Light parser for ok CheckoutBranch. True/`ok` when an ok `response`
+/// carries nested `result: { "type": "branchChanged", "snapshot": { … } }`
+/// with the same snake_case `BranchSnapshot` shape InspectBranches
+/// parses. Null snapshot, missing fields, camelCase occupancy, or an
+/// empty `branches` array are rejected. Slices alias `allocator`.
+pub fn parseBranchChanged(allocator: std.mem.Allocator, line: []const u8) ParsedBranches {
+    return parseWorkspaceSnapshot(allocator, line, "branchChanged");
+}
+
+fn parseWorkspaceSnapshot(allocator: std.mem.Allocator, line: []const u8, result_type: []const u8) ParsedBranches {
     var parsed = ParsedBranches{};
     const result = workspaceResultObject(allocator, line) orelse return parsed;
-    if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "branches")) return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", result_type)) return parsed;
     const snapshot_val = result.get("snapshot") orelse return parsed;
     const snapshot = jsonObject(snapshot_val) orelse return parsed;
     _ = jsonStringValue(snapshot.get("repository")) orelse return parsed;
@@ -1323,12 +1362,14 @@ pub fn parseBranches(allocator: std.mem.Allocator, line: []const u8) ParsedBranc
 }
 
 /// True when the line is an ok workspace Push / Commit ack,
-/// CreateWorktree `worktreeCreated` (non-empty path + branch), or
-/// InspectBranches `branches` with a usable snapshot.
+/// CreateWorktree `worktreeCreated` (non-empty path + branch),
+/// InspectBranches `branches` with a usable snapshot, or
+/// CheckoutBranch `branchChanged` with a usable snapshot.
 pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (isWorkspaceAck(allocator, line)) return true;
     if (parseWorktreeCreated(allocator, line).ok) return true;
-    return parseBranches(allocator, line).ok;
+    if (parseBranches(allocator, line).ok) return true;
+    return parseBranchChanged(allocator, line).ok;
 }
 
 fn workspaceResultObject(allocator: std.mem.Allocator, line: []const u8) ?std.json.ObjectMap {
@@ -1678,6 +1719,7 @@ test "workspace request wraps camelCase inspectBranches with cwd and nil ids" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"push\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"commit\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"createWorktree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"checkoutBranch\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"inspectBranches\"") == null);
 }
@@ -1719,6 +1761,80 @@ test "parseBranches extracts snake_case snapshot and rejects null, missing field
     try std.testing.expect(!parseBranches(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"branches\",\"snapshot\":{\"repository\":\"/tmp/faku\",\"current\":\"main\",\"detached_head\":null,\"default_branch\":\"main\",\"branches\":[{\"name\":\"feat\",\"checkedOutElsewhere\":true}],\"additions\":0,\"deletions\":0}}}}").ok);
     try std.testing.expect(!parseBranches(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
     try std.testing.expect(!parseBranches(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
+    try std.testing.expect(!parseBranchChanged(arena, ok_line).ok);
+}
+
+test "workspace request wraps camelCase checkoutBranch with cwd, branch, create, and nil ids" {
+    var buf: [512]u8 = undefined;
+    const checkout = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .checkout_branch = .{ .cwd = "/tmp/faku", .branch = "feat", .create = false } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, checkout, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, checkout, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, checkout, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, checkout, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, checkout, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"checkoutBranch\",\"cwd\":\"/tmp/faku\",\"branch\":\"feat\",\"create\":false}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, checkout, "\"create\":true") == null);
+    try std.testing.expect(std.mem.indexOf(u8, checkout, "\"type\":\"inspectBranches\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, checkout, "\"type\":\"push\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, checkout, "\"type\":\"commit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, checkout, "\"type\":\"createWorktree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, checkout, "\"kind\":\"checkoutBranch\"") == null);
+
+    const created = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .checkout_branch = .{ .cwd = "/tmp/faku", .branch = "feat/new", .create = true } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, created, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"checkoutBranch\",\"cwd\":\"/tmp/faku\",\"branch\":\"feat/new\",\"create\":true}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, created, "\"create\":false") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .checkout_branch = .{ .cwd = "/tmp/faku", .branch = "feat", .create = false } },
+    ));
+}
+
+test "parseBranchChanged extracts snake_case snapshot and rejects branches, ack, or error" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"branchChanged\",\"snapshot\":{\"repository\":\"/tmp/faku\",\"current\":\"feat\",\"detached_head\":null,\"default_branch\":\"main\",\"branches\":[{\"name\":\"feat\",\"checked_out_elsewhere\":false},{\"name\":\"main\",\"checked_out_elsewhere\":false}],\"additions\":0,\"deletions\":0}}}}}";
+    const parsed = parseBranchChanged(arena, ok_line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqualStrings("feat", parsed.current);
+    try std.testing.expectEqualStrings("", parsed.detached_head);
+    try std.testing.expectEqualStrings("main", parsed.default_branch);
+    try std.testing.expectEqual(@as(usize, 2), parsed.entry_count);
+    try std.testing.expectEqualStrings("feat", parsed.entries[0].name);
+    try std.testing.expect(isWorkspaceSuccess(arena, ok_line));
+    try std.testing.expect(!isWorkspaceAck(arena, ok_line));
+    try std.testing.expect(!parseBranches(arena, ok_line).ok);
+    try std.testing.expect(!parseWorktreeCreated(arena, ok_line).ok);
+
+    const detached_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"branchChanged\",\"snapshot\":{\"repository\":\"/tmp/faku\",\"current\":null,\"detached_head\":\"a1b2c3d\",\"default_branch\":null,\"branches\":[{\"name\":\"main\",\"checked_out_elsewhere\":false}],\"additions\":0,\"deletions\":0}}}}}";
+    const detached = parseBranchChanged(arena, detached_line);
+    try std.testing.expect(detached.ok);
+    try std.testing.expectEqualStrings("", detached.current);
+    try std.testing.expectEqualStrings("a1b2c3d", detached.detached_head);
+
+    try std.testing.expect(!parseBranchChanged(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"branchChanged\",\"snapshot\":null}}}}").ok);
+    try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"branchChanged\",\"snapshot\":null}}}}"));
+    try std.testing.expect(!parseBranchChanged(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"branches\",\"snapshot\":{\"repository\":\"/tmp/faku\",\"current\":\"feat\",\"detached_head\":null,\"default_branch\":\"main\",\"branches\":[{\"name\":\"feat\",\"checked_out_elsewhere\":false}],\"additions\":0,\"deletions\":0}}}}").ok);
+    try std.testing.expect(!parseBranchChanged(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
+    try std.testing.expect(!parseBranchChanged(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
 }
 
 test "start defaults to first-party fx over acp" {

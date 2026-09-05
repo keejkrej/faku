@@ -27,11 +27,15 @@
 //! `WorkspaceOperation::InspectBranches` ships in `git_checkout`
 //! (best-effort sidecar when a daemon address is set; local heads
 //! only; remotes-on-daemon-list leftover; falls back to local
-//! `for-each-ref`). Leftovers: other daemon
-//! `WorkspaceOperation` variants (CheckoutBranch, CaptureTurn,
+//! `for-each-ref`). First-cut daemon
+//! `WorkspaceOperation::CheckoutBranch` ships in `git_checkout`
+//! (best-effort sidecar on picker local-head checkout and New
+//! branch create when a daemon address is set; remote `--track`
+//! stays local git; overflow falls back to local checkout). Leftovers:
+//! other daemon `WorkspaceOperation` variants (CaptureTurn,
 //! ListTree, InspectCommit, GenerateCommitMessage,
 //! CollectReviewDiff, ref ops, remotes-on-daemon-list, amend/force
-//! over daemon, …). Fork copies
+//! over daemon, remote `--track` over daemon, …). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).
 
 const std = @import("std");

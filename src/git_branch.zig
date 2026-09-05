@@ -8,7 +8,8 @@
 //! heads, remote-tracking checkout, create, safe delete, fetch,
 //! push, and New worktree… live in `git_checkout.zig`. The list
 //! picker first-cut daemon `InspectBranches` sidecar also lives
-//! there (not a live watch). This module is still one-shot
+//! there (not a live watch). Checkout / New branch first-cut daemon
+//! `CheckoutBranch` lives there too. This module is still one-shot
 //! `--show-current` / detached `rev-parse`.
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
