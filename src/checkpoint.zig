@@ -67,9 +67,14 @@
 //! best-effort sidecar from `fork` after a successful local
 //! `updateFakuRef` (Ack; does not replace or roll back local
 //! `refs/faku/...`; Native 4 KiB overflow / miss / non-ack leave
-//! local alone). Leftovers:
-//! force, background work, RestoreRef /
-//! DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs, etc. Not
+//! local alone). First-cut daemon `WorkspaceOperation::RestoreRef`
+//! ships as a prefer+fallback sidecar from
+//! `fork.applyRewindIfPossible` when a daemon address is set and
+//! cwd is a git worktree (Ack; snake_case `git_ref` is the matching
+//! `refs/faku/session-*-turn-start-*`; Native 4 KiB overflow / miss /
+//! non-ack fall back to this local `restoreRef` path). Leftovers:
+//! force, background work, DeleteRef /
+//! DeleteTurnRefsAfter / SessionTurnRefs, etc. Not
 //! transcript checkpoint +/-.
 
 const std = @import("std");

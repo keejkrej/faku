@@ -1410,6 +1410,18 @@ pub const Model = struct {
     /// roll back local refs.
     daemon_capture_ref_key: u64 = 0,
     daemon_capture_ref_session: u32 = 0,
+    /// Prefer Rewind-time `WorkspaceOperation::RestoreRef` sidecar when
+    /// a daemon address is set and cwd is a git worktree. Distinct from
+    /// CaptureRef / HasRef so Ack / miss cannot settle a live turn.
+    /// Local `restoreRef(sha)` / `resetHard` stay the overflow / miss /
+    /// non-ack / no-address path.
+    daemon_restore_ref_key: u64 = 0,
+    daemon_restore_ref_session: u32 = 0,
+    daemon_restore_ref_ok: bool = false,
+    daemon_restore_ref_cwd_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    daemon_restore_ref_cwd_len: usize = 0,
+    daemon_restore_ref_sha_storage: [40]u8 = [_]u8{0} ** 40,
+    daemon_restore_ref_sha_len: usize = 0,
     fx_spawn_key: u64 = 0,
     next_fx_key: u64 = fx_spawn_overlap_key_first,
     fx_spawn_live: bool = false,
@@ -1995,6 +2007,13 @@ pub const Model = struct {
         "daemon_has_ref_sha_len",
         "daemon_capture_ref_key",
         "daemon_capture_ref_session",
+        "daemon_restore_ref_key",
+        "daemon_restore_ref_session",
+        "daemon_restore_ref_ok",
+        "daemon_restore_ref_cwd_storage",
+        "daemon_restore_ref_cwd_len",
+        "daemon_restore_ref_sha_storage",
+        "daemon_restore_ref_sha_len",
         "fx_spawn_key",
         "next_fx_key",
         "fx_spawn_live",

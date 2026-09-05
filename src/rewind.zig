@@ -8,8 +8,11 @@
 //! `latestStoredSha` and restore the post-turn tree instead of undoing it.
 //! The next Send records the then-current HEAD as its own checkpoint.
 //!
-//! Header Rewind prefers `checkpoint.restoreRef` on the stored
-//! worktree snapshot when set. This module's `resetHard` is the
+//! Header Rewind prefers hello + daemon
+//! `WorkspaceOperation::RestoreRef` when a daemon address is set,
+//! cwd is a git worktree, and a snapshot is stored. Overflow / miss /
+//! non-ack / no address keep `checkpoint.restoreRef` on the stored
+//! worktree snapshot. This module's `resetHard` is the
 //! no-snapshot fallback: `git reset --hard` the latest stored
 //! 40-char hex sha. The caller pops that entry so a second
 //! Rewind walks the previous checkpoint, and drops the last

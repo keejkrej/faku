@@ -137,7 +137,8 @@ pub const Session = struct {
     /// prefers `diff..end` when turn-diff and turn-end are stored,
     /// else `start..end` (two-dot) when a finish-time end sha is also
     /// stored, else this bare 40-hex over `rewind_refs`. Header
-    /// Rewind prefers `restoreRef` on this sha when set, then
+    /// Rewind prefers daemon RestoreRef (turn-start ref) when an
+    /// address is set, else `restoreRef` on this sha when set, then
     /// clears the slot.
     worktree_snapshot_sha_storage: [rewind.stored_sha_len]u8 = [_]u8{0} ** rewind.stored_sha_len,
     worktree_snapshot_sha_len: usize = 0,

@@ -130,8 +130,11 @@
 //! overflow / miss / non-bool / error fall back to local). First-cut daemon
 //! `WorkspaceOperation::CaptureRef` lives in `fork` (best-effort
 //! sidecar after a successful local `refs/faku` update-ref; Ack;
-//! miss / overflow leave local refs alone). Leftovers: RestoreRef /
-//! DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs / amend/force
+//! miss / overflow leave local refs alone). First-cut daemon
+//! `WorkspaceOperation::RestoreRef` lives in `fork` (prefer hello +
+//! restoreRef on Rewind when a snapshot sha is stored; Ack;
+//! overflow / miss / non-ack fall back to local restoreRef / resetHard). Leftovers: DeleteRef /
+//! DeleteTurnRefsAfter / SessionTurnRefs / amend/force
 //! over daemon / remote `--track` over daemon / …
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
