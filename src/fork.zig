@@ -20,10 +20,20 @@
 //! "turnCount" }`; ok is nested `WorkspaceResult::Checkpoint`).
 //! Local `worktree_turn_end_sha` / `worktree_turn_diff_sha` /
 //! `refs/faku/...` stay canonical; the Checkpoint payload must not
-//! replace them. Missing address / Native 4 KiB stdin overflow /
-//! sidecar failure must not break Send or finish or clear the
-//! local shas. Leftovers: amend/force over
-//! daemon, remote `--track` over daemon, ref ops.
+//! replace them. First-cut daemon
+//! `WorkspaceOperation::CopySessionRefs` is a best-effort sidecar
+//! after a local `sessions.json` fork succeeds when a daemon
+//! address is set (hello + `{ "type": "copySessionRefs", "cwd",
+//! "source_session_id", "target_session_id", "through_turn_count" }`;
+//! snake_case session/turn fields — WorkspaceOperation serde
+//! `rename_all` is the camelCase `type` tag only; live Waku
+//! CaptureTurnStart / SessionTurnRefs send `session_id` /
+//! `turn_count`. Ok is workspace Ack). Local fork stays canonical;
+//! Faku refs stay `refs/faku/...`. Missing address / Native 4 KiB
+//! stdin overflow / sidecar failure must not break Send or finish
+//! or the local fork or clear the local shas. Leftovers: amend/force over
+//! daemon, remote `--track` over daemon, DeleteSessionRefs / HasRef /
+//! CaptureRef / RestoreRef / etc.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -133,6 +143,14 @@ pub fn cancelDaemonCaptureTurn(model: *Model, fx: *Effects) void {
     fx.cancel(model.daemon_capture_turn_key);
     model.daemon_capture_turn_key = 0;
     model.daemon_capture_turn_session = 0;
+}
+
+/// Drop an in-flight CopySessionRefs sidecar. Safe when none is live.
+pub fn cancelDaemonCopySessionRefs(model: *Model, fx: *Effects) void {
+    if (model.daemon_copy_session_refs_key == 0) return;
+    fx.cancel(model.daemon_copy_session_refs_key);
+    model.daemon_copy_session_refs_key = 0;
+    model.daemon_copy_session_refs_session = 0;
 }
 
 /// Successful finish: capture a NEW isolated worktree snapshot
@@ -315,6 +333,68 @@ pub fn forkSelectedThrough(model: *Model, fx: *Effects, through_index: u32) void
     model.pushSelectionHistory(fork_id);
     main.applySessionSelection(model, fx, fork_id);
     store.persistIfPossible(model, fork_id, fx);
+    _ = trySpawnDaemonCopySessionRefs(model, fx, source_id, fork_id, through_index);
+}
+
+/// Best-effort hello + `WorkspaceOperation::CopySessionRefs` after
+/// a local catalog fork. Own daemon spawn key on
+/// `daemon_copy_session_refs_key`. Missing address, empty cwd,
+/// non-git cwd, or Native 4 KiB stdin overflow returns false and
+/// leaves the local fork alone. `through_turn_count` is the same
+/// 1-based prompt ordinal CaptureTurnStart uses (`fakuSendTurn` of
+/// the last included turn index). Waku copies `0..=through_turn_count`.
+fn trySpawnDaemonCopySessionRefs(
+    model: *Model,
+    fx: *Effects,
+    source_id: u32,
+    fork_id: u32,
+    through_index: u32,
+) bool {
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    const session = model.sessionById(fork_id) orelse return false;
+    const cwd = session.projectPath();
+    if (cwd.len == 0) return false;
+    const io = model.store_io orelse return false;
+    if (!rewind.isGitWorkTree(io, cwd)) return false;
+
+    var source_buf: [36]u8 = undefined;
+    var target_buf: [36]u8 = undefined;
+    const source_wire = daemon_proxy.wireUuid(source_id, &source_buf);
+    const target_wire = daemon_proxy.wireUuid(fork_id, &target_buf);
+    const through_turn_count = checkpoint.fakuSendTurn(through_index);
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{
+            .copy_session_refs = .{
+                .cwd = cwd,
+                .source_session_id = source_wire,
+                .target_session_id = target_wire,
+                .through_turn_count = through_turn_count,
+            },
+        },
+    }) catch return false;
+
+    if (model.daemon_copy_session_refs_key != 0) {
+        fx.cancel(model.daemon_copy_session_refs_key);
+        model.daemon_copy_session_refs_key = 0;
+        model.daemon_copy_session_refs_session = 0;
+    }
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.daemon_copy_session_refs_key = key;
+    model.daemon_copy_session_refs_session = fork_id;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
 }
 
 /// Restore the last Send-time workspace and drop that prompt's
@@ -382,6 +462,26 @@ fn anyCaptureTurnSpawn(fx: *Effects) bool {
         if (daemon_proxy.isSidecarArgv(spawn.argv) and
             std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureTurn\"") != null and
             std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureTurnStart\"") == null) return true;
+    }
+    return false;
+}
+
+fn findCopySessionRefsSpawn(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key != key) continue;
+        if (!daemon_proxy.isSidecarArgv(spawn.argv)) continue;
+        if (std.mem.indexOf(u8, spawn.stdin, "\"type\":\"copySessionRefs\"") == null) continue;
+        return spawn;
+    }
+    return null;
+}
+
+fn anyCopySessionRefsSpawn(fx: *Effects) bool {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (daemon_proxy.isSidecarArgv(spawn.argv) and
+            std.mem.indexOf(u8, spawn.stdin, "\"type\":\"copySessionRefs\"") != null) return true;
     }
     return false;
 }
@@ -671,4 +771,161 @@ test "CaptureTurn sidecar checkpoint does not replace stored turn-end shas" {
     try std.testing.expectEqualStrings(&end_copy, model.sessionByIdConst(id).?.worktreeTurnEndSha());
     try std.testing.expectEqualStrings(diff_copy[0..diff_len], model.sessionByIdConst(id).?.worktreeTurnDiffSha());
     try std.testing.expect(!model.is_streaming());
+}
+
+test "forkSelectedThrough with a daemon address spawns CopySessionRefs sidecar" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/copy-session-refs-daemon", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.task_state_loaded = true;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("copy session refs", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(id, .user, "fork me");
+    _ = model.appendTurn(id, .assistant, "ok");
+
+    forkSelectedThrough(&model, &fx, 1);
+    const fork_id = model.selected;
+    try std.testing.expect(fork_id != id);
+    try std.testing.expectEqual(@as(u32, 2), model.turnCount(fork_id));
+    try std.testing.expect(model.daemon_copy_session_refs_key != 0);
+    try std.testing.expectEqual(fork_id, model.daemon_copy_session_refs_session);
+    const sidecar = findCopySessionRefsSpawn(&fx, model.daemon_copy_session_refs_key) orelse return error.MissingDaemonCopySessionRefs;
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"copySessionRefs\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"captureTurnStart\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"captureTurn\"") == null);
+    var source_buf: [36]u8 = undefined;
+    var target_buf: [36]u8 = undefined;
+    const source_wire = daemon_proxy.wireUuid(id, &source_buf);
+    const target_wire = daemon_proxy.wireUuid(fork_id, &target_buf);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, source_wire) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, target_wire) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"source_session_id\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"target_session_id\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"through_turn_count\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "sourceSessionId") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "targetSessionId") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "throughTurnCount") == null);
+}
+
+test "forkSelectedThrough without a daemon address does not spawn CopySessionRefs" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/copy-session-refs-local", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.task_state_loaded = true;
+    model.setSidecarPath("faku");
+    const id = model.addSession("copy session refs local", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(id, .user, "no daemon copy");
+    _ = model.appendTurn(id, .assistant, "ok");
+    try std.testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+
+    forkSelectedThrough(&model, &fx, 1);
+    const fork_id = model.selected;
+    try std.testing.expect(fork_id != id);
+    try std.testing.expectEqual(@as(u32, 2), model.turnCount(fork_id));
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_copy_session_refs_key);
+    try std.testing.expect(!anyCopySessionRefsSpawn(&fx));
+}
+
+test "CopySessionRefs sidecar failure does not break the local fork" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/copy-session-refs-keep", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.task_state_loaded = true;
+    model.fx_probe_started = true;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("keep fork", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(id, .user, "keep fork");
+    _ = model.appendTurn(id, .assistant, "ok");
+
+    forkSelectedThrough(&model, &fx, 1);
+    const fork_id = model.selected;
+    try std.testing.expect(fork_id != id);
+    try std.testing.expectEqual(@as(u32, 2), model.turnCount(fork_id));
+    const sidecar = findCopySessionRefsSpawn(&fx, model.daemon_copy_session_refs_key) orelse return error.MissingDaemonCopySessionRefsFail;
+    const key = sidecar.key;
+    try fx.feedLine(key, "{\"type\":\"rejected\",\"message\":\"nope\"}");
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+    try fx.feedExit(key, 1);
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_copy_session_refs_key);
+    try std.testing.expectEqual(fork_id, model.selected);
+    try std.testing.expectEqual(@as(u32, 2), model.turnCount(fork_id));
+    try std.testing.expectEqual(@as(u32, 2), model.turnCount(id));
+    try std.testing.expect(!model.is_streaming());
+}
+
+test "forkSelectedThrough with a daemon address and non-git cwd does not spawn CopySessionRefs" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/copy-session-refs-nongit", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.task_state_loaded = true;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("copy session refs nongit", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(id, .user, "no git");
+    _ = model.appendTurn(id, .assistant, "ok");
+
+    forkSelectedThrough(&model, &fx, 1);
+    const fork_id = model.selected;
+    try std.testing.expect(fork_id != id);
+    try std.testing.expectEqual(@as(u32, 2), model.turnCount(fork_id));
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_copy_session_refs_key);
+    try std.testing.expect(!anyCopySessionRefsSpawn(&fx));
 }

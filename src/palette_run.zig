@@ -121,6 +121,7 @@ pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     git_checkout.refresh(model, fx);
     session_fork.cancelDaemonCaptureTurnStart(model, fx);
     session_fork.cancelDaemonCaptureTurn(model, fx);
+    session_fork.cancelDaemonCopySessionRefs(model, fx);
     model.maybeEnsureSkillsScanned(fx);
     model.pinTranscriptToLatest();
     model.composer_active = true;

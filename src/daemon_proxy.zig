@@ -20,7 +20,8 @@
 //! A workspace-only stdin waits for a `response` / `rejected` /
 //! `shutting_down` frame (not hello, not a driver event) like save/close,
 //! prints that line, and exits non-zero unless the response is an ok
-//! workspace ack (Push / Commit / CaptureTurnStart / WriteTextFile), `worktreeCreated` (CreateWorktree),
+//! workspace ack (Push / Commit / CaptureTurnStart / WriteTextFile /
+//! CopySessionRefs), `worktreeCreated` (CreateWorktree),
 //! or `branches` with a usable snapshot (InspectBranches), or
 //! `branchChanged` with a usable snapshot (CheckoutBranch), or
 //! `commitSnapshot` with a usable snapshot (InspectCommit), or
@@ -370,7 +371,8 @@ pub fn writeGoalStdin(buf: []u8, args: GoalStdin) WriteError![]const u8 {
 /// NDJSON stdin for first-cut workspace Push / CreateWorktree / Commit /
 /// InspectBranches / CheckoutBranch / InspectCommit / CaptureTurnStart /
 /// CaptureTurn / GenerateCommitMessage / ListTree /
-/// CollectReviewDiff / BrowseDirectory / ReadTextFile / WriteTextFile.
+/// CollectReviewDiff / BrowseDirectory / ReadTextFile / WriteTextFile /
+/// CopySessionRefs.
 /// Hello + `workspace`
 /// (nil request-frame `sessionId` / `runtimeId`, command payload
 /// `operation`). Own spawn key — Native cannot write into a running
@@ -1474,6 +1476,50 @@ test "writeWorkspaceStdin emits hello and workspace writeTextFile with snake_cas
     var tiny: [32]u8 = undefined;
     try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
         .operation = .{ .write_text_file = .{ .root = "/tmp/faku", .relative_path = "src/main.zig", .content = "hello" } },
+    }));
+}
+
+test "writeWorkspaceStdin emits hello and workspace copySessionRefs without a prompt" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{
+            .copy_session_refs = .{
+                .cwd = "/tmp/faku",
+                .source_session_id = "00000000-0000-0000-0000-000000000007",
+                .target_session_id = "00000000-0000-0000-0000-000000000008",
+                .through_turn_count = 2,
+            },
+        },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ WORKSPACE_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"copySessionRefs\",\"cwd\":\"/tmp/faku\",\"source_session_id\":\"00000000-0000-0000-0000-000000000007\",\"target_session_id\":\"00000000-0000-0000-0000-000000000008\",\"through_turn_count\":2}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "sourceSessionId") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "targetSessionId") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "throughTurnCount") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"captureTurnStart\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"captureTurn\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"writeTextFile\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForWorkspace(stdin));
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
+        .operation = .{
+            .copy_session_refs = .{
+                .cwd = "/tmp/faku",
+                .source_session_id = "00000000-0000-0000-0000-000000000007",
+                .target_session_id = "00000000-0000-0000-0000-000000000008",
+                .through_turn_count = 1,
+            },
+        },
     }));
 }
 

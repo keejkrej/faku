@@ -50,8 +50,13 @@
 //! `WorkspaceOperation::CaptureTurn` ships as a best-effort sidecar
 //! from `fork.recordTurnEndIfPossible` after a successful local
 //! finish sha (Checkpoint; does not replace
-//! `worktree_turn_end_sha` / `worktree_turn_diff_sha`). Leftovers:
-//! force, background work. Not transcript checkpoint +/-.
+//! `worktree_turn_end_sha` / `worktree_turn_diff_sha`). First-cut
+//! daemon `WorkspaceOperation::CopySessionRefs` ships as a
+//! best-effort sidecar from `fork.forkSelectedThrough` after a
+//! local catalog fork (Ack; does not replace local fork or
+//! `refs/faku/...`). Leftovers:
+//! force, background work, DeleteSessionRefs / HasRef / CaptureRef /
+//! RestoreRef / etc. Not transcript checkpoint +/-.
 
 const std = @import("std");
 const rewind = @import("rewind.zig");

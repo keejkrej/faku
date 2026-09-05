@@ -165,14 +165,24 @@
 //! `WorkspaceOperation::WriteTextFile`
 //! `{ "type": "writeTextFile", "root", "relative_path", "content" }`
 //! (camelCase op tag; snake_case `relative_path`; `content` is a
-//! JSON string via `writeJsonString`). This cut
+//! JSON string via `writeJsonString`), and
+//! `WorkspaceOperation::CopySessionRefs`
+//! `{ "type": "copySessionRefs", "cwd", "source_session_id",
+//! "target_session_id", "through_turn_count" }` (camelCase op tag;
+//! snake_case session/turn fields. WorkspaceOperation serde is
+//! `rename_all = "camelCase"` on the enum tag only — no
+//! `rename_all_fields`. Live Waku `apps/web/src/lib/daemon-api.ts`
+//! CaptureTurnStart / SessionTurnRefs send `session_id` /
+//! `turn_count`. CopySessionRefs matches that serde + TS export,
+//! not Faku's earlier CaptureTurnStart camelCase `sessionId` /
+//! `turnCount` cut). This cut
 //! ships Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
 //! InspectCommit, CaptureTurnStart, CaptureTurn,
 //! GenerateCommitMessage, ListTree, CollectReviewDiff,
-//! BrowseDirectory, ReadTextFile, and WriteTextFile.
+//! BrowseDirectory, ReadTextFile, WriteTextFile, and CopySessionRefs.
 //! There is no force flag on daemon Push. An ok outcome is
 //! `ResponsePayload::Workspace { result }` where Push, Commit,
-//! CaptureTurnStart, and WriteTextFile yield `WorkspaceResult::Ack` — wire `outcome.payload`
+//! CaptureTurnStart, WriteTextFile, and CopySessionRefs yield `WorkspaceResult::Ack` — wire `outcome.payload`
 //! `{ "type": "workspace", "result": { "type": "ack" } }` (not a bare
 //! `ack`) — CreateWorktree yields
 //! `WorkspaceResult::WorktreeCreated` — wire
@@ -428,8 +438,8 @@ pub fn defaultStartOptions() StartOptions {
 /// `Commit`, `InspectBranches`, `CheckoutBranch`,
 /// `InspectCommit`, `CaptureTurnStart`, `CaptureTurn`,
 /// `GenerateCommitMessage`, `ListTree`, `CollectReviewDiff`,
-/// `BrowseDirectory`, `ReadTextFile`, and `WriteTextFile`
-/// (hello + workspace sidecar).
+/// `BrowseDirectory`, `ReadTextFile`, `WriteTextFile`, and
+/// `CopySessionRefs` (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -610,14 +620,22 @@ pub const GoalOperation = union(GoalKind) {
 /// snake_case), and `BrowseDirectory { path }` (`path` JSON string
 /// or null), and `ReadTextFile { root, relative_path }` (snake_case
 /// `relative_path`), and `WriteTextFile { root, relative_path,
-/// content }` (snake_case `relative_path`; `content` JSON string).
-/// No force flag on Push or Commit. No amend on
+/// content }` (snake_case `relative_path`; `content` JSON string),
+/// and `CopySessionRefs { cwd, source_session_id, target_session_id,
+/// through_turn_count }` (snake_case session/turn fields on the
+/// wire — WorkspaceOperation has serde `rename_all = "camelCase"`
+/// on the enum tag only, not `rename_all_fields`; live Waku
+/// CaptureTurnStart / SessionTurnRefs send `session_id` /
+/// `turn_count`. Matches that serde + TS export, not Faku's
+/// earlier CaptureTurnStart camelCase `sessionId` / `turnCount`
+/// cut). No force flag on Push or Commit. No amend on
 /// daemon Commit, InspectCommit, or CollectReviewDiff.
 /// `ParsedBranches` has no remotes (Waku inspect is `refs/heads`
 /// only; remotes-on-daemon-list is a Faku-side local for-each-ref
 /// merge). Leftovers: amend/force over daemon, remote `--track`
-/// over daemon, ref ops.
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file };
+/// over daemon, DeleteSessionRefs / HasRef / CaptureRef /
+/// RestoreRef / etc.
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file, copy_session_refs };
 
 /// Waku `AgentInvocation`. Wire keys match generated TS:
 /// `provider`, `binary`, `model`, `reasoning_effort` (snake_case
@@ -724,6 +742,18 @@ pub const WorkspaceWriteTextFile = struct {
     content: []const u8,
 };
 
+/// Waku `CopySessionRefs`. Wire keys stay snake_case
+/// `source_session_id` / `target_session_id` / `through_turn_count`
+/// (WorkspaceOperation serde `rename_all` is the camelCase `type`
+/// tag only). `through_turn_count` is Waku's 1-based prompt
+/// ordinal; the daemon copies `0..=through_turn_count`.
+pub const WorkspaceCopySessionRefs = struct {
+    cwd: []const u8,
+    source_session_id: []const u8,
+    target_session_id: []const u8,
+    through_turn_count: u32,
+};
+
 pub const WorkspaceOperation = union(WorkspaceKind) {
     push: WorkspacePush,
     create_worktree: WorkspaceCreateWorktree,
@@ -739,6 +769,7 @@ pub const WorkspaceOperation = union(WorkspaceKind) {
     browse_directory: WorkspaceBrowseDirectory,
     read_text_file: WorkspaceReadTextFile,
     write_text_file: WorkspaceWriteTextFile,
+    copy_session_refs: WorkspaceCopySessionRefs,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -1075,8 +1106,8 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// for Push, CreateWorktree, Commit, InspectBranches,
 /// CheckoutBranch, InspectCommit, CaptureTurnStart, CaptureTurn,
 /// GenerateCommitMessage, ListTree, CollectReviewDiff,
-/// BrowseDirectory, ReadTextFile, and WriteTextFile pass
-/// `NIL_UUID` for those ids.
+/// BrowseDirectory, ReadTextFile, WriteTextFile, and
+/// CopySessionRefs pass `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
 /// Timeout 120s.
@@ -1235,6 +1266,17 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
             try writeJsonString(cur, args.relative_path);
             try cur.write(",\"content\":");
             try writeJsonString(cur, args.content);
+            try cur.write("}");
+        },
+        .copy_session_refs => |args| {
+            try cur.write("{\"type\":\"copySessionRefs\",\"cwd\":");
+            try writeJsonString(cur, args.cwd);
+            try cur.write(",\"source_session_id\":");
+            try writeJsonString(cur, args.source_session_id);
+            try cur.write(",\"target_session_id\":");
+            try writeJsonString(cur, args.target_session_id);
+            try cur.write(",\"through_turn_count\":");
+            try writeUint(cur, args.through_turn_count);
             try cur.write("}");
         },
     }
@@ -1655,7 +1697,7 @@ pub fn parseSessionRuntime(allocator: std.mem.Allocator, line: []const u8) Parse
 }
 
 /// Light ok-ack check for first-cut workspace Push / Commit /
-/// CaptureTurnStart / WriteTextFile. True when an ok
+/// CaptureTurnStart / WriteTextFile / CopySessionRefs. True when an ok
 /// `response` carries `payload: { "type": "workspace", "result": { "type": "ack" } }`.
 /// Does not parse the full `WorkspaceResult` union.
 pub fn isWorkspaceAck(allocator: std.mem.Allocator, line: []const u8) bool {
@@ -1926,7 +1968,7 @@ pub fn isWorkspaceCheckpoint(allocator: std.mem.Allocator, line: []const u8) boo
 }
 
 /// True when the line is an ok workspace Push / Commit /
-/// CaptureTurnStart / WriteTextFile ack, CreateWorktree `worktreeCreated`
+/// CaptureTurnStart / WriteTextFile / CopySessionRefs ack, CreateWorktree `worktreeCreated`
 /// (non-empty path + branch), InspectBranches `branches` with a
 /// usable snapshot, CheckoutBranch `branchChanged` with a usable
 /// snapshot, InspectCommit `commitSnapshot` with a usable snapshot,
@@ -3102,6 +3144,7 @@ test "workspace request wraps camelCase writeTextFile with snake_case relative_p
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"attachSession\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"listTree\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"writeTextFile\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"copySessionRefs\"") == null);
 
     var tiny: [32]u8 = undefined;
     try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
@@ -3110,6 +3153,51 @@ test "workspace request wraps camelCase writeTextFile with snake_case relative_p
         NIL_UUID,
         NIL_UUID,
         .{ .write_text_file = .{ .root = "/tmp/faku", .relative_path = "src/main.zig", .content = "hello" } },
+    ));
+}
+
+test "workspace request wraps camelCase copySessionRefs with snake_case session/turn fields and nil ids" {
+    var buf: [768]u8 = undefined;
+    const json = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .copy_session_refs = .{
+            .cwd = "/tmp/faku",
+            .source_session_id = "00000000-0000-0000-0000-000000000007",
+            .target_session_id = "00000000-0000-0000-0000-000000000008",
+            .through_turn_count = 2,
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"copySessionRefs\",\"cwd\":\"/tmp/faku\",\"source_session_id\":\"00000000-0000-0000-0000-000000000007\",\"target_session_id\":\"00000000-0000-0000-0000-000000000008\",\"through_turn_count\":2}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"through_turn_count\":2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"through_turn_count\":\"2\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "sourceSessionId") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "targetSessionId") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "throughTurnCount") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"captureTurnStart\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"captureTurn\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"writeTextFile\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"copySessionRefs\"") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .copy_session_refs = .{
+            .cwd = "/tmp/faku",
+            .source_session_id = "00000000-0000-0000-0000-000000000007",
+            .target_session_id = "00000000-0000-0000-0000-000000000008",
+            .through_turn_count = 1,
+        } },
     ));
 }
 

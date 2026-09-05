@@ -149,7 +149,10 @@
 //! sha stays canonical). First-cut daemon
 //! `WorkspaceOperation::CaptureTurn` ships in `fork` (best-effort
 //! finish sidecar after local end capture; Checkpoint; local end
-//! shas stay canonical). First-cut daemon `WorkspaceOperation::ListTree` ships in
+//! shas stay canonical). First-cut daemon
+//! `WorkspaceOperation::CopySessionRefs` ships in `fork` (best-effort
+//! sidecar after a local sessions.json fork; Ack; local fork stays
+//! canonical). First-cut daemon `WorkspaceOperation::ListTree` ships in
 //! `file_mention` (Files refresh; expand after a daemon fill
 //! re-prefers ListTree; overflow / error / unusable parse falls
 //! back to local git ls-files then walk). First-cut daemon
@@ -162,8 +165,8 @@
 //! ships in `right_panel` (Files preview load / Reload). First-cut daemon
 //! `WorkspaceOperation::WriteTextFile` ships in `right_panel` (Files
 //! preview Save; overflow / non-ack falls back to local atomic write). Leftovers: other daemon `WorkspaceOperation`
-//! variants (ref ops,
-//! amend/force over daemon, remote `--track`
+//! variants (DeleteSessionRefs / HasRef / CaptureRef / RestoreRef /
+//! etc., amend/force over daemon, remote `--track`
 //! over daemon, …).
 
 const std = @import("std");
