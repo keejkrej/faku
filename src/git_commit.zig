@@ -74,6 +74,8 @@
 //! `session_workspace` / `git_checkout`. First-cut daemon
 //! `WorkspaceOperation::InspectBranches` lives on the branch picker
 //! in `git_checkout`. First-cut daemon
+//! `WorkspaceOperation::CheckoutBranch` lives on picker local-head
+//! checkout and New branch create in `git_checkout`. First-cut daemon
 //! `WorkspaceOperation::Commit` ships here: best-effort hello +
 //! `{ cwd, message, include_unstaged, push }` sidecar when a daemon
 //! address is set and Amend is off (Force + Commit and Push stays
@@ -81,9 +83,10 @@
 //! generate stays local; after generate auto-proceeds, daemon prefer
 //! applies there too. Missing address / stdin overflow / amend /
 //! force+then_push leave today's local add→preflight→commit path.
-//! Leftovers: CheckoutBranch / CaptureTurn / ListTree /
+//! Leftovers: CaptureTurn / ListTree /
 //! InspectCommit / GenerateCommitMessage / CollectReviewDiff / ref
-//! ops / remotes-on-daemon-list / amend/force over daemon / …
+//! ops / remotes-on-daemon-list / amend/force over daemon / remote
+//! `--track` over daemon / …
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:

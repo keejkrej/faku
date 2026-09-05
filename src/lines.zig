@@ -77,6 +77,14 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         git_checkout.applyListLine(model, line);
         return;
     }
+    if (model.git_checkout_key != 0 and line.key == model.git_checkout_key) {
+        git_checkout.applyCheckoutLine(model, line);
+        return;
+    }
+    if (model.git_create_key != 0 and line.key == model.git_create_key) {
+        git_checkout.applyCreateLine(model, line);
+        return;
+    }
     if (model.git_dirty_key != 0 and line.key == model.git_dirty_key) {
         git_dirty.applyLine(model, line);
         return;
