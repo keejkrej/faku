@@ -137,6 +137,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         git_checkout.applyWorktreeBaseLine(model, line);
         return;
     }
+    if (model.git_worktree_add_key != 0 and line.key == model.git_worktree_add_key) {
+        git_checkout.applyWorktreeAddLine(model, line);
+        return;
+    }
     if (line.key == pick_image_key) {
         attach_helpers.applyPickImageLine(model, fx, line);
         return;

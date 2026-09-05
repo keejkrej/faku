@@ -101,7 +101,14 @@
 //! Force is off (nil sessionId / runtimeId, `{ "type": "push", "cwd" }`;
 //! no force flag on daemon Push). Force stays local `git push --force`
 //! / set-upstream force. Upstream / show_current / remotes probes stay
-//! local git. Not daemon `NewWorktree` / `InspectCommit` / `Commit`.
+//! local git. First-cut daemon `WorkspaceOperation::CreateWorktree`
+//! ships on Send prep for a `newWorktree` draft when a daemon address
+//! is set (nil request-frame session/runtime ids; `createWorktree`
+//! with snake_case fields; ok is `worktreeCreated` path + branch).
+//! Native 4 KiB stdin overflow falls back to local `git worktree add`.
+//! The branch-menu New worktree… card still creates immediately via
+//! local git. Not daemon `InspectBranches` / `InspectCommit` /
+//! `Commit`.
 //! Cap is 64 local heads plus 32
 //! remote-tracking names that have no local counterpart (skip
 //! symbolic `*/HEAD`), sorted lexicographically. Not Waku's daemon
@@ -110,12 +117,12 @@
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
 //! Leftovers: other daemon `WorkspaceOperation` variants
-//! (CreateWorktree, InspectBranches, Commit, …). Fetch
+//! (InspectBranches, Commit, CaptureTurn, ListTree, …). Fetch
 //! already `--prune`; there is no prune-alone menu (not in Waku).
 //! First-cut defer-until-Send Work in reuses this same add path on
-//! Send (`session_workspace`); optional `baseBranch` persist ships
-//! on that draft. The branch-menu New worktree… card still creates
-//! immediately.
+//! Send (`session_workspace`) when no daemon address is set;
+//! optional `baseBranch` persist ships on that draft. The
+//! branch-menu New worktree… card still creates immediately.
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
@@ -140,7 +147,10 @@
 //! 320+ delete, 340+ fetch, 360+ push, 370+ worktree add,
 //! 390+ worktree base). First-cut daemon `WorkspaceOperation::Push`
 //! reuses `next_daemon_key` (daemon-proxy band) assigned onto
-//! `git_push_key` so `handlePushExit` still owns the phase.
+//! `git_push_key` so `handlePushExit` still owns the phase. First-cut
+//! daemon `WorkspaceOperation::CreateWorktree` reuses `next_daemon_key`
+//! assigned onto `git_worktree_add_key` so `handleWorktreeAddExit`
+//! still owns Send prep.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -2310,6 +2320,54 @@ fn trySpawnDaemonWorkspacePush(model: *Model, fx: *Effects, cwd: []const u8) boo
     return true;
 }
 
+/// Best-effort hello + `WorkspaceOperation::CreateWorktree` when a
+/// daemon address is set. Own daemon spawn key assigned to
+/// `git_worktree_add_key` so `handleWorktreeAddExit` still owns Send
+/// prep. Missing address or Native 4 KiB stdin overflow returns false
+/// and leaves local `git worktree add`. Empty dest/branch until the
+/// sidecar prints `worktreeCreated`.
+pub fn trySpawnDaemonCreateWorktree(model: *Model, fx: *Effects, prompt: []const u8) bool {
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    const cwd = probePath(model);
+    if (cwd.len == 0) return false;
+    const session = model.sessionById(model.selected) orelse return false;
+
+    var id_buf: [36]u8 = undefined;
+    const wire_id = daemon_proxy.wireUuid(session.id, &id_buf);
+    const base = gitWorktreeStartBase(model);
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{
+            .create_worktree = .{
+                .project_path = cwd,
+                .project_id = wire_id,
+                .session_id = wire_id,
+                .prompt = prompt,
+                .base_branch = if (base.len > 0) base else null,
+            },
+        },
+    }) catch return false;
+
+    resetWorktreeAddState(model);
+    model.git_worktree_add_probe_session = model.selected;
+    writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, cwd);
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.git_worktree_add_key = key;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
 fn continueNoUpstream(model: *Model, fx: *Effects) void {
     if (pushBranchFromLabel(git_branch.gitBranchLabel(model))) |branch| {
         writeFixed(&model.git_push_branch_storage, &model.git_push_branch_len, branch);
@@ -3054,6 +3112,20 @@ pub fn applyWorktreeBaseLine(model: *Model, line: native_sdk.EffectLine) void {
     }
 }
 
+/// Copy `worktreeCreated` path + branch from a daemon sidecar stdout
+/// line. Local `git worktree add` stdout is ignored (dest/branch
+/// already come from the candidate pick).
+pub fn applyWorktreeAddLine(model: *Model, line: native_sdk.EffectLine) void {
+    if (line.key != model.git_worktree_add_key or model.git_worktree_add_key == 0) return;
+    if (!worktreeAddStillCurrent(model)) return;
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseWorktreeCreated(arena_state.allocator(), line.line);
+    if (!parsed.ok) return;
+    writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, parsed.path);
+    writeFixed(&model.git_worktree_add_branch_storage, &model.git_worktree_add_branch_len, parsed.branch);
+}
+
 pub fn handleWorktreeBaseExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (exit.key != model.git_worktree_base_key or model.git_worktree_base_key == 0) return;
     const current = worktreeBaseStillCurrent(model);
@@ -3088,6 +3160,11 @@ pub fn handleWorktreeAddExit(model: *Model, fx: *Effects, exit: native_sdk.Effec
     if (exit.reason == .exited and exit.code == 0) {
         const dest = model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len];
         const branch = model.git_worktree_add_branch_storage[0..model.git_worktree_add_branch_len];
+        if (dest.len == 0 or branch.len == 0) {
+            resetWorktreeAddState(model);
+            model.setAttachStatus(worktree_add_failed_status);
+            return false;
+        }
         if (dest.len > 0) model.setSelectedProjectPath(dest);
         if (model.workspace_prep_active) {
             if (model.sessionById(model.selected)) |session| {
@@ -3912,6 +3989,7 @@ test "handleWorktreeAddExit success retargets project_path; failure leaves it" {
     model.git_worktree_add_probe_session = id;
     writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, "/tmp/proj");
     writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/2599eb06cf360587/feat");
+    writeFixed(&model.git_worktree_add_branch_storage, &model.git_worktree_add_branch_len, "faku/feat");
     model.git_worktree_create_active = true;
 
     const failed = handleWorktreeAddExit(&model, &fx, .{ .key = git_worktree_add_key_first, .reason = .exited, .code = 1 });
@@ -3927,6 +4005,7 @@ test "handleWorktreeAddExit success retargets project_path; failure leaves it" {
     model.git_worktree_add_probe_session = id;
     writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, "/tmp/proj");
     writeFixed(&model.git_worktree_add_dest_storage, &model.git_worktree_add_dest_len, "/home/u/.faku/worktrees/2599eb06cf360587/feat");
+    writeFixed(&model.git_worktree_add_branch_storage, &model.git_worktree_add_branch_len, "faku/feat");
     const ok = handleWorktreeAddExit(&model, &fx, .{ .key = git_worktree_add_key_first + 1, .reason = .exited, .code = 0 });
     try std.testing.expect(ok);
     try std.testing.expectEqualStrings("/home/u/.faku/worktrees/2599eb06cf360587/feat", model.selectedProjectPath());
@@ -5310,4 +5389,87 @@ test "set-upstream push with a daemon address uses workspace Push sidecar" {
     handlePushExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
     try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
     try std.testing.expectEqualStrings(push_failed_status, model.attach_status());
+}
+
+test "confirmWorktreeAdd with a daemon address still uses local git worktree add" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-wt-daemon-card", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var home_buf: [256]u8 = undefined;
+    const home = try std.fmt.bufPrint(&home_buf, "/tmp/faku-wt-daemon-card-{s}", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, home);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setHome(home);
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("worktree card daemon", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    model.git_branch_list_store[0].set("main", false, false);
+    model.git_branch_list_count = 1;
+
+    startWorktreeCreate(&model);
+    model.git_worktree_create_buffer.clear();
+    model.git_worktree_create_buffer.apply(.{ .insert_text = "feat-card" });
+    pickWorktreeBaseName(&model, "main");
+    confirmWorktreeAdd(&model, &fx);
+
+    try std.testing.expectEqual(@as(u64, 0), model.git_worktree_base_key);
+    try std.testing.expect(model.git_worktree_add_key >= git_worktree_add_key_first);
+    const spawned = pendingSpawnKey(&fx, model.git_worktree_add_key) orelse return error.MissingLocalWorktreeAddWithDaemon;
+    try std.testing.expect(isGitWorktreeAddArgv(spawned.argv));
+    try std.testing.expect(!isDaemonWorkspacePushArgv(spawned.argv));
+    try std.testing.expectEqualStrings("", spawned.stdin);
+}
+
+test "handleWorktreeAddExit exit 0 without dest or branch fails closed" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("worktree missing dest", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath("/tmp/proj");
+    model.git_worktree_add_key = git_worktree_add_key_first;
+    model.git_worktree_add_probe_session = id;
+    writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, "/tmp/proj");
+
+    const missing = handleWorktreeAddExit(&model, &fx, .{ .key = git_worktree_add_key_first, .reason = .exited, .code = 0 });
+    try std.testing.expect(!missing);
+    try std.testing.expectEqualStrings("/tmp/proj", model.selectedProjectPath());
+    try std.testing.expectEqualStrings(worktree_add_failed_status, model.attach_status());
+    try std.testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+}
+
+test "applyWorktreeAddLine copies worktreeCreated path and branch" {
+    var model = Model{};
+    const id = model.addSession("worktree created line", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath("/tmp/proj");
+    model.git_worktree_add_key = git_worktree_add_key_first;
+    model.git_worktree_add_probe_session = id;
+    writeFixed(&model.git_worktree_add_probe_path_storage, &model.git_worktree_add_probe_path_len, "/tmp/proj");
+
+    applyWorktreeAddLine(&model, .{
+        .key = git_worktree_add_key_first,
+        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"worktreeCreated\",\"worktree\":{\"path\":\"/tmp/wt\",\"branch\":\"waku/feat\"}}}}}",
+    });
+    try std.testing.expectEqualStrings("/tmp/wt", model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len]);
+    try std.testing.expectEqualStrings("waku/feat", model.git_worktree_add_branch_storage[0..model.git_worktree_add_branch_len]);
+
+    applyWorktreeAddLine(&model, .{
+        .key = git_worktree_add_key_first,
+        .line = "{\"type\":\"hello\"}",
+    });
+    try std.testing.expectEqualStrings("/tmp/wt", model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len]);
 }
