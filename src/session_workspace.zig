@@ -43,14 +43,19 @@
 //! ships in `file_mention` (best-effort sidecar on Files refresh when a
 //! daemon address is set; expand after a daemon fill re-prefers
 //! ListTree; overflow / error / unusable parse falls back to local
-//! git ls-files then walk). First-cut daemon `WorkspaceOperation::CaptureTurnStart`
+//! git ls-files then walk). First-cut daemon `WorkspaceOperation::CollectReviewDiff`
+//! ships in `review_diff` (best-effort sidecar on Review / Diff open /
+//! refresh / source-switch for Branch / Uncommitted / Staged /
+//! Unstaged / Committed when a daemon address is set; LastTurn stays
+//! local; overflow / error / unusable parse falls back to local
+//! name-status). First-cut daemon `WorkspaceOperation::CaptureTurnStart`
 //! ships in `fork` (best-effort Send sidecar after local capture;
 //! Ack; local sha stays canonical). First-cut daemon
 //! `WorkspaceOperation::CaptureTurn` ships in `fork` (best-effort
 //! finish sidecar after local end capture; Checkpoint; local end
 //! shas stay canonical). Leftovers:
-//! other daemon `WorkspaceOperation` variants (CollectReviewDiff,
-//! BrowseDirectory, ReadTextFile, ref ops, remotes-on-daemon-list, amend/force
+//! other daemon `WorkspaceOperation` variants (BrowseDirectory,
+//! ReadTextFile, ref ops, remotes-on-daemon-list, amend/force
 //! over daemon, remote `--track` over daemon, …). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).
 

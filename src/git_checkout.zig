@@ -141,7 +141,7 @@
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
 //! Leftovers: other daemon `WorkspaceOperation` variants
-//! (CollectReviewDiff, BrowseDirectory, ReadTextFile,
+//! (BrowseDirectory, ReadTextFile,
 //! ref ops, remotes-on-daemon-list, amend/force over daemon, remote
 //! `--track` over daemon, …). Fetch
 //! already `--prune`; there is no prune-alone menu (not in Waku).
@@ -198,7 +198,9 @@
 //! (best-effort finish sidecar after local end capture; Checkpoint;
 //! local end shas stay canonical). First-cut daemon
 //! `WorkspaceOperation::ListTree` lives in `file_mention` (Files
-//! refresh; expand after a daemon fill re-prefers ListTree).
+//! refresh; expand after a daemon fill re-prefers ListTree). First-cut daemon
+//! `WorkspaceOperation::CollectReviewDiff` lives in `review_diff` (Review /
+//! Diff panel; LastTurn stays local).
 
 const std = @import("std");
 const builtin = @import("builtin");

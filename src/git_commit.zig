@@ -109,8 +109,10 @@
 //! finish sidecar after local end capture; Checkpoint; local end
 //! shas stay canonical). First-cut daemon
 //! `WorkspaceOperation::ListTree` lives in `file_mention` (Files
-//! refresh; expand after a daemon fill re-prefers ListTree). Leftovers: CollectReviewDiff /
-//! BrowseDirectory / ReadTextFile / ref
+//! refresh; expand after a daemon fill re-prefers ListTree). First-cut daemon
+//! `WorkspaceOperation::CollectReviewDiff` lives in `review_diff` (Review /
+//! Diff panel; LastTurn stays local). Leftovers: BrowseDirectory /
+//! ReadTextFile / ref
 //! ops / remotes-on-daemon-list / amend/force over daemon / remote
 //! `--track` over daemon / …
 //!

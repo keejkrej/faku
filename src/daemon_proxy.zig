@@ -26,7 +26,8 @@
 //! `commitSnapshot` with a usable snapshot (InspectCommit), or
 //! `checkpoint` with a nested checkpoint object (CaptureTurn), or
 //! `commitMessage` with a string `message` (GenerateCommitMessage), or
-//! `workingTree` with a parsed `entries` array (ListTree).
+//! `workingTree` with a parsed `entries` array (ListTree), or
+//! `reviewDiff` with nested `data` (CollectReviewDiff).
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -366,7 +367,8 @@ pub fn writeGoalStdin(buf: []u8, args: GoalStdin) WriteError![]const u8 {
 
 /// NDJSON stdin for first-cut workspace Push / CreateWorktree / Commit /
 /// InspectBranches / CheckoutBranch / InspectCommit / CaptureTurnStart /
-/// CaptureTurn / GenerateCommitMessage / ListTree.
+/// CaptureTurn / GenerateCommitMessage / ListTree /
+/// CollectReviewDiff.
 /// Hello + `workspace`
 /// (nil request-frame `sessionId` / `runtimeId`, command payload
 /// `operation`). Own spawn key — Native cannot write into a running
@@ -1318,6 +1320,69 @@ test "writeWorkspaceStdin emits hello and workspace listTree with expanded_paths
     var tiny: [32]u8 = undefined;
     try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
         .operation = .{ .list_tree = .{ .root = "/tmp/faku" } },
+    }));
+}
+
+test "writeWorkspaceStdin emits hello and workspace collectReviewDiff without a prompt" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{
+            .collect_review_diff = .{ .cwd = "/tmp/faku", .source = .branch },
+        },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ WORKSPACE_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"collectReviewDiff\",\"cwd\":\"/tmp/faku\",\"source\":\"branch\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"listTree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"inspectCommit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "force") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForWorkspace(stdin));
+
+    const uncommitted = try writeWorkspaceStdin(&buf, .{
+        .operation = .{ .collect_review_diff = .{ .cwd = "/tmp/faku", .source = .uncommitted } },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, uncommitted, "\"source\":\"uncommitted\"") != null);
+    const staged = try writeWorkspaceStdin(&buf, .{
+        .operation = .{ .collect_review_diff = .{ .cwd = "/tmp/faku", .source = .staged } },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, staged, "\"source\":\"staged\"") != null);
+    const unstaged = try writeWorkspaceStdin(&buf, .{
+        .operation = .{ .collect_review_diff = .{ .cwd = "/tmp/faku", .source = .unstaged } },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, unstaged, "\"source\":\"unstaged\"") != null);
+    const committed = try writeWorkspaceStdin(&buf, .{
+        .operation = .{ .collect_review_diff = .{ .cwd = "/tmp/faku", .source = .committed } },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, committed, "\"source\":\"committed\"") != null);
+    try std.testing.expect(outboundWaitsForWorkspace(committed));
+
+    const last_turn = try writeWorkspaceStdin(&buf, .{
+        .operation = .{
+            .collect_review_diff = .{
+                .cwd = "/tmp/faku",
+                .source = .{ .last_turn = .{
+                    .session_id = "11111111-1111-1111-1111-111111111111",
+                    .turn_id = "22222222-2222-2222-2222-222222222222",
+                    .turn_count = 2,
+                } },
+            },
+        },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, last_turn, "\"source\":{\"lastTurn\":{\"session_id\":\"11111111-1111-1111-1111-111111111111\",\"turn_id\":\"22222222-2222-2222-2222-222222222222\",\"turn_count\":2}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, last_turn, "turnCount") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
+        .operation = .{ .collect_review_diff = .{ .cwd = "/tmp/faku", .source = .branch } },
     }));
 }
 
