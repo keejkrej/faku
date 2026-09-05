@@ -36,7 +36,13 @@
 //! `workingTree` file entries; expand after a daemon fill re-probes
 //! ListTree; Native 4 KiB stdin overflow / error / unusable parse
 //! falls back to local git ls-files then walk; no address keeps
-//! today's local path). Not daemon
+//! today's local path). First-cut daemon
+//! `WorkspaceOperation::CollectReviewDiff` ships on Review / Diff
+//! open / refresh / source-switch when a daemon address is set (ok
+//! paints the file list from `numstat` and selected hunk from
+//! `patch`; LastTurn stays local; Native 4 KiB stdin overflow /
+//! error / unusable parse falls back to local name-status + hunk
+//! probes; no address keeps today's local path). Not daemon
 //! `WorkspaceOperation::browseDirectory` / readTextFile.
 //! Not Waku's 50k-file index (cap 256). Windows probes the same
 //! cache (`git.exe -C` then a PowerShell walk; still not Waku's

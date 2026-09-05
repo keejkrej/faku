@@ -152,8 +152,10 @@
 //! shas stay canonical). First-cut daemon `WorkspaceOperation::ListTree` ships in
 //! `file_mention` (Files refresh; expand after a daemon fill
 //! re-prefers ListTree; overflow / error / unusable parse falls
-//! back to local git ls-files then walk). Leftovers: other daemon `WorkspaceOperation`
-//! variants (CollectReviewDiff, BrowseDirectory, ReadTextFile, ref ops,
+//! back to local git ls-files then walk). First-cut daemon
+//! `WorkspaceOperation::CollectReviewDiff` ships in `review_diff`
+//! (Review / Diff panel; LastTurn stays local). Leftovers: other daemon `WorkspaceOperation`
+//! variants (BrowseDirectory, ReadTextFile, ref ops,
 //! remotes-on-daemon-list, amend/force over daemon, remote `--track`
 //! over daemon, …).
 

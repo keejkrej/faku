@@ -1215,6 +1215,22 @@ pub const Model = struct {
     /// Exit 0 or 1 is success. Cleared for tracked hunks so they
     /// cannot inherit those exit rules. Not persisted.
     review_diff_hunk_no_index: bool = false,
+    /// True while the in-flight `review_diff_key` is a daemon-proxy
+    /// CollectReviewDiff sidecar. Line/exit handlers parse `reviewDiff`
+    /// instead of local name-status stdout. Runtime only; not persisted.
+    review_diff_via_daemon: bool = false,
+    /// True after an in-flight CollectReviewDiff sidecar applied a
+    /// usable `reviewDiff`. Exit falls back to local name-status when
+    /// this is false. Runtime only; not persisted.
+    review_diff_daemon_ok: bool = false,
+    /// True after the last successful Review fill came from daemon
+    /// CollectReviewDiff. File clicks reuse the stored patch instead
+    /// of per-file hunk spawns. Runtime only; not persisted.
+    review_diff_last_via_daemon: bool = false,
+    /// Runtime-only daemon unified-diff body for selected-file filter.
+    /// Cap `max_review_diff_daemon_patch`. Not persisted.
+    review_diff_daemon_patch_storage: [review_diff.max_review_diff_daemon_patch]u8 = [_]u8{0} ** review_diff.max_review_diff_daemon_patch,
+    review_diff_daemon_patch_len: usize = 0,
     /// Runtime ImageId bound by the composer `<image>`. 0 until
     /// `fx.loadImage` reports `.loaded`. Same draft `image_path` as
     /// the chip — not a second persist field.
@@ -1705,6 +1721,11 @@ pub const Model = struct {
         "review_diff_hunk_path_storage",
         "review_diff_hunk_path_len",
         "review_diff_hunk_no_index",
+        "review_diff_via_daemon",
+        "review_diff_daemon_ok",
+        "review_diff_last_via_daemon",
+        "review_diff_daemon_patch_storage",
+        "review_diff_daemon_patch_len",
         "insertAvailableMention",
         "attach_preview_load_id",
         "next_attach_preview_id",

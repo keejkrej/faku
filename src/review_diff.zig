@@ -82,9 +82,19 @@
 //! status — no invented files. First-cut hunks only: no
 //! syntax highlighting, no gap expansion. The right-panel Diff
 //! tab hosts this same body (not a second git probe stack).
-//! Leftovers: force, background work, daemon
-
-//! WorkspaceOperation. Not transcript checkpoint +/-.
+//! First-cut daemon `WorkspaceOperation::CollectReviewDiff` ships
+//! when `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address`
+//! is set: hello + CollectReviewDiff for Branch / Uncommitted /
+//! Staged / Unstaged / Committed on open / refresh / source-switch
+//! (same moments as today's name-status probes). Ok nested
+//! `reviewDiff.data` paints the file list from `numstat` (cap 64)
+//! and stores `patch` for selected-file hunk display (no per-file
+//! hunk spawn when that patch is usable). LastTurn stays local.
+//! Overflow / spawn failure / non-ok / unusable parse fall back
+//! to local git. Leftovers: force, background work, daemon
+//! BrowseDirectory / ReadTextFile / remotes-on-daemon-list /
+//! amend/force over daemon / remote `--track` over daemon / ref
+//! ops. Not transcript checkpoint +/-.
 //! LastTurn uses stored shas, not the refs, and not a
 //! `refs/waku/` Compare operand.
 //!
@@ -109,7 +119,13 @@
 //! app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Effect keys stay
-//! name-status 510+ and hunk 520+.
+//! name-status 510+ and hunk 520+. First-cut daemon
+//! `WorkspaceOperation::CollectReviewDiff` reuses `next_daemon_key`
+//! assigned onto `review_diff_key` so `applyLine` / `handleExit`
+//! still own the probe. LastTurn stays local this cut (no invented
+//! turn UUIDs). Native 4 KiB stdin overflow / sidecar failure /
+//! unusable parse fall back to today's local name-status + hunk
+//! probes. No address keeps the local path unchanged.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -119,6 +135,9 @@ const git_ahead_behind = @import("git_ahead_behind.zig");
 const git_checkout = @import("git_checkout.zig");
 const git_common_dir = @import("git_common_dir.zig");
 const rewind = @import("rewind.zig");
+const store = @import("store.zig");
+const daemon_proxy = @import("daemon_proxy.zig");
+const protocol = @import("protocol.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -304,6 +323,10 @@ pub const max_review_diff_hunk_lines: usize = 160;
 /// fill this buffer and stop; the line cap also stops early.
 pub const max_review_diff_hunk: usize = 8192;
 pub const max_review_diff_hunk_status: usize = 32;
+/// Stored daemon `patch` for selected-file filter. Larger than the
+/// displayed hunk cap so later files in a multi-file patch can still
+/// be extracted. Native daemon stdout is still `daemon_line_bytes`.
+pub const max_review_diff_daemon_patch: usize = 32768;
 
 pub const comparing_status = "Comparing…";
 pub const empty_status = "No changes to compare";
@@ -955,6 +978,43 @@ pub fn parseNameStatusLine(raw: []const u8) ?struct { status: u8, path: []const 
     return .{ .status = status, .path = rest };
 }
 
+/// One `added\tdeleted\tpath` numstat row from daemon ReviewDiffData.
+/// Rename dest after a third tab. Binary `-` columns still yield a
+/// file (`M`). Untracked synthetic `N\t0\tpath` is `?`. Blank /
+/// malformed lines are omitted.
+pub fn parseNumstatFileLine(raw: []const u8) ?struct { status: u8, path: []const u8 } {
+    const line = std.mem.trim(u8, raw, " \t\r\n");
+    if (line.len == 0) return null;
+    const first_tab = std.mem.indexOfScalar(u8, line, '\t') orelse return null;
+    const added_s = std.mem.trim(u8, line[0..first_tab], " \t");
+    const rest = line[first_tab + 1 ..];
+    const second_tab = std.mem.indexOfScalar(u8, rest, '\t') orelse return null;
+    const deleted_s = std.mem.trim(u8, rest[0..second_tab], " \t");
+    var path = std.mem.trim(u8, rest[second_tab + 1 ..], " \t");
+    if (path.len == 0) return null;
+    if (std.mem.indexOfScalar(u8, path, '\t')) |third| {
+        const dest = std.mem.trim(u8, path[third + 1 ..], " \t");
+        if (dest.len > 0) return .{ .status = 'R', .path = dest };
+        path = std.mem.trim(u8, path[0..third], " \t");
+        if (path.len == 0) return null;
+    }
+    const added_zero = std.mem.eql(u8, added_s, "0");
+    const deleted_zero = std.mem.eql(u8, deleted_s, "0");
+    const binary = std.mem.eql(u8, added_s, "-") or std.mem.eql(u8, deleted_s, "-");
+    const untracked = std.mem.eql(u8, added_s, "N") and deleted_zero;
+    const status: u8 = if (untracked)
+        '?'
+    else if (binary)
+        'M'
+    else if (added_zero and !deleted_zero)
+        'D'
+    else if (deleted_zero and !added_zero)
+        'A'
+    else
+        'M';
+    return .{ .status = status, .path = path };
+}
+
 fn statusLetter(code: []const u8) ?u8 {
     const first = code[0];
     if (first == '?') return '?';
@@ -1042,6 +1102,17 @@ fn clearHunks(model: *Model) void {
     model.review_diff_hunk_no_index = false;
 }
 
+fn clearDaemonPatch(model: *Model) void {
+    model.review_diff_daemon_patch_len = 0;
+}
+
+fn clearDaemonFlags(model: *Model) void {
+    model.review_diff_via_daemon = false;
+    model.review_diff_daemon_ok = false;
+    model.review_diff_last_via_daemon = false;
+    clearDaemonPatch(model);
+}
+
 fn cancelInFlight(model: *Model, fx: *Effects) void {
     if (model.review_diff_key == 0) return;
     fx.cancel(model.review_diff_key);
@@ -1096,6 +1167,7 @@ pub fn close(model: *Model, fx: *Effects) void {
     model.review_diff_probe_path_len = 0;
     model.review_diff_committed_range = .origin;
     clearLastTurnRange(model);
+    clearDaemonFlags(model);
     model.review_diff_source = .branch;
     model.review_diff_active = false;
 }
@@ -1121,6 +1193,7 @@ fn startProbe(model: *Model, fx: *Effects) void {
     clearFiles(model);
     clearStatus(model);
     clearHunks(model);
+    clearDaemonFlags(model);
     model.review_diff_probe_session = 0;
     model.review_diff_probe_path_len = 0;
     if (!probeSupported()) {
@@ -1141,12 +1214,74 @@ fn startProbe(model: *Model, fx: *Effects) void {
         clearLastTurnRange(model);
     }
 
-    const key = model.next_review_diff_key;
-    model.next_review_diff_key = key + 1;
-    model.review_diff_key = key;
     model.review_diff_probe_session = model.selected;
     writeFixed(&model.review_diff_probe_path_storage, &model.review_diff_probe_path_len, cwd);
     setStatus(model, comparing_status);
+    if (shouldPreferDaemon(model) and trySpawnDaemonCollectReviewDiff(model, fx, cwd)) return;
+    spawnLocalReviewDiff(model, fx, cwd);
+}
+
+fn shouldPreferDaemon(model: *const Model) bool {
+    return switch (model.review_diff_source) {
+        .branch, .uncommitted, .staged, .unstaged => true,
+        .committed => model.review_diff_committed_range == .origin,
+        .last_turn => false,
+    };
+}
+
+fn daemonSource(source: Source) ?protocol.ReviewDiffSource {
+    return switch (source) {
+        .branch => .branch,
+        .uncommitted => .uncommitted,
+        .staged => .staged,
+        .unstaged => .unstaged,
+        .committed => .committed,
+        .last_turn => null,
+    };
+}
+
+/// Best-effort hello + `WorkspaceOperation::CollectReviewDiff` when a
+/// daemon address is set. Own daemon spawn key assigned to
+/// `review_diff_key` so `applyLine` / `handleExit` still own the
+/// probe. Missing address or Native 4 KiB stdin overflow returns
+/// false and leaves local name-status.
+fn trySpawnDaemonCollectReviewDiff(model: *Model, fx: *Effects, cwd: []const u8) bool {
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    const source = daemonSource(model.review_diff_source) orelse return false;
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{ .collect_review_diff = .{ .cwd = cwd, .source = source } },
+    }) catch return false;
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.review_diff_key = key;
+    model.review_diff_via_daemon = true;
+    model.review_diff_daemon_ok = false;
+    model.review_diff_last_via_daemon = false;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
+fn spawnLocalReviewDiff(model: *Model, fx: *Effects, cwd: []const u8) void {
+    const key = model.next_review_diff_key;
+    model.next_review_diff_key = key + 1;
+    model.review_diff_key = key;
+    model.review_diff_via_daemon = false;
+    model.review_diff_daemon_ok = false;
+    model.review_diff_last_via_daemon = false;
+    clearDaemonPatch(model);
+    model.review_diff_probe_session = model.selected;
+    writeFixed(&model.review_diff_probe_path_storage, &model.review_diff_probe_path_len, cwd);
 
     var argv_buf: [argv_len][]const u8 = undefined;
     fx.spawn(.{
@@ -1273,9 +1408,11 @@ fn startHunkProbe(model: *Model, fx: *Effects, file_path: []const u8, no_index: 
     });
 }
 
-/// Click a 1-based Review file row. Tracked rows one-shot a hunk
-/// probe for the current source (`argvForHunk`). Untracked `?`
-/// one-shots `git diff --no-index -- /dev/null <path>` (Unix) or
+/// Click a 1-based Review file row. After a daemon CollectReviewDiff
+/// fill, filters the stored `patch` for that path (no per-file hunk
+/// spawn). Otherwise tracked rows one-shot a hunk probe for the
+/// current source (`argvForHunk`). Untracked `?` one-shots
+/// `git diff --no-index -- /dev/null <path>` (Unix) or
 /// `git.exe -C PATH diff --no-index -- NUL <path>` (Windows).
 /// Cancels any in-flight hunk and clears the previous body.
 pub fn selectFile(model: *Model, fx: *Effects, id: u32) void {
@@ -1286,29 +1423,133 @@ pub fn selectFile(model: *Model, fx: *Effects, id: u32) void {
     clearHunkBody(model);
     clearHunkStatus(model);
     model.review_diff_selected_id = id;
+    if (model.review_diff_last_via_daemon) {
+        paintDaemonHunk(model, file.path());
+        return;
+    }
     const no_index = file.status == '?' and model.review_diff_source != .last_turn;
     startHunkProbe(model, fx, file.path(), no_index);
+}
+
+fn paintDaemonHunk(model: *Model, file_path: []const u8) void {
+    const patch = model.review_diff_daemon_patch_storage[0..model.review_diff_daemon_patch_len];
+    const extracted = extractFilePatch(patch, file_path);
+    if (extracted.len == 0) {
+        setHunkStatus(model, hunk_empty_status);
+        return;
+    }
+    var it = std.mem.splitScalar(u8, extracted, '\n');
+    while (it.next()) |line| {
+        appendHunkLine(model, line);
+    }
+    if (model.review_diff_hunk_len == 0) {
+        setHunkStatus(model, hunk_empty_status);
+    }
+}
+
+/// Slice the unified-diff `diff --git` block whose a/ or b/ path
+/// matches `file_path`. Empty when the stored patch has no such file.
+fn extractFilePatch(patch: []const u8, file_path: []const u8) []const u8 {
+    if (patch.len == 0 or file_path.len == 0) return "";
+    var start: ?usize = null;
+    var i: usize = 0;
+    while (i < patch.len) {
+        const rest = patch[i..];
+        const line_end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
+        const line = rest[0..line_end];
+        if (std.mem.startsWith(u8, line, "diff --git ")) {
+            if (start != null) return std.mem.trimEnd(u8, patch[start.?..i], "\r\n");
+            if (diffGitMentionsPath(line, file_path)) start = i;
+        }
+        if (line_end == rest.len) break;
+        i += line_end + 1;
+    }
+    if (start) |s| return std.mem.trimEnd(u8, patch[s..], "\r\n");
+    return "";
+}
+
+fn diffGitMentionsPath(header: []const u8, file_path: []const u8) bool {
+    if (header.len == 0 or file_path.len == 0) return false;
+    var needle_buf: [max_review_diff_path + 3]u8 = undefined;
+    const b_path = std.fmt.bufPrint(&needle_buf, " b/{s}", .{file_path}) catch return std.mem.indexOf(u8, header, file_path) != null;
+    if (std.mem.indexOf(u8, header, b_path) != null) return true;
+    const a_path = std.fmt.bufPrint(&needle_buf, " a/{s}", .{file_path}) catch return false;
+    return std.mem.indexOf(u8, header, a_path) != null;
 }
 
 pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
     if (line.key != model.review_diff_key or model.review_diff_key == 0) return;
     if (!probeStillCurrent(model)) return;
     if (!model.review_diff_active) return;
+    if (model.review_diff_via_daemon) {
+        applyDaemonReviewDiffLine(model, line.line);
+        return;
+    }
     appendParsed(model, line.line);
+}
+
+fn applyDaemonReviewDiffLine(model: *Model, raw: []const u8) void {
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseReviewDiff(arena_state.allocator(), raw);
+    if (!parsed.ok) return;
+    clearFiles(model);
+    appendParsedNumstat(model, parsed.numstat);
+    writeFixed(&model.review_diff_daemon_patch_storage, &model.review_diff_daemon_patch_len, parsed.patch);
+    model.review_diff_daemon_ok = true;
+    model.review_diff_last_via_daemon = true;
+}
+
+fn appendParsedNumstat(model: *Model, raw: []const u8) void {
+    var it = std.mem.splitScalar(u8, raw, '\n');
+    while (it.next()) |line| {
+        if (model.review_diff_file_count >= max_review_diff_files) return;
+        const parsed = parseNumstatFileLine(line) orelse continue;
+        const slot = &model.review_diff_file_store[model.review_diff_file_count];
+        slot.set(parsed.status, parsed.path);
+        model.review_diff_file_count += 1;
+    }
 }
 
 pub fn handleExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (exit.key != model.review_diff_key or model.review_diff_key == 0) return;
     const current = probeStillCurrent(model);
+    const via_daemon = model.review_diff_via_daemon;
+    const daemon_ok = model.review_diff_daemon_ok;
     model.review_diff_key = 0;
+    model.review_diff_via_daemon = false;
+    model.review_diff_daemon_ok = false;
     if (!model.review_diff_active) {
         clearFiles(model);
         clearStatus(model);
+        clearDaemonFlags(model);
         return;
     }
     if (!current) {
         clearFiles(model);
+        clearDaemonFlags(model);
         setStatus(model, failed_status);
+        return;
+    }
+    if (via_daemon) {
+        if (daemon_ok) {
+            if (model.review_diff_file_count == 0) {
+                setStatus(model, empty_status);
+            } else {
+                clearStatus(model);
+            }
+            return;
+        }
+        model.review_diff_last_via_daemon = false;
+        clearDaemonPatch(model);
+        clearFiles(model);
+        const cwd = model.review_diff_probe_path_storage[0..model.review_diff_probe_path_len];
+        if (cwd.len == 0) {
+            setStatus(model, failed_status);
+            return;
+        }
+        setStatus(model, comparing_status);
+        spawnLocalReviewDiff(model, fx, cwd);
         return;
     }
     if (exit.reason != .exited or exit.code != 0) {
@@ -2016,6 +2257,218 @@ test "parseNameStatusLine is status letter plus path; rename uses dest" {
     try std.testing.expect(parseNameStatusLine("1\tbad.txt") == null);
 }
 
+test "parseNumstatFileLine maps added/deleted into ChangedFile status letters" {
+    try std.testing.expectEqual(@as(u8, 'A'), parseNumstatFileLine("1\t0\tsrc/a.zig\n").?.status);
+    try std.testing.expectEqualStrings("src/a.zig", parseNumstatFileLine("1\t0\tsrc/a.zig\n").?.path);
+    try std.testing.expectEqual(@as(u8, 'D'), parseNumstatFileLine("0\t4\tgone.txt").?.status);
+    try std.testing.expectEqual(@as(u8, 'M'), parseNumstatFileLine("2\t1\tsrc/b.zig\r\n").?.status);
+    try std.testing.expectEqual(@as(u8, 'M'), parseNumstatFileLine("-\t-\tbin.dat").?.status);
+    try std.testing.expectEqualStrings("bin.dat", parseNumstatFileLine("-\t-\tbin.dat").?.path);
+    try std.testing.expectEqual(@as(u8, '?'), parseNumstatFileLine("N\t0\tuntracked.txt").?.status);
+    try std.testing.expectEqual(@as(u8, 'R'), parseNumstatFileLine("1\t0\told.txt\tnew.txt").?.status);
+    try std.testing.expectEqualStrings("new.txt", parseNumstatFileLine("1\t0\told.txt\tnew.txt").?.path);
+    try std.testing.expect(parseNumstatFileLine("") == null);
+    try std.testing.expect(parseNumstatFileLine("1\t0") == null);
+    try std.testing.expect(parseNumstatFileLine("M\tsrc/a.zig") == null);
+}
+
+test "open with a daemon address spawns CollectReviewDiff sidecar" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/review-daemon", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("review daemon", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    open(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.review_diff_key) orelse return error.MissingDaemonCollectReviewDiff;
+    try std.testing.expect(daemon_proxy.isSidecarArgv(sidecar.argv));
+    try std.testing.expect(!isGitReviewDiffArgv(sidecar.argv));
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"collectReviewDiff\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"source\":\"branch\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try std.testing.expect(model.review_diff_via_daemon);
+    try std.testing.expect(!model.review_diff_last_via_daemon);
+    try std.testing.expectEqual(sidecar.key, model.review_diff_key);
+    try std.testing.expect(sidecar.key < review_diff_key_first);
+    try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
+
+    setSource(&model, &fx, .uncommitted);
+    const uncommitted = pendingSpawnKey(&fx, model.review_diff_key) orelse return error.MissingDaemonUncommitted;
+    try std.testing.expect(daemon_proxy.isSidecarArgv(uncommitted.argv));
+    try std.testing.expect(std.mem.indexOf(u8, uncommitted.stdin, "\"source\":\"uncommitted\"") != null);
+    setSource(&model, &fx, .staged);
+    const staged = pendingSpawnKey(&fx, model.review_diff_key) orelse return error.MissingDaemonStaged;
+    try std.testing.expect(std.mem.indexOf(u8, staged.stdin, "\"source\":\"staged\"") != null);
+    setSource(&model, &fx, .unstaged);
+    const unstaged = pendingSpawnKey(&fx, model.review_diff_key) orelse return error.MissingDaemonUnstaged;
+    try std.testing.expect(std.mem.indexOf(u8, unstaged.stdin, "\"source\":\"unstaged\"") != null);
+    setSource(&model, &fx, .committed);
+    const committed = pendingSpawnKey(&fx, model.review_diff_key) orelse return error.MissingDaemonCommitted;
+    try std.testing.expect(std.mem.indexOf(u8, committed.stdin, "\"source\":\"committed\"") != null);
+}
+
+test "open without a daemon address still uses local name-status" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/review-local", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setSidecarPath("faku");
+    const id = model.addSession("review local", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    try std.testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+
+    open(&model, &fx);
+    const git = pendingSpawnKey(&fx, model.review_diff_key) orelse return error.MissingLocalNameStatus;
+    try std.testing.expect(isGitReviewDiffArgv(git.argv));
+    try std.testing.expect(!daemon_proxy.isSidecarArgv(git.argv));
+    try std.testing.expectEqualStrings("", git.stdin);
+    try std.testing.expect(!model.review_diff_via_daemon);
+    try std.testing.expectEqual(review_diff_key_first, model.review_diff_key);
+}
+
+test "CollectReviewDiff sidecar paints file list from numstat and selected hunk from patch" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/review-fill", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("review fill", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    open(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.review_diff_key) orelse return error.MissingDaemonCollectReviewDiffFill;
+    applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"hello\"}" });
+    try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+    const ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"reviewDiff\",\"data\":{\"source\":\"branch\",\"numstat\":\"1\\t0\\tsrc/a.zig\\n0\\t2\\tgone.txt\\n\",\"patch\":\"diff --git a/src/a.zig b/src/a.zig\\n--- a/src/a.zig\\n+++ b/src/a.zig\\n@@ -1 +1 @@\\n-old\\n+new\\ndiff --git a/gone.txt b/gone.txt\\n--- a/gone.txt\\n+++ /dev/null\\n@@ -1 +0,0 @@\\n-bye\\n\",\"completeContext\":false}}}}}";
+    applyLine(&model, .{ .key = sidecar.key, .line = ok_line });
+    try std.testing.expect(model.review_diff_daemon_ok);
+    try std.testing.expect(model.review_diff_last_via_daemon);
+    try std.testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
+    try std.testing.expectEqualStrings("A src/a.zig", model.review_diff_file_store[0].label());
+    try std.testing.expectEqualStrings("D gone.txt", model.review_diff_file_store[1].label());
+    handleExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_key);
+    try std.testing.expect(!model.review_diff_via_daemon);
+    try std.testing.expect(model.review_diff_last_via_daemon);
+    try std.testing.expect(!hasReviewDiffStatus(&model));
+
+    selectFile(&model, &fx, 1);
+    try std.testing.expectEqual(@as(u32, 1), model.review_diff_selected_id);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_hunk_key);
+    try std.testing.expect(hasReviewDiffHunk(&model));
+    try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "diff --git a/src/a.zig b/src/a.zig") != null);
+    try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "+new") != null);
+    try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "gone.txt") == null);
+
+    selectFile(&model, &fx, 2);
+    try std.testing.expectEqual(@as(u32, 2), model.review_diff_selected_id);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_hunk_key);
+    try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "diff --git a/gone.txt b/gone.txt") != null);
+    try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "+new") == null);
+}
+
+test "CollectReviewDiff sidecar non-ok falls back to local name-status" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/review-fallback", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("review fallback", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    open(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.review_diff_key) orelse return error.MissingDaemonCollectReviewDiffFallback;
+    applyLine(&model, .{
+        .key = sidecar.key,
+        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}",
+    });
+    try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+    handleExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
+    try std.testing.expect(!model.review_diff_via_daemon);
+    try std.testing.expect(!model.review_diff_last_via_daemon);
+    const git = pendingSpawnKey(&fx, model.review_diff_key) orelse return error.MissingLocalNameStatusFallback;
+    try std.testing.expect(isGitReviewDiffArgv(git.argv));
+    try std.testing.expect(!daemon_proxy.isSidecarArgv(git.argv));
+    try std.testing.expectEqualStrings("", git.stdin);
+    try std.testing.expect(git.key >= review_diff_key_first);
+    try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
+}
+
+test "LastTurn with a daemon address stays on the local probe" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/review-last-turn-local", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("review last turn", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    open(&model, &fx);
+    setSource(&model, &fx, .last_turn);
+    try std.testing.expectEqual(Source.last_turn, model.review_diff_source);
+    try std.testing.expect(!model.review_diff_via_daemon);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_key);
+    try std.testing.expectEqualStrings(failed_status, reviewDiffStatus(&model));
+}
+
 test "Uncommitted argv is nested sh -c; old HEAD-only argv is not Review" {
     var buf: [argv_len][]const u8 = undefined;
     const argv = unixArgvForSource(.uncommitted, "/tmp/faku-uncommitted", &buf);
@@ -2323,6 +2776,14 @@ fn findSpawnArgv(fx: *Effects, key: u64) ?[]const []const u8 {
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (spawn.key == key) return spawn.argv;
+    }
+    return null;
+}
+
+fn pendingSpawnKey(fx: *Effects, key: u64) ?native_sdk.PendingSpawn {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key) return spawn;
     }
     return null;
 }

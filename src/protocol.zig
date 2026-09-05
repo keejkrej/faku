@@ -146,10 +146,17 @@
 //! `WorkspaceOperation::ListTree`
 //! `{ "type": "listTree", "root", "expanded_paths" }` (camelCase op
 //! tag; request fields snake_case `expanded_paths` as a JSON array of
-//! absolute directory paths; empty array is depth-0 only). This cut
+//! absolute directory paths; empty array is depth-0 only), and
+//! `WorkspaceOperation::CollectReviewDiff`
+//! `{ "type": "collectReviewDiff", "cwd", "source" }` (`ReviewDiffSource`
+//! serde `rename_all = "camelCase"` externally tagged: unit variants
+//! are JSON strings `"uncommitted"` / `"unstaged"` / `"staged"` /
+//! `"committed"` / `"branch"`; LastTurn is
+//! `{ "lastTurn": { "session_id", "turn_id", "turn_count" } }` with
+//! nested snake_case fields). This cut
 //! ships Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
 //! InspectCommit, CaptureTurnStart, CaptureTurn,
-//! GenerateCommitMessage, and ListTree.
+//! GenerateCommitMessage, ListTree, and CollectReviewDiff.
 //! There is no force flag on daemon Push. An ok outcome is
 //! `ResponsePayload::Workspace { result }` where Push, Commit, and
 //! CaptureTurnStart yield `WorkspaceResult::Ack` — wire `outcome.payload`
@@ -177,7 +184,13 @@
 //! `WorkspaceResult::WorkingTree` — wire
 //! `result: { "type": "workingTree", "entries": [ WorkingTreeEntry, … ] }`
 //! nested under `outcome.payload` (not a bare workingTree object; not
-//! Ack). `WorkingTreeEntry` uses serde rename_all camelCase:
+//! Ack) — and CollectReviewDiff yields `WorkspaceResult::ReviewDiff`
+//! — wire `result: { "type": "reviewDiff", "data": { …ReviewDiffData… } }`
+//! nested under `outcome.payload` (not a bare reviewDiff object; not
+//! Ack; `data` is required). `ReviewDiffData` uses serde rename_all
+//! camelCase: `source`, `numstat`, `patch`, `completeContext`. Empty
+//! `numstat` + `patch` with ok nesting is still ok (clean tree).
+//! `WorkingTreeEntry` uses serde rename_all camelCase:
 //! `relativePath`, `absolutePath`, `name`, `isDir`, `expanded`,
 //! `depth`.
 //! `BranchSnapshot` /
@@ -390,7 +403,7 @@ pub fn defaultStartOptions() StartOptions {
 /// first-cut `WorkspaceOperation::Push`, `CreateWorktree`,
 /// `Commit`, `InspectBranches`, `CheckoutBranch`,
 /// `InspectCommit`, `CaptureTurnStart`, `CaptureTurn`,
-/// `GenerateCommitMessage`, and `ListTree`
+/// `GenerateCommitMessage`, `ListTree`, and `CollectReviewDiff`
 /// (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
@@ -565,10 +578,13 @@ pub const GoalOperation = union(GoalKind) {
 /// `turnCount` on the wire), and `GenerateCommitMessage
 /// { cwd, include_unstaged, invocation }` (camelCase
 /// `includeUnstaged`; AgentInvocation `reasoning_effort` stays
-/// snake_case), and `ListTree { root, expanded_paths }`
-/// (snake_case `expanded_paths` JSON array). No force flag on
-/// Push or Commit. No amend on daemon Commit or InspectCommit.
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree };
+/// snake_case), `ListTree { root, expanded_paths }`
+/// (snake_case `expanded_paths` JSON array), and
+/// `CollectReviewDiff { cwd, source }` (`ReviewDiffSource`
+/// externally tagged camelCase; LastTurn nested fields stay
+/// snake_case). No force flag on Push or Commit. No amend on
+/// daemon Commit, InspectCommit, or CollectReviewDiff.
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff };
 
 /// Waku `AgentInvocation`. Wire keys match generated TS:
 /// `provider`, `binary`, `model`, `reasoning_effort` (snake_case
@@ -636,6 +652,30 @@ pub const WorkspaceListTree = struct {
     expanded_paths: []const []const u8 = &.{},
 };
 
+/// Waku `ReviewDiffSource`. Unit variants are JSON strings. LastTurn
+/// is an externally tagged object whose nested fields stay snake_case.
+pub const ReviewDiffSourceKind = enum { uncommitted, unstaged, staged, committed, branch, last_turn };
+
+pub const ReviewDiffLastTurn = struct {
+    session_id: []const u8,
+    turn_id: []const u8,
+    turn_count: u32,
+};
+
+pub const ReviewDiffSource = union(ReviewDiffSourceKind) {
+    uncommitted,
+    unstaged,
+    staged,
+    committed,
+    branch,
+    last_turn: ReviewDiffLastTurn,
+};
+
+pub const WorkspaceCollectReviewDiff = struct {
+    cwd: []const u8,
+    source: ReviewDiffSource,
+};
+
 pub const WorkspaceOperation = union(WorkspaceKind) {
     push: WorkspacePush,
     create_worktree: WorkspaceCreateWorktree,
@@ -647,6 +687,7 @@ pub const WorkspaceOperation = union(WorkspaceKind) {
     capture_turn: WorkspaceCaptureTurn,
     generate_commit_message: WorkspaceGenerateCommitMessage,
     list_tree: WorkspaceListTree,
+    collect_review_diff: WorkspaceCollectReviewDiff,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -718,6 +759,17 @@ pub const ParsedWorkingTree = struct {
     ok: bool = false,
     entries: [max_parsed_tree_entries]ParsedWorkingTreeEntry = [_]ParsedWorkingTreeEntry{.{}} ** max_parsed_tree_entries,
     entry_count: usize = 0,
+};
+
+/// Review / Diff payload from an ok `reviewDiff` workspace result.
+/// Slices alias the JSON arena used to parse the line. Empty
+/// `numstat` / `patch` still set `ok` when nesting and types match.
+pub const ParsedReviewDiff = struct {
+    ok: bool = false,
+    source: ReviewDiffSourceKind = .uncommitted,
+    numstat: []const u8 = "",
+    patch: []const u8 = "",
+    complete_context: bool = false,
 };
 
 /// Runtime id taken from a verified `sessionRuntime` response payload.
@@ -949,7 +1001,7 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// uses nil `sessionId` and nil `runtimeId` for workspace RPCs. Callers
 /// for Push, CreateWorktree, Commit, InspectBranches,
 /// CheckoutBranch, InspectCommit, CaptureTurnStart, CaptureTurn,
-/// GenerateCommitMessage, and ListTree pass
+/// GenerateCommitMessage, ListTree, and CollectReviewDiff pass
 /// `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
@@ -1078,6 +1130,32 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
                 try writeJsonString(cur, path);
             }
             try cur.write("]}");
+        },
+        .collect_review_diff => |args| {
+            try cur.write("{\"type\":\"collectReviewDiff\",\"cwd\":");
+            try writeJsonString(cur, args.cwd);
+            try cur.write(",\"source\":");
+            try writeReviewDiffSource(cur, args.source);
+            try cur.write("}");
+        },
+    }
+}
+
+fn writeReviewDiffSource(cur: *Cursor, source: ReviewDiffSource) WriteError!void {
+    switch (source) {
+        .uncommitted => try cur.write("\"uncommitted\""),
+        .unstaged => try cur.write("\"unstaged\""),
+        .staged => try cur.write("\"staged\""),
+        .committed => try cur.write("\"committed\""),
+        .branch => try cur.write("\"branch\""),
+        .last_turn => |args| {
+            try cur.write("{\"lastTurn\":{\"session_id\":");
+            try writeJsonString(cur, args.session_id);
+            try cur.write(",\"turn_id\":");
+            try writeJsonString(cur, args.turn_id);
+            try cur.write(",\"turn_count\":");
+            try writeUint(cur, args.turn_count);
+            try cur.write("}}");
         },
     }
 }
@@ -1642,6 +1720,48 @@ pub fn parseWorkingTree(allocator: std.mem.Allocator, line: []const u8) ParsedWo
     return parsed;
 }
 
+/// Light parser for ok CollectReviewDiff. True/`ok` when an ok
+/// `response` carries nested `result: { "type": "reviewDiff",
+/// "data": { source, numstat, patch, completeContext } }`. Empty
+/// `numstat` / `patch` strings are still ok. Bare `reviewDiff`, ack,
+/// missing `data`, snake_case `complete_context`, or a missing
+/// field are rejected. Slices alias `allocator`.
+pub fn parseReviewDiff(allocator: std.mem.Allocator, line: []const u8) ParsedReviewDiff {
+    var parsed = ParsedReviewDiff{};
+    const result = workspaceResultObject(allocator, line) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "reviewDiff")) return parsed;
+    const data_val = result.get("data") orelse return parsed;
+    const data = jsonObject(data_val) orelse return parsed;
+    const source = reviewDiffSourceKindFromJson(data.get("source") orelse return parsed) orelse return parsed;
+    const numstat = jsonStringValue(data.get("numstat")) orelse return parsed;
+    const patch = jsonStringValue(data.get("patch")) orelse return parsed;
+    const complete_context = jsonBoolValue(data.get("completeContext")) orelse return parsed;
+    parsed.ok = true;
+    parsed.source = source;
+    parsed.numstat = numstat;
+    parsed.patch = patch;
+    parsed.complete_context = complete_context;
+    return parsed;
+}
+
+fn reviewDiffSourceKindFromJson(value: std.json.Value) ?ReviewDiffSourceKind {
+    switch (value) {
+        .string => |name| {
+            if (std.mem.eql(u8, name, "uncommitted")) return .uncommitted;
+            if (std.mem.eql(u8, name, "unstaged")) return .unstaged;
+            if (std.mem.eql(u8, name, "staged")) return .staged;
+            if (std.mem.eql(u8, name, "committed")) return .committed;
+            if (std.mem.eql(u8, name, "branch")) return .branch;
+            return null;
+        },
+        .object => |obj| {
+            if (obj.get("lastTurn") != null) return .last_turn;
+            return null;
+        },
+        else => return null,
+    }
+}
+
 /// Light ok-checkpoint check for first-cut workspace CaptureTurn.
 /// True when an ok `response` carries nested
 /// `result: { "type": "checkpoint", "checkpoint": { … } }`.
@@ -1659,7 +1779,8 @@ pub fn isWorkspaceCheckpoint(allocator: std.mem.Allocator, line: []const u8) boo
 /// usable snapshot, CheckoutBranch `branchChanged` with a usable
 /// snapshot, InspectCommit `commitSnapshot` with a usable snapshot,
 /// GenerateCommitMessage `commitMessage` with a string `message`,
-/// ListTree `workingTree` with a parsed `entries` array, or
+/// ListTree `workingTree` with a parsed `entries` array,
+/// CollectReviewDiff `reviewDiff` with nested `data`, or
 /// CaptureTurn `checkpoint` with a nested checkpoint object.
 pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (isWorkspaceAck(allocator, line)) return true;
@@ -1669,6 +1790,7 @@ pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (parseCommitSnapshot(allocator, line).ok) return true;
     if (parseCommitMessage(allocator, line).ok) return true;
     if (parseWorkingTree(allocator, line).ok) return true;
+    if (parseReviewDiff(allocator, line).ok) return true;
     return isWorkspaceCheckpoint(allocator, line);
 }
 
@@ -2523,6 +2645,133 @@ test "parseWorkingTree extracts camelCase entries and rejects bare workingTree o
     try std.testing.expect(!parseWorkingTree(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"workingTree\",\"entries\":[{\"relative_path\":\"README.md\",\"absolute_path\":\"/tmp/faku/README.md\",\"name\":\"README.md\",\"is_dir\":false,\"expanded\":false,\"depth\":0}]}}}}").ok);
     try std.testing.expect(!parseWorkingTree(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
     try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"workingTree\"}}}}"));
+}
+
+test "workspace request wraps camelCase collectReviewDiff with unit source strings and nil ids" {
+    var buf: [1024]u8 = undefined;
+    const json = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .collect_review_diff = .{ .cwd = "/tmp/faku", .source = .branch } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"collectReviewDiff\",\"cwd\":\"/tmp/faku\",\"source\":\"branch\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"listTree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"inspectCommit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"browseDirectory\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"readTextFile\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"collectReviewDiff\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
+
+    const uncommitted = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .collect_review_diff = .{ .cwd = "/tmp/faku", .source = .uncommitted } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, uncommitted, "\"source\":\"uncommitted\"") != null);
+    const staged = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .collect_review_diff = .{ .cwd = "/tmp/faku", .source = .staged } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, staged, "\"source\":\"staged\"") != null);
+    const unstaged = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .collect_review_diff = .{ .cwd = "/tmp/faku", .source = .unstaged } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, unstaged, "\"source\":\"unstaged\"") != null);
+    const committed = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .collect_review_diff = .{ .cwd = "/tmp/faku", .source = .committed } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, committed, "\"source\":\"committed\"") != null);
+
+    const last_turn = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .collect_review_diff = .{
+            .cwd = "/tmp/faku",
+            .source = .{ .last_turn = .{
+                .session_id = "11111111-1111-1111-1111-111111111111",
+                .turn_id = "22222222-2222-2222-2222-222222222222",
+                .turn_count = 3,
+            } },
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, last_turn, "\"source\":{\"lastTurn\":{\"session_id\":\"11111111-1111-1111-1111-111111111111\",\"turn_id\":\"22222222-2222-2222-2222-222222222222\",\"turn_count\":3}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, last_turn, "sessionId") == null or std.mem.indexOf(u8, last_turn, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, last_turn, "turnCount") == null);
+    try std.testing.expect(std.mem.indexOf(u8, last_turn, "turn_id") != null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .collect_review_diff = .{ .cwd = "/tmp/faku", .source = .branch } },
+    ));
+}
+
+test "parseReviewDiff extracts camelCase data and rejects bare reviewDiff or ack" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"reviewDiff\",\"data\":{\"source\":\"branch\",\"numstat\":\"1\\t0\\tsrc/a.zig\\n\",\"patch\":\"diff --git a/src/a.zig b/src/a.zig\\n\",\"completeContext\":true}}}}}";
+    const parsed = parseReviewDiff(arena, ok_line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqual(ReviewDiffSourceKind.branch, parsed.source);
+    try std.testing.expectEqualStrings("1\t0\tsrc/a.zig\n", parsed.numstat);
+    try std.testing.expectEqualStrings("diff --git a/src/a.zig b/src/a.zig\n", parsed.patch);
+    try std.testing.expect(parsed.complete_context);
+    try std.testing.expect(isWorkspaceSuccess(arena, ok_line));
+    try std.testing.expect(!isWorkspaceAck(arena, ok_line));
+    try std.testing.expect(!parseWorkingTree(arena, ok_line).ok);
+    try std.testing.expect(!parseCommitSnapshot(arena, ok_line).ok);
+
+    const empty_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"reviewDiff\",\"data\":{\"source\":\"uncommitted\",\"numstat\":\"\",\"patch\":\"\",\"completeContext\":false}}}}}";
+    const empty = parseReviewDiff(arena, empty_line);
+    try std.testing.expect(empty.ok);
+    try std.testing.expectEqual(ReviewDiffSourceKind.uncommitted, empty.source);
+    try std.testing.expectEqualStrings("", empty.numstat);
+    try std.testing.expectEqualStrings("", empty.patch);
+    try std.testing.expect(!empty.complete_context);
+    try std.testing.expect(isWorkspaceSuccess(arena, empty_line));
+
+    const last_turn_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"reviewDiff\",\"data\":{\"source\":{\"lastTurn\":{\"session_id\":\"11111111-1111-1111-1111-111111111111\",\"turn_id\":\"22222222-2222-2222-2222-222222222222\",\"turn_count\":1}},\"numstat\":\"\",\"patch\":\"\",\"completeContext\":false}}}}}";
+    const last_turn = parseReviewDiff(arena, last_turn_line);
+    try std.testing.expect(last_turn.ok);
+    try std.testing.expectEqual(ReviewDiffSourceKind.last_turn, last_turn.source);
+
+    try std.testing.expect(!parseReviewDiff(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"reviewDiff\",\"data\":{\"source\":\"branch\",\"numstat\":\"\",\"patch\":\"\",\"completeContext\":false}}}}").ok);
+    try std.testing.expect(!parseReviewDiff(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
+    try std.testing.expect(!parseReviewDiff(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"reviewDiff\"}}}}").ok);
+    try std.testing.expect(!parseReviewDiff(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"reviewDiff\",\"data\":{\"source\":\"branch\",\"numstat\":\"\",\"patch\":\"\",\"complete_context\":false}}}}}").ok);
+    try std.testing.expect(!parseReviewDiff(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"reviewDiff\",\"data\":{\"source\":\"branch\",\"numstat\":\"\",\"completeContext\":false}}}}}").ok);
+    try std.testing.expect(!parseReviewDiff(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
+    try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"reviewDiff\"}}}}"));
 }
 
 test "start defaults to first-party fx over acp" {
