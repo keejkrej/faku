@@ -124,6 +124,7 @@ pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     session_fork.cancelDaemonCopySessionRefs(model, fx);
     store.cancelDaemonDeleteSessionRefs(model, fx);
     session_fork.cancelDaemonHasRef(model, fx);
+    session_fork.cancelDaemonCaptureRef(model, fx);
     model.maybeEnsureSkillsScanned(fx);
     model.pinTranscriptToLatest();
     model.composer_active = true;

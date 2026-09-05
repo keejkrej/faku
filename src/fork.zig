@@ -42,8 +42,18 @@
 //! snake_case `git_ref`; ok is nested `WorkspaceResult::Bool`). Local
 //! `hasFakuRef` (`show-ref --verify`) stays the offline / overflow /
 //! miss / non-bool / error fallback and remains correct without a
-//! daemon. Leftovers:
-//! CaptureRef / RestoreRef / DeleteRef / DeleteTurnRefsAfter /
+//! daemon. First-cut daemon `WorkspaceOperation::CaptureRef` is a
+//! best-effort sidecar after a successful local `refs/faku`
+//! `update-ref` when a daemon address is set and cwd is a git
+//! worktree (hello + `{ "type": "captureRef", "cwd", "git_ref" }`;
+//! snake_case `git_ref`; ok is workspace Ack). Local
+//! `updateFakuRef` / `captureTurnStart` / `captureTurnEnd` /
+//! `seedBaselineIfMissing` stay canonical; miss / overflow /
+//! non-ack / error leave those refs alone (no rollback). CaptureTurnStart /
+//! CaptureTurn still cover turn-start / turn-end daemon sync;
+//! CaptureRef also fires for those local writes plus uncovered
+//! baseline-seed and turn-diff names. Leftovers:
+//! RestoreRef / DeleteRef / DeleteTurnRefsAfter /
 //! SessionTurnRefs, amend/force over daemon, remote `--track` over
 //! daemon, etc.
 
@@ -89,13 +99,15 @@ pub fn recordRewindRefIfPossible(model: *Model, fx: *Effects, session_id: u32) v
             const turn_n = checkpoint.fakuSendTurn(model.turnCount(session_id));
             var start_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
             if (checkpoint.formatFakuSessionTurnStartRef(&start_buf, session.id, turn_n)) |start_ref| {
-                _ = checkpoint.updateFakuRef(
+                if (checkpoint.updateFakuRef(
                     std.heap.page_allocator,
                     io,
                     session.projectPath(),
                     start_ref,
                     sha,
-                );
+                )) {
+                    _ = trySpawnDaemonCaptureRef(model, fx, session.id, session.projectPath(), start_ref);
+                }
             }
             @memcpy(seed_sha_buf[0..sha.len], sha);
             seed_sha_len = sha.len;
@@ -105,8 +117,9 @@ pub fn recordRewindRefIfPossible(model: *Model, fx: *Effects, session_id: u32) v
     if (!trySpawnDaemonHasRef(model, fx, session, seed_sha)) {
         if (seed_sha.len > 0) {
             if (model.store_io) |io| {
-                checkpoint.seedBaselineIfMissing(
-                    std.heap.page_allocator,
+                seedBaselineAndMaybeCapture(
+                    model,
+                    fx,
                     io,
                     session.projectPath(),
                     session.id,
@@ -192,12 +205,23 @@ pub fn cancelDaemonCopySessionRefs(model: *Model, fx: *Effects) void {
 
 /// Drop an in-flight HasRef sidecar. Safe when none is live. A still
 /// unresolved probe falls back to local `hasFakuRef` so a session
-/// switch cannot leave the baseline unseeded.
+/// switch cannot leave the baseline unseeded. A fallback seed may
+/// spawn CaptureRef; callers that also cancel CaptureRef should
+/// do that after this.
 pub fn cancelDaemonHasRef(model: *Model, fx: *Effects) void {
     if (model.daemon_has_ref_key == 0) return;
     fx.cancel(model.daemon_has_ref_key);
-    fallbackLocalHasRefIfNeeded(model);
+    fallbackLocalHasRefIfNeeded(model, fx);
     clearDaemonHasRef(model);
+}
+
+/// Drop an in-flight CaptureRef sidecar. Safe when none is live.
+/// Does not roll back local `refs/faku` names.
+pub fn cancelDaemonCaptureRef(model: *Model, fx: *Effects) void {
+    if (model.daemon_capture_ref_key == 0) return;
+    fx.cancel(model.daemon_capture_ref_key);
+    model.daemon_capture_ref_key = 0;
+    model.daemon_capture_ref_session = 0;
 }
 
 fn clearDaemonHasRef(model: *Model) void {
@@ -246,7 +270,7 @@ fn trySpawnDaemonHasRef(
 
     if (model.daemon_has_ref_key != 0) {
         fx.cancel(model.daemon_has_ref_key);
-        fallbackLocalHasRefIfNeeded(model);
+        fallbackLocalHasRefIfNeeded(model, fx);
         clearDaemonHasRef(model);
     }
 
@@ -270,30 +294,80 @@ fn trySpawnDaemonHasRef(
     return true;
 }
 
-pub fn applyDaemonHasRefLine(model: *Model, line: native_sdk.EffectLine) void {
+/// Best-effort hello + `WorkspaceOperation::CaptureRef` after a
+/// successful local `refs/faku` update-ref. Own daemon spawn key on
+/// `daemon_capture_ref_key`. Missing address, empty cwd, non-git
+/// cwd, invalid ref name, or Native 4 KiB stdin overflow returns
+/// false and leaves the local ref alone.
+fn trySpawnDaemonCaptureRef(
+    model: *Model,
+    fx: *Effects,
+    session_id: u32,
+    cwd: []const u8,
+    git_ref: []const u8,
+) bool {
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    if (cwd.len == 0) return false;
+    if (!checkpoint.isFakuRefName(git_ref)) return false;
+    const io = model.store_io orelse return false;
+    if (!rewind.isGitWorkTree(io, cwd)) return false;
+
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{
+            .capture_ref = .{
+                .cwd = cwd,
+                .git_ref = git_ref,
+            },
+        },
+    }) catch return false;
+
+    if (model.daemon_capture_ref_key != 0) {
+        fx.cancel(model.daemon_capture_ref_key);
+        model.daemon_capture_ref_key = 0;
+        model.daemon_capture_ref_session = 0;
+    }
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.daemon_capture_ref_key = key;
+    model.daemon_capture_ref_session = session_id;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
+pub fn applyDaemonHasRefLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
     if (line.key != model.daemon_has_ref_key or model.daemon_has_ref_key == 0) return;
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_state.deinit();
     const parsed = protocol.parseWorkspaceBool(arena_state.allocator(), line.line);
     if (!parsed.ok) return;
     model.daemon_has_ref_ok = true;
-    if (!parsed.value) seedStoredBaseline(model);
+    if (!parsed.value) seedStoredBaseline(model, fx);
 }
 
 pub fn handleDaemonHasRefExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (exit.key != model.daemon_has_ref_key or model.daemon_has_ref_key == 0) return;
     const ok = model.daemon_has_ref_ok;
-    if (!ok) fallbackLocalHasRefIfNeeded(model);
+    if (!ok) fallbackLocalHasRefIfNeeded(model, fx);
     clearDaemonHasRef(model);
-    _ = fx;
 }
 
-fn fallbackLocalHasRefIfNeeded(model: *Model) void {
+fn fallbackLocalHasRefIfNeeded(model: *Model, fx: *Effects) void {
     if (model.daemon_has_ref_ok) return;
-    seedStoredBaseline(model);
+    seedStoredBaseline(model, fx);
 }
 
-fn seedStoredBaseline(model: *Model) void {
+fn seedStoredBaseline(model: *Model, fx: *Effects) void {
     const io = model.store_io orelse return;
     const cwd = model.daemon_has_ref_cwd_storage[0..model.daemon_has_ref_cwd_len];
     const sha = model.daemon_has_ref_sha_storage[0..model.daemon_has_ref_sha_len];
@@ -301,14 +375,31 @@ fn seedStoredBaseline(model: *Model) void {
     const session_id = model.daemon_has_ref_session;
     const turn_n = model.daemon_has_ref_turn;
     if (session_id == 0) return;
-    checkpoint.seedBaselineIfMissing(
+    seedBaselineAndMaybeCapture(model, fx, io, cwd, session_id, turn_n, sha);
+}
+
+fn seedBaselineAndMaybeCapture(
+    model: *Model,
+    fx: *Effects,
+    io: std.Io,
+    cwd: []const u8,
+    session_id: u32,
+    turn_n: u32,
+    sha: []const u8,
+) void {
+    if (!checkpoint.seedBaselineIfMissing(
         std.heap.page_allocator,
         io,
         cwd,
         session_id,
         turn_n,
         sha,
-    );
+    )) return;
+    const baseline_n: u32 = if (turn_n >= 1) turn_n - 1 else 0;
+    var baseline_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    if (checkpoint.formatFakuSessionTurnRef(&baseline_buf, session_id, baseline_n)) |git_ref| {
+        _ = trySpawnDaemonCaptureRef(model, fx, session_id, cwd, git_ref);
+    }
 }
 
 /// Successful finish: capture a NEW isolated worktree snapshot
@@ -339,7 +430,7 @@ pub fn recordTurnEndIfPossible(model: *Model, fx: *Effects, session_id: u32) voi
     ) orelse return;
     session.setWorktreeTurnEndSha(sha);
     const turn_n = checkpoint.fakuFinishTurn(model.turnCount(session_id));
-    _ = checkpoint.captureTurnEnd(
+    const end_ok = checkpoint.captureTurnEnd(
         std.heap.page_allocator,
         io,
         session.projectPath(),
@@ -347,6 +438,7 @@ pub fn recordTurnEndIfPossible(model: *Model, fx: *Effects, session_id: u32) voi
         turn_n,
         sha,
     );
+    var captured_diff = false;
     var diff_buf: [rewind.stored_sha_len]u8 = undefined;
     if (checkpoint.prepareTurnDiffBase(
         std.heap.page_allocator,
@@ -357,6 +449,19 @@ pub fn recordTurnEndIfPossible(model: *Model, fx: *Effects, session_id: u32) voi
         &diff_buf,
     )) |diff_sha| {
         session.setWorktreeTurnDiffSha(diff_sha);
+        var diff_ref_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+        if (checkpoint.formatFakuSessionTurnDiffRef(&diff_ref_buf, session.id, turn_n)) |diff_ref| {
+            if (checkpoint.hasFakuRef(std.heap.page_allocator, io, session.projectPath(), diff_ref)) {
+                _ = trySpawnDaemonCaptureRef(model, fx, session.id, session.projectPath(), diff_ref);
+                captured_diff = true;
+            }
+        }
+    }
+    if (!captured_diff and end_ok) {
+        var end_ref_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+        if (checkpoint.formatFakuSessionTurnRef(&end_ref_buf, session.id, turn_n)) |end_ref| {
+            _ = trySpawnDaemonCaptureRef(model, fx, session.id, session.projectPath(), end_ref);
+        }
     }
     _ = trySpawnDaemonCaptureTurn(model, fx, session, turn_n);
 }
@@ -618,6 +723,26 @@ fn anyHasRefSpawn(fx: *Effects) bool {
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (daemon_proxy.isSidecarArgv(spawn.argv) and
             std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hasRef\"") != null) return true;
+    }
+    return false;
+}
+
+fn findCaptureRefSpawn(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key != key) continue;
+        if (!daemon_proxy.isSidecarArgv(spawn.argv)) continue;
+        if (std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureRef\"") == null) continue;
+        return spawn;
+    }
+    return null;
+}
+
+fn anyCaptureRefSpawn(fx: *Effects) bool {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (daemon_proxy.isSidecarArgv(spawn.argv) and
+            std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureRef\"") != null) return true;
     }
     return false;
 }
@@ -1018,6 +1143,152 @@ test "HasRef Bool true skips local baseline seed" {
     try std.testing.expect(!checkpoint.hasFakuRef(std.testing.allocator, std.testing.io, project, baseline));
 }
 
+test "recordRewindRefIfPossible with a daemon address and git cwd spawns CaptureRef sidecar after local update-ref" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/capture-ref-daemon", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setDaemonToken("secret");
+    model.setSidecarPath("faku");
+    const id = model.addSession("capture ref", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    recordRewindRefIfPossible(&model, &fx, id);
+    try std.testing.expect(model.daemon_capture_ref_key != 0);
+    try std.testing.expectEqual(id, model.daemon_capture_ref_session);
+    var start_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const start_ref = checkpoint.formatFakuSessionTurnStartRef(&start_buf, id, 1) orelse return error.MissingStartRef;
+    try std.testing.expect(checkpoint.hasFakuRef(std.testing.allocator, std.testing.io, project, start_ref));
+    const sidecar = findCaptureRefSpawn(&fx, model.daemon_capture_ref_key) orelse return error.MissingDaemonCaptureRef;
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"captureRef\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"git_ref\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, start_ref) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"gitRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hasRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"captureTurnStart\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "force") == null);
+    try std.testing.expect(sidecar.key != model.daemon_spawn_key);
+    try std.testing.expect(sidecar.key != model.daemon_capture_turn_start_key);
+    try std.testing.expect(sidecar.key != model.daemon_has_ref_key);
+
+    cancelDaemonCaptureRef(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_capture_ref_key);
+    try std.testing.expect(checkpoint.hasFakuRef(std.testing.allocator, std.testing.io, project, start_ref));
+}
+
+test "recordRewindRefIfPossible without a daemon address does not spawn CaptureRef" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/capture-ref-local", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setSidecarPath("faku");
+    const id = model.addSession("capture ref local", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    try std.testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+
+    recordRewindRefIfPossible(&model, &fx, id);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_capture_ref_key);
+    try std.testing.expect(!anyCaptureRefSpawn(&fx));
+    var start_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const start_ref = checkpoint.formatFakuSessionTurnStartRef(&start_buf, id, 1) orelse return error.MissingStartRef;
+    try std.testing.expect(checkpoint.hasFakuRef(std.testing.allocator, std.testing.io, project, start_ref));
+}
+
+test "recordRewindRefIfPossible with a daemon address and non-git cwd does not spawn CaptureRef" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/capture-ref-nongit", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("capture ref nongit", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    recordRewindRefIfPossible(&model, &fx, id);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_capture_ref_key);
+    try std.testing.expect(!anyCaptureRefSpawn(&fx));
+}
+
+test "CaptureRef sidecar miss leaves local refs/faku alone" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/capture-ref-miss", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.fx_probe_started = true;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("capture ref miss", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    recordRewindRefIfPossible(&model, &fx, id);
+    const sha = model.sessionByIdConst(id).?.worktreeSnapshotSha();
+    try std.testing.expect(rewind.isStoredSha(sha));
+    var start_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const start_ref = checkpoint.formatFakuSessionTurnStartRef(&start_buf, id, 1) orelse return error.MissingStartRef;
+    try std.testing.expect(checkpoint.hasFakuRef(std.testing.allocator, std.testing.io, project, start_ref));
+
+    const sidecar = findCaptureRefSpawn(&fx, model.daemon_capture_ref_key) orelse return error.MissingDaemonCaptureRefMiss;
+    const key = sidecar.key;
+    try fx.feedLine(key, "{\"type\":\"rejected\",\"message\":\"nope\"}");
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+    try fx.feedExit(key, 1);
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_capture_ref_key);
+    try std.testing.expect(checkpoint.hasFakuRef(std.testing.allocator, std.testing.io, project, start_ref));
+    try std.testing.expectEqualStrings(sha, model.sessionByIdConst(id).?.worktreeSnapshotSha());
+    try std.testing.expect(!model.is_streaming());
+}
+
 test "recordTurnEndIfPossible with a daemon address spawns CaptureTurn sidecar after local end" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -1064,6 +1335,16 @@ test "recordTurnEndIfPossible with a daemon address spawns CaptureTurn sidecar a
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"turnCount\":1") != null);
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "session_id") == null);
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "turn_count") == null);
+    try std.testing.expect(model.daemon_capture_ref_key != 0);
+    try std.testing.expectEqual(id, model.daemon_capture_ref_session);
+    var end_ref_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const end_ref = checkpoint.formatFakuSessionTurnRef(&end_ref_buf, id, 1) orelse return error.MissingEndRef;
+    try std.testing.expect(checkpoint.hasFakuRef(std.testing.allocator, std.testing.io, project, end_ref));
+    const capture_ref = findCaptureRefSpawn(&fx, model.daemon_capture_ref_key) orelse return error.MissingDaemonCaptureRefEnd;
+    try std.testing.expect(std.mem.indexOf(u8, capture_ref.stdin, "\"type\":\"captureRef\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, capture_ref.stdin, end_ref) != null);
+    try std.testing.expect(std.mem.indexOf(u8, capture_ref.stdin, "\"gitRef\"") == null);
+    try std.testing.expect(capture_ref.key != sidecar.key);
 }
 
 test "recordTurnEndIfPossible without a daemon address does not spawn CaptureTurn" {
@@ -1090,7 +1371,9 @@ test "recordTurnEndIfPossible without a daemon address does not spawn CaptureTur
     recordTurnEndIfPossible(&model, &fx, id);
     try std.testing.expect(model.sessionByIdConst(id).?.worktreeTurnEndSha().len == rewind.stored_sha_len);
     try std.testing.expectEqual(@as(u64, 0), model.daemon_capture_turn_key);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_capture_ref_key);
     try std.testing.expect(!anyCaptureTurnSpawn(&fx));
+    try std.testing.expect(!anyCaptureRefSpawn(&fx));
 }
 
 test "recordTurnEndIfPossible without a local end sha does not spawn CaptureTurn" {
@@ -1117,7 +1400,9 @@ test "recordTurnEndIfPossible without a local end sha does not spawn CaptureTurn
     recordTurnEndIfPossible(&model, &fx, id);
     try std.testing.expectEqual(@as(usize, 0), model.sessionByIdConst(id).?.worktreeTurnEndSha().len);
     try std.testing.expectEqual(@as(u64, 0), model.daemon_capture_turn_key);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_capture_ref_key);
     try std.testing.expect(!anyCaptureTurnSpawn(&fx));
+    try std.testing.expect(!anyCaptureRefSpawn(&fx));
 }
 
 test "CaptureTurn sidecar checkpoint does not replace stored turn-end shas" {

@@ -171,8 +171,11 @@
 //! preview Save; overflow / non-ack falls back to local atomic write). First-cut daemon
 //! `WorkspaceOperation::HasRef` ships in `fork` (prefer hello +
 //! hasRef on Send for the baseline `hasFakuRef` check; Bool;
-//! overflow / miss / non-bool / error fall back to local). Leftovers: other daemon `WorkspaceOperation`
-//! variants (CaptureRef / RestoreRef / DeleteRef /
+//! overflow / miss / non-bool / error fall back to local). First-cut daemon
+//! `WorkspaceOperation::CaptureRef` ships in `fork` (best-effort
+//! sidecar after a successful local `refs/faku` update-ref; Ack;
+//! miss / overflow leave local refs alone). Leftovers: other daemon `WorkspaceOperation`
+//! variants (RestoreRef / DeleteRef /
 //! DeleteTurnRefsAfter / SessionTurnRefs, amend/force over daemon,
 //! remote `--track` over daemon, …).
 
