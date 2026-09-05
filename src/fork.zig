@@ -13,9 +13,18 @@
 //! (hello + `{ "type": "captureTurnStart", "cwd", "sessionId",
 //! "turnCount" }`; ok is workspace Ack). Local
 //! `captureTurnStartCommit` / `refs/faku/...` stay canonical for
-//! `worktree_snapshot_sha`. Missing address / Native 4 KiB stdin
-//! overflow / sidecar failure must not break Send or clear the
-//! local sha. Leftover: daemon `CaptureTurn` (end / Checkpoint).
+//! `worktree_snapshot_sha`. First-cut daemon
+//! `WorkspaceOperation::CaptureTurn` is a best-effort sidecar after
+//! successful local finish-time capture when a daemon address is
+//! set (hello + `{ "type": "captureTurn", "cwd", "sessionId",
+//! "turnCount" }`; ok is nested `WorkspaceResult::Checkpoint`).
+//! Local `worktree_turn_end_sha` / `worktree_turn_diff_sha` /
+//! `refs/faku/...` stay canonical; the Checkpoint payload must not
+//! replace them. Missing address / Native 4 KiB stdin overflow /
+//! sidecar failure must not break Send or finish or clear the
+//! local shas. Leftovers: ListTree, GenerateCommitMessage,
+//! CollectReviewDiff, remotes-on-daemon-list, amend/force over
+//! daemon, remote `--track` over daemon, ref ops.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -119,6 +128,14 @@ pub fn cancelDaemonCaptureTurnStart(model: *Model, fx: *Effects) void {
     model.daemon_capture_turn_start_session = 0;
 }
 
+/// Drop an in-flight CaptureTurn sidecar. Safe when none is live.
+pub fn cancelDaemonCaptureTurn(model: *Model, fx: *Effects) void {
+    if (model.daemon_capture_turn_key == 0) return;
+    fx.cancel(model.daemon_capture_turn_key);
+    model.daemon_capture_turn_key = 0;
+    model.daemon_capture_turn_session = 0;
+}
+
 /// Successful finish: capture a NEW isolated worktree snapshot
 /// and name it `turn-{n}`. `{n}` is `turnCount/2` after the
 /// user+assistant pair is already appended (same ordinal as
@@ -129,8 +146,13 @@ pub fn cancelDaemonCaptureTurnStart(model: *Model, fx: *Effects) void {
 /// not write `worktree_snapshot_sha` (LastTurn / Header
 /// Rewind keep the send-time sha). Failed capture is quiet.
 /// Failed update-ref does not clear the stored shas. Not
-/// called on stop/cancel.
-pub fn recordTurnEndIfPossible(model: *Model, session_id: u32) void {
+/// called on stop/cancel. After a successful local sha
+/// capture, also best-effort hello +
+/// `WorkspaceOperation::CaptureTurn` when a daemon address is
+/// set. No sha / no address / stdin overflow leave local
+/// capture alone. Daemon Checkpoint must not replace the
+/// stored end / turn-diff shas.
+pub fn recordTurnEndIfPossible(model: *Model, fx: *Effects, session_id: u32) void {
     const io = model.store_io orelse return;
     const session = model.sessionById(session_id) orelse return;
     var snap_buf: [rewind.stored_sha_len]u8 = undefined;
@@ -161,6 +183,54 @@ pub fn recordTurnEndIfPossible(model: *Model, session_id: u32) void {
     )) |diff_sha| {
         session.setWorktreeTurnDiffSha(diff_sha);
     }
+    _ = trySpawnDaemonCaptureTurn(model, fx, session, turn_n);
+}
+
+/// Best-effort hello + `WorkspaceOperation::CaptureTurn` after
+/// local finish capture. Own daemon spawn key on
+/// `daemon_capture_turn_key`. Missing address, empty cwd, or
+/// Native 4 KiB stdin overflow returns false and leaves local
+/// capture alone. Does not replace local sync capture. `turn_count`
+/// is the same `fakuFinishTurn` ordinal local end already used.
+fn trySpawnDaemonCaptureTurn(model: *Model, fx: *Effects, session: *main.Session, turn_count: u32) bool {
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    const cwd = session.projectPath();
+    if (cwd.len == 0) return false;
+
+    var id_buf: [36]u8 = undefined;
+    const wire_id = daemon_proxy.wireUuid(session.id, &id_buf);
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{
+            .capture_turn = .{
+                .cwd = cwd,
+                .session_id = wire_id,
+                .turn_count = turn_count,
+            },
+        },
+    }) catch return false;
+
+    if (model.daemon_capture_turn_key != 0) {
+        fx.cancel(model.daemon_capture_turn_key);
+        model.daemon_capture_turn_key = 0;
+        model.daemon_capture_turn_session = 0;
+    }
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.daemon_capture_turn_key = key;
+    model.daemon_capture_turn_session = session.id;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
 }
 
 /// Header Fork: local catalog clone through the last turn.
@@ -295,6 +365,62 @@ fn anyCaptureTurnStartSpawn(fx: *Effects) bool {
     return false;
 }
 
+fn findCaptureTurnSpawn(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key != key) continue;
+        if (!daemon_proxy.isSidecarArgv(spawn.argv)) continue;
+        if (std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureTurn\"") == null) continue;
+        if (std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureTurnStart\"") != null) continue;
+        return spawn;
+    }
+    return null;
+}
+
+fn anyCaptureTurnSpawn(fx: *Effects) bool {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (daemon_proxy.isSidecarArgv(spawn.argv) and
+            std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureTurn\"") != null and
+            std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureTurnStart\"") == null) return true;
+    }
+    return false;
+}
+
+fn initFinishRepo(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !void {
+    try std.Io.Dir.cwd().createDirPath(io, path);
+    try runFinishGit(allocator, io, &.{ "git", "-C", path, "init" });
+    var readme_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const readme = try std.fmt.bufPrint(&readme_buf, "{s}{s}README", .{ path, std.fs.path.sep_str });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = readme, .data = "finish\n" });
+    try runFinishGit(allocator, io, &.{ "git", "-C", path, "add", "README" });
+    try runFinishGit(allocator, io, &.{
+        "git",
+        "-C",
+        path,
+        "-c",
+        "user.email=capture-turn@test",
+        "-c",
+        "user.name=CaptureTurn",
+        "-c",
+        checkpoint.commit_gpgsign,
+        "commit",
+        "-m",
+        "init",
+    });
+}
+
+fn runFinishGit(allocator: std.mem.Allocator, io: std.Io, argv: []const []const u8) !void {
+    const result = try std.process.run(allocator, io, .{
+        .argv = argv,
+        .stdout_limit = .limited(1024),
+        .stderr_limit = .limited(4096),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    if (result.term != .exited or result.term.exited != 0) return error.GitFailed;
+}
+
 test "recordRewindRefIfPossible with a daemon address spawns CaptureTurnStart sidecar" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -398,5 +524,152 @@ test "CaptureTurnStart sidecar failure does not clear a stored worktree snapshot
 
     try std.testing.expectEqual(@as(u64, 0), model.daemon_capture_turn_start_key);
     try std.testing.expectEqualStrings(stored_sha, model.sessionByIdConst(id).?.worktreeSnapshotSha());
+    try std.testing.expect(!model.is_streaming());
+}
+
+test "recordTurnEndIfPossible with a daemon address spawns CaptureTurn sidecar after local end" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/capture-turn-daemon", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("capture turn end", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(id, .user, "ship the capture cut");
+    _ = model.appendTurn(id, .assistant, "done");
+
+    recordTurnEndIfPossible(&model, &fx, id);
+    try std.testing.expect(model.sessionByIdConst(id).?.worktreeTurnEndSha().len == rewind.stored_sha_len);
+    try std.testing.expect(model.daemon_capture_turn_key != 0);
+    try std.testing.expectEqual(id, model.daemon_capture_turn_session);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_capture_turn_start_key);
+    const sidecar = findCaptureTurnSpawn(&fx, model.daemon_capture_turn_key) orelse return error.MissingDaemonCaptureTurn;
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"captureTurn\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"captureTurnStart\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"inspectCommit\"") == null);
+    var id_buf: [36]u8 = undefined;
+    const wire_id = daemon_proxy.wireUuid(id, &id_buf);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, wire_id) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"turnCount\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "session_id") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "turn_count") == null);
+}
+
+test "recordTurnEndIfPossible without a daemon address does not spawn CaptureTurn" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/capture-turn-local", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setSidecarPath("faku");
+    const id = model.addSession("capture turn end local", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(id, .user, "no daemon capture");
+    _ = model.appendTurn(id, .assistant, "ok");
+    try std.testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+
+    recordTurnEndIfPossible(&model, &fx, id);
+    try std.testing.expect(model.sessionByIdConst(id).?.worktreeTurnEndSha().len == rewind.stored_sha_len);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_capture_turn_key);
+    try std.testing.expect(!anyCaptureTurnSpawn(&fx));
+}
+
+test "recordTurnEndIfPossible without a local end sha does not spawn CaptureTurn" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/capture-turn-nongit", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("capture turn no sha", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(id, .user, "no git");
+    _ = model.appendTurn(id, .assistant, "ok");
+
+    recordTurnEndIfPossible(&model, &fx, id);
+    try std.testing.expectEqual(@as(usize, 0), model.sessionByIdConst(id).?.worktreeTurnEndSha().len);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_capture_turn_key);
+    try std.testing.expect(!anyCaptureTurnSpawn(&fx));
+}
+
+test "CaptureTurn sidecar checkpoint does not replace stored turn-end shas" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/capture-turn-keep-sha", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.fx_probe_started = true;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("keep end sha", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(id, .user, "keep sha");
+    _ = model.appendTurn(id, .assistant, "ok");
+
+    recordTurnEndIfPossible(&model, &fx, id);
+    const end_sha = model.sessionByIdConst(id).?.worktreeTurnEndSha();
+    try std.testing.expect(end_sha.len == rewind.stored_sha_len);
+    var end_copy: [rewind.stored_sha_len]u8 = undefined;
+    @memcpy(&end_copy, end_sha);
+    const diff_sha = model.sessionByIdConst(id).?.worktreeTurnDiffSha();
+    var diff_copy: [rewind.stored_sha_len]u8 = undefined;
+    const diff_len = diff_sha.len;
+    if (diff_len != 0) @memcpy(diff_copy[0..diff_len], diff_sha);
+
+    const sidecar = findCaptureTurnSpawn(&fx, model.daemon_capture_turn_key) orelse return error.MissingDaemonCaptureTurnFail;
+    const key = sidecar.key;
+    try fx.feedLine(key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"checkpoint\",\"checkpoint\":{\"turn_count\":99,\"git_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"status\":\"Ready\",\"files\":[],\"additions\":4,\"deletions\":1,\"created_at\":\"2026-09-05T00:00:00Z\"}}}}}");
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+    try fx.feedExit(key, 0);
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_capture_turn_key);
+    try std.testing.expectEqualStrings(&end_copy, model.sessionByIdConst(id).?.worktreeTurnEndSha());
+    try std.testing.expectEqualStrings(diff_copy[0..diff_len], model.sessionByIdConst(id).?.worktreeTurnDiffSha());
     try std.testing.expect(!model.is_streaming());
 }

@@ -92,7 +92,10 @@
 //! force+then_push leave today's local add→preflight→commit path.
 //! First-cut daemon `WorkspaceOperation::CaptureTurnStart` lives in
 //! `fork` (best-effort Send sidecar after local capture; Ack; local
-//! sha stays canonical). Leftovers: CaptureTurn (end) / ListTree /
+//! sha stays canonical). First-cut daemon
+//! `WorkspaceOperation::CaptureTurn` lives in `fork` (best-effort
+//! finish sidecar after local end capture; Checkpoint; local end
+//! shas stay canonical). Leftovers: ListTree /
 //! GenerateCommitMessage / CollectReviewDiff / ref
 //! ops / remotes-on-daemon-list / amend/force over daemon / remote
 //! `--track` over daemon / …

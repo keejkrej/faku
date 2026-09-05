@@ -23,7 +23,8 @@
 //! workspace ack (Push / Commit / CaptureTurnStart), `worktreeCreated` (CreateWorktree),
 //! or `branches` with a usable snapshot (InspectBranches), or
 //! `branchChanged` with a usable snapshot (CheckoutBranch), or
-//! `commitSnapshot` with a usable snapshot (InspectCommit).
+//! `commitSnapshot` with a usable snapshot (InspectCommit), or
+//! `checkpoint` with a nested checkpoint object (CaptureTurn).
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -362,7 +363,8 @@ pub fn writeGoalStdin(buf: []u8, args: GoalStdin) WriteError![]const u8 {
 }
 
 /// NDJSON stdin for first-cut workspace Push / CreateWorktree / Commit /
-/// InspectBranches / CheckoutBranch / InspectCommit / CaptureTurnStart.
+/// InspectBranches / CheckoutBranch / InspectCommit / CaptureTurnStart /
+/// CaptureTurn.
 /// Hello + `workspace`
 /// (nil request-frame `sessionId` / `runtimeId`, command payload
 /// `operation`). Own spawn key — Native cannot write into a running
@@ -1159,6 +1161,47 @@ test "writeWorkspaceStdin emits hello and workspace captureTurnStart without a p
     try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
         .operation = .{
             .capture_turn_start = .{
+                .cwd = "/tmp/faku",
+                .session_id = "00000000-0000-0000-0000-000000000007",
+                .turn_count = 1,
+            },
+        },
+    }));
+}
+
+test "writeWorkspaceStdin emits hello and workspace captureTurn without a prompt" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{
+            .capture_turn = .{
+                .cwd = "/tmp/faku",
+                .session_id = "00000000-0000-0000-0000-000000000007",
+                .turn_count = 2,
+            },
+        },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ WORKSPACE_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"captureTurn\",\"cwd\":\"/tmp/faku\",\"sessionId\":\"00000000-0000-0000-0000-000000000007\",\"turnCount\":2}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"captureTurnStart\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"inspectCommit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"inspectBranches\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"push\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"commit\"") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForWorkspace(stdin));
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
+        .operation = .{
+            .capture_turn = .{
                 .cwd = "/tmp/faku",
                 .session_id = "00000000-0000-0000-0000-000000000007",
                 .turn_count = 1,

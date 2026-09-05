@@ -133,9 +133,12 @@
 //! no amend and no force), and
 //! `WorkspaceOperation::CaptureTurnStart`
 //! `{ "type": "captureTurnStart", "cwd", "sessionId", "turnCount" }`
-//! (camelCase fields; `turnCount` is a JSON number). This cut ships
+//! (camelCase fields; `turnCount` is a JSON number), and
+//! `WorkspaceOperation::CaptureTurn`
+//! `{ "type": "captureTurn", "cwd", "sessionId", "turnCount" }`
+//! (same camelCase fields as CaptureTurnStart). This cut ships
 //! Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
-//! InspectCommit, and CaptureTurnStart.
+//! InspectCommit, CaptureTurnStart, and CaptureTurn.
 //! There is no force flag on daemon Push. An ok outcome is
 //! `ResponsePayload::Workspace { result }` where Push, Commit, and
 //! CaptureTurnStart yield `WorkspaceResult::Ack` — wire `outcome.payload`
@@ -150,16 +153,24 @@
 //! (not a bare branches object) — CheckoutBranch yields
 //! `WorkspaceResult::BranchChanged` — wire
 //! `result: { "type": "branchChanged", "snapshot": { …BranchSnapshot… } }`
-//! nested under `outcome.payload` (not a bare ack) — and InspectCommit
+//! nested under `outcome.payload` (not a bare ack) — InspectCommit
 //! yields `WorkspaceResult::CommitSnapshot` — wire
 //! `result: { "type": "commitSnapshot", "snapshot": { … } }` nested
-//! under `outcome.payload` (not a bare ack). `BranchSnapshot` /
+//! under `outcome.payload` (not a bare ack) — and CaptureTurn yields
+//! `WorkspaceResult::Checkpoint` — wire
+//! `result: { "type": "checkpoint", "checkpoint": { … } }` nested
+//! under `outcome.payload` (not a bare checkpoint object; not Ack).
+//! `BranchSnapshot` /
 //! `BranchEntry` have no serde rename_all: snake_case `repository`,
 //! `current`, `detached_head`, `default_branch`, `branches`,
 //! `additions`, `deletions`; entries are `name` +
 //! `checked_out_elsewhere`. `CommitSnapshot` has no serde rename_all:
 //! snake_case `branch`, `additions`, `deletions`, `staged_additions`,
-//! `staged_deletions`, `has_staged`, `has_unstaged`, `can_push`. A
+//! `staged_deletions`, `has_staged`, `has_unstaged`, `can_push`.
+//! Checkpoint / CheckpointFile / CheckpointStatus have no serde
+//! rename_all: snake_case `turn_count`, `git_ref`, `status`, `files`,
+//! `additions`, `deletions`, `created_at`; status variant names as-is
+//! (`Ready` / `Unavailable` / `Error`). A
 //! non-nil `requestId` is required (nil is a notify). Wait for a
 //! `response` frame (ok or error), not a driver event.
 //!
@@ -358,7 +369,8 @@ pub fn defaultStartOptions() StartOptions {
 /// daemon sidecar). It is not an fx / ACP method. `workspace` is
 /// first-cut `WorkspaceOperation::Push`, `CreateWorktree`,
 /// `Commit`, `InspectBranches`, `CheckoutBranch`,
-/// `InspectCommit`, and `CaptureTurnStart` (hello + workspace sidecar).
+/// `InspectCommit`, `CaptureTurnStart`, and `CaptureTurn`
+/// (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -526,11 +538,12 @@ pub const GoalOperation = union(GoalKind) {
 /// fields; `base_branch` string or JSON null), `Commit`
 /// `{ cwd, message, include_unstaged, push }`, `InspectBranches
 /// { cwd }`, `CheckoutBranch { cwd, branch, create }`,
-/// `InspectCommit { cwd }`, and `CaptureTurnStart
+/// `InspectCommit { cwd }`, `CaptureTurnStart
+/// { cwd, session_id, turn_count }`, and `CaptureTurn
 /// { cwd, session_id, turn_count }` (camelCase `sessionId` /
 /// `turnCount` on the wire). No force flag on Push or Commit. No
 /// amend on daemon Commit or InspectCommit.
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start };
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn };
 
 pub const WorkspacePush = struct {
     cwd: []const u8,
@@ -571,6 +584,12 @@ pub const WorkspaceCaptureTurnStart = struct {
     turn_count: u32,
 };
 
+pub const WorkspaceCaptureTurn = struct {
+    cwd: []const u8,
+    session_id: []const u8,
+    turn_count: u32,
+};
+
 pub const WorkspaceOperation = union(WorkspaceKind) {
     push: WorkspacePush,
     create_worktree: WorkspaceCreateWorktree,
@@ -579,6 +598,7 @@ pub const WorkspaceOperation = union(WorkspaceKind) {
     checkout_branch: WorkspaceCheckoutBranch,
     inspect_commit: WorkspaceInspectCommit,
     capture_turn_start: WorkspaceCaptureTurnStart,
+    capture_turn: WorkspaceCaptureTurn,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -852,7 +872,7 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// Same request-frame shape as `writeGoal`. Waku `WorkspaceClient::request`
 /// uses nil `sessionId` and nil `runtimeId` for workspace RPCs. Callers
 /// for Push, CreateWorktree, Commit, InspectBranches,
-/// CheckoutBranch, InspectCommit, and CaptureTurnStart pass
+/// CheckoutBranch, InspectCommit, CaptureTurnStart, and CaptureTurn pass
 /// `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
@@ -933,6 +953,15 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
         },
         .capture_turn_start => |args| {
             try cur.write("{\"type\":\"captureTurnStart\",\"cwd\":");
+            try writeJsonString(cur, args.cwd);
+            try cur.write(",\"sessionId\":");
+            try writeJsonString(cur, args.session_id);
+            try cur.write(",\"turnCount\":");
+            try writeUint(cur, args.turn_count);
+            try cur.write("}");
+        },
+        .capture_turn => |args| {
+            try cur.write("{\"type\":\"captureTurn\",\"cwd\":");
             try writeJsonString(cur, args.cwd);
             try cur.write(",\"sessionId\":");
             try writeJsonString(cur, args.session_id);
@@ -1450,17 +1479,30 @@ pub fn parseCommitSnapshot(allocator: std.mem.Allocator, line: []const u8) Parse
     return parsed;
 }
 
+/// Light ok-checkpoint check for first-cut workspace CaptureTurn.
+/// True when an ok `response` carries nested
+/// `result: { "type": "checkpoint", "checkpoint": { … } }`.
+/// Does not parse Checkpoint fields and does not apply them to
+/// Model / session state.
+pub fn isWorkspaceCheckpoint(allocator: std.mem.Allocator, line: []const u8) bool {
+    const result = workspaceResultObject(allocator, line) orelse return false;
+    if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "checkpoint")) return false;
+    return jsonObject(result.get("checkpoint") orelse return false) != null;
+}
+
 /// True when the line is an ok workspace Push / Commit /
 /// CaptureTurnStart ack, CreateWorktree `worktreeCreated`
 /// (non-empty path + branch), InspectBranches `branches` with a
 /// usable snapshot, CheckoutBranch `branchChanged` with a usable
-/// snapshot, or InspectCommit `commitSnapshot` with a usable snapshot.
+/// snapshot, InspectCommit `commitSnapshot` with a usable snapshot,
+/// or CaptureTurn `checkpoint` with a nested checkpoint object.
 pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (isWorkspaceAck(allocator, line)) return true;
     if (parseWorktreeCreated(allocator, line).ok) return true;
     if (parseBranches(allocator, line).ok) return true;
     if (parseBranchChanged(allocator, line).ok) return true;
-    return parseCommitSnapshot(allocator, line).ok;
+    if (parseCommitSnapshot(allocator, line).ok) return true;
+    return isWorkspaceCheckpoint(allocator, line);
 }
 
 fn workspaceResultObject(allocator: std.mem.Allocator, line: []const u8) ?std.json.ObjectMap {
@@ -2012,6 +2054,75 @@ test "workspace request wraps camelCase captureTurnStart with sessionId, turnCou
             .turn_count = 1,
         } },
     ));
+}
+
+test "workspace request wraps camelCase captureTurn with sessionId, turnCount, and nil ids" {
+    var buf: [512]u8 = undefined;
+    const json = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .capture_turn = .{
+            .cwd = "/tmp/faku",
+            .session_id = "00000000-0000-0000-0000-000000000007",
+            .turn_count = 3,
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"captureTurn\",\"cwd\":\"/tmp/faku\",\"sessionId\":\"00000000-0000-0000-0000-000000000007\",\"turnCount\":3}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"turnCount\":3") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"turnCount\":\"3\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "session_id") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "turn_count") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"captureTurnStart\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"listTree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"inspectCommit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"inspectBranches\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"generateCommitMessage\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"collectReviewDiff\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"push\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"commit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"createWorktree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"captureTurn\"") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .capture_turn = .{
+            .cwd = "/tmp/faku",
+            .session_id = "00000000-0000-0000-0000-000000000007",
+            .turn_count = 1,
+        } },
+    ));
+}
+
+test "isWorkspaceCheckpoint accepts nested workspace checkpoint and rejects ack, bare checkpoint, or missing object" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"checkpoint\",\"checkpoint\":{\"turn_count\":1,\"git_ref\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"status\":\"Ready\",\"files\":[],\"additions\":2,\"deletions\":0,\"created_at\":\"2026-09-05T00:00:00Z\"}}}}}";
+    try std.testing.expect(isWorkspaceCheckpoint(arena, ok_line));
+    try std.testing.expect(isWorkspaceSuccess(arena, ok_line));
+    try std.testing.expect(!isWorkspaceAck(arena, ok_line));
+    try std.testing.expect(!parseCommitSnapshot(arena, ok_line).ok);
+    try std.testing.expect(!parseWorktreeCreated(arena, ok_line).ok);
+
+    try std.testing.expect(!isWorkspaceCheckpoint(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}"));
+    try std.testing.expect(!isWorkspaceCheckpoint(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"checkpoint\",\"checkpoint\":{\"turn_count\":1,\"git_ref\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"status\":\"Ready\",\"files\":[],\"additions\":0,\"deletions\":0,\"created_at\":\"2026-09-05T00:00:00Z\"}}}}"));
+    try std.testing.expect(!isWorkspaceCheckpoint(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"checkpoint\"}}}}"));
+    try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"checkpoint\"}}}}"));
+    try std.testing.expect(!isWorkspaceCheckpoint(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"checkpoint\",\"checkpoint\":null}}}}"));
+    try std.testing.expect(!isWorkspaceCheckpoint(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}"));
 }
 
 test "parseCommitSnapshot extracts snake_case snapshot and rejects null, missing fields, or camelCase counts" {

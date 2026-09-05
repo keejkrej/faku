@@ -139,7 +139,7 @@
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
 //! Leftovers: other daemon `WorkspaceOperation` variants
-//! (CaptureTurn (end), ListTree, GenerateCommitMessage,
+//! (ListTree, GenerateCommitMessage,
 //! CollectReviewDiff, ref ops, remotes-on-daemon-list, amend/force
 //! over daemon, remote `--track` over daemon, …). Fetch
 //! already `--prune`; there is no prune-alone menu (not in Waku).
@@ -189,6 +189,9 @@
 //! unusable snapshot falls back to local numstat). First-cut daemon
 //! `WorkspaceOperation::CaptureTurnStart` lives in `fork` (best-effort
 //! Send sidecar after local capture; Ack; local sha stays canonical).
+//! First-cut daemon `WorkspaceOperation::CaptureTurn` lives in `fork`
+//! (best-effort finish sidecar after local end capture; Checkpoint;
+//! local end shas stay canonical).
 
 const std = @import("std");
 const builtin = @import("builtin");

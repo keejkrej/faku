@@ -46,9 +46,12 @@
 //! — not a Native spawn and not `/bin/sh -c` interpolation.
 //! First-cut daemon `WorkspaceOperation::CaptureTurnStart` ships
 //! as a best-effort sidecar from `fork.recordRewindRefIfPossible`
-//! (Ack; does not replace this local capture). Leftovers: force,
-//! background work, daemon CaptureTurn (end). Not transcript
-//! checkpoint +/-.
+//! (Ack; does not replace this local capture). First-cut daemon
+//! `WorkspaceOperation::CaptureTurn` ships as a best-effort sidecar
+//! from `fork.recordTurnEndIfPossible` after a successful local
+//! finish sha (Checkpoint; does not replace
+//! `worktree_turn_end_sha` / `worktree_turn_diff_sha`). Leftovers:
+//! force, background work. Not transcript checkpoint +/-.
 
 const std = @import("std");
 const rewind = @import("rewind.zig");
