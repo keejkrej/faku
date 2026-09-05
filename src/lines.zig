@@ -126,6 +126,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         pick_folder.applyDaemonLine(model, line);
         return;
     }
+    if (model.file_preview_save_key != 0 and line.key == model.file_preview_save_key) {
+        right_panel.applyDaemonSaveLine(model, line);
+        return;
+    }
     if (model.file_preview_key != 0 and line.key == model.file_preview_key) {
         right_panel.applyDaemonLine(model, line);
         return;
@@ -1078,6 +1082,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.daemon_dir_browser_key != 0 and exit.key == model.daemon_dir_browser_key) {
         pick_folder.handleDaemonExit(model, fx, exit);
+        return;
+    }
+    if (model.file_preview_save_key != 0 and exit.key == model.file_preview_save_key) {
+        right_panel.handleDaemonSaveExit(model, fx, exit);
         return;
     }
     if (model.file_preview_key != 0 and exit.key == model.file_preview_key) {

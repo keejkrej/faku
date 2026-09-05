@@ -327,7 +327,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .open_right_panel_file_editor => right_panel.openPreviewInEditor(model, fx),
         .open_right_panel_file_edit => right_panel.startFilePreviewEdit(model),
         .file_preview_edit => |edit| right_panel.applyFilePreviewEdit(model, edit),
-        .file_preview_save => right_panel.saveFilePreview(model),
+        .file_preview_save => right_panel.saveFilePreview(model, fx),
         .file_preview_reload => right_panel.reloadFilePreview(model, fx),
         .file_preview_discard => {
             const intent = right_panel.acceptPendingDiscard(model);

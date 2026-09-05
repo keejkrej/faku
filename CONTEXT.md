@@ -227,8 +227,8 @@ Hello is protocol v4. First-cut commands: `loadTaskState`,
 `fx`. fx-first (`fx acp` / `fx ask` / demo) does not use daemon hello.
 First-cut `workspace` ships Push, CreateWorktree, Commit,
 InspectBranches, CheckoutBranch, InspectCommit, CaptureTurnStart,
-CaptureTurn, GenerateCommitMessage, ListTree, CollectReviewDiff, and
-BrowseDirectory.
+CaptureTurn, GenerateCommitMessage, ListTree, CollectReviewDiff,
+BrowseDirectory, ReadTextFile, and WriteTextFile.
 
 Local `sessions.json` remains the catalog of record. Daemon
 `saveTaskState` is a best-effort one-shot mirror. Wire `loadTaskState`
@@ -368,6 +368,17 @@ paints a first-cut in-app directory browser from `entries`; Choose
 sets `project_path`; Native 4 KiB stdin overflow / error / unusable
 parse falls back to the local OS folder dialog; no address keeps
 today's OS path). First-cut daemon
+`WorkspaceOperation::ReadTextFile` ships on Files preview load
+(select / Reload) when a daemon address is set (ok is nested
+`textFile` + `content`; Native 4 KiB stdin overflow / error /
+unusable parse falls back to local `readFileAlloc`; no address
+keeps today's local path). First-cut daemon
+`WorkspaceOperation::WriteTextFile` ships on Files preview Save
+when a daemon address is set (ok is workspace Ack; Native 4 KiB
+stdin overflow / spawn failure / non-ok / non-ack / unusable parse
+falls back to local atomic write; truncated / binary / gated
+refuse stay local; Open-in-editor stays local; no address keeps
+today's local path). First-cut daemon
 `WorkspaceOperation::CaptureTurnStart` ships on Send after local
 `fork.recordRewindRefIfPossible` when a daemon address is set
 (best-effort sidecar; ok is workspace Ack; local
@@ -390,9 +401,8 @@ in sync; default still today's origin/HEAD probe then composer
 branch label then omit/HEAD). First-cut defer-until-Send workspace
 mode ships (composer Work in Local / New worktree; optional
 `baseBranch` persist on that draft; Send queues the prompt, one-shots the same `git worktree add` as New worktree… when no daemon address is set,
-retargets `project_path`, then `startPrompt`). Leftovers: other
-daemon `WorkspaceOperation` variants (WriteTextFile, remotes-on-daemon-list, amend/force over daemon,
-remote `--track` over daemon, ref ops, …). Fetch already
+retargets `project_path`, then `startPrompt`). Leftovers: remotes-on-daemon-list, amend/force over daemon,
+remote `--track` over daemon, ref ops. Fetch already
 `--prune`; there is no prune-alone menu (not in Waku).
 Windows probes, checkout / push / worktree, and commit mutations (add / cached-quiet / commit /
 amend / CommitSnapshot tracked-cached) use `git.exe -C <project_path>`;
@@ -437,8 +447,11 @@ Waku's 50k index or a Native FS watcher), with a bounded inline preview on file 
 lexer name from the path, unknown / Dockerfile / Makefile /
 Cargo.toml → `plain`; Native numbered mode omits the gutter above 128
 logical lines but keeps the source; first-cut Edit switches a full
-text window to `<textarea>`, Save writes via Zig `std.fs` atomic
-replace, Reload re-reads disk and discards dirty; truncated stays
+text window to `<textarea>`, Save prefers hello + daemon
+`WorkspaceOperation::WriteTextFile` when a daemon address is set
+(ok Ack adopts the saved buffer; Native 4 KiB stdin overflow /
+sidecar failure / non-ack falls back to Zig `std.fs` atomic
+replace), Reload re-reads disk and discards dirty; truncated stays
 Open-in-editor + Reload; first-cut live reload via mtime/size poll
 on the update tick — still not a real FS watcher / Native watch API). Diff hosts Environment Compare / Review (Branch,
 Uncommitted, Staged, Unstaged, Committed, LastTurn; first-cut daemon
@@ -461,9 +474,10 @@ on one-shot `claude -p` ships (live Stop dismisses that live row;
 settled rows offer Dismiss; not Claude TaskStop mid-turn). Not daemon
 `WorkspaceOperation` for Background (first-cut daemon Push,
 CreateWorktree, Commit, InspectBranches, CheckoutBranch,
-InspectCommit, GenerateCommitMessage, ListTree, CollectReviewDiff, and
-BrowseDirectory live on composer git / Send prep / Commit… / the
-branch picker / Files refresh / Review Diff / Pick folder; CaptureTurnStart is a best-effort Send sidecar
+InspectCommit, GenerateCommitMessage, ListTree, CollectReviewDiff,
+BrowseDirectory, ReadTextFile, and WriteTextFile live on composer git / Send prep / Commit… / the
+branch picker / Files refresh / Review Diff / Pick folder / Files
+preview load / Files preview Save; CaptureTurnStart is a best-effort Send sidecar
 alongside local snapshot capture; CaptureTurn is a best-effort
 finish sidecar after local end capture). Environment Summary Background is
 Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
@@ -738,10 +752,12 @@ Honest gaps this cut does not implement:
   256KB inline preview with Native `<code>` highlighting and
   `line-numbers`; language from a documented lexer name, unknown →
   plain. First-cut Edit / Save / Reload ships: textarea while dirty,
-  Zig `std.fs` atomic write, Reload discards unsaved edits. First-cut
+  Save prefers hello + daemon `WriteTextFile` when a daemon address
+  is set (ok Ack; Native 4 KiB stdin overflow falls back to Zig
+  `std.fs` atomic write), Reload discards unsaved edits. First-cut
   live reload via mtime/size poll on the update tick. Not a real FS
   watcher / Native watch API)
-- Other daemon `WorkspaceOperation` variants (WriteTextFile, ref ops,
+- Other daemon `WorkspaceOperation` variants (ref ops,
   remotes-on-daemon-list, amend/force over daemon, remote `--track`
   over daemon, …). First-cut
   `WorkspaceOperation::Push` ships as a best-effort sidecar when
@@ -801,8 +817,15 @@ Honest gaps this cut does not implement:
   buffers (client-side cap / binary / truncated label); fingerprint
   refresh matches local when stat works; Native 4 KiB stdin overflow
   / error / unusable parse falls back to local `readFileAlloc`;
-  Reload re-prefers ReadTextFile while an address is set; Save /
-  Edit / Open-in-editor stay local (no WriteTextFile). First-cut
+  Reload re-prefers ReadTextFile while an address is set. First-cut
+  `WorkspaceOperation::WriteTextFile` ships on Files preview Save
+  when a daemon address is set; ok is workspace Ack (same nested
+  `result: { "type": "ack" }` as Push / Commit / CaptureTurnStart);
+  adopts the saved buffer as the preview body; Native 4 KiB stdin
+  overflow / spawn failure / non-ok / non-ack / unusable parse falls
+  back to local atomic write; truncated / binary / gated refuse stay
+  local (no daemon attempt); Open-in-editor stays local; no address
+  keeps today's local path. First-cut
   `WorkspaceOperation::CaptureTurnStart` ships on Send after local
   capture when a daemon address is set; ok is workspace Ack; local
   `worktree_snapshot_sha` / `refs/faku/...` stay canonical; Native

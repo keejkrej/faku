@@ -115,7 +115,9 @@
 //! `WorkspaceOperation::BrowseDirectory` lives in `pick_folder`
 //! (Pick folder in-app browser when a daemon address is set). First-cut daemon
 //! `WorkspaceOperation::ReadTextFile` lives in `right_panel` (Files
-//! preview load / Reload). Leftovers: WriteTextFile / ref
+//! preview load / Reload). First-cut daemon
+//! `WorkspaceOperation::WriteTextFile` lives in `right_panel` (Files
+//! preview Save). Leftovers: ref
 //! ops / remotes-on-daemon-list / amend/force over daemon / remote
 //! `--track` over daemon / …
 //!

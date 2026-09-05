@@ -161,14 +161,18 @@
 //! `WorkspaceOperation::ReadTextFile`
 //! `{ "type": "readTextFile", "root", "relative_path" }` (camelCase
 //! op tag; request fields snake_case `relative_path` like other
-//! Faku workspace ops). This cut
+//! Faku workspace ops), and
+//! `WorkspaceOperation::WriteTextFile`
+//! `{ "type": "writeTextFile", "root", "relative_path", "content" }`
+//! (camelCase op tag; snake_case `relative_path`; `content` is a
+//! JSON string via `writeJsonString`). This cut
 //! ships Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
 //! InspectCommit, CaptureTurnStart, CaptureTurn,
 //! GenerateCommitMessage, ListTree, CollectReviewDiff,
-//! BrowseDirectory, and ReadTextFile.
+//! BrowseDirectory, ReadTextFile, and WriteTextFile.
 //! There is no force flag on daemon Push. An ok outcome is
-//! `ResponsePayload::Workspace { result }` where Push, Commit, and
-//! CaptureTurnStart yield `WorkspaceResult::Ack` — wire `outcome.payload`
+//! `ResponsePayload::Workspace { result }` where Push, Commit,
+//! CaptureTurnStart, and WriteTextFile yield `WorkspaceResult::Ack` — wire `outcome.payload`
 //! `{ "type": "workspace", "result": { "type": "ack" } }` (not a bare
 //! `ack`) — CreateWorktree yields
 //! `WorkspaceResult::WorktreeCreated` — wire
@@ -424,7 +428,8 @@ pub fn defaultStartOptions() StartOptions {
 /// `Commit`, `InspectBranches`, `CheckoutBranch`,
 /// `InspectCommit`, `CaptureTurnStart`, `CaptureTurn`,
 /// `GenerateCommitMessage`, `ListTree`, `CollectReviewDiff`,
-/// `BrowseDirectory`, and `ReadTextFile` (hello + workspace sidecar).
+/// `BrowseDirectory`, `ReadTextFile`, and `WriteTextFile`
+/// (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -604,10 +609,13 @@ pub const GoalOperation = union(GoalKind) {
 /// externally tagged camelCase; LastTurn nested fields stay
 /// snake_case), and `BrowseDirectory { path }` (`path` JSON string
 /// or null), and `ReadTextFile { root, relative_path }` (snake_case
-/// `relative_path`). No force flag on Push or Commit. No amend on
-/// daemon Commit, InspectCommit, or CollectReviewDiff. No
-/// WriteTextFile this cut.
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file };
+/// `relative_path`), and `WriteTextFile { root, relative_path,
+/// content }` (snake_case `relative_path`; `content` JSON string).
+/// No force flag on Push or Commit. No amend on
+/// daemon Commit, InspectCommit, or CollectReviewDiff. Leftovers:
+/// remotes-on-daemon-list, amend/force over daemon, remote `--track`
+/// over daemon, ref ops.
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file };
 
 /// Waku `AgentInvocation`. Wire keys match generated TS:
 /// `provider`, `binary`, `model`, `reasoning_effort` (snake_case
@@ -708,6 +716,12 @@ pub const WorkspaceReadTextFile = struct {
     relative_path: []const u8,
 };
 
+pub const WorkspaceWriteTextFile = struct {
+    root: []const u8,
+    relative_path: []const u8,
+    content: []const u8,
+};
+
 pub const WorkspaceOperation = union(WorkspaceKind) {
     push: WorkspacePush,
     create_worktree: WorkspaceCreateWorktree,
@@ -722,6 +736,7 @@ pub const WorkspaceOperation = union(WorkspaceKind) {
     collect_review_diff: WorkspaceCollectReviewDiff,
     browse_directory: WorkspaceBrowseDirectory,
     read_text_file: WorkspaceReadTextFile,
+    write_text_file: WorkspaceWriteTextFile,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -1058,7 +1073,7 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// for Push, CreateWorktree, Commit, InspectBranches,
 /// CheckoutBranch, InspectCommit, CaptureTurnStart, CaptureTurn,
 /// GenerateCommitMessage, ListTree, CollectReviewDiff,
-/// BrowseDirectory, and ReadTextFile pass
+/// BrowseDirectory, ReadTextFile, and WriteTextFile pass
 /// `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
@@ -1209,6 +1224,15 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
             try writeJsonString(cur, args.root);
             try cur.write(",\"relative_path\":");
             try writeJsonString(cur, args.relative_path);
+            try cur.write("}");
+        },
+        .write_text_file => |args| {
+            try cur.write("{\"type\":\"writeTextFile\",\"root\":");
+            try writeJsonString(cur, args.root);
+            try cur.write(",\"relative_path\":");
+            try writeJsonString(cur, args.relative_path);
+            try cur.write(",\"content\":");
+            try writeJsonString(cur, args.content);
             try cur.write("}");
         },
     }
@@ -1628,7 +1652,8 @@ pub fn parseSessionRuntime(allocator: std.mem.Allocator, line: []const u8) Parse
     return parsed;
 }
 
-/// Light ok-ack check for first-cut workspace Push. True when an ok
+/// Light ok-ack check for first-cut workspace Push / Commit /
+/// CaptureTurnStart / WriteTextFile. True when an ok
 /// `response` carries `payload: { "type": "workspace", "result": { "type": "ack" } }`.
 /// Does not parse the full `WorkspaceResult` union.
 pub fn isWorkspaceAck(allocator: std.mem.Allocator, line: []const u8) bool {
@@ -1899,7 +1924,7 @@ pub fn isWorkspaceCheckpoint(allocator: std.mem.Allocator, line: []const u8) boo
 }
 
 /// True when the line is an ok workspace Push / Commit /
-/// CaptureTurnStart ack, CreateWorktree `worktreeCreated`
+/// CaptureTurnStart / WriteTextFile ack, CreateWorktree `worktreeCreated`
 /// (non-empty path + branch), InspectBranches `branches` with a
 /// usable snapshot, CheckoutBranch `branchChanged` with a usable
 /// snapshot, InspectCommit `commitSnapshot` with a usable snapshot,
@@ -3051,6 +3076,39 @@ test "parseTextFile extracts nested content and rejects bare textFile, ack, or m
     try std.testing.expect(!parseTextFile(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"textFile\",\"content\":null}}}}").ok);
     try std.testing.expect(!parseTextFile(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
     try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"textFile\"}}}}"));
+}
+
+test "workspace request wraps camelCase writeTextFile with snake_case relative_path and JSON content" {
+    var buf: [1024]u8 = undefined;
+    const json = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .write_text_file = .{ .root = "/tmp/faku", .relative_path = "src/main.zig", .content = "hello\n\"world\"" } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"writeTextFile\",\"root\":\"/tmp/faku\",\"relative_path\":\"src/main.zig\",\"content\":\"hello\\n\\\"world\\\"\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"writeTextFile\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"relative_path\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "relativePath") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"readTextFile\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"listTree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"writeTextFile\"") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .write_text_file = .{ .root = "/tmp/faku", .relative_path = "src/main.zig", .content = "hello" } },
+    ));
 }
 
 test "start defaults to first-party fx over acp" {

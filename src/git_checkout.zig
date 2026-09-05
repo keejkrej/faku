@@ -141,7 +141,7 @@
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
 //! Leftovers: other daemon `WorkspaceOperation` variants
-//! (WriteTextFile, ref ops, remotes-on-daemon-list, amend/force over
+//! (ref ops, remotes-on-daemon-list, amend/force over
 //! daemon, remote `--track` over daemon, …). Fetch
 //! already `--prune`; there is no prune-alone menu (not in Waku).
 //! First-cut defer-until-Send Work in reuses this same add path on
@@ -203,7 +203,10 @@
 //! `WorkspaceOperation::BrowseDirectory` lives in `pick_folder`
 //! (Pick folder in-app browser when a daemon address is set). First-cut daemon
 //! `WorkspaceOperation::ReadTextFile` lives in `right_panel` (Files
-//! preview load / Reload).
+//! preview load / Reload). First-cut daemon
+//! `WorkspaceOperation::WriteTextFile` lives in `right_panel` (Files
+//! preview Save; ok Ack; overflow / non-ack falls back to local
+//! atomic write).
 
 const std = @import("std");
 const builtin = @import("builtin");
