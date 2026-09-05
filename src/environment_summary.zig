@@ -168,8 +168,11 @@
 //! dialog). First-cut daemon `WorkspaceOperation::ReadTextFile`
 //! ships in `right_panel` (Files preview load / Reload). First-cut daemon
 //! `WorkspaceOperation::WriteTextFile` ships in `right_panel` (Files
-//! preview Save; overflow / non-ack falls back to local atomic write). Leftovers: other daemon `WorkspaceOperation`
-//! variants (HasRef / CaptureRef / RestoreRef / DeleteRef /
+//! preview Save; overflow / non-ack falls back to local atomic write). First-cut daemon
+//! `WorkspaceOperation::HasRef` ships in `fork` (prefer hello +
+//! hasRef on Send for the baseline `hasFakuRef` check; Bool;
+//! overflow / miss / non-bool / error fall back to local). Leftovers: other daemon `WorkspaceOperation`
+//! variants (CaptureRef / RestoreRef / DeleteRef /
 //! DeleteTurnRefsAfter / SessionTurnRefs, amend/force over daemon,
 //! remote `--track` over daemon, …).
 

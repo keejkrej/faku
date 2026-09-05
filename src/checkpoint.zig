@@ -58,8 +58,13 @@
 //! `WorkspaceOperation::DeleteSessionRefs` ships as a best-effort
 //! sidecar from `store.removeIfPossible` after a local catalog
 //! remove (Ack; does not replace local remove or `closeSession`).
+//! First-cut daemon `WorkspaceOperation::HasRef` ships as a
+//! prefer+fallback sidecar from `fork.recordRewindRefIfPossible`
+//! for the Send-time baseline check that otherwise calls local
+//! `hasFakuRef` (Bool; Native 4 KiB overflow / miss / non-bool /
+//! error fall back to this local `show-ref --verify` path).
 //! Leftovers:
-//! force, background work, HasRef / CaptureRef / RestoreRef /
+//! force, background work, CaptureRef / RestoreRef /
 //! DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs, etc. Not
 //! transcript checkpoint +/-.
 
@@ -352,7 +357,24 @@ pub fn captureTurnStart(
     var start_buf: [max_faku_ref_name]u8 = undefined;
     const start_ref = formatFakuSessionTurnStartRef(&start_buf, session_id, turn_count) orelse return false;
     if (!updateFakuRef(allocator, io, project_path, start_ref, sha)) return false;
+    seedBaselineIfMissing(allocator, io, project_path, session_id, turn_count, sha);
+    return true;
+}
 
+/// If `turn-{n-1}` (or `turn-0` when `n` is 0) is missing, name that
+/// baseline with `sha`. Quiet no-op on bad sha / missing name /
+/// failed update-ref. Local `hasFakuRef` (`show-ref --verify`) is
+/// the offline check; a daemon HasRef sidecar may skip this when
+/// it already answered.
+pub fn seedBaselineIfMissing(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    session_id: u32,
+    turn_count: u32,
+    sha: []const u8,
+) void {
+    if (!rewind.isStoredSha(sha)) return;
     const baseline_n: u32 = if (turn_count >= 1) turn_count - 1 else 0;
     var baseline_buf: [max_faku_ref_name]u8 = undefined;
     if (formatFakuSessionTurnRef(&baseline_buf, session_id, baseline_n)) |baseline_ref| {
@@ -360,7 +382,6 @@ pub fn captureTurnStart(
             _ = updateFakuRef(allocator, io, project_path, baseline_ref, sha);
         }
     }
-    return true;
 }
 
 /// Name the stored 40-hex as `turn-{n}`. Requires a valid

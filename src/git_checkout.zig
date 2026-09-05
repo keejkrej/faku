@@ -144,7 +144,7 @@
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
 //! Leftovers: other daemon `WorkspaceOperation` variants
-//! (HasRef / CaptureRef / RestoreRef / DeleteRef /
+//! (CaptureRef / RestoreRef / DeleteRef /
 //! DeleteTurnRefsAfter / SessionTurnRefs, amend/force over daemon,
 //! remote `--track` over daemon, …). Fetch
 //! already `--prune`; there is no prune-alone menu (not in Waku).
@@ -207,6 +207,9 @@
 //! (best-effort sidecar after a local sessions.json remove; Ack;
 //! local remove stays canonical; not a replacement for
 //! `closeSession`). First-cut daemon
+//! `WorkspaceOperation::HasRef` lives in `fork` (prefer hello +
+//! hasRef on Send for the baseline `hasFakuRef` check; Bool;
+//! overflow / miss / non-bool / error fall back to local). First-cut daemon
 //! `WorkspaceOperation::ListTree` lives in `file_mention` (Files
 //! refresh; expand after a daemon fill re-prefers ListTree). First-cut daemon
 //! `WorkspaceOperation::CollectReviewDiff` lives in `review_diff` (Review /

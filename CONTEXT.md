@@ -228,8 +228,8 @@ Hello is protocol v4. First-cut commands: `loadTaskState`,
 First-cut `workspace` ships Push, CreateWorktree, Commit,
 InspectBranches, CheckoutBranch, InspectCommit, CaptureTurnStart,
 CaptureTurn, GenerateCommitMessage, ListTree, CollectReviewDiff,
-BrowseDirectory, ReadTextFile, WriteTextFile, CopySessionRefs, and
-DeleteSessionRefs.
+BrowseDirectory, ReadTextFile, WriteTextFile, CopySessionRefs,
+DeleteSessionRefs, and HasRef.
 
 Local `sessions.json` remains the catalog of record. Daemon
 `saveTaskState` is a best-effort one-shot mirror. Wire `loadTaskState`
@@ -408,6 +408,13 @@ daemon address is set (best-effort sidecar; ok is workspace Ack;
 local catalog remove / `closeSession` stay canonical; Native 4 KiB
 stdin overflow / sidecar failure / no address leave the local
 remove alone).
+First-cut daemon `WorkspaceOperation::HasRef` ships on Send after
+local turn-start capture when a daemon address is set (prefer hello
++ hasRef for the baseline check that otherwise calls local
+`checkpoint.hasFakuRef`; snake_case `git_ref`; ok is nested
+`WorkspaceResult::Bool`; Native 4 KiB stdin overflow / miss /
+non-bool / error fall back to local `hasFakuRef`; no address keeps
+today's local path; spawn only when cwd is a git worktree).
 New worktree… first-cut
 Base picker ships (listed unoccupied local heads; runtime-only
 override on the immediate card; Work-in `newWorktree` persists
@@ -417,7 +424,7 @@ branch label then omit/HEAD). First-cut defer-until-Send workspace
 mode ships (composer Work in Local / New worktree; optional
 `baseBranch` persist on that draft; Send queues the prompt, one-shots the same `git worktree add` as New worktree… when no daemon address is set,
 retargets `project_path`, then `startPrompt`). Leftovers: amend/force over daemon,
-remote `--track` over daemon, HasRef / CaptureRef / RestoreRef /
+remote `--track` over daemon, CaptureRef / RestoreRef /
 DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs, etc. Fetch already
 `--prune`; there is no prune-alone menu (not in Waku).
 Windows probes, checkout / push / worktree, and commit mutations (add / cached-quiet / commit /
@@ -436,6 +443,10 @@ as a best-effort sidecar (Ack; does not replace local capture).
 Successful finish also one-shots hello + daemon
 `WorkspaceOperation::CaptureTurn` after local end capture
 (Checkpoint; does not replace local end / turn-diff shas).
+When a daemon address is set, Send also prefers hello + daemon
+`WorkspaceOperation::HasRef` for the baseline `hasFakuRef` check
+(Bool; overflow / miss / non-bool / error fall back to local
+`show-ref --verify`).
 Rewind undoes the last turn's files
 and those chat turns using the Send-time HEAD / snapshot. Fork clones
 the local transcript into a new `sessions.json` row; it is not a
@@ -503,7 +514,9 @@ preview load / Files preview Save; CaptureTurnStart is a best-effort Send sideca
 alongside local snapshot capture; CaptureTurn is a best-effort
 finish sidecar after local end capture; CopySessionRefs is a
 best-effort Fork sidecar after the local catalog clone; DeleteSessionRefs
-is a best-effort Remove sidecar after the local catalog drop). Environment Summary Background is
+is a best-effort Remove sidecar after the local catalog drop; HasRef
+is a prefer+fallback Send sidecar for the baseline `hasFakuRef`
+check). Environment Summary Background is
 Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
 runtime-only multi-row registry. This cut populates Process
 ("Agent turn") from window-side `is_streaming`, plus Stop agent,
@@ -781,7 +794,7 @@ Honest gaps this cut does not implement:
   `std.fs` atomic write), Reload discards unsaved edits. First-cut
   live reload via mtime/size poll on the update tick. Not a real FS
   watcher / Native watch API)
-- Other daemon `WorkspaceOperation` variants (HasRef / CaptureRef /
+- Other daemon `WorkspaceOperation` variants (CaptureRef /
   RestoreRef / DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs,
   amend/force over daemon, remote `--track`
   over daemon, …). First-cut
@@ -873,7 +886,14 @@ Honest gaps this cut does not implement:
   `sessions.json` remove when a daemon address is set; ok is
   workspace Ack; local catalog remove / `closeSession` stay
   canonical; Native 4 KiB stdin overflow / sidecar failure / no
-  address leave the local remove alone
+  address leave the local remove alone. First-cut
+  `WorkspaceOperation::HasRef` ships on Send after local turn-start
+  capture when a daemon address is set; ok is nested
+  `WorkspaceResult::Bool`; prefers hello + hasRef for the baseline
+  check that otherwise calls local `checkpoint.hasFakuRef`; Native
+  4 KiB stdin overflow / miss / non-bool / error fall back to local
+  `hasFakuRef`; no address keeps today's local path; spawn only when
+  cwd is a git worktree
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size

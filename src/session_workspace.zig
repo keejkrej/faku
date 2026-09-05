@@ -69,8 +69,11 @@
 //! `WorkspaceOperation::DeleteSessionRefs` ships in `store`
 //! (best-effort sidecar after a local sessions.json remove; Ack;
 //! local remove stays canonical; not a replacement for
-//! `closeSession`). Leftovers:
-//! other daemon `WorkspaceOperation` variants (HasRef / CaptureRef /
+//! `closeSession`). First-cut daemon
+//! `WorkspaceOperation::HasRef` ships in `fork` (prefer hello +
+//! hasRef on Send for the baseline `hasFakuRef` check; Bool;
+//! overflow / miss / non-bool / error fall back to local). Leftovers:
+//! other daemon `WorkspaceOperation` variants (CaptureRef /
 //! RestoreRef / DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs,
 //! amend/force over daemon, remote `--track` over daemon, …). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).
