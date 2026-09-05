@@ -12,7 +12,11 @@
 //! `WorkspaceOperation::RestoreRef` when a daemon address is set,
 //! cwd is a git worktree, and a snapshot is stored. Overflow / miss /
 //! non-ack / no address keep `checkpoint.restoreRef` on the stored
-//! worktree snapshot. This module's `resetHard` is the
+//! worktree snapshot. After successful Rewind bookkeeping, local
+//! `deleteFakuRef` drops that turn-start `refs/faku` name; when a
+//! daemon address is set, hello + `WorkspaceOperation::DeleteRef`
+//! is a best-effort sidecar (miss / overflow must not undo
+//! transcript bookkeeping). This module's `resetHard` is the
 //! no-snapshot fallback: `git reset --hard` the latest stored
 //! 40-char hex sha. The caller pops that entry so a second
 //! Rewind walks the previous checkpoint, and drops the last

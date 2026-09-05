@@ -1422,6 +1422,16 @@ pub const Model = struct {
     daemon_restore_ref_cwd_len: usize = 0,
     daemon_restore_ref_sha_storage: [40]u8 = [_]u8{0} ** 40,
     daemon_restore_ref_sha_len: usize = 0,
+    /// Best-effort Rewind-time `WorkspaceOperation::DeleteRef` sidecar
+    /// after successful Header Rewind bookkeeping. Distinct from
+    /// RestoreRef so Ack / miss cannot undo transcript bookkeeping
+    /// or settle a live turn. Local `deleteFakuRef` already ran.
+    daemon_delete_ref_key: u64 = 0,
+    daemon_delete_ref_session: u32 = 0,
+    daemon_delete_ref_cwd_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    daemon_delete_ref_cwd_len: usize = 0,
+    daemon_delete_ref_git_ref_storage: [128]u8 = [_]u8{0} ** 128,
+    daemon_delete_ref_git_ref_len: usize = 0,
     fx_spawn_key: u64 = 0,
     next_fx_key: u64 = fx_spawn_overlap_key_first,
     fx_spawn_live: bool = false,
@@ -2014,6 +2024,12 @@ pub const Model = struct {
         "daemon_restore_ref_cwd_len",
         "daemon_restore_ref_sha_storage",
         "daemon_restore_ref_sha_len",
+        "daemon_delete_ref_key",
+        "daemon_delete_ref_session",
+        "daemon_delete_ref_cwd_storage",
+        "daemon_delete_ref_cwd_len",
+        "daemon_delete_ref_git_ref_storage",
+        "daemon_delete_ref_git_ref_len",
         "fx_spawn_key",
         "next_fx_key",
         "fx_spawn_live",

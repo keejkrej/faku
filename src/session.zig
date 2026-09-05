@@ -139,7 +139,9 @@ pub const Session = struct {
     /// stored, else this bare 40-hex over `rewind_refs`. Header
     /// Rewind prefers daemon RestoreRef (turn-start ref) when an
     /// address is set, else `restoreRef` on this sha when set, then
-    /// clears the slot.
+    /// clears the slot. Successful bookkeeping also best-effort
+    /// deletes that turn-start `refs/faku` name (local `deleteFakuRef`,
+    /// then daemon DeleteRef when an address is set).
     worktree_snapshot_sha_storage: [rewind.stored_sha_len]u8 = [_]u8{0} ** rewind.stored_sha_len,
     worktree_snapshot_sha_len: usize = 0,
     /// Latest finish-time worktree snapshot (dangling 40-hex).

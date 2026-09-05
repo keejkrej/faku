@@ -72,9 +72,14 @@
 //! `fork.applyRewindIfPossible` when a daemon address is set and
 //! cwd is a git worktree (Ack; snake_case `git_ref` is the matching
 //! `refs/faku/session-*-turn-start-*`; Native 4 KiB overflow / miss /
-//! non-ack fall back to this local `restoreRef` path). Leftovers:
-//! force, background work, DeleteRef /
-//! DeleteTurnRefsAfter / SessionTurnRefs, etc. Not
+//! non-ack fall back to this local `restoreRef` path). First-cut daemon
+//! `WorkspaceOperation::DeleteRef` ships as a best-effort sidecar from
+//! `fork.completeRewindTranscript` after successful Header Rewind
+//! bookkeeping (Ack; local `refs/faku/...` stay canonical; Native 4
+//! KiB overflow / miss / non-ack leave rewind transcript bookkeeping
+//! alone). Leftovers:
+//! force, background work, DeleteTurnRefsAfter /
+//! SessionTurnRefs, etc. Not
 //! transcript checkpoint +/-.
 
 const std = @import("std");
@@ -320,6 +325,28 @@ pub fn updateFakuRef(
     if (!rewind.isGitWorkTree(io, project_path)) return false;
     const result = std.process.run(allocator, io, .{
         .argv = &.{ git_bin, "-C", project_path, "update-ref", ref_name, sha },
+        .stdout_limit = .limited(256),
+        .stderr_limit = .limited(512),
+    }) catch return false;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    return result.term == .exited and result.term.exited == 0;
+}
+
+/// One-shot `git -C <path> update-ref -d <ref>` (Windows: `git.exe
+/// -C`). Same argv-slot shape as `updateFakuRef`. Missing / non-git /
+/// bad ref / failed delete is quiet false (`git update-ref -d` exits
+/// 0 when the name is already absent, so this checks `hasFakuRef`
+/// first). No Native git API and not `/bin/sh -c`.
+pub fn deleteFakuRef(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    ref_name: []const u8,
+) bool {
+    if (!hasFakuRef(allocator, io, project_path, ref_name)) return false;
+    const result = std.process.run(allocator, io, .{
+        .argv = &.{ git_bin, "-C", project_path, "update-ref", "-d", ref_name },
         .stdout_limit = .limited(256),
         .stderr_limit = .limited(512),
     }) catch return false;
@@ -1821,6 +1848,33 @@ test "hasFakuRef is false for missing and true after update" {
     const snap = captureWorktreeCommit(allocator, testing.io, path, &sha_buf) orelse return error.MissingSnapshot;
     try testing.expect(updateFakuRef(allocator, testing.io, path, ref_name, snap));
     try testing.expect(hasFakuRef(allocator, testing.io, path, ref_name));
+}
+
+test "deleteFakuRef drops a named refs/faku ref and is quiet on missing" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/delete-ref", .{tmp.sub_path[0..]});
+    const head = try initTestRepo(allocator, testing.io, path);
+    defer allocator.free(head);
+
+    var ref_buf: [max_faku_ref_name]u8 = undefined;
+    const ref_name = formatFakuSessionTurnStartRef(&ref_buf, 3, 2) orelse return error.MissingFakuRef;
+    try testing.expect(!deleteFakuRef(allocator, testing.io, path, ref_name));
+    try testing.expect(!deleteFakuRef(allocator, testing.io, "", ref_name));
+    try testing.expect(!deleteFakuRef(allocator, testing.io, ".zig-cache/tmp/faku-delete-ref-missing", ref_name));
+    try testing.expect(!deleteFakuRef(allocator, testing.io, path, "refs/heads/main"));
+    try testing.expect(!deleteFakuRef(allocator, testing.io, path, ""));
+
+    var sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const snap = captureWorktreeCommit(allocator, testing.io, path, &sha_buf) orelse return error.MissingSnapshot;
+    try testing.expect(updateFakuRef(allocator, testing.io, path, ref_name, snap));
+    try testing.expect(hasFakuRef(allocator, testing.io, path, ref_name));
+    try testing.expect(deleteFakuRef(allocator, testing.io, path, ref_name));
+    try testing.expect(!hasFakuRef(allocator, testing.io, path, ref_name));
+    try testing.expect(!deleteFakuRef(allocator, testing.io, path, ref_name));
 }
 
 test "captureTurnStart writes turn-start and seeds a missing baseline" {
