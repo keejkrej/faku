@@ -5144,11 +5144,12 @@ test "GenerateCommitMessage sidecar empty message falls back to local fx ask" {
     const id = model.addSession("generate daemon empty", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
-    markDirtyUnstaged(&model, 1);
+    markDirtyStaged(&model, 1);
 
     startCommit(&model, &fx);
     toggleIncludeUnstaged(&model, &fx);
     try std.testing.expect(!model.git_commit_include_unstaged);
+    try std.testing.expect(canCommitGit(&model));
     confirmCommit(&model, &fx);
     const sidecar = findPendingDaemonCommit(&fx, model.git_commit_generate_key) orelse return error.MissingDaemonGenerateEmpty;
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"includeUnstaged\":false") != null);
