@@ -59,7 +59,7 @@
 //! write; no address keeps today's local path; truncated / binary /
 //! gated refuse paths stay local with no daemon attempt; Open-in-editor
 //! stays local). Leftovers: amend/force over
-//! daemon, remote `--track` over daemon, HasRef / CaptureRef /
+//! daemon, remote `--track` over daemon, CaptureRef /
 //! RestoreRef / DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs,
 //! etc.
 //! Not Waku's 50k-file index (cap 256). Windows probes the same

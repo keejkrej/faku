@@ -30,7 +30,8 @@
 //! `workingTree` with a parsed `entries` array (ListTree), or
 //! `reviewDiff` with nested `data` (CollectReviewDiff), or
 //! `directory` with `path` + `entries` (BrowseDirectory), or
-//! `textFile` with a string `content` (ReadTextFile).
+//! `textFile` with a string `content` (ReadTextFile), or
+//! `bool` with a JSON boolean `value` (HasRef).
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -372,7 +373,7 @@ pub fn writeGoalStdin(buf: []u8, args: GoalStdin) WriteError![]const u8 {
 /// InspectBranches / CheckoutBranch / InspectCommit / CaptureTurnStart /
 /// CaptureTurn / GenerateCommitMessage / ListTree /
 /// CollectReviewDiff / BrowseDirectory / ReadTextFile / WriteTextFile /
-/// CopySessionRefs / DeleteSessionRefs.
+/// CopySessionRefs / DeleteSessionRefs / HasRef.
 /// Hello + `workspace`
 /// (nil request-frame `sessionId` / `runtimeId`, command payload
 /// `operation`). Own spawn key — Native cannot write into a running
@@ -1506,6 +1507,7 @@ test "writeWorkspaceStdin emits hello and workspace copySessionRefs without a pr
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"captureTurn\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"writeTextFile\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"deleteSessionRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hasRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
     try std.testing.expect(!outboundWaitsForTurn(stdin));
@@ -1548,6 +1550,7 @@ test "writeWorkspaceStdin emits hello and workspace deleteSessionRefs without a 
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"captureTurnStart\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"captureTurn\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"writeTextFile\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hasRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "amend") == null);
@@ -1561,6 +1564,49 @@ test "writeWorkspaceStdin emits hello and workspace deleteSessionRefs without a 
             .delete_session_refs = .{
                 .cwd = "/tmp/faku",
                 .session_id = "00000000-0000-0000-0000-000000000007",
+            },
+        },
+    }));
+}
+
+test "writeWorkspaceStdin emits hello and workspace hasRef with snake_case git_ref" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{
+            .has_ref = .{
+                .cwd = "/tmp/faku",
+                .git_ref = "refs/faku/session-7-turn-0",
+            },
+        },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ WORKSPACE_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"hasRef\",\"cwd\":\"/tmp/faku\",\"git_ref\":\"refs/faku/session-7-turn-0\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"git_ref\":\"refs/faku/session-7-turn-0\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"gitRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"deleteSessionRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"copySessionRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"captureTurnStart\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"captureTurn\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"writeTextFile\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "force") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForWorkspace(stdin));
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
+        .operation = .{
+            .has_ref = .{
+                .cwd = "/tmp/faku",
+                .git_ref = "refs/faku/session-7-turn-0",
             },
         },
     }));

@@ -93,7 +93,7 @@
 //! Overflow / spawn failure / non-ok / unusable parse fall back
 //! to local git. Leftovers: force, background work, daemon
 //! amend/force over daemon / remote `--track` over daemon /
-//! HasRef / CaptureRef / RestoreRef / DeleteRef /
+//! CaptureRef / RestoreRef / DeleteRef /
 //! DeleteTurnRefsAfter / SessionTurnRefs, etc.
 //! Not transcript checkpoint +/-.
 //! LastTurn uses stored shas, not the refs, and not a

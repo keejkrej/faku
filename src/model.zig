@@ -1390,6 +1390,20 @@ pub const Model = struct {
     /// a live turn or resurrect the local `sessions.json` row.
     daemon_delete_session_refs_key: u64 = 0,
     daemon_delete_session_refs_session: u32 = 0,
+    /// Prefer Send-time `WorkspaceOperation::HasRef` sidecar for the
+    /// baseline check that otherwise calls local `hasFakuRef`.
+    /// Distinct from capture / copy / delete keys so Bool / miss
+    /// cannot settle a live turn.
+    daemon_has_ref_key: u64 = 0,
+    daemon_has_ref_session: u32 = 0,
+    daemon_has_ref_ok: bool = false,
+    daemon_has_ref_turn: u32 = 0,
+    daemon_has_ref_git_ref_storage: [128]u8 = [_]u8{0} ** 128,
+    daemon_has_ref_git_ref_len: usize = 0,
+    daemon_has_ref_cwd_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    daemon_has_ref_cwd_len: usize = 0,
+    daemon_has_ref_sha_storage: [40]u8 = [_]u8{0} ** 40,
+    daemon_has_ref_sha_len: usize = 0,
     fx_spawn_key: u64 = 0,
     next_fx_key: u64 = fx_spawn_overlap_key_first,
     fx_spawn_live: bool = false,
@@ -1963,6 +1977,16 @@ pub const Model = struct {
         "daemon_copy_session_refs_session",
         "daemon_delete_session_refs_key",
         "daemon_delete_session_refs_session",
+        "daemon_has_ref_key",
+        "daemon_has_ref_session",
+        "daemon_has_ref_ok",
+        "daemon_has_ref_turn",
+        "daemon_has_ref_git_ref_storage",
+        "daemon_has_ref_git_ref_len",
+        "daemon_has_ref_cwd_storage",
+        "daemon_has_ref_cwd_len",
+        "daemon_has_ref_sha_storage",
+        "daemon_has_ref_sha_len",
         "fx_spawn_key",
         "next_fx_key",
         "fx_spawn_live",

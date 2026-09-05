@@ -179,13 +179,17 @@
 //! `WorkspaceOperation::DeleteSessionRefs`
 //! `{ "type": "deleteSessionRefs", "cwd", "session_id" }` (camelCase
 //! op tag; snake_case `session_id` like CopySessionRefs /
-//! CaptureTurnStart / SessionTurnRefs, not camelCase `sessionId`).
+//! CaptureTurnStart / SessionTurnRefs, not camelCase `sessionId`), and
+//! `WorkspaceOperation::HasRef`
+//! `{ "type": "hasRef", "cwd", "git_ref" }` (camelCase op tag;
+//! snake_case `git_ref` like CopySessionRefs `session_id` /
+//! DeleteSessionRefs, not camelCase `gitRef`).
 //! This cut
 //! ships Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
 //! InspectCommit, CaptureTurnStart, CaptureTurn,
 //! GenerateCommitMessage, ListTree, CollectReviewDiff,
 //! BrowseDirectory, ReadTextFile, WriteTextFile, CopySessionRefs,
-//! and DeleteSessionRefs.
+//! DeleteSessionRefs, and HasRef.
 //! There is no force flag on daemon Push. An ok outcome is
 //! `ResponsePayload::Workspace { result }` where Push, Commit,
 //! CaptureTurnStart, WriteTextFile, CopySessionRefs, and
@@ -227,7 +231,11 @@
 //! `WorkspaceResult::TextFile` — wire
 //! `result: { "type": "textFile", "content": "<string>" }` nested
 //! under `outcome.payload` (not a bare textFile object; not Ack;
-//! `content` is required; empty string is still ok). `ReviewDiffData` uses serde rename_all
+//! `content` is required; empty string is still ok) — and HasRef yields
+//! `WorkspaceResult::Bool` — wire
+//! `result: { "type": "bool", "value": true|false }` nested
+//! under `outcome.payload` (not a bare bool; not Ack; `value` is
+//! required). `ReviewDiffData` uses serde rename_all
 //! camelCase: `source`, `numstat`, `patch`, `completeContext`. Empty
 //! `numstat` + `patch` with ok nesting is still ok (clean tree).
 //! `WorkingTreeEntry` uses serde rename_all camelCase:
@@ -446,7 +454,7 @@ pub fn defaultStartOptions() StartOptions {
 /// `InspectCommit`, `CaptureTurnStart`, `CaptureTurn`,
 /// `GenerateCommitMessage`, `ListTree`, `CollectReviewDiff`,
 /// `BrowseDirectory`, `ReadTextFile`, `WriteTextFile`,
-/// `CopySessionRefs`, and `DeleteSessionRefs` (hello + workspace sidecar).
+/// `CopySessionRefs`, `DeleteSessionRefs`, and `HasRef` (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -636,15 +644,16 @@ pub const GoalOperation = union(GoalKind) {
 /// `turn_count`. Matches that serde + TS export, not Faku's
 /// earlier CaptureTurnStart camelCase `sessionId` / `turnCount`
 /// cut), and `DeleteSessionRefs { cwd, session_id }` (snake_case
-/// `session_id`, not camelCase `sessionId`). No force flag on Push
+/// `session_id`, not camelCase `sessionId`), and `HasRef { cwd, git_ref }`
+/// (snake_case `git_ref`, not camelCase `gitRef`). No force flag on Push
 /// or Commit. No amend on daemon Commit, InspectCommit, or
 /// CollectReviewDiff.
 /// `ParsedBranches` has no remotes (Waku inspect is `refs/heads`
 /// only; remotes-on-daemon-list is a Faku-side local for-each-ref
-/// merge). Leftovers: HasRef / CaptureRef / RestoreRef / DeleteRef /
+/// merge). Leftovers: CaptureRef / RestoreRef / DeleteRef /
 /// DeleteTurnRefsAfter / SessionTurnRefs, amend/force over daemon,
 /// remote `--track` over daemon, etc.
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file, copy_session_refs, delete_session_refs };
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file, copy_session_refs, delete_session_refs, has_ref };
 
 /// Waku `AgentInvocation`. Wire keys match generated TS:
 /// `provider`, `binary`, `model`, `reasoning_effort` (snake_case
@@ -773,6 +782,15 @@ pub const WorkspaceDeleteSessionRefs = struct {
     session_id: []const u8,
 };
 
+/// Waku `HasRef`. Wire keys stay snake_case `git_ref`
+/// (WorkspaceOperation serde `rename_all` is the camelCase `type`
+/// tag only). Matches CopySessionRefs / DeleteSessionRefs
+/// `session_id`, not camelCase `gitRef`.
+pub const WorkspaceHasRef = struct {
+    cwd: []const u8,
+    git_ref: []const u8,
+};
+
 pub const WorkspaceOperation = union(WorkspaceKind) {
     push: WorkspacePush,
     create_worktree: WorkspaceCreateWorktree,
@@ -790,6 +808,7 @@ pub const WorkspaceOperation = union(WorkspaceKind) {
     write_text_file: WorkspaceWriteTextFile,
     copy_session_refs: WorkspaceCopySessionRefs,
     delete_session_refs: WorkspaceDeleteSessionRefs,
+    has_ref: WorkspaceHasRef,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -883,6 +902,13 @@ pub const ParsedDirectory = struct {
 pub const ParsedTextFile = struct {
     ok: bool = false,
     content: []const u8 = "",
+};
+
+/// Bool from an ok `bool` workspace result (HasRef). `value` is
+/// required. Missing / non-bool / Ack / a bare bool are rejected.
+pub const ParsedBool = struct {
+    ok: bool = false,
+    value: bool = false,
 };
 
 /// Review / Diff payload from an ok `reviewDiff` workspace result.
@@ -1127,7 +1153,7 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// CheckoutBranch, InspectCommit, CaptureTurnStart, CaptureTurn,
 /// GenerateCommitMessage, ListTree, CollectReviewDiff,
 /// BrowseDirectory, ReadTextFile, WriteTextFile,
-/// CopySessionRefs, and DeleteSessionRefs pass `NIL_UUID` for those ids.
+/// CopySessionRefs, DeleteSessionRefs, and HasRef pass `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
 /// Timeout 120s.
@@ -1304,6 +1330,13 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
             try writeJsonString(cur, args.cwd);
             try cur.write(",\"session_id\":");
             try writeJsonString(cur, args.session_id);
+            try cur.write("}");
+        },
+        .has_ref => |args| {
+            try cur.write("{\"type\":\"hasRef\",\"cwd\":");
+            try writeJsonString(cur, args.cwd);
+            try cur.write(",\"git_ref\":");
+            try writeJsonString(cur, args.git_ref);
             try cur.write("}");
         },
     }
@@ -1909,6 +1942,20 @@ pub fn parseTextFile(allocator: std.mem.Allocator, line: []const u8) ParsedTextF
     return parsed;
 }
 
+/// Light parser for ok HasRef. True/`ok` when an ok `response`
+/// carries nested `result: { "type": "bool", "value": true|false }`.
+/// Missing `value`, a non-bool, Ack, a bare bool, or a failed
+/// outcome are rejected.
+pub fn parseWorkspaceBool(allocator: std.mem.Allocator, line: []const u8) ParsedBool {
+    var parsed = ParsedBool{};
+    const result = workspaceResultObject(allocator, line) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "bool")) return parsed;
+    const value = jsonBoolValue(result.get("value")) orelse return parsed;
+    parsed.ok = true;
+    parsed.value = value;
+    return parsed;
+}
+
 fn parseWorkingTreeEntries(
     entries_val: std.json.Value,
     dest: *[max_parsed_tree_entries]ParsedWorkingTreeEntry,
@@ -2003,7 +2050,8 @@ pub fn isWorkspaceCheckpoint(allocator: std.mem.Allocator, line: []const u8) boo
 /// ListTree `workingTree` with a parsed `entries` array,
 /// CollectReviewDiff `reviewDiff` with nested `data`,
 /// BrowseDirectory `directory` with `path` + `entries`,
-/// ReadTextFile `textFile` with a string `content`, or
+/// ReadTextFile `textFile` with a string `content`, HasRef `bool`
+/// with a JSON boolean `value`, or
 /// CaptureTurn `checkpoint` with a nested checkpoint object.
 pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (isWorkspaceAck(allocator, line)) return true;
@@ -2016,6 +2064,7 @@ pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (parseReviewDiff(allocator, line).ok) return true;
     if (parseDirectory(allocator, line).ok) return true;
     if (parseTextFile(allocator, line).ok) return true;
+    if (parseWorkspaceBool(allocator, line).ok) return true;
     return isWorkspaceCheckpoint(allocator, line);
 }
 
@@ -3255,6 +3304,7 @@ test "workspace request wraps camelCase deleteSessionRefs with snake_case sessio
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"writeTextFile\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"deleteSessionRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"hasRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
     {
@@ -3274,6 +3324,78 @@ test "workspace request wraps camelCase deleteSessionRefs with snake_case sessio
             .session_id = "00000000-0000-0000-0000-000000000007",
         } },
     ));
+}
+
+test "workspace request wraps camelCase hasRef with snake_case git_ref and nil ids" {
+    var buf: [768]u8 = undefined;
+    const json = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .has_ref = .{
+            .cwd = "/tmp/faku",
+            .git_ref = "refs/faku/session-7-turn-0",
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"hasRef\",\"cwd\":\"/tmp/faku\",\"git_ref\":\"refs/faku/session-7-turn-0\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"git_ref\":\"refs/faku/session-7-turn-0\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"gitRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteSessionRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"copySessionRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"captureTurnStart\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"captureTurn\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"writeTextFile\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"hasRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .has_ref = .{
+            .cwd = "/tmp/faku",
+            .git_ref = "refs/faku/session-7-turn-0",
+        } },
+    ));
+}
+
+test "parseWorkspaceBool extracts nested value true/false and rejects ack, bare bool, or missing value" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const true_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"bool\",\"value\":true}}}}";
+    const parsed_true = parseWorkspaceBool(arena, true_line);
+    try std.testing.expect(parsed_true.ok);
+    try std.testing.expect(parsed_true.value);
+    try std.testing.expect(isWorkspaceSuccess(arena, true_line));
+    try std.testing.expect(!isWorkspaceAck(arena, true_line));
+    try std.testing.expect(!parseTextFile(arena, true_line).ok);
+
+    const false_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"bool\",\"value\":false}}}}";
+    const parsed_false = parseWorkspaceBool(arena, false_line);
+    try std.testing.expect(parsed_false.ok);
+    try std.testing.expect(!parsed_false.value);
+    try std.testing.expect(isWorkspaceSuccess(arena, false_line));
+    try std.testing.expect(!isWorkspaceAck(arena, false_line));
+
+    try std.testing.expect(!parseWorkspaceBool(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"bool\",\"value\":true}}}").ok);
+    try std.testing.expect(!parseWorkspaceBool(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
+    try std.testing.expect(!parseWorkspaceBool(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"bool\"}}}}").ok);
+    try std.testing.expect(!parseWorkspaceBool(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"bool\",\"value\":null}}}}").ok);
+    try std.testing.expect(!parseWorkspaceBool(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":true}}}").ok);
+    try std.testing.expect(!parseWorkspaceBool(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
+    try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"bool\"}}}}"));
 }
 
 test "start defaults to first-party fx over acp" {

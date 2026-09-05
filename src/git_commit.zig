@@ -124,7 +124,10 @@
 //! `WorkspaceOperation::ReadTextFile` lives in `right_panel` (Files
 //! preview load / Reload). First-cut daemon
 //! `WorkspaceOperation::WriteTextFile` lives in `right_panel` (Files
-//! preview Save). Leftovers: HasRef / CaptureRef / RestoreRef /
+//! preview Save). First-cut daemon
+//! `WorkspaceOperation::HasRef` lives in `fork` (prefer hello +
+//! hasRef on Send for the baseline `hasFakuRef` check; Bool;
+//! overflow / miss / non-bool / error fall back to local). Leftovers: CaptureRef / RestoreRef /
 //! DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs / amend/force
 //! over daemon / remote `--track` over daemon / …
 //!

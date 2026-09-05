@@ -49,6 +49,7 @@ const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
 const open_url = @import("open_url.zig");
 const open_editor = @import("open_editor.zig");
+const session_fork = @import("fork.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -190,6 +191,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         return;
     }
     if (model.daemon_delete_session_refs_key != 0 and line.key == model.daemon_delete_session_refs_key) {
+        return;
+    }
+    if (model.daemon_has_ref_key != 0 and line.key == model.daemon_has_ref_key) {
+        session_fork.applyDaemonHasRefLine(model, line);
         return;
     }
     if (model.phase != .streaming) return;
@@ -1158,6 +1163,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     if (model.daemon_delete_session_refs_key != 0 and exit.key == model.daemon_delete_session_refs_key) {
         model.daemon_delete_session_refs_key = 0;
         model.daemon_delete_session_refs_session = 0;
+        return;
+    }
+    if (model.daemon_has_ref_key != 0 and exit.key == model.daemon_has_ref_key) {
+        session_fork.handleDaemonHasRefExit(model, fx, exit);
         return;
     }
     const daemon = model.daemon_spawn_key != 0 and exit.key == model.daemon_spawn_key;
