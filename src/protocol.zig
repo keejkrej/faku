@@ -130,11 +130,15 @@
 //! create-and-checkout), and
 //! `WorkspaceOperation::InspectCommit`
 //! `{ "type": "inspectCommit", "cwd": "<path>" }` (`cwd` stays cwd;
-//! no amend and no force). This cut ships Push, CreateWorktree,
-//! Commit, InspectBranches, CheckoutBranch, and InspectCommit.
+//! no amend and no force), and
+//! `WorkspaceOperation::CaptureTurnStart`
+//! `{ "type": "captureTurnStart", "cwd", "sessionId", "turnCount" }`
+//! (camelCase fields; `turnCount` is a JSON number). This cut ships
+//! Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
+//! InspectCommit, and CaptureTurnStart.
 //! There is no force flag on daemon Push. An ok outcome is
-//! `ResponsePayload::Workspace { result }` where Push and Commit
-//! yield `WorkspaceResult::Ack` — wire `outcome.payload`
+//! `ResponsePayload::Workspace { result }` where Push, Commit, and
+//! CaptureTurnStart yield `WorkspaceResult::Ack` — wire `outcome.payload`
 //! `{ "type": "workspace", "result": { "type": "ack" } }` (not a bare
 //! `ack`) — CreateWorktree yields
 //! `WorkspaceResult::WorktreeCreated` — wire
@@ -353,8 +357,8 @@ pub fn defaultStartOptions() StartOptions {
 /// `goal` is the Codex `/goal` first cut (set/clear/refresh over the
 /// daemon sidecar). It is not an fx / ACP method. `workspace` is
 /// first-cut `WorkspaceOperation::Push`, `CreateWorktree`,
-/// `Commit`, `InspectBranches`, `CheckoutBranch`, and
-/// `InspectCommit` (hello + workspace sidecar).
+/// `Commit`, `InspectBranches`, `CheckoutBranch`,
+/// `InspectCommit`, and `CaptureTurnStart` (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -521,10 +525,12 @@ pub const GoalOperation = union(GoalKind) {
 /// First-cut ships `Push { cwd }`, `CreateWorktree` (snake_case
 /// fields; `base_branch` string or JSON null), `Commit`
 /// `{ cwd, message, include_unstaged, push }`, `InspectBranches
-/// { cwd }`, `CheckoutBranch { cwd, branch, create }`, and
-/// `InspectCommit { cwd }`. No force flag on Push or Commit. No
+/// { cwd }`, `CheckoutBranch { cwd, branch, create }`,
+/// `InspectCommit { cwd }`, and `CaptureTurnStart
+/// { cwd, session_id, turn_count }` (camelCase `sessionId` /
+/// `turnCount` on the wire). No force flag on Push or Commit. No
 /// amend on daemon Commit or InspectCommit.
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit };
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start };
 
 pub const WorkspacePush = struct {
     cwd: []const u8,
@@ -559,6 +565,12 @@ pub const WorkspaceInspectCommit = struct {
     cwd: []const u8,
 };
 
+pub const WorkspaceCaptureTurnStart = struct {
+    cwd: []const u8,
+    session_id: []const u8,
+    turn_count: u32,
+};
+
 pub const WorkspaceOperation = union(WorkspaceKind) {
     push: WorkspacePush,
     create_worktree: WorkspaceCreateWorktree,
@@ -566,6 +578,7 @@ pub const WorkspaceOperation = union(WorkspaceKind) {
     inspect_branches: WorkspaceInspectBranches,
     checkout_branch: WorkspaceCheckoutBranch,
     inspect_commit: WorkspaceInspectCommit,
+    capture_turn_start: WorkspaceCaptureTurnStart,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -839,7 +852,8 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// Same request-frame shape as `writeGoal`. Waku `WorkspaceClient::request`
 /// uses nil `sessionId` and nil `runtimeId` for workspace RPCs. Callers
 /// for Push, CreateWorktree, Commit, InspectBranches,
-/// CheckoutBranch, and InspectCommit pass `NIL_UUID` for those ids.
+/// CheckoutBranch, InspectCommit, and CaptureTurnStart pass
+/// `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
 /// Timeout 120s.
@@ -915,6 +929,15 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
         .inspect_commit => |args| {
             try cur.write("{\"type\":\"inspectCommit\",\"cwd\":");
             try writeJsonString(cur, args.cwd);
+            try cur.write("}");
+        },
+        .capture_turn_start => |args| {
+            try cur.write("{\"type\":\"captureTurnStart\",\"cwd\":");
+            try writeJsonString(cur, args.cwd);
+            try cur.write(",\"sessionId\":");
+            try writeJsonString(cur, args.session_id);
+            try cur.write(",\"turnCount\":");
+            try writeUint(cur, args.turn_count);
             try cur.write("}");
         },
     }
@@ -1427,11 +1450,11 @@ pub fn parseCommitSnapshot(allocator: std.mem.Allocator, line: []const u8) Parse
     return parsed;
 }
 
-/// True when the line is an ok workspace Push / Commit ack,
-/// CreateWorktree `worktreeCreated` (non-empty path + branch),
-/// InspectBranches `branches` with a usable snapshot,
-/// CheckoutBranch `branchChanged` with a usable snapshot, or
-/// InspectCommit `commitSnapshot` with a usable snapshot.
+/// True when the line is an ok workspace Push / Commit /
+/// CaptureTurnStart ack, CreateWorktree `worktreeCreated`
+/// (non-empty path + branch), InspectBranches `branches` with a
+/// usable snapshot, CheckoutBranch `branchChanged` with a usable
+/// snapshot, or InspectCommit `commitSnapshot` with a usable snapshot.
 pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (isWorkspaceAck(allocator, line)) return true;
     if (parseWorktreeCreated(allocator, line).ok) return true;
@@ -1939,6 +1962,55 @@ test "workspace request wraps camelCase inspectCommit with cwd and nil ids" {
         NIL_UUID,
         NIL_UUID,
         .{ .inspect_commit = .{ .cwd = "/tmp/faku" } },
+    ));
+}
+
+test "workspace request wraps camelCase captureTurnStart with sessionId, turnCount, and nil ids" {
+    var buf: [512]u8 = undefined;
+    const json = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .capture_turn_start = .{
+            .cwd = "/tmp/faku",
+            .session_id = "00000000-0000-0000-0000-000000000007",
+            .turn_count = 3,
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"captureTurnStart\",\"cwd\":\"/tmp/faku\",\"sessionId\":\"00000000-0000-0000-0000-000000000007\",\"turnCount\":3}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"turnCount\":3") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"turnCount\":\"3\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "session_id") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "turn_count") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"captureTurn\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"checkpoint\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"listTree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"inspectCommit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"inspectBranches\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"generateCommitMessage\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"collectReviewDiff\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"push\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"commit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"createWorktree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"captureTurnStart\"") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .capture_turn_start = .{
+            .cwd = "/tmp/faku",
+            .session_id = "00000000-0000-0000-0000-000000000007",
+            .turn_count = 1,
+        } },
     ));
 }
 

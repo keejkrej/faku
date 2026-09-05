@@ -167,6 +167,9 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         store.applyDaemonHydrateLine(model, line.line);
         return;
     }
+    if (model.daemon_capture_turn_start_key != 0 and line.key == model.daemon_capture_turn_start_key) {
+        return;
+    }
     if (model.phase != .streaming) return;
     if (line.key == model.daemon_spawn_key and model.daemon_spawn_key != 0) {
         handleDaemonLine(model, fx, line);
@@ -1101,6 +1104,11 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     if (model.daemon_hydrate_key != 0 and exit.key == model.daemon_hydrate_key) {
         model.daemon_hydrate_key = 0;
         model.daemon_hydrate_session = 0;
+        return;
+    }
+    if (model.daemon_capture_turn_start_key != 0 and exit.key == model.daemon_capture_turn_start_key) {
+        model.daemon_capture_turn_start_key = 0;
+        model.daemon_capture_turn_start_session = 0;
         return;
     }
     const daemon = model.daemon_spawn_key != 0 and exit.key == model.daemon_spawn_key;

@@ -139,7 +139,7 @@
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
 //! Leftovers: other daemon `WorkspaceOperation` variants
-//! (CaptureTurn, ListTree, GenerateCommitMessage,
+//! (CaptureTurn (end), ListTree, GenerateCommitMessage,
 //! CollectReviewDiff, ref ops, remotes-on-daemon-list, amend/force
 //! over daemon, remote `--track` over daemon, …). Fetch
 //! already `--prune`; there is no prune-alone menu (not in Waku).
@@ -186,7 +186,9 @@
 //! `handleCreateExit` still own the flow. First-cut daemon
 //! `WorkspaceOperation::InspectCommit` lives in `git_commit`
 //! (best-effort sidecar on Commit… open; overflow / error /
-//! unusable snapshot falls back to local numstat).
+//! unusable snapshot falls back to local numstat). First-cut daemon
+//! `WorkspaceOperation::CaptureTurnStart` lives in `fork` (best-effort
+//! Send sidecar after local capture; Ack; local sha stays canonical).
 
 const std = @import("std");
 const builtin = @import("builtin");

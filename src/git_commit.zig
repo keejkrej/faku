@@ -90,7 +90,9 @@
 //! generate stays local; after generate auto-proceeds, daemon prefer
 //! applies there too. Missing address / stdin overflow / amend /
 //! force+then_push leave today's local add→preflight→commit path.
-//! Leftovers: CaptureTurn / ListTree /
+//! First-cut daemon `WorkspaceOperation::CaptureTurnStart` lives in
+//! `fork` (best-effort Send sidecar after local capture; Ack; local
+//! sha stays canonical). Leftovers: CaptureTurn (end) / ListTree /
 //! GenerateCommitMessage / CollectReviewDiff / ref
 //! ops / remotes-on-daemon-list / amend/force over daemon / remote
 //! `--track` over daemon / …
