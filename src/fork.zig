@@ -52,10 +52,17 @@
 //! non-ack / error leave those refs alone (no rollback). CaptureTurnStart /
 //! CaptureTurn still cover turn-start / turn-end daemon sync;
 //! CaptureRef also fires for those local writes plus uncovered
-//! baseline-seed and turn-diff names. Leftovers:
-//! RestoreRef / DeleteRef / DeleteTurnRefsAfter /
-//! SessionTurnRefs, amend/force over daemon, remote `--track` over
-//! daemon, etc.
+//! baseline-seed and turn-diff names. First-cut daemon
+//! `WorkspaceOperation::RestoreRef` prefers hello + restoreRef on
+//! Rewind when a daemon address is set and cwd is a git worktree
+//! (hello + `{ "type": "restoreRef", "cwd", "git_ref" }`; snake_case
+//! `git_ref` is `refs/faku/session-{id}-turn-start-{n}` for the
+//! snapshot being rewound; ok is nested workspace Ack). Local
+//! `restoreRef(worktree_snapshot_sha)` / `resetHard` stay the
+//! overflow / miss / non-ack / no-address path and remain correct
+//! without a daemon. Leftovers:
+//! DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs,
+//! amend/force over daemon, remote `--track` over daemon, etc.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -222,6 +229,24 @@ pub fn cancelDaemonCaptureRef(model: *Model, fx: *Effects) void {
     fx.cancel(model.daemon_capture_ref_key);
     model.daemon_capture_ref_key = 0;
     model.daemon_capture_ref_session = 0;
+}
+
+/// Drop an in-flight RestoreRef sidecar. Safe when none is live. A
+/// still unresolved Rewind falls back to local `restoreRef(sha)` so
+/// a session switch cannot leave the worktree unrestored.
+pub fn cancelDaemonRestoreRef(model: *Model, fx: *Effects) void {
+    if (model.daemon_restore_ref_key == 0) return;
+    fx.cancel(model.daemon_restore_ref_key);
+    fallbackLocalRestoreRefIfNeeded(model, fx);
+    clearDaemonRestoreRef(model);
+}
+
+fn clearDaemonRestoreRef(model: *Model) void {
+    model.daemon_restore_ref_key = 0;
+    model.daemon_restore_ref_session = 0;
+    model.daemon_restore_ref_ok = false;
+    model.daemon_restore_ref_cwd_len = 0;
+    model.daemon_restore_ref_sha_len = 0;
 }
 
 fn clearDaemonHasRef(model: *Model) void {
@@ -661,27 +686,126 @@ fn trySpawnDaemonCopySessionRefs(
 }
 
 /// Restore the last Send-time workspace and drop that prompt's
-/// turns. Prefers `restoreRef(worktree_snapshot_sha)` when a
-/// snapshot is stored (does not `reset --hard`; HEAD stays).
-/// On snapshot success, clear the start, turn-end, and
+/// turns. Prefers hello + `WorkspaceOperation::RestoreRef` when a
+/// daemon address is set, cwd is a git worktree, and a snapshot sha
+/// is stored (`git_ref` is `refs/faku/session-{id}-turn-start-{n}`).
+/// Ack skips local git and still does transcript bookkeeping.
+/// Overflow / miss / non-ack / no address keep today's local
+/// `restoreRef(worktree_snapshot_sha)` (does not `reset --hard`;
+/// HEAD stays). On snapshot success, clear the start, turn-end, and
 /// turn-diff slots so a second Rewind does not replay the
 /// same tree. When no snapshot is stored, `reset --hard`
 /// the latest Send-time HEAD. Failed git is a no-op (ref,
 /// snapshot, and transcript stay). Does not change
 /// `fx_session_id`.
 pub fn applyRewindIfPossible(model: *Model, fx: *Effects) void {
-    const io = model.store_io orelse return;
+    if (model.daemon_restore_ref_key != 0) return;
     const session = model.sessionById(model.selected) orelse return;
+    if (session.latestRewindSha() == null) return;
+    if (trySpawnDaemonRestoreRef(model, fx, session)) return;
+    applyLocalRewindNow(model, fx, session);
+}
+
+/// Prefer hello + `WorkspaceOperation::RestoreRef` for Header
+/// Rewind when a snapshot sha is stored. Own daemon spawn key on
+/// `daemon_restore_ref_key`. Missing address, empty cwd, non-git
+/// cwd, missing snapshot, unformattable ref, or Native 4 KiB stdin
+/// overflow returns false and leaves today's local restore/reset.
+fn trySpawnDaemonRestoreRef(model: *Model, fx: *Effects, session: *main.Session) bool {
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    const cwd = session.projectPath();
+    if (cwd.len == 0) return false;
+    const io = model.store_io orelse return false;
+    if (!rewind.isGitWorkTree(io, cwd)) return false;
+    const snapshot = session.worktreeSnapshotSha();
+    if (!rewind.isStoredSha(snapshot)) return false;
+
+    const turn_n = checkpoint.fakuFinishTurn(model.turnCount(session.id));
+    var ref_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const git_ref = checkpoint.formatFakuSessionTurnStartRef(&ref_buf, session.id, turn_n) orelse return false;
+
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{
+            .restore_ref = .{
+                .cwd = cwd,
+                .git_ref = git_ref,
+            },
+        },
+    }) catch return false;
+
+    if (model.daemon_restore_ref_key != 0) {
+        fx.cancel(model.daemon_restore_ref_key);
+        fallbackLocalRestoreRefIfNeeded(model, fx);
+        clearDaemonRestoreRef(model);
+    }
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.daemon_restore_ref_key = key;
+    model.daemon_restore_ref_session = session.id;
+    model.daemon_restore_ref_ok = false;
+    writeFixed(&model.daemon_restore_ref_cwd_storage, &model.daemon_restore_ref_cwd_len, cwd);
+    writeFixed(&model.daemon_restore_ref_sha_storage, &model.daemon_restore_ref_sha_len, snapshot);
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
+pub fn applyDaemonRestoreRefLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
+    if (line.key != model.daemon_restore_ref_key or model.daemon_restore_ref_key == 0) return;
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    if (!protocol.isWorkspaceAck(arena_state.allocator(), line.line)) return;
+    model.daemon_restore_ref_ok = true;
+    completeStoredRewindTranscript(model, fx);
+}
+
+pub fn handleDaemonRestoreRefExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (exit.key != model.daemon_restore_ref_key or model.daemon_restore_ref_key == 0) return;
+    if (!model.daemon_restore_ref_ok) fallbackLocalRestoreRefIfNeeded(model, fx);
+    clearDaemonRestoreRef(model);
+}
+
+fn fallbackLocalRestoreRefIfNeeded(model: *Model, fx: *Effects) void {
+    if (model.daemon_restore_ref_ok) return;
+    const io = model.store_io orelse return;
+    const cwd = model.daemon_restore_ref_cwd_storage[0..model.daemon_restore_ref_cwd_len];
+    const sha = model.daemon_restore_ref_sha_storage[0..model.daemon_restore_ref_sha_len];
+    if (cwd.len == 0 or !rewind.isStoredSha(sha)) return;
+    if (!checkpoint.restoreRef(std.heap.page_allocator, io, cwd, sha)) return;
+    completeStoredRewindTranscript(model, fx);
+}
+
+fn completeStoredRewindTranscript(model: *Model, fx: *Effects) void {
+    const session = model.sessionById(model.daemon_restore_ref_session) orelse return;
+    completeRewindTranscript(model, fx, session);
+}
+
+fn applyLocalRewindNow(model: *Model, fx: *Effects, session: *main.Session) void {
+    const io = model.store_io orelse return;
     const sha = session.latestRewindSha() orelse return;
     const snapshot = session.worktreeSnapshotSha();
     if (rewind.isStoredSha(snapshot)) {
         if (!checkpoint.restoreRef(std.heap.page_allocator, io, session.projectPath(), snapshot)) return;
-        session.clearWorktreeSnapshotSha();
-        session.clearWorktreeTurnEndSha();
-        session.clearWorktreeTurnDiffSha();
     } else if (!rewind.resetHard(std.heap.page_allocator, io, session.projectPath(), sha)) {
         return;
     }
+    completeRewindTranscript(model, fx, session);
+}
+
+fn completeRewindTranscript(model: *Model, fx: *Effects, session: *main.Session) void {
+    session.clearWorktreeSnapshotSha();
+    session.clearWorktreeTurnEndSha();
+    session.clearWorktreeTurnDiffSha();
     session.popLatestRewindRef();
     model.dropLastPromptTurns(session.id);
     store.persistIfPossible(model, session.id, fx);
@@ -743,6 +867,26 @@ fn anyCaptureRefSpawn(fx: *Effects) bool {
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (daemon_proxy.isSidecarArgv(spawn.argv) and
             std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureRef\"") != null) return true;
+    }
+    return false;
+}
+
+fn findRestoreRefSpawn(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key != key) continue;
+        if (!daemon_proxy.isSidecarArgv(spawn.argv)) continue;
+        if (std.mem.indexOf(u8, spawn.stdin, "\"type\":\"restoreRef\"") == null) continue;
+        return spawn;
+    }
+    return null;
+}
+
+fn anyRestoreRefSpawn(fx: *Effects) bool {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (daemon_proxy.isSidecarArgv(spawn.argv) and
+            std.mem.indexOf(u8, spawn.stdin, "\"type\":\"restoreRef\"") != null) return true;
     }
     return false;
 }
@@ -1595,6 +1739,312 @@ test "forkSelectedThrough with a daemon address and non-git cwd does not spawn C
     model.setLastDaemonAddress("127.0.0.1:8787");
     model.setSidecarPath("faku");
     const id = model.addSession("copy session refs nongit", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(id, .user, "no git");
+    _ = model.appendTurn(id, .assistant, "ok");
+
+    forkSelectedThrough(&model, &fx, 1);
+    const fork_id = model.selected;
+    try std.testing.expect(fork_id != id);
+    try std.testing.expectEqual(@as(u32, 2), model.turnCount(fork_id));
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_copy_session_refs_key);
+    try std.testing.expect(!anyCopySessionRefsSpawn(&fx));
+}
+
+fn writeProjectReadme(io: std.Io, project: []const u8, data: []const u8) !void {
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = try std.fmt.bufPrint(&buf, "{s}{s}README", .{ project, std.fs.path.sep_str });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = data });
+}
+
+fn readProjectReadme(allocator: std.mem.Allocator, io: std.Io, project: []const u8) ![]u8 {
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = try std.fmt.bufPrint(&buf, "{s}{s}README", .{ project, std.fs.path.sep_str });
+    return std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(64));
+}
+
+test "applyRewindIfPossible with a daemon address and git cwd spawns RestoreRef sidecar" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/restore-ref-daemon", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.fx_probe_started = true;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("restore ref daemon", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    recordRewindRefIfPossible(&model, &fx, id);
+    _ = model.appendTurn(id, .user, "rewind this");
+    _ = model.appendTurn(id, .assistant, "ok");
+    try writeProjectReadme(std.testing.io, project, "later\n");
+
+    applyRewindIfPossible(&model, &fx);
+    try std.testing.expect(model.daemon_restore_ref_key != 0);
+    try std.testing.expectEqual(id, model.daemon_restore_ref_session);
+    try std.testing.expectEqual(@as(u32, 2), model.turnCount(id));
+    try std.testing.expect(rewind.isStoredSha(model.sessionByIdConst(id).?.worktreeSnapshotSha()));
+    const sidecar = findRestoreRefSpawn(&fx, model.daemon_restore_ref_key) orelse return error.MissingDaemonRestoreRef;
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"restoreRef\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    var start_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const start_ref = checkpoint.formatFakuSessionTurnStartRef(&start_buf, id, 1) orelse return error.MissingStartRef;
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, start_ref) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"git_ref\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"gitRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"captureRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hasRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "force") == null);
+    const dirty = try readProjectReadme(std.testing.allocator, std.testing.io, project);
+    defer std.testing.allocator.free(dirty);
+    try std.testing.expectEqualStrings("later\n", dirty);
+
+    cancelDaemonRestoreRef(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_restore_ref_key);
+    try std.testing.expectEqual(@as(u32, 0), model.turnCount(id));
+    const restored = try readProjectReadme(std.testing.allocator, std.testing.io, project);
+    defer std.testing.allocator.free(restored);
+    try std.testing.expectEqualStrings("finish\n", restored);
+}
+
+test "applyRewindIfPossible without a daemon address does not spawn RestoreRef" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/restore-ref-local", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setSidecarPath("faku");
+    const id = model.addSession("restore ref local", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    try std.testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+
+    recordRewindRefIfPossible(&model, &fx, id);
+    _ = model.appendTurn(id, .user, "no daemon rewind");
+    _ = model.appendTurn(id, .assistant, "ok");
+    try writeProjectReadme(std.testing.io, project, "later\n");
+
+    applyRewindIfPossible(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_restore_ref_key);
+    try std.testing.expect(!anyRestoreRefSpawn(&fx));
+    try std.testing.expectEqual(@as(u32, 0), model.turnCount(id));
+    try std.testing.expectEqual(@as(usize, 0), model.sessionByIdConst(id).?.worktreeSnapshotSha().len);
+    const restored = try readProjectReadme(std.testing.allocator, std.testing.io, project);
+    defer std.testing.allocator.free(restored);
+    try std.testing.expectEqualStrings("finish\n", restored);
+}
+
+test "applyRewindIfPossible with a daemon address and non-git cwd does not spawn RestoreRef" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/restore-ref-nongit", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("restore ref nongit", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| {
+        session.setProjectPath(project);
+        session.appendRewindRef("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", rewind.recorded_ref, 1);
+        session.setWorktreeSnapshotSha("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    }
+    _ = model.appendTurn(id, .user, "no git");
+    _ = model.appendTurn(id, .assistant, "ok");
+
+    applyRewindIfPossible(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_restore_ref_key);
+    try std.testing.expect(!anyRestoreRefSpawn(&fx));
+    try std.testing.expectEqual(@as(u32, 2), model.turnCount(id));
+    try std.testing.expect(rewind.isStoredSha(model.sessionByIdConst(id).?.worktreeSnapshotSha()));
+}
+
+test "RestoreRef sidecar miss falls back to local restoreRef" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/restore-ref-miss", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.fx_probe_started = true;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("restore ref miss", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    recordRewindRefIfPossible(&model, &fx, id);
+    _ = model.appendTurn(id, .user, "miss rewind");
+    _ = model.appendTurn(id, .assistant, "ok");
+    try writeProjectReadme(std.testing.io, project, "later\n");
+
+    applyRewindIfPossible(&model, &fx);
+    const sidecar = findRestoreRefSpawn(&fx, model.daemon_restore_ref_key) orelse return error.MissingDaemonRestoreRefMiss;
+    const key = sidecar.key;
+    try fx.feedLine(key, "{\"type\":\"rejected\",\"message\":\"nope\"}");
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+    try fx.feedExit(key, 1);
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_restore_ref_key);
+    try std.testing.expectEqual(@as(u32, 0), model.turnCount(id));
+    try std.testing.expectEqual(@as(usize, 0), model.sessionByIdConst(id).?.worktreeSnapshotSha().len);
+    const restored = try readProjectReadme(std.testing.allocator, std.testing.io, project);
+    defer std.testing.allocator.free(restored);
+    try std.testing.expectEqualStrings("finish\n", restored);
+    try std.testing.expect(!model.is_streaming());
+}
+
+test "RestoreRef sidecar non-ack falls back to local restoreRef" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/restore-ref-nonack", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.fx_probe_started = true;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("restore ref nonack", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    recordRewindRefIfPossible(&model, &fx, id);
+    _ = model.appendTurn(id, .user, "nonack rewind");
+    _ = model.appendTurn(id, .assistant, "ok");
+    try writeProjectReadme(std.testing.io, project, "later\n");
+
+    applyRewindIfPossible(&model, &fx);
+    const sidecar = findRestoreRefSpawn(&fx, model.daemon_restore_ref_key) orelse return error.MissingDaemonRestoreRefAck;
+    const key = sidecar.key;
+    try fx.feedLine(key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"bool\",\"value\":true}}}}");
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+    try fx.feedExit(key, 0);
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_restore_ref_key);
+    try std.testing.expectEqual(@as(u32, 0), model.turnCount(id));
+    const restored = try readProjectReadme(std.testing.allocator, std.testing.io, project);
+    defer std.testing.allocator.free(restored);
+    try std.testing.expectEqualStrings("finish\n", restored);
+}
+
+test "RestoreRef Ack skips local restoreRef and still bookkeeps the transcript" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/restore-ref-ack", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.fx_probe_started = true;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("restore ref ack", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    recordRewindRefIfPossible(&model, &fx, id);
+    _ = model.appendTurn(id, .user, "ack rewind");
+    _ = model.appendTurn(id, .assistant, "ok");
+    try writeProjectReadme(std.testing.io, project, "later\n");
+
+    applyRewindIfPossible(&model, &fx);
+    const sidecar = findRestoreRefSpawn(&fx, model.daemon_restore_ref_key) orelse return error.MissingDaemonRestoreRefTrue;
+    const key = sidecar.key;
+    try fx.feedLine(key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}");
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+    try fx.feedExit(key, 0);
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_restore_ref_key);
+    try std.testing.expectEqual(@as(u32, 0), model.turnCount(id));
+    try std.testing.expectEqual(@as(usize, 0), model.sessionByIdConst(id).?.worktreeSnapshotSha().len);
+    try std.testing.expectEqual(@as(usize, 0), model.sessionByIdConst(id).?.rewind_ref_count);
+    const dirty = try readProjectReadme(std.testing.allocator, std.testing.io, project);
+    defer std.testing.allocator.free(dirty);
+    try std.testing.expectEqualStrings("later\n", dirty);
+}
+
+test "applyRewindIfPossible without a snapshot does not spawn RestoreRef" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/restore-ref-nosnap", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("restore ref nosnap", .fx);
+    model.selected = id;
+    var sha_buf: [rewind.max_sha]u8 = undefined;
+    const sha = rewind.revParseHead(std.testing.allocator, std.testing.io, project, &sha_buf) orelse return error.GitHead;
+    if (model.sessionById(id)) |session| {
+        session.setProjectPath(project);
+        session.appendRewindRef(sha, rewind.recorded_ref, 1);
+    }
+    _ = model.appendTurn(id, .user, "head only");
+    _ = model.appendTurn(id, .assistant, "ok");
+
+    applyRewindIfPossible(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_restore_ref_key);
+    try std.testing.expect(!anyRestoreRefSpawn(&fx));
+    try std.testing.expectEqual(@as(u32, 0), model.turnCount(id));
+    try std.testing.expectEqual(@as(usize, 0), model.sessionByIdConst(id).?.rewind_ref_count);
+}
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
     _ = model.appendTurn(id, .user, "no git");

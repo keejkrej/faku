@@ -174,8 +174,11 @@
 //! overflow / miss / non-bool / error fall back to local). First-cut daemon
 //! `WorkspaceOperation::CaptureRef` ships in `fork` (best-effort
 //! sidecar after a successful local `refs/faku` update-ref; Ack;
-//! miss / overflow leave local refs alone). Leftovers: other daemon `WorkspaceOperation`
-//! variants (RestoreRef / DeleteRef /
+//! miss / overflow leave local refs alone). First-cut daemon
+//! `WorkspaceOperation::RestoreRef` ships in `fork` (prefer hello +
+//! restoreRef on Rewind; Ack; overflow / miss / non-ack fall back
+//! to local restoreRef / resetHard). Leftovers: other daemon `WorkspaceOperation`
+//! variants (DeleteRef /
 //! DeleteTurnRefsAfter / SessionTurnRefs, amend/force over daemon,
 //! remote `--track` over daemon, …).
 
