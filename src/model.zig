@@ -39,6 +39,7 @@ const copy_helpers = @import("copy.zig");
 const open_editor = @import("open_editor.zig");
 const right_panel = @import("right_panel.zig");
 const i18n = @import("i18n.zig");
+const session_workspace = @import("session_workspace.zig");
 
 const canvas = native_sdk.canvas;
 const main = @import("main.zig");
@@ -522,6 +523,10 @@ pub const Msg = union(enum) {
     toggle_git_worktree_base_picker,
     close_git_worktree_base_picker,
     pick_git_worktree_base: []const u8,
+    toggle_workspace_picker,
+    close_workspace_picker,
+    pick_workspace_local,
+    pick_workspace_new_worktree,
     start_git_commit,
     /// Header Environment dropdown. Runtime-only; not persisted.
     toggle_environment_summary,
@@ -679,6 +684,16 @@ pub const Model = struct {
     git_worktree_create_active: bool = false,
     /// Runtime-only New worktree… Base picker. Not persisted.
     git_worktree_base_picker_open: bool = false,
+    /// Runtime-only composer Work in picker. Not persisted.
+    workspace_picker_open: bool = false,
+    /// Send-prep while `newWorktree` one-shots `git worktree add`.
+    /// Runtime-only; not sessions.json.
+    workspace_prep_active: bool = false,
+    workspace_prep_session: u32 = 0,
+    workspace_prep_text_storage: [max_draft]u8 = [_]u8{0} ** max_draft,
+    workspace_prep_text_len: usize = 0,
+    workspace_prep_image_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    workspace_prep_image_len: usize = 0,
     /// Runtime-only Commit… card. Draft message is not persisted.
     git_commit_active: bool = false,
     /// Runtime-only header Environment dropdown. Not persisted.
@@ -1490,6 +1505,17 @@ pub const Model = struct {
         "git_worktree_base_len",
         "git_worktree_base_override_storage",
         "git_worktree_base_override_len",
+        "workspace_prep_active",
+        "workspace_prep_session",
+        "workspace_prep_text_storage",
+        "workspace_prep_text_len",
+        "workspace_prep_image_storage",
+        "workspace_prep_image_len",
+        "queueWorkspacePrep",
+        "clearWorkspacePrep",
+        "abortWorkspacePrep",
+        "toggleWorkspacePicker",
+        "closeWorkspacePicker",
         "git_commit_key",
         "next_git_commit_key",
         "git_commit_probe_session",
@@ -1804,6 +1830,7 @@ pub const Model = struct {
         model.git_branch_picker_open = false;
         model.git_branch_delete_picker_open = false;
         model.git_worktree_base_picker_open = false;
+        model.workspace_picker_open = false;
         model.environment_summary_open = false;
     }
 
@@ -1860,6 +1887,45 @@ pub const Model = struct {
 
     pub fn closeGitWorktreeBasePicker(model: *Model) void {
         git_checkout.closeWorktreeBasePicker(model);
+    }
+
+    pub fn closeWorkspacePicker(model: *Model) void {
+        model.workspace_picker_open = false;
+    }
+
+    pub fn toggleWorkspacePicker(model: *Model) void {
+        if (!session_workspace.canPick(model)) {
+            model.workspace_picker_open = false;
+            return;
+        }
+        model.workspace_picker_open = !model.workspace_picker_open;
+    }
+
+    pub fn queueWorkspacePrep(model: *Model, session_id: u32, text: []const u8, image: []const u8) void {
+        model.workspace_prep_active = true;
+        model.workspace_prep_session = session_id;
+        writeFixed(&model.workspace_prep_text_storage, &model.workspace_prep_text_len, text);
+        writeFixed(&model.workspace_prep_image_storage, &model.workspace_prep_image_len, image);
+    }
+
+    pub fn clearWorkspacePrep(model: *Model) void {
+        model.workspace_prep_active = false;
+        model.workspace_prep_session = 0;
+        model.workspace_prep_text_len = 0;
+        model.workspace_prep_image_len = 0;
+    }
+
+    pub fn abortWorkspacePrep(model: *Model) void {
+        if (model.workspace_prep_active and model.workspace_prep_session == model.selected) {
+            model.draft_buffer.clear();
+            const text = model.workspace_prep_text_storage[0..model.workspace_prep_text_len];
+            if (text.len > 0) model.draft_buffer.apply(.{ .insert_text = text });
+            model.setDraftImagePath(model.workspace_prep_image_storage[0..model.workspace_prep_image_len]);
+            if (std.mem.eql(u8, model.attach_status(), session_workspace.preparing_status)) {
+                model.clearAttachStatus();
+            }
+        }
+        model.clearWorkspacePrep();
     }
 
     pub fn toggleGitBranchDeletePicker(model: *Model) void {
@@ -3349,6 +3415,38 @@ pub const Model = struct {
     /// returned ≥1 name.
     pub fn can_pick_git_branch(model: *const Model) bool {
         return git_checkout.canPickGitBranch(model);
+    }
+
+    /// Composer Work in: Local / New worktree. Hidden without a
+    /// project path and when the session is already a materialized
+    /// worktree (that state is a read-only branch label).
+    pub fn can_pick_workspace(model: *const Model) bool {
+        return session_workspace.canPick(model);
+    }
+
+    /// Work-in Base ghost. Hidden while the New worktree… card
+    /// already shows its Base picker.
+    pub fn can_pick_workspace_base(model: *const Model) bool {
+        return session_workspace.canPickBase(model);
+    }
+
+    pub fn workspace_label(model: *const Model) []const u8 {
+        return session_workspace.label(model);
+    }
+
+    pub fn workspace_is_local(model: *const Model) bool {
+        const session = model.sessionByIdConst(model.selected) orelse return true;
+        return session_workspace.isLocal(session);
+    }
+
+    pub fn workspace_is_new_worktree(model: *const Model) bool {
+        const session = model.sessionByIdConst(model.selected) orelse return false;
+        return session_workspace.isNewWorktree(session);
+    }
+
+    pub fn workspace_is_materialized(model: *const Model) bool {
+        const session = model.sessionByIdConst(model.selected) orelse return false;
+        return session_workspace.isMaterialized(session);
     }
 
     pub fn git_branch_picker_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {

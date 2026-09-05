@@ -31,6 +31,7 @@ const maximize_window = @import("maximize_window.zig");
 const git_branch = @import("git_branch.zig");
 const git_checkout = @import("git_checkout.zig");
 const persist = @import("persist.zig");
+const session_workspace = @import("session_workspace.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
@@ -1006,6 +1007,9 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     if (model.git_worktree_add_key != 0 and exit.key == model.git_worktree_add_key) {
         if (git_checkout.handleWorktreeAddExit(model, fx, exit)) {
             persist.persistComposerProject(model, fx);
+            session_workspace.completePrepIfNeeded(model, fx);
+        } else {
+            session_workspace.failPrepIfIdle(model);
         }
         return;
     }

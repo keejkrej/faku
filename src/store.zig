@@ -7,6 +7,7 @@
 //!
 //! One JSON document `sessions.json`. Catalog load copies only session
 //! skeletons (id, title, provider, untitled, has_started, project_path,
+//! workspace (omitted when `local`; `newWorktree` or `worktree` with path + branch),
 //! fx_session_id, runtime_id, model, access_mode, interaction_mode, reasoning_effort, folder_id, updated_at, rewind_refs,
 //! worktree_snapshot_sha, worktree_turn_end_sha, worktree_turn_diff_sha, context_used, context_size, available_commands, thread_goal_objective, thread_goal_status,
 //! thread_goal_token_budget, thread_goal_tokens_used, thread_goal_time_used_seconds) — no transcripts. Selecting
@@ -804,6 +805,9 @@ const StoredSession = struct {
     untitled: bool,
     has_started: bool,
     project_path: []const u8 = "",
+    workspace_kind: main.Session.WorkspaceKind = .local,
+    workspace_path: []const u8 = "",
+    workspace_branch: []const u8 = "",
     fx_session_id: []const u8 = "",
     runtime_id: []const u8 = "",
     model: []const u8 = "",
@@ -949,6 +953,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     }
     for (document.sessions) |stored| {
         model.restoreSession(stored.id, stored.title, stored.provider, stored.untitled, stored.has_started, stored.project_path, stored.fx_session_id, stored.model, stored.access_mode, stored.runtime_id, stored.interaction_mode, stored.reasoning_effort, stored.folder_id, stored.updated_at);
+        applyWorkspace(model, stored.id, stored.workspace_kind, stored.workspace_path, stored.workspace_branch);
         applyRewindRefs(model, stored.id, stored.rewind_refs);
         applyWorktreeSnapshotSha(model, stored.id, stored.worktree_snapshot_sha);
         applyWorktreeTurnEndSha(model, stored.id, stored.worktree_turn_end_sha);
@@ -978,6 +983,7 @@ fn applyDetail(model: *Model, allocator: std.mem.Allocator, bytes: []const u8, s
         model.restoreQueued(queued.id, session_id, queued.text);
     }
     applyRewindRefs(model, session_id, stored.rewind_refs);
+    applyWorkspace(model, session_id, stored.workspace_kind, stored.workspace_path, stored.workspace_branch);
     applyWorktreeSnapshotSha(model, session_id, stored.worktree_snapshot_sha);
     applyWorktreeTurnEndSha(model, session_id, stored.worktree_turn_end_sha);
     applyWorktreeTurnDiffSha(model, session_id, stored.worktree_turn_diff_sha);
@@ -1071,6 +1077,9 @@ fn snapshotSession(arena: std.mem.Allocator, model: *const Model, session: *cons
         .untitled = session.untitled,
         .has_started = session.hasStarted(),
         .project_path = try arena.dupe(u8, session.projectPath()),
+        .workspace_kind = session.workspace_kind,
+        .workspace_path = try arena.dupe(u8, session.workspacePath()),
+        .workspace_branch = try arena.dupe(u8, session.workspaceBranch()),
         .fx_session_id = try arena.dupe(u8, session.fxSessionId()),
         .runtime_id = try arena.dupe(u8, session.runtimeId()),
         .model = try arena.dupe(u8, session.model()),
@@ -1121,6 +1130,15 @@ fn applyWorktreeSnapshotSha(model: *Model, session_id: u32, sha: []const u8) voi
     const session = model.sessionById(session_id) orelse return;
     session.clearWorktreeSnapshotSha();
     session.setWorktreeSnapshotSha(sha);
+}
+
+fn applyWorkspace(model: *Model, session_id: u32, kind: main.Session.WorkspaceKind, path: []const u8, branch: []const u8) void {
+    const session = model.sessionById(session_id) orelse return;
+    switch (kind) {
+        .local => session.setWorkspaceLocal(),
+        .new_worktree => session.setWorkspaceNewWorktree(),
+        .worktree => session.setWorkspaceWorktree(path, branch),
+    }
 }
 
 fn applyWorktreeTurnEndSha(model: *Model, session_id: u32, sha: []const u8) void {
@@ -1262,6 +1280,8 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         }
     }
 
+    const parsed_workspace = parseWorkspace(obj.get("workspace"));
+
     return .{
         .id = id,
         .title = title,
@@ -1269,6 +1289,9 @@ fn parseSession(arena: std.mem.Allocator, value: std.json.Value) !StoredSession 
         .untitled = untitled,
         .has_started = has_started,
         .project_path = jsonString(obj.get("project_path")) orelse "",
+        .workspace_kind = parsed_workspace.kind,
+        .workspace_path = parsed_workspace.path,
+        .workspace_branch = parsed_workspace.branch,
         .fx_session_id = jsonString(obj.get("fx_session_id")) orelse "",
         .runtime_id = jsonString(obj.get("runtime_id")) orelse "",
         .model = jsonString(obj.get("model")) orelse "",
@@ -1448,6 +1471,36 @@ fn jsonString(value: ?std.json.Value) ?[]const u8 {
     };
 }
 
+const ParsedWorkspace = struct {
+    kind: main.Session.WorkspaceKind,
+    path: []const u8,
+    branch: []const u8,
+};
+
+/// `sessions.json` `workspace`. Missing / unknown / `local` → local
+/// (same skip as Waku `skip_serializing_if`). `newWorktree` is a
+/// draft; `worktree` restores path + branch.
+fn parseWorkspace(value: ?std.json.Value) ParsedWorkspace {
+    const empty: ParsedWorkspace = .{ .kind = .local, .path = "", .branch = "" };
+    const item = value orelse return empty;
+    const obj = switch (item) {
+        .object => |o| o,
+        else => return empty,
+    };
+    const kind_name = jsonString(obj.get("kind")) orelse return empty;
+    if (std.mem.eql(u8, kind_name, "newWorktree")) {
+        return .{ .kind = .new_worktree, .path = "", .branch = "" };
+    }
+    if (std.mem.eql(u8, kind_name, "worktree")) {
+        return .{
+            .kind = .worktree,
+            .path = jsonString(obj.get("path")) orelse "",
+            .branch = jsonString(obj.get("branch")) orelse "",
+        };
+    }
+    return empty;
+}
+
 /// Raw Browser draft. Missing / empty → empty. Longer than
 /// `open_url.max_url` is refused (empty), not truncated mid-URL.
 fn persistedBrowserUrl(raw: []const u8) []const u8 {
@@ -1577,6 +1630,17 @@ fn appendSession(out: *std.ArrayList(u8), allocator: std.mem.Allocator, session:
     try out.appendSlice(allocator, if (session.has_started) "true" else "false");
     try out.appendSlice(allocator, ",\"project_path\":");
     try appendJsonString(out, allocator, session.project_path);
+    switch (session.workspace_kind) {
+        .local => {},
+        .new_worktree => try out.appendSlice(allocator, ",\"workspace\":{\"kind\":\"newWorktree\"}"),
+        .worktree => {
+            try out.appendSlice(allocator, ",\"workspace\":{\"kind\":\"worktree\",\"path\":");
+            try appendJsonString(out, allocator, session.workspace_path);
+            try out.appendSlice(allocator, ",\"branch\":");
+            try appendJsonString(out, allocator, session.workspace_branch);
+            try out.append(allocator, '}');
+        },
+    }
     try out.appendSlice(allocator, ",\"fx_session_id\":");
     try appendJsonString(out, allocator, session.fx_session_id);
     try out.appendSlice(allocator, ",\"runtime_id\":");

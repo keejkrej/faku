@@ -817,6 +817,33 @@
                     </if>
                   </stack>
                 </if>
+                <if test="{can_pick_workspace}">
+                  <stack>
+                    <select size="sm" placeholder="Work in" on-press="toggle_workspace_picker">{workspace_label}</select>
+                    <if test="{workspace_picker_open}">
+                      <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_workspace_picker">
+                        <menu-item selected="{workspace_is_local}" on-press="pick_workspace_local">Local</menu-item>
+                        <menu-item selected="{workspace_is_new_worktree}" on-press="pick_workspace_new_worktree">New worktree</menu-item>
+                      </dropdown-menu>
+                    </if>
+                  </stack>
+                </if>
+                <if test="{workspace_is_materialized}">
+                  <text wrap="false" overflow="ellipsis" foreground="text_muted">{workspace_label}</text>
+                </if>
+                <if test="{can_pick_workspace_base}">
+                  <text wrap="false" overflow="ellipsis" foreground="text_muted">{git_worktree_base_label}</text>
+                  <stack>
+                    <button variant="ghost" size="sm" on-press="toggle_git_worktree_base_picker">Base</button>
+                    <if test="{git_worktree_base_picker_open}">
+                      <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_git_worktree_base_picker">
+                        <for each="git_worktree_base_rows" key="row_id" as="w">
+                          <menu-item selected="{w.selected}" on-press="pick_git_worktree_base:{w.id}">{w.label}</menu-item>
+                        </for>
+                      </dropdown-menu>
+                    </if>
+                  </stack>
+                </if>
                 <if test="{has_git_dirty}">
                   <text wrap="false" overflow="ellipsis" foreground="text_muted">{git_dirty_label}</text>
                 </if>

@@ -130,8 +130,10 @@
 //! BackgroundWorkRegistry event/reconcile/driver parity.
 //! Not transcript checkpoint +/-. First-cut Force push ships on
 //! composer Push… / Commit… (runtime-only ghost). New worktree…
-//! first-cut Base picker ships. Leftovers: defer-until-Send
-//! workspace mode / stash / merge / daemon `WorkspaceOperation`.
+//! first-cut Base picker ships. First-cut defer-until-Send
+//! workspace mode ships (composer Work in; Send prep reuses
+//! New worktree… `git worktree add`). Leftovers: stash / merge /
+//! daemon `WorkspaceOperation`.
 
 const std = @import("std");
 const main = @import("main.zig");

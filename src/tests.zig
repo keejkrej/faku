@@ -16958,6 +16958,80 @@ test "New worktree opens create UI; Esc and cancel close it" {
     try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
 }
 
+test "Work in chip marks New worktree without spawning; Local clears it" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-ws-ui", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("work in ui", .fx);
+    model.selected = id;
+
+    try testing.expect(!model.can_pick_workspace());
+    main.update(&model, .{ .project_path_edit = .{ .insert_text = project } }, &fx);
+    try testing.expect(model.can_pick_workspace());
+    try testing.expect(model.workspace_is_local());
+    try testing.expect(!model.workspace_is_new_worktree());
+    try testing.expect(!model.workspace_is_materialized());
+
+    var tree = try buildTree(arena, &model);
+    const chip = try expectByText(tree.root, .select, "Local");
+    try testing.expectEqual(Msg.toggle_workspace_picker, tree.msgForPointer(chip.id, .up).?);
+    try testing.expect(findByText(tree.root, .menu_item, "New worktree") == null);
+
+    main.update(&model, .toggle_workspace_picker, &fx);
+    try testing.expect(model.workspace_picker_open);
+    tree = try buildTree(arena, &model);
+    const local_item = try expectByText(tree.root, .menu_item, "Local");
+    const new_item = try expectByText(tree.root, .menu_item, "New worktree");
+    try testing.expectEqual(Msg.pick_workspace_local, tree.msgForPointer(local_item.id, .up).?);
+    try testing.expectEqual(Msg.pick_workspace_new_worktree, tree.msgForPointer(new_item.id, .up).?);
+    try testing.expect(findByText(tree.root, .menu_item, "New worktree…") == null);
+
+    const before_add = model.git_worktree_add_key;
+    const before_base = model.git_worktree_base_key;
+    main.update(&model, tree.msgForPointer(new_item.id, .up).?, &fx);
+    try testing.expect(!model.workspace_picker_open);
+    try testing.expect(model.workspace_is_new_worktree());
+    try testing.expectEqual(before_add, model.git_worktree_add_key);
+    try testing.expectEqual(before_base, model.git_worktree_base_key);
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    try testing.expectEqualStrings(project, model.selectedProjectPath());
+    try testing.expect(model.can_pick_workspace_base());
+
+    tree = try buildTree(arena, &model);
+    const marked = try expectByText(tree.root, .select, "New worktree");
+    try testing.expectEqual(Msg.toggle_workspace_picker, tree.msgForPointer(marked.id, .up).?);
+    _ = try expectButtonMsg(tree, "Base", .toggle_git_worktree_base_picker);
+
+    main.update(&model, .toggle_workspace_picker, &fx);
+    tree = try buildTree(arena, &model);
+    const local_again = try expectByText(tree.root, .menu_item, "Local");
+    main.update(&model, tree.msgForPointer(local_again.id, .up).?, &fx);
+    try testing.expect(model.workspace_is_local());
+    try testing.expect(!model.can_pick_workspace_base());
+    try testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+
+    model.sessionById(id).?.setWorkspaceWorktree(project, "faku/feat");
+    try testing.expect(!model.can_pick_workspace());
+    try testing.expect(model.workspace_is_materialized());
+    try testing.expectEqualStrings("faku/feat", model.workspace_label());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "faku/feat");
+    try testing.expect(findByText(tree.root, .select, "New worktree") == null);
+}
+
 test "Commit menu item opens a message card before Push; empty confirm does not spawn" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

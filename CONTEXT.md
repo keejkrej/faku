@@ -32,6 +32,7 @@ send circle.
 | **fx_session_id** | Saved fx / ACP `sessionId`, or Claude stream-json `session_id`. Same field `fx ask --json` uses. Empty on a Fork clone so the next Send calls `session/new` (ACP) or omits `--resume` (Claude). |
 | **runtime_id** | Daemon runtime id. Empty until a daemon `start` / attach path stores one. |
 | **project_path** | Session cwd. Empty is Local / host cwd. |
+| **workspace** | Session workspace kind. `local` (default; omitted from `sessions.json`) is the ordinary `project_path` checkout. `newWorktree` is a composer draft until Send — it does not spawn `git worktree add` yet. `worktree` is `{path, branch}` after Send materializes that dest and retargets `project_path`. Composer **Work in**. Optional Base for `newWorktree` reuses the runtime-only New worktree… picker (`git_worktree_base_override_*`); not persisted. Fork copies `project_path` (including a materialized dest) and resets kind to `local`. |
 | **access_mode** | Stored Waku runtime mode. Maps onto fx `ask` / `code` (ACP) and `FX_PERMISSION_MODE` (`ask` / `auto` / `yolo`). New sessions default to Waku `fullAccess`. |
 | **loadTaskState** | Catalog fill. Local JSON today. Daemon `loadTaskState` is only a first-run fill when the local catalog is missing. |
 | **saveTaskState** | Best-effort daemon mirror of one started-session skeleton. Does not replace the local catalog. |
@@ -72,6 +73,18 @@ Composer drafts are a sibling `drafts.json`. Keys match Waku:
 There is no `listSessions` / `createSession`. Catalog is
 `loadTaskState`. New session is a client-built session saved after
 first content.
+
+Session `workspace` on `sessions.json` is omitted when `local`. A
+`newWorktree` skeleton is `{"kind":"newWorktree"}`. After Send prep
+succeeds it is `{"kind":"worktree","path":"…","branch":"…"}`.
+Composer **Work in** (Local / New worktree) is draft-only until
+Send; the branch-menu **New worktree…** immediate create path is
+separate. Send on `newWorktree` queues the prompt, shows Creating
+worktree…, and reuses the existing `git worktree add` spawn /
+retry / candidate path. Success retargets `project_path` then
+`startPrompt`. Failure leaves `newWorktree` and does not start
+the provider. Base for that draft is runtime-only (not a
+persisted `baseBranch`).
 
 ## fx vs daemon
 
@@ -293,8 +306,11 @@ Commit…; default off; reset when those cards open; not persisted;
 `--force` its own argv slot after `push`). New worktree… first-cut
 Base picker ships (listed unoccupied local heads; runtime-only
 override; default still today's origin/HEAD probe then composer
-branch label then omit/HEAD). Leftovers: defer-until-Send workspace
-mode / stash / merge / daemon `WorkspaceOperation`. Fetch already
+branch label then omit/HEAD). First-cut defer-until-Send workspace
+mode ships (composer Work in Local / New worktree; Send queues the
+prompt, one-shots the same `git worktree add` as New worktree…,
+retargets `project_path`, then `startPrompt`). Leftovers: stash /
+merge / daemon `WorkspaceOperation`. Fetch already
 `--prune`; there is no prune-alone menu (not in Waku).
 Windows probes, checkout / push / worktree, and commit mutations (add / cached-quiet / commit /
 amend / CommitSnapshot tracked-cached) use `git.exe -C <project_path>`;
@@ -309,7 +325,9 @@ Send may snapshot the worktree (`worktree_snapshot_sha` /
 `refs/faku/`, not `refs/waku/`). Rewind undoes the last turn's files
 and those chat turns using the Send-time HEAD / snapshot. Fork clones
 the local transcript into a new `sessions.json` row; it is not a
-provider session fork.
+provider session fork. Fork copies `project_path` (including a
+materialized worktree dest) and resets workspace kind to `local`;
+it does not spawn a second worktree.
 
 ## Right panel: Files / Diff / Browser / Terminal / Background
 
@@ -503,6 +521,7 @@ live watch.
 | Msg update / initFx | `src/update.zig` |
 | Model / Msg / Turn / Folder | `src/model.zig` |
 | Session type | `src/session.zig` |
+| Defer-until-Send workspace | `src/session_workspace.zig` |
 | Local catalog | `src/store.zig` |
 | ACP builders | `src/acp.zig`, `src/acp_proxy.zig` |
 | Daemon sidecar | `src/daemon_proxy.zig`, `src/protocol.zig` |
