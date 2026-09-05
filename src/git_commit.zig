@@ -67,8 +67,10 @@
 //! Amend is off and `canPushGitBranch`. First-cut Force ghost on
 //! this row (runtime-only `git_push_force`; default off; reset when
 //! the card opens; not persisted) is honored by in-dialog Push and
-//! Commit and Push (`--force` its own argv slot). Not daemon
-//! `WorkspaceOperation`.
+//! Commit and Push (`--force` its own argv slot). First-cut daemon
+//! `WorkspaceOperation::Push` lives in `git_checkout` when a daemon
+//! address is set (Force stays local git). Not daemon
+//! `WorkspaceOperation::Commit`.
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:

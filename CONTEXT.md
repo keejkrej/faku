@@ -219,7 +219,7 @@ incoming text frame as one stdout line, and exits on `turnFinished` /
 `rejected` / `error`. Token comes from `WAKU_DAEMON_TOKEN` when set.
 Hello is protocol v4. First-cut commands: `loadTaskState`,
 `hydrateSession`, `saveTaskState`, `attachSession`, `start`, `prompt`,
-`steer`, `cancel`, `goal`, `closeSession`. Start defaults to provider
+`steer`, `cancel`, `goal`, `workspace`, `closeSession`. Start defaults to provider
 `fx`. fx-first (`fx acp` / `fx ask` / demo) does not use daemon hello.
 
 Local `sessions.json` remains the catalog of record. Daemon
@@ -305,7 +305,10 @@ one-shot `git` spawns. Runtime-only labels are not stored on
 watch, not `{project_id}` UUID nesting. First-cut composer Force
 push ships (runtime-only ghost toggle on Push… confirm and
 Commit…; default off; reset when those cards open; not persisted;
-`--force` its own argv slot after `push`). New worktree… first-cut
+`--force` its own argv slot after `push`). First-cut daemon
+`WorkspaceOperation::Push` ships (best-effort sidecar when
+`WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set;
+Force stays local `git push --force` / set-upstream force). New worktree… first-cut
 Base picker ships (listed unoccupied local heads; runtime-only
 override on the immediate card; Work-in `newWorktree` persists
 camelCase `baseBranch` and keeps `git_worktree_base_override_*`
@@ -313,8 +316,9 @@ in sync; default still today's origin/HEAD probe then composer
 branch label then omit/HEAD). First-cut defer-until-Send workspace
 mode ships (composer Work in Local / New worktree; optional
 `baseBranch` persist on that draft; Send queues the prompt, one-shots the same `git worktree add` as New worktree…,
-retargets `project_path`, then `startPrompt`). Leftovers: daemon
-`WorkspaceOperation`. Fetch already
+retargets `project_path`, then `startPrompt`). Leftovers: other
+daemon `WorkspaceOperation` variants (CreateWorktree,
+InspectBranches, Commit, …). Fetch already
 `--prune`; there is no prune-alone menu (not in Waku).
 Windows probes, checkout / push / worktree, and commit mutations (add / cached-quiet / commit /
 amend / CommitSnapshot tracked-cached) use `git.exe -C <project_path>`;
@@ -371,7 +375,8 @@ title, live-or-settled status, Monitor / Subagent 512KB last-window log). Not an
 or a full BackgroundWorkRegistry. Faku-side Monitor and Subagent Stop
 on one-shot `claude -p` ships (live Stop dismisses that live row;
 settled rows offer Dismiss; not Claude TaskStop mid-turn). Not daemon
-`WorkspaceOperation`. Environment Summary Background is
+`WorkspaceOperation` for Background (first-cut daemon Push lives on
+composer git). Environment Summary Background is
 Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
 runtime-only multi-row registry. This cut populates Process
 ("Agent turn") from window-side `is_streaming`, plus Stop agent,
@@ -647,6 +652,11 @@ Honest gaps this cut does not implement:
   Zig `std.fs` atomic write, Reload discards unsaved edits. First-cut
   live reload via mtime/size poll on the update tick. Not a real FS
   watcher / Native watch API)
+- Other daemon `WorkspaceOperation` variants (CreateWorktree,
+  InspectBranches, Commit, CaptureTurn, ListTree, BrowseDirectory,
+  ReadTextFile, …). First-cut `WorkspaceOperation::Push` ships as a
+  best-effort sidecar when `WAKU_DAEMON_ADDRESS` or persisted
+  `last_daemon_address` is set; Force stays local `git push --force`
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size

@@ -95,16 +95,22 @@
 //! Waku's 100 + session-id hex). A failed `worktree add` retries
 //! the next free candidate the same way. Exhausted candidates set
 //! status and leave `project_path` alone. Success retargets the
-//! selected session `project_path` to the dest actually used. Not
-//! daemon `WorkspaceOperation::Push` / `NewWorktree`, not
-//! `InspectCommit` / `Commit`. Cap is 64 local heads plus 32
+//! selected session `project_path` to the dest actually used. First-cut
+//! daemon `WorkspaceOperation::Push` ships as a best-effort sidecar when
+//! `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set and
+//! Force is off (nil sessionId / runtimeId, `{ "type": "push", "cwd" }`;
+//! no force flag on daemon Push). Force stays local `git push --force`
+//! / set-upstream force. Upstream / show_current / remotes probes stay
+//! local git. Not daemon `NewWorktree` / `InspectCommit` / `Commit`.
+//! Cap is 64 local heads plus 32
 //! remote-tracking names that have no local counterpart (skip
 //! symbolic `*/HEAD`), sorted lexicographically. Not Waku's daemon
 //! `InspectBranches` picker, live watch, `waku/` prefix /
 //! `~/.waku/worktrees/{project_id}` UUID nest. Composer Push… still
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
-//! Leftovers: daemon `WorkspaceOperation`. Fetch
+//! Leftovers: other daemon `WorkspaceOperation` variants
+//! (CreateWorktree, InspectBranches, Commit, …). Fetch
 //! already `--prune`; there is no prune-alone menu (not in Waku).
 //! First-cut defer-until-Send Work in reuses this same add path on
 //! Send (`session_workspace`); optional `baseBranch` persist ships
@@ -132,7 +138,9 @@
 //! Spawn/line/exit orchestration lives here. Effect keys stay
 //! git_checkout bands (250+ list, 275+ checkout, 290+ create,
 //! 320+ delete, 340+ fetch, 360+ push, 370+ worktree add,
-//! 390+ worktree base).
+//! 390+ worktree base). First-cut daemon `WorkspaceOperation::Push`
+//! reuses `next_daemon_key` (daemon-proxy band) assigned onto
+//! `git_push_key` so `handlePushExit` still owns the phase.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -146,6 +154,9 @@ const git_remotes = @import("git_remotes.zig");
 const git_toplevel = @import("git_toplevel.zig");
 const git_common_dir = @import("git_common_dir.zig");
 const file_mention = @import("file_mention.zig");
+const store = @import("store.zig");
+const daemon_proxy = @import("daemon_proxy.zig");
+const protocol = @import("protocol.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -883,6 +894,12 @@ fn isWindowsGitPushArgv(argv: []const []const u8) bool {
 
 pub fn isGitPushArgv(argv: []const []const u8) bool {
     return isUnixGitPushArgv(argv) or isWindowsGitPushArgv(argv);
+}
+
+/// Sidecar + `daemon-proxy` + address. Final Push… spawn when a daemon
+/// address is set and Force is off.
+pub fn isDaemonWorkspacePushArgv(argv: []const []const u8) bool {
+    return daemon_proxy.isSidecarArgv(argv) and argv.len >= 3 and argv[2].len > 0;
 }
 
 pub fn isGitPushForceArgv(argv: []const []const u8) bool {
@@ -2208,6 +2225,7 @@ fn spawnBarePush(model: *Model, fx: *Effects) void {
         failPush(model);
         return;
     }
+    if (trySpawnDaemonWorkspacePush(model, fx, cwd)) return;
     var argv_buf: [push_argv_len][]const u8 = undefined;
     const argv = if (model.git_push_force)
         pushForceArgvFor(cwd, &argv_buf)
@@ -2243,6 +2261,7 @@ fn spawnSetUpstreamPush(model: *Model, fx: *Effects) void {
         failPush(model);
         return;
     }
+    if (trySpawnDaemonWorkspacePush(model, fx, cwd)) return;
     var argv_buf: [set_upstream_push_argv_len][]const u8 = undefined;
     const argv = (if (model.git_push_force)
         setUpstreamPushForceArgvFor(cwd, gitPushRemote(model), gitPushBranch(model), &argv_buf)
@@ -2252,6 +2271,43 @@ fn spawnSetUpstreamPush(model: *Model, fx: *Effects) void {
         return;
     };
     spawnPushCmd(model, fx, cwd, argv, .push);
+}
+
+/// Best-effort hello + `WorkspaceOperation::Push` when a daemon address
+/// is set and Force is off. Own daemon spawn key assigned to
+/// `git_push_key` so `handlePushExit` still closes the card. Missing
+/// address or Force returns false and leaves local `git push`.
+fn trySpawnDaemonWorkspacePush(model: *Model, fx: *Effects, cwd: []const u8) bool {
+    if (model.git_push_force) return false;
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{ .push = .{ .cwd = cwd } },
+    }) catch {
+        failPush(model);
+        return true;
+    };
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.git_push_key = key;
+    model.git_push_phase = .push;
+    model.git_push_probe_session = model.selected;
+    const probed = model.git_push_probe_path_storage[0..model.git_push_probe_path_len];
+    if (cwd.ptr != probed.ptr) {
+        writeFixed(&model.git_push_probe_path_storage, &model.git_push_probe_path_len, cwd);
+    }
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
 }
 
 fn continueNoUpstream(model: *Model, fx: *Effects) void {
@@ -5089,5 +5145,169 @@ test "beginPushAfterCommit keeps an open commit card until push exit" {
     handlePushExit(&model, &fx, .{ .key = push, .reason = .exited, .code = 1 });
     try std.testing.expect(!model.git_commit_active);
     try std.testing.expect(!model.has_git_commit_pushing());
+    try std.testing.expectEqualStrings(push_failed_status, model.attach_status());
+}
+
+test "bare push without a daemon address still uses local git argv" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-push-local", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("push local git", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_has_upstream = true;
+    model.git_ahead_behind_ahead = 1;
+    try std.testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+
+    startPush(&model, &fx);
+    confirmPush(&model, &fx);
+    const up = pendingSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitUpstreamSpawn;
+    try std.testing.expect(isGitUpstreamArgv(up.argv));
+    applyPushLine(&model, .{ .key = up.key, .line = "origin/main\n" });
+    handlePushExit(&model, &fx, .{ .key = up.key, .reason = .exited, .code = 0 });
+    const local = pendingSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitPushSpawn;
+    try std.testing.expect(isGitPushArgv(local.argv));
+    try std.testing.expect(!isDaemonWorkspacePushArgv(local.argv));
+    try std.testing.expectEqualStrings("", local.stdin);
+    try std.testing.expect(local.key >= git_push_key_first);
+}
+
+test "bare push with a daemon address spawns workspace Push sidecar" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-push-daemon", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("push daemon", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_has_upstream = true;
+    model.git_ahead_behind_ahead = 1;
+
+    startPush(&model, &fx);
+    confirmPush(&model, &fx);
+    const up = pendingSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitUpstreamSpawn;
+    try std.testing.expect(isGitUpstreamArgv(up.argv));
+    applyPushLine(&model, .{ .key = up.key, .line = "origin/main\n" });
+    handlePushExit(&model, &fx, .{ .key = up.key, .reason = .exited, .code = 0 });
+    const sidecar = pendingSpawnKey(&fx, model.git_push_key) orelse return error.MissingDaemonPushSpawn;
+    try std.testing.expect(isDaemonWorkspacePushArgv(sidecar.argv));
+    try std.testing.expect(!isGitPushArgv(sidecar.argv));
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"push\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"cwd\":\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "force") == null);
+    try std.testing.expectEqual(GitPushPhase.push, model.git_push_phase);
+    try std.testing.expectEqual(sidecar.key, model.git_push_key);
+
+    handlePushExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!model.git_push_confirm_active);
+}
+
+test "force push with a daemon address still uses local git --force" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-push-daemon-force", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("push daemon force", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_has_upstream = true;
+    model.git_ahead_behind_ahead = 1;
+
+    startPush(&model, &fx);
+    togglePushForce(&model, &fx);
+    try std.testing.expect(model.git_push_force);
+    confirmPush(&model, &fx);
+    const up = pendingSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitUpstreamSpawn;
+    applyPushLine(&model, .{ .key = up.key, .line = "origin/main\n" });
+    handlePushExit(&model, &fx, .{ .key = up.key, .reason = .exited, .code = 0 });
+    const forced = pendingSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitPushForceSpawn;
+    try std.testing.expect(isGitPushForceArgv(forced.argv));
+    try std.testing.expect(isGitPushArgv(forced.argv));
+    try std.testing.expect(!isDaemonWorkspacePushArgv(forced.argv));
+    try std.testing.expectEqualStrings("", forced.stdin);
+}
+
+test "set-upstream push with a daemon address uses workspace Push sidecar" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-push-daemon-up", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("push daemon upstream", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "feat/new");
+    model.git_ahead_behind_ready = true;
+    model.git_ahead_behind_has_upstream = false;
+    model.git_remotes_ready = true;
+    model.git_has_remote = true;
+
+    startPush(&model, &fx);
+    confirmPush(&model, &fx);
+    const up = pendingSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitUpstreamSpawn;
+    try std.testing.expect(isGitUpstreamArgv(up.argv));
+    handlePushExit(&model, &fx, .{ .key = up.key, .reason = .exited, .code = 1 });
+    const remote_spawn = pendingSpawnKey(&fx, model.git_push_key) orelse return error.MissingGitRemoteSpawn;
+    try std.testing.expect(isGitRemoteArgv(remote_spawn.argv));
+    applyPushLine(&model, .{ .key = remote_spawn.key, .line = "origin\n" });
+    handlePushExit(&model, &fx, .{ .key = remote_spawn.key, .reason = .exited, .code = 0 });
+    const sidecar = pendingSpawnKey(&fx, model.git_push_key) orelse return error.MissingDaemonSetUpstreamPush;
+    try std.testing.expect(isDaemonWorkspacePushArgv(sidecar.argv));
+    try std.testing.expect(!isGitSetUpstreamPushArgv(sidecar.argv));
+    try std.testing.expectEqualStrings("10.0.0.2:9", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"push\"") != null);
+
+    handlePushExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
     try std.testing.expectEqualStrings(push_failed_status, model.attach_status());
 }

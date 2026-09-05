@@ -7,12 +7,16 @@
 //! candidate path as New worktree…). Success retargets `project_path`,
 //! sets `worktree` {path, branch}, then `startPrompt`. Failure leaves
 //! `newWorktree` and does not start the provider. Native has no git
-//! effect. Not daemon `WorkspaceOperation`. Optional Work-in Base on
+//! effect. Not daemon `WorkspaceOperation::CreateWorktree`. Optional Work-in Base on
 //! a `newWorktree` draft persists camelCase `baseBranch` (Waku
 //! `NewWorktree { base_branch }`) and keeps
 //! `git_worktree_base_override_*` in sync. Send prep prefers that
 //! stored base for the trailing `git worktree add` argv slot.
-//! Leftovers: daemon `WorkspaceOperation`. Fork copies
+//! First-cut daemon `WorkspaceOperation::Push` ships in
+//! `git_checkout` (best-effort sidecar when a daemon address is set;
+//! Force stays local git). Leftovers: other daemon
+//! `WorkspaceOperation` variants (CreateWorktree, InspectBranches,
+//! Commit, …). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).
 
 const std = @import("std");
