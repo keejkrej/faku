@@ -53,12 +53,18 @@
 //! from a prompt slug of the selected session title (empty /
 //! non-ascii-only → `new-worktree`; user can still edit). A first-cut
 //! ghost Base control on that card picks a listed unoccupied local
-//! head as the worktree start-point (runtime-only override; not
-//! persisted; remotes and occupied locals are omitted, same refusal
-//! as checkout/delete; reset when the card opens or is cancelled).
-//! Confirm uses that override as the trailing `git worktree add -b
+//! head as the worktree start-point (runtime-only override on that
+//! card; remotes and occupied locals are omitted, same refusal
+//! as checkout/delete; reset when the card opens or is cancelled
+//! unless the selected session is already a Work-in `newWorktree`
+//! draft). Confirm uses that override as the trailing `git worktree add -b
 //! … <path> <base>` argv slot when it is non-empty (own slot; skip
-//! the origin/HEAD probe). When the override is empty, confirm
+//! the origin/HEAD probe). Composer Work-in Base on a `newWorktree`
+//! draft writes the same override and persists camelCase `baseBranch`
+//! on `sessions.json` (Waku `NewWorktree { base_branch }`; omitted
+//! when empty). Send prep / `beginWorktreeAdd` prefer that stored
+//! base for the trailing argv slot the same way a runtime override
+//! does. When the override / stored base is empty, confirm
 //! probes `git symbolic-ref --quiet --short refs/remotes/origin/HEAD`
 //! (chdir script; no interpolation; key band 390+) then one-shots
 //! `git worktree add -b faku/<name> <path>` with that default base
@@ -98,11 +104,12 @@
 //! `~/.waku/worktrees/{project_id}` UUID nest. Composer Push… still
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
-//! Leftovers: stash / merge / daemon `WorkspaceOperation`. Fetch
+//! Leftovers: daemon `WorkspaceOperation`. Fetch
 //! already `--prune`; there is no prune-alone menu (not in Waku).
 //! First-cut defer-until-Send Work in reuses this same add path on
-//! Send (`session_workspace`); the branch-menu New worktree… card
-//! still creates immediately.
+//! Send (`session_workspace`); optional `baseBranch` persist ships
+//! on that draft. The branch-menu New worktree… card still creates
+//! immediately.
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
@@ -1919,9 +1926,11 @@ pub fn startCreate(model: *Model) void {
 
 /// Dismiss the select list and open the runtime-only New worktree…
 /// card. Prefills a prompt slug from the selected session title
-/// (`new-worktree` when that slugs empty). Draft name and Base
-/// override are not persisted; the user can still edit. Resets the
-/// runtime-only base override and closes the Base picker.
+/// (`new-worktree` when that slugs empty). Draft name is not
+/// persisted; the user can still edit. Resets the runtime-only
+/// base override unless the selected session is already a Work-in
+/// `newWorktree` draft (that Base is `baseBranch` on
+/// `sessions.json`). Closes the Base picker.
 pub fn startWorktreeCreate(model: *Model) void {
     closePicker(model);
     closeCreate(model);
@@ -1970,12 +1979,50 @@ pub fn toggleWorktreeBasePicker(model: *Model) void {
 }
 
 /// Remember a listed unoccupied local head as the New worktree…
-/// base override. Does not spawn. Remotes and occupied names are
-/// refused. Not persisted.
+/// / Work-in Base. Does not spawn. Remotes and occupied names are
+/// refused. Empty `name` clears. While the selected session is
+/// `newWorktree`, also writes `workspace` `baseBranch` and keeps
+/// `git_worktree_base_override_*` in sync. The immediate New
+/// worktree… card on a Local session stays runtime-only.
 pub fn pickWorktreeBaseName(model: *Model, name: []const u8) void {
     model.git_worktree_base_picker_open = false;
+    if (name.len == 0) {
+        clearWorktreeBaseName(model);
+        return;
+    }
     if (!isListedLocalUnoccupied(model, name)) return;
     writeFixed(&model.git_worktree_base_override_storage, &model.git_worktree_base_override_len, name);
+    if (sessionIsNewWorktree(model)) {
+        if (model.sessionById(model.selected)) |session| {
+            session.setWorkspaceBaseBranch(name);
+        }
+    }
+}
+
+/// Clear the runtime Base override. While `newWorktree`, also
+/// clears stored `baseBranch`.
+pub fn clearWorktreeBaseName(model: *Model) void {
+    model.git_worktree_base_picker_open = false;
+    model.git_worktree_base_override_len = 0;
+    if (sessionIsNewWorktree(model)) {
+        if (model.sessionById(model.selected)) |session| {
+            session.clearWorkspaceBaseBranch();
+        }
+    }
+}
+
+/// Copy stored `newWorktree` `baseBranch` onto the runtime
+/// override so Send prep / the Base chip see it after hydrate or
+/// select. Other kinds clear the override unless the immediate
+/// New worktree… card still owns it (`closeWorktreeCreate`).
+pub fn syncWorktreeBaseOverrideFromSession(model: *Model) void {
+    if (model.git_worktree_create_active and !sessionIsNewWorktree(model)) return;
+    model.git_worktree_base_override_len = 0;
+    const session = model.sessionByIdConst(model.selected) orelse return;
+    if (session.workspace_kind != .new_worktree) return;
+    const base = session.workspaceBaseBranch();
+    if (base.len == 0) return;
+    writeFixed(&model.git_worktree_base_override_storage, &model.git_worktree_base_override_len, base);
 }
 
 pub fn toggleDeletePicker(model: *Model) void {
@@ -2270,6 +2317,7 @@ pub fn refresh(model: *Model, fx: *Effects) void {
     closePicker(model);
     closeCreate(model);
     closeWorktreeCreate(model);
+    syncWorktreeBaseOverrideFromSession(model);
     closeDelete(model);
     closePushConfirm(model);
     if (model.git_commit_generate_key != 0) {
@@ -2771,20 +2819,34 @@ fn gitWorktreeBase(model: *const Model) []const u8 {
     return model.git_worktree_base_storage[0..model.git_worktree_base_len];
 }
 
-/// Trailing `git worktree add` base: override wins when non-empty,
-/// else the origin/HEAD probe result (or composer-label fallback).
+/// Worktree-add start-point: stored `newWorktree` `baseBranch` wins
+/// when non-empty, else the runtime override.
+pub fn gitWorktreeStartBase(model: *const Model) []const u8 {
+    if (model.sessionByIdConst(model.selected)) |session| {
+        if (session.workspace_kind == .new_worktree) {
+            const stored = session.workspaceBaseBranch();
+            if (stored.len > 0) return stored;
+        }
+    }
+    return gitWorktreeBaseOverride(model);
+}
+
+/// Trailing `git worktree add` base: stored / override wins when
+/// non-empty, else the origin/HEAD probe result (or composer-label
+/// fallback).
 fn gitWorktreeAddBase(model: *const Model) []const u8 {
-    const override = gitWorktreeBaseOverride(model);
-    if (override.len > 0) return override;
+    const start = gitWorktreeStartBase(model);
+    if (start.len > 0) return start;
     return gitWorktreeBase(model);
 }
 
-/// Effective Base label on the New worktree… card. Override if set,
-/// else resolved origin/HEAD / composer-label fallback already stored
-/// on confirm, else the current composer branch, else `HEAD`.
+/// Effective Base label on the New worktree… card / Work-in ghost.
+/// Stored / override if set, else resolved origin/HEAD /
+/// composer-label fallback already stored on confirm, else the
+/// current composer branch, else `HEAD`.
 pub fn gitWorktreeBaseLabel(model: *const Model) []const u8 {
-    const override = gitWorktreeBaseOverride(model);
-    if (override.len > 0) return override;
+    const start = gitWorktreeStartBase(model);
+    if (start.len > 0) return start;
     const resolved = gitWorktreeBase(model);
     if (resolved.len > 0) return resolved;
     if (pushBranchFromLabel(git_branch.gitBranchLabel(model))) |branch| return branch;
@@ -2858,9 +2920,10 @@ fn spawnWorktreeAdd(model: *Model, fx: *Effects) void {
     });
 }
 
-/// Confirm the New worktree… card: a non-empty Base override skips
+/// Confirm the New worktree… card: a non-empty Base (stored
+/// `newWorktree` `baseBranch` or runtime override) skips
 /// the origin/HEAD probe and one-shots `git worktree add -b
-/// faku/<name> <path> <override>`. When the override is empty, a
+/// faku/<name> <path> <base>`. When that start-point is empty, a
 /// safe name probes `refs/remotes/origin/HEAD` then one-shots
 /// `mkdir -p ~/.faku/worktrees/<nest>` plus
 /// `git worktree add -b faku/<name> <path> [base]`. Occupied dest
@@ -2881,6 +2944,8 @@ pub fn confirmWorktreeAdd(model: *Model, fx: *Effects) void {
 /// Shared by the New worktree… confirm card and defer-until-Send.
 /// `name` is a dest slug (`sanitizeWorktreeName`); empty / unsafe is
 /// a no-op. Same spawn / retry / candidate path as confirm.
+/// Non-empty stored `newWorktree` `baseBranch` skips the
+/// origin/HEAD probe the same way a runtime override does.
 pub fn beginWorktreeAdd(model: *Model, fx: *Effects, name: []const u8) void {
     if (gitMutationInFlight(model)) return;
     if (model.is_streaming()) return;
@@ -2907,7 +2972,7 @@ pub fn beginWorktreeAdd(model: *Model, fx: *Effects, name: []const u8) void {
     if (!std.mem.startsWith(u8, stored_dest, parent)) return;
     if (stored_dest.len <= parent.len or stored_dest[parent.len] != '/') return;
 
-    if (gitWorktreeBaseOverride(model).len > 0) {
+    if (gitWorktreeStartBase(model).len > 0) {
         spawnWorktreeAdd(model, fx);
         return;
     }

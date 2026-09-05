@@ -682,7 +682,8 @@ pub const Model = struct {
     git_branch_create_active: bool = false,
     /// Runtime-only New worktree… create card. Draft name is not persisted.
     git_worktree_create_active: bool = false,
-    /// Runtime-only New worktree… Base picker. Not persisted.
+    /// Runtime-only New worktree… Base picker. Work-in `newWorktree`
+    /// Base also lives here, synced from stored `baseBranch`.
     git_worktree_base_picker_open: bool = false,
     /// Runtime-only composer Work in picker. Not persisted.
     workspace_picker_open: bool = false,
@@ -996,8 +997,10 @@ pub const Model = struct {
     git_worktree_base_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     git_worktree_base_len: usize = 0,
     /// Runtime-only New worktree… Base override. Listed unoccupied
-    /// local head. Not persisted to sessions.json. Reset when the
-    /// card opens or is cancelled.
+    /// local head. Work-in `newWorktree` keeps this in sync with
+    /// stored camelCase `baseBranch`. The immediate New worktree…
+    /// card on Local still resets this when the card opens or is
+    /// cancelled.
     git_worktree_base_override_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     git_worktree_base_override_len: usize = 0,
     git_commit_key: u64 = 0,
@@ -1673,6 +1676,7 @@ pub const Model = struct {
         "toggleGitBranchDeletePicker",
         "closeGitBranchDeletePicker",
         "closeGitWorktreeBasePicker",
+        "syncGitWorktreeBaseOverride",
         "closeComposerPickers",
         "access_selected_ask",
         "access_selected_auto",
@@ -1887,6 +1891,10 @@ pub const Model = struct {
 
     pub fn closeGitWorktreeBasePicker(model: *Model) void {
         git_checkout.closeWorktreeBasePicker(model);
+    }
+
+    pub fn syncGitWorktreeBaseOverride(model: *Model) void {
+        git_checkout.syncWorktreeBaseOverrideFromSession(model);
     }
 
     pub fn closeWorkspacePicker(model: *Model) void {
@@ -3877,8 +3885,9 @@ pub const Model = struct {
         return model.git_worktree_create_buffer.text();
     }
 
-    /// Effective New worktree… Base label. Override if set, else
-    /// resolved / composer branch, else `HEAD`.
+    /// Effective New worktree… / Work-in Base label. Stored
+    /// `baseBranch` / override if set, else resolved / composer
+    /// branch, else `HEAD`.
     pub fn git_worktree_base_label(model: *const Model) []const u8 {
         return git_checkout.gitWorktreeBaseLabel(model);
     }
@@ -3886,7 +3895,7 @@ pub const Model = struct {
     /// Listed unoccupied local heads for the New worktree… Base
     /// picker. Skips remotes and occupied locals.
     pub fn git_worktree_base_rows(model: *const Model, arena: std.mem.Allocator) []const ChipPickerRow {
-        const selected = git_checkout.gitWorktreeBaseOverride(model);
+        const selected = git_checkout.gitWorktreeStartBase(model);
         const n = model.git_branch_list_count;
         if (n == 0) return &.{};
         const out = arena.alloc(ChipPickerRow, n) catch return &.{};
