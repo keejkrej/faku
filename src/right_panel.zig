@@ -196,10 +196,12 @@ pub const indent_step: f32 = 12;
 /// Files-tab inline preview read cap (256KB). Truncation is labeled.
 pub const max_file_preview_bytes: usize = 256 * 1024;
 
-/// Native stdout line budget for a ReadTextFile sidecar. Content is
-/// still capped at `max_file_preview_bytes` after parse. Overflow /
-/// truncated JSON falls back to local read.
-pub const file_preview_daemon_line_bytes: usize = max_file_preview_bytes + (64 * 1024);
+/// Native stdout line budget for a ReadTextFile sidecar. Matches
+/// Native's `max_effect_line_bytes_ceiling` (256KB); a request above
+/// that is rejected. Content is still capped at `max_file_preview_bytes`
+/// after parse. JSON wrapping of a near-cap file that blows this bound
+/// truncates the line and falls back to local read.
+pub const file_preview_daemon_line_bytes: usize = max_file_preview_bytes;
 
 /// First-cut Files preview live reload. Stat size + mtime at most
 /// once per this many milliseconds of `model.now_ms`. Piggybacks the
