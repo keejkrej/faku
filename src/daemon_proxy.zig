@@ -24,7 +24,8 @@
 //! or `branches` with a usable snapshot (InspectBranches), or
 //! `branchChanged` with a usable snapshot (CheckoutBranch), or
 //! `commitSnapshot` with a usable snapshot (InspectCommit), or
-//! `checkpoint` with a nested checkpoint object (CaptureTurn).
+//! `checkpoint` with a nested checkpoint object (CaptureTurn), or
+//! `commitMessage` with a string `message` (GenerateCommitMessage).
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -364,7 +365,7 @@ pub fn writeGoalStdin(buf: []u8, args: GoalStdin) WriteError![]const u8 {
 
 /// NDJSON stdin for first-cut workspace Push / CreateWorktree / Commit /
 /// InspectBranches / CheckoutBranch / InspectCommit / CaptureTurnStart /
-/// CaptureTurn.
+/// CaptureTurn / GenerateCommitMessage.
 /// Hello + `workspace`
 /// (nil request-frame `sessionId` / `runtimeId`, command payload
 /// `operation`). Own spawn key — Native cannot write into a running
@@ -1205,6 +1206,74 @@ test "writeWorkspaceStdin emits hello and workspace captureTurn without a prompt
                 .cwd = "/tmp/faku",
                 .session_id = "00000000-0000-0000-0000-000000000007",
                 .turn_count = 1,
+            },
+        },
+    }));
+}
+
+test "writeWorkspaceStdin emits hello and workspace generateCommitMessage without a prompt" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{
+            .generate_commit_message = .{
+                .cwd = "/tmp/faku",
+                .include_unstaged = true,
+                .invocation = .{
+                    .provider = "fx",
+                    .binary = "/home/me/.fx/bin/fx",
+                    .model = "gpt-5",
+                    .reasoning_effort = "high",
+                },
+            },
+        },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ WORKSPACE_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"generateCommitMessage\",\"cwd\":\"/tmp/faku\",\"includeUnstaged\":true,\"invocation\":{\"provider\":\"fx\",\"binary\":\"/home/me/.fx/bin/fx\",\"model\":\"gpt-5\",\"reasoning_effort\":\"high\"}}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"inspectCommit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"commit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "include_unstaged") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "reasoningEffort") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "force") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForWorkspace(stdin));
+
+    const omitted = try writeWorkspaceStdin(&buf, .{
+        .operation = .{
+            .generate_commit_message = .{
+                .cwd = "/tmp/faku",
+                .include_unstaged = false,
+                .invocation = .{
+                    .provider = "claude",
+                    .binary = "claude",
+                },
+            },
+        },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"includeUnstaged\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"model\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"reasoning_effort\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"type\":\"attachSession\"") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
+        .operation = .{
+            .generate_commit_message = .{
+                .cwd = "/tmp/faku",
+                .include_unstaged = true,
+                .invocation = .{
+                    .provider = "fx",
+                    .binary = "fx",
+                },
             },
         },
     }));

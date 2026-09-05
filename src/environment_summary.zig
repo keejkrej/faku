@@ -141,13 +141,16 @@
 //! ships in `git_checkout` (picker local-head checkout / New branch
 //! create). First-cut daemon `WorkspaceOperation::InspectCommit`
 //! ships in `git_commit` (Commit… open / include-unstaged re-probe).
+//! First-cut daemon `WorkspaceOperation::GenerateCommitMessage`
+//! ships in `git_commit` (empty-message Commit… generate; overflow /
+//! error / empty / parse miss falls back to local `fx ask`).
 //! First-cut daemon `WorkspaceOperation::CaptureTurnStart` ships in
 //! `fork` (best-effort Send sidecar after local capture; Ack; local
 //! sha stays canonical). First-cut daemon
 //! `WorkspaceOperation::CaptureTurn` ships in `fork` (best-effort
 //! finish sidecar after local end capture; Checkpoint; local end
 //! shas stay canonical). Leftovers: other daemon `WorkspaceOperation`
-//! variants (ListTree, GenerateCommitMessage, CollectReviewDiff, ref ops,
+//! variants (ListTree, CollectReviewDiff, ref ops,
 //! remotes-on-daemon-list, amend/force over daemon, remote `--track`
 //! over daemon, …).
 
