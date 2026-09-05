@@ -335,16 +335,16 @@ pub fn updateFakuRef(
 
 /// One-shot `git -C <path> update-ref -d <ref>` (Windows: `git.exe
 /// -C`). Same argv-slot shape as `updateFakuRef`. Missing / non-git /
-/// bad ref / failed or already-absent delete is quiet false. No Native
-/// git API and not `/bin/sh -c`.
+/// bad ref / failed delete is quiet false (`git update-ref -d` exits
+/// 0 when the name is already absent, so this checks `hasFakuRef`
+/// first). No Native git API and not `/bin/sh -c`.
 pub fn deleteFakuRef(
     allocator: std.mem.Allocator,
     io: std.Io,
     project_path: []const u8,
     ref_name: []const u8,
 ) bool {
-    if (!isFakuRefName(ref_name)) return false;
-    if (!rewind.isGitWorkTree(io, project_path)) return false;
+    if (!hasFakuRef(allocator, io, project_path, ref_name)) return false;
     const result = std.process.run(allocator, io, .{
         .argv = &.{ git_bin, "-C", project_path, "update-ref", "-d", ref_name },
         .stdout_limit = .limited(256),
