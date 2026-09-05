@@ -612,8 +612,10 @@ pub const GoalOperation = union(GoalKind) {
 /// `relative_path`), and `WriteTextFile { root, relative_path,
 /// content }` (snake_case `relative_path`; `content` JSON string).
 /// No force flag on Push or Commit. No amend on
-/// daemon Commit, InspectCommit, or CollectReviewDiff. Leftovers:
-/// remotes-on-daemon-list, amend/force over daemon, remote `--track`
+/// daemon Commit, InspectCommit, or CollectReviewDiff.
+/// `ParsedBranches` has no remotes (Waku inspect is `refs/heads`
+/// only; remotes-on-daemon-list is a Faku-side local for-each-ref
+/// merge). Leftovers: amend/force over daemon, remote `--track`
 /// over daemon, ref ops.
 pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file };
 

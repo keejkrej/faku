@@ -26,7 +26,8 @@
 //! Push stay local git). First-cut daemon
 //! `WorkspaceOperation::InspectBranches` ships in `git_checkout`
 //! (best-effort sidecar when a daemon address is set; local heads
-//! only; remotes-on-daemon-list leftover; falls back to local
+//! from that snapshot stay source of truth; a follow-up local
+//! `for-each-ref` merges remotes; falls back to local
 //! `for-each-ref`). First-cut daemon
 //! `WorkspaceOperation::CheckoutBranch` ships in `git_checkout`
 //! (best-effort sidecar on picker local-head checkout and New
@@ -63,7 +64,7 @@
 //! finish sidecar after local end capture; Checkpoint; local end
 //! shas stay canonical). Leftovers:
 //! other daemon `WorkspaceOperation` variants (ref
-//! ops, remotes-on-daemon-list, amend/force over daemon, remote
+//! ops, amend/force over daemon, remote
 //! `--track` over daemon, …). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).
 
