@@ -226,7 +226,8 @@ Hello is protocol v4. First-cut commands: `loadTaskState`,
 `steer`, `cancel`, `goal`, `workspace`, `closeSession`. Start defaults to provider
 `fx`. fx-first (`fx acp` / `fx ask` / demo) does not use daemon hello.
 First-cut `workspace` ships Push, CreateWorktree, Commit,
-InspectBranches, CheckoutBranch, InspectCommit, and CaptureTurnStart.
+InspectBranches, CheckoutBranch, InspectCommit, CaptureTurnStart,
+and CaptureTurn.
 
 Local `sessions.json` remains the catalog of record. Daemon
 `saveTaskState` is a best-effort one-shot mirror. Wire `loadTaskState`
@@ -346,6 +347,14 @@ today's local path). First-cut daemon
 `worktree_snapshot_sha` / `refs/faku/...` stay canonical; Native
 4 KiB stdin overflow / sidecar failure must not break Send or
 clear the local sha; no address keeps today's local-only path).
+First-cut daemon `WorkspaceOperation::CaptureTurn` ships after
+successful local finish-time capture
+(`fork.recordTurnEndIfPossible`) when a daemon address is set
+(best-effort sidecar; ok is nested `WorkspaceResult::Checkpoint`;
+local `worktree_turn_end_sha` / `worktree_turn_diff_sha` /
+`refs/faku/...` stay canonical; daemon Checkpoint must not
+replace those; Native 4 KiB stdin overflow / sidecar failure / no
+address leave local alone).
 New worktree… first-cut
 Base picker ships (listed unoccupied local heads; runtime-only
 override on the immediate card; Work-in `newWorktree` persists
@@ -355,7 +364,7 @@ branch label then omit/HEAD). First-cut defer-until-Send workspace
 mode ships (composer Work in Local / New worktree; optional
 `baseBranch` persist on that draft; Send queues the prompt, one-shots the same `git worktree add` as New worktree… when no daemon address is set,
 retargets `project_path`, then `startPrompt`). Leftovers: other
-daemon `WorkspaceOperation` variants (CaptureTurn (end), ListTree,
+daemon `WorkspaceOperation` variants (ListTree,
 GenerateCommitMessage, CollectReviewDiff,
 ref ops, remotes-on-daemon-list, amend/force over daemon,
 remote `--track` over daemon, …). Fetch already
@@ -373,6 +382,9 @@ Send may snapshot the worktree (`worktree_snapshot_sha` /
 `refs/faku/`, not `refs/waku/`). When a daemon address is set, Send
 also one-shots hello + daemon `WorkspaceOperation::CaptureTurnStart`
 as a best-effort sidecar (Ack; does not replace local capture).
+Successful finish also one-shots hello + daemon
+`WorkspaceOperation::CaptureTurn` after local end capture
+(Checkpoint; does not replace local end / turn-diff shas).
 Rewind undoes the last turn's files
 and those chat turns using the Send-time HEAD / snapshot. Fork clones
 the local transcript into a new `sessions.json` row; it is not a
@@ -422,7 +434,8 @@ settled rows offer Dismiss; not Claude TaskStop mid-turn). Not daemon
 CreateWorktree, Commit, InspectBranches, CheckoutBranch, and
 InspectCommit live on composer git / Send prep / Commit… / the
 branch picker; CaptureTurnStart is a best-effort Send sidecar
-alongside local snapshot capture). Environment Summary Background is
+alongside local snapshot capture; CaptureTurn is a best-effort
+finish sidecar after local end capture). Environment Summary Background is
 Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
 runtime-only multi-row registry. This cut populates Process
 ("Agent turn") from window-side `is_streaming`, plus Stop agent,
@@ -698,7 +711,7 @@ Honest gaps this cut does not implement:
   Zig `std.fs` atomic write, Reload discards unsaved edits. First-cut
   live reload via mtime/size poll on the update tick. Not a real FS
   watcher / Native watch API)
-- Other daemon `WorkspaceOperation` variants (CaptureTurn (end), ListTree,
+- Other daemon `WorkspaceOperation` variants (ListTree,
   GenerateCommitMessage, CollectReviewDiff,
   BrowseDirectory, ReadTextFile, ref ops, remotes-on-daemon-list,
   amend/force over daemon, remote `--track` over daemon, …). First-cut
@@ -731,7 +744,14 @@ Honest gaps this cut does not implement:
   capture when a daemon address is set; ok is workspace Ack; local
   `worktree_snapshot_sha` / `refs/faku/...` stay canonical; Native
   4 KiB stdin overflow / sidecar failure must not break Send or
-  clear the local sha; no address keeps today's local-only path
+  clear the local sha; no address keeps today's local-only path.
+  First-cut `WorkspaceOperation::CaptureTurn` ships after successful
+  local finish-time capture when a daemon address is set; ok is
+  nested `WorkspaceResult::Checkpoint`; local
+  `worktree_turn_end_sha` / `worktree_turn_diff_sha` /
+  `refs/faku/...` stay canonical; daemon Checkpoint must not
+  replace those; Native 4 KiB stdin overflow / sidecar failure / no
+  address leave local alone
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size

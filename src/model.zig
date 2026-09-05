@@ -1273,6 +1273,12 @@ pub const Model = struct {
     /// cannot settle a live turn. Local capture already ran.
     daemon_capture_turn_start_key: u64 = 0,
     daemon_capture_turn_start_session: u32 = 0,
+    /// Best-effort finish-time `WorkspaceOperation::CaptureTurn`
+    /// sidecar. Distinct from `daemon_spawn_key` and
+    /// `daemon_capture_turn_start_key` so Checkpoint / failure
+    /// cannot settle a live turn or replace local end shas.
+    daemon_capture_turn_key: u64 = 0,
+    daemon_capture_turn_session: u32 = 0,
     fx_spawn_key: u64 = 0,
     next_fx_key: u64 = fx_spawn_overlap_key_first,
     fx_spawn_live: bool = false,
@@ -1810,6 +1816,8 @@ pub const Model = struct {
         "daemon_hydrate_session",
         "daemon_capture_turn_start_key",
         "daemon_capture_turn_start_session",
+        "daemon_capture_turn_key",
+        "daemon_capture_turn_session",
         "fx_spawn_key",
         "next_fx_key",
         "fx_spawn_live",

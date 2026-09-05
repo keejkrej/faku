@@ -7,7 +7,11 @@
 //! `fork.recordTurnEndIfPossible` (stores
 //! `worktree_turn_end_sha` and `worktree_turn_diff_sha`; does
 //! not overwrite `worktree_snapshot_sha`) after streaming state is
-//! cleared and before persist / queued restart. That same success
+//! cleared and before persist / queued restart. When a daemon
+//! address is set and that local capture actually stored a sha,
+//! the same finish also best-effort one-shots hello +
+//! `WorkspaceOperation::CaptureTurn` (ok is nested Checkpoint;
+//! local end shas stay canonical). That same success
 //! records Environment Summary last-turn Completed unless a queued
 //! follow-up immediately restarts (stay on the Process row). Live
 //! Monitor / Subagent rows convert to settled (status from that
@@ -32,6 +36,8 @@ const copy_helpers = @import("copy.zig");
 const attach_helpers = @import("attach.zig");
 const environment_summary = @import("environment_summary.zig");
 const session_workspace = @import("session_workspace.zig");
+const checkpoint = @import("checkpoint.zig");
+const rewind = @import("rewind.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -126,7 +132,7 @@ pub fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
     const settle_status: environment_summary.SettledStatus = if (drain) .completed else .failed;
     environment_summary.settleLiveBackgroundSignals(model, finished_id, settle_status);
     if (drain) {
-        session_fork.recordTurnEndIfPossible(model, finished_id);
+        session_fork.recordTurnEndIfPossible(model, fx, finished_id);
         copy_helpers.notifyTurnComplete(model, fx, finished_id);
         var copy: [max_queued_text]u8 = undefined;
         if (model.takeNextQueued(finished_id, &copy)) |n| {
@@ -236,4 +242,163 @@ fn maybeCancelDaemonTurn(model: *Model, fx: *Effects, session_id: u32) void {
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
+}
+
+fn findCaptureTurnSpawn(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key != key) continue;
+        if (!daemon_proxy.isSidecarArgv(spawn.argv)) continue;
+        if (std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureTurn\"") == null) continue;
+        if (std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureTurnStart\"") != null) continue;
+        return spawn;
+    }
+    return null;
+}
+
+fn initFinishRepo(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !void {
+    try std.Io.Dir.cwd().createDirPath(io, path);
+    try runFinishGit(allocator, io, &.{ "git", "-C", path, "init" });
+    var readme_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const readme = try std.fmt.bufPrint(&readme_buf, "{s}{s}README", .{ path, std.fs.path.sep_str });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = readme, .data = "finish\n" });
+    try runFinishGit(allocator, io, &.{ "git", "-C", path, "add", "README" });
+    try runFinishGit(allocator, io, &.{
+        "git",
+        "-C",
+        path,
+        "-c",
+        "user.email=capture-turn@test",
+        "-c",
+        "user.name=CaptureTurn",
+        "-c",
+        checkpoint.commit_gpgsign,
+        "commit",
+        "-m",
+        "init",
+    });
+}
+
+fn runFinishGit(allocator: std.mem.Allocator, io: std.Io, argv: []const []const u8) !void {
+    const result = try std.process.run(allocator, io, .{
+        .argv = argv,
+        .stdout_limit = .limited(1024),
+        .stderr_limit = .limited(4096),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    if (result.term != .exited or result.term.exited != 0) return error.GitFailed;
+}
+
+test "finishStream with last_daemon_address spawns CaptureTurn sidecar after local end" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/finish-capture-turn", .{tmp.sub_path[0..]});
+    try initFinishRepo(testing.allocator, testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.fx_probe_started = true;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("finish capture", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(id, .user, "ship the capture cut");
+    _ = model.appendTurn(id, .assistant, "done");
+    model.phase = .streaming;
+    model.streaming_session = id;
+    if (model.sessionById(id)) |session| session.busy = true;
+
+    finishStream(&model, &fx, true);
+    try testing.expect(!model.is_streaming());
+    try testing.expect(model.sessionByIdConst(id).?.worktreeTurnEndSha().len == rewind.stored_sha_len);
+    try testing.expect(model.daemon_capture_turn_key != 0);
+    try testing.expectEqual(@as(u64, 0), model.daemon_capture_turn_start_key);
+    const sidecar = findCaptureTurnSpawn(&fx, model.daemon_capture_turn_key) orelse return error.CaptureTurnSpawnMissing;
+    try testing.expect(daemon_proxy.isSidecarArgv(sidecar.argv));
+    try testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"captureTurn\"") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"captureTurnStart\"") == null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"prompt\"") == null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"turnCount\":1") != null);
+}
+
+test "finishStream without a daemon address does not spawn CaptureTurn" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/finish-capture-local", .{tmp.sub_path[0..]});
+    try initFinishRepo(testing.allocator, testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.fx_probe_started = true;
+    model.setSidecarPath("faku");
+    const id = model.addSession("finish capture local", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(id, .user, "no daemon capture");
+    _ = model.appendTurn(id, .assistant, "ok");
+    model.phase = .streaming;
+    model.streaming_session = id;
+    try testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+
+    finishStream(&model, &fx, true);
+    try testing.expect(model.sessionByIdConst(id).?.worktreeTurnEndSha().len == rewind.stored_sha_len);
+    try testing.expectEqual(@as(u64, 0), model.daemon_capture_turn_key);
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureTurn\"") == null);
+    }
+}
+
+test "startPrompt then finishStream with last_daemon_address keeps CaptureTurnStart off the CaptureTurn stdin" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/send-then-finish-capture", .{tmp.sub_path[0..]});
+    try initFinishRepo(testing.allocator, testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.fx_probe_started = true;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("send then finish", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    prompt_spawn.startPrompt(&model, &fx, id, "ship both captures");
+    try testing.expect(model.daemon_capture_turn_start_key != 0);
+    try testing.expect(model.is_streaming());
+
+    finishStream(&model, &fx, true);
+    try testing.expect(model.daemon_capture_turn_key != 0);
+    try testing.expect(model.daemon_capture_turn_key != model.daemon_capture_turn_start_key);
+    const sidecar = findCaptureTurnSpawn(&fx, model.daemon_capture_turn_key) orelse return error.CaptureTurnAfterSendMissing;
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"captureTurn\"") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"captureTurnStart\"") == null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"prompt\"") == null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"turnCount\":1") != null);
 }
