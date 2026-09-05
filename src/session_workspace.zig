@@ -62,9 +62,12 @@
 //! Ack; local sha stays canonical). First-cut daemon
 //! `WorkspaceOperation::CaptureTurn` ships in `fork` (best-effort
 //! finish sidecar after local end capture; Checkpoint; local end
-//! shas stay canonical). Leftovers:
-//! other daemon `WorkspaceOperation` variants (ref
-//! ops, amend/force over daemon, remote
+//! shas stay canonical). First-cut daemon
+//! `WorkspaceOperation::CopySessionRefs` ships in `fork` (best-effort
+//! sidecar after a local sessions.json fork; Ack; local fork stays
+//! canonical). Leftovers:
+//! other daemon `WorkspaceOperation` variants (DeleteSessionRefs /
+//! HasRef / CaptureRef / RestoreRef / etc., amend/force over daemon, remote
 //! `--track` over daemon, …). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).
 

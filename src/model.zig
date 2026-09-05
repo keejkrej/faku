@@ -1378,6 +1378,12 @@ pub const Model = struct {
     /// cannot settle a live turn or replace local end shas.
     daemon_capture_turn_key: u64 = 0,
     daemon_capture_turn_session: u32 = 0,
+    /// Best-effort fork-time `WorkspaceOperation::CopySessionRefs`
+    /// sidecar. Distinct from `daemon_spawn_key` and capture keys
+    /// so Ack / failure cannot settle a live turn or undo the
+    /// local `sessions.json` fork.
+    daemon_copy_session_refs_key: u64 = 0,
+    daemon_copy_session_refs_session: u32 = 0,
     fx_spawn_key: u64 = 0,
     next_fx_key: u64 = fx_spawn_overlap_key_first,
     fx_spawn_live: bool = false,
@@ -1947,6 +1953,8 @@ pub const Model = struct {
         "daemon_capture_turn_start_session",
         "daemon_capture_turn_key",
         "daemon_capture_turn_session",
+        "daemon_copy_session_refs_key",
+        "daemon_copy_session_refs_session",
         "fx_spawn_key",
         "next_fx_key",
         "fx_spawn_live",

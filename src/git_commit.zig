@@ -108,6 +108,9 @@
 //! `WorkspaceOperation::CaptureTurn` lives in `fork` (best-effort
 //! finish sidecar after local end capture; Checkpoint; local end
 //! shas stay canonical). First-cut daemon
+//! `WorkspaceOperation::CopySessionRefs` lives in `fork` (best-effort
+//! sidecar after a local sessions.json fork; Ack; local fork stays
+//! canonical). First-cut daemon
 //! `WorkspaceOperation::ListTree` lives in `file_mention` (Files
 //! refresh; expand after a daemon fill re-prefers ListTree). First-cut daemon
 //! `WorkspaceOperation::CollectReviewDiff` lives in `review_diff` (Review /
@@ -117,8 +120,8 @@
 //! `WorkspaceOperation::ReadTextFile` lives in `right_panel` (Files
 //! preview load / Reload). First-cut daemon
 //! `WorkspaceOperation::WriteTextFile` lives in `right_panel` (Files
-//! preview Save). Leftovers: ref
-//! ops / amend/force over daemon / remote
+//! preview Save). Leftovers: DeleteSessionRefs / HasRef /
+//! CaptureRef / RestoreRef / etc. / amend/force over daemon / remote
 //! `--track` over daemon / …
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
