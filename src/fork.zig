@@ -60,8 +60,16 @@
 //! snapshot being rewound; ok is nested workspace Ack). Local
 //! `restoreRef(worktree_snapshot_sha)` / `resetHard` stay the
 //! overflow / miss / non-ack / no-address path and remain correct
-//! without a daemon. Leftovers:
-//! DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs,
+//! without a daemon. First-cut daemon `WorkspaceOperation::DeleteRef`
+//! is a best-effort sidecar after successful Header Rewind
+//! bookkeeping (`completeRewindTranscript`, both local restore and
+//! daemon RestoreRef Ack) when a daemon address is set and cwd is a
+//! git worktree (hello + `{ "type": "deleteRef", "cwd", "git_ref" }`;
+//! snake_case `git_ref` is the same `refs/faku/session-{id}-turn-start-{n}`
+//! RestoreRef used; ok is nested workspace Ack). Local
+//! `deleteFakuRef` runs first when useful; miss / overflow / non-ack
+//! must not undo rewind transcript bookkeeping. Leftovers:
+//! DeleteTurnRefsAfter / SessionTurnRefs,
 //! amend/force over daemon, remote `--track` over daemon, etc.
 
 const std = @import("std");
@@ -239,6 +247,22 @@ pub fn cancelDaemonRestoreRef(model: *Model, fx: *Effects) void {
     fx.cancel(model.daemon_restore_ref_key);
     fallbackLocalRestoreRefIfNeeded(model, fx);
     clearDaemonRestoreRef(model);
+}
+
+/// Drop an in-flight DeleteRef sidecar. Safe when none is live.
+/// Does not resurrect the local `refs/faku` name or undo rewind
+/// transcript bookkeeping.
+pub fn cancelDaemonDeleteRef(model: *Model, fx: *Effects) void {
+    if (model.daemon_delete_ref_key == 0) return;
+    fx.cancel(model.daemon_delete_ref_key);
+    clearDaemonDeleteRef(model);
+}
+
+fn clearDaemonDeleteRef(model: *Model) void {
+    model.daemon_delete_ref_key = 0;
+    model.daemon_delete_ref_session = 0;
+    model.daemon_delete_ref_cwd_len = 0;
+    model.daemon_delete_ref_git_ref_len = 0;
 }
 
 fn clearDaemonRestoreRef(model: *Model) void {
@@ -694,7 +718,10 @@ fn trySpawnDaemonCopySessionRefs(
 /// `restoreRef(worktree_snapshot_sha)` (does not `reset --hard`;
 /// HEAD stays). On snapshot success, clear the start, turn-end, and
 /// turn-diff slots so a second Rewind does not replay the
-/// same tree. When no snapshot is stored, `reset --hard`
+/// same tree. After that bookkeeping, best-effort local
+/// `deleteFakuRef` of the rewound turn-start name, then hello +
+/// `WorkspaceOperation::DeleteRef` when a daemon address is set.
+/// When no snapshot is stored, `reset --hard`
 /// the latest Send-time HEAD. Failed git is a no-op (ref,
 /// snapshot, and transcript stay). Does not change
 /// `fx_session_id`.
@@ -803,12 +830,76 @@ fn applyLocalRewindNow(model: *Model, fx: *Effects, session: *main.Session) void
 }
 
 fn completeRewindTranscript(model: *Model, fx: *Effects, session: *main.Session) void {
+    const turn_n = checkpoint.fakuFinishTurn(model.turnCount(session.id));
+    const cwd = session.projectPath();
+    var ref_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const git_ref = checkpoint.formatFakuSessionTurnStartRef(&ref_buf, session.id, turn_n);
+
     session.clearWorktreeSnapshotSha();
     session.clearWorktreeTurnEndSha();
     session.clearWorktreeTurnDiffSha();
     session.popLatestRewindRef();
     model.dropLastPromptTurns(session.id);
     store.persistIfPossible(model, session.id, fx);
+
+    if (git_ref) |start_ref| {
+        if (model.store_io) |io| {
+            _ = checkpoint.deleteFakuRef(std.heap.page_allocator, io, cwd, start_ref);
+        }
+        _ = trySpawnDaemonDeleteRef(model, fx, session.id, cwd, start_ref);
+    }
+}
+
+/// Best-effort hello + `WorkspaceOperation::DeleteRef` after
+/// successful Header Rewind bookkeeping. Own daemon spawn key on
+/// `daemon_delete_ref_key`. Missing address, empty cwd, non-git
+/// cwd, invalid ref name, or Native 4 KiB stdin overflow returns
+/// false and leaves rewind transcript bookkeeping alone.
+fn trySpawnDaemonDeleteRef(
+    model: *Model,
+    fx: *Effects,
+    session_id: u32,
+    cwd: []const u8,
+    git_ref: []const u8,
+) bool {
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    if (cwd.len == 0) return false;
+    if (!checkpoint.isFakuRefName(git_ref)) return false;
+    const io = model.store_io orelse return false;
+    if (!rewind.isGitWorkTree(io, cwd)) return false;
+
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{
+            .delete_ref = .{
+                .cwd = cwd,
+                .git_ref = git_ref,
+            },
+        },
+    }) catch return false;
+
+    if (model.daemon_delete_ref_key != 0) {
+        fx.cancel(model.daemon_delete_ref_key);
+        clearDaemonDeleteRef(model);
+    }
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.daemon_delete_ref_key = key;
+    model.daemon_delete_ref_session = session_id;
+    writeFixed(&model.daemon_delete_ref_cwd_storage, &model.daemon_delete_ref_cwd_len, cwd);
+    writeFixed(&model.daemon_delete_ref_git_ref_storage, &model.daemon_delete_ref_git_ref_len, git_ref);
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
 }
 
 fn findCaptureTurnStartSpawn(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
@@ -887,6 +978,26 @@ fn anyRestoreRefSpawn(fx: *Effects) bool {
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (daemon_proxy.isSidecarArgv(spawn.argv) and
             std.mem.indexOf(u8, spawn.stdin, "\"type\":\"restoreRef\"") != null) return true;
+    }
+    return false;
+}
+
+fn findDeleteRefSpawn(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key != key) continue;
+        if (!daemon_proxy.isSidecarArgv(spawn.argv)) continue;
+        if (std.mem.indexOf(u8, spawn.stdin, "\"type\":\"deleteRef\"") == null) continue;
+        return spawn;
+    }
+    return null;
+}
+
+fn anyDeleteRefSpawn(fx: *Effects) bool {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (daemon_proxy.isSidecarArgv(spawn.argv) and
+            std.mem.indexOf(u8, spawn.stdin, "\"type\":\"deleteRef\"") != null) return true;
     }
     return false;
 }
@@ -2044,4 +2155,159 @@ test "applyRewindIfPossible without a snapshot does not spawn RestoreRef" {
     try std.testing.expect(!anyRestoreRefSpawn(&fx));
     try std.testing.expectEqual(@as(u32, 0), model.turnCount(id));
     try std.testing.expectEqual(@as(usize, 0), model.sessionByIdConst(id).?.rewind_ref_count);
+}
+
+test "applyRewindIfPossible with a daemon address and git cwd spawns DeleteRef after RestoreRef Ack" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/delete-ref-daemon", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.fx_probe_started = true;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("delete ref daemon", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    recordRewindRefIfPossible(&model, &fx, id);
+    _ = model.appendTurn(id, .user, "rewind this");
+    _ = model.appendTurn(id, .assistant, "ok");
+    var start_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const start_ref = checkpoint.formatFakuSessionTurnStartRef(&start_buf, id, 1) orelse return error.MissingStartRef;
+    try std.testing.expect(checkpoint.hasFakuRef(std.testing.allocator, std.testing.io, project, start_ref));
+
+    applyRewindIfPossible(&model, &fx);
+    try std.testing.expect(!anyDeleteRefSpawn(&fx));
+    const restore = findRestoreRefSpawn(&fx, model.daemon_restore_ref_key) orelse return error.MissingDaemonRestoreRefForDelete;
+    try fx.feedLine(restore.key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}");
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+    try fx.feedExit(restore.key, 0);
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+
+    try std.testing.expectEqual(@as(u32, 0), model.turnCount(id));
+    try std.testing.expectEqual(@as(usize, 0), model.sessionByIdConst(id).?.worktreeSnapshotSha().len);
+    try std.testing.expect(!checkpoint.hasFakuRef(std.testing.allocator, std.testing.io, project, start_ref));
+    try std.testing.expect(model.daemon_delete_ref_key != 0);
+    try std.testing.expectEqual(id, model.daemon_delete_ref_session);
+    const sidecar = findDeleteRefSpawn(&fx, model.daemon_delete_ref_key) orelse return error.MissingDaemonDeleteRef;
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"deleteRef\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, start_ref) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"git_ref\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"gitRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"restoreRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"captureRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hasRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"deleteSessionRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "force") == null);
+    try std.testing.expect(sidecar.key != model.daemon_restore_ref_key);
+    try std.testing.expect(sidecar.key != model.daemon_spawn_key);
+
+    cancelDaemonDeleteRef(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_delete_ref_key);
+    try std.testing.expectEqual(@as(u32, 0), model.turnCount(id));
+}
+
+test "applyRewindIfPossible without a daemon address does not spawn DeleteRef" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/delete-ref-local", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setSidecarPath("faku");
+    const id = model.addSession("delete ref local", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    try std.testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+
+    recordRewindRefIfPossible(&model, &fx, id);
+    _ = model.appendTurn(id, .user, "no daemon rewind");
+    _ = model.appendTurn(id, .assistant, "ok");
+    var start_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const start_ref = checkpoint.formatFakuSessionTurnStartRef(&start_buf, id, 1) orelse return error.MissingStartRef;
+    try std.testing.expect(checkpoint.hasFakuRef(std.testing.allocator, std.testing.io, project, start_ref));
+
+    applyRewindIfPossible(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_delete_ref_key);
+    try std.testing.expect(!anyDeleteRefSpawn(&fx));
+    try std.testing.expectEqual(@as(u32, 0), model.turnCount(id));
+    try std.testing.expect(!checkpoint.hasFakuRef(std.testing.allocator, std.testing.io, project, start_ref));
+}
+
+test "DeleteRef sidecar miss leaves rewind bookkeeping intact" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/delete-ref-miss", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.fx_probe_started = true;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("delete ref miss", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    recordRewindRefIfPossible(&model, &fx, id);
+    _ = model.appendTurn(id, .user, "miss rewind");
+    _ = model.appendTurn(id, .assistant, "ok");
+
+    applyRewindIfPossible(&model, &fx);
+    const restore = findRestoreRefSpawn(&fx, model.daemon_restore_ref_key) orelse return error.MissingDaemonRestoreRefForDeleteMiss;
+    try fx.feedLine(restore.key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}");
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+    try fx.feedExit(restore.key, 0);
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+
+    const sidecar = findDeleteRefSpawn(&fx, model.daemon_delete_ref_key) orelse return error.MissingDaemonDeleteRefMiss;
+    const key = sidecar.key;
+    try fx.feedLine(key, "{\"type\":\"rejected\",\"message\":\"nope\"}");
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+    try fx.feedExit(key, 1);
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_delete_ref_key);
+    try std.testing.expectEqual(@as(u32, 0), model.turnCount(id));
+    try std.testing.expectEqual(@as(usize, 0), model.sessionByIdConst(id).?.worktreeSnapshotSha().len);
+    try std.testing.expectEqual(@as(usize, 0), model.sessionByIdConst(id).?.rewind_ref_count);
+    try std.testing.expect(!model.is_streaming());
+}
+
+test "DeleteRef sidecar overflow is refused at writeWorkspaceStdin and rewind bookkeeping stays" {
+    var buf: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, daemon_proxy.writeWorkspaceStdin(&buf, .{
+        .operation = .{
+            .delete_ref = .{
+                .cwd = "/tmp/faku",
+                .git_ref = "refs/faku/session-7-turn-start-1",
+            },
+        },
+    }));
 }

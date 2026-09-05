@@ -229,7 +229,7 @@ First-cut `workspace` ships Push, CreateWorktree, Commit,
 InspectBranches, CheckoutBranch, InspectCommit, CaptureTurnStart,
 CaptureTurn, GenerateCommitMessage, ListTree, CollectReviewDiff,
 BrowseDirectory, ReadTextFile, WriteTextFile, CopySessionRefs,
-DeleteSessionRefs, HasRef, CaptureRef, and RestoreRef.
+DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, and DeleteRef.
 
 Local `sessions.json` remains the catalog of record. Daemon
 `saveTaskState` is a best-effort one-shot mirror. Wire `loadTaskState`
@@ -431,6 +431,15 @@ ok is workspace Ack; Native 4 KiB stdin overflow / miss / non-ack
 / error fall back to local `restoreRef(sha)` / `resetHard`; no
 address keeps today's local path; spawn only when a snapshot sha
 is stored).
+First-cut daemon `WorkspaceOperation::DeleteRef` ships after
+successful Header Rewind bookkeeping (`completeRewindTranscript`,
+both local restore and daemon RestoreRef Ack) when a daemon
+address is set and cwd is a git worktree (best-effort sidecar;
+snake_case `git_ref` is the same turn-start ref RestoreRef used;
+ok is workspace Ack; local `deleteFakuRef` / `git update-ref -d`
+runs first; Native 4 KiB stdin overflow / miss / non-ack leave
+rewind transcript bookkeeping alone; no address keeps today's
+local-only delete).
 New worktree… first-cut
 Base picker ships (listed unoccupied local heads; runtime-only
 override on the immediate card; Work-in `newWorktree` persists
@@ -440,8 +449,8 @@ branch label then omit/HEAD). First-cut defer-until-Send workspace
 mode ships (composer Work in Local / New worktree; optional
 `baseBranch` persist on that draft; Send queues the prompt, one-shots the same `git worktree add` as New worktree… when no daemon address is set,
 retargets `project_path`, then `startPrompt`). Leftovers: amend/force over daemon,
-remote `--track` over daemon, DeleteRef /
-DeleteTurnRefsAfter / SessionTurnRefs, etc. Fetch already
+remote `--track` over daemon, DeleteTurnRefsAfter /
+SessionTurnRefs, etc. Fetch already
 `--prune`; there is no prune-alone menu (not in Waku).
 Windows probes, checkout / push / worktree, and commit mutations (add / cached-quiet / commit /
 amend / CommitSnapshot tracked-cached) use `git.exe -C <project_path>`;
@@ -471,7 +480,12 @@ and those chat turns using the Send-time HEAD / snapshot. When a
 daemon address is set and cwd is a git worktree, Rewind prefers
 hello + daemon `WorkspaceOperation::RestoreRef` for that
 turn-start ref (Ack; overflow / miss / non-ack fall back to local
-`restoreRef(sha)` / `resetHard`). Fork clones
+`restoreRef(sha)` / `resetHard`). After successful Rewind
+bookkeeping, a local `deleteFakuRef` drops that turn-start name;
+when a daemon address is set, Rewind also one-shots hello + daemon
+`WorkspaceOperation::DeleteRef` as a best-effort sidecar (Ack;
+does not undo transcript bookkeeping; Faku refs stay
+`refs/faku/...`). Fork clones
 the local transcript into a new `sessions.json` row; it is not a
 provider session fork. When a daemon address is set, Fork also
 one-shots hello + daemon `WorkspaceOperation::CopySessionRefs`
@@ -541,7 +555,9 @@ is a best-effort Remove sidecar after the local catalog drop; HasRef
 is a prefer+fallback Send sidecar for the baseline `hasFakuRef`
 check; CaptureRef is a best-effort sidecar after a successful local
 `refs/faku` update-ref; RestoreRef is a prefer+fallback Rewind
-sidecar for the stored turn-start snapshot). Environment Summary Background is
+sidecar for the stored turn-start snapshot; DeleteRef is a
+best-effort sidecar after successful Rewind bookkeeping that drops
+that same turn-start `refs/faku` name). Environment Summary Background is
 Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
 runtime-only multi-row registry. This cut populates Process
 ("Agent turn") from window-side `is_streaming`, plus Stop agent,
@@ -819,8 +835,8 @@ Honest gaps this cut does not implement:
   `std.fs` atomic write), Reload discards unsaved edits. First-cut
   live reload via mtime/size poll on the update tick. Not a real FS
   watcher / Native watch API)
-- Other daemon `WorkspaceOperation` variants (DeleteRef /
-  DeleteTurnRefsAfter / SessionTurnRefs,
+- Other daemon `WorkspaceOperation` variants (DeleteTurnRefsAfter /
+  SessionTurnRefs,
   amend/force over daemon, remote `--track`
   over daemon, …). First-cut
   `WorkspaceOperation::Push` ships as a best-effort sidecar when
@@ -931,7 +947,13 @@ Honest gaps this cut does not implement:
   `refs/faku/session-{id}-turn-start-{n}`; Native 4 KiB stdin
   overflow / miss / non-ack / error fall back to local
   `restoreRef(sha)` / `resetHard`; no address keeps today's local
-  path; spawn only when a snapshot sha is stored
+  path; spawn only when a snapshot sha is stored. First-cut
+  `WorkspaceOperation::DeleteRef` ships after successful Header
+  Rewind bookkeeping when a daemon address is set and cwd is a git
+  worktree; ok is workspace Ack; local `deleteFakuRef` runs first
+  for `refs/faku/session-{id}-turn-start-{n}`; Native 4 KiB stdin
+  overflow / miss / non-ack / no address leave rewind transcript
+  bookkeeping alone; spawn only when cwd is a git worktree
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size

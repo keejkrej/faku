@@ -133,8 +133,12 @@
 //! miss / overflow leave local refs alone). First-cut daemon
 //! `WorkspaceOperation::RestoreRef` lives in `fork` (prefer hello +
 //! restoreRef on Rewind when a snapshot sha is stored; Ack;
-//! overflow / miss / non-ack fall back to local restoreRef / resetHard). Leftovers: DeleteRef /
-//! DeleteTurnRefsAfter / SessionTurnRefs / amend/force
+//! overflow / miss / non-ack fall back to local restoreRef / resetHard). First-cut daemon
+//! `WorkspaceOperation::DeleteRef` lives in `fork` (best-effort
+//! sidecar after successful Rewind bookkeeping; Ack; local
+//! `deleteFakuRef` first; miss / overflow leave rewind transcript
+//! alone). Leftovers: DeleteTurnRefsAfter /
+//! SessionTurnRefs / amend/force
 //! over daemon / remote `--track` over daemon / …
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses

@@ -177,9 +177,13 @@
 //! miss / overflow leave local refs alone). First-cut daemon
 //! `WorkspaceOperation::RestoreRef` ships in `fork` (prefer hello +
 //! restoreRef on Rewind; Ack; overflow / miss / non-ack fall back
-//! to local restoreRef / resetHard). Leftovers: other daemon `WorkspaceOperation`
-//! variants (DeleteRef /
-//! DeleteTurnRefsAfter / SessionTurnRefs, amend/force over daemon,
+//! to local restoreRef / resetHard). First-cut daemon
+//! `WorkspaceOperation::DeleteRef` ships in `fork` (best-effort
+//! sidecar after successful Rewind bookkeeping; Ack; local
+//! `deleteFakuRef` first; miss / overflow leave rewind transcript
+//! alone). Leftovers: other daemon `WorkspaceOperation`
+//! variants (DeleteTurnRefsAfter /
+//! SessionTurnRefs, amend/force over daemon,
 //! remote `--track` over daemon, …).
 
 const std = @import("std");
