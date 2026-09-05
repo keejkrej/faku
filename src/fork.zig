@@ -2045,15 +2045,3 @@ test "applyRewindIfPossible without a snapshot does not spawn RestoreRef" {
     try std.testing.expectEqual(@as(u32, 0), model.turnCount(id));
     try std.testing.expectEqual(@as(usize, 0), model.sessionByIdConst(id).?.rewind_ref_count);
 }
-    model.selected = id;
-    if (model.sessionById(id)) |session| session.setProjectPath(project);
-    _ = model.appendTurn(id, .user, "no git");
-    _ = model.appendTurn(id, .assistant, "ok");
-
-    forkSelectedThrough(&model, &fx, 1);
-    const fork_id = model.selected;
-    try std.testing.expect(fork_id != id);
-    try std.testing.expectEqual(@as(u32, 2), model.turnCount(fork_id));
-    try std.testing.expectEqual(@as(u64, 0), model.daemon_copy_session_refs_key);
-    try std.testing.expect(!anyCopySessionRefsSpawn(&fx));
-}
