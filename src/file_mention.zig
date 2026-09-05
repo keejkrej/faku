@@ -1,13 +1,21 @@
 //! One-shot file probe for composer `@` mentions.
 //!
 //! Native has no git/workspace/file-index effect. When the selected
-//! session has a non-empty `project_path` that exists, Faku `fx.spawn`s
-//! `git ls-files --cached --others --exclude-standard`. Git is
+//! session has a non-empty `project_path` that exists, Faku prefers
+//! hello + daemon `WorkspaceOperation::ListTree` when
+//! `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set
+//! (ok paints the Files cache from `workingTree` file entries). Local
+//! `git ls-files --cached --others --exclude-standard` stays the
+//! fallback and remains canonical when there is no address. Git is
 //! authoritative for a repo: success with zero files stays empty (do
 //! not walk — that would dump `node_modules`). Only when that spawn
 //! cannot run or exits non-zero does a bounded walk fill the same
 //! runtime cache. First-N stdout paths stay on the Model — not
-//! `sessions.json`.
+//! `sessions.json`. Native 4 KiB stdin overflow / sidecar failure /
+//! unusable parse fall back to local git then walk and must not
+//! break Files. Expand after a daemon fill re-prefers ListTree
+//! (daemon does not return children of collapsed dirs); local fill
+//! keeps filter-only expand.
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`) plus a packed `find -maxdepth 8`. Windows
@@ -22,16 +30,24 @@
 //! Visible `@` rows are scored over this bounded file cache (plus
 //! derived parent directories at row time) in
 //! `composer.fileMentionScore` — not first-N contains in cache
-//! order. The sidecar stdout and this cache stay files-only. Not
-//! Open-in, not copy path, not a daemon catalog.
+//! order. The sidecar stdout and this cache stay files-only (daemon
+//! dir entries are trailing-slash sentinels so derived dirs still
+//! appear). Not Open-in, not copy path, not a daemon catalog of
+//! record.
 //!
 //! Spawn/line/exit orchestration lives here. Effect key stays
-//! `file_mention_key_first` (400+).
+//! `file_mention_key_first` (400+) for local git/walk. First-cut
+//! daemon `WorkspaceOperation::ListTree` reuses `next_daemon_key`
+//! assigned onto `file_mention_key` so `applyLine` / `handleExit`
+//! still own the probe.
 
 const std = @import("std");
 const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
+const daemon_proxy = @import("daemon_proxy.zig");
+const protocol = @import("protocol.zig");
+const store = @import("store.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -362,8 +378,15 @@ pub fn mentionRelpath(model: *const Model, id: u32, dir_out: []u8) ?[]const u8 {
 }
 
 pub fn clearCache(model: *Model) void {
-    model.file_mention_count = 0;
+    clearFiles(model);
     model.clearRightPanelExpanded();
+    model.file_mention_via_daemon = false;
+    model.file_mention_daemon_ok = false;
+    model.file_mention_last_via_daemon = false;
+}
+
+fn clearFiles(model: *Model) void {
+    model.file_mention_count = 0;
 }
 
 fn cancelInFlight(model: *Model, fx: *Effects) void {
@@ -386,7 +409,10 @@ pub fn probePath(model: *const Model) []const u8 {
 /// Cancel any in-flight probe, drop the cache, and spawn git ls-files
 /// when the selected session has an existing `project_path`. Empty /
 /// missing skips both git and the walk so the mention list stays
-/// hidden. A failed git spawn falls back to the walk in `handleExit`.
+/// hidden. Prefers hello + daemon ListTree when a daemon address is
+/// set; missing address or Native 4 KiB stdin overflow keeps today's
+/// local git then walk. A failed git spawn falls back to the walk in
+/// `handleExit`.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     clearCache(model);
@@ -396,7 +422,79 @@ pub fn refresh(model: *Model, fx: *Effects) void {
 
     model.file_mention_probe_session = model.selected;
     writeFixed(&model.file_mention_probe_path_storage, &model.file_mention_probe_path_len, cwd);
+    if (trySpawnDaemonListTree(model, fx, cwd)) return;
     spawnGit(model, fx, cwd);
+}
+
+/// Re-prefer ListTree after an expand toggle when the last successful
+/// Files fill was via daemon, or a ListTree sidecar is still in
+/// flight. Local fill stays filter-only. Does not clear expand state.
+/// Native 4 KiB stdin overflow / missing address falls back to local
+/// git (full tree).
+pub fn refreshAfterExpand(model: *Model, fx: *Effects) void {
+    if (!model.file_mention_last_via_daemon and !model.file_mention_via_daemon) return;
+    cancelInFlight(model, fx);
+    if (!probeSupported()) return;
+    const cwd = probePath(model);
+    if (cwd.len == 0) return;
+
+    model.file_mention_probe_session = model.selected;
+    writeFixed(&model.file_mention_probe_path_storage, &model.file_mention_probe_path_len, cwd);
+    if (trySpawnDaemonListTree(model, fx, cwd)) return;
+    spawnLocalFallback(model, fx, cwd);
+}
+
+/// Best-effort hello + `WorkspaceOperation::ListTree` when a daemon
+/// address is set. Own daemon spawn key assigned to `file_mention_key`
+/// so `applyLine` / `handleExit` still own the probe. Missing address
+/// or Native 4 KiB stdin overflow returns false and leaves local
+/// git ls-files. `expanded_paths` are absolute paths joined from the
+/// runtime expand set under `root`; empty expand ⇒ empty array.
+fn trySpawnDaemonListTree(model: *Model, fx: *Effects, cwd: []const u8) bool {
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+
+    var abs_blob: [3072]u8 = undefined;
+    var abs_paths: [max_file_mention_dirs][]const u8 = undefined;
+    var n: usize = 0;
+    var used: usize = 0;
+    var i: usize = 0;
+    while (i < model.right_panel_expanded_count) : (i += 1) {
+        const rel = model.right_panel_expanded_store[i].text();
+        const joined = joinRootRel(cwd, rel, abs_blob[used..]) orelse return false;
+        abs_paths[n] = joined;
+        used += joined.len;
+        n += 1;
+    }
+
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{ .list_tree = .{ .root = cwd, .expanded_paths = abs_paths[0..n] } },
+    }) catch return false;
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.file_mention_key = key;
+    model.file_mention_via_daemon = true;
+    model.file_mention_daemon_ok = false;
+    model.file_mention_probe_is_walk = false;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
+fn joinRootRel(root: []const u8, rel: []const u8, buf: []u8) ?[]const u8 {
+    const base = std.mem.trimEnd(u8, root, "/\\");
+    const leaf = std.mem.trim(u8, rel, "/\\");
+    if (base.len == 0 or leaf.len == 0) return null;
+    return std.fmt.bufPrint(buf, "{s}/{s}", .{ base, leaf }) catch null;
 }
 
 fn spawnGit(model: *Model, fx: *Effects, cwd: []const u8) void {
@@ -404,6 +502,9 @@ fn spawnGit(model: *Model, fx: *Effects, cwd: []const u8) void {
     model.next_file_mention_key = key + 1;
     model.file_mention_key = key;
     model.file_mention_probe_is_walk = false;
+    model.file_mention_via_daemon = false;
+    model.file_mention_daemon_ok = false;
+    model.file_mention_last_via_daemon = false;
     var argv_buf: [git_argv_len][]const u8 = undefined;
     fx.spawn(.{
         .key = key,
@@ -413,11 +514,19 @@ fn spawnGit(model: *Model, fx: *Effects, cwd: []const u8) void {
     });
 }
 
+fn spawnLocalFallback(model: *Model, fx: *Effects, cwd: []const u8) void {
+    clearFiles(model);
+    spawnGit(model, fx, cwd);
+}
+
 fn spawnWalk(model: *Model, fx: *Effects, cwd: []const u8) void {
     const key = model.next_file_mention_key;
     model.next_file_mention_key = key + 1;
     model.file_mention_key = key;
     model.file_mention_probe_is_walk = true;
+    model.file_mention_via_daemon = false;
+    model.file_mention_daemon_ok = false;
+    model.file_mention_last_via_daemon = false;
     var argv_buf: [walk_argv_len][]const u8 = undefined;
     fx.spawn(.{
         .key = key,
@@ -471,14 +580,98 @@ pub fn applyStdoutPaths(model: *Model, raw: []const u8) void {
 pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
     if (line.key != model.file_mention_key or model.file_mention_key == 0) return;
     if (!probeStillCurrent(model)) return;
+    if (model.file_mention_via_daemon) {
+        applyDaemonWorkingTreeLine(model, line.line);
+        return;
+    }
     applyStdoutPaths(model, line.line);
+}
+
+fn applyDaemonWorkingTreeLine(model: *Model, raw: []const u8) void {
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseWorkingTree(arena_state.allocator(), raw);
+    if (!parsed.ok) return;
+    applyWorkingTree(model, parsed);
+    model.file_mention_daemon_ok = true;
+    model.file_mention_last_via_daemon = true;
+}
+
+/// Paint Files cache from ok `workingTree` file entries (`!isDir`)
+/// using `relativePath`. Dir entries become trailing-slash sentinels
+/// so `derivedDirParents` still yields collapsed top-level dirs.
+/// Cap 256 files; leftover slots may hold dir sentinels. Expand
+/// state stays on the runtime set.
+fn applyWorkingTree(model: *Model, parsed: protocol.ParsedWorkingTree) void {
+    clearFiles(model);
+    var i: usize = 0;
+    while (i < parsed.entry_count) : (i += 1) {
+        const entry = parsed.entries[i];
+        if (entry.is_dir) continue;
+        if (model.file_mention_count >= max_file_mentions) return;
+        const path = normalizeStdoutPath(entry.relative_path);
+        if (path.len == 0) continue;
+        model.file_mention_store[model.file_mention_count].set(path);
+        model.file_mention_count += 1;
+    }
+    i = 0;
+    while (i < parsed.entry_count) : (i += 1) {
+        const entry = parsed.entries[i];
+        if (!entry.is_dir) continue;
+        if (model.file_mention_count >= max_file_mentions) return;
+        const path = normalizeStdoutPath(entry.relative_path);
+        if (path.len == 0 or cacheHasDir(model, path)) continue;
+        storeDirSentinel(model, path);
+    }
+}
+
+fn cacheHasDir(model: *const Model, dir: []const u8) bool {
+    var i: usize = 0;
+    while (i < model.file_mention_count) : (i += 1) {
+        const path = cachedPath(model, i);
+        if (std.mem.eql(u8, path, dir)) return true;
+        if (isDirSentinel(path) and std.mem.eql(u8, path[0 .. path.len - 1], dir)) return true;
+        if (path.len > dir.len + 1 and std.mem.startsWith(u8, path, dir) and path[dir.len] == '/') return true;
+    }
+    return false;
+}
+
+fn storeDirSentinel(model: *Model, dir: []const u8) void {
+    if (model.file_mention_count >= max_file_mentions) return;
+    if (dir.len >= max_file_mention_path) return;
+    var buf: [max_file_mention_path]u8 = undefined;
+    const with_slash = if (std.mem.endsWith(u8, dir, "/"))
+        dir
+    else
+        (std.fmt.bufPrint(&buf, "{s}/", .{dir}) catch return);
+    model.file_mention_store[model.file_mention_count].set(with_slash);
+    model.file_mention_count += 1;
+}
+
+/// Trailing-slash cache keys from daemon `isDir` entries. Files tree
+/// and `@` mention file loops skip these; `derivedDirParents` keeps
+/// the dir row.
+pub fn isDirSentinel(path: []const u8) bool {
+    return path.len > 0 and path[path.len - 1] == '/';
 }
 
 pub fn handleExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (exit.key != model.file_mention_key or model.file_mention_key == 0) return;
     const current = probeStillCurrent(model);
     const was_walk = model.file_mention_probe_is_walk;
+    const via_daemon = model.file_mention_via_daemon;
+    const daemon_ok = model.file_mention_daemon_ok;
     model.file_mention_key = 0;
+    model.file_mention_via_daemon = false;
+    model.file_mention_daemon_ok = false;
+    if (via_daemon) {
+        if (daemon_ok) return;
+        if (!current or !probeSupported()) return;
+        const cwd = model.file_mention_probe_path_storage[0..model.file_mention_probe_path_len];
+        if (cwd.len == 0) return;
+        spawnLocalFallback(model, fx, cwd);
+        return;
+    }
     const succeeded = exit.reason == .exited and exit.code == 0;
     if (succeeded and current) return;
     clearCache(model);
@@ -741,4 +934,233 @@ test "collectDerivedDirParents unique ancestors; skip empty and dot" {
     try std.testing.expect(mentionRelpath(&model, 0, &dir_buf) == null);
     try std.testing.expect(mentionRelpath(&model, 4, &dir_buf) == null);
     try std.testing.expect(mentionRelpath(&model, dirMentionId(2), &dir_buf) == null);
+}
+
+fn pendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key) return spawn;
+    }
+    return null;
+}
+
+const working_tree_ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"workingTree\",\"entries\":[{\"relativePath\":\"README.md\",\"absolutePath\":\"/tmp/faku/README.md\",\"name\":\"README.md\",\"isDir\":false,\"expanded\":false,\"depth\":0},{\"relativePath\":\"src\",\"absolutePath\":\"/tmp/faku/src\",\"name\":\"src\",\"isDir\":true,\"expanded\":false,\"depth\":0}]}}}}";
+
+const working_tree_expanded_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"workingTree\",\"entries\":[{\"relativePath\":\"README.md\",\"absolutePath\":\"/tmp/faku/README.md\",\"name\":\"README.md\",\"isDir\":false,\"expanded\":false,\"depth\":0},{\"relativePath\":\"src\",\"absolutePath\":\"/tmp/faku/src\",\"name\":\"src\",\"isDir\":true,\"expanded\":true,\"depth\":0},{\"relativePath\":\"src/main.zig\",\"absolutePath\":\"/tmp/faku/src/main.zig\",\"name\":\"main.zig\",\"isDir\":false,\"expanded\":false,\"depth\":1}]}}}}";
+
+test "refresh with a daemon address spawns ListTree sidecar" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/files-list-daemon", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("files daemon", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.file_mention_key) orelse return error.MissingDaemonListTree;
+    try std.testing.expect(daemon_proxy.isSidecarArgv(sidecar.argv));
+    try std.testing.expect(!isGitLsFilesArgv(sidecar.argv));
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"listTree\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"expanded_paths\":[]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "expandedPaths") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try std.testing.expect(model.file_mention_via_daemon);
+    try std.testing.expect(!model.file_mention_last_via_daemon);
+    try std.testing.expectEqual(sidecar.key, model.file_mention_key);
+    try std.testing.expect(sidecar.key < file_mention_key_first);
+}
+
+test "refresh without a daemon address still uses local git ls-files" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/files-list-local", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setSidecarPath("faku");
+    const id = model.addSession("files local", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    try std.testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+
+    refresh(&model, &fx);
+    const git = pendingSpawnKey(&fx, model.file_mention_key) orelse return error.MissingGitLsFilesSpawn;
+    try std.testing.expect(isGitLsFilesArgv(git.argv));
+    try std.testing.expect(!daemon_proxy.isSidecarArgv(git.argv));
+    try std.testing.expectEqualStrings("", git.stdin);
+    try std.testing.expect(!model.file_mention_via_daemon);
+    try std.testing.expectEqual(file_mention_key_first, model.file_mention_key);
+}
+
+test "ListTree sidecar paints Files cache from workingTree files and dir sentinels" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/files-list-fill", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("files fill", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.file_mention_key) orelse return error.MissingDaemonListTreeFill;
+    applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"hello\"}" });
+    try std.testing.expectEqual(@as(u32, 0), model.file_mention_count);
+    applyLine(&model, .{ .key = sidecar.key, .line = working_tree_ok_line });
+    try std.testing.expect(model.file_mention_daemon_ok);
+    try std.testing.expect(model.file_mention_last_via_daemon);
+    try std.testing.expectEqual(@as(u32, 2), model.file_mention_count);
+    try std.testing.expectEqualStrings("README.md", cachedPath(&model, 0));
+    try std.testing.expectEqualStrings("src/", cachedPath(&model, 1));
+    try std.testing.expect(isDirSentinel(cachedPath(&model, 1)));
+    var parents: [max_file_mention_dirs][]const u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 1), derivedDirParents(&model, &parents));
+    try std.testing.expectEqualStrings("src", parents[0]);
+    handleExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.file_mention_key);
+    try std.testing.expect(!model.file_mention_via_daemon);
+    try std.testing.expect(model.file_mention_last_via_daemon);
+    try std.testing.expectEqual(@as(u32, 2), model.file_mention_count);
+}
+
+test "ListTree sidecar non-ok falls back to local git ls-files" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/files-list-fallback", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("files fallback", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.file_mention_key) orelse return error.MissingDaemonListTreeFallback;
+    applyLine(&model, .{
+        .key = sidecar.key,
+        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}",
+    });
+    try std.testing.expectEqual(@as(u32, 0), model.file_mention_count);
+    handleExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
+    try std.testing.expect(!model.file_mention_via_daemon);
+    try std.testing.expect(!model.file_mention_last_via_daemon);
+    const git = pendingSpawnKey(&fx, model.file_mention_key) orelse return error.MissingLocalGitFallback;
+    try std.testing.expect(isGitLsFilesArgv(git.argv));
+    try std.testing.expect(!daemon_proxy.isSidecarArgv(git.argv));
+    try std.testing.expectEqualStrings("", git.stdin);
+    try std.testing.expect(git.key >= file_mention_key_first);
+}
+
+test "expand after daemon fill re-prefers ListTree with expanded_paths" {
+    const right_panel = @import("right_panel.zig");
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/files-list-expand", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("files expand", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    refresh(&model, &fx);
+    const first = pendingSpawnKey(&fx, model.file_mention_key) orelse return error.MissingDaemonListTreeExpand;
+    applyLine(&model, .{ .key = first.key, .line = working_tree_ok_line });
+    handleExit(&model, &fx, .{ .key = first.key, .reason = .exited, .code = 0 });
+    try std.testing.expect(model.file_mention_last_via_daemon);
+
+    var parents: [max_file_mention_dirs][]const u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 1), derivedDirParents(&model, &parents));
+    const src_id = dirMentionId(0);
+    right_panel.toggleDir(&model, &fx, src_id);
+    try std.testing.expect(right_panel.isDirExpanded(&model, "src"));
+    const second = pendingSpawnKey(&fx, model.file_mention_key) orelse return error.MissingDaemonListTreeReprobe;
+    try std.testing.expect(daemon_proxy.isSidecarArgv(second.argv));
+    try std.testing.expect(second.key != first.key);
+    try std.testing.expect(std.mem.indexOf(u8, second.stdin, "\"type\":\"listTree\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, second.stdin, "\"expanded_paths\":[") != null);
+    try std.testing.expect(std.mem.indexOf(u8, second.stdin, "expandedPaths") == null);
+    try std.testing.expect(std.mem.indexOf(u8, second.stdin, "/src") != null);
+    applyLine(&model, .{ .key = second.key, .line = working_tree_expanded_line });
+    handleExit(&model, &fx, .{ .key = second.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqualStrings("README.md", cachedPath(&model, 0));
+    try std.testing.expectEqualStrings("src/main.zig", cachedPath(&model, 1));
+    try std.testing.expect(model.file_mention_last_via_daemon);
+}
+
+test "expand after local fill stays filter-only" {
+    const right_panel = @import("right_panel.zig");
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/files-list-local-expand", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setSidecarPath("faku");
+    const id = model.addSession("files local expand", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    applyStdoutPaths(&model, "src/main.zig\nREADME.md\n");
+
+    var parents: [max_file_mention_dirs][]const u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 1), derivedDirParents(&model, &parents));
+    right_panel.toggleDir(&model, &fx, dirMentionId(0));
+    try std.testing.expect(right_panel.isDirExpanded(&model, "src"));
+    try std.testing.expect(pendingSpawnKey(&fx, model.file_mention_key) == null);
+    try std.testing.expect(!model.file_mention_last_via_daemon);
 }

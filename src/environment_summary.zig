@@ -149,8 +149,11 @@
 //! sha stays canonical). First-cut daemon
 //! `WorkspaceOperation::CaptureTurn` ships in `fork` (best-effort
 //! finish sidecar after local end capture; Checkpoint; local end
-//! shas stay canonical). Leftovers: other daemon `WorkspaceOperation`
-//! variants (ListTree, CollectReviewDiff, ref ops,
+//! shas stay canonical). First-cut daemon `WorkspaceOperation::ListTree` ships in
+//! `file_mention` (Files refresh; expand after a daemon fill
+//! re-prefers ListTree; overflow / error / unusable parse falls
+//! back to local git ls-files then walk). Leftovers: other daemon `WorkspaceOperation`
+//! variants (CollectReviewDiff, BrowseDirectory, ReadTextFile, ref ops,
 //! remotes-on-daemon-list, amend/force over daemon, remote `--track`
 //! over daemon, …).
 

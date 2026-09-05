@@ -25,7 +25,8 @@
 //! `branchChanged` with a usable snapshot (CheckoutBranch), or
 //! `commitSnapshot` with a usable snapshot (InspectCommit), or
 //! `checkpoint` with a nested checkpoint object (CaptureTurn), or
-//! `commitMessage` with a string `message` (GenerateCommitMessage).
+//! `commitMessage` with a string `message` (GenerateCommitMessage), or
+//! `workingTree` with a parsed `entries` array (ListTree).
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -365,7 +366,7 @@ pub fn writeGoalStdin(buf: []u8, args: GoalStdin) WriteError![]const u8 {
 
 /// NDJSON stdin for first-cut workspace Push / CreateWorktree / Commit /
 /// InspectBranches / CheckoutBranch / InspectCommit / CaptureTurnStart /
-/// CaptureTurn / GenerateCommitMessage.
+/// CaptureTurn / GenerateCommitMessage / ListTree.
 /// Hello + `workspace`
 /// (nil request-frame `sessionId` / `runtimeId`, command payload
 /// `operation`). Own spawn key — Native cannot write into a running
@@ -1276,6 +1277,47 @@ test "writeWorkspaceStdin emits hello and workspace generateCommitMessage withou
                 },
             },
         },
+    }));
+}
+
+test "writeWorkspaceStdin emits hello and workspace listTree with expanded_paths" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{
+            .list_tree = .{
+                .root = "/tmp/faku",
+                .expanded_paths = &.{ "/tmp/faku/src", "/tmp/faku/src/lib" },
+            },
+        },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ WORKSPACE_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"listTree\",\"root\":\"/tmp/faku\",\"expanded_paths\":[\"/tmp/faku/src\",\"/tmp/faku/src/lib\"]}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"expanded_paths\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "expandedPaths") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"inspectCommit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"inspectBranches\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"generateCommitMessage\"") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForWorkspace(stdin));
+
+    const empty = try writeWorkspaceStdin(&buf, .{
+        .operation = .{ .list_tree = .{ .root = "/tmp/faku" } },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, empty, "\"expanded_paths\":[]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, empty, "expandedPaths") == null);
+    try std.testing.expect(outboundWaitsForWorkspace(empty));
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
+        .operation = .{ .list_tree = .{ .root = "/tmp/faku" } },
     }));
 }
 

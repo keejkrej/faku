@@ -142,10 +142,14 @@
 //! "invocation": { "provider", "binary", "model", "reasoning_effort" } }`
 //! (camelCase op tag + `includeUnstaged`; AgentInvocation keys stay
 //! `provider` / `binary` / `model` / snake_case `reasoning_effort`;
-//! `model` and `reasoning_effort` are a string or JSON null). This cut
+//! `model` and `reasoning_effort` are a string or JSON null), and
+//! `WorkspaceOperation::ListTree`
+//! `{ "type": "listTree", "root", "expanded_paths" }` (camelCase op
+//! tag; request fields snake_case `expanded_paths` as a JSON array of
+//! absolute directory paths; empty array is depth-0 only). This cut
 //! ships Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
-//! InspectCommit, CaptureTurnStart, CaptureTurn, and
-//! GenerateCommitMessage.
+//! InspectCommit, CaptureTurnStart, CaptureTurn,
+//! GenerateCommitMessage, and ListTree.
 //! There is no force flag on daemon Push. An ok outcome is
 //! `ResponsePayload::Workspace { result }` where Push, Commit, and
 //! CaptureTurnStart yield `WorkspaceResult::Ack` — wire `outcome.payload`
@@ -167,9 +171,15 @@
 //! `WorkspaceResult::Checkpoint` — wire
 //! `result: { "type": "checkpoint", "checkpoint": { … } }` nested
 //! under `outcome.payload` (not a bare checkpoint object; not Ack) —
-//! and GenerateCommitMessage yields `WorkspaceResult::CommitMessage`
+//! GenerateCommitMessage yields `WorkspaceResult::CommitMessage`
 //! — wire `result: { "type": "commitMessage", "message" }` nested
-//! under `outcome.payload` (not a bare ack).
+//! under `outcome.payload` (not a bare ack) — and ListTree yields
+//! `WorkspaceResult::WorkingTree` — wire
+//! `result: { "type": "workingTree", "entries": [ WorkingTreeEntry, … ] }`
+//! nested under `outcome.payload` (not a bare workingTree object; not
+//! Ack). `WorkingTreeEntry` uses serde rename_all camelCase:
+//! `relativePath`, `absolutePath`, `name`, `isDir`, `expanded`,
+//! `depth`.
 //! `BranchSnapshot` /
 //! `BranchEntry` have no serde rename_all: snake_case `repository`,
 //! `current`, `detached_head`, `default_branch`, `branches`,
@@ -379,8 +389,8 @@ pub fn defaultStartOptions() StartOptions {
 /// daemon sidecar). It is not an fx / ACP method. `workspace` is
 /// first-cut `WorkspaceOperation::Push`, `CreateWorktree`,
 /// `Commit`, `InspectBranches`, `CheckoutBranch`,
-/// `InspectCommit`, `CaptureTurnStart`, `CaptureTurn`, and
-/// `GenerateCommitMessage`
+/// `InspectCommit`, `CaptureTurnStart`, `CaptureTurn`,
+/// `GenerateCommitMessage`, and `ListTree`
 /// (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
@@ -555,9 +565,10 @@ pub const GoalOperation = union(GoalKind) {
 /// `turnCount` on the wire), and `GenerateCommitMessage
 /// { cwd, include_unstaged, invocation }` (camelCase
 /// `includeUnstaged`; AgentInvocation `reasoning_effort` stays
-/// snake_case). No force flag on Push or Commit. No
-/// amend on daemon Commit or InspectCommit.
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message };
+/// snake_case), and `ListTree { root, expanded_paths }`
+/// (snake_case `expanded_paths` JSON array). No force flag on
+/// Push or Commit. No amend on daemon Commit or InspectCommit.
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree };
 
 /// Waku `AgentInvocation`. Wire keys match generated TS:
 /// `provider`, `binary`, `model`, `reasoning_effort` (snake_case
@@ -620,6 +631,11 @@ pub const WorkspaceGenerateCommitMessage = struct {
     invocation: AgentInvocation,
 };
 
+pub const WorkspaceListTree = struct {
+    root: []const u8,
+    expanded_paths: []const []const u8 = &.{},
+};
+
 pub const WorkspaceOperation = union(WorkspaceKind) {
     push: WorkspacePush,
     create_worktree: WorkspaceCreateWorktree,
@@ -630,6 +646,7 @@ pub const WorkspaceOperation = union(WorkspaceKind) {
     capture_turn_start: WorkspaceCaptureTurnStart,
     capture_turn: WorkspaceCaptureTurn,
     generate_commit_message: WorkspaceGenerateCommitMessage,
+    list_tree: WorkspaceListTree,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -681,6 +698,26 @@ pub const ParsedCommitSnapshot = struct {
 pub const ParsedCommitMessage = struct {
     ok: bool = false,
     message: []const u8 = "",
+};
+
+/// Files-tree rows from an ok `workingTree` workspace result. Cap
+/// matches `file_mention.max_file_mentions` (256); overflow entries
+/// are ignored. Slices alias the JSON arena used to parse the line.
+pub const max_parsed_tree_entries: usize = 256;
+
+pub const ParsedWorkingTreeEntry = struct {
+    relative_path: []const u8 = "",
+    absolute_path: []const u8 = "",
+    name: []const u8 = "",
+    is_dir: bool = false,
+    expanded: bool = false,
+    depth: u32 = 0,
+};
+
+pub const ParsedWorkingTree = struct {
+    ok: bool = false,
+    entries: [max_parsed_tree_entries]ParsedWorkingTreeEntry = [_]ParsedWorkingTreeEntry{.{}} ** max_parsed_tree_entries,
+    entry_count: usize = 0,
 };
 
 /// Runtime id taken from a verified `sessionRuntime` response payload.
@@ -912,7 +949,7 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// uses nil `sessionId` and nil `runtimeId` for workspace RPCs. Callers
 /// for Push, CreateWorktree, Commit, InspectBranches,
 /// CheckoutBranch, InspectCommit, CaptureTurnStart, CaptureTurn,
-/// and GenerateCommitMessage pass
+/// GenerateCommitMessage, and ListTree pass
 /// `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
@@ -1031,6 +1068,16 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
                 try cur.write("null");
             }
             try cur.write("}}");
+        },
+        .list_tree => |args| {
+            try cur.write("{\"type\":\"listTree\",\"root\":");
+            try writeJsonString(cur, args.root);
+            try cur.write(",\"expanded_paths\":[");
+            for (args.expanded_paths, 0..) |path, i| {
+                if (i > 0) try cur.write(",");
+                try writeJsonString(cur, path);
+            }
+            try cur.write("]}");
         },
     }
 }
@@ -1556,6 +1603,45 @@ pub fn parseCommitMessage(allocator: std.mem.Allocator, line: []const u8) Parsed
     return parsed;
 }
 
+/// Light parser for ok ListTree. True/`ok` when an ok `response`
+/// carries nested `result: { "type": "workingTree", "entries": [ … ] }`
+/// with camelCase `WorkingTreeEntry` fields (`relativePath`,
+/// `absolutePath`, `name`, `isDir`, `expanded`, `depth`). Empty
+/// `entries` is still ok. Missing wrapper, ack, snake_case paths, or a
+/// malformed entry inside the 256 cap are rejected. Overflow entries
+/// are ignored. Slices alias `allocator`.
+pub fn parseWorkingTree(allocator: std.mem.Allocator, line: []const u8) ParsedWorkingTree {
+    var parsed = ParsedWorkingTree{};
+    const result = workspaceResultObject(allocator, line) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "workingTree")) return parsed;
+    const entries_val = result.get("entries") orelse return parsed;
+    const items = jsonArrayItems(entries_val) orelse return parsed;
+
+    var n: usize = 0;
+    for (items) |item| {
+        if (n >= max_parsed_tree_entries) break;
+        const entry = jsonObject(item) orelse return parsed;
+        const relative_path = jsonStringValue(entry.get("relativePath")) orelse return parsed;
+        const absolute_path = jsonStringValue(entry.get("absolutePath")) orelse return parsed;
+        const name = jsonStringValue(entry.get("name")) orelse return parsed;
+        const is_dir = jsonBoolValue(entry.get("isDir")) orelse return parsed;
+        const expanded = jsonBoolValue(entry.get("expanded")) orelse return parsed;
+        const depth = jsonUintValue(entry.get("depth")) orelse return parsed;
+        parsed.entries[n] = .{
+            .relative_path = relative_path,
+            .absolute_path = absolute_path,
+            .name = name,
+            .is_dir = is_dir,
+            .expanded = expanded,
+            .depth = depth,
+        };
+        n += 1;
+    }
+    parsed.ok = true;
+    parsed.entry_count = n;
+    return parsed;
+}
+
 /// Light ok-checkpoint check for first-cut workspace CaptureTurn.
 /// True when an ok `response` carries nested
 /// `result: { "type": "checkpoint", "checkpoint": { … } }`.
@@ -1573,7 +1659,8 @@ pub fn isWorkspaceCheckpoint(allocator: std.mem.Allocator, line: []const u8) boo
 /// usable snapshot, CheckoutBranch `branchChanged` with a usable
 /// snapshot, InspectCommit `commitSnapshot` with a usable snapshot,
 /// GenerateCommitMessage `commitMessage` with a string `message`,
-/// or CaptureTurn `checkpoint` with a nested checkpoint object.
+/// ListTree `workingTree` with a parsed `entries` array, or
+/// CaptureTurn `checkpoint` with a nested checkpoint object.
 pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (isWorkspaceAck(allocator, line)) return true;
     if (parseWorktreeCreated(allocator, line).ok) return true;
@@ -1581,6 +1668,7 @@ pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (parseBranchChanged(allocator, line).ok) return true;
     if (parseCommitSnapshot(allocator, line).ok) return true;
     if (parseCommitMessage(allocator, line).ok) return true;
+    if (parseWorkingTree(allocator, line).ok) return true;
     return isWorkspaceCheckpoint(allocator, line);
 }
 
@@ -2341,6 +2429,100 @@ test "parseCommitMessage extracts nested message and rejects ack, missing field,
     try std.testing.expect(!parseCommitMessage(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"commitMessage\",\"message\":\"fix dirty count\"}}}").ok);
     try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"commitMessage\"}}}}"));
     try std.testing.expect(!parseCommitMessage(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
+}
+
+test "workspace request wraps camelCase listTree with snake_case expanded_paths and nil ids" {
+    var buf: [1024]u8 = undefined;
+    const json = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .list_tree = .{
+            .root = "/tmp/faku",
+            .expanded_paths = &.{ "/tmp/faku/src", "/tmp/faku/src/lib" },
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"listTree\",\"root\":\"/tmp/faku\",\"expanded_paths\":[\"/tmp/faku/src\",\"/tmp/faku/src/lib\"]}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"expanded_paths\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "expandedPaths") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"inspectCommit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"inspectBranches\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"generateCommitMessage\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"captureTurn\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"push\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"commit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"createWorktree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"collectReviewDiff\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"browseDirectory\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"readTextFile\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"listTree\"") == null);
+
+    const empty = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .list_tree = .{ .root = "/tmp/faku" } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, empty, "\"expanded_paths\":[]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, empty, "expandedPaths") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .list_tree = .{ .root = "/tmp/faku" } },
+    ));
+}
+
+test "parseWorkingTree extracts camelCase entries and rejects bare workingTree or ack" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"workingTree\",\"entries\":[{\"relativePath\":\"README.md\",\"absolutePath\":\"/tmp/faku/README.md\",\"name\":\"README.md\",\"isDir\":false,\"expanded\":false,\"depth\":0},{\"relativePath\":\"src\",\"absolutePath\":\"/tmp/faku/src\",\"name\":\"src\",\"isDir\":true,\"expanded\":true,\"depth\":0},{\"relativePath\":\"src/main.zig\",\"absolutePath\":\"/tmp/faku/src/main.zig\",\"name\":\"main.zig\",\"isDir\":false,\"expanded\":false,\"depth\":1}]}}}}";
+    const parsed = parseWorkingTree(arena, ok_line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqual(@as(usize, 3), parsed.entry_count);
+    try std.testing.expectEqualStrings("README.md", parsed.entries[0].relative_path);
+    try std.testing.expectEqualStrings("/tmp/faku/README.md", parsed.entries[0].absolute_path);
+    try std.testing.expectEqualStrings("README.md", parsed.entries[0].name);
+    try std.testing.expect(!parsed.entries[0].is_dir);
+    try std.testing.expect(!parsed.entries[0].expanded);
+    try std.testing.expectEqual(@as(u32, 0), parsed.entries[0].depth);
+    try std.testing.expectEqualStrings("src", parsed.entries[1].relative_path);
+    try std.testing.expect(parsed.entries[1].is_dir);
+    try std.testing.expect(parsed.entries[1].expanded);
+    try std.testing.expectEqualStrings("src/main.zig", parsed.entries[2].relative_path);
+    try std.testing.expect(!parsed.entries[2].is_dir);
+    try std.testing.expectEqual(@as(u32, 1), parsed.entries[2].depth);
+    try std.testing.expect(isWorkspaceSuccess(arena, ok_line));
+    try std.testing.expect(!isWorkspaceAck(arena, ok_line));
+    try std.testing.expect(!parseCommitMessage(arena, ok_line).ok);
+    try std.testing.expect(!parseCommitSnapshot(arena, ok_line).ok);
+
+    const empty_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"workingTree\",\"entries\":[]}}}}";
+    const empty = parseWorkingTree(arena, empty_line);
+    try std.testing.expect(empty.ok);
+    try std.testing.expectEqual(@as(usize, 0), empty.entry_count);
+    try std.testing.expect(isWorkspaceSuccess(arena, empty_line));
+
+    try std.testing.expect(!parseWorkingTree(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workingTree\",\"entries\":[{\"relativePath\":\"README.md\",\"absolutePath\":\"/tmp/faku/README.md\",\"name\":\"README.md\",\"isDir\":false,\"expanded\":false,\"depth\":0}]}}}").ok);
+    try std.testing.expect(!parseWorkingTree(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
+    try std.testing.expect(!parseWorkingTree(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"workingTree\"}}}}").ok);
+    try std.testing.expect(!parseWorkingTree(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"workingTree\",\"entries\":[{\"relative_path\":\"README.md\",\"absolute_path\":\"/tmp/faku/README.md\",\"name\":\"README.md\",\"is_dir\":false,\"expanded\":false,\"depth\":0}]}}}}").ok);
+    try std.testing.expect(!parseWorkingTree(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
+    try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"workingTree\"}}}}"));
 }
 
 test "start defaults to first-party fx over acp" {

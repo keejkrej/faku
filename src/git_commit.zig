@@ -107,8 +107,10 @@
 //! sha stays canonical). First-cut daemon
 //! `WorkspaceOperation::CaptureTurn` lives in `fork` (best-effort
 //! finish sidecar after local end capture; Checkpoint; local end
-//! shas stay canonical). Leftovers: ListTree /
-//! CollectReviewDiff / ref
+//! shas stay canonical). First-cut daemon
+//! `WorkspaceOperation::ListTree` lives in `file_mention` (Files
+//! refresh; expand after a daemon fill re-prefers ListTree). Leftovers: CollectReviewDiff /
+//! BrowseDirectory / ReadTextFile / ref
 //! ops / remotes-on-daemon-list / amend/force over daemon / remote
 //! `--track` over daemon / …
 //!

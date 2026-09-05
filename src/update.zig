@@ -340,7 +340,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             }
         },
         .file_preview_keep_editing => right_panel.cancelPendingDiscard(model),
-        .toggle_right_panel_dir => |id| right_panel.toggleDir(model, id),
+        .toggle_right_panel_dir => |id| right_panel.toggleDir(model, fx, id),
         .set_right_panel_tab_files => {
             right_panel.selectFiles(model, fx);
             store.persistLayoutIfPossible(model);
