@@ -7,10 +7,13 @@
 //! candidate path as New worktree…). Success retargets `project_path`,
 //! sets `worktree` {path, branch}, then `startPrompt`. Failure leaves
 //! `newWorktree` and does not start the provider. Native has no git
-//! effect. Not daemon `WorkspaceOperation`. Base stays the existing
-//! runtime-only `git_worktree_base_override_*` picker (Work-in ghost
-//! when this kind is `newWorktree`; not persisted). Fork copies
-//! `project_path` and resets kind to `local`.
+//! effect. Not daemon `WorkspaceOperation`. Optional Work-in Base on
+//! a `newWorktree` draft persists camelCase `baseBranch` (Waku
+//! `NewWorktree { base_branch }`) and keeps
+//! `git_worktree_base_override_*` in sync. Send prep prefers that
+//! stored base for the trailing `git worktree add` argv slot.
+//! Leftovers: daemon `WorkspaceOperation`. Fork copies
+//! `project_path` and resets kind to `local` (drops `baseBranch`).
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -23,6 +26,7 @@ const git_branch = @import("git_branch.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
+const session_fork = @import("fork.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -84,13 +88,15 @@ pub fn pickLocal(model: *Model, fx: *Effects) void {
 
 /// Mark the selected draft `newWorktree`. Does not spawn
 /// `git worktree add`. No-op without a project path or when already a
-/// materialized worktree.
+/// materialized worktree. Re-picking New worktree keeps an already
+/// stored `baseBranch`.
 pub fn pickNewWorktree(model: *Model, fx: *Effects) void {
     model.workspace_picker_open = false;
     const session = model.sessionById(model.selected) orelse return;
     if (session.projectPath().len == 0) return;
     if (isMaterialized(session)) return;
     session.setWorkspaceNewWorktree();
+    git_checkout.syncWorktreeBaseOverrideFromSession(model);
     persist.persistComposerChips(model, fx);
 }
 
@@ -402,4 +408,215 @@ test "sessions.json omits local and restores newWorktree and worktree" {
     try std.testing.expectEqualStrings("/tmp/faku/wt", wt.workspacePath());
     try std.testing.expectEqualStrings("faku/feat", wt.workspaceBranch());
     try std.testing.expectEqualStrings("/tmp/faku/wt", wt.projectPath());
+}
+
+test "sessions.json round-trips newWorktree with and without baseBranch; upsert copies workspace" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-ws-base", .{tmp.sub_path[0..]});
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+
+    const local_id = source.addSession("local first", .fx);
+    _ = source.appendTurn(local_id, .user, "seed row");
+    source.selected = local_id;
+    try store.saveSession(&source, local_id, allocator, io);
+
+    source.sessionById(local_id).?.setWorkspaceNewWorktree();
+    source.sessionById(local_id).?.setWorkspaceBaseBranch("feat");
+    source.sessionById(local_id).?.setProjectPath("/tmp/proj");
+    try store.saveSession(&source, local_id, allocator, io);
+
+    const bare_id = source.addSession("bare new worktree", .fx);
+    _ = source.appendTurn(bare_id, .user, "no base");
+    source.sessionById(bare_id).?.setWorkspaceNewWorktree();
+    source.sessionById(bare_id).?.setProjectPath("/tmp/proj");
+    try store.saveSession(&source, bare_id, allocator, io);
+    source.selected = local_id;
+    try store.saveSession(&source, local_id, allocator, io);
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const catalog = store.catalogPath(dir, &path_buf) orelse return error.MissingCatalog;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalog, allocator, .limited(store.max_document_bytes));
+    defer allocator.free(bytes);
+    try std.testing.expect(std.mem.indexOf(u8, bytes, "\"kind\":\"newWorktree\",\"baseBranch\":\"feat\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bytes, "\"kind\":\"newWorktree\"}") != null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try std.testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, allocator, io));
+    const with_base = loaded.sessionByIdConst(local_id).?;
+    try std.testing.expect(isNewWorktree(with_base));
+    try std.testing.expectEqualStrings("feat", with_base.workspaceBaseBranch());
+    const bare = loaded.sessionByIdConst(bare_id).?;
+    try std.testing.expect(isNewWorktree(bare));
+    try std.testing.expectEqualStrings("", bare.workspaceBaseBranch());
+    try std.testing.expectEqual(local_id, loaded.selected);
+    try std.testing.expectEqualStrings("feat", git_checkout.gitWorktreeBaseOverride(&loaded));
+
+    loaded.selected = bare_id;
+    loaded.syncGitWorktreeBaseOverride();
+    try std.testing.expectEqual(@as(usize, 0), loaded.git_worktree_base_override_len);
+    loaded.selected = local_id;
+    loaded.syncGitWorktreeBaseOverride();
+    try std.testing.expectEqualStrings("feat", git_checkout.gitWorktreeBaseOverride(&loaded));
+}
+
+test "Work-in Base pick persists baseBranch and clear Base clears both" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-ws-pick-base", .{tmp.sub_path[0..]});
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/ws-pick-base", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const id = model.addSession("pick base", .fx);
+    _ = model.appendTurn(id, .user, "started");
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(project);
+    model.git_branch_list_store[0].set("main", false, false);
+    model.git_branch_list_store[1].set("feat", false, false);
+    model.git_branch_list_count = 2;
+
+    pickNewWorktree(&model, &fx);
+    git_checkout.pickWorktreeBaseName(&model, "feat");
+    persist.persistComposerChips(&model, &fx);
+    try std.testing.expectEqualStrings("feat", model.sessionByIdConst(id).?.workspaceBaseBranch());
+    try std.testing.expectEqualStrings("feat", git_checkout.gitWorktreeBaseOverride(&model));
+
+    git_checkout.clearWorktreeBaseName(&model);
+    persist.persistComposerChips(&model, &fx);
+    try std.testing.expectEqualStrings("", model.sessionByIdConst(id).?.workspaceBaseBranch());
+    try std.testing.expectEqual(@as(usize, 0), model.git_worktree_base_override_len);
+
+    git_checkout.pickWorktreeBaseName(&model, "feat");
+    persist.persistComposerChips(&model, &fx);
+    git_checkout.pickWorktreeBaseName(&model, "");
+    persist.persistComposerChips(&model, &fx);
+    try std.testing.expectEqualStrings("", model.sessionByIdConst(id).?.workspaceBaseBranch());
+    try std.testing.expectEqual(@as(usize, 0), model.git_worktree_base_override_len);
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const catalog = store.catalogPath(dir, &path_buf) orelse return error.MissingCatalog;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, catalog, testing.allocator, .limited(store.max_document_bytes));
+    defer testing.allocator.free(bytes);
+    try std.testing.expect(std.mem.indexOf(u8, bytes, "\"baseBranch\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, bytes, "\"kind\":\"newWorktree\"") != null);
+}
+
+test "Local and Fork-to-local clear stored baseBranch" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-ws-clear-base", .{tmp.sub_path[0..]});
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/ws-clear-base", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const id = model.addSession("clear base", .fx);
+    _ = model.appendTurn(id, .user, "keep me");
+    _ = model.appendTurn(id, .assistant, "ok");
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(project);
+    pickNewWorktree(&model, &fx);
+    model.sessionById(id).?.setWorkspaceBaseBranch("feat");
+    main.writeFixed(&model.git_worktree_base_override_storage, &model.git_worktree_base_override_len, "feat");
+    persist.persistComposerChips(&model, &fx);
+
+    pickLocal(&model, &fx);
+    try std.testing.expect(isLocal(model.sessionByIdConst(id).?));
+    try std.testing.expectEqualStrings("", model.sessionByIdConst(id).?.workspaceBaseBranch());
+    try std.testing.expectEqual(@as(usize, 0), model.git_worktree_base_override_len);
+
+    pickNewWorktree(&model, &fx);
+    model.sessionById(id).?.setWorkspaceBaseBranch("feat");
+    persist.persistComposerChips(&model, &fx);
+
+    session_fork.forkSelectedThrough(&model, &fx, 1);
+    const fork_id = model.selected;
+    try std.testing.expect(fork_id != id);
+    const forked = model.sessionByIdConst(fork_id).?;
+    try std.testing.expect(isLocal(forked));
+    try std.testing.expectEqualStrings("", forked.workspaceBaseBranch());
+    try std.testing.expectEqual(@as(usize, 0), model.git_worktree_base_override_len);
+    const source = model.sessionByIdConst(id).?;
+    try std.testing.expect(isNewWorktree(source));
+    try std.testing.expectEqualStrings("feat", source.workspaceBaseBranch());
+}
+
+test "Send with stored baseBranch skips origin/HEAD and uses that argv slot; materialize clears it" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/ws-send-base", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var home_buf: [256]u8 = undefined;
+    const home = try std.fmt.bufPrint(&home_buf, "/tmp/faku-ws-base-{s}", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, home);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.fx_probe_started = true;
+    model.setHome(home);
+    const id = model.addSession("feat stored base", .fx);
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(project);
+    pickNewWorktree(&model, &fx);
+    model.sessionById(id).?.setWorkspaceBaseBranch("feat");
+    try std.testing.expectEqual(@as(usize, 0), model.git_worktree_base_override_len);
+
+    model.draft_buffer.apply(.{ .insert_text = "ship with stored base" });
+    main.update(&model, .send, &fx);
+    try std.testing.expect(model.workspace_prep_active);
+    try std.testing.expectEqual(@as(u64, 0), model.git_worktree_base_key);
+    try std.testing.expect(model.git_worktree_add_key != 0);
+    try std.testing.expect(!pendingProviderStart(&fx));
+
+    const created = findWorktreeAddSpawn(&fx, model.git_worktree_add_key) orelse return error.MissingWorktreeAddStoredBase;
+    try std.testing.expect(git_checkout.isGitWorktreeAddArgv(created.argv));
+    try std.testing.expectEqualStrings("feat", created.argv[created.argv.len - 1]);
+    if (std.mem.eql(u8, created.argv[0], "/bin/sh")) {
+        try std.testing.expect(std.mem.indexOf(u8, created.argv[2], "feat") == null);
+    }
+
+    var dest_buf: [main.max_project_path]u8 = undefined;
+    const dest = git_checkout.worktreeDestPath(home, project, "feat-stored-base", dest_buf[0..]) orelse return error.MissingDest;
+    try fx.feedExit(created.key, 0);
+    drainEffects(&model, &fx);
+    const session = model.sessionByIdConst(id).?;
+    try std.testing.expect(isMaterialized(session));
+    try std.testing.expectEqualStrings("", session.workspaceBaseBranch());
+    try std.testing.expectEqualStrings(dest, session.projectPath());
+    try std.testing.expect(model.is_streaming());
 }

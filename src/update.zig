@@ -204,7 +204,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .cancel_git_worktree_create => settings_actions.handleCancelGitWorktreeCreate(model, fx),
         .toggle_git_worktree_base_picker => settings_actions.handleToggleGitWorktreeBasePicker(model),
         .close_git_worktree_base_picker => model.closeGitWorktreeBasePicker(),
-        .pick_git_worktree_base => |name| settings_actions.handlePickGitWorktreeBase(model, name),
+        .pick_git_worktree_base => |name| settings_actions.handlePickGitWorktreeBase(model, fx, name),
         .toggle_workspace_picker => settings_actions.handleToggleWorkspacePicker(model),
         .close_workspace_picker => model.closeWorkspacePicker(),
         .pick_workspace_local => settings_actions.handlePickWorkspaceLocal(model, fx),

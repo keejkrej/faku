@@ -474,8 +474,11 @@ pub fn handleToggleGitWorktreeBasePicker(model: *Model) void {
     git_checkout.toggleWorktreeBasePicker(model);
 }
 
-pub fn handlePickGitWorktreeBase(model: *Model, name: []const u8) void {
+pub fn handlePickGitWorktreeBase(model: *Model, fx: *Effects, name: []const u8) void {
     git_checkout.pickWorktreeBaseName(model, name);
+    if (session_workspace.selectedIsNewWorktree(model)) {
+        persist.persistComposerChips(model, fx);
+    }
 }
 
 pub fn handleToggleWorkspacePicker(model: *Model) void {

@@ -132,8 +132,8 @@
 //! composer Push… / Commit… (runtime-only ghost). New worktree…
 //! first-cut Base picker ships. First-cut defer-until-Send
 //! workspace mode ships (composer Work in; Send prep reuses
-//! New worktree… `git worktree add`). Leftovers: stash / merge /
-//! daemon `WorkspaceOperation`.
+//! New worktree… `git worktree add`; optional `baseBranch` persist
+//! ships on that draft). Leftovers: daemon `WorkspaceOperation`.
 
 const std = @import("std");
 const main = @import("main.zig");
