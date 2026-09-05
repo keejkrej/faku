@@ -31,9 +31,13 @@
 //! `turn_count`. Ok is workspace Ack). Local fork stays canonical;
 //! Faku refs stay `refs/faku/...`. Missing address / Native 4 KiB
 //! stdin overflow / sidecar failure must not break Send or finish
-//! or the local fork or clear the local shas. Leftovers: amend/force over
-//! daemon, remote `--track` over daemon, DeleteSessionRefs / HasRef /
-//! CaptureRef / RestoreRef / etc.
+//! or the local fork or clear the local shas. First-cut daemon
+//! `WorkspaceOperation::DeleteSessionRefs` lives in `store` (best-effort
+//! sidecar after a local `sessions.json` remove; Ack; local remove
+//! stays canonical; not a replacement for `closeSession`). Leftovers:
+//! HasRef / CaptureRef / RestoreRef / DeleteRef / DeleteTurnRefsAfter /
+//! SessionTurnRefs, amend/force over daemon, remote `--track` over
+//! daemon, etc.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -815,6 +819,7 @@ test "forkSelectedThrough with a daemon address spawns CopySessionRefs sidecar" 
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"attachSession\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"captureTurnStart\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"captureTurn\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"deleteSessionRefs\"") == null);
     var source_buf: [36]u8 = undefined;
     var target_buf: [36]u8 = undefined;
     const source_wire = daemon_proxy.wireUuid(id, &source_buf);

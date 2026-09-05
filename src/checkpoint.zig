@@ -54,9 +54,14 @@
 //! daemon `WorkspaceOperation::CopySessionRefs` ships as a
 //! best-effort sidecar from `fork.forkSelectedThrough` after a
 //! local catalog fork (Ack; does not replace local fork or
-//! `refs/faku/...`). Leftovers:
-//! force, background work, DeleteSessionRefs / HasRef / CaptureRef /
-//! RestoreRef / etc. Not transcript checkpoint +/-.
+//! `refs/faku/...`). First-cut daemon
+//! `WorkspaceOperation::DeleteSessionRefs` ships as a best-effort
+//! sidecar from `store.removeIfPossible` after a local catalog
+//! remove (Ack; does not replace local remove or `closeSession`).
+//! Leftovers:
+//! force, background work, HasRef / CaptureRef / RestoreRef /
+//! DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs, etc. Not
+//! transcript checkpoint +/-.
 
 const std = @import("std");
 const rewind = @import("rewind.zig");

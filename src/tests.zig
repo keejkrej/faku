@@ -8124,6 +8124,27 @@ fn findCloseOnlySpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     return null;
 }
 
+fn isDeleteSessionRefsStdin(stdin: []const u8) bool {
+    return std.mem.indexOf(u8, stdin, "\"type\":\"deleteSessionRefs\"") != null and
+        std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null and
+        std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null;
+}
+
+fn findDeleteSessionRefsSpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (isDeleteSessionRefsStdin(spawn.stdin)) return spawn;
+    }
+    return null;
+}
+
+fn makeGitCwd(io: std.Io, path: []const u8) !void {
+    try std.Io.Dir.cwd().createDirPath(io, path);
+    var git_buf: [256]u8 = undefined;
+    const git = try std.fmt.bufPrint(&git_buf, "{s}{s}.git", .{ path, std.fs.path.sep_str });
+    try std.Io.Dir.cwd().createDirPath(io, git);
+}
+
 test "remove plus daemon address records hello and closeSession" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -8268,6 +8289,222 @@ test "closeSession sidecar failure leaves the local row gone" {
     try testing.expectEqual(kept, reread.session_store[0].id);
     try testing.expectEqualStrings("catalog stays", reread.session_store[0].title());
     try testing.expect(reread.sessionById(gone) == null);
+}
+
+test "remove plus daemon address and git cwd records hello and deleteSessionRefs" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-delete-refs-addr", .{tmp.sub_path[0..]});
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/delete-session-refs-daemon", .{tmp.sub_path[0..]});
+    try makeGitCwd(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setDaemonToken("secret");
+    model.setSidecarPath("faku");
+    const kept = model.addSession("keep me", .fx);
+    _ = model.appendTurn(kept, .user, "stays");
+    try store.saveSession(&model, kept, testing.allocator, testing.io);
+    const gone = model.addSession("remove me", .fx);
+    if (model.sessionById(gone)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(gone, .user, "bye");
+    try store.saveSession(&model, gone, testing.allocator, testing.io);
+
+    main.update(&model, .{ .remove_session = gone }, &fx);
+    try testing.expect(findCloseOnlySpawn(&fx) != null);
+    try testing.expect(model.daemon_delete_session_refs_key != 0);
+    try testing.expectEqual(gone, model.daemon_delete_session_refs_session);
+    const spawn = findDeleteSessionRefsSpawn(&fx) orelse return error.DeleteSessionRefsSpawnMissing;
+    try testing.expectEqual(model.daemon_delete_session_refs_key, spawn.key);
+    try testing.expect(argvHas(spawn.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(argvHas(spawn.argv, "127.0.0.1:8787"));
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"token\":\"secret\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"workspace\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"deleteSessionRefs\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, project) != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    var gone_id_buf: [36]u8 = undefined;
+    const gone_wire = daemon_proxy.wireUuid(gone, &gone_id_buf);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, gone_wire) != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"session_id\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"copySessionRefs\"") == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureTurnStart\"") == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureTurn\"") == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"prompt\"") == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"attachSession\"") == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"closeSession\"") == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "amend") == null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "force") == null);
+    try testing.expect(spawn.key != model.daemon_spawn_key);
+    try testing.expect(model.sessionById(gone) == null);
+    try testing.expectEqual(@as(u32, 1), model.session_count);
+    try testing.expectEqual(kept, model.session_store[0].id);
+}
+
+test "last_daemon_address with a local remove and git cwd still records deleteSessionRefs" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-delete-refs-last", .{tmp.sub_path[0..]});
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/delete-session-refs-last", .{tmp.sub_path[0..]});
+    try makeGitCwd(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("last addr delete refs", .fx);
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(id, .user, "started");
+    try store.saveSession(&model, id, testing.allocator, testing.io);
+    try testing.expectEqual(@as(usize, 0), model.daemonAddress().len);
+
+    main.update(&model, .{ .remove_session = id }, &fx);
+    const spawn = findDeleteSessionRefsSpawn(&fx) orelse return error.DeleteSessionRefsSpawnMissing;
+    try testing.expect(argvHas(spawn.argv, "10.0.0.2:9"));
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"deleteSessionRefs\"") != null);
+    try testing.expect(model.sessionById(id) == null);
+}
+
+test "remove without a daemon address does not spawn deleteSessionRefs" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-delete-refs-local", .{tmp.sub_path[0..]});
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/delete-session-refs-local", .{tmp.sub_path[0..]});
+    try makeGitCwd(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    const kept = model.addSession("stays local", .fx);
+    _ = model.appendTurn(kept, .user, "keep");
+    try store.saveSession(&model, kept, testing.allocator, testing.io);
+    const gone = model.addSession("drop local", .fx);
+    if (model.sessionById(gone)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(gone, .user, "gone");
+    try store.saveSession(&model, gone, testing.allocator, testing.io);
+
+    main.update(&model, .{ .remove_session = gone }, &fx);
+    try testing.expect(findDeleteSessionRefsSpawn(&fx) == null);
+    try testing.expectEqual(@as(u64, 0), model.daemon_delete_session_refs_key);
+    try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try testing.expect(model.sessionById(gone) == null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&loaded, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 1), loaded.session_count);
+    try testing.expectEqual(kept, loaded.session_store[0].id);
+}
+
+test "deleteSessionRefs sidecar failure leaves the local row gone" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-delete-refs-fail", .{tmp.sub_path[0..]});
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/delete-session-refs-fail", .{tmp.sub_path[0..]});
+    try makeGitCwd(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_probe_started = true;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const kept = model.addSession("catalog stays", .fx);
+    _ = model.appendTurn(kept, .user, "already persisted");
+    try store.saveSession(&model, kept, testing.allocator, testing.io);
+    const gone = model.addSession("sidecar fails", .fx);
+    if (model.sessionById(gone)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(gone, .user, "drop me");
+    try store.saveSession(&model, gone, testing.allocator, testing.io);
+
+    main.update(&model, .{ .remove_session = gone }, &fx);
+    const spawn = findDeleteSessionRefsSpawn(&fx) orelse return error.DeleteSessionRefsSpawnMissing;
+    try fx.feedLine(spawn.key, "{\"type\":\"rejected\",\"message\":\"nope\"}");
+    drainEffects(&model, &fx);
+    try fx.feedExit(spawn.key, 1);
+    drainEffects(&model, &fx);
+    try testing.expectEqual(@as(u64, 0), model.daemon_delete_session_refs_key);
+    try testing.expect(model.sessionById(gone) == null);
+    try testing.expectEqual(@as(u32, 1), model.session_count);
+    try testing.expectEqual(kept, model.session_store[0].id);
+    try testing.expect(!model.is_streaming());
+
+    var reread = Model{};
+    reread.setStoreDir(dir);
+    try testing.expectEqual(store.LoadKind.loaded, store.loadCatalog(&reread, testing.allocator, testing.io));
+    try testing.expectEqual(@as(u32, 1), reread.session_count);
+    try testing.expectEqual(kept, reread.session_store[0].id);
+    try testing.expectEqualStrings("catalog stays", reread.session_store[0].title());
+    try testing.expect(reread.sessionById(gone) == null);
+}
+
+test "remove plus daemon address and non-git cwd does not spawn deleteSessionRefs" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}/faku-delete-refs-nongit", .{tmp.sub_path[0..]});
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/delete-session-refs-nongit", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const kept = model.addSession("keep me", .fx);
+    _ = model.appendTurn(kept, .user, "stays");
+    try store.saveSession(&model, kept, testing.allocator, testing.io);
+    const gone = model.addSession("remove nongit", .fx);
+    if (model.sessionById(gone)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(gone, .user, "bye");
+    try store.saveSession(&model, gone, testing.allocator, testing.io);
+
+    main.update(&model, .{ .remove_session = gone }, &fx);
+    try testing.expect(findCloseOnlySpawn(&fx) != null);
+    try testing.expect(findDeleteSessionRefsSpawn(&fx) == null);
+    try testing.expectEqual(@as(u64, 0), model.daemon_delete_session_refs_key);
+    try testing.expect(model.sessionById(gone) == null);
+    try testing.expectEqual(@as(u32, 1), model.session_count);
 }
 
 test "stop and select do not spawn closeSession" {

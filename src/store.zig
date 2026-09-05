@@ -48,7 +48,13 @@
 //! set. Local turns win; a failed sidecar leaves the empty transcript.
 //! After a successful local `removeSession`, a one-shot sidecar may send
 //! `closeSession` when a daemon address is set. Sidecar failure does
-//! not resurrect the local row.
+//! not resurrect the local row. After that same local remove, a
+//! best-effort hello + `WorkspaceOperation::DeleteSessionRefs` sidecar
+//! may also fire when a daemon address is set, cwd is a git worktree,
+//! and stdin fits Native's 4 KiB buffer. Local catalog remove stays
+//! canonical; miss / overflow / sidecar failure must not undo it.
+//! `closeSession` stays; DeleteSessionRefs is additional refs cleanup,
+//! not a replacement.
 //!
 //! Composer drafts live in a sibling `drafts.json` (not the session
 //! catalog) so an unstarted New Task can persist before the session row
@@ -299,15 +305,27 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
 }
 
 /// Local delete, then a best-effort hello + `closeSession` when a daemon
-/// address is set. Sidecar failure must not resurrect the row already
-/// dropped from `sessions.json`.
+/// address is set, plus a best-effort hello +
+/// `WorkspaceOperation::DeleteSessionRefs` when cwd is a git worktree.
+/// Capture cwd before the row is dropped. Sidecar failure must not
+/// resurrect the row already dropped from `sessions.json`.
 pub fn removeIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void {
     const io = model.store_io orelse return;
     const address = resolveDaemonMirrorAddress(model);
     var id_buf: [36]u8 = undefined;
     const wire_id = daemon_proxy.wireUuid(session_id, &id_buf);
+    var cwd_buf: [main.max_project_path]u8 = undefined;
+    var cwd_len: usize = 0;
+    if (model.sessionById(session_id)) |session| {
+        const path = session.projectPath();
+        if (path.len > 0 and path.len <= cwd_buf.len) {
+            @memcpy(cwd_buf[0..path.len], path);
+            cwd_len = path.len;
+        }
+    }
     removeSession(model, session_id, std.heap.page_allocator, io) catch return;
     maybeCloseDaemonSession(model, fx, wire_id, address);
+    _ = trySpawnDaemonDeleteSessionRefs(model, fx, wire_id, cwd_buf[0..cwd_len], address, session_id);
 }
 
 pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void {
@@ -566,6 +584,64 @@ fn maybeCloseDaemonSession(model: *Model, fx: *main.Effects, session_id: []const
         .on_line = main.Effects.lineMsg(.fx_line),
         .on_exit = main.Effects.exitMsg(.fx_exit),
     });
+}
+
+/// Drop an in-flight DeleteSessionRefs sidecar. Safe when none is live.
+pub fn cancelDaemonDeleteSessionRefs(model: *Model, fx: *main.Effects) void {
+    if (model.daemon_delete_session_refs_key == 0) return;
+    fx.cancel(model.daemon_delete_session_refs_key);
+    model.daemon_delete_session_refs_key = 0;
+    model.daemon_delete_session_refs_session = 0;
+}
+
+/// Best-effort hello + `WorkspaceOperation::DeleteSessionRefs` after a
+/// local catalog remove. Own daemon spawn key on
+/// `daemon_delete_session_refs_key`. Missing address, empty cwd,
+/// non-git cwd, or Native 4 KiB stdin overflow returns false and
+/// leaves the local remove alone. Does not replace `closeSession`.
+fn trySpawnDaemonDeleteSessionRefs(
+    model: *Model,
+    fx: *main.Effects,
+    wire_id: []const u8,
+    cwd: []const u8,
+    address: []const u8,
+    session_id: u32,
+) bool {
+    if (address.len == 0) return false;
+    if (cwd.len == 0) return false;
+    const io = model.store_io orelse return false;
+    if (!rewind.isGitWorkTree(io, cwd)) return false;
+
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{
+            .delete_session_refs = .{
+                .cwd = cwd,
+                .session_id = wire_id,
+            },
+        },
+    }) catch return false;
+
+    if (model.daemon_delete_session_refs_key != 0) {
+        fx.cancel(model.daemon_delete_session_refs_key);
+        model.daemon_delete_session_refs_key = 0;
+        model.daemon_delete_session_refs_session = 0;
+    }
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.daemon_delete_session_refs_key = key;
+    model.daemon_delete_session_refs_session = session_id;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = main.Effects.lineMsg(.fx_line),
+        .on_exit = main.Effects.exitMsg(.fx_exit),
+    });
+    return true;
 }
 
 pub fn hydrateIfPossible(model: *Model, session_id: u32) void {

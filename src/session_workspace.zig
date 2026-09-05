@@ -65,10 +65,14 @@
 //! shas stay canonical). First-cut daemon
 //! `WorkspaceOperation::CopySessionRefs` ships in `fork` (best-effort
 //! sidecar after a local sessions.json fork; Ack; local fork stays
-//! canonical). Leftovers:
-//! other daemon `WorkspaceOperation` variants (DeleteSessionRefs /
-//! HasRef / CaptureRef / RestoreRef / etc., amend/force over daemon, remote
-//! `--track` over daemon, …). Fork copies
+//! canonical). First-cut daemon
+//! `WorkspaceOperation::DeleteSessionRefs` ships in `store`
+//! (best-effort sidecar after a local sessions.json remove; Ack;
+//! local remove stays canonical; not a replacement for
+//! `closeSession`). Leftovers:
+//! other daemon `WorkspaceOperation` variants (HasRef / CaptureRef /
+//! RestoreRef / DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs,
+//! amend/force over daemon, remote `--track` over daemon, …). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).
 
 const std = @import("std");

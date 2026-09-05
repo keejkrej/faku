@@ -111,6 +111,10 @@
 //! `WorkspaceOperation::CopySessionRefs` lives in `fork` (best-effort
 //! sidecar after a local sessions.json fork; Ack; local fork stays
 //! canonical). First-cut daemon
+//! `WorkspaceOperation::DeleteSessionRefs` lives in `store`
+//! (best-effort sidecar after a local sessions.json remove; Ack;
+//! local remove stays canonical; not a replacement for
+//! `closeSession`). First-cut daemon
 //! `WorkspaceOperation::ListTree` lives in `file_mention` (Files
 //! refresh; expand after a daemon fill re-prefers ListTree). First-cut daemon
 //! `WorkspaceOperation::CollectReviewDiff` lives in `review_diff` (Review /
@@ -120,9 +124,9 @@
 //! `WorkspaceOperation::ReadTextFile` lives in `right_panel` (Files
 //! preview load / Reload). First-cut daemon
 //! `WorkspaceOperation::WriteTextFile` lives in `right_panel` (Files
-//! preview Save). Leftovers: DeleteSessionRefs / HasRef /
-//! CaptureRef / RestoreRef / etc. / amend/force over daemon / remote
-//! `--track` over daemon / …
+//! preview Save). Leftovers: HasRef / CaptureRef / RestoreRef /
+//! DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs / amend/force
+//! over daemon / remote `--track` over daemon / …
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
