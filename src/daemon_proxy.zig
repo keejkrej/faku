@@ -4,8 +4,8 @@
 //! builds that buffer (hello + attachSession + start + prompt when no
 //! runtime id, hello + attachSession + prompt when one is stored, hello +
 //! saveTaskState, hello + loadTaskState, hello + hydrateSession,
-//! hello + closeSession, hello + cancel, hello + steer, or hello +
-//! `goal`) and,
+//! hello + closeSession, hello + cancel, hello + steer, hello +
+//! `goal`, or hello + `workspace`) and,
 //! when run as `faku daemon-proxy <addr>`, forwards those JSON frames over
 //! `ws://{addr}/v1`, prints each incoming text frame as one stdout line,
 //! and exits on `turnFinished` / `rejected` / `error`. A save-only stdin
@@ -17,6 +17,10 @@
 //! hello / response like save. A goal-only stdin waits for a response
 //! or `goalUpdated` / `error` (not hello) so a same-batch event can
 //! reach stdout; missing event keeps last-known local goal fields.
+//! A workspace-only stdin waits for a `response` / `rejected` /
+//! `shutting_down` frame (not hello, not a driver event) like save/close,
+//! prints that line, and exits non-zero unless the response is an ok
+//! workspace ack.
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -106,6 +110,19 @@ pub const GoalStdin = struct {
     session_id: []const u8,
     runtime_id: []const u8 = protocol.NIL_UUID,
     operation: protocol.GoalOperation,
+};
+
+/// Non-nil: a nil `requestId` is a notify and the daemon sends no
+/// workspace `response`.
+pub const WORKSPACE_REQUEST_ID = "00000000-0000-0000-0000-000000000014";
+
+pub const WorkspaceStdin = struct {
+    token: []const u8 = "",
+    client_id: []const u8 = CLIENT_ID,
+    request_id: []const u8 = WORKSPACE_REQUEST_ID,
+    session_id: []const u8 = protocol.NIL_UUID,
+    runtime_id: []const u8 = protocol.NIL_UUID,
+    operation: protocol.WorkspaceOperation,
 };
 
 pub const ParsedAddress = struct {
@@ -341,6 +358,28 @@ pub fn writeGoalStdin(buf: []u8, args: GoalStdin) WriteError![]const u8 {
     return cur.slice();
 }
 
+/// NDJSON stdin for a first-cut workspace Push. Hello + `workspace`
+/// (nil request-frame `sessionId` / `runtimeId`, command payload
+/// `operation`). Own spawn key — Native cannot write into a running
+/// prompt sidecar. No attachSession, no prompt command. Wait for a
+/// `response` frame (ok or error), not a driver event.
+pub fn writeWorkspaceStdin(buf: []u8, args: WorkspaceStdin) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    const hello = try protocol.writeClientHello(cur.remaining(), args.token, args.client_id, &.{});
+    cur.pos += hello.len;
+    try cur.write("\n");
+    const workspace = try protocol.writeWorkspace(
+        cur.remaining(),
+        args.request_id,
+        args.session_id,
+        args.runtime_id,
+        args.operation,
+    );
+    cur.pos += workspace.len;
+    try cur.write("\n");
+    return cur.slice();
+}
+
 fn outboundWaitsForTurn(outbound: []const u8) bool {
     return std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") != null;
 }
@@ -363,6 +402,11 @@ fn outboundWaitsForGoal(outbound: []const u8) bool {
         std.mem.indexOf(u8, outbound, "\"type\":\"saveTaskState\"") == null;
 }
 
+fn outboundWaitsForWorkspace(outbound: []const u8) bool {
+    return std.mem.indexOf(u8, outbound, "\"type\":\"workspace\"") != null and
+        std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") == null;
+}
+
 fn isSaveOnlyTerminal(parsed: protocol.ParsedServer) bool {
     return switch (parsed.frame) {
         .hello, .rejected, .response, .task_state_changed, .shutting_down => true,
@@ -383,6 +427,13 @@ fn isGoalOnlyTerminal(parsed: protocol.ParsedServer) bool {
     return switch (parsed.frame) {
         .rejected, .response, .shutting_down => true,
         .event => parsed.event_kind == .@"error" or parsed.event_kind == .goal_updated,
+        else => false,
+    };
+}
+
+fn isWorkspaceOnlyTerminal(parsed: protocol.ParsedServer) bool {
+    return switch (parsed.frame) {
+        .rejected, .response, .shutting_down => true,
         else => false,
     };
 }
@@ -467,10 +518,14 @@ pub fn run(io: std.Io, address: []const u8, outbound: []const u8, stdout: *std.I
     const wait_for_load = outboundWaitsForLoadResponse(outbound);
     const wait_for_hydrate = outboundWaitsForHydrateResponse(outbound);
     const wait_for_goal = outboundWaitsForGoal(outbound);
+    const wait_for_workspace = outboundWaitsForWorkspace(outbound);
     var payload_buf: [nativeLineCap]u8 = undefined;
     while (true) {
         const n = readTextFrame(&reader.interface, &payload_buf) catch |err| switch (err) {
-            error.Closed => return,
+            error.Closed => {
+                if (wait_for_workspace) return error.Rejected;
+                return;
+            },
             else => {
                 try writeStdoutLine(stdout, "{\"type\":\"rejected\",\"message\":\"read failed\"}");
                 return err;
@@ -482,6 +537,13 @@ pub fn run(io: std.Io, address: []const u8, outbound: []const u8, stdout: *std.I
         var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena_state.deinit();
         const parsed = protocol.parseServerFrame(arena_state.allocator(), line);
+        if (wait_for_workspace) {
+            if (isWorkspaceOnlyTerminal(parsed)) {
+                if (protocol.isWorkspaceAck(arena_state.allocator(), line)) return;
+                return error.Rejected;
+            }
+            continue;
+        }
         if (protocol.isTerminalServerFrame(parsed)) return;
         if (wait_for_turn) continue;
         if (wait_for_load or wait_for_hydrate) {
@@ -849,6 +911,7 @@ test "writeGoalStdin emits hello and goal operation without a prompt" {
     try std.testing.expect(!outboundWaitsForLoadResponse(stdin));
     try std.testing.expect(!outboundWaitsForHydrateResponse(stdin));
     try std.testing.expect(outboundWaitsForGoal(stdin));
+    try std.testing.expect(!outboundWaitsForWorkspace(stdin));
 
     const refresh = try writeGoalStdin(&buf, .{
         .session_id = "00000000-0000-0000-0000-000000000007",
@@ -862,6 +925,30 @@ test "writeGoalStdin emits hello and goal operation without a prompt" {
         .operation = .clear,
     });
     try std.testing.expect(std.mem.indexOf(u8, clear, "\"kind\":\"clear\"") != null);
+}
+
+test "writeWorkspaceStdin emits hello and workspace push without a prompt" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{ .push = .{ .cwd = "/tmp/faku" } },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ WORKSPACE_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"push\",\"cwd\":\"/tmp/faku\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"goal\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "force") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(!outboundWaitsForLoadResponse(stdin));
+    try std.testing.expect(!outboundWaitsForHydrateResponse(stdin));
+    try std.testing.expect(!outboundWaitsForGoal(stdin));
+    try std.testing.expect(outboundWaitsForWorkspace(stdin));
 }
 
 test "localIdFromWire reverses wireUuid" {

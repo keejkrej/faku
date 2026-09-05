@@ -110,6 +110,18 @@
 //! Goal is a Waku-daemon Command for live Codex provider runtimes.
 //! fx ask / fx acp / demo do not get Goal.
 //!
+//! `workspace` is `Command::Workspace { operation }` (`WorkspaceOperation`
+//! tagged `type` camelCase). Verified against egoist/waku
+//! `crates/waku-protocol` `WorkspaceClient::request` (nil `sessionId` and
+//! nil `runtimeId` on the request frame) and `WorkspaceOperation::Push`
+//! `{ "type": "push", "cwd": "<path>" }`. This cut ships Push only.
+//! There is no force flag on daemon Push. An ok outcome is
+//! `ResponsePayload::Workspace { result }` where Push yields
+//! `WorkspaceResult::Ack` — wire `outcome.payload`
+//! `{ "type": "workspace", "result": { "type": "ack" } }` (not a bare
+//! `ack`). A non-nil `requestId` is required (nil is a notify). Wait for
+//! a `response` frame (ok or error), not a driver event.
+//!
 //! `attachSession` is a bare command. Verified against egoist/waku
 //! `Command::AttachSession` (unit variant, no payload field),
 //! `src/app/runtime.rs` (`request(session_id, Uuid::nil(), AttachSession)`),
@@ -302,7 +314,8 @@ pub fn defaultStartOptions() StartOptions {
 /// names the ones a desktop needs to boot a transcript. There is no
 /// `fork` command on this wire — session fork is a local catalog clone.
 /// `goal` is the Codex `/goal` first cut (set/clear/refresh over the
-/// daemon sidecar). It is not an fx / ACP method.
+/// daemon sidecar). It is not an fx / ACP method. `workspace` is
+/// first-cut `WorkspaceOperation::Push` only (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -313,6 +326,7 @@ pub const CommandTag = enum {
     steer,
     cancel,
     goal,
+    workspace,
     close_session,
 
     pub fn wireName(tag: CommandTag) []const u8 {
@@ -326,6 +340,7 @@ pub const CommandTag = enum {
             .steer => "steer",
             .cancel => "cancel",
             .goal => "goal",
+            .workspace => "workspace",
             .close_session => "closeSession",
         };
     }
@@ -461,6 +476,18 @@ pub const GoalOperation = union(GoalKind) {
     refresh,
     set: GoalSet,
     clear,
+};
+
+/// `WorkspaceOperation` tagged `type` (Waku serde camelCase). First-cut
+/// ships `Push { cwd }` only. No force flag.
+pub const WorkspaceKind = enum { push };
+
+pub const WorkspacePush = struct {
+    cwd: []const u8,
+};
+
+pub const WorkspaceOperation = union(WorkspaceKind) {
+    push: WorkspacePush,
 };
 
 /// Runtime id taken from a verified `sessionRuntime` response payload.
@@ -682,6 +709,42 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
             }
             try cur.write(",\"replace\":");
             try writeBool(cur, args.replace);
+            try cur.write("}");
+        },
+    }
+}
+
+/// Request frame wrapping verified `command: { type: "workspace", operation }`.
+/// Same request-frame shape as `writeGoal`. Waku `WorkspaceClient::request`
+/// uses nil `sessionId` and nil `runtimeId` for workspace RPCs. Callers
+/// for Push pass `NIL_UUID` for those ids. `operation` is
+/// `WorkspaceOperation` tagged `type`. A non-nil `requestId` is required
+/// so the daemon replies (nil is a notify). Timeout 120s.
+pub fn writeWorkspace(
+    buf: []u8,
+    request_id: []const u8,
+    session_id: []const u8,
+    runtime_id: []const u8,
+    operation: WorkspaceOperation,
+) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    try cur.write("{\"type\":\"request\",\"requestId\":");
+    try writeJsonString(&cur, request_id);
+    try cur.write(",\"sessionId\":");
+    try writeJsonString(&cur, session_id);
+    try cur.write(",\"runtimeId\":");
+    try writeJsonString(&cur, runtime_id);
+    try cur.write(",\"command\":{\"type\":\"workspace\",\"operation\":");
+    try writeWorkspaceOperation(&cur, operation);
+    try cur.write("}}");
+    return cur.slice();
+}
+
+fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteError!void {
+    switch (operation) {
+        .push => |args| {
+            try cur.write("{\"type\":\"push\",\"cwd\":");
+            try writeJsonString(cur, args.cwd);
             try cur.write("}");
         },
     }
@@ -1065,6 +1128,24 @@ pub fn parseSessionRuntime(allocator: std.mem.Allocator, line: []const u8) Parse
     return parsed;
 }
 
+/// Light ok-ack check for first-cut workspace Push. True when an ok
+/// `response` carries `payload: { "type": "workspace", "result": { "type": "ack" } }`.
+/// Does not parse the full `WorkspaceResult` union.
+pub fn isWorkspaceAck(allocator: std.mem.Allocator, line: []const u8) bool {
+    const trimmed = std.mem.trim(u8, line, " \t\r\n");
+    if (trimmed.len < 2 or trimmed[0] != '{') return false;
+
+    const root = std.json.parseFromSliceLeaky(std.json.Value, allocator, trimmed, .{}) catch return false;
+    const obj = jsonObject(root) orelse return false;
+    if (!std.mem.eql(u8, jsonStringValue(obj.get("type")) orelse "", "response")) return false;
+    const outcome = jsonObject(obj.get("outcome") orelse return false) orelse return false;
+    if (!std.mem.eql(u8, jsonStringValue(outcome.get("status")) orelse "", "ok")) return false;
+    const payload = jsonObject(outcome.get("payload") orelse return false) orelse return false;
+    if (!std.mem.eql(u8, jsonStringValue(payload.get("type")) orelse "", "workspace")) return false;
+    const result = jsonObject(payload.get("result") orelse return false) orelse return false;
+    return std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "ack");
+}
+
 /// A daemon-issued runtime UUID, not empty and not the nil notify id.
 pub fn isUsableRuntimeId(id: []const u8) bool {
     return id.len > 0 and !std.mem.eql(u8, id, NIL_UUID);
@@ -1242,6 +1323,38 @@ test "goal request wraps camelCase operation refresh set and clear" {
     try std.testing.expect(ThreadGoalStatus.fromWire("unknown") == null);
 }
 
+test "workspace request wraps camelCase Push operation with nil session and runtime ids" {
+    var buf: [512]u8 = undefined;
+    const json = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .push = .{ .cwd = "/tmp/faku" } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"push\",\"cwd\":\"/tmp/faku\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"goal\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"push\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
+}
+
+test "isWorkspaceAck accepts nested workspace ack and rejects bare ack or error" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try std.testing.expect(isWorkspaceAck(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}"));
+    try std.testing.expect(!isWorkspaceAck(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000001\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}"));
+    try std.testing.expect(!isWorkspaceAck(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}"));
+    try std.testing.expect(!isWorkspaceAck(arena, "{\"type\":\"rejected\",\"message\":\"bad token\"}"));
+}
+
 test "start defaults to first-party fx over acp" {
     var buf: [512]u8 = undefined;
     const json = try writeStart(&buf, NIL_UUID, NIL_UUID, NIL_UUID, defaultStartOptions());
@@ -1315,6 +1428,7 @@ test "first-cut command tags stay camelCase on the wire" {
     try std.testing.expectEqualStrings("cancel", CommandTag.cancel.wireName());
     try std.testing.expectEqualStrings("steer", CommandTag.steer.wireName());
     try std.testing.expectEqualStrings("goal", CommandTag.goal.wireName());
+    try std.testing.expectEqualStrings("workspace", CommandTag.workspace.wireName());
     try std.testing.expectEqualStrings("steerAccepted", EventKind.steer_accepted.wireName());
     try std.testing.expectEqualStrings("steerRejected", EventKind.steer_rejected.wireName());
     try std.testing.expectEqualStrings("goalUpdated", EventKind.goal_updated.wireName());
