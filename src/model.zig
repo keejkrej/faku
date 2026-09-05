@@ -1017,6 +1017,11 @@ pub const Model = struct {
     /// Committing and pushing…. Cleared on cancel / fail /
     /// session-switch / card close. Not a view binding; not persisted.
     git_commit_then_push: bool = false,
+    /// True while the in-flight `git_commit_key` is a daemon-proxy
+    /// Commit sidecar. Skip follow-on `beginPushAfterCommit` on
+    /// success (daemon already pushed when `push` was true). Runtime
+    /// only; not persisted.
+    git_commit_via_daemon: bool = false,
     /// Runtime-only Commit… include-unstaged toggle. Default true
     /// (Waku dialog). Reset when the card opens. Not persisted.
     git_commit_include_unstaged: bool = true,
@@ -1529,6 +1534,7 @@ pub const Model = struct {
         "git_commit_message_storage",
         "git_commit_message_len",
         "git_commit_then_push",
+        "git_commit_via_daemon",
         "git_commit_numstat_additions",
         "git_commit_numstat_deletions",
         "git_commit_numstat_label_storage",

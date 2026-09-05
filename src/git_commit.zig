@@ -71,8 +71,15 @@
 //! `WorkspaceOperation::Push` lives in `git_checkout` when a daemon
 //! address is set (Force stays local git). First-cut
 //! `WorkspaceOperation::CreateWorktree` lives on Send prep in
-//! `session_workspace` / `git_checkout`. Not daemon
-//! `WorkspaceOperation::Commit`.
+//! `session_workspace` / `git_checkout`. First-cut daemon
+//! `WorkspaceOperation::Commit` ships here: best-effort hello +
+//! `{ cwd, message, include_unstaged, push }` sidecar when a daemon
+//! address is set and Amend is off (Force + Commit and Push stays
+//! local — daemon Commit has no force). Empty-message `fx ask`
+//! generate stays local; after generate auto-proceeds, daemon prefer
+//! applies there too. Missing address / stdin overflow / amend /
+//! force+then_push leave today's local add→preflight→commit path.
+//! Leftovers: InspectBranches / CaptureTurn / ListTree / …
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
@@ -115,6 +122,9 @@ const git_ahead_behind = @import("git_ahead_behind.zig");
 const git_remotes = @import("git_remotes.zig");
 const file_mention = @import("file_mention.zig");
 const review_diff = @import("review_diff.zig");
+const daemon_proxy = @import("daemon_proxy.zig");
+const store = @import("store.zig");
+const protocol = @import("protocol.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -262,6 +272,7 @@ fn resetCommitState(model: *Model) void {
     model.git_commit_phase = .idle;
     model.git_commit_message_len = 0;
     model.git_commit_then_push = false;
+    model.git_commit_via_daemon = false;
 }
 
 fn failCommit(model: *Model) void {
@@ -955,6 +966,7 @@ pub fn closeCommit(model: *Model) void {
     model.git_commit_generate_stdout_len = 0;
     model.git_commit_then_push = false;
     model.git_commit_amend = false;
+    model.git_commit_via_daemon = false;
     model.git_push_force = false;
     clearCommitNumstat(model);
 }
@@ -1169,12 +1181,70 @@ fn failGenerate(model: *Model) void {
     model.setAttachStatus(generate_failed_status);
 }
 
+/// Sidecar + `daemon-proxy` + address. Final Commit… spawn when a
+/// daemon address is set, Amend is off, and Force+Commit-and-Push
+/// is off.
+pub fn isDaemonWorkspaceCommitArgv(argv: []const []const u8) bool {
+    return daemon_proxy.isSidecarArgv(argv) and argv.len >= 3 and argv[2].len > 0;
+}
+
 fn spawnAddOrCommit(model: *Model, fx: *Effects) void {
+    if (trySpawnDaemonWorkspaceCommit(model, fx)) return;
     if (model.git_commit_include_unstaged) {
         spawnAdd(model, fx);
     } else {
         spawnCachedQuiet(model, fx);
     }
+}
+
+/// Best-effort hello + `WorkspaceOperation::Commit` when a daemon
+/// address is set, Amend is off, and Force is off on Commit and Push.
+/// Own daemon spawn key assigned to `git_commit_key` so
+/// `handleCommitExit` / Committing… / Committing and pushing… still
+/// own the card. Missing address, stdin overflow, amend, or
+/// force+then_push returns false and leaves local add→preflight→commit.
+fn trySpawnDaemonWorkspaceCommit(model: *Model, fx: *Effects) bool {
+    if (model.git_commit_amend) return false;
+    if (model.git_commit_then_push and model.git_push_force) return false;
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    const cwd = commitCwd(model);
+    const message = model.git_commit_message_storage[0..model.git_commit_message_len];
+    if (cwd.len == 0 or message.len == 0) return false;
+
+    const push = model.git_commit_then_push and !model.git_push_force;
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{
+            .commit = .{
+                .cwd = cwd,
+                .message = message,
+                .include_unstaged = model.git_commit_include_unstaged,
+                .push = push,
+            },
+        },
+    }) catch return false;
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.git_commit_key = key;
+    model.git_commit_phase = .commit;
+    model.git_commit_via_daemon = true;
+    model.git_commit_probe_session = model.selected;
+    const probed = model.git_commit_probe_path_storage[0..model.git_commit_probe_path_len];
+    if (cwd.ptr != probed.ptr) {
+        writeFixed(&model.git_commit_probe_path_storage, &model.git_commit_probe_path_len, cwd);
+    }
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
 }
 
 fn spawnGenerate(model: *Model, fx: *Effects) void {
@@ -1376,10 +1446,15 @@ pub fn handleCommitExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
         },
         .commit => {
             const then_push = model.git_commit_then_push;
+            // Daemon Commit with `push: true` already pushed — do not
+            // also beginPushAfterCommit. `git_commit_then_push` stays
+            // set during the sidecar so Committing and pushing… still
+            // owns the card.
+            const via_daemon = model.git_commit_via_daemon;
             resetCommitState(model);
             if (exit.reason == .exited and exit.code == 0) {
                 dropCommitNumstat(model, fx);
-                if (then_push) {
+                if (then_push and !via_daemon) {
                     // Keep the Waku CommitAndPush label across Faku's
                     // split commit-then-push so Native does not flash
                     // from a silent commit into Pushing….
@@ -2138,6 +2213,10 @@ fn findPendingArgv(fx: *Effects, pred: *const fn ([]const []const u8) bool) ?@Ty
         if (pred(spawn.argv)) return spawn;
     }
     return null;
+}
+
+fn findPendingDaemonCommit(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    return findPending(fx, key, &isDaemonWorkspaceCommitArgv);
 }
 
 fn advanceCachedQuietToCommit(model: *Model, fx: *Effects) !@TypeOf(fx.pendingSpawnAt(0).?) {
@@ -4190,4 +4269,244 @@ test "Amend shows Amending not Committing Generating or Pushing" {
     handleCommitExit(&model, &fx, .{ .key = amend.key, .reason = .exited, .code = 0 });
     try std.testing.expect(!model.git_commit_active);
     try expectCommitPending(&model, false, false, false, false);
+}
+
+test "confirmCommit with a daemon address spawns workspace Commit sidecar" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-daemon", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("commit daemon", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 2);
+
+    startCommit(&model, &fx);
+    model.git_commit_buffer.apply(.{ .insert_text = "ship the commit cut" });
+    confirmCommit(&model, &fx);
+    try std.testing.expect(model.git_commit_via_daemon);
+    try std.testing.expectEqual(GitCommitPhase.commit, model.git_commit_phase);
+    try std.testing.expect(git_checkout.gitMutationInFlight(&model));
+    try expectCommitPending(&model, false, true, false, false);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitCachedQuietArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitArgv) == null);
+    const sidecar = findPendingDaemonCommit(&fx, model.git_commit_key) orelse return error.MissingDaemonCommitSpawn;
+    try std.testing.expect(isDaemonWorkspaceCommitArgv(sidecar.argv));
+    try std.testing.expect(!isGitCommitArgv(sidecar.argv));
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"commit\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"cwd\":\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"message\":\"ship the commit cut\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"include_unstaged\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"push\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"push\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "force") == null);
+    try std.testing.expect(sidecar.key < git_commit_key_first);
+
+    handleCommitExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!model.git_commit_via_daemon);
+    try std.testing.expect(!model.git_commit_then_push);
+}
+
+test "confirmCommit without a daemon address still uses local git argv" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-local", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("commit local git", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 2);
+    try std.testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+
+    startCommit(&model, &fx);
+    model.git_commit_buffer.apply(.{ .insert_text = "keep local git" });
+    confirmCommit(&model, &fx);
+    try std.testing.expect(!model.git_commit_via_daemon);
+    try std.testing.expectEqual(GitCommitPhase.add, model.git_commit_phase);
+    const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
+    try std.testing.expect(!isDaemonWorkspaceCommitArgv(add.argv));
+    try std.testing.expectEqualStrings("", add.stdin);
+    try std.testing.expect(add.key >= git_commit_key_first);
+}
+
+test "confirmCommit amend with a daemon address still uses local git commit --amend" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-daemon-amend", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("commit daemon amend", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+
+    startCommit(&model, &fx);
+    toggleAmend(&model, &fx);
+    try std.testing.expect(model.git_commit_amend);
+    model.git_commit_buffer.apply(.{ .insert_text = "wrap the dirty probe" });
+    confirmCommit(&model, &fx);
+    try std.testing.expect(!model.git_commit_via_daemon);
+    try std.testing.expectEqual(GitCommitPhase.add, model.git_commit_phase);
+    try std.testing.expect(findPendingDaemonCommit(&fx, model.git_commit_key) == null);
+    const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
+    try std.testing.expect(!isDaemonWorkspaceCommitArgv(add.argv));
+    handleCommitExit(&model, &fx, .{ .key = add.key, .reason = .exited, .code = 0 });
+    const amend = try advanceCachedQuietToAmend(&model, &fx);
+    try std.testing.expect(isGitCommitAmendArgv(amend.argv));
+    try std.testing.expect(!isDaemonWorkspaceCommitArgv(amend.argv));
+}
+
+test "confirmCommitAndPush with Force and a daemon address stays local git" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-daemon-force", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("commit daemon force", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 2);
+    markFirstPushRemotesOk(&model);
+
+    startCommit(&model, &fx);
+    git_checkout.togglePushForce(&model, &fx);
+    try std.testing.expect(model.git_push_force);
+    model.git_commit_buffer.apply(.{ .insert_text = "force stays local" });
+    confirmCommitAndPush(&model, &fx);
+    try std.testing.expect(model.git_commit_then_push);
+    try std.testing.expect(!model.git_commit_via_daemon);
+    try std.testing.expectEqual(GitCommitPhase.add, model.git_commit_phase);
+    try std.testing.expect(findPendingArgv(&fx, &isDaemonWorkspaceCommitArgv) == null);
+    const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
+    try std.testing.expect(!isDaemonWorkspaceCommitArgv(add.argv));
+    try std.testing.expectEqualStrings("", add.stdin);
+}
+
+test "confirmCommitAndPush with a daemon address sets push true and skips follow-on git push" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-daemon-push", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("commit daemon push", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyStaged(&model, 2);
+    markFirstPushRemotesOk(&model);
+
+    startCommit(&model, &fx);
+    toggleIncludeUnstaged(&model, &fx);
+    try std.testing.expect(!model.git_commit_include_unstaged);
+    model.git_commit_buffer.apply(.{ .insert_text = "ship and push" });
+    confirmCommitAndPush(&model, &fx);
+    try std.testing.expect(model.git_commit_then_push);
+    try std.testing.expect(model.git_commit_via_daemon);
+    try std.testing.expectEqual(GitCommitPhase.commit, model.git_commit_phase);
+    try expectCommitPending(&model, false, false, true, false);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitCachedQuietArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitAddArgv) == null);
+    const sidecar = findPendingDaemonCommit(&fx, model.git_commit_key) orelse return error.MissingDaemonCommitPushSpawn;
+    try std.testing.expectEqualStrings("10.0.0.2:9", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"include_unstaged\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"push\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"message\":\"ship and push\"") != null);
+
+    handleCommitExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
+    try std.testing.expect(!model.git_commit_active);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+    try std.testing.expect(!model.git_commit_then_push);
+    try std.testing.expect(!model.git_commit_via_daemon);
+    try std.testing.expect(findPendingArgv(&fx, &git_checkout.isGitPushArgv) == null);
+    try std.testing.expect(findPendingArgv(&fx, &git_checkout.isGitUpstreamArgv) == null);
+}
+
+test "daemon Commit sidecar non-zero exit fails closed like local commit" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-daemon-fail", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("commit daemon fail", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+
+    startCommit(&model, &fx);
+    model.git_commit_buffer.apply(.{ .insert_text = "could not commit" });
+    confirmCommit(&model, &fx);
+    const sidecar = findPendingDaemonCommit(&fx, model.git_commit_key) orelse return error.MissingDaemonCommitFailSpawn;
+    handleCommitExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
+    try std.testing.expect(model.git_commit_active);
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_key);
+    try std.testing.expectEqual(GitCommitPhase.idle, model.git_commit_phase);
+    try std.testing.expect(!model.git_commit_via_daemon);
+    try std.testing.expectEqualStrings(commit_failed_status, model.attach_status());
+    try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
 }

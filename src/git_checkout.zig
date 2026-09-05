@@ -107,8 +107,7 @@
 //! with snake_case fields; ok is `worktreeCreated` path + branch).
 //! Native 4 KiB stdin overflow falls back to local `git worktree add`.
 //! The branch-menu New worktree… card still creates immediately via
-//! local git. Not daemon `InspectBranches` / `InspectCommit` /
-//! `Commit`.
+//! local git. Not daemon `InspectBranches` / `InspectCommit`.
 //! Cap is 64 local heads plus 32
 //! remote-tracking names that have no local counterpart (skip
 //! symbolic `*/HEAD`), sorted lexicographically. Not Waku's daemon
@@ -117,7 +116,7 @@
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
 //! Leftovers: other daemon `WorkspaceOperation` variants
-//! (InspectBranches, Commit, CaptureTurn, ListTree, …). Fetch
+//! (InspectBranches, CaptureTurn, ListTree, …). Fetch
 //! already `--prune`; there is no prune-alone menu (not in Waku).
 //! First-cut defer-until-Send Work in reuses this same add path on
 //! Send (`session_workspace`) when no daemon address is set;
@@ -150,7 +149,9 @@
 //! `git_push_key` so `handlePushExit` still owns the phase. First-cut
 //! daemon `WorkspaceOperation::CreateWorktree` reuses `next_daemon_key`
 //! assigned onto `git_worktree_add_key` so `handleWorktreeAddExit`
-//! still owns Send prep.
+//! still owns Send prep. First-cut daemon `WorkspaceOperation::Commit`
+//! lives in `git_commit` (best-effort sidecar; Amend and Force+Commit
+//! and Push stay local git).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -1899,6 +1900,7 @@ fn closeCommitCard(model: *Model) void {
     model.git_commit_generate_key = 0;
     model.git_commit_generate_stdout_len = 0;
     model.git_commit_then_push = false;
+    model.git_commit_via_daemon = false;
 }
 
 fn dropCommitSnapshot(model: *Model, fx: *Effects) void {
@@ -2445,6 +2447,7 @@ pub fn refresh(model: *Model, fx: *Effects) void {
         model.git_commit_key = 0;
         model.git_commit_phase = .idle;
         model.git_commit_message_len = 0;
+        model.git_commit_via_daemon = false;
         model.setAttachStatus("Could not commit.");
     }
     model.git_commit_then_push = false;

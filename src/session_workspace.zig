@@ -20,9 +20,12 @@
 //! as CreateWorktree `base_branch` when the daemon path is used).
 //! First-cut daemon `WorkspaceOperation::Push` ships in
 //! `git_checkout` (best-effort sidecar when a daemon address is set;
-//! Force stays local git). Leftovers: other daemon
-//! `WorkspaceOperation` variants (InspectBranches, Commit,
-//! CaptureTurn, ListTree, …). Fork copies
+//! Force stays local git). First-cut daemon
+//! `WorkspaceOperation::Commit` ships in `git_commit` (best-effort
+//! sidecar when a daemon address is set; Amend and Force+Commit and
+//! Push stay local git). Leftovers: other daemon
+//! `WorkspaceOperation` variants (InspectBranches, CaptureTurn,
+//! ListTree, …). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).
 
 const std = @import("std");
