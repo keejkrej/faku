@@ -46,13 +46,20 @@
 //! `WorkspaceOperation::BrowseDirectory` ships in `pick_folder`
 //! (Pick folder in-app browser when a daemon address is set;
 //! overflow / error / unusable parse falls back to the local OS
-//! folder dialog). Leftover: daemon `ReadTextFile`.
+//! folder dialog). First-cut daemon `WorkspaceOperation::ReadTextFile`
+//! ships on Files preview load (select / Reload) when a daemon
+//! address is set (ok paints the same 256KB UTF-8 preview buffers;
+//! Native 4 KiB stdin overflow / error / unusable parse falls back
+//! to local `readFileAlloc`; no address keeps today's local path;
+//! Save / Edit / Open-in-editor stay local). Leftover: daemon
+//! `WriteTextFile`.
 //! Not Waku's 50k-file index (cap 256). Windows probes the same
 //! cache (`git.exe -C` then a PowerShell walk; still not Waku's
 //! 50k index or a Native FS watcher).
 //!
-//! Files tab ships a bounded inline file preview (Faku-side
-//! `readFileAlloc`, 256KB cap, truncated label when larger, binary /
+//! Files tab ships a bounded inline file preview (prefer daemon
+//! `ReadTextFile` when an address is set, else Faku-side
+//! `readFileAlloc`; 256KB cap, truncated label when larger, binary /
 //! non-UTF-8 honest empty state, unreadable one-line error, newlines
 //! kept, Native `<code>` highlighting with `line-numbers`, runtime-only,
 //! cleared on session switch / remove / panel hide). Language is a
@@ -73,7 +80,8 @@
 //! does not run. Save is gated: not editing / not dirty / binary / no
 //! abs path / truncated (saving a 256KB window would clobber the rest
 //! of the file — refuse with a short message; truncated stays
-//! Open-in-editor + Reload). Reload always re-reads disk and discards
+//! Open-in-editor + Reload). Reload always re-reads (prefer daemon
+//! ReadTextFile when an address is set; else disk) and discards
 //! unsaved edits (the click is the confirm; no extra dialog chrome).
 //! Open in editor and Close stay. First-cut unsaved discard confirm
 //! ships as inline preview-header chrome (ghost sm buttons, same class
@@ -118,6 +126,9 @@ const file_mention = @import("file_mention.zig");
 const composer = @import("composer.zig");
 const open_editor = @import("open_editor.zig");
 const review_diff = @import("review_diff.zig");
+const store = @import("store.zig");
+const daemon_proxy = @import("daemon_proxy.zig");
+const protocol = @import("protocol.zig");
 
 const canvas = native_sdk.canvas;
 
@@ -184,6 +195,13 @@ pub const indent_step: f32 = 12;
 
 /// Files-tab inline preview read cap (256KB). Truncation is labeled.
 pub const max_file_preview_bytes: usize = 256 * 1024;
+
+/// Native stdout line budget for a ReadTextFile sidecar. Matches
+/// Native's `max_effect_line_bytes_ceiling` (256KB); a request above
+/// that is rejected. Content is still capped at `max_file_preview_bytes`
+/// after parse. JSON wrapping of a near-cap file that blows this bound
+/// truncates the line and falls back to local read.
+pub const file_preview_daemon_line_bytes: usize = max_file_preview_bytes;
 
 /// First-cut Files preview live reload. Stat size + mtime at most
 /// once per this many milliseconds of `model.now_ms`. Piggybacks the
@@ -573,6 +591,10 @@ pub fn clearFilePreview(model: *Model) void {
     model.right_panel_file_preview_editing = false;
     model.file_preview_edit_buffer.clear();
     model.right_panel_file_preview_status_len = 0;
+    model.file_preview_key = 0;
+    model.file_preview_via_daemon = false;
+    model.file_preview_daemon_ok = false;
+    model.file_preview_restore_editing = false;
     clearPreviewDiskFingerprint(model);
     model.file_preview_disk_poll_ms = null;
     clearPendingDiscard(model);
@@ -778,7 +800,7 @@ fn utf8PreviewPrefix(bytes: []const u8) ?[]const u8 {
     return bytes;
 }
 
-fn loadFilePreviewBody(model: *Model) void {
+fn loadFilePreviewBodyLocal(model: *Model) void {
     const abs = model.right_panel_file_preview_abs_storage[0..model.right_panel_file_preview_abs_len];
     const io = model.store_io;
     if (io == null or abs.len == 0) {
@@ -797,6 +819,19 @@ fn loadFilePreviewBody(model: *Model) void {
         read.bytes[0..@min(read.bytes.len, max_file_preview_bytes)]
     else
         read.bytes;
+    paintPreviewWindow(model, raw, read.truncated);
+}
+
+/// Cap daemon `textFile.content` to the same 256KB window as local
+/// `readPreviewWindow`, then paint UTF-8 / binary the same way.
+fn paintPreviewContent(model: *Model, content: []const u8) void {
+    const truncated = content.len > max_file_preview_bytes;
+    const raw = if (truncated) content[0..max_file_preview_bytes] else content;
+    paintPreviewWindow(model, raw, truncated);
+}
+
+fn paintPreviewWindow(model: *Model, raw: []const u8, truncated: bool) void {
+    freePreviewBody(model);
     const window = utf8PreviewPrefix(raw) orelse {
         model.right_panel_file_preview_binary = true;
         refreshPreviewDiskFingerprint(model);
@@ -810,8 +845,101 @@ fn loadFilePreviewBody(model: *Model) void {
     @memcpy(buf, window);
     model.right_panel_file_preview_storage = buf;
     model.right_panel_file_preview_len = window.len;
-    model.right_panel_file_preview_truncated = read.truncated;
+    model.right_panel_file_preview_truncated = truncated;
     refreshPreviewDiskFingerprint(model);
+}
+
+fn loadFilePreviewBody(model: *Model, fx: ?*Effects) void {
+    if (fx) |effects| {
+        if (trySpawnDaemonReadTextFile(model, effects)) {
+            model.right_panel_file_preview_editing = false;
+            return;
+        }
+    }
+    loadFilePreviewBodyLocal(model);
+    finishPreviewLoad(model);
+}
+
+fn finishPreviewLoad(model: *Model) void {
+    if (model.file_preview_restore_editing and previewTextOk(model) and !model.right_panel_file_preview_truncated) {
+        model.file_preview_edit_buffer.set(model.file_preview_body());
+        model.right_panel_file_preview_editing = true;
+    } else {
+        model.right_panel_file_preview_editing = false;
+        model.file_preview_edit_buffer.clear();
+    }
+    model.file_preview_restore_editing = false;
+    model.right_panel_file_preview_status_len = 0;
+    clearPendingIfClean(model);
+}
+
+fn cancelDaemonRead(model: *Model, fx: *Effects) void {
+    if (model.file_preview_key == 0) return;
+    fx.cancel(model.file_preview_key);
+    model.file_preview_key = 0;
+    model.file_preview_via_daemon = false;
+    model.file_preview_daemon_ok = false;
+}
+
+/// Best-effort hello + `WorkspaceOperation::ReadTextFile` when a
+/// daemon address is set. Own daemon spawn key so ListTree /
+/// BrowseDirectory sidecars stay distinct. Missing address or
+/// Native 4 KiB stdin overflow returns false and leaves local
+/// `readFileAlloc`.
+fn trySpawnDaemonReadTextFile(model: *Model, fx: *Effects) bool {
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    const root = model.selectedProjectPath();
+    const rel = model.right_panel_file_preview_relpath_storage[0..model.right_panel_file_preview_relpath_len];
+    if (root.len == 0 or rel.len == 0) return false;
+
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{ .read_text_file = .{ .root = root, .relative_path = rel } },
+    }) catch return false;
+
+    cancelDaemonRead(model, fx);
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.file_preview_key = key;
+    model.file_preview_via_daemon = true;
+    model.file_preview_daemon_ok = false;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = file_preview_daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
+pub fn applyDaemonLine(model: *Model, line: native_sdk.EffectLine) void {
+    if (line.key != model.file_preview_key or model.file_preview_key == 0) return;
+    if (!model.file_preview_via_daemon) return;
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseTextFile(arena_state.allocator(), line.line);
+    if (!parsed.ok) return;
+    paintPreviewContent(model, parsed.content);
+    model.file_preview_daemon_ok = true;
+    finishPreviewLoad(model);
+}
+
+pub fn handleDaemonExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (exit.key != model.file_preview_key or model.file_preview_key == 0) return;
+    const via = model.file_preview_via_daemon;
+    const ok = model.file_preview_daemon_ok;
+    model.file_preview_key = 0;
+    model.file_preview_via_daemon = false;
+    model.file_preview_daemon_ok = false;
+    if (!via or ok) return;
+    if (model.right_panel_file_preview_id == 0) return;
+    loadFilePreviewBodyLocal(model);
+    finishPreviewLoad(model);
+    _ = fx;
 }
 
 /// Numbered preview rows for Native bind. Slices `text` from the
@@ -861,8 +989,9 @@ pub fn previewLinesFromBody(body: []const u8, arena: std.mem.Allocator) []const 
 }
 
 /// Files-pane file click: select the row and load a bounded read-only
-/// inline preview. Does not open an external editor.
-pub fn selectCachedFile(model: *Model, id: u32) void {
+/// inline preview. Prefers hello + daemon ReadTextFile when a daemon
+/// address is set. Does not open an external editor.
+pub fn selectCachedFile(model: *Model, fx: *Effects, id: u32) void {
     if (id == 0 or id >= file_mention.file_mention_dir_id_base) return;
     var rel_buf: [file_mention.max_file_mention_path + 1]u8 = undefined;
     const rel = file_mention.mentionRelpath(model, id, &rel_buf) orelse return;
@@ -872,6 +1001,7 @@ pub fn selectCachedFile(model: *Model, id: u32) void {
 
     if (!beginDiscardOrPark(model, .{ .switch_file = id })) return;
 
+    cancelDaemonRead(model, fx);
     clearFilePreview(model);
     model.right_panel_file_preview_id = id;
     main.writeFixed(
@@ -884,7 +1014,7 @@ pub fn selectCachedFile(model: *Model, id: u32) void {
         &model.right_panel_file_preview_abs_len,
         abs,
     );
-    loadFilePreviewBody(model);
+    loadFilePreviewBody(model, fx);
 }
 
 /// Files-pane preview header: Open in editor at the stored absolute path.
@@ -983,23 +1113,16 @@ pub fn saveFilePreview(model: *Model) void {
     clearPendingDiscard(model);
 }
 
-/// Re-read the stored abs path into the preview. Discards unsaved edits
+/// Re-read the stored abs path into the preview. Prefers daemon
+/// ReadTextFile when an address is set. Discards unsaved edits
 /// (the Reload click is the confirm; no dialog this cut). Stays in edit
 /// mode when the reloaded window is still a full text body.
-pub fn reloadFilePreview(model: *Model) void {
+pub fn reloadFilePreview(model: *Model, fx: *Effects) void {
     if (!canReloadPreview(model)) return;
-    const was_editing = model.right_panel_file_preview_editing;
+    model.file_preview_restore_editing = model.right_panel_file_preview_editing;
+    cancelDaemonRead(model, fx);
     freePreviewBody(model);
-    loadFilePreviewBody(model);
-    if (was_editing and previewTextOk(model) and !model.right_panel_file_preview_truncated) {
-        model.file_preview_edit_buffer.set(model.file_preview_body());
-        model.right_panel_file_preview_editing = true;
-    } else {
-        model.right_panel_file_preview_editing = false;
-        model.file_preview_edit_buffer.clear();
-    }
-    model.right_panel_file_preview_status_len = 0;
-    clearPendingIfClean(model);
+    loadFilePreviewBody(model, fx);
 }
 
 const PreviewDiskFingerprint = struct {
@@ -1046,14 +1169,18 @@ fn refreshPreviewDiskFingerprint(model: *Model) void {
 }
 
 /// Poll the open Files preview's disk fingerprint on the TEA `update`
-/// tick. No-op when closed, missing abs path, no `store_io`, or dirty.
-/// Throttled to `file_preview_disk_poll_interval_ms` of `model.now_ms`.
-/// Size or mtime change (or a failed stat) reuses `reloadFilePreview`.
+/// tick. No-op when closed, missing abs path, no `store_io`, dirty,
+/// or a ReadTextFile sidecar is in flight. Throttled to
+/// `file_preview_disk_poll_interval_ms` of `model.now_ms`.
+/// Size or mtime change (or a failed stat after a previously valid
+/// fingerprint) reuses `reloadFilePreview`. A daemon fill that could
+/// not stat keeps `disk_valid` false and does not spam Reload.
 /// Native has no FS watcher / dedicated timer this cut. Returns true
 /// when a reload ran.
-pub fn pollFilePreviewDisk(model: *Model) bool {
+pub fn pollFilePreviewDisk(model: *Model, fx: *Effects) bool {
     if (model.right_panel_file_preview_id == 0) return false;
     if (model.right_panel_file_preview_abs_len == 0) return false;
+    if (model.file_preview_key != 0) return false;
     const io = model.store_io orelse return false;
     if (isPreviewDirty(model)) return false;
 
@@ -1066,7 +1193,8 @@ pub fn pollFilePreviewDisk(model: *Model) bool {
 
     const abs = model.right_panel_file_preview_abs_storage[0..model.right_panel_file_preview_abs_len];
     const fp = statPreviewAbs(io, abs) catch {
-        reloadFilePreview(model);
+        if (!model.right_panel_file_preview_disk_valid) return false;
+        reloadFilePreview(model, fx);
         return true;
     };
     if (model.right_panel_file_preview_disk_valid and
@@ -1075,13 +1203,12 @@ pub fn pollFilePreviewDisk(model: *Model) bool {
     {
         return false;
     }
-    reloadFilePreview(model);
+    reloadFilePreview(model, fx);
     return true;
 }
 
 pub fn openCachedFile(model: *Model, fx: *Effects, id: u32) void {
-    selectCachedFile(model, id);
-    _ = fx;
+    selectCachedFile(model, fx, id);
 }
 
 test "file-tree widths match Waku DEFAULT_FILE_TREE / FILE_TREE_MIN / MAX" {
@@ -1418,6 +1545,27 @@ fn writePreviewFile(io: std.Io, abs: []const u8, data: []const u8) !void {
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = abs, .data = data });
 }
 
+fn pickFile(model: *Model, id: u32) void {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    selectCachedFile(model, &fx, id);
+}
+
+fn reloadPreview(model: *Model) void {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    reloadFilePreview(model, &fx);
+}
+
+fn pollPreview(model: *Model) bool {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    return pollFilePreviewDisk(model, &fx);
+}
+
 test "inline preview caps at 256KB and labels truncation" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -1442,7 +1590,7 @@ test "inline preview caps at 256KB and labels truncation" {
     file_mention.applyStdoutPaths(&model, "big.txt\n");
     defer clearFilePreview(&model);
 
-    selectCachedFile(&model, 1);
+    pickFile(&model, 1);
     try std.testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
     try std.testing.expect(model.file_preview_truncated());
     try std.testing.expectEqual(max_file_preview_bytes, model.right_panel_file_preview_len);
@@ -1483,13 +1631,13 @@ test "inline preview rejects NUL and invalid UTF-8" {
     file_mention.applyStdoutPaths(&model, "nul.bin\nbad.txt\n");
     defer clearFilePreview(&model);
 
-    selectCachedFile(&model, 1);
+    pickFile(&model, 1);
     try std.testing.expect(model.file_preview_binary());
     try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_len);
     try std.testing.expectEqualStrings(binary_file_label, binary_file_label);
     try std.testing.expectEqual(@as(usize, 0), model.file_preview_line_rows(std.testing.allocator).len);
 
-    selectCachedFile(&model, 2);
+    pickFile(&model, 2);
     try std.testing.expect(model.file_preview_binary());
     try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_len);
     try std.testing.expectEqual(@as(usize, 0), model.file_preview_line_rows(std.testing.allocator).len);
@@ -1511,7 +1659,7 @@ test "inline preview missing path is a one-line error" {
     file_mention.applyStdoutPaths(&model, "gone.txt\n");
     defer clearFilePreview(&model);
 
-    selectCachedFile(&model, 1);
+    pickFile(&model, 1);
     try std.testing.expect(model.file_preview_has_error());
     try std.testing.expectEqualStrings(missing_file_label, model.file_preview_error());
     try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_len);
@@ -1546,7 +1694,7 @@ test "inline preview close, hide, and session switch free the heap buffer" {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    selectCachedFile(&model, 1);
+    pickFile(&model, 1);
     try std.testing.expect(model.file_preview_has_body());
     try std.testing.expectEqualStrings("hello\nworld\n", model.file_preview_body());
     try std.testing.expectEqualStrings("plain", model.file_preview_language());
@@ -1565,7 +1713,7 @@ test "inline preview close, hide, and session switch free the heap buffer" {
     try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_storage.len);
     try std.testing.expectEqual(@as(usize, 0), model.file_preview_line_rows(arena).len);
 
-    selectCachedFile(&model, 1);
+    pickFile(&model, 1);
     try std.testing.expect(model.right_panel_file_preview_storage.len != 0);
     model.hideRightPanel();
     try std.testing.expectEqual(@as(u32, 0), model.right_panel_file_preview_id);
@@ -1573,7 +1721,7 @@ test "inline preview close, hide, and session switch free the heap buffer" {
     try std.testing.expectEqual(@as(usize, 0), model.file_preview_line_rows(arena).len);
 
     model.showRightPanel();
-    selectCachedFile(&model, 1);
+    pickFile(&model, 1);
     try std.testing.expect(model.right_panel_file_preview_storage.len != 0);
     const palette_run = @import("palette_run.zig");
     palette_run.applySessionSelection(&model, &fx, second);
@@ -1584,7 +1732,7 @@ test "inline preview close, hide, and session switch free the heap buffer" {
     model.selected = first;
     model.setSelectedProjectPath(project);
     file_mention.applyStdoutPaths(&model, "note.txt\n");
-    selectCachedFile(&model, 1);
+    pickFile(&model, 1);
     var editor_fx = Effects.init(std.testing.allocator);
     defer editor_fx.deinit();
     editor_fx.executor = .fake;
@@ -1717,7 +1865,7 @@ test "edit buffer dirty/save gates; save writes abs path and returns to read-onl
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
 
-    selectCachedFile(&model, 1);
+    pickFile(&model, 1);
     try std.testing.expect(model.file_preview_can_edit());
     try std.testing.expect(!model.file_preview_editing());
     try std.testing.expect(!model.file_preview_dirty());
@@ -1785,13 +1933,13 @@ test "reload discards dirty buffer; truncated and binary refuse save" {
     file_mention.applyStdoutPaths(&model, "note.txt\nnul.bin\nbig.txt\n");
     defer clearFilePreview(&model);
 
-    selectCachedFile(&model, 1);
+    pickFile(&model, 1);
     startFilePreviewEdit(&model);
     applyFilePreviewEdit(&model, .{ .insert_text = "dirty" });
     try std.testing.expect(model.file_preview_dirty());
     try std.testing.expectEqualStrings("disk\ndirty", model.file_preview_draft());
 
-    reloadFilePreview(&model);
+    reloadPreview(&model);
     try std.testing.expectEqualStrings("disk\n", model.file_preview_body());
     try std.testing.expect(model.file_preview_editing());
     try std.testing.expect(!model.file_preview_dirty());
@@ -1800,7 +1948,7 @@ test "reload discards dirty buffer; truncated and binary refuse save" {
     defer std.testing.allocator.free(still);
     try std.testing.expectEqualStrings("disk\n", still);
 
-    selectCachedFile(&model, 2);
+    pickFile(&model, 2);
     try std.testing.expect(model.file_preview_binary());
     try std.testing.expect(!model.file_preview_can_edit());
     try std.testing.expect(!model.file_preview_can_save());
@@ -1813,7 +1961,7 @@ test "reload discards dirty buffer; truncated and binary refuse save" {
     defer std.testing.allocator.free(bin_still);
     try std.testing.expectEqualStrings("ok\x00still", bin_still);
 
-    selectCachedFile(&model, 3);
+    pickFile(&model, 3);
     try std.testing.expect(model.file_preview_truncated());
     try std.testing.expect(model.file_preview_has_body());
     try std.testing.expect(!model.file_preview_can_edit());
@@ -1840,7 +1988,7 @@ fn loadTwoPreviewNotes(model: *Model, project: []const u8) !void {
 }
 
 fn dirtyFirstPreview(model: *Model) void {
-    selectCachedFile(model, 1);
+    pickFile(model, 1);
     startFilePreviewEdit(model);
     applyFilePreviewEdit(model, .{ .insert_text = "x" });
 }
@@ -1862,7 +2010,7 @@ test "dirty preview parks switch / close / hide / keep-editing / discard" {
     try std.testing.expect(model.file_preview_dirty());
     try std.testing.expect(!model.file_preview_discard_confirm());
 
-    selectCachedFile(&model, 2);
+    pickFile(&model, 2);
     try std.testing.expect(model.file_preview_discard_confirm());
     try std.testing.expectEqual(PendingDiscard{ .switch_file = 2 }, pendingDiscard(&model));
     try std.testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
@@ -1875,7 +2023,7 @@ test "dirty preview parks switch / close / hide / keep-editing / discard" {
     try std.testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
     try std.testing.expectEqualStrings("aaa\nx", model.file_preview_draft());
 
-    selectCachedFile(&model, 2);
+    pickFile(&model, 2);
     try std.testing.expectEqual(PendingDiscard{ .switch_file = 2 }, pendingDiscard(&model));
     closeFilePreview(&model);
     try std.testing.expectEqual(PendingDiscard.close_preview, pendingDiscard(&model));
@@ -1923,20 +2071,20 @@ test "dirty preview discard switches file; save and reload clear pending confirm
     defer clearFilePreview(&model);
 
     dirtyFirstPreview(&model);
-    selectCachedFile(&model, 2);
+    pickFile(&model, 2);
     try std.testing.expectEqual(PendingDiscard{ .switch_file = 2 }, pendingDiscard(&model));
     const intent = acceptPendingDiscard(&model);
     try std.testing.expectEqual(PendingDiscard{ .switch_file = 2 }, intent);
-    selectCachedFile(&model, 2);
+    pickFile(&model, 2);
     try std.testing.expectEqual(@as(u32, 2), model.right_panel_file_preview_id);
     try std.testing.expect(!model.file_preview_dirty());
     try std.testing.expectEqualStrings("bbb\n", model.file_preview_body());
     try std.testing.expect(pendingDiscard(&model) == .none);
 
-    selectCachedFile(&model, 1);
+    pickFile(&model, 1);
     startFilePreviewEdit(&model);
     applyFilePreviewEdit(&model, .{ .insert_text = "y" });
-    selectCachedFile(&model, 2);
+    pickFile(&model, 2);
     try std.testing.expect(model.file_preview_discard_confirm());
     saveFilePreview(&model);
     try std.testing.expect(!model.file_preview_dirty());
@@ -1947,9 +2095,9 @@ test "dirty preview discard switches file; save and reload clear pending confirm
 
     startFilePreviewEdit(&model);
     applyFilePreviewEdit(&model, .{ .insert_text = "z" });
-    selectCachedFile(&model, 2);
+    pickFile(&model, 2);
     try std.testing.expect(model.file_preview_discard_confirm());
-    reloadFilePreview(&model);
+    reloadPreview(&model);
     try std.testing.expect(!model.file_preview_dirty());
     try std.testing.expect(!model.file_preview_discard_confirm());
     try std.testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
@@ -1958,7 +2106,7 @@ test "dirty preview discard switches file; save and reload clear pending confirm
 
     applyFilePreviewEdit(&model, .{ .insert_text = "q" });
     try std.testing.expect(model.file_preview_dirty());
-    selectCachedFile(&model, 2);
+    pickFile(&model, 2);
     try std.testing.expect(model.file_preview_discard_confirm());
     model.file_preview_edit_buffer.set(model.file_preview_body());
     applyFilePreviewEdit(&model, .{ .insert_text = "" });
@@ -2019,10 +2167,10 @@ test "clean preview still switches and closes without confirm" {
     try loadTwoPreviewNotes(&model, project);
     defer clearFilePreview(&model);
 
-    selectCachedFile(&model, 1);
+    pickFile(&model, 1);
     startFilePreviewEdit(&model);
     try std.testing.expect(!model.file_preview_dirty());
-    selectCachedFile(&model, 2);
+    pickFile(&model, 2);
     try std.testing.expect(!model.file_preview_discard_confirm());
     try std.testing.expectEqual(@as(u32, 2), model.right_panel_file_preview_id);
 
@@ -2030,7 +2178,7 @@ test "clean preview still switches and closes without confirm" {
     try std.testing.expect(!model.right_panel_file_preview_open());
     try std.testing.expect(pendingDiscard(&model) == .none);
 
-    selectCachedFile(&model, 1);
+    pickFile(&model, 1);
     model.hideRightPanel();
     try std.testing.expect(!model.right_panel_open);
     try std.testing.expect(!model.right_panel_file_preview_open());
@@ -2055,14 +2203,14 @@ test "clean preview poll reloads when size or mtime changes" {
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
 
-    selectCachedFile(&model, 1);
+    pickFile(&model, 1);
     try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
     try std.testing.expect(model.right_panel_file_preview_disk_valid);
     try std.testing.expect(!model.file_preview_editing());
 
     try writePreviewFile(std.testing.io, abs, "from disk\n");
     model.now_ms = file_preview_disk_poll_interval_ms;
-    try std.testing.expect(pollFilePreviewDisk(&model));
+    try std.testing.expect(pollPreview(&model));
     try std.testing.expectEqualStrings("from disk\n", model.file_preview_body());
     try std.testing.expect(!model.file_preview_editing());
     try std.testing.expect(!model.file_preview_dirty());
@@ -2088,7 +2236,7 @@ test "dirty preview poll leaves body and buffer unchanged" {
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
 
-    selectCachedFile(&model, 1);
+    pickFile(&model, 1);
     startFilePreviewEdit(&model);
     applyFilePreviewEdit(&model, .{ .insert_text = "dirty" });
     try std.testing.expect(model.file_preview_dirty());
@@ -2096,7 +2244,7 @@ test "dirty preview poll leaves body and buffer unchanged" {
 
     try writePreviewFile(std.testing.io, abs, "from disk\n");
     model.now_ms = file_preview_disk_poll_interval_ms;
-    try std.testing.expect(!pollFilePreviewDisk(&model));
+    try std.testing.expect(!pollPreview(&model));
     try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
     try std.testing.expectEqualStrings("hello\ndirty", model.file_preview_draft());
     try std.testing.expect(model.file_preview_dirty());
@@ -2122,22 +2270,245 @@ test "preview disk poll is throttled to the interval" {
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
 
-    selectCachedFile(&model, 1);
+    pickFile(&model, 1);
     try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
 
     model.now_ms = 1_000;
-    try std.testing.expect(!pollFilePreviewDisk(&model));
+    try std.testing.expect(!pollPreview(&model));
     try std.testing.expectEqual(@as(i64, 1_000), model.file_preview_disk_poll_ms.?);
 
     try writePreviewFile(std.testing.io, abs, "changed\n");
-    try std.testing.expect(!pollFilePreviewDisk(&model));
+    try std.testing.expect(!pollPreview(&model));
     try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
 
     model.now_ms = 1_000 + file_preview_disk_poll_interval_ms - 1;
-    try std.testing.expect(!pollFilePreviewDisk(&model));
+    try std.testing.expect(!pollPreview(&model));
     try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
 
     model.now_ms = 1_000 + file_preview_disk_poll_interval_ms;
-    try std.testing.expect(pollFilePreviewDisk(&model));
+    try std.testing.expect(pollPreview(&model));
     try std.testing.expectEqualStrings("changed\n", model.file_preview_body());
+}
+
+fn pendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key) return spawn;
+    }
+    return null;
+}
+
+const text_file_ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"textFile\",\"content\":\"from daemon\\n\"}}}}";
+const text_file_empty_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"textFile\",\"content\":\"\"}}}}";
+const text_file_ack_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}";
+
+test "Files preview with a daemon address spawns ReadTextFile sidecar" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-daemon-spawn-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, abs, "from disk\n");
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("preview daemon spawn", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    defer clearFilePreview(&model);
+
+    selectCachedFile(&model, &fx, 1);
+    const sidecar = pendingSpawnKey(&fx, model.file_preview_key) orelse return error.MissingDaemonReadTextFile;
+    try std.testing.expect(daemon_proxy.isSidecarArgv(sidecar.argv));
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"readTextFile\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"relative_path\":\"note.txt\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "relativePath") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"listTree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"browseDirectory\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"writeTextFile\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try std.testing.expect(model.file_preview_via_daemon);
+    try std.testing.expect(!model.file_preview_daemon_ok);
+    try std.testing.expectEqual(sidecar.key, model.file_preview_key);
+    try std.testing.expect(sidecar.key < file_mention.file_mention_key_first);
+    try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_len);
+}
+
+test "Files preview without a daemon address still reads local disk" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-local-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, abs, "from disk\n");
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setSidecarPath("faku");
+    const id = model.addSession("preview local", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    defer clearFilePreview(&model);
+    try std.testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+
+    selectCachedFile(&model, &fx, 1);
+    try std.testing.expect(pendingSpawnKey(&fx, model.file_preview_key) == null);
+    try std.testing.expect(!model.file_preview_via_daemon);
+    try std.testing.expectEqualStrings("from disk\n", model.file_preview_body());
+}
+
+test "ReadTextFile sidecar paints Files preview from textFile content" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-daemon-fill-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, abs, "from disk\n");
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("preview daemon fill", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    defer clearFilePreview(&model);
+
+    selectCachedFile(&model, &fx, 1);
+    const sidecar = pendingSpawnKey(&fx, model.file_preview_key) orelse return error.MissingDaemonReadTextFileFill;
+    applyDaemonLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"hello\"}" });
+    try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_len);
+    applyDaemonLine(&model, .{ .key = sidecar.key, .line = text_file_ok_line });
+    try std.testing.expect(model.file_preview_daemon_ok);
+    try std.testing.expectEqualStrings("from daemon\n", model.file_preview_body());
+    try std.testing.expect(!model.file_preview_binary());
+    try std.testing.expect(!model.file_preview_truncated());
+    try std.testing.expect(model.right_panel_file_preview_disk_valid);
+    handleDaemonExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.file_preview_key);
+    try std.testing.expect(!model.file_preview_via_daemon);
+    try std.testing.expectEqualStrings("from daemon\n", model.file_preview_body());
+
+    reloadFilePreview(&model, &fx);
+    const second = pendingSpawnKey(&fx, model.file_preview_key) orelse return error.MissingDaemonReadTextFileReload;
+    try std.testing.expect(daemon_proxy.isSidecarArgv(second.argv));
+    try std.testing.expect(second.key != sidecar.key);
+    try std.testing.expect(std.mem.indexOf(u8, second.stdin, "\"type\":\"readTextFile\"") != null);
+    applyDaemonLine(&model, .{ .key = second.key, .line = text_file_empty_line });
+    handleDaemonExit(&model, &fx, .{ .key = second.key, .reason = .exited, .code = 0 });
+    try std.testing.expect(previewTextOk(&model));
+    try std.testing.expectEqualStrings("", model.file_preview_body());
+}
+
+test "ReadTextFile sidecar non-ok falls back to local readFileAlloc" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-daemon-fallback-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, abs, "from disk\n");
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("preview daemon fallback", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    defer clearFilePreview(&model);
+
+    selectCachedFile(&model, &fx, 1);
+    const sidecar = pendingSpawnKey(&fx, model.file_preview_key) orelse return error.MissingDaemonReadTextFileFallback;
+    applyDaemonLine(&model, .{ .key = sidecar.key, .line = text_file_ack_line });
+    try std.testing.expect(!model.file_preview_daemon_ok);
+    try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_len);
+    handleDaemonExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
+    try std.testing.expect(!model.file_preview_via_daemon);
+    try std.testing.expectEqual(@as(u64, 0), model.file_preview_key);
+    try std.testing.expectEqualStrings("from disk\n", model.file_preview_body());
+}
+
+test "ReadTextFile sidecar content over 256KB is truncated client-side" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-daemon-cap-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/big.txt", .{project});
+    try writePreviewFile(std.testing.io, abs, "disk\n");
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("preview daemon cap", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "big.txt\n");
+    defer clearFilePreview(&model);
+
+    selectCachedFile(&model, &fx, 1);
+    const sidecar = pendingSpawnKey(&fx, model.file_preview_key) orelse return error.MissingDaemonReadTextFileCap;
+    const over = max_file_preview_bytes + 8;
+    const blob = try std.testing.allocator.alloc(u8, over);
+    defer std.testing.allocator.free(blob);
+    @memset(blob, 'a');
+    const line = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "{{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{{\"status\":\"ok\",\"payload\":{{\"type\":\"workspace\",\"result\":{{\"type\":\"textFile\",\"content\":\"{s}\"}}}}}}}}",
+        .{blob},
+    );
+    defer std.testing.allocator.free(line);
+    applyDaemonLine(&model, .{ .key = sidecar.key, .line = line });
+    try std.testing.expect(model.file_preview_daemon_ok);
+    try std.testing.expect(model.file_preview_truncated());
+    try std.testing.expectEqual(max_file_preview_bytes, model.right_panel_file_preview_len);
+    try std.testing.expect(!model.file_preview_binary());
 }

@@ -158,8 +158,9 @@
 //! `WorkspaceOperation::BrowseDirectory` ships in `pick_folder`
 //! (Pick folder in-app browser when a daemon address is set;
 //! overflow / error / unusable parse falls back to local OS folder
-//! dialog). Leftovers: other daemon `WorkspaceOperation`
-//! variants (ReadTextFile, ref ops,
+//! dialog). First-cut daemon `WorkspaceOperation::ReadTextFile`
+//! ships in `right_panel` (Files preview load / Reload). Leftovers: other daemon `WorkspaceOperation`
+//! variants (WriteTextFile, ref ops,
 //! remotes-on-daemon-list, amend/force over daemon, remote `--track`
 //! over daemon, …).
 

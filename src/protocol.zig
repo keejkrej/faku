@@ -157,11 +157,15 @@
 //! `WorkspaceOperation::BrowseDirectory`
 //! `{ "type": "browseDirectory", "path": null }` or
 //! `{ "type": "browseDirectory", "path": "/abs/dir" }` (`path` is a
-//! JSON string or null; null ⇒ daemon home_dir). This cut
+//! JSON string or null; null ⇒ daemon home_dir), and
+//! `WorkspaceOperation::ReadTextFile`
+//! `{ "type": "readTextFile", "root", "relative_path" }` (camelCase
+//! op tag; request fields snake_case `relative_path` like other
+//! Faku workspace ops). This cut
 //! ships Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
 //! InspectCommit, CaptureTurnStart, CaptureTurn,
-//! GenerateCommitMessage, ListTree, CollectReviewDiff, and
-//! BrowseDirectory.
+//! GenerateCommitMessage, ListTree, CollectReviewDiff,
+//! BrowseDirectory, and ReadTextFile.
 //! There is no force flag on daemon Push. An ok outcome is
 //! `ResponsePayload::Workspace { result }` where Push, Commit, and
 //! CaptureTurnStart yield `WorkspaceResult::Ack` — wire `outcome.payload`
@@ -198,7 +202,11 @@
 //! "filesystemRoot", "entries": [ WorkingTreeEntry, … ] }` nested
 //! under `outcome.payload` (not a bare directory object; not Ack;
 //! `path` and `entries` are required; `parent` may be JSON null at
-//! the filesystem root). `ReviewDiffData` uses serde rename_all
+//! the filesystem root) — and ReadTextFile yields
+//! `WorkspaceResult::TextFile` — wire
+//! `result: { "type": "textFile", "content": "<string>" }` nested
+//! under `outcome.payload` (not a bare textFile object; not Ack;
+//! `content` is required; empty string is still ok). `ReviewDiffData` uses serde rename_all
 //! camelCase: `source`, `numstat`, `patch`, `completeContext`. Empty
 //! `numstat` + `patch` with ok nesting is still ok (clean tree).
 //! `WorkingTreeEntry` uses serde rename_all camelCase:
@@ -416,7 +424,7 @@ pub fn defaultStartOptions() StartOptions {
 /// `Commit`, `InspectBranches`, `CheckoutBranch`,
 /// `InspectCommit`, `CaptureTurnStart`, `CaptureTurn`,
 /// `GenerateCommitMessage`, `ListTree`, `CollectReviewDiff`,
-/// and `BrowseDirectory` (hello + workspace sidecar).
+/// `BrowseDirectory`, and `ReadTextFile` (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -595,9 +603,11 @@ pub const GoalOperation = union(GoalKind) {
 /// `CollectReviewDiff { cwd, source }` (`ReviewDiffSource`
 /// externally tagged camelCase; LastTurn nested fields stay
 /// snake_case), and `BrowseDirectory { path }` (`path` JSON string
-/// or null). No force flag on Push or Commit. No amend on
-/// daemon Commit, InspectCommit, or CollectReviewDiff.
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory };
+/// or null), and `ReadTextFile { root, relative_path }` (snake_case
+/// `relative_path`). No force flag on Push or Commit. No amend on
+/// daemon Commit, InspectCommit, or CollectReviewDiff. No
+/// WriteTextFile this cut.
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file };
 
 /// Waku `AgentInvocation`. Wire keys match generated TS:
 /// `provider`, `binary`, `model`, `reasoning_effort` (snake_case
@@ -693,6 +703,11 @@ pub const WorkspaceBrowseDirectory = struct {
     path: ?[]const u8 = null,
 };
 
+pub const WorkspaceReadTextFile = struct {
+    root: []const u8,
+    relative_path: []const u8,
+};
+
 pub const WorkspaceOperation = union(WorkspaceKind) {
     push: WorkspacePush,
     create_worktree: WorkspaceCreateWorktree,
@@ -706,6 +721,7 @@ pub const WorkspaceOperation = union(WorkspaceKind) {
     list_tree: WorkspaceListTree,
     collect_review_diff: WorkspaceCollectReviewDiff,
     browse_directory: WorkspaceBrowseDirectory,
+    read_text_file: WorkspaceReadTextFile,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -791,6 +807,14 @@ pub const ParsedDirectory = struct {
     filesystem_root: []const u8 = "",
     entries: [max_parsed_tree_entries]ParsedWorkingTreeEntry = [_]ParsedWorkingTreeEntry{.{}} ** max_parsed_tree_entries,
     entry_count: usize = 0,
+};
+
+/// File body from an ok `textFile` workspace result. Slices alias
+/// the JSON arena used to parse the line. Empty `content` still
+/// sets `ok` when the field is a JSON string.
+pub const ParsedTextFile = struct {
+    ok: bool = false,
+    content: []const u8 = "",
 };
 
 /// Review / Diff payload from an ok `reviewDiff` workspace result.
@@ -1033,8 +1057,8 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// uses nil `sessionId` and nil `runtimeId` for workspace RPCs. Callers
 /// for Push, CreateWorktree, Commit, InspectBranches,
 /// CheckoutBranch, InspectCommit, CaptureTurnStart, CaptureTurn,
-/// GenerateCommitMessage, ListTree, CollectReviewDiff, and
-/// BrowseDirectory pass
+/// GenerateCommitMessage, ListTree, CollectReviewDiff,
+/// BrowseDirectory, and ReadTextFile pass
 /// `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
@@ -1178,6 +1202,13 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
             } else {
                 try cur.write("null");
             }
+            try cur.write("}");
+        },
+        .read_text_file => |args| {
+            try cur.write("{\"type\":\"readTextFile\",\"root\":");
+            try writeJsonString(cur, args.root);
+            try cur.write(",\"relative_path\":");
+            try writeJsonString(cur, args.relative_path);
             try cur.write("}");
         },
     }
@@ -1767,6 +1798,21 @@ pub fn parseDirectory(allocator: std.mem.Allocator, line: []const u8) ParsedDire
     return parsed;
 }
 
+/// Light parser for ok ReadTextFile. True/`ok` when an ok `response`
+/// carries nested `result: { "type": "textFile", "content": "<string>" }`.
+/// Empty `content` is still ok. Bare `textFile`, ack, missing
+/// `content`, or a non-string value are rejected. Slices alias
+/// `allocator`.
+pub fn parseTextFile(allocator: std.mem.Allocator, line: []const u8) ParsedTextFile {
+    var parsed = ParsedTextFile{};
+    const result = workspaceResultObject(allocator, line) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "textFile")) return parsed;
+    const content = jsonStringValue(result.get("content")) orelse return parsed;
+    parsed.ok = true;
+    parsed.content = content;
+    return parsed;
+}
+
 fn parseWorkingTreeEntries(
     entries_val: std.json.Value,
     dest: *[max_parsed_tree_entries]ParsedWorkingTreeEntry,
@@ -1860,7 +1906,8 @@ pub fn isWorkspaceCheckpoint(allocator: std.mem.Allocator, line: []const u8) boo
 /// GenerateCommitMessage `commitMessage` with a string `message`,
 /// ListTree `workingTree` with a parsed `entries` array,
 /// CollectReviewDiff `reviewDiff` with nested `data`,
-/// BrowseDirectory `directory` with `path` + `entries`, or
+/// BrowseDirectory `directory` with `path` + `entries`,
+/// ReadTextFile `textFile` with a string `content`, or
 /// CaptureTurn `checkpoint` with a nested checkpoint object.
 pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (isWorkspaceAck(allocator, line)) return true;
@@ -1872,6 +1919,7 @@ pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (parseWorkingTree(allocator, line).ok) return true;
     if (parseReviewDiff(allocator, line).ok) return true;
     if (parseDirectory(allocator, line).ok) return true;
+    if (parseTextFile(allocator, line).ok) return true;
     return isWorkspaceCheckpoint(allocator, line);
 }
 
@@ -2939,6 +2987,70 @@ test "parseDirectory extracts camelCase directory and rejects bare directory, ac
     try std.testing.expect(!parseDirectory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"directory\",\"path\":\"/home/me\",\"parent\":null,\"home\":\"/home/me\",\"filesystemRoot\":\"/\",\"entries\":[{\"relative_path\":\"src\",\"absolute_path\":\"/home/me/src\",\"name\":\"src\",\"is_dir\":true,\"expanded\":false,\"depth\":0}]}}}}").ok);
     try std.testing.expect(!parseDirectory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
     try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"directory\"}}}}"));
+}
+
+test "workspace request wraps camelCase readTextFile with snake_case relative_path and nil ids" {
+    var buf: [1024]u8 = undefined;
+    const json = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .read_text_file = .{ .root = "/tmp/faku", .relative_path = "src/main.zig" } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"readTextFile\",\"root\":\"/tmp/faku\",\"relative_path\":\"src/main.zig\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"relative_path\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "relativePath") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"listTree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"browseDirectory\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"collectReviewDiff\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"writeTextFile\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"readTextFile\"") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .read_text_file = .{ .root = "/tmp/faku", .relative_path = "src/main.zig" } },
+    ));
+}
+
+test "parseTextFile extracts nested content and rejects bare textFile, ack, or missing content" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"textFile\",\"content\":\"hello\\nworld\"}}}}";
+    const parsed = parseTextFile(arena, ok_line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqualStrings("hello\nworld", parsed.content);
+    try std.testing.expect(isWorkspaceSuccess(arena, ok_line));
+    try std.testing.expect(!isWorkspaceAck(arena, ok_line));
+    try std.testing.expect(!parseWorkingTree(arena, ok_line).ok);
+    try std.testing.expect(!parseDirectory(arena, ok_line).ok);
+    try std.testing.expect(!parseReviewDiff(arena, ok_line).ok);
+
+    const empty_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"textFile\",\"content\":\"\"}}}}";
+    const empty = parseTextFile(arena, empty_line);
+    try std.testing.expect(empty.ok);
+    try std.testing.expectEqualStrings("", empty.content);
+    try std.testing.expect(isWorkspaceSuccess(arena, empty_line));
+
+    try std.testing.expect(!parseTextFile(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"textFile\",\"content\":\"hello\"}}}").ok);
+    try std.testing.expect(!parseTextFile(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
+    try std.testing.expect(!parseTextFile(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"textFile\"}}}}").ok);
+    try std.testing.expect(!parseTextFile(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"textFile\",\"content\":null}}}}").ok);
+    try std.testing.expect(!parseTextFile(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
+    try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"textFile\"}}}}"));
 }
 
 test "start defaults to first-party fx over acp" {

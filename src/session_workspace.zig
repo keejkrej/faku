@@ -51,13 +51,16 @@
 //! name-status). First-cut daemon `WorkspaceOperation::BrowseDirectory`
 //! ships in `pick_folder` (Pick folder in-app browser when a daemon
 //! address is set; overflow / error / unusable parse falls back to
-//! the local OS folder dialog). First-cut daemon `WorkspaceOperation::CaptureTurnStart`
+//! the local OS folder dialog). First-cut daemon `WorkspaceOperation::ReadTextFile`
+//! ships in `right_panel` (Files preview load / Reload when a daemon
+//! address is set; overflow / error / unusable parse falls back to
+//! local `readFileAlloc`; Save / Edit stay local). First-cut daemon `WorkspaceOperation::CaptureTurnStart`
 //! ships in `fork` (best-effort Send sidecar after local capture;
 //! Ack; local sha stays canonical). First-cut daemon
 //! `WorkspaceOperation::CaptureTurn` ships in `fork` (best-effort
 //! finish sidecar after local end capture; Checkpoint; local end
 //! shas stay canonical). Leftovers:
-//! other daemon `WorkspaceOperation` variants (ReadTextFile, ref
+//! other daemon `WorkspaceOperation` variants (WriteTextFile, ref
 //! ops, remotes-on-daemon-list, amend/force over daemon, remote
 //! `--track` over daemon, …). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).

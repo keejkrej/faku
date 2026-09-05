@@ -322,18 +322,18 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.applyRightPanelResize(fraction);
             store.persistLayoutIfPossible(model);
         },
-        .open_right_panel_file => |id| right_panel.selectCachedFile(model, id),
+        .open_right_panel_file => |id| right_panel.selectCachedFile(model, fx, id),
         .close_right_panel_file_preview => right_panel.closeFilePreview(model),
         .open_right_panel_file_editor => right_panel.openPreviewInEditor(model, fx),
         .open_right_panel_file_edit => right_panel.startFilePreviewEdit(model),
         .file_preview_edit => |edit| right_panel.applyFilePreviewEdit(model, edit),
         .file_preview_save => right_panel.saveFilePreview(model),
-        .file_preview_reload => right_panel.reloadFilePreview(model),
+        .file_preview_reload => right_panel.reloadFilePreview(model, fx),
         .file_preview_discard => {
             const intent = right_panel.acceptPendingDiscard(model);
             switch (intent) {
                 .none => {},
-                .switch_file => |id| right_panel.selectCachedFile(model, id),
+                .switch_file => |id| right_panel.selectCachedFile(model, fx, id),
                 .close_preview => right_panel.clearFilePreview(model),
                 .hide_panel => {
                     model.hideRightPanel();
@@ -400,7 +400,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     // First-cut Files preview live reload via size + mtime poll.
     // Same `now_ms` / update-tick piggyback. Native has no FS
     // watcher / dedicated timer this cut.
-    _ = right_panel.pollFilePreviewDisk(model);
+    _ = right_panel.pollFilePreviewDisk(model, fx);
 }
 
 /// Boot probe: `$HOME/.fx/bin/fx --help`, leftover `~/.local/bin/fx`,

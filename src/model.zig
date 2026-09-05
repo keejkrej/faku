@@ -854,6 +854,18 @@ pub const Model = struct {
     right_panel_file_preview_binary: bool = false,
     right_panel_file_preview_error_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
     right_panel_file_preview_error_len: usize = 0,
+    /// True while the in-flight `file_preview_key` is a daemon-proxy
+    /// ReadTextFile sidecar. Line/exit handlers parse a `textFile`
+    /// instead of local `readFileAlloc`. Runtime only; not persisted.
+    file_preview_key: u64 = 0,
+    file_preview_via_daemon: bool = false,
+    /// True after an in-flight ReadTextFile sidecar applied a usable
+    /// `textFile`. Exit falls back to local read when this is false.
+    /// Runtime only; not persisted.
+    file_preview_daemon_ok: bool = false,
+    /// True when Reload should restore the edit buffer after a
+    /// daemon or local fill. Runtime only; not persisted.
+    file_preview_restore_editing: bool = false,
     /// Runtime-only Files preview edit buffer. Cap matches the 256KB
     /// read window. Cleared on preview close. Not persisted.
     file_preview_edit_buffer: canvas.TextBuffer(right_panel.max_file_preview_bytes) = .{},
@@ -1538,6 +1550,10 @@ pub const Model = struct {
         "right_panel_file_preview_binary",
         "right_panel_file_preview_error_storage",
         "right_panel_file_preview_error_len",
+        "file_preview_key",
+        "file_preview_via_daemon",
+        "file_preview_daemon_ok",
+        "file_preview_restore_editing",
         "file_preview_edit_buffer",
         "right_panel_file_preview_editing",
         "right_panel_file_preview_status_storage",
