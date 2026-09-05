@@ -24,6 +24,7 @@ const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const right_panel = @import("right_panel.zig");
 const session_fork = @import("fork.zig");
+const pick_folder = @import("pick_folder.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -98,6 +99,7 @@ pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     review_diff.close(model, fx);
     right_panel.clearFilePreview(model);
     model.closeProjectEdit();
+    pick_folder.closeDaemonBrowser(model, fx);
     model.closeImageAttach();
     model.closeCommands();
     model.closeModelPicker();

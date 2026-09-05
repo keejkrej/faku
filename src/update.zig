@@ -73,7 +73,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         // window-action effect (`examples/deck`): last-window close
         // follows the host exit path. Esc stays `.stop` so the session
         // switcher / Environment dropdown / Review card / command palette / settings / transcript-find / project-edit /
-        // image-attach / commands / typing-triggered @ / slash card /
+        // daemon BrowseDirectory browser / image-attach / commands / typing-triggered @ / slash card /
         // folder-title-edit / session-title-edit / a live turn keep it.
         .close_window => fx.closeWindow(main_window_label),
         .minimize_window => fx.minimizeWindow(main_window_label),
@@ -246,6 +246,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             persist.persistComposerProject(model, fx);
         },
         .pick_folder => pick_folder.startPickFolder(model, fx),
+        .cancel_daemon_dir_browser => pick_folder.closeDaemonBrowser(model, fx),
+        .confirm_daemon_dir_browser => pick_folder.confirmDaemonBrowser(model, fx),
+        .daemon_dir_browser_up => pick_folder.navigateDaemonBrowserUp(model, fx),
+        .daemon_dir_browser_home => pick_folder.navigateDaemonBrowserHome(model, fx),
+        .pick_daemon_dir_entry => |id| pick_folder.navigateDaemonBrowserEntry(model, fx, id),
         .reveal_folder => reveal_folder.startRevealFolder(model, fx),
         .open_terminal => open_terminal.startOpenTerminal(model, fx),
         .browser_url_edit => |edit| {

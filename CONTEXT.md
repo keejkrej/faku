@@ -227,7 +227,8 @@ Hello is protocol v4. First-cut commands: `loadTaskState`,
 `fx`. fx-first (`fx acp` / `fx ask` / demo) does not use daemon hello.
 First-cut `workspace` ships Push, CreateWorktree, Commit,
 InspectBranches, CheckoutBranch, InspectCommit, CaptureTurnStart,
-CaptureTurn, GenerateCommitMessage, ListTree, and CollectReviewDiff.
+CaptureTurn, GenerateCommitMessage, ListTree, CollectReviewDiff, and
+BrowseDirectory.
 
 Local `sessions.json` remains the catalog of record. Daemon
 `saveTaskState` is a best-effort one-shot mirror. Wire `loadTaskState`
@@ -360,6 +361,13 @@ list from `numstat` and selected hunk from `patch`; LastTurn stays
 local; Native 4 KiB stdin overflow / error / unusable parse falls
 back to local name-status + hunk probes; no address keeps today's
 local path). First-cut daemon
+`WorkspaceOperation::BrowseDirectory` ships on Pick folder when a
+daemon address is set (ok is nested `directory` + camelCase `path` /
+`parent` / `home` / `filesystemRoot` / `WorkingTreeEntry` rows;
+paints a first-cut in-app directory browser from `entries`; Choose
+sets `project_path`; Native 4 KiB stdin overflow / error / unusable
+parse falls back to the local OS folder dialog; no address keeps
+today's OS path). First-cut daemon
 `WorkspaceOperation::CaptureTurnStart` ships on Send after local
 `fork.recordRewindRefIfPossible` when a daemon address is set
 (best-effort sidecar; ok is workspace Ack; local
@@ -383,7 +391,7 @@ branch label then omit/HEAD). First-cut defer-until-Send workspace
 mode ships (composer Work in Local / New worktree; optional
 `baseBranch` persist on that draft; Send queues the prompt, one-shots the same `git worktree add` as New worktree… when no daemon address is set,
 retargets `project_path`, then `startPrompt`). Leftovers: other
-daemon `WorkspaceOperation` variants (BrowseDirectory, ReadTextFile, remotes-on-daemon-list, amend/force over daemon,
+daemon `WorkspaceOperation` variants (ReadTextFile, remotes-on-daemon-list, amend/force over daemon,
 remote `--track` over daemon, ref ops, …). Fetch already
 `--prune`; there is no prune-alone menu (not in Waku).
 Windows probes, checkout / push / worktree, and commit mutations (add / cached-quiet / commit /
@@ -453,8 +461,9 @@ on one-shot `claude -p` ships (live Stop dismisses that live row;
 settled rows offer Dismiss; not Claude TaskStop mid-turn). Not daemon
 `WorkspaceOperation` for Background (first-cut daemon Push,
 CreateWorktree, Commit, InspectBranches, CheckoutBranch,
-InspectCommit, GenerateCommitMessage, ListTree, and CollectReviewDiff live on composer git / Send prep / Commit… / the
-branch picker / Files refresh / Review Diff; CaptureTurnStart is a best-effort Send sidecar
+InspectCommit, GenerateCommitMessage, ListTree, CollectReviewDiff, and
+BrowseDirectory live on composer git / Send prep / Commit… / the
+branch picker / Files refresh / Review Diff / Pick folder; CaptureTurnStart is a best-effort Send sidecar
 alongside local snapshot capture; CaptureTurn is a best-effort
 finish sidecar after local end capture). Environment Summary Background is
 Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
@@ -732,9 +741,9 @@ Honest gaps this cut does not implement:
   Zig `std.fs` atomic write, Reload discards unsaved edits. First-cut
   live reload via mtime/size poll on the update tick. Not a real FS
   watcher / Native watch API)
-- Other daemon `WorkspaceOperation` variants (BrowseDirectory,
-  ReadTextFile, ref ops, remotes-on-daemon-list,
-  amend/force over daemon, remote `--track` over daemon, …). First-cut
+- Other daemon `WorkspaceOperation` variants (ReadTextFile, ref ops,
+  remotes-on-daemon-list, amend/force over daemon, remote `--track`
+  over daemon, …). First-cut
   `WorkspaceOperation::Push` ships as a best-effort sidecar when
   `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set;
   Force stays local `git push --force`. First-cut
@@ -779,6 +788,13 @@ Honest gaps this cut does not implement:
   hunk spawns; LastTurn stays local; Native 4 KiB stdin overflow /
   error / unusable parse falls back to local name-status + hunk
   probes; no address keeps today's local path. First-cut
+  `WorkspaceOperation::BrowseDirectory` ships on Pick folder when a
+  daemon address is set; ok is nested `directory` + camelCase `path` /
+  `parent` / `home` / `filesystemRoot` / `WorkingTreeEntry` rows;
+  paints a first-cut in-app directory browser from `entries`; Choose
+  sets `project_path`; Native 4 KiB stdin overflow / error / unusable
+  parse falls back to the local OS folder dialog; no address keeps
+  today's OS path. First-cut
   `WorkspaceOperation::CaptureTurnStart` ships on Send after local
   capture when a daemon address is set; ok is workspace Ack; local
   `worktree_snapshot_sha` / `refs/faku/...` stay canonical; Native

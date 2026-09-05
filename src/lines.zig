@@ -121,6 +121,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         file_mention.applyLine(model, line);
         return;
     }
+    if (model.daemon_dir_browser_key != 0 and line.key == model.daemon_dir_browser_key) {
+        pick_folder.applyDaemonLine(model, line);
+        return;
+    }
     if (model.skill_key != 0 and line.key == model.skill_key) {
         skills.applyLine(model, line);
         return;
@@ -1065,6 +1069,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.file_mention_key != 0 and exit.key == model.file_mention_key) {
         file_mention.handleExit(model, fx, exit);
+        return;
+    }
+    if (model.daemon_dir_browser_key != 0 and exit.key == model.daemon_dir_browser_key) {
+        pick_folder.handleDaemonExit(model, fx, exit);
         return;
     }
     if (model.skill_key != 0 and exit.key == model.skill_key) {

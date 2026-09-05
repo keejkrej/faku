@@ -18,6 +18,7 @@ const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const skills = @import("skills.zig");
 const providers = @import("providers.zig");
+const pick_folder = @import("pick_folder.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -34,6 +35,10 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
     }
     if (model.git_branch_picker_open) {
         model.closeGitBranchPicker();
+        return;
+    }
+    if (model.daemon_dir_browser_open) {
+        pick_folder.closeDaemonBrowser(model, fx);
         return;
     }
     if (model.workspace_picker_open) {
@@ -154,6 +159,7 @@ pub fn handleToggleSettings(model: *Model, fx: *Effects) void {
         return;
     }
     review_diff.close(model, fx);
+    pick_folder.closeDaemonBrowser(model, fx);
     model.openSettings();
 }
 

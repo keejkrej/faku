@@ -40,6 +40,7 @@ const open_editor = @import("open_editor.zig");
 const right_panel = @import("right_panel.zig");
 const i18n = @import("i18n.zig");
 const session_workspace = @import("session_workspace.zig");
+const pick_folder = @import("pick_folder.zig");
 
 const canvas = native_sdk.canvas;
 const main = @import("main.zig");
@@ -346,6 +347,14 @@ pub const ChipPickerRow = struct {
     selected: bool,
 };
 
+/// First-cut daemon BrowseDirectory row. `row_id` is a 1-based Native
+/// `for` key. Navigate only when `is_dir`.
+pub const DaemonDirBrowserRow = struct {
+    row_id: u32,
+    label: []const u8,
+    is_dir: bool,
+};
+
 /// Follow-up queued while that session is busy. Becomes its own turn after a
 /// successful finish — not after Stop/Esc or a non-zero `fx ask` exit.
 pub const QueuedMessage = struct {
@@ -573,6 +582,14 @@ pub const Msg = union(enum) {
     project_path_edit: canvas.TextInputEvent,
     /// Composer Pick folder: one-shot OS directory-dialog sidecar. Not `fx.pickFile`.
     pick_folder,
+    /// First-cut daemon BrowseDirectory in-app browser. Esc / Cancel
+    /// closes without changing project.
+    cancel_daemon_dir_browser,
+    confirm_daemon_dir_browser,
+    daemon_dir_browser_up,
+    daemon_dir_browser_home,
+    /// 1-based `daemon_dir_browser_rows` id. Directories only.
+    pick_daemon_dir_entry: u32,
     /// Composer Reveal folder: one-shot OS file-manager sidecar. Not `fx.revealPath`.
     reveal_folder,
     /// Composer Open in Terminal: one-shot OS terminal sidecar. Not a Native effect.
@@ -907,6 +924,22 @@ pub const Model = struct {
     pick_folder_live: bool = false,
     pick_folder_got_path: bool = false,
     pick_folder_tried_fallback: bool = false,
+    /// Runtime-only first-cut daemon BrowseDirectory in-app browser.
+    /// Not persisted. Own daemon spawn key; OS fallback uses
+    /// `pick_folder_key` 29 after a miss.
+    daemon_dir_browser_open: bool = false,
+    daemon_dir_browser_key: u64 = 0,
+    daemon_dir_browser_ok: bool = false,
+    daemon_dir_browser_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    daemon_dir_browser_path_len: usize = 0,
+    daemon_dir_browser_parent_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    daemon_dir_browser_parent_len: usize = 0,
+    daemon_dir_browser_home_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    daemon_dir_browser_home_len: usize = 0,
+    daemon_dir_browser_root_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    daemon_dir_browser_root_len: usize = 0,
+    daemon_dir_browser_store: [pick_folder.max_dir_entries]pick_folder.CachedDirEntry = [_]pick_folder.CachedDirEntry{.{}} ** pick_folder.max_dir_entries,
+    daemon_dir_browser_count: u32 = 0,
     reveal_folder_live: bool = false,
     open_url_live: bool = false,
     open_url_storage: [open_url.max_spawn_url]u8 = [_]u8{0} ** open_url.max_spawn_url,
@@ -1464,6 +1497,18 @@ pub const Model = struct {
         "pick_folder_live",
         "pick_folder_got_path",
         "pick_folder_tried_fallback",
+        "daemon_dir_browser_key",
+        "daemon_dir_browser_ok",
+        "daemon_dir_browser_path_storage",
+        "daemon_dir_browser_path_len",
+        "daemon_dir_browser_parent_storage",
+        "daemon_dir_browser_parent_len",
+        "daemon_dir_browser_home_storage",
+        "daemon_dir_browser_home_len",
+        "daemon_dir_browser_root_storage",
+        "daemon_dir_browser_root_len",
+        "daemon_dir_browser_store",
+        "daemon_dir_browser_count",
         "reveal_folder_live",
         "open_url_live",
         "open_url_storage",
@@ -3508,6 +3553,38 @@ pub const Model = struct {
         return copy_helpers.canCopyProjectPath(model);
     }
 
+    pub fn daemon_dir_browser_path(model: *const Model) []const u8 {
+        return model.daemon_dir_browser_path_storage[0..model.daemon_dir_browser_path_len];
+    }
+
+    pub fn daemon_dir_browser_can_up(model: *const Model) bool {
+        return model.daemon_dir_browser_parent_len > 0;
+    }
+
+    pub fn daemon_dir_browser_ready(model: *const Model) bool {
+        return model.daemon_dir_browser_ok and model.daemon_dir_browser_path_len > 0;
+    }
+
+    pub fn daemon_dir_browser_loading(model: *const Model) bool {
+        return model.daemon_dir_browser_open and !model.daemon_dir_browser_ok;
+    }
+
+    pub fn daemon_dir_browser_rows(model: *const Model, arena: std.mem.Allocator) []const DaemonDirBrowserRow {
+        const n = model.daemon_dir_browser_count;
+        if (n == 0) return &.{};
+        const out = arena.alloc(DaemonDirBrowserRow, n) catch return &.{};
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            const entry = &model.daemon_dir_browser_store[i];
+            out[i] = .{
+                .row_id = @intCast(i + 1),
+                .label = entry.name(),
+                .is_dir = entry.is_dir,
+            };
+        }
+        return out;
+    }
+
     /// Runtime-only muted branch on the composer project row.
     pub fn git_branch_label(model: *const Model) []const u8 {
         return git_branch.gitBranchLabel(model);
@@ -4035,6 +4112,7 @@ pub const Model = struct {
 
     pub fn closeProjectEdit(model: *Model) void {
         model.project_edit_active = false;
+        pick_folder.dropDaemonBrowser(model);
     }
 
     pub fn applySelectedProjectPath(model: *Model, edit: canvas.TextInputEvent) void {

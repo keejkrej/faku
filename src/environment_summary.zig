@@ -154,8 +154,12 @@
 //! re-prefers ListTree; overflow / error / unusable parse falls
 //! back to local git ls-files then walk). First-cut daemon
 //! `WorkspaceOperation::CollectReviewDiff` ships in `review_diff`
-//! (Review / Diff panel; LastTurn stays local). Leftovers: other daemon `WorkspaceOperation`
-//! variants (BrowseDirectory, ReadTextFile, ref ops,
+//! (Review / Diff panel; LastTurn stays local). First-cut daemon
+//! `WorkspaceOperation::BrowseDirectory` ships in `pick_folder`
+//! (Pick folder in-app browser when a daemon address is set;
+//! overflow / error / unusable parse falls back to local OS folder
+//! dialog). Leftovers: other daemon `WorkspaceOperation`
+//! variants (ReadTextFile, ref ops,
 //! remotes-on-daemon-list, amend/force over daemon, remote `--track`
 //! over daemon, …).
 
