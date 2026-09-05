@@ -326,8 +326,10 @@ address is set (Amend and Force+Commit and Push stay local git;
 no address keeps today's local add/preflight/commit). First-cut
 daemon `WorkspaceOperation::InspectBranches` ships on the composer
 branch-list picker when a daemon address is set (ok is nested
-`branches` + snake_case snapshot; local heads only; remotes omitted
-when that path succeeds; Native 4 KiB stdin overflow / error /
+`branches` + snake_case snapshot; local heads from that snapshot
+are the source of truth for heads/current/occupied; a follow-up
+local `git for-each-ref` merges remote-tracking rows the same as
+the no-daemon path; Native 4 KiB stdin overflow / error /
 null snapshot falls back to local `git for-each-ref`; not a live
 watch). First-cut daemon `WorkspaceOperation::CheckoutBranch` ships
 on picker local-head checkout (`create: false`) and New branch
@@ -401,7 +403,7 @@ in sync; default still today's origin/HEAD probe then composer
 branch label then omit/HEAD). First-cut defer-until-Send workspace
 mode ships (composer Work in Local / New worktree; optional
 `baseBranch` persist on that draft; Send queues the prompt, one-shots the same `git worktree add` as New worktree… when no daemon address is set,
-retargets `project_path`, then `startPrompt`). Leftovers: remotes-on-daemon-list, amend/force over daemon,
+retargets `project_path`, then `startPrompt`). Leftovers: amend/force over daemon,
 remote `--track` over daemon, ref ops. Fetch already
 `--prune`; there is no prune-alone menu (not in Waku).
 Windows probes, checkout / push / worktree, and commit mutations (add / cached-quiet / commit /
@@ -758,7 +760,7 @@ Honest gaps this cut does not implement:
   live reload via mtime/size poll on the update tick. Not a real FS
   watcher / Native watch API)
 - Other daemon `WorkspaceOperation` variants (ref ops,
-  remotes-on-daemon-list, amend/force over daemon, remote `--track`
+  amend/force over daemon, remote `--track`
   over daemon, …). First-cut
   `WorkspaceOperation::Push` ships as a best-effort sidecar when
   `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set;
@@ -772,9 +774,10 @@ Honest gaps this cut does not implement:
   falls back to local add/preflight/commit. First-cut
   `WorkspaceOperation::InspectBranches` ships on the composer
   branch-list picker when a daemon address is set; Waku lists local
-  heads only; remotes-on-daemon-list is leftover; Native 4 KiB stdin
-  overflow / error / null snapshot falls back to local
-  `git for-each-ref`; not a live watch. First-cut
+  heads only; remotes-on-daemon-list ships as a follow-up local
+  `git for-each-ref` merge (daemon heads stay source of truth);
+  Native 4 KiB stdin overflow / error / null snapshot falls back to
+  local `git for-each-ref`; not a live watch. First-cut
   `WorkspaceOperation::CheckoutBranch` ships on picker local-head
   checkout and New branch create when a daemon address is set; ok is
   nested `branchChanged` + snake_case snapshot; Native 4 KiB stdin

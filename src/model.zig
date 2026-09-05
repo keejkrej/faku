@@ -1008,6 +1008,11 @@ pub const Model = struct {
     /// snapshot instead of `for-each-ref` stdout. Runtime only; not
     /// persisted.
     git_branch_list_via_daemon: bool = false,
+    /// True while the in-flight `git_branch_list_key` is a follow-up
+    /// local `for-each-ref` that merges remote-tracking rows into an
+    /// already-filled InspectBranches heads snapshot without wiping
+    /// those heads. Runtime only; not persisted.
+    git_branch_list_merge_remotes: bool = false,
     git_checkout_key: u64 = 0,
     next_git_checkout_key: u64 = git_checkout.git_checkout_key_first,
     git_checkout_probe_session: u32 = 0,
@@ -1613,6 +1618,7 @@ pub const Model = struct {
         "git_branch_list_probe_path_storage",
         "git_branch_list_probe_path_len",
         "git_branch_list_via_daemon",
+        "git_branch_list_merge_remotes",
         "git_checkout_key",
         "next_git_checkout_key",
         "git_checkout_probe_session",

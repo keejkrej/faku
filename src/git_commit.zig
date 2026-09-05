@@ -118,7 +118,7 @@
 //! preview load / Reload). First-cut daemon
 //! `WorkspaceOperation::WriteTextFile` lives in `right_panel` (Files
 //! preview Save). Leftovers: ref
-//! ops / remotes-on-daemon-list / amend/force over daemon / remote
+//! ops / amend/force over daemon / remote
 //! `--track` over daemon / …
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses

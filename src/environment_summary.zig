@@ -163,7 +163,7 @@
 //! `WorkspaceOperation::WriteTextFile` ships in `right_panel` (Files
 //! preview Save; overflow / non-ack falls back to local atomic write). Leftovers: other daemon `WorkspaceOperation`
 //! variants (ref ops,
-//! remotes-on-daemon-list, amend/force over daemon, remote `--track`
+//! amend/force over daemon, remote `--track`
 //! over daemon, …).
 
 const std = @import("std");
