@@ -4,19 +4,25 @@
 //! `newWorktree` (draft only — no `git worktree add` until Send).
 //! Send on `newWorktree` queues the prompt, shows Creating worktree…,
 //! and reuses `git_checkout.beginWorktreeAdd` (same spawn / retry /
-//! candidate path as New worktree…). Success retargets `project_path`,
-//! sets `worktree` {path, branch}, then `startPrompt`. Failure leaves
-//! `newWorktree` and does not start the provider. Native has no git
-//! effect. Not daemon `WorkspaceOperation::CreateWorktree`. Optional Work-in Base on
+//! candidate path as New worktree…) when no daemon address is set.
+//! When `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is
+//! set, Send prefers hello + `WorkspaceOperation::CreateWorktree`
+//! (nil request-frame session/runtime ids; snake_case operation
+//! fields; ok is `worktreeCreated` path + branch). Native 4 KiB
+//! stdin overflow falls back to local `git worktree add`. Success
+//! retargets `project_path`, sets `worktree` {path, branch}, then
+//! `startPrompt`. Failure leaves `newWorktree` and does not start
+//! the provider. Native has no git effect. Optional Work-in Base on
 //! a `newWorktree` draft persists camelCase `baseBranch` (Waku
 //! `NewWorktree { base_branch }`) and keeps
 //! `git_worktree_base_override_*` in sync. Send prep prefers that
-//! stored base for the trailing `git worktree add` argv slot.
+//! stored base for the trailing `git worktree add` argv slot (and
+//! as CreateWorktree `base_branch` when the daemon path is used).
 //! First-cut daemon `WorkspaceOperation::Push` ships in
 //! `git_checkout` (best-effort sidecar when a daemon address is set;
 //! Force stays local git). Leftovers: other daemon
-//! `WorkspaceOperation` variants (CreateWorktree, InspectBranches,
-//! Commit, …). Fork copies
+//! `WorkspaceOperation` variants (InspectBranches, Commit,
+//! CaptureTurn, ListTree, …). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).
 
 const std = @import("std");
@@ -31,6 +37,8 @@ const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const git_ahead_behind = @import("git_ahead_behind.zig");
 const session_fork = @import("fork.zig");
+const daemon_proxy = @import("daemon_proxy.zig");
+const protocol = @import("protocol.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -126,7 +134,9 @@ pub fn beginPrep(model: *Model, fx: *Effects, text: []const u8) bool {
 
     model.queueWorkspacePrep(session.id, text, model.draftImagePath());
     model.setAttachStatus(preparing_status);
-    git_checkout.beginWorktreeAdd(model, fx, slug);
+    if (!git_checkout.trySpawnDaemonCreateWorktree(model, fx, text)) {
+        git_checkout.beginWorktreeAdd(model, fx, slug);
+    }
     if (model.git_worktree_add_key == 0 and model.git_worktree_base_key == 0) {
         model.abortWorkspacePrep();
         model.setAttachStatus(git_checkout.worktree_add_failed_status);
@@ -191,12 +201,21 @@ fn findWorktreeAddSpawn(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?)
     return null;
 }
 
+fn findDaemonWorkspaceSpawn(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key and git_checkout.isDaemonWorkspacePushArgv(spawn.argv)) return spawn;
+    }
+    return null;
+}
+
 fn pendingProviderStart(fx: *Effects) bool {
     if (fx.pendingTimerCount() > 0) return true;
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (git_checkout.isGitWorktreeAddArgv(spawn.argv)) continue;
         if (git_checkout.isGitWorktreeBaseArgv(spawn.argv)) continue;
+        if (git_checkout.isDaemonWorkspacePushArgv(spawn.argv)) continue;
         if (git_checkout.isGitBranchListArgv(spawn.argv)) continue;
         if (git_branch.isGitBranchArgv(spawn.argv)) continue;
         if (git_dirty.isGitDirtyArgv(spawn.argv)) continue;
@@ -623,4 +642,211 @@ test "Send with stored baseBranch skips origin/HEAD and uses that argv slot; mat
     try std.testing.expectEqualStrings("", session.workspaceBaseBranch());
     try std.testing.expectEqualStrings(dest, session.projectPath());
     try std.testing.expect(model.is_streaming());
+}
+
+const worktree_created_line =
+    "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"worktreeCreated\",\"worktree\":{\"path\":\"/tmp/daemon-wt\",\"branch\":\"waku/feat-send\"}}}}}";
+
+test "Send while newWorktree with a daemon address spawns CreateWorktree sidecar" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/ws-send-daemon", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var home_buf: [256]u8 = undefined;
+    const home = try std.fmt.bufPrint(&home_buf, "/tmp/faku-ws-daemon-{s}", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, home);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.fx_probe_started = true;
+    model.setHome(home);
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("feat daemon", .fx);
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(project);
+    pickNewWorktree(&model, &fx);
+
+    model.draft_buffer.apply(.{ .insert_text = "ship the workspace cut" });
+    main.update(&model, .send, &fx);
+    try std.testing.expect(model.workspace_prep_active);
+    try std.testing.expect(!model.is_streaming());
+    try std.testing.expectEqualStrings(preparing_status, model.attach_status());
+    try std.testing.expectEqual(@as(u64, 0), model.git_worktree_base_key);
+    try std.testing.expect(model.git_worktree_add_key != 0);
+    try std.testing.expect(!pendingProviderStart(&fx));
+    try std.testing.expect(findWorktreeAddSpawn(&fx, model.git_worktree_add_key) == null);
+    try std.testing.expect(isNewWorktree(model.sessionByIdConst(id).?));
+    try std.testing.expectEqualStrings(project, model.selectedProjectPath());
+
+    const sidecar = findDaemonWorkspaceSpawn(&fx, model.git_worktree_add_key) orelse return error.MissingDaemonCreateWorktree;
+    try std.testing.expect(git_checkout.isDaemonWorkspacePushArgv(sidecar.argv));
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"createWorktree\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"push\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"prompt\":\"ship the workspace cut\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"base_branch\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    var id_buf: [36]u8 = undefined;
+    const wire_id = daemon_proxy.wireUuid(id, &id_buf);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, wire_id) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"session_id\":\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"project_id\":\"") != null);
+
+    try fx.feedLine(sidecar.key, worktree_created_line);
+    drainEffects(&model, &fx);
+    try fx.feedExit(sidecar.key, 0);
+    drainEffects(&model, &fx);
+
+    try std.testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    try std.testing.expect(!model.workspace_prep_active);
+    const session = model.sessionByIdConst(id).?;
+    try std.testing.expect(isMaterialized(session));
+    try std.testing.expectEqualStrings("/tmp/daemon-wt", session.projectPath());
+    try std.testing.expectEqualStrings("/tmp/daemon-wt", session.workspacePath());
+    try std.testing.expectEqualStrings("waku/feat-send", session.workspaceBranch());
+    try std.testing.expect(model.is_streaming());
+    try std.testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+}
+
+test "Send CreateWorktree sidecar failure leaves newWorktree and does not prompt" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/ws-send-daemon-fail", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var home_buf: [256]u8 = undefined;
+    const home = try std.fmt.bufPrint(&home_buf, "/tmp/faku-ws-daemon-fail-{s}", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, home);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.fx_probe_started = true;
+    model.setHome(home);
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("feat daemon fail", .fx);
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(project);
+    pickNewWorktree(&model, &fx);
+
+    model.draft_buffer.apply(.{ .insert_text = "do not start yet" });
+    main.update(&model, .send, &fx);
+    try std.testing.expect(model.workspace_prep_active);
+    try std.testing.expect(!model.is_streaming());
+
+    const sidecar = findDaemonWorkspaceSpawn(&fx, model.git_worktree_add_key) orelse return error.MissingDaemonCreateWorktreeFail;
+    try fx.feedExit(sidecar.key, 1);
+    drainEffects(&model, &fx);
+
+    try std.testing.expectEqual(@as(u64, 0), model.git_worktree_add_key);
+    try std.testing.expect(!model.workspace_prep_active);
+    try std.testing.expect(!model.is_streaming());
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
+    try std.testing.expect(isNewWorktree(model.sessionByIdConst(id).?));
+    try std.testing.expectEqualStrings(project, model.selectedProjectPath());
+    try std.testing.expectEqualStrings(git_checkout.worktree_add_failed_status, model.attach_status());
+    try std.testing.expectEqualStrings("do not start yet", model.draft());
+}
+
+test "Send CreateWorktree sidecar with stored baseBranch puts it on the wire" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/ws-send-daemon-base", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var home_buf: [256]u8 = undefined;
+    const home = try std.fmt.bufPrint(&home_buf, "/tmp/faku-ws-daemon-base-{s}", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, home);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.fx_probe_started = true;
+    model.setHome(home);
+    model.setDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("feat daemon base", .fx);
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(project);
+    pickNewWorktree(&model, &fx);
+    model.sessionById(id).?.setWorkspaceBaseBranch("feat");
+
+    model.draft_buffer.apply(.{ .insert_text = "ship with stored base" });
+    main.update(&model, .send, &fx);
+    try std.testing.expect(model.workspace_prep_active);
+    try std.testing.expectEqual(@as(u64, 0), model.git_worktree_base_key);
+    try std.testing.expect(findWorktreeAddSpawn(&fx, model.git_worktree_add_key) == null);
+
+    const sidecar = findDaemonWorkspaceSpawn(&fx, model.git_worktree_add_key) orelse return error.MissingDaemonCreateWorktreeBase;
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"base_branch\":\"feat\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"base_branch\":null") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"prompt\":\"ship with stored base\"") != null);
+
+    try fx.feedLine(sidecar.key, worktree_created_line);
+    drainEffects(&model, &fx);
+    try fx.feedExit(sidecar.key, 0);
+    drainEffects(&model, &fx);
+    const session = model.sessionByIdConst(id).?;
+    try std.testing.expect(isMaterialized(session));
+    try std.testing.expectEqualStrings("", session.workspaceBaseBranch());
+    try std.testing.expectEqualStrings("/tmp/daemon-wt", session.projectPath());
+    try std.testing.expect(model.is_streaming());
+}
+
+test "Send CreateWorktree sidecar exit 0 without worktreeCreated fails closed" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/ws-send-daemon-ack", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var home_buf: [256]u8 = undefined;
+    const home = try std.fmt.bufPrint(&home_buf, "/tmp/faku-ws-daemon-ack-{s}", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, home);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.fx_probe_started = true;
+    model.setHome(home);
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("feat daemon ack", .fx);
+    model.selected = id;
+    model.sessionById(id).?.setProjectPath(project);
+    pickNewWorktree(&model, &fx);
+
+    model.draft_buffer.apply(.{ .insert_text = "need a worktree result" });
+    main.update(&model, .send, &fx);
+    const sidecar = findDaemonWorkspaceSpawn(&fx, model.git_worktree_add_key) orelse return error.MissingDaemonCreateWorktreeAck;
+    try fx.feedLine(sidecar.key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}");
+    drainEffects(&model, &fx);
+    try fx.feedExit(sidecar.key, 0);
+    drainEffects(&model, &fx);
+
+    try std.testing.expect(!model.is_streaming());
+    try std.testing.expect(isNewWorktree(model.sessionByIdConst(id).?));
+    try std.testing.expectEqualStrings(project, model.selectedProjectPath());
+    try std.testing.expectEqualStrings(git_checkout.worktree_add_failed_status, model.attach_status());
 }

@@ -113,14 +113,22 @@
 //! `workspace` is `Command::Workspace { operation }` (`WorkspaceOperation`
 //! tagged `type` camelCase). Verified against egoist/waku
 //! `crates/waku-protocol` `WorkspaceClient::request` (nil `sessionId` and
-//! nil `runtimeId` on the request frame) and `WorkspaceOperation::Push`
-//! `{ "type": "push", "cwd": "<path>" }`. This cut ships Push only.
-//! There is no force flag on daemon Push. An ok outcome is
-//! `ResponsePayload::Workspace { result }` where Push yields
-//! `WorkspaceResult::Ack` — wire `outcome.payload`
+//! nil `runtimeId` on the request frame), `WorkspaceOperation::Push`
+//! `{ "type": "push", "cwd": "<path>" }`, and
+//! `WorkspaceOperation::CreateWorktree`
+//! `{ "type": "createWorktree", "project_path", "project_id",
+//! "session_id", "prompt", "base_branch" }` (snake_case fields;
+//! `base_branch` is a string or JSON null). This cut ships Push and
+//! CreateWorktree. There is no force flag on daemon Push. An ok
+//! outcome is `ResponsePayload::Workspace { result }` where Push
+//! yields `WorkspaceResult::Ack` — wire `outcome.payload`
 //! `{ "type": "workspace", "result": { "type": "ack" } }` (not a bare
-//! `ack`). A non-nil `requestId` is required (nil is a notify). Wait for
-//! a `response` frame (ok or error), not a driver event.
+//! `ack`) — and CreateWorktree yields
+//! `WorkspaceResult::WorktreeCreated` — wire
+//! `result: { "type": "worktreeCreated", "worktree": { "path",
+//! "branch" } }` (not a bare ack). A non-nil `requestId` is required
+//! (nil is a notify). Wait for a `response` frame (ok or error), not a
+//! driver event.
 //!
 //! `attachSession` is a bare command. Verified against egoist/waku
 //! `Command::AttachSession` (unit variant, no payload field),
@@ -315,7 +323,8 @@ pub fn defaultStartOptions() StartOptions {
 /// `fork` command on this wire — session fork is a local catalog clone.
 /// `goal` is the Codex `/goal` first cut (set/clear/refresh over the
 /// daemon sidecar). It is not an fx / ACP method. `workspace` is
-/// first-cut `WorkspaceOperation::Push` only (hello + workspace sidecar).
+/// first-cut `WorkspaceOperation::Push` and `CreateWorktree` (hello +
+/// workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -478,16 +487,34 @@ pub const GoalOperation = union(GoalKind) {
     clear,
 };
 
-/// `WorkspaceOperation` tagged `type` (Waku serde camelCase). First-cut
-/// ships `Push { cwd }` only. No force flag.
-pub const WorkspaceKind = enum { push };
+/// `WorkspaceOperation` tagged `type` (Waku serde camelCase `type`).
+/// First-cut ships `Push { cwd }` and `CreateWorktree` (snake_case
+/// fields; `base_branch` string or JSON null). No force flag.
+pub const WorkspaceKind = enum { push, create_worktree };
 
 pub const WorkspacePush = struct {
     cwd: []const u8,
 };
 
+pub const WorkspaceCreateWorktree = struct {
+    project_path: []const u8,
+    project_id: []const u8,
+    session_id: []const u8,
+    prompt: []const u8,
+    base_branch: ?[]const u8 = null,
+};
+
 pub const WorkspaceOperation = union(WorkspaceKind) {
     push: WorkspacePush,
+    create_worktree: WorkspaceCreateWorktree,
+};
+
+/// Path + branch from an ok `worktreeCreated` workspace result.
+/// Slices alias the JSON arena used to parse the line.
+pub const ParsedWorktreeCreated = struct {
+    ok: bool = false,
+    path: []const u8 = "",
+    branch: []const u8 = "",
 };
 
 /// Runtime id taken from a verified `sessionRuntime` response payload.
@@ -717,9 +744,9 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// Request frame wrapping verified `command: { type: "workspace", operation }`.
 /// Same request-frame shape as `writeGoal`. Waku `WorkspaceClient::request`
 /// uses nil `sessionId` and nil `runtimeId` for workspace RPCs. Callers
-/// for Push pass `NIL_UUID` for those ids. `operation` is
-/// `WorkspaceOperation` tagged `type`. A non-nil `requestId` is required
-/// so the daemon replies (nil is a notify). Timeout 120s.
+/// for Push and CreateWorktree pass `NIL_UUID` for those ids. `operation`
+/// is `WorkspaceOperation` tagged `type`. A non-nil `requestId` is
+/// required so the daemon replies (nil is a notify). Timeout 120s.
 pub fn writeWorkspace(
     buf: []u8,
     request_id: []const u8,
@@ -745,6 +772,23 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
         .push => |args| {
             try cur.write("{\"type\":\"push\",\"cwd\":");
             try writeJsonString(cur, args.cwd);
+            try cur.write("}");
+        },
+        .create_worktree => |args| {
+            try cur.write("{\"type\":\"createWorktree\",\"project_path\":");
+            try writeJsonString(cur, args.project_path);
+            try cur.write(",\"project_id\":");
+            try writeJsonString(cur, args.project_id);
+            try cur.write(",\"session_id\":");
+            try writeJsonString(cur, args.session_id);
+            try cur.write(",\"prompt\":");
+            try writeJsonString(cur, args.prompt);
+            try cur.write(",\"base_branch\":");
+            if (args.base_branch) |base| {
+                try writeJsonString(cur, base);
+            } else {
+                try cur.write("null");
+            }
             try cur.write("}");
         },
     }
@@ -1132,18 +1176,46 @@ pub fn parseSessionRuntime(allocator: std.mem.Allocator, line: []const u8) Parse
 /// `response` carries `payload: { "type": "workspace", "result": { "type": "ack" } }`.
 /// Does not parse the full `WorkspaceResult` union.
 pub fn isWorkspaceAck(allocator: std.mem.Allocator, line: []const u8) bool {
-    const trimmed = std.mem.trim(u8, line, " \t\r\n");
-    if (trimmed.len < 2 or trimmed[0] != '{') return false;
-
-    const root = std.json.parseFromSliceLeaky(std.json.Value, allocator, trimmed, .{}) catch return false;
-    const obj = jsonObject(root) orelse return false;
-    if (!std.mem.eql(u8, jsonStringValue(obj.get("type")) orelse "", "response")) return false;
-    const outcome = jsonObject(obj.get("outcome") orelse return false) orelse return false;
-    if (!std.mem.eql(u8, jsonStringValue(outcome.get("status")) orelse "", "ok")) return false;
-    const payload = jsonObject(outcome.get("payload") orelse return false) orelse return false;
-    if (!std.mem.eql(u8, jsonStringValue(payload.get("type")) orelse "", "workspace")) return false;
-    const result = jsonObject(payload.get("result") orelse return false) orelse return false;
+    const result = workspaceResultObject(allocator, line) orelse return false;
     return std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "ack");
+}
+
+/// Light parser for ok CreateWorktree. True/`ok` when an ok `response`
+/// carries `result: { "type": "worktreeCreated", "worktree": { "path",
+/// "branch" } }` with non-empty path and branch. Slices alias `allocator`.
+pub fn parseWorktreeCreated(allocator: std.mem.Allocator, line: []const u8) ParsedWorktreeCreated {
+    var parsed = ParsedWorktreeCreated{};
+    const result = workspaceResultObject(allocator, line) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "worktreeCreated")) return parsed;
+    const worktree = jsonObject(result.get("worktree") orelse return parsed) orelse return parsed;
+    const path = jsonStringValue(worktree.get("path")) orelse return parsed;
+    const branch = jsonStringValue(worktree.get("branch")) orelse return parsed;
+    if (path.len == 0 or branch.len == 0) return parsed;
+    parsed.ok = true;
+    parsed.path = path;
+    parsed.branch = branch;
+    return parsed;
+}
+
+/// True when the line is an ok workspace Push ack or CreateWorktree
+/// `worktreeCreated` (non-empty path + branch).
+pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
+    if (isWorkspaceAck(allocator, line)) return true;
+    return parseWorktreeCreated(allocator, line).ok;
+}
+
+fn workspaceResultObject(allocator: std.mem.Allocator, line: []const u8) ?std.json.ObjectMap {
+    const trimmed = std.mem.trim(u8, line, " \t\r\n");
+    if (trimmed.len < 2 or trimmed[0] != '{') return null;
+
+    const root = std.json.parseFromSliceLeaky(std.json.Value, allocator, trimmed, .{}) catch return null;
+    const obj = jsonObject(root) orelse return null;
+    if (!std.mem.eql(u8, jsonStringValue(obj.get("type")) orelse "", "response")) return null;
+    const outcome = jsonObject(obj.get("outcome") orelse return null) orelse return null;
+    if (!std.mem.eql(u8, jsonStringValue(outcome.get("status")) orelse "", "ok")) return null;
+    const payload = jsonObject(outcome.get("payload") orelse return null) orelse return null;
+    if (!std.mem.eql(u8, jsonStringValue(payload.get("type")) orelse "", "workspace")) return null;
+    return jsonObject(payload.get("result") orelse return null);
 }
 
 /// A daemon-issued runtime UUID, not empty and not the nil notify id.
@@ -1353,6 +1425,70 @@ test "isWorkspaceAck accepts nested workspace ack and rejects bare ack or error"
     try std.testing.expect(!isWorkspaceAck(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000001\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}"));
     try std.testing.expect(!isWorkspaceAck(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}"));
     try std.testing.expect(!isWorkspaceAck(arena, "{\"type\":\"rejected\",\"message\":\"bad token\"}"));
+    try std.testing.expect(!isWorkspaceAck(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"worktreeCreated\",\"worktree\":{\"path\":\"/tmp/wt\",\"branch\":\"waku/feat\"}}}}}"));
+}
+
+test "workspace request wraps camelCase CreateWorktree with snake_case fields and nil ids" {
+    var buf: [1024]u8 = undefined;
+    const json = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .create_worktree = .{
+            .project_path = "/tmp/faku",
+            .project_id = "00000000-0000-0000-0000-000000000007",
+            .session_id = "00000000-0000-0000-0000-000000000007",
+            .prompt = "ship the worktree cut",
+            .base_branch = "feat",
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"createWorktree\",\"project_path\":\"/tmp/faku\",\"project_id\":\"00000000-0000-0000-0000-000000000007\",\"session_id\":\"00000000-0000-0000-0000-000000000007\",\"prompt\":\"ship the worktree cut\",\"base_branch\":\"feat\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"push\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "projectPath") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "baseBranch") == null);
+
+    const without_base = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .create_worktree = .{
+            .project_path = "/tmp/faku",
+            .project_id = "00000000-0000-0000-0000-000000000007",
+            .session_id = "00000000-0000-0000-0000-000000000007",
+            .prompt = "no base",
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, without_base, "\"base_branch\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, without_base, "\"base_branch\":\"") == null);
+}
+
+test "parseWorktreeCreated extracts path and branch and rejects ack or error" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"worktreeCreated\",\"worktree\":{\"path\":\"/tmp/wt\",\"branch\":\"waku/feat\"}}}}}";
+    const parsed = parseWorktreeCreated(arena, ok_line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqualStrings("/tmp/wt", parsed.path);
+    try std.testing.expectEqualStrings("waku/feat", parsed.branch);
+    try std.testing.expect(isWorkspaceSuccess(arena, ok_line));
+    try std.testing.expect(!isWorkspaceAck(arena, ok_line));
+
+    try std.testing.expect(!parseWorktreeCreated(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
+    try std.testing.expect(!parseWorktreeCreated(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"worktreeCreated\",\"worktree\":{\"path\":\"\",\"branch\":\"waku/feat\"}}}}}").ok);
+    try std.testing.expect(!parseWorktreeCreated(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"worktreeCreated\",\"worktree\":{\"path\":\"/tmp/wt\",\"branch\":\"\"}}}}}").ok);
+    try std.testing.expect(!parseWorktreeCreated(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
+    try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"rejected\",\"message\":\"bad token\"}"));
+    try std.testing.expect(isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}"));
 }
 
 test "start defaults to first-party fx over acp" {

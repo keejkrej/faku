@@ -687,7 +687,8 @@ pub const Model = struct {
     git_worktree_base_picker_open: bool = false,
     /// Runtime-only composer Work in picker. Not persisted.
     workspace_picker_open: bool = false,
-    /// Send-prep while `newWorktree` one-shots `git worktree add`.
+    /// Send-prep while `newWorktree` one-shots `git worktree add`
+    /// (or a daemon CreateWorktree sidecar when an address is set).
     /// Runtime-only; not sessions.json.
     workspace_prep_active: bool = false,
     workspace_prep_session: u32 = 0,

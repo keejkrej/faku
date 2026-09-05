@@ -69,7 +69,9 @@
 //! the card opens; not persisted) is honored by in-dialog Push and
 //! Commit and Push (`--force` its own argv slot). First-cut daemon
 //! `WorkspaceOperation::Push` lives in `git_checkout` when a daemon
-//! address is set (Force stays local git). Not daemon
+//! address is set (Force stays local git). First-cut
+//! `WorkspaceOperation::CreateWorktree` lives on Send prep in
+//! `session_workspace` / `git_checkout`. Not daemon
 //! `WorkspaceOperation::Commit`.
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
