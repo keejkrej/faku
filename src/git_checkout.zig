@@ -129,8 +129,8 @@
 //! `branchChanged` + snake_case `BranchSnapshot`). Native 4 KiB
 //! stdin overflow falls back to today's local `git checkout` /
 //! `git checkout -b`. Remote-tracking `--track` stays local git.
-//! Missing address keeps today's local path. Not daemon
-//! `InspectCommit`.
+//! Missing address keeps today's local path. First-cut daemon
+//! `WorkspaceOperation::InspectCommit` lives in `git_commit`.
 //! Cap is 64 local heads plus 32
 //! remote-tracking names that have no local counterpart (skip
 //! symbolic `*/HEAD`), sorted lexicographically. Not Waku's live
@@ -139,7 +139,7 @@
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
 //! Leftovers: other daemon `WorkspaceOperation` variants
-//! (CaptureTurn, ListTree, InspectCommit, GenerateCommitMessage,
+//! (CaptureTurn, ListTree, GenerateCommitMessage,
 //! CollectReviewDiff, ref ops, remotes-on-daemon-list, amend/force
 //! over daemon, remote `--track` over daemon, …). Fetch
 //! already `--prune`; there is no prune-alone menu (not in Waku).
@@ -183,7 +183,10 @@
 //! `WorkspaceOperation::CheckoutBranch` reuses `next_daemon_key`
 //! assigned onto `git_checkout_key` (`create: false`) or
 //! `git_create_key` (`create: true`) so `handleCheckoutExit` /
-//! `handleCreateExit` still own the flow.
+//! `handleCreateExit` still own the flow. First-cut daemon
+//! `WorkspaceOperation::InspectCommit` lives in `git_commit`
+//! (best-effort sidecar on Commit… open; overflow / error /
+//! unusable snapshot falls back to local numstat).
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -1929,6 +1932,8 @@ fn closeCommitCard(model: *Model) void {
     model.git_commit_numstat_additions = 0;
     model.git_commit_numstat_deletions = 0;
     model.git_commit_numstat_label_len = 0;
+    model.git_commit_numstat_via_daemon = false;
+    model.git_commit_numstat_daemon_ok = false;
     model.git_commit_generate_key = 0;
     model.git_commit_generate_stdout_len = 0;
     model.git_commit_then_push = false;
@@ -1943,6 +1948,8 @@ fn dropCommitSnapshot(model: *Model, fx: *Effects) void {
     model.git_commit_numstat_additions = 0;
     model.git_commit_numstat_deletions = 0;
     model.git_commit_numstat_label_len = 0;
+    model.git_commit_numstat_via_daemon = false;
+    model.git_commit_numstat_daemon_ok = false;
 }
 
 /// Esc / Cancel: close the card and drop an in-flight base probe so a

@@ -139,9 +139,10 @@
 //! daemon `WorkspaceOperation::InspectBranches` ships in
 //! `git_checkout`. First-cut daemon `WorkspaceOperation::CheckoutBranch`
 //! ships in `git_checkout` (picker local-head checkout / New branch
-//! create). Leftovers: other daemon `WorkspaceOperation`
-//! variants (CaptureTurn, ListTree, InspectCommit,
-//! GenerateCommitMessage, CollectReviewDiff, ref ops,
+//! create). First-cut daemon `WorkspaceOperation::InspectCommit`
+//! ships in `git_commit` (Commit… open / include-unstaged re-probe).
+//! Leftovers: other daemon `WorkspaceOperation`
+//! variants (CaptureTurn, ListTree, GenerateCommitMessage, CollectReviewDiff, ref ops,
 //! remotes-on-daemon-list, amend/force over daemon, remote `--track`
 //! over daemon, …).
 

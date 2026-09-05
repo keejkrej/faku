@@ -49,13 +49,14 @@
 //! dismissing the card (in-dialog Pushing…). Empty / whitespace
 //! message is fine.
 //! In-flight generate, add/preflight/commit, or a card-originated
-//! push is a no-op. Opening the card one-shots CommitSnapshot
-//! numstat (include-unstaged on reuses `git_numstat.argvFor`: Unix
+//! push is a no-op. Opening the card prefers hello + daemon
+//! InspectCommit when a daemon address is set, else one-shots local
+//! CommitSnapshot numstat (include-unstaged on reuses `git_numstat.argvFor`: Unix
 //! tracked `git diff --numstat HEAD --` plus untracked text-line
 //! additions; Windows PowerShell untracked `N\t0\tpath` via the same
 //! `argvFor`; index vs HEAD
 //! `--cached` when off). The include-unstaged toggle cancels and
-//! re-probes. Amend
+//! re-probes (daemon prefer applies on re-probe too). Amend
 //! is a runtime-only ghost toggle (default off; reset when the
 //! card opens; not persisted) and does not re-probe. Cancel / Esc /
 //! session-switch drop an in-flight generate/add/preflight/commit,
@@ -76,6 +77,12 @@
 //! in `git_checkout`. First-cut daemon
 //! `WorkspaceOperation::CheckoutBranch` lives on picker local-head
 //! checkout and New branch create in `git_checkout`. First-cut daemon
+//! `WorkspaceOperation::InspectCommit` ships here: best-effort hello
+//! + `{ cwd }` sidecar on Commit… open / include-unstaged re-probe
+//! when a daemon address is set (ok paints the card from
+//! `additions`/`deletions`, or `staged_*` when include-unstaged is
+//! off, and `git_has_staged` / `git_has_unstaged` from the bools).
+//! First-cut daemon
 //! `WorkspaceOperation::Commit` ships here: best-effort hello +
 //! `{ cwd, message, include_unstaged, push }` sidecar when a daemon
 //! address is set and Amend is off (Force + Commit and Push stays
@@ -84,7 +91,7 @@
 //! applies there too. Missing address / stdin overflow / amend /
 //! force+then_push leave today's local add→preflight→commit path.
 //! Leftovers: CaptureTurn / ListTree /
-//! InspectCommit / GenerateCommitMessage / CollectReviewDiff / ref
+//! GenerateCommitMessage / CollectReviewDiff / ref
 //! ops / remotes-on-daemon-list / amend/force over daemon / remote
 //! `--track` over daemon / …
 //!
@@ -115,7 +122,12 @@
 //!
 //! Spawn/line/exit orchestration lives here. Effect keys stay
 //! `git_commit_key_first` (450+), `git_commit_numstat_key_first`
-//! (460+), `git_commit_generate_key_first` (470+).
+//! (460+), `git_commit_generate_key_first` (470+). First-cut daemon
+//! `WorkspaceOperation::InspectCommit` reuses `next_daemon_key`
+//! assigned onto `git_commit_numstat_key` so `applyNumstatLine` /
+//! `handleNumstatExit` still own the probe. First-cut daemon
+//! `WorkspaceOperation::Commit` reuses `next_daemon_key` assigned
+//! onto `git_commit_key` so `handleCommitExit` still owns confirm.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -905,6 +917,8 @@ fn cancelCommitNumstat(model: *Model, fx: *Effects) void {
     if (model.git_commit_numstat_key == 0) return;
     fx.cancel(model.git_commit_numstat_key);
     model.git_commit_numstat_key = 0;
+    model.git_commit_numstat_via_daemon = false;
+    model.git_commit_numstat_daemon_ok = false;
 }
 
 fn commitNumstatStillCurrent(model: *const Model) bool {
@@ -918,7 +932,9 @@ fn commitNumstatStillCurrent(model: *const Model) bool {
 
 /// Cancel any in-flight snapshot probe, drop the label, and spawn
 /// again for the current include-unstaged mode when the Commit… card
-/// is open and cwd exists. Empty / missing skips the spawn so the
+/// is open and cwd exists. Prefers hello + daemon InspectCommit when
+/// a daemon address is set; missing address or stdin overflow keeps
+/// today's local numstat. Empty / missing skips the spawn so the
 /// label stays omitted.
 pub fn refreshCommitNumstat(model: *Model, fx: *Effects) void {
     cancelCommitNumstat(model, fx);
@@ -928,11 +944,53 @@ pub fn refreshCommitNumstat(model: *Model, fx: *Effects) void {
     const cwd = probePath(model);
     if (cwd.len == 0) return;
 
+    model.git_commit_numstat_probe_session = model.selected;
+    writeFixed(&model.git_commit_numstat_probe_path_storage, &model.git_commit_numstat_probe_path_len, cwd);
+    if (trySpawnDaemonInspectCommit(model, fx, cwd)) return;
+    spawnLocalCommitNumstat(model, fx, cwd);
+}
+
+/// Best-effort hello + `WorkspaceOperation::InspectCommit` when a
+/// daemon address is set. Own daemon spawn key assigned to
+/// `git_commit_numstat_key` so `applyNumstatLine` / `handleNumstatExit`
+/// still own the probe. Missing address or Native 4 KiB stdin overflow
+/// returns false and leaves local CommitSnapshot numstat.
+fn trySpawnDaemonInspectCommit(model: *Model, fx: *Effects, cwd: []const u8) bool {
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{ .inspect_commit = .{ .cwd = cwd } },
+    }) catch return false;
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.git_commit_numstat_key = key;
+    model.git_commit_numstat_via_daemon = true;
+    model.git_commit_numstat_daemon_ok = false;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
+fn spawnLocalCommitNumstat(model: *Model, fx: *Effects, cwd: []const u8) void {
     const key = model.next_git_commit_numstat_key;
     model.next_git_commit_numstat_key = key + 1;
     model.git_commit_numstat_key = key;
+    model.git_commit_numstat_via_daemon = false;
+    model.git_commit_numstat_daemon_ok = false;
     model.git_commit_numstat_probe_session = model.selected;
-    writeFixed(&model.git_commit_numstat_probe_path_storage, &model.git_commit_numstat_probe_path_len, cwd);
+    const probed = model.git_commit_numstat_probe_path_storage[0..model.git_commit_numstat_probe_path_len];
+    if (cwd.ptr != probed.ptr) {
+        writeFixed(&model.git_commit_numstat_probe_path_storage, &model.git_commit_numstat_probe_path_len, cwd);
+    }
 
     var argv_buf: [commit_numstat_argv_len][]const u8 = undefined;
     fx.spawn(.{
@@ -953,14 +1011,51 @@ pub fn dropCommitNumstat(model: *Model, fx: *Effects) void {
 pub fn applyNumstatLine(model: *Model, line: native_sdk.EffectLine) void {
     if (line.key != model.git_commit_numstat_key or model.git_commit_numstat_key == 0) return;
     if (!commitNumstatStillCurrent(model)) return;
+    if (model.git_commit_numstat_via_daemon) {
+        applyDaemonCommitSnapshotLine(model, line.line);
+        return;
+    }
     addCommitNumstat(model, git_numstat.sumNumstat(line.line));
 }
 
-pub fn handleNumstatExit(model: *Model, exit: native_sdk.EffectExit) void {
+fn applyDaemonCommitSnapshotLine(model: *Model, raw: []const u8) void {
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseCommitSnapshot(arena_state.allocator(), raw);
+    if (!parsed.ok) return;
+    if (model.git_commit_include_unstaged) {
+        setCommitNumstat(model, parsed.additions, parsed.deletions);
+    } else {
+        setCommitNumstat(model, parsed.staged_additions, parsed.staged_deletions);
+    }
+    model.git_has_staged = parsed.has_staged;
+    model.git_has_unstaged = parsed.has_unstaged;
+    model.git_commit_numstat_daemon_ok = true;
+}
+
+pub fn handleNumstatExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (exit.key != model.git_commit_numstat_key or model.git_commit_numstat_key == 0) return;
     const current = commitNumstatStillCurrent(model);
+    const via_daemon = model.git_commit_numstat_via_daemon;
+    const daemon_ok = model.git_commit_numstat_daemon_ok;
     model.git_commit_numstat_key = 0;
-    if (!current or exit.reason != .exited or exit.code != 0) {
+    model.git_commit_numstat_via_daemon = false;
+    model.git_commit_numstat_daemon_ok = false;
+    if (!current) {
+        clearCommitNumstat(model);
+        return;
+    }
+    if (via_daemon) {
+        if (daemon_ok) return;
+        const cwd = probePath(model);
+        if (cwd.len == 0) {
+            clearCommitNumstat(model);
+            return;
+        }
+        spawnLocalCommitNumstat(model, fx, cwd);
+        return;
+    }
+    if (exit.reason != .exited or exit.code != 0) {
         clearCommitNumstat(model);
     }
 }
@@ -969,6 +1064,8 @@ pub fn closeCommit(model: *Model) void {
     model.git_commit_active = false;
     model.git_commit_buffer.clear();
     model.git_commit_numstat_key = 0;
+    model.git_commit_numstat_via_daemon = false;
+    model.git_commit_numstat_daemon_ok = false;
     model.git_commit_generate_key = 0;
     model.git_commit_generate_stdout_len = 0;
     model.git_commit_then_push = false;
@@ -1056,10 +1153,10 @@ fn activateCommitCard(model: *Model, fx: *Effects) void {
 }
 
 /// Dismiss the select list and other git cards, then open the
-/// runtime-only Commit… card and one-shot CommitSnapshot numstat
-/// for the default include-unstaged mode. Draft message is not
-/// persisted. Resets include-unstaged to on, Amend to off, and
-/// Force to off.
+/// runtime-only Commit… card and prefer hello + daemon InspectCommit
+/// (else local CommitSnapshot numstat) for the default include-unstaged
+/// mode. Draft message is not persisted. Resets include-unstaged to
+/// on, Amend to off, and Force to off.
 /// No-op when gated, a git mutation is in flight, the
 /// session is streaming, or cwd is missing.
 pub fn startCommit(model: *Model, fx: *Effects) void {
@@ -1079,7 +1176,8 @@ pub fn openCommitDialog(model: *Model, fx: *Effects) void {
 }
 
 /// Runtime-only Commit… toggle. Not persisted. Cancels an in-flight
-/// snapshot probe and re-probes for the new include-unstaged mode.
+/// snapshot probe and re-probes for the new include-unstaged mode
+/// (daemon InspectCommit prefer applies on re-probe too).
 /// No-op while a card-originated push is in flight.
 pub fn toggleIncludeUnstaged(model: *Model, fx: *Effects) void {
     if (hasGitCommitPushing(model)) return;
@@ -3139,7 +3237,7 @@ test "commit snapshot label omits zero fail empty and in-flight" {
     try std.testing.expectEqualStrings("+8 −1", gitCommitNumstatLabel(&model));
     try std.testing.expectEqualStrings("+8 −1", model.git_commit_numstat_label());
 
-    handleNumstatExit(&model, .{ .key = key, .reason = .exited, .code = 1 });
+    handleNumstatExit(&model, &fx, .{ .key = key, .reason = .exited, .code = 1 });
     try std.testing.expectEqual(@as(u64, 0), model.git_commit_numstat_key);
     try std.testing.expect(!hasGitCommitNumstat(&model));
     try std.testing.expectEqualStrings("", gitCommitNumstatLabel(&model));
@@ -3147,14 +3245,14 @@ test "commit snapshot label omits zero fail empty and in-flight" {
     refreshCommitNumstat(&model, &fx);
     const key2 = model.git_commit_numstat_key;
     applyNumstatLine(&model, .{ .key = key2, .line = "2\t0\tb.zig\n" });
-    handleNumstatExit(&model, .{ .key = key2, .reason = .exited, .code = 0 });
+    handleNumstatExit(&model, &fx, .{ .key = key2, .reason = .exited, .code = 0 });
     try std.testing.expectEqualStrings("+2 −0", gitCommitNumstatLabel(&model));
 
     refreshCommitNumstat(&model, &fx);
     const key3 = model.git_commit_numstat_key;
     try std.testing.expect(!hasGitCommitNumstat(&model));
     applyNumstatLine(&model, .{ .key = key3, .line = "-\t-\tbin.dat\n" });
-    handleNumstatExit(&model, .{ .key = key3, .reason = .exited, .code = 0 });
+    handleNumstatExit(&model, &fx, .{ .key = key3, .reason = .exited, .code = 0 });
     try std.testing.expect(!hasGitCommitNumstat(&model));
 }
 
@@ -3181,7 +3279,7 @@ test "toggle refreshes commit snapshot probe and cancel clears the label" {
     try std.testing.expect(git_numstat.isGitNumstatArgv(first.argv));
     applyNumstatLine(&model, .{ .key = first.key, .line = "4\t2\ta.zig\n" });
     applyNumstatLine(&model, .{ .key = first.key, .line = "6\t0\tuntracked.txt\n" });
-    handleNumstatExit(&model, .{ .key = first.key, .reason = .exited, .code = 0 });
+    handleNumstatExit(&model, &fx, .{ .key = first.key, .reason = .exited, .code = 0 });
     try std.testing.expectEqualStrings("+10 −2", gitCommitNumstatLabel(&model));
 
     toggleIncludeUnstaged(&model, &fx);
@@ -3192,7 +3290,7 @@ test "toggle refreshes commit snapshot probe and cancel clears the label" {
     try std.testing.expect(second.key != first.key);
     try std.testing.expect(!isGitCommitNumstatWorkingTreeArgv(second.argv));
     applyNumstatLine(&model, .{ .key = second.key, .line = "1\t0\tstaged.zig\n" });
-    handleNumstatExit(&model, .{ .key = second.key, .reason = .exited, .code = 0 });
+    handleNumstatExit(&model, &fx, .{ .key = second.key, .reason = .exited, .code = 0 });
     try std.testing.expectEqualStrings("+1 −0", gitCommitNumstatLabel(&model));
 
     toggleIncludeUnstaged(&model, &fx);
@@ -3208,7 +3306,7 @@ test "toggle refreshes commit snapshot probe and cancel clears the label" {
     try std.testing.expect(!hasGitCommitNumstat(&model));
     try std.testing.expectEqualStrings("", gitCommitNumstatLabel(&model));
     applyNumstatLine(&model, .{ .key = third.key, .line = "99\t99\tlate.zig\n" });
-    handleNumstatExit(&model, .{ .key = third.key, .reason = .exited, .code = 0 });
+    handleNumstatExit(&model, &fx, .{ .key = third.key, .reason = .exited, .code = 0 });
     try std.testing.expect(!hasGitCommitNumstat(&model));
 
     startCommit(&model, &fx);
@@ -4431,7 +4529,7 @@ test "confirmCommitAndPush with Force and a daemon address stays local git" {
     try std.testing.expect(model.git_commit_then_push);
     try std.testing.expect(!model.git_commit_via_daemon);
     try std.testing.expectEqual(GitCommitPhase.add, model.git_commit_phase);
-    try std.testing.expect(findPendingArgv(&fx, &isDaemonWorkspaceCommitArgv) == null);
+    try std.testing.expect(findPendingDaemonCommit(&fx, model.git_commit_key) == null);
     const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
     try std.testing.expect(!isDaemonWorkspaceCommitArgv(add.argv));
     try std.testing.expectEqualStrings("", add.stdin);
@@ -4516,4 +4614,195 @@ test "daemon Commit sidecar non-zero exit fails closed like local commit" {
     try std.testing.expect(!model.git_commit_via_daemon);
     try std.testing.expectEqualStrings(commit_failed_status, model.attach_status());
     try std.testing.expectEqual(@as(u64, 0), model.git_push_key);
+}
+
+const inspect_commit_ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"commitSnapshot\",\"snapshot\":{\"branch\":\"main\",\"additions\":8,\"deletions\":1,\"staged_additions\":3,\"staged_deletions\":0,\"has_staged\":true,\"has_unstaged\":true,\"can_push\":false}}}}}";
+
+test "startCommit with a daemon address spawns InspectCommit sidecar" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-inspect-daemon", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("inspect commit daemon", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 2);
+
+    startCommit(&model, &fx);
+    try std.testing.expect(model.git_commit_active);
+    try std.testing.expect(model.git_commit_numstat_via_daemon);
+    try std.testing.expect(!model.git_commit_numstat_daemon_ok);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitNumstatArgv) == null);
+    const sidecar = findPendingDaemonCommit(&fx, model.git_commit_numstat_key) orelse return error.MissingDaemonInspectCommit;
+    try std.testing.expect(isDaemonWorkspaceCommitArgv(sidecar.argv));
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"inspectCommit\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"cwd\":\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"inspectBranches\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"commit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "force") == null);
+    try std.testing.expect(sidecar.key < git_commit_numstat_key_first);
+}
+
+test "startCommit without a daemon address still uses local numstat" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-inspect-local", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setSidecarPath("faku");
+    const id = model.addSession("inspect commit local", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 2);
+    try std.testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+
+    startCommit(&model, &fx);
+    try std.testing.expect(!model.git_commit_numstat_via_daemon);
+    try std.testing.expectEqual(git_commit_numstat_key_first, model.git_commit_numstat_key);
+    const probe = findPending(&fx, model.git_commit_numstat_key, &isGitCommitNumstatWorkingTreeArgv) orelse return error.MissingLocalCommitNumstat;
+    try std.testing.expect(!isDaemonWorkspaceCommitArgv(probe.argv));
+    try std.testing.expectEqualStrings("", probe.stdin);
+}
+
+test "InspectCommit sidecar paints Commit card from snake_case snapshot" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-inspect-fill", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("inspect commit fill", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+
+    startCommit(&model, &fx);
+    const sidecar = findPendingDaemonCommit(&fx, model.git_commit_numstat_key) orelse return error.MissingDaemonInspectCommitFill;
+    applyNumstatLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"hello\"}" });
+    try std.testing.expect(!hasGitCommitNumstat(&model));
+    try std.testing.expect(!model.git_commit_numstat_daemon_ok);
+    applyNumstatLine(&model, .{
+        .key = sidecar.key,
+        .line = inspect_commit_ok_line,
+    });
+    try std.testing.expect(model.git_commit_numstat_daemon_ok);
+    try std.testing.expectEqualStrings("+8 −1", gitCommitNumstatLabel(&model));
+    try std.testing.expect(model.git_has_staged);
+    try std.testing.expect(model.git_has_unstaged);
+    handleNumstatExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.git_commit_numstat_key);
+    try std.testing.expect(!model.git_commit_numstat_via_daemon);
+    try std.testing.expectEqualStrings("+8 −1", gitCommitNumstatLabel(&model));
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitNumstatArgv) == null);
+}
+
+test "InspectCommit sidecar uses staged counts when include-unstaged is off" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-inspect-staged", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("inspect commit staged", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyStaged(&model, 1);
+
+    startCommit(&model, &fx);
+    const first = findPendingDaemonCommit(&fx, model.git_commit_numstat_key) orelse return error.MissingDaemonInspectCommitToggle;
+    applyNumstatLine(&model, .{ .key = first.key, .line = inspect_commit_ok_line });
+    handleNumstatExit(&model, &fx, .{ .key = first.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqualStrings("+8 −1", gitCommitNumstatLabel(&model));
+
+    toggleIncludeUnstaged(&model, &fx);
+    try std.testing.expect(!model.git_commit_include_unstaged);
+    try std.testing.expect(!hasGitCommitNumstat(&model));
+    try std.testing.expect(model.git_commit_numstat_via_daemon);
+    try std.testing.expect(findPendingArgv(&fx, &isGitCommitNumstatCachedArgv) == null);
+    const second = findPendingDaemonCommit(&fx, model.git_commit_numstat_key) orelse return error.MissingDaemonInspectCommitReprobe;
+    try std.testing.expect(second.key != first.key);
+    try std.testing.expect(std.mem.indexOf(u8, second.stdin, "\"type\":\"inspectCommit\"") != null);
+    applyNumstatLine(&model, .{ .key = second.key, .line = inspect_commit_ok_line });
+    try std.testing.expectEqualStrings("+3 −0", gitCommitNumstatLabel(&model));
+    try std.testing.expect(model.git_has_staged);
+    try std.testing.expect(model.git_has_unstaged);
+    handleNumstatExit(&model, &fx, .{ .key = second.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqualStrings("+3 −0", gitCommitNumstatLabel(&model));
+}
+
+test "InspectCommit sidecar non-zero without a snapshot falls back to local numstat" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-commit-inspect-fallback", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("inspect commit fallback", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    markDirtyUnstaged(&model, 1);
+
+    startCommit(&model, &fx);
+    const sidecar = findPendingDaemonCommit(&fx, model.git_commit_numstat_key) orelse return error.MissingDaemonInspectCommitFallback;
+    applyNumstatLine(&model, .{
+        .key = sidecar.key,
+        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"commitSnapshot\",\"snapshot\":null}}}}",
+    });
+    try std.testing.expect(!model.git_commit_numstat_daemon_ok);
+    handleNumstatExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
+    try std.testing.expect(model.git_commit_active);
+    try std.testing.expect(!model.git_commit_numstat_via_daemon);
+    try std.testing.expect(model.git_commit_numstat_key != sidecar.key);
+    const probe = findPending(&fx, model.git_commit_numstat_key, &isGitCommitNumstatWorkingTreeArgv) orelse return error.MissingLocalNumstatFallback;
+    try std.testing.expect(!isDaemonWorkspaceCommitArgv(probe.argv));
+    try std.testing.expectEqualStrings("", probe.stdin);
 }

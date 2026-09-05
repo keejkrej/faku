@@ -31,9 +31,13 @@
 //! `WorkspaceOperation::CheckoutBranch` ships in `git_checkout`
 //! (best-effort sidecar on picker local-head checkout and New
 //! branch create when a daemon address is set; remote `--track`
-//! stays local git; overflow falls back to local checkout). Leftovers:
+//! stays local git; overflow falls back to local checkout). First-cut
+//! daemon `WorkspaceOperation::InspectCommit` ships in `git_commit`
+//! (best-effort sidecar on Commit… open when a daemon address is
+//! set; overflow / error / unusable snapshot falls back to local
+//! numstat). Leftovers:
 //! other daemon `WorkspaceOperation` variants (CaptureTurn,
-//! ListTree, InspectCommit, GenerateCommitMessage,
+//! ListTree, GenerateCommitMessage,
 //! CollectReviewDiff, ref ops, remotes-on-daemon-list, amend/force
 //! over daemon, remote `--track` over daemon, …). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).
