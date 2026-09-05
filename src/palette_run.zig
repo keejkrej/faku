@@ -23,6 +23,7 @@ const file_mention = @import("file_mention.zig");
 const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const right_panel = @import("right_panel.zig");
+const session_fork = @import("fork.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -116,6 +117,7 @@ pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     git_common_dir.refresh(model, fx);
     file_mention.refresh(model, fx);
     git_checkout.refresh(model, fx);
+    session_fork.cancelDaemonCaptureTurnStart(model, fx);
     model.maybeEnsureSkillsScanned(fx);
     model.pinTranscriptToLatest();
     model.composer_active = true;

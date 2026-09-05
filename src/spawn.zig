@@ -74,7 +74,7 @@ const fx_ask_chdir_script = main.fx_ask_chdir_script;
 
 pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u8) void {
     const session = model.sessionById(session_id) orelse return;
-    session_fork.recordRewindRefIfPossible(model, session.id);
+    session_fork.recordRewindRefIfPossible(model, fx, session.id);
     const titled = session.untitled;
     if (session.untitled) {
         writeFixed(&session.title_storage, &session.title_len, text);
@@ -2462,4 +2462,76 @@ test "grok image attach uses ACP image content block" {
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"image\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"data\":\"cG5n\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"mimeType\":\"image/png\"") != null);
+}
+
+test "startPrompt with last_daemon_address spawns CaptureTurnStart sidecar and still demos" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/send-capture-turn-start", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.fx_probe_started = true;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("send capture", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    startPrompt(&model, &fx, id, "ship the capture cut");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(@as(usize, 1), fx.pendingTimerCount());
+    try testing.expect(model.daemon_capture_turn_start_key != 0);
+    try testing.expect(model.daemon_spawn_key == 0);
+
+    var found = false;
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key != model.daemon_capture_turn_start_key) continue;
+        try testing.expect(daemon_proxy.isSidecarArgv(spawn.argv));
+        try testing.expectEqualStrings("127.0.0.1:8787", spawn.argv[2]);
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureTurnStart\"") != null);
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"prompt\"") == null);
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, project) != null);
+        found = true;
+    }
+    try testing.expect(found);
+}
+
+test "startPrompt without a daemon address does not spawn CaptureTurnStart" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/send-capture-local", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    model.fx_probe_started = true;
+    model.setSidecarPath("faku");
+    const id = model.addSession("send capture local", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    try testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+
+    startPrompt(&model, &fx, id, "no daemon capture");
+    try testing.expectEqual(main.ReplyPath.demo, model.reply_path);
+    try testing.expectEqual(@as(u64, 0), model.daemon_capture_turn_start_key);
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"captureTurnStart\"") == null);
+    }
 }

@@ -5762,7 +5762,14 @@ test "first daemon send maps stored start options when runtime id is empty" {
     main.update(&model, .{ .draft_edit = .{ .insert_text = "boot the provider" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
-    const request = fx.pendingSpawnAt(0).?;
+    try testing.expect(model.daemon_spawn_key != 0);
+    try testing.expect(model.daemon_capture_turn_start_key != 0);
+    const capture = findPendingSpawnKey(&fx, model.daemon_capture_turn_start_key) orelse return error.CaptureTurnStartSpawnMissing;
+    try testing.expect(argvHas(capture.argv, daemon_proxy.SUBCOMMAND));
+    try testing.expect(std.mem.indexOf(u8, capture.stdin, "\"type\":\"captureTurnStart\"") != null);
+    try testing.expect(std.mem.indexOf(u8, capture.stdin, "\"type\":\"prompt\"") == null);
+    try testing.expect(std.mem.indexOf(u8, capture.stdin, "\"type\":\"attachSession\"") == null);
+    const request = findPendingSpawnKey(&fx, model.daemon_spawn_key) orelse return error.DaemonPromptSpawnMissing;
     try testing.expect(argvHas(request.argv, daemon_proxy.SUBCOMMAND));
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"hello\"") != null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"attachSession\"") != null);

@@ -35,8 +35,10 @@
 //! daemon `WorkspaceOperation::InspectCommit` ships in `git_commit`
 //! (best-effort sidecar on Commit… open when a daemon address is
 //! set; overflow / error / unusable snapshot falls back to local
-//! numstat). Leftovers:
-//! other daemon `WorkspaceOperation` variants (CaptureTurn,
+//! numstat). First-cut daemon `WorkspaceOperation::CaptureTurnStart`
+//! ships in `fork` (best-effort Send sidecar after local capture;
+//! Ack; local sha stays canonical). Leftovers:
+//! other daemon `WorkspaceOperation` variants (CaptureTurn (end),
 //! ListTree, GenerateCommitMessage,
 //! CollectReviewDiff, ref ops, remotes-on-daemon-list, amend/force
 //! over daemon, remote `--track` over daemon, …). Fork copies

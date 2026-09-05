@@ -1268,6 +1268,11 @@ pub const Model = struct {
     /// turn key and the catalog-fill key.
     daemon_hydrate_key: u64 = 0,
     daemon_hydrate_session: u32 = 0,
+    /// Best-effort Send-time `WorkspaceOperation::CaptureTurnStart`
+    /// sidecar. Distinct from `daemon_spawn_key` so Ack / failure
+    /// cannot settle a live turn. Local capture already ran.
+    daemon_capture_turn_start_key: u64 = 0,
+    daemon_capture_turn_start_session: u32 = 0,
     fx_spawn_key: u64 = 0,
     next_fx_key: u64 = fx_spawn_overlap_key_first,
     fx_spawn_live: bool = false,
@@ -1803,6 +1808,8 @@ pub const Model = struct {
         "pending_daemon_catalog",
         "daemon_hydrate_key",
         "daemon_hydrate_session",
+        "daemon_capture_turn_start_key",
+        "daemon_capture_turn_start_session",
         "fx_spawn_key",
         "next_fx_key",
         "fx_spawn_live",

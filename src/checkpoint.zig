@@ -44,8 +44,11 @@
 //! clean -fd -- .`, then `git reset --quiet -- .` when HEAD
 //! exists). Sync `std.process.run` like `rewind.captureHead`
 //! — not a Native spawn and not `/bin/sh -c` interpolation.
-//! Leftovers: force, background work, daemon
-//! WorkspaceOperation. Not transcript checkpoint +/-.
+//! First-cut daemon `WorkspaceOperation::CaptureTurnStart` ships
+//! as a best-effort sidecar from `fork.recordRewindRefIfPossible`
+//! (Ack; does not replace this local capture). Leftovers: force,
+//! background work, daemon CaptureTurn (end). Not transcript
+//! checkpoint +/-.
 
 const std = @import("std");
 const rewind = @import("rewind.zig");

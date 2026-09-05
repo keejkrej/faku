@@ -21,6 +21,7 @@ const palette_run = @import("palette_run.zig");
 const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const right_panel = @import("right_panel.zig");
+const session_fork = @import("fork.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -54,6 +55,7 @@ pub fn handleNewSession(model: *Model, fx: *Effects) void {
     git_numstat.refresh(model, fx);
     file_mention.refresh(model, fx);
     git_checkout.refresh(model, fx);
+    session_fork.cancelDaemonCaptureTurnStart(model, fx);
     model.maybeEnsureSkillsScanned(fx);
     model.composer_active = true;
 }
@@ -142,6 +144,7 @@ pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
     git_numstat.refresh(model, fx);
     file_mention.refresh(model, fx);
     git_checkout.refresh(model, fx);
+    session_fork.cancelDaemonCaptureTurnStart(model, fx);
     model.maybeEnsureSkillsScanned(fx);
 }
 
