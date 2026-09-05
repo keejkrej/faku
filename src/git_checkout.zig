@@ -5414,6 +5414,8 @@ test "confirmWorktreeAdd with a daemon address still uses local git worktree add
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
     writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    model.git_branch_list_store[0].set("main", false, false);
+    model.git_branch_list_count = 1;
 
     startWorktreeCreate(&model);
     model.git_worktree_create_buffer.clear();
