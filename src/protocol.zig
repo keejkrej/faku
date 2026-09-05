@@ -127,8 +127,11 @@
 //! `WorkspaceOperation::CheckoutBranch`
 //! `{ "type": "checkoutBranch", "cwd", "branch", "create" }` (bool
 //! JSON true/false; `create: false` is checkout, `create: true` is
-//! create-and-checkout). This cut ships Push, CreateWorktree, Commit,
-//! InspectBranches, and CheckoutBranch.
+//! create-and-checkout), and
+//! `WorkspaceOperation::InspectCommit`
+//! `{ "type": "inspectCommit", "cwd": "<path>" }` (`cwd` stays cwd;
+//! no amend and no force). This cut ships Push, CreateWorktree,
+//! Commit, InspectBranches, CheckoutBranch, and InspectCommit.
 //! There is no force flag on daemon Push. An ok outcome is
 //! `ResponsePayload::Workspace { result }` where Push and Commit
 //! yield `WorkspaceResult::Ack` — wire `outcome.payload`
@@ -140,14 +143,19 @@
 //! `WorkspaceResult::Branches` — wire
 //! `result: { "type": "branches", "snapshot": <BranchSnapshot|null> }`
 //! nested under `outcome.payload` `{ "type": "workspace", "result": … }`
-//! (not a bare branches object) — and CheckoutBranch yields
+//! (not a bare branches object) — CheckoutBranch yields
 //! `WorkspaceResult::BranchChanged` — wire
 //! `result: { "type": "branchChanged", "snapshot": { …BranchSnapshot… } }`
-//! nested under `outcome.payload` (not a bare ack). `BranchSnapshot` /
+//! nested under `outcome.payload` (not a bare ack) — and InspectCommit
+//! yields `WorkspaceResult::CommitSnapshot` — wire
+//! `result: { "type": "commitSnapshot", "snapshot": { … } }` nested
+//! under `outcome.payload` (not a bare ack). `BranchSnapshot` /
 //! `BranchEntry` have no serde rename_all: snake_case `repository`,
 //! `current`, `detached_head`, `default_branch`, `branches`,
 //! `additions`, `deletions`; entries are `name` +
-//! `checked_out_elsewhere`. A
+//! `checked_out_elsewhere`. `CommitSnapshot` has no serde rename_all:
+//! snake_case `branch`, `additions`, `deletions`, `staged_additions`,
+//! `staged_deletions`, `has_staged`, `has_unstaged`, `can_push`. A
 //! non-nil `requestId` is required (nil is a notify). Wait for a
 //! `response` frame (ok or error), not a driver event.
 //!
@@ -345,8 +353,8 @@ pub fn defaultStartOptions() StartOptions {
 /// `goal` is the Codex `/goal` first cut (set/clear/refresh over the
 /// daemon sidecar). It is not an fx / ACP method. `workspace` is
 /// first-cut `WorkspaceOperation::Push`, `CreateWorktree`,
-/// `Commit`, `InspectBranches`, and `CheckoutBranch` (hello +
-/// workspace sidecar).
+/// `Commit`, `InspectBranches`, `CheckoutBranch`, and
+/// `InspectCommit` (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -513,9 +521,10 @@ pub const GoalOperation = union(GoalKind) {
 /// First-cut ships `Push { cwd }`, `CreateWorktree` (snake_case
 /// fields; `base_branch` string or JSON null), `Commit`
 /// `{ cwd, message, include_unstaged, push }`, `InspectBranches
-/// { cwd }`, and `CheckoutBranch { cwd, branch, create }`. No force
-/// flag on Push or Commit. No amend on daemon Commit.
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch };
+/// { cwd }`, `CheckoutBranch { cwd, branch, create }`, and
+/// `InspectCommit { cwd }`. No force flag on Push or Commit. No
+/// amend on daemon Commit or InspectCommit.
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit };
 
 pub const WorkspacePush = struct {
     cwd: []const u8,
@@ -546,12 +555,17 @@ pub const WorkspaceCheckoutBranch = struct {
     create: bool,
 };
 
+pub const WorkspaceInspectCommit = struct {
+    cwd: []const u8,
+};
+
 pub const WorkspaceOperation = union(WorkspaceKind) {
     push: WorkspacePush,
     create_worktree: WorkspaceCreateWorktree,
     commit: WorkspaceCommit,
     inspect_branches: WorkspaceInspectBranches,
     checkout_branch: WorkspaceCheckoutBranch,
+    inspect_commit: WorkspaceInspectCommit,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -581,6 +595,20 @@ pub const ParsedWorktreeCreated = struct {
     ok: bool = false,
     path: []const u8 = "",
     branch: []const u8 = "",
+};
+
+/// Commit card snapshot from an ok `commitSnapshot` workspace result.
+/// Slices alias the JSON arena used to parse the line.
+pub const ParsedCommitSnapshot = struct {
+    ok: bool = false,
+    branch: []const u8 = "",
+    additions: u64 = 0,
+    deletions: u64 = 0,
+    staged_additions: u64 = 0,
+    staged_deletions: u64 = 0,
+    has_staged: bool = false,
+    has_unstaged: bool = false,
+    can_push: bool = false,
 };
 
 /// Runtime id taken from a verified `sessionRuntime` response payload.
@@ -810,8 +838,8 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// Request frame wrapping verified `command: { type: "workspace", operation }`.
 /// Same request-frame shape as `writeGoal`. Waku `WorkspaceClient::request`
 /// uses nil `sessionId` and nil `runtimeId` for workspace RPCs. Callers
-/// for Push, CreateWorktree, Commit, InspectBranches, and
-/// CheckoutBranch pass `NIL_UUID` for those ids.
+/// for Push, CreateWorktree, Commit, InspectBranches,
+/// CheckoutBranch, and InspectCommit pass `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
 /// Timeout 120s.
@@ -882,6 +910,11 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
             try writeJsonString(cur, args.branch);
             try cur.write(",\"create\":");
             try writeBool(cur, args.create);
+            try cur.write("}");
+        },
+        .inspect_commit => |args| {
+            try cur.write("{\"type\":\"inspectCommit\",\"cwd\":");
+            try writeJsonString(cur, args.cwd);
             try cur.write("}");
         },
     }
@@ -1361,15 +1394,50 @@ fn parseWorkspaceSnapshot(allocator: std.mem.Allocator, line: []const u8, result
     return parsed;
 }
 
+/// Light parser for ok InspectCommit. True/`ok` when an ok `response`
+/// carries nested `result: { "type": "commitSnapshot", "snapshot": { … } }`
+/// with every snake_case `CommitSnapshot` field present (`branch`,
+/// `additions`, `deletions`, `staged_additions`, `staged_deletions`,
+/// `has_staged`, `has_unstaged`, `can_push`). Null snapshot, missing
+/// fields, or camelCase staged counts are rejected. Slices alias
+/// `allocator`.
+pub fn parseCommitSnapshot(allocator: std.mem.Allocator, line: []const u8) ParsedCommitSnapshot {
+    var parsed = ParsedCommitSnapshot{};
+    const result = workspaceResultObject(allocator, line) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "commitSnapshot")) return parsed;
+    const snapshot_val = result.get("snapshot") orelse return parsed;
+    const snapshot = jsonObject(snapshot_val) orelse return parsed;
+    const branch = jsonStringValue(snapshot.get("branch")) orelse return parsed;
+    const additions = jsonU64Value(snapshot.get("additions")) orelse return parsed;
+    const deletions = jsonU64Value(snapshot.get("deletions")) orelse return parsed;
+    const staged_additions = jsonU64Value(snapshot.get("staged_additions")) orelse return parsed;
+    const staged_deletions = jsonU64Value(snapshot.get("staged_deletions")) orelse return parsed;
+    const has_staged = jsonBoolValue(snapshot.get("has_staged")) orelse return parsed;
+    const has_unstaged = jsonBoolValue(snapshot.get("has_unstaged")) orelse return parsed;
+    const can_push = jsonBoolValue(snapshot.get("can_push")) orelse return parsed;
+    parsed.ok = true;
+    parsed.branch = branch;
+    parsed.additions = additions;
+    parsed.deletions = deletions;
+    parsed.staged_additions = staged_additions;
+    parsed.staged_deletions = staged_deletions;
+    parsed.has_staged = has_staged;
+    parsed.has_unstaged = has_unstaged;
+    parsed.can_push = can_push;
+    return parsed;
+}
+
 /// True when the line is an ok workspace Push / Commit ack,
 /// CreateWorktree `worktreeCreated` (non-empty path + branch),
-/// InspectBranches `branches` with a usable snapshot, or
-/// CheckoutBranch `branchChanged` with a usable snapshot.
+/// InspectBranches `branches` with a usable snapshot,
+/// CheckoutBranch `branchChanged` with a usable snapshot, or
+/// InspectCommit `commitSnapshot` with a usable snapshot.
 pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (isWorkspaceAck(allocator, line)) return true;
     if (parseWorktreeCreated(allocator, line).ok) return true;
     if (parseBranches(allocator, line).ok) return true;
-    return parseBranchChanged(allocator, line).ok;
+    if (parseBranchChanged(allocator, line).ok) return true;
+    return parseCommitSnapshot(allocator, line).ok;
 }
 
 fn workspaceResultObject(allocator: std.mem.Allocator, line: []const u8) ?std.json.ObjectMap {
@@ -1720,6 +1788,7 @@ test "workspace request wraps camelCase inspectBranches with cwd and nil ids" {
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"commit\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"createWorktree\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"checkoutBranch\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"inspectCommit\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"inspectBranches\"") == null);
 }
@@ -1783,6 +1852,7 @@ test "workspace request wraps camelCase checkoutBranch with cwd, branch, create,
     try std.testing.expect(std.mem.indexOf(u8, checkout, "\"type\":\"push\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, checkout, "\"type\":\"commit\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, checkout, "\"type\":\"createWorktree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, checkout, "\"type\":\"inspectCommit\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, checkout, "\"kind\":\"checkoutBranch\"") == null);
 
     const created = try writeWorkspace(
@@ -1835,6 +1905,81 @@ test "parseBranchChanged extracts snake_case snapshot and rejects branches, ack,
     try std.testing.expect(!parseBranchChanged(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"branches\",\"snapshot\":{\"repository\":\"/tmp/faku\",\"current\":\"feat\",\"detached_head\":null,\"default_branch\":\"main\",\"branches\":[{\"name\":\"feat\",\"checked_out_elsewhere\":false}],\"additions\":0,\"deletions\":0}}}}").ok);
     try std.testing.expect(!parseBranchChanged(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
     try std.testing.expect(!parseBranchChanged(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
+}
+
+test "workspace request wraps camelCase inspectCommit with cwd and nil ids" {
+    var buf: [512]u8 = undefined;
+    const json = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .inspect_commit = .{ .cwd = "/tmp/faku" } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"inspectCommit\",\"cwd\":\"/tmp/faku\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"inspectBranches\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"checkoutBranch\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"push\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"commit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"createWorktree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"inspectCommit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "include_unstaged") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .inspect_commit = .{ .cwd = "/tmp/faku" } },
+    ));
+}
+
+test "parseCommitSnapshot extracts snake_case snapshot and rejects null, missing fields, or camelCase counts" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"commitSnapshot\",\"snapshot\":{\"branch\":\"main\",\"additions\":8,\"deletions\":1,\"staged_additions\":3,\"staged_deletions\":0,\"has_staged\":true,\"has_unstaged\":true,\"can_push\":false}}}}}";
+    const parsed = parseCommitSnapshot(arena, ok_line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqualStrings("main", parsed.branch);
+    try std.testing.expectEqual(@as(u64, 8), parsed.additions);
+    try std.testing.expectEqual(@as(u64, 1), parsed.deletions);
+    try std.testing.expectEqual(@as(u64, 3), parsed.staged_additions);
+    try std.testing.expectEqual(@as(u64, 0), parsed.staged_deletions);
+    try std.testing.expect(parsed.has_staged);
+    try std.testing.expect(parsed.has_unstaged);
+    try std.testing.expect(!parsed.can_push);
+    try std.testing.expect(isWorkspaceSuccess(arena, ok_line));
+    try std.testing.expect(!isWorkspaceAck(arena, ok_line));
+    try std.testing.expect(!parseBranches(arena, ok_line).ok);
+    try std.testing.expect(!parseBranchChanged(arena, ok_line).ok);
+    try std.testing.expect(!parseWorktreeCreated(arena, ok_line).ok);
+
+    const empty_branch = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"commitSnapshot\",\"snapshot\":{\"branch\":\"\",\"additions\":0,\"deletions\":0,\"staged_additions\":0,\"staged_deletions\":0,\"has_staged\":false,\"has_unstaged\":false,\"can_push\":true}}}}}";
+    const empty = parseCommitSnapshot(arena, empty_branch);
+    try std.testing.expect(empty.ok);
+    try std.testing.expectEqualStrings("", empty.branch);
+    try std.testing.expect(empty.can_push);
+    try std.testing.expect(isWorkspaceSuccess(arena, empty_branch));
+
+    try std.testing.expect(!parseCommitSnapshot(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"commitSnapshot\",\"snapshot\":null}}}}").ok);
+    try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"commitSnapshot\",\"snapshot\":null}}}}"));
+    try std.testing.expect(!parseCommitSnapshot(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"commitSnapshot\",\"snapshot\":{\"branch\":\"main\",\"additions\":1,\"deletions\":0,\"staged_additions\":1,\"staged_deletions\":0,\"has_staged\":true,\"has_unstaged\":false,\"can_push\":false}}}}").ok);
+    try std.testing.expect(!parseCommitSnapshot(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"commitSnapshot\",\"snapshot\":{\"branch\":\"main\",\"additions\":1,\"deletions\":0,\"has_staged\":true,\"has_unstaged\":false,\"can_push\":false}}}}}").ok);
+    try std.testing.expect(!parseCommitSnapshot(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"commitSnapshot\",\"snapshot\":{\"branch\":\"main\",\"additions\":1,\"deletions\":0,\"stagedAdditions\":1,\"stagedDeletions\":0,\"hasStaged\":true,\"hasUnstaged\":false,\"canPush\":false}}}}}").ok);
+    try std.testing.expect(!parseCommitSnapshot(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"branches\",\"snapshot\":{\"repository\":\"/tmp/faku\",\"current\":\"main\",\"detached_head\":null,\"default_branch\":\"main\",\"branches\":[{\"name\":\"main\",\"checked_out_elsewhere\":false}],\"additions\":0,\"deletions\":0}}}}").ok);
+    try std.testing.expect(!parseCommitSnapshot(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
+    try std.testing.expect(!parseCommitSnapshot(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
 }
 
 test "start defaults to first-party fx over acp" {

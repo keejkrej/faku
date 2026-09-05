@@ -1001,7 +1001,7 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
         return;
     }
     if (model.git_commit_numstat_key != 0 and exit.key == model.git_commit_numstat_key) {
-        git_commit.handleNumstatExit(model, exit);
+        git_commit.handleNumstatExit(model, fx, exit);
         return;
     }
     if (model.git_commit_generate_key != 0 and exit.key == model.git_commit_generate_key) {

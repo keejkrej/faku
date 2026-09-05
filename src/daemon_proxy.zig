@@ -22,7 +22,8 @@
 //! prints that line, and exits non-zero unless the response is an ok
 //! workspace ack (Push / Commit), `worktreeCreated` (CreateWorktree),
 //! or `branches` with a usable snapshot (InspectBranches), or
-//! `branchChanged` with a usable snapshot (CheckoutBranch).
+//! `branchChanged` with a usable snapshot (CheckoutBranch), or
+//! `commitSnapshot` with a usable snapshot (InspectCommit).
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -361,8 +362,8 @@ pub fn writeGoalStdin(buf: []u8, args: GoalStdin) WriteError![]const u8 {
 }
 
 /// NDJSON stdin for first-cut workspace Push / CreateWorktree / Commit /
-/// InspectBranches / CheckoutBranch. Hello + `workspace` (nil
-/// request-frame `sessionId` / `runtimeId`, command payload
+/// InspectBranches / CheckoutBranch / InspectCommit. Hello + `workspace`
+/// (nil request-frame `sessionId` / `runtimeId`, command payload
 /// `operation`). Own spawn key — Native cannot write into a running
 /// prompt sidecar. No attachSession, no prompt command. Wait for a
 /// `response` frame (ok or error), not a driver event.
@@ -1055,6 +1056,7 @@ test "writeWorkspaceStdin emits hello and workspace inspectBranches without a pr
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"push\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"commit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"inspectCommit\"") == null);
     try std.testing.expect(!outboundWaitsForTurn(stdin));
     try std.testing.expect(outboundWaitsForWorkspace(stdin));
 }
@@ -1075,6 +1077,7 @@ test "writeWorkspaceStdin emits hello and workspace checkoutBranch without a pro
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"inspectBranches\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"inspectCommit\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"push\"") == null);
     try std.testing.expect(!outboundWaitsForTurn(stdin));
     try std.testing.expect(outboundWaitsForWorkspace(stdin));
@@ -1089,6 +1092,36 @@ test "writeWorkspaceStdin emits hello and workspace checkoutBranch without a pro
     var tiny: [32]u8 = undefined;
     try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
         .operation = .{ .checkout_branch = .{ .cwd = "/tmp/faku", .branch = "feat", .create = false } },
+    }));
+}
+
+test "writeWorkspaceStdin emits hello and workspace inspectCommit without a prompt" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{ .inspect_commit = .{ .cwd = "/tmp/faku" } },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ WORKSPACE_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"inspectCommit\",\"cwd\":\"/tmp/faku\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"inspectBranches\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"checkoutBranch\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"push\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"commit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "force") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForWorkspace(stdin));
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
+        .operation = .{ .inspect_commit = .{ .cwd = "/tmp/faku" } },
     }));
 }
 

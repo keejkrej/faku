@@ -226,7 +226,7 @@ Hello is protocol v4. First-cut commands: `loadTaskState`,
 `steer`, `cancel`, `goal`, `workspace`, `closeSession`. Start defaults to provider
 `fx`. fx-first (`fx acp` / `fx ask` / demo) does not use daemon hello.
 First-cut `workspace` ships Push, CreateWorktree, Commit,
-InspectBranches, and CheckoutBranch.
+InspectBranches, CheckoutBranch, and InspectCommit.
 
 Local `sessions.json` remains the catalog of record. Daemon
 `saveTaskState` is a best-effort one-shot mirror. Wire `loadTaskState`
@@ -333,7 +333,13 @@ create (`create: true`) when a daemon address is set (ok is nested
 `branchChanged` + snake_case snapshot; Native 4 KiB stdin overflow
 falls back to local `git checkout` / `git checkout -b`; remote
 `--track` stays local git; no address keeps today's local path).
-New worktree… first-cut
+First-cut daemon `WorkspaceOperation::InspectCommit` ships on
+Commit… open / include-unstaged re-probe when a daemon address is
+set (ok is nested `commitSnapshot` + snake_case snapshot; paints
+the card from `additions`/`deletions` or `staged_*` when
+include-unstaged is off; Native 4 KiB stdin overflow / error /
+unusable snapshot falls back to local numstat; no address keeps
+today's local path). New worktree… first-cut
 Base picker ships (listed unoccupied local heads; runtime-only
 override on the immediate card; Work-in `newWorktree` persists
 camelCase `baseBranch` and keeps `git_worktree_base_override_*`
@@ -343,7 +349,7 @@ mode ships (composer Work in Local / New worktree; optional
 `baseBranch` persist on that draft; Send queues the prompt, one-shots the same `git worktree add` as New worktree… when no daemon address is set,
 retargets `project_path`, then `startPrompt`). Leftovers: other
 daemon `WorkspaceOperation` variants (CaptureTurn, ListTree,
-InspectCommit, GenerateCommitMessage, CollectReviewDiff,
+GenerateCommitMessage, CollectReviewDiff,
 ref ops, remotes-on-daemon-list, amend/force over daemon,
 remote `--track` over daemon, …). Fetch already
 `--prune`; there is no prune-alone menu (not in Waku).
@@ -403,8 +409,9 @@ or a full BackgroundWorkRegistry. Faku-side Monitor and Subagent Stop
 on one-shot `claude -p` ships (live Stop dismisses that live row;
 settled rows offer Dismiss; not Claude TaskStop mid-turn). Not daemon
 `WorkspaceOperation` for Background (first-cut daemon Push,
-CreateWorktree, Commit, InspectBranches, and CheckoutBranch live on
-composer git / Send prep / Commit… / the branch picker). Environment Summary Background is
+CreateWorktree, Commit, InspectBranches, CheckoutBranch, and
+InspectCommit live on composer git / Send prep / Commit… / the
+branch picker). Environment Summary Background is
 Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
 runtime-only multi-row registry. This cut populates Process
 ("Agent turn") from window-side `is_streaming`, plus Stop agent,
@@ -681,7 +688,7 @@ Honest gaps this cut does not implement:
   live reload via mtime/size poll on the update tick. Not a real FS
   watcher / Native watch API)
 - Other daemon `WorkspaceOperation` variants (CaptureTurn, ListTree,
-  InspectCommit, GenerateCommitMessage, CollectReviewDiff,
+  GenerateCommitMessage, CollectReviewDiff,
   BrowseDirectory, ReadTextFile, ref ops, remotes-on-daemon-list,
   amend/force over daemon, remote `--track` over daemon, …). First-cut
   `WorkspaceOperation::Push` ships as a best-effort sidecar when
@@ -704,7 +711,11 @@ Honest gaps this cut does not implement:
   nested `branchChanged` + snake_case snapshot; Native 4 KiB stdin
   overflow falls back to local `git checkout` / `git checkout -b`;
   remote `--track` stays local git; no address keeps today's local
-  path
+  path. First-cut `WorkspaceOperation::InspectCommit` ships on
+  Commit… open / include-unstaged re-probe when a daemon address is
+  set; ok is nested `commitSnapshot` + snake_case snapshot; Native
+  4 KiB stdin overflow / error / unusable snapshot falls back to
+  local numstat; no address keeps today's local path
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size

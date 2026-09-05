@@ -1056,6 +1056,15 @@ pub const Model = struct {
     git_commit_numstat_probe_session: u32 = 0,
     git_commit_numstat_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_commit_numstat_probe_path_len: usize = 0,
+    /// True while the in-flight `git_commit_numstat_key` is a
+    /// daemon-proxy InspectCommit sidecar. Line/exit handlers parse a
+    /// `commitSnapshot` instead of local numstat stdout. Runtime only;
+    /// not persisted.
+    git_commit_numstat_via_daemon: bool = false,
+    /// True after an in-flight InspectCommit sidecar applied a usable
+    /// snapshot. Exit falls back to local numstat when this is false.
+    /// Runtime only; not persisted.
+    git_commit_numstat_daemon_ok: bool = false,
     /// Runtime-only empty-message `fx ask` generate on the Commit…
     /// card. Distinct spawn-key band (470+). Not persisted.
     git_commit_generate_key: u64 = 0,
@@ -1561,6 +1570,8 @@ pub const Model = struct {
         "git_commit_numstat_probe_session",
         "git_commit_numstat_probe_path_storage",
         "git_commit_numstat_probe_path_len",
+        "git_commit_numstat_via_daemon",
+        "git_commit_numstat_daemon_ok",
         "git_commit_generate_key",
         "next_git_commit_generate_key",
         "git_commit_generate_stdout_storage",
