@@ -60,6 +60,7 @@ pub fn handleNewSession(model: *Model, fx: *Effects) void {
     session_fork.cancelDaemonCaptureTurnStart(model, fx);
     session_fork.cancelDaemonCaptureTurn(model, fx);
     session_fork.cancelDaemonCopySessionRefs(model, fx);
+    store.cancelDaemonDeleteSessionRefs(model, fx);
     model.maybeEnsureSkillsScanned(fx);
     model.composer_active = true;
 }
@@ -140,6 +141,7 @@ pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
     model.closeCommands();
     right_panel.clearFilePreview(model);
     environment_summary.clearSettledIfSession(model, id);
+    store.cancelDaemonDeleteSessionRefs(model, fx);
     store.removeIfPossible(model, id, fx);
     store.loadDraftIfPossible(model);
     attach_helpers.refreshAttachPreview(model, fx);
