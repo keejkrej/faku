@@ -1169,6 +1169,18 @@ pub const Model = struct {
     file_mention_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     file_mention_probe_path_len: usize = 0,
     file_mention_probe_is_walk: bool = false,
+    /// True while the in-flight `file_mention_key` is a daemon-proxy
+    /// ListTree sidecar. Line/exit handlers parse a `workingTree`
+    /// instead of git/walk stdout. Runtime only; not persisted.
+    file_mention_via_daemon: bool = false,
+    /// True after an in-flight ListTree sidecar applied a usable
+    /// `workingTree`. Exit falls back to local git when this is false.
+    /// Runtime only; not persisted.
+    file_mention_daemon_ok: bool = false,
+    /// True after the last successful Files fill came from daemon
+    /// ListTree. Expand toggle re-prefers ListTree while this is
+    /// set; local fill keeps filter-only expand. Runtime only.
+    file_mention_last_via_daemon: bool = false,
     /// Runtime-only Branch name-status rows for the Review card.
     /// One-shot `git diff --name-status @{upstream}...HEAD`. Cap 64.
     /// Not persisted to sessions.json.
@@ -1663,6 +1675,9 @@ pub const Model = struct {
         "file_mention_probe_path_storage",
         "file_mention_probe_path_len",
         "file_mention_probe_is_walk",
+        "file_mention_via_daemon",
+        "file_mention_daemon_ok",
+        "file_mention_last_via_daemon",
         "review_diff_source",
         "review_diff_committed_range",
         "review_diff_last_turn_range_storage",
@@ -2368,6 +2383,7 @@ pub const Model = struct {
         var n: usize = 0;
         for (model.file_mention_store[0..model.file_mention_count], 0..) |*item, index| {
             const path = item.text();
+            if (file_mention.isDirSentinel(path)) continue;
             const score = composer.fileMentionScore(path, query);
             if (score == 0) continue;
             scored_buf[n] = .{

@@ -39,14 +39,18 @@
 //! `WorkspaceOperation::GenerateCommitMessage` ships in `git_commit`
 //! (best-effort sidecar on empty-message Commit… generate when a
 //! daemon address is set; overflow / error / empty / parse miss
-//! falls back to local `fx ask`). First-cut daemon `WorkspaceOperation::CaptureTurnStart`
+//! falls back to local `fx ask`). First-cut daemon `WorkspaceOperation::ListTree`
+//! ships in `file_mention` (best-effort sidecar on Files refresh when a
+//! daemon address is set; expand after a daemon fill re-prefers
+//! ListTree; overflow / error / unusable parse falls back to local
+//! git ls-files then walk). First-cut daemon `WorkspaceOperation::CaptureTurnStart`
 //! ships in `fork` (best-effort Send sidecar after local capture;
 //! Ack; local sha stays canonical). First-cut daemon
 //! `WorkspaceOperation::CaptureTurn` ships in `fork` (best-effort
 //! finish sidecar after local end capture; Checkpoint; local end
 //! shas stay canonical). Leftovers:
-//! other daemon `WorkspaceOperation` variants (ListTree,
-//! CollectReviewDiff, ref ops, remotes-on-daemon-list, amend/force
+//! other daemon `WorkspaceOperation` variants (CollectReviewDiff,
+//! BrowseDirectory, ReadTextFile, ref ops, remotes-on-daemon-list, amend/force
 //! over daemon, remote `--track` over daemon, …). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).
 

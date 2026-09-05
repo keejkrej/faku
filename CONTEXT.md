@@ -227,7 +227,7 @@ Hello is protocol v4. First-cut commands: `loadTaskState`,
 `fx`. fx-first (`fx acp` / `fx ask` / demo) does not use daemon hello.
 First-cut `workspace` ships Push, CreateWorktree, Commit,
 InspectBranches, CheckoutBranch, InspectCommit, CaptureTurnStart,
-CaptureTurn, and GenerateCommitMessage.
+CaptureTurn, GenerateCommitMessage, and ListTree.
 
 Local `sessions.json` remains the catalog of record. Daemon
 `saveTaskState` is a best-effort one-shot mirror. Wire `loadTaskState`
@@ -347,6 +347,12 @@ Commit… generate when a daemon address is set (ok is nested
 auto-proceeds; Native 4 KiB stdin overflow / error / empty /
 parse miss falls back to local `fx ask`; no address keeps today's
 local path). First-cut daemon
+`WorkspaceOperation::ListTree` ships on Files refresh when a
+daemon address is set (ok is nested `workingTree` + camelCase
+`WorkingTreeEntry` rows; paints the Files cache from file entries;
+expand after a daemon fill re-prefers ListTree; Native 4 KiB stdin
+overflow / error / unusable parse falls back to local `git ls-files`
+then walk; no address keeps today's local path). First-cut daemon
 `WorkspaceOperation::CaptureTurnStart` ships on Send after local
 `fork.recordRewindRefIfPossible` when a daemon address is set
 (best-effort sidecar; ok is workspace Ack; local
@@ -370,10 +376,9 @@ branch label then omit/HEAD). First-cut defer-until-Send workspace
 mode ships (composer Work in Local / New worktree; optional
 `baseBranch` persist on that draft; Send queues the prompt, one-shots the same `git worktree add` as New worktree… when no daemon address is set,
 retargets `project_path`, then `startPrompt`). Leftovers: other
-daemon `WorkspaceOperation` variants (ListTree,
-CollectReviewDiff,
-ref ops, remotes-on-daemon-list, amend/force over daemon,
-remote `--track` over daemon, …). Fetch already
+daemon `WorkspaceOperation` variants (CollectReviewDiff,
+BrowseDirectory, ReadTextFile, remotes-on-daemon-list, amend/force over daemon,
+remote `--track` over daemon, ref ops, …). Fetch already
 `--prune`; there is no prune-alone menu (not in Waku).
 Windows probes, checkout / push / worktree, and commit mutations (add / cached-quiet / commit /
 amend / CommitSnapshot tracked-cached) use `git.exe -C <project_path>`;
@@ -409,8 +414,10 @@ overflow → empty draft). Background row selection, Files preview content,
 and directory expands stay runtime-only. Files
 lists the same bounded `file_mention` cache used by composer `@`
 mentions (git ls-files, then a bounded walk; Windows `git.exe -C` /
-PowerShell walk with `-Args`; still not Waku's 50k index or a Native
-FS watcher), with a bounded inline preview on file click
+PowerShell walk with `-Args`; first-cut daemon
+`WorkspaceOperation::ListTree` prefers hello + ListTree when a
+daemon address is set and falls back to that local path; still not
+Waku's 50k index or a Native FS watcher), with a bounded inline preview on file click
 (256KB cap, truncated / binary / unreadable honest states; Native
 `<code>` highlighting with `line-numbers`; language is a documented
 lexer name from the path, unknown / Dockerfile / Makefile /
@@ -438,8 +445,8 @@ on one-shot `claude -p` ships (live Stop dismisses that live row;
 settled rows offer Dismiss; not Claude TaskStop mid-turn). Not daemon
 `WorkspaceOperation` for Background (first-cut daemon Push,
 CreateWorktree, Commit, InspectBranches, CheckoutBranch,
-InspectCommit, and GenerateCommitMessage live on composer git / Send prep / Commit… / the
-branch picker; CaptureTurnStart is a best-effort Send sidecar
+InspectCommit, GenerateCommitMessage, and ListTree live on composer git / Send prep / Commit… / the
+branch picker / Files refresh; CaptureTurnStart is a best-effort Send sidecar
 alongside local snapshot capture; CaptureTurn is a best-effort
 finish sidecar after local end capture). Environment Summary Background is
 Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
@@ -717,8 +724,7 @@ Honest gaps this cut does not implement:
   Zig `std.fs` atomic write, Reload discards unsaved edits. First-cut
   live reload via mtime/size poll on the update tick. Not a real FS
   watcher / Native watch API)
-- Other daemon `WorkspaceOperation` variants (ListTree,
-  CollectReviewDiff,
+- Other daemon `WorkspaceOperation` variants (CollectReviewDiff,
   BrowseDirectory, ReadTextFile, ref ops, remotes-on-daemon-list,
   amend/force over daemon, remote `--track` over daemon, …). First-cut
   `WorkspaceOperation::Push` ships as a best-effort sidecar when
@@ -751,6 +757,12 @@ Honest gaps this cut does not implement:
   `commitMessage` + `message`; Native 4 KiB stdin overflow / error /
   empty / parse miss falls back to local `fx ask`; no address keeps
   today's local path. First-cut
+  `WorkspaceOperation::ListTree` ships on Files refresh when a
+  daemon address is set; ok is nested `workingTree` + camelCase
+  `WorkingTreeEntry` rows; paints the Files cache from file entries;
+  expand after a daemon fill re-prefers ListTree; Native 4 KiB stdin
+  overflow / error / unusable parse falls back to local `git
+  ls-files` then walk; no address keeps today's local path. First-cut
   `WorkspaceOperation::CaptureTurnStart` ships on Send after local
   capture when a daemon address is set; ok is workspace Ack; local
   `worktree_snapshot_sha` / `refs/faku/...` stay canonical; Native

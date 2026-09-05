@@ -30,8 +30,14 @@
 //! settled Monitor / Subagent stay in the runtime registry after the
 //! turn (status from Process settle; Monitor / Subagent last-window kept;
 //! Faku-side Dismiss, not Claude TaskStop / daemon
-//! `refreshBackgroundWork`; not live after `-p` exits). Not daemon
-//! `WorkspaceOperation::listTree` / browseDirectory / readTextFile.
+//! `refreshBackgroundWork`; not live after `-p` exits). First-cut
+//! daemon `WorkspaceOperation::ListTree` ships on Files refresh
+//! when a daemon address is set (ok paints the file cache from
+//! `workingTree` file entries; expand after a daemon fill re-probes
+//! ListTree; Native 4 KiB stdin overflow / error / unusable parse
+//! falls back to local git ls-files then walk; no address keeps
+//! today's local path). Not daemon
+//! `WorkspaceOperation::browseDirectory` / readTextFile.
 //! Not Waku's 50k-file index (cap 256). Windows probes the same
 //! cache (`git.exe -C` then a PowerShell walk; still not Waku's
 //! 50k index or a Native FS watcher).
@@ -400,6 +406,7 @@ pub fn rows(model: *const Model, arena: std.mem.Allocator) []const RightPanelFil
     var file_i: usize = 0;
     while (file_i < file_n) : (file_i += 1) {
         const path = file_mention.cachedPath(model, file_i);
+        if (file_mention.isDirSentinel(path)) continue;
         if (!ancestorsExpanded(path, expanded)) continue;
         const file_id = file_mention.fileMentionId(file_i);
         out[n] = makeRow(path, file_id, true, false, model.right_panel_file_preview_id == file_id);
@@ -437,7 +444,10 @@ fn makeRow(path: []const u8, id: u32, is_file: bool, expanded: bool, selected: b
 
 /// Toggle a derived-dir id in the runtime expanded set. File ids and
 /// missing dir ids are no-ops. Cap is `max_file_mention_dirs`.
-pub fn toggleDir(model: *Model, id: u32) void {
+/// When the last Files fill was daemon ListTree, re-prefers hello +
+/// ListTree with the updated expand set (daemon does not return
+/// children of collapsed dirs). Local fill stays filter-only.
+pub fn toggleDir(model: *Model, fx: *Effects, id: u32) void {
     if (id < file_mention.file_mention_dir_id_base) return;
     var rel_buf: [file_mention.max_file_mention_path + 1]u8 = undefined;
     const rel = file_mention.mentionRelpath(model, id, &rel_buf) orelse return;
@@ -445,11 +455,13 @@ pub fn toggleDir(model: *Model, id: u32) void {
     if (key.len == 0) return;
     if (indexOfExpanded(model, key)) |index| {
         removeExpandedAt(model, index);
+        file_mention.refreshAfterExpand(model, fx);
         return;
     }
     if (model.right_panel_expanded_count >= file_mention.max_file_mention_dirs) return;
     model.right_panel_expanded_store[model.right_panel_expanded_count].set(key);
     model.right_panel_expanded_count += 1;
+    file_mention.refreshAfterExpand(model, fx);
 }
 
 fn indexOfExpanded(model: *const Model, key: []const u8) ?usize {
@@ -1288,6 +1300,10 @@ test "collapsed default, expand shows children, collapse hides descendants" {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     var project_buf: [256]u8 = undefined;
@@ -1327,7 +1343,7 @@ test "collapsed default, expand shows children, collapse hides descendants" {
         try std.testing.expectEqual(@as(u32, 0), visible[1].depth);
     }
 
-    toggleDir(&model, src_id);
+    toggleDir(&model, &fx, src_id);
     try std.testing.expect(isDirExpanded(&model, "src/"));
     {
         const visible = rows(&model, arena);
@@ -1346,7 +1362,7 @@ test "collapsed default, expand shows children, collapse hides descendants" {
         try std.testing.expect(!visible[3].expanded);
     }
 
-    toggleDir(&model, src_lib_id);
+    toggleDir(&model, &fx, src_lib_id);
     {
         const visible = rows(&model, arena);
         try std.testing.expectEqual(@as(usize, 5), visible.len);
@@ -1355,7 +1371,7 @@ test "collapsed default, expand shows children, collapse hides descendants" {
         try std.testing.expectEqualStrings("src/main.zig", visible[4].path);
     }
 
-    toggleDir(&model, src_id);
+    toggleDir(&model, &fx, src_id);
     try std.testing.expect(!isDirExpanded(&model, "src/"));
     {
         const visible = rows(&model, arena);
@@ -1365,14 +1381,11 @@ test "collapsed default, expand shows children, collapse hides descendants" {
         try std.testing.expect(isDirExpanded(&model, "src/lib/"));
     }
 
-    toggleDir(&model, 0);
-    toggleDir(&model, 1);
-    toggleDir(&model, file_mention.dirMentionId(99));
+    toggleDir(&model, &fx, 0);
+    toggleDir(&model, &fx, 1);
+    toggleDir(&model, &fx, file_mention.dirMentionId(99));
     try std.testing.expectEqual(@as(u32, 1), model.right_panel_expanded_count);
 
-    var fx = Effects.init(std.testing.allocator);
-    defer fx.deinit();
-    fx.executor = .fake;
     openCachedFile(&model, &fx, src_id);
     try std.testing.expect(fx.pendingSpawnAt(0) == null);
     openCachedFile(&model, &fx, 1);
@@ -1386,7 +1399,7 @@ test "collapsed default, expand shows children, collapse hides descendants" {
     model.showRightPanel();
     try std.testing.expectEqual(@as(usize, 2), rows(&model, arena).len);
 
-    toggleDir(&model, src_id);
+    toggleDir(&model, &fx, src_id);
     try std.testing.expectEqual(@as(u32, 1), model.right_panel_expanded_count);
     file_mention.clearCache(&model);
     try std.testing.expectEqual(@as(u32, 0), model.right_panel_expanded_count);
