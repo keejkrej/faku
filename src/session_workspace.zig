@@ -23,9 +23,15 @@
 //! Force stays local git). First-cut daemon
 //! `WorkspaceOperation::Commit` ships in `git_commit` (best-effort
 //! sidecar when a daemon address is set; Amend and Force+Commit and
-//! Push stay local git). Leftovers: other daemon
-//! `WorkspaceOperation` variants (InspectBranches, CaptureTurn,
-//! ListTree, …). Fork copies
+//! Push stay local git). First-cut daemon
+//! `WorkspaceOperation::InspectBranches` ships in `git_checkout`
+//! (best-effort sidecar when a daemon address is set; local heads
+//! only; remotes-on-daemon-list leftover; falls back to local
+//! `for-each-ref`). Leftovers: other daemon
+//! `WorkspaceOperation` variants (CheckoutBranch, CaptureTurn,
+//! ListTree, InspectCommit, GenerateCommitMessage,
+//! CollectReviewDiff, ref ops, remotes-on-daemon-list, amend/force
+//! over daemon, …). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).
 
 const std = @import("std");
