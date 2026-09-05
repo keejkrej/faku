@@ -4448,7 +4448,7 @@ test "confirmCommitAndPush with a daemon address sets push true and skips follow
     const id = model.addSession("commit daemon push", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
-    markDirtyUnstaged(&model, 2);
+    markDirtyStaged(&model, 2);
     markFirstPushRemotesOk(&model);
 
     startCommit(&model, &fx);
