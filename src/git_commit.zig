@@ -4529,7 +4529,7 @@ test "confirmCommitAndPush with Force and a daemon address stays local git" {
     try std.testing.expect(model.git_commit_then_push);
     try std.testing.expect(!model.git_commit_via_daemon);
     try std.testing.expectEqual(GitCommitPhase.add, model.git_commit_phase);
-    try std.testing.expect(findPendingArgv(&fx, &isDaemonWorkspaceCommitArgv) == null);
+    try std.testing.expect(findPendingDaemonCommit(&fx, model.git_commit_key) == null);
     const add = findPending(&fx, model.git_commit_key, &isGitCommitAddArgv) orelse return error.MissingGitAddSpawn;
     try std.testing.expect(!isDaemonWorkspaceCommitArgv(add.argv));
     try std.testing.expectEqualStrings("", add.stdin);
