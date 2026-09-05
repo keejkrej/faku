@@ -1066,11 +1066,22 @@ pub const Model = struct {
     /// Runtime only; not persisted.
     git_commit_numstat_daemon_ok: bool = false,
     /// Runtime-only empty-message `fx ask` generate on the Commit…
-    /// card. Distinct spawn-key band (470+). Not persisted.
+    /// card. Distinct spawn-key band (470+). Not persisted. First-cut
+    /// daemon `WorkspaceOperation::GenerateCommitMessage` reuses
+    /// `next_daemon_key` assigned onto this field.
     git_commit_generate_key: u64 = 0,
     next_git_commit_generate_key: u64 = git_commit_mod.git_commit_generate_key_first,
     git_commit_generate_stdout_storage: [git_commit_mod.max_generate_stdout]u8 = [_]u8{0} ** git_commit_mod.max_generate_stdout,
     git_commit_generate_stdout_len: usize = 0,
+    /// True while the in-flight `git_commit_generate_key` is a
+    /// daemon-proxy GenerateCommitMessage sidecar. Line/exit handlers
+    /// parse a `commitMessage` instead of `fx ask --json` stdout.
+    /// Runtime only; not persisted.
+    git_commit_generate_via_daemon: bool = false,
+    /// True after an in-flight GenerateCommitMessage sidecar applied a
+    /// usable `commitMessage`. Exit falls back to local `fx ask` when
+    /// this is false. Runtime only; not persisted.
+    git_commit_generate_daemon_ok: bool = false,
     git_branch_delete_storage: [git_branch.max_git_branch]u8 = [_]u8{0} ** git_branch.max_git_branch,
     git_branch_delete_len: usize = 0,
     /// Runtime-only composer dirty count. One-shot `git status
@@ -1587,6 +1598,8 @@ pub const Model = struct {
         "next_git_commit_generate_key",
         "git_commit_generate_stdout_storage",
         "git_commit_generate_stdout_len",
+        "git_commit_generate_via_daemon",
+        "git_commit_generate_daemon_ok",
         "git_has_staged",
         "git_has_unstaged",
         "git_branch_delete_storage",

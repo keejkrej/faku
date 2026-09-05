@@ -131,6 +131,8 @@
 //! `git checkout -b`. Remote-tracking `--track` stays local git.
 //! Missing address keeps today's local path. First-cut daemon
 //! `WorkspaceOperation::InspectCommit` lives in `git_commit`.
+//! First-cut daemon `WorkspaceOperation::GenerateCommitMessage`
+//! lives in `git_commit`.
 //! Cap is 64 local heads plus 32
 //! remote-tracking names that have no local counterpart (skip
 //! symbolic `*/HEAD`), sorted lexicographically. Not Waku's live
@@ -139,7 +141,7 @@
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
 //! Leftovers: other daemon `WorkspaceOperation` variants
-//! (ListTree, GenerateCommitMessage,
+//! (ListTree,
 //! CollectReviewDiff, ref ops, remotes-on-daemon-list, amend/force
 //! over daemon, remote `--track` over daemon, …). Fetch
 //! already `--prune`; there is no prune-alone menu (not in Waku).
@@ -187,6 +189,9 @@
 //! `WorkspaceOperation::InspectCommit` lives in `git_commit`
 //! (best-effort sidecar on Commit… open; overflow / error /
 //! unusable snapshot falls back to local numstat). First-cut daemon
+//! `WorkspaceOperation::GenerateCommitMessage` lives in `git_commit`
+//! (best-effort sidecar on empty-message Commit… generate; overflow /
+//! error / empty / parse miss falls back to local `fx ask`). First-cut daemon
 //! `WorkspaceOperation::CaptureTurnStart` lives in `fork` (best-effort
 //! Send sidecar after local capture; Ack; local sha stays canonical).
 //! First-cut daemon `WorkspaceOperation::CaptureTurn` lives in `fork`

@@ -227,7 +227,7 @@ Hello is protocol v4. First-cut commands: `loadTaskState`,
 `fx`. fx-first (`fx acp` / `fx ask` / demo) does not use daemon hello.
 First-cut `workspace` ships Push, CreateWorktree, Commit,
 InspectBranches, CheckoutBranch, InspectCommit, CaptureTurnStart,
-and CaptureTurn.
+CaptureTurn, and GenerateCommitMessage.
 
 Local `sessions.json` remains the catalog of record. Daemon
 `saveTaskState` is a best-effort one-shot mirror. Wire `loadTaskState`
@@ -341,6 +341,12 @@ the card from `additions`/`deletions` or `staged_*` when
 include-unstaged is off; Native 4 KiB stdin overflow / error /
 unusable snapshot falls back to local numstat; no address keeps
 today's local path). First-cut daemon
+`WorkspaceOperation::GenerateCommitMessage` ships on empty-message
+Commit… generate when a daemon address is set (ok is nested
+`commitMessage` + `message`; fills the normalized subject then
+auto-proceeds; Native 4 KiB stdin overflow / error / empty /
+parse miss falls back to local `fx ask`; no address keeps today's
+local path). First-cut daemon
 `WorkspaceOperation::CaptureTurnStart` ships on Send after local
 `fork.recordRewindRefIfPossible` when a daemon address is set
 (best-effort sidecar; ok is workspace Ack; local
@@ -365,7 +371,7 @@ mode ships (composer Work in Local / New worktree; optional
 `baseBranch` persist on that draft; Send queues the prompt, one-shots the same `git worktree add` as New worktree… when no daemon address is set,
 retargets `project_path`, then `startPrompt`). Leftovers: other
 daemon `WorkspaceOperation` variants (ListTree,
-GenerateCommitMessage, CollectReviewDiff,
+CollectReviewDiff,
 ref ops, remotes-on-daemon-list, amend/force over daemon,
 remote `--track` over daemon, …). Fetch already
 `--prune`; there is no prune-alone menu (not in Waku).
@@ -431,8 +437,8 @@ or a full BackgroundWorkRegistry. Faku-side Monitor and Subagent Stop
 on one-shot `claude -p` ships (live Stop dismisses that live row;
 settled rows offer Dismiss; not Claude TaskStop mid-turn). Not daemon
 `WorkspaceOperation` for Background (first-cut daemon Push,
-CreateWorktree, Commit, InspectBranches, CheckoutBranch, and
-InspectCommit live on composer git / Send prep / Commit… / the
+CreateWorktree, Commit, InspectBranches, CheckoutBranch,
+InspectCommit, and GenerateCommitMessage live on composer git / Send prep / Commit… / the
 branch picker; CaptureTurnStart is a best-effort Send sidecar
 alongside local snapshot capture; CaptureTurn is a best-effort
 finish sidecar after local end capture). Environment Summary Background is
@@ -712,7 +718,7 @@ Honest gaps this cut does not implement:
   live reload via mtime/size poll on the update tick. Not a real FS
   watcher / Native watch API)
 - Other daemon `WorkspaceOperation` variants (ListTree,
-  GenerateCommitMessage, CollectReviewDiff,
+  CollectReviewDiff,
   BrowseDirectory, ReadTextFile, ref ops, remotes-on-daemon-list,
   amend/force over daemon, remote `--track` over daemon, …). First-cut
   `WorkspaceOperation::Push` ships as a best-effort sidecar when
@@ -740,6 +746,11 @@ Honest gaps this cut does not implement:
   set; ok is nested `commitSnapshot` + snake_case snapshot; Native
   4 KiB stdin overflow / error / unusable snapshot falls back to
   local numstat; no address keeps today's local path. First-cut
+  `WorkspaceOperation::GenerateCommitMessage` ships on empty-message
+  Commit… generate when a daemon address is set; ok is nested
+  `commitMessage` + `message`; Native 4 KiB stdin overflow / error /
+  empty / parse miss falls back to local `fx ask`; no address keeps
+  today's local path. First-cut
   `WorkspaceOperation::CaptureTurnStart` ships on Send after local
   capture when a daemon address is set; ok is workspace Ack; local
   `worktree_snapshot_sha` / `refs/faku/...` stay canonical; Native

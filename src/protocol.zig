@@ -136,9 +136,16 @@
 //! (camelCase fields; `turnCount` is a JSON number), and
 //! `WorkspaceOperation::CaptureTurn`
 //! `{ "type": "captureTurn", "cwd", "sessionId", "turnCount" }`
-//! (same camelCase fields as CaptureTurnStart). This cut ships
-//! Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
-//! InspectCommit, CaptureTurnStart, and CaptureTurn.
+//! (same camelCase fields as CaptureTurnStart), and
+//! `WorkspaceOperation::GenerateCommitMessage`
+//! `{ "type": "generateCommitMessage", "cwd", "includeUnstaged",
+//! "invocation": { "provider", "binary", "model", "reasoning_effort" } }`
+//! (camelCase op tag + `includeUnstaged`; AgentInvocation keys stay
+//! `provider` / `binary` / `model` / snake_case `reasoning_effort`;
+//! `model` and `reasoning_effort` are a string or JSON null). This cut
+//! ships Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
+//! InspectCommit, CaptureTurnStart, CaptureTurn, and
+//! GenerateCommitMessage.
 //! There is no force flag on daemon Push. An ok outcome is
 //! `ResponsePayload::Workspace { result }` where Push, Commit, and
 //! CaptureTurnStart yield `WorkspaceResult::Ack` — wire `outcome.payload`
@@ -156,10 +163,13 @@
 //! nested under `outcome.payload` (not a bare ack) — InspectCommit
 //! yields `WorkspaceResult::CommitSnapshot` — wire
 //! `result: { "type": "commitSnapshot", "snapshot": { … } }` nested
-//! under `outcome.payload` (not a bare ack) — and CaptureTurn yields
+//! under `outcome.payload` (not a bare ack) — CaptureTurn yields
 //! `WorkspaceResult::Checkpoint` — wire
 //! `result: { "type": "checkpoint", "checkpoint": { … } }` nested
-//! under `outcome.payload` (not a bare checkpoint object; not Ack).
+//! under `outcome.payload` (not a bare checkpoint object; not Ack) —
+//! and GenerateCommitMessage yields `WorkspaceResult::CommitMessage`
+//! — wire `result: { "type": "commitMessage", "message" }` nested
+//! under `outcome.payload` (not a bare ack).
 //! `BranchSnapshot` /
 //! `BranchEntry` have no serde rename_all: snake_case `repository`,
 //! `current`, `detached_head`, `default_branch`, `branches`,
@@ -369,7 +379,8 @@ pub fn defaultStartOptions() StartOptions {
 /// daemon sidecar). It is not an fx / ACP method. `workspace` is
 /// first-cut `WorkspaceOperation::Push`, `CreateWorktree`,
 /// `Commit`, `InspectBranches`, `CheckoutBranch`,
-/// `InspectCommit`, `CaptureTurnStart`, and `CaptureTurn`
+/// `InspectCommit`, `CaptureTurnStart`, `CaptureTurn`, and
+/// `GenerateCommitMessage`
 /// (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
@@ -539,11 +550,24 @@ pub const GoalOperation = union(GoalKind) {
 /// `{ cwd, message, include_unstaged, push }`, `InspectBranches
 /// { cwd }`, `CheckoutBranch { cwd, branch, create }`,
 /// `InspectCommit { cwd }`, `CaptureTurnStart
-/// { cwd, session_id, turn_count }`, and `CaptureTurn
+/// { cwd, session_id, turn_count }`, `CaptureTurn
 /// { cwd, session_id, turn_count }` (camelCase `sessionId` /
-/// `turnCount` on the wire). No force flag on Push or Commit. No
+/// `turnCount` on the wire), and `GenerateCommitMessage
+/// { cwd, include_unstaged, invocation }` (camelCase
+/// `includeUnstaged`; AgentInvocation `reasoning_effort` stays
+/// snake_case). No force flag on Push or Commit. No
 /// amend on daemon Commit or InspectCommit.
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn };
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message };
+
+/// Waku `AgentInvocation`. Wire keys match generated TS:
+/// `provider`, `binary`, `model`, `reasoning_effort` (snake_case
+/// effort; `model` / `reasoning_effort` string or JSON null).
+pub const AgentInvocation = struct {
+    provider: []const u8,
+    binary: []const u8,
+    model: ?[]const u8 = null,
+    reasoning_effort: ?[]const u8 = null,
+};
 
 pub const WorkspacePush = struct {
     cwd: []const u8,
@@ -590,6 +614,12 @@ pub const WorkspaceCaptureTurn = struct {
     turn_count: u32,
 };
 
+pub const WorkspaceGenerateCommitMessage = struct {
+    cwd: []const u8,
+    include_unstaged: bool,
+    invocation: AgentInvocation,
+};
+
 pub const WorkspaceOperation = union(WorkspaceKind) {
     push: WorkspacePush,
     create_worktree: WorkspaceCreateWorktree,
@@ -599,6 +629,7 @@ pub const WorkspaceOperation = union(WorkspaceKind) {
     inspect_commit: WorkspaceInspectCommit,
     capture_turn_start: WorkspaceCaptureTurnStart,
     capture_turn: WorkspaceCaptureTurn,
+    generate_commit_message: WorkspaceGenerateCommitMessage,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -642,6 +673,14 @@ pub const ParsedCommitSnapshot = struct {
     has_staged: bool = false,
     has_unstaged: bool = false,
     can_push: bool = false,
+};
+
+/// Subject from an ok `commitMessage` workspace result. Slices alias
+/// the JSON arena used to parse the line. Empty `message` still
+/// sets `ok` when the field is a JSON string.
+pub const ParsedCommitMessage = struct {
+    ok: bool = false,
+    message: []const u8 = "",
 };
 
 /// Runtime id taken from a verified `sessionRuntime` response payload.
@@ -872,7 +911,8 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// Same request-frame shape as `writeGoal`. Waku `WorkspaceClient::request`
 /// uses nil `sessionId` and nil `runtimeId` for workspace RPCs. Callers
 /// for Push, CreateWorktree, Commit, InspectBranches,
-/// CheckoutBranch, InspectCommit, CaptureTurnStart, and CaptureTurn pass
+/// CheckoutBranch, InspectCommit, CaptureTurnStart, CaptureTurn,
+/// and GenerateCommitMessage pass
 /// `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
@@ -968,6 +1008,29 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
             try cur.write(",\"turnCount\":");
             try writeUint(cur, args.turn_count);
             try cur.write("}");
+        },
+        .generate_commit_message => |args| {
+            try cur.write("{\"type\":\"generateCommitMessage\",\"cwd\":");
+            try writeJsonString(cur, args.cwd);
+            try cur.write(",\"includeUnstaged\":");
+            try writeBool(cur, args.include_unstaged);
+            try cur.write(",\"invocation\":{\"provider\":");
+            try writeJsonString(cur, args.invocation.provider);
+            try cur.write(",\"binary\":");
+            try writeJsonString(cur, args.invocation.binary);
+            try cur.write(",\"model\":");
+            if (args.invocation.model) |model| {
+                try writeJsonString(cur, model);
+            } else {
+                try cur.write("null");
+            }
+            try cur.write(",\"reasoning_effort\":");
+            if (args.invocation.reasoning_effort) |effort| {
+                try writeJsonString(cur, effort);
+            } else {
+                try cur.write("null");
+            }
+            try cur.write("}}");
         },
     }
 }
@@ -1479,6 +1542,20 @@ pub fn parseCommitSnapshot(allocator: std.mem.Allocator, line: []const u8) Parse
     return parsed;
 }
 
+/// Light parser for ok GenerateCommitMessage. True/`ok` when an ok
+/// `response` carries nested `result: { "type": "commitMessage",
+/// "message": "<string>" }`. Ack, missing `message`, or a non-string
+/// value are ignored. Slices alias `allocator`.
+pub fn parseCommitMessage(allocator: std.mem.Allocator, line: []const u8) ParsedCommitMessage {
+    var parsed = ParsedCommitMessage{};
+    const result = workspaceResultObject(allocator, line) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "commitMessage")) return parsed;
+    const message = jsonStringValue(result.get("message")) orelse return parsed;
+    parsed.ok = true;
+    parsed.message = message;
+    return parsed;
+}
+
 /// Light ok-checkpoint check for first-cut workspace CaptureTurn.
 /// True when an ok `response` carries nested
 /// `result: { "type": "checkpoint", "checkpoint": { … } }`.
@@ -1495,6 +1572,7 @@ pub fn isWorkspaceCheckpoint(allocator: std.mem.Allocator, line: []const u8) boo
 /// (non-empty path + branch), InspectBranches `branches` with a
 /// usable snapshot, CheckoutBranch `branchChanged` with a usable
 /// snapshot, InspectCommit `commitSnapshot` with a usable snapshot,
+/// GenerateCommitMessage `commitMessage` with a string `message`,
 /// or CaptureTurn `checkpoint` with a nested checkpoint object.
 pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (isWorkspaceAck(allocator, line)) return true;
@@ -1502,6 +1580,7 @@ pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (parseBranches(allocator, line).ok) return true;
     if (parseBranchChanged(allocator, line).ok) return true;
     if (parseCommitSnapshot(allocator, line).ok) return true;
+    if (parseCommitMessage(allocator, line).ok) return true;
     return isWorkspaceCheckpoint(allocator, line);
 }
 
@@ -2163,6 +2242,105 @@ test "parseCommitSnapshot extracts snake_case snapshot and rejects null, missing
     try std.testing.expect(!parseCommitSnapshot(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"branches\",\"snapshot\":{\"repository\":\"/tmp/faku\",\"current\":\"main\",\"detached_head\":null,\"default_branch\":\"main\",\"branches\":[{\"name\":\"main\",\"checked_out_elsewhere\":false}],\"additions\":0,\"deletions\":0}}}}").ok);
     try std.testing.expect(!parseCommitSnapshot(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
     try std.testing.expect(!parseCommitSnapshot(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
+}
+
+test "workspace request wraps camelCase generateCommitMessage with invocation and nil ids" {
+    var buf: [1024]u8 = undefined;
+    const json = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .generate_commit_message = .{
+            .cwd = "/tmp/faku",
+            .include_unstaged = true,
+            .invocation = .{
+                .provider = "fx",
+                .binary = "/home/me/.fx/bin/fx",
+                .model = "gpt-5",
+                .reasoning_effort = "high",
+            },
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"generateCommitMessage\",\"cwd\":\"/tmp/faku\",\"includeUnstaged\":true,\"invocation\":{\"provider\":\"fx\",\"binary\":\"/home/me/.fx/bin/fx\",\"model\":\"gpt-5\",\"reasoning_effort\":\"high\"}}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "include_unstaged") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "reasoningEffort") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"commit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"inspectCommit\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"generateCommitMessage\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
+
+    const omitted = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .generate_commit_message = .{
+            .cwd = "/tmp/faku",
+            .include_unstaged = false,
+            .invocation = .{
+                .provider = "claude",
+                .binary = "claude",
+            },
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"includeUnstaged\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"provider\":\"claude\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"binary\":\"claude\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"model\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"reasoning_effort\":null") != null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .generate_commit_message = .{
+            .cwd = "/tmp/faku",
+            .include_unstaged = true,
+            .invocation = .{
+                .provider = "fx",
+                .binary = "fx",
+            },
+        } },
+    ));
+}
+
+test "parseCommitMessage extracts nested message and rejects ack, missing field, or error" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"commitMessage\",\"message\":\"fix dirty count\"}}}}";
+    const parsed = parseCommitMessage(arena, ok_line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqualStrings("fix dirty count", parsed.message);
+    try std.testing.expect(isWorkspaceSuccess(arena, ok_line));
+    try std.testing.expect(!isWorkspaceAck(arena, ok_line));
+    try std.testing.expect(!parseCommitSnapshot(arena, ok_line).ok);
+    try std.testing.expect(!parseWorktreeCreated(arena, ok_line).ok);
+
+    const empty_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"commitMessage\",\"message\":\"\"}}}}";
+    const empty = parseCommitMessage(arena, empty_line);
+    try std.testing.expect(empty.ok);
+    try std.testing.expectEqualStrings("", empty.message);
+    try std.testing.expect(isWorkspaceSuccess(arena, empty_line));
+
+    try std.testing.expect(!parseCommitMessage(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
+    try std.testing.expect(!parseCommitMessage(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"commitMessage\"}}}}").ok);
+    try std.testing.expect(!parseCommitMessage(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"commitMessage\",\"message\":null}}}}").ok);
+    try std.testing.expect(!parseCommitMessage(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"commitMessage\",\"message\":\"fix dirty count\"}}}").ok);
+    try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"commitMessage\"}}}}"));
+    try std.testing.expect(!parseCommitMessage(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
 }
 
 test "start defaults to first-party fx over acp" {
