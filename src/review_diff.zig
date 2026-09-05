@@ -1281,7 +1281,10 @@ fn spawnLocalReviewDiff(model: *Model, fx: *Effects, cwd: []const u8) void {
     model.review_diff_last_via_daemon = false;
     clearDaemonPatch(model);
     model.review_diff_probe_session = model.selected;
-    writeFixed(&model.review_diff_probe_path_storage, &model.review_diff_probe_path_len, cwd);
+    const probed = model.review_diff_probe_path_storage[0..model.review_diff_probe_path_len];
+    if (cwd.ptr != probed.ptr) {
+        writeFixed(&model.review_diff_probe_path_storage, &model.review_diff_probe_path_len, cwd);
+    }
 
     var argv_buf: [argv_len][]const u8 = undefined;
     fx.spawn(.{
@@ -2780,7 +2783,7 @@ fn findSpawnArgv(fx: *Effects, key: u64) ?[]const []const u8 {
     return null;
 }
 
-fn pendingSpawnKey(fx: *Effects, key: u64) ?native_sdk.PendingSpawn {
+fn pendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (spawn.key == key) return spawn;
