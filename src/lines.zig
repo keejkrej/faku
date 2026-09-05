@@ -194,7 +194,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         return;
     }
     if (model.daemon_has_ref_key != 0 and line.key == model.daemon_has_ref_key) {
-        session_fork.applyDaemonHasRefLine(model, line);
+        session_fork.applyDaemonHasRefLine(model, fx, line);
+        return;
+    }
+    if (model.daemon_capture_ref_key != 0 and line.key == model.daemon_capture_ref_key) {
         return;
     }
     if (model.phase != .streaming) return;
@@ -1167,6 +1170,11 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.daemon_has_ref_key != 0 and exit.key == model.daemon_has_ref_key) {
         session_fork.handleDaemonHasRefExit(model, fx, exit);
+        return;
+    }
+    if (model.daemon_capture_ref_key != 0 and exit.key == model.daemon_capture_ref_key) {
+        model.daemon_capture_ref_key = 0;
+        model.daemon_capture_ref_session = 0;
         return;
     }
     const daemon = model.daemon_spawn_key != 0 and exit.key == model.daemon_spawn_key;

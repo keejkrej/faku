@@ -63,8 +63,12 @@
 //! for the Send-time baseline check that otherwise calls local
 //! `hasFakuRef` (Bool; Native 4 KiB overflow / miss / non-bool /
 //! error fall back to this local `show-ref --verify` path).
-//! Leftovers:
-//! force, background work, CaptureRef / RestoreRef /
+//! First-cut daemon `WorkspaceOperation::CaptureRef` ships as a
+//! best-effort sidecar from `fork` after a successful local
+//! `updateFakuRef` (Ack; does not replace or roll back local
+//! `refs/faku/...`; Native 4 KiB overflow / miss / non-ack leave
+//! local alone). Leftovers:
+//! force, background work, RestoreRef /
 //! DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs, etc. Not
 //! transcript checkpoint +/-.
 
@@ -357,13 +361,14 @@ pub fn captureTurnStart(
     var start_buf: [max_faku_ref_name]u8 = undefined;
     const start_ref = formatFakuSessionTurnStartRef(&start_buf, session_id, turn_count) orelse return false;
     if (!updateFakuRef(allocator, io, project_path, start_ref, sha)) return false;
-    seedBaselineIfMissing(allocator, io, project_path, session_id, turn_count, sha);
+    _ = seedBaselineIfMissing(allocator, io, project_path, session_id, turn_count, sha);
     return true;
 }
 
 /// If `turn-{n-1}` (or `turn-0` when `n` is 0) is missing, name that
 /// baseline with `sha`. Quiet no-op on bad sha / missing name /
-/// failed update-ref. Local `hasFakuRef` (`show-ref --verify`) is
+/// failed update-ref. Returns true only when this call wrote the
+/// baseline. Local `hasFakuRef` (`show-ref --verify`) is
 /// the offline check; a daemon HasRef sidecar may skip this when
 /// it already answered.
 pub fn seedBaselineIfMissing(
@@ -373,15 +378,16 @@ pub fn seedBaselineIfMissing(
     session_id: u32,
     turn_count: u32,
     sha: []const u8,
-) void {
-    if (!rewind.isStoredSha(sha)) return;
+) bool {
+    if (!rewind.isStoredSha(sha)) return false;
     const baseline_n: u32 = if (turn_count >= 1) turn_count - 1 else 0;
     var baseline_buf: [max_faku_ref_name]u8 = undefined;
     if (formatFakuSessionTurnRef(&baseline_buf, session_id, baseline_n)) |baseline_ref| {
         if (!hasFakuRef(allocator, io, project_path, baseline_ref)) {
-            _ = updateFakuRef(allocator, io, project_path, baseline_ref, sha);
+            return updateFakuRef(allocator, io, project_path, baseline_ref, sha);
         }
     }
+    return false;
 }
 
 /// Name the stored 40-hex as `turn-{n}`. Requires a valid
