@@ -575,6 +575,14 @@ test "BrowseDirectory sidecar paints the in-app browser and Choose sets project_
     try std.testing.expect(model.daemon_dir_browser_store[0].is_dir);
     try std.testing.expectEqualStrings("src", model.daemon_dir_browser_store[0].name());
     try std.testing.expect(!model.daemon_dir_browser_store[1].is_dir);
+    var row_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer row_arena.deinit();
+    const rows = model.daemon_dir_browser_rows(row_arena.allocator());
+    try std.testing.expectEqual(@as(usize, 2), rows.len);
+    try std.testing.expectEqualStrings("src", rows[0].label);
+    try std.testing.expect(rows[0].is_dir);
+    try std.testing.expectEqualStrings("README.md", rows[1].label);
+    try std.testing.expect(!rows[1].is_dir);
     handleDaemonExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
     try std.testing.expect(model.daemon_dir_browser_open);
     try std.testing.expectEqual(@as(u64, 0), model.daemon_dir_browser_key);
