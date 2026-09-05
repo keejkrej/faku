@@ -50,9 +50,16 @@
 //! ships on Files preview load (select / Reload) when a daemon
 //! address is set (ok paints the same 256KB UTF-8 preview buffers;
 //! Native 4 KiB stdin overflow / error / unusable parse falls back
-//! to local `readFileAlloc`; no address keeps today's local path;
-//! Save / Edit / Open-in-editor stay local). Leftover: daemon
-//! `WriteTextFile`.
+//! to local `readFileAlloc`; no address keeps today's local path).
+//! First-cut daemon `WorkspaceOperation::WriteTextFile` ships on
+//! Files preview Save when a daemon address is set (hello +
+//! `writeTextFile`; ok Ack adopts the saved buffer as the preview
+//! body; Native 4 KiB stdin overflow / spawn failure / non-ok /
+//! non-ack / unusable parse falls back to today's local atomic
+//! write; no address keeps today's local path; truncated / binary /
+//! gated refuse paths stay local with no daemon attempt; Open-in-editor
+//! stays local). Leftovers: remotes-on-daemon-list, amend/force over
+//! daemon, remote `--track` over daemon, ref ops.
 //! Not Waku's 50k-file index (cap 256). Windows probes the same
 //! cache (`git.exe -C` then a PowerShell walk; still not Waku's
 //! 50k index or a Native FS watcher).
@@ -71,16 +78,20 @@
 //! First-cut edit + save ships: Edit switches a text body to a Native
 //! `<textarea>` (same widget as the composer; highlighting drops while
 //! dirty). `on-input` updates a Model edit buffer. Dirty is buffer ≠
-//! loaded body. Save writes the buffer to the stored absolute path via
-//! Zig `std.Io` `createFileAtomic` (temp + rename, same class of local
-//! I/O as `store` / `sessions.json`; no Native write effect). Success
+//! loaded body. Save prefers hello + daemon `WriteTextFile` when a
+//! daemon address is set (ok Ack adopts the saved buffer as the
+//! preview body). Native 4 KiB stdin overflow / sidecar failure /
+//! non-ack falls back to Zig `std.Io` `createFileAtomic` (temp +
+//! rename, same class of local I/O as `store` / `sessions.json`; no
+//! Native write effect). No address keeps that local path. Success
 //! adopts the saved bytes as the new preview body, clears dirty, and
 //! returns to the read-only `<code>` view. Failure sets a short status
 //! string and leaves the on-disk file untouched when the atomic replace
 //! does not run. Save is gated: not editing / not dirty / binary / no
 //! abs path / truncated (saving a 256KB window would clobber the rest
 //! of the file — refuse with a short message; truncated stays
-//! Open-in-editor + Reload). Reload always re-reads (prefer daemon
+//! Open-in-editor + Reload; truncated / binary / gated refuse do not
+//! attempt the daemon). Reload always re-reads (prefer daemon
 //! ReadTextFile when an address is set; else disk) and discards
 //! unsaved edits (the click is the confirm; no extra dialog chrome).
 //! Open in editor and Close stay. First-cut unsaved discard confirm
@@ -594,6 +605,9 @@ pub fn clearFilePreview(model: *Model) void {
     model.file_preview_key = 0;
     model.file_preview_via_daemon = false;
     model.file_preview_daemon_ok = false;
+    model.file_preview_save_key = 0;
+    model.file_preview_save_via_daemon = false;
+    model.file_preview_save_daemon_ok = false;
     model.file_preview_restore_editing = false;
     clearPreviewDiskFingerprint(model);
     model.file_preview_disk_poll_ms = null;
@@ -881,6 +895,14 @@ fn cancelDaemonRead(model: *Model, fx: *Effects) void {
     model.file_preview_daemon_ok = false;
 }
 
+fn cancelDaemonSave(model: *Model, fx: *Effects) void {
+    if (model.file_preview_save_key == 0) return;
+    fx.cancel(model.file_preview_save_key);
+    model.file_preview_save_key = 0;
+    model.file_preview_save_via_daemon = false;
+    model.file_preview_save_daemon_ok = false;
+}
+
 /// Best-effort hello + `WorkspaceOperation::ReadTextFile` when a
 /// daemon address is set. Own daemon spawn key so ListTree /
 /// BrowseDirectory sidecars stay distinct. Missing address or
@@ -1002,6 +1024,7 @@ pub fn selectCachedFile(model: *Model, fx: *Effects, id: u32) void {
     if (!beginDiscardOrPark(model, .{ .switch_file = id })) return;
 
     cancelDaemonRead(model, fx);
+    cancelDaemonSave(model, fx);
     clearFilePreview(model);
     model.right_panel_file_preview_id = id;
     main.writeFixed(
@@ -1072,11 +1095,107 @@ fn replacePreviewBody(model: *Model, bytes: []const u8) void {
     model.right_panel_file_preview_len = bytes.len;
 }
 
-/// Write the edit buffer to the stored abs path. Gated: not editing /
-/// not dirty / binary / no abs path / truncated refuse with a short
-/// status. Success adopts the saved bytes as the preview body and
-/// returns to the read-only `<code>` view.
-pub fn saveFilePreview(model: *Model) void {
+fn adoptSavedPreview(model: *Model, bytes: []const u8) void {
+    replacePreviewBody(model, bytes);
+    model.right_panel_file_preview_truncated = false;
+    model.right_panel_file_preview_binary = false;
+    model.right_panel_file_preview_error_len = 0;
+    model.right_panel_file_preview_editing = false;
+    model.file_preview_edit_buffer.clear();
+    model.right_panel_file_preview_status_len = 0;
+    refreshPreviewDiskFingerprint(model);
+    clearPendingDiscard(model);
+}
+
+fn saveFilePreviewLocal(model: *Model, bytes: []const u8) void {
+    const io = model.store_io orelse {
+        setPreviewStatus(model, cannot_save_label);
+        return;
+    };
+    const abs = model.right_panel_file_preview_abs_storage[0..model.right_panel_file_preview_abs_len];
+    atomicWriteAbs(io, abs, bytes) catch {
+        setPreviewStatus(model, cannot_save_label);
+        return;
+    };
+    adoptSavedPreview(model, bytes);
+}
+
+/// Best-effort hello + `WorkspaceOperation::WriteTextFile` when a
+/// daemon address is set. Own daemon spawn key so an in-flight
+/// ReadTextFile / ListTree / BrowseDirectory stays distinct. Missing
+/// address or Native 4 KiB stdin overflow (`NoSpaceLeft` from
+/// `writeWorkspaceStdin` / JSON wrapping of `content`) returns false
+/// and leaves today's local atomic write.
+fn trySpawnDaemonWriteTextFile(model: *Model, fx: *Effects, content: []const u8) bool {
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    const root = model.selectedProjectPath();
+    const rel = model.right_panel_file_preview_relpath_storage[0..model.right_panel_file_preview_relpath_len];
+    if (root.len == 0 or rel.len == 0) return false;
+
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{
+            .write_text_file = .{
+                .root = root,
+                .relative_path = rel,
+                .content = content,
+            },
+        },
+    }) catch return false;
+
+    cancelDaemonSave(model, fx);
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.file_preview_save_key = key;
+    model.file_preview_save_via_daemon = true;
+    model.file_preview_save_daemon_ok = false;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
+pub fn applyDaemonSaveLine(model: *Model, line: native_sdk.EffectLine) void {
+    if (line.key != model.file_preview_save_key or model.file_preview_save_key == 0) return;
+    if (!model.file_preview_save_via_daemon) return;
+    if (model.file_preview_save_daemon_ok) return;
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    if (!protocol.isWorkspaceAck(arena_state.allocator(), line.line)) return;
+    model.file_preview_save_daemon_ok = true;
+    if (!model.right_panel_file_preview_editing) return;
+    adoptSavedPreview(model, model.file_preview_edit_buffer.text());
+}
+
+pub fn handleDaemonSaveExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (exit.key != model.file_preview_save_key or model.file_preview_save_key == 0) return;
+    const via = model.file_preview_save_via_daemon;
+    const ok = model.file_preview_save_daemon_ok;
+    model.file_preview_save_key = 0;
+    model.file_preview_save_via_daemon = false;
+    model.file_preview_save_daemon_ok = false;
+    if (!via or ok) return;
+    if (model.right_panel_file_preview_id == 0) return;
+    if (!model.right_panel_file_preview_editing or !isPreviewDirty(model)) return;
+    saveFilePreviewLocal(model, model.file_preview_edit_buffer.text());
+    _ = fx;
+}
+
+/// Write the edit buffer to the stored abs path. Prefers hello +
+/// daemon WriteTextFile when a daemon address is set. Gated: not
+/// editing / not dirty / binary / no abs path / truncated refuse with
+/// a short status (no daemon attempt). Success adopts the saved bytes
+/// as the preview body and returns to the read-only `<code>` view.
+/// Native 4 KiB stdin overflow / sidecar failure / non-ack falls back
+/// to local `createFileAtomic`.
+pub fn saveFilePreview(model: *Model, fx: *Effects) void {
     if (model.right_panel_file_preview_id == 0) return;
     if (model.right_panel_file_preview_binary) {
         setPreviewStatus(model, binary_save_label);
@@ -1092,25 +1211,9 @@ pub fn saveFilePreview(model: *Model) void {
     }
     if (!model.right_panel_file_preview_editing or !isPreviewDirty(model)) return;
 
-    const io = model.store_io orelse {
-        setPreviewStatus(model, cannot_save_label);
-        return;
-    };
-    const abs = model.right_panel_file_preview_abs_storage[0..model.right_panel_file_preview_abs_len];
     const bytes = model.file_preview_edit_buffer.text();
-    atomicWriteAbs(io, abs, bytes) catch {
-        setPreviewStatus(model, cannot_save_label);
-        return;
-    };
-    replacePreviewBody(model, bytes);
-    model.right_panel_file_preview_truncated = false;
-    model.right_panel_file_preview_binary = false;
-    model.right_panel_file_preview_error_len = 0;
-    model.right_panel_file_preview_editing = false;
-    model.file_preview_edit_buffer.clear();
-    model.right_panel_file_preview_status_len = 0;
-    refreshPreviewDiskFingerprint(model);
-    clearPendingDiscard(model);
+    if (trySpawnDaemonWriteTextFile(model, fx, bytes)) return;
+    saveFilePreviewLocal(model, bytes);
 }
 
 /// Re-read the stored abs path into the preview. Prefers daemon
@@ -1121,6 +1224,7 @@ pub fn reloadFilePreview(model: *Model, fx: *Effects) void {
     if (!canReloadPreview(model)) return;
     model.file_preview_restore_editing = model.right_panel_file_preview_editing;
     cancelDaemonRead(model, fx);
+    cancelDaemonSave(model, fx);
     freePreviewBody(model);
     loadFilePreviewBody(model, fx);
 }
@@ -1170,7 +1274,7 @@ fn refreshPreviewDiskFingerprint(model: *Model) void {
 
 /// Poll the open Files preview's disk fingerprint on the TEA `update`
 /// tick. No-op when closed, missing abs path, no `store_io`, dirty,
-/// or a ReadTextFile sidecar is in flight. Throttled to
+/// or a ReadTextFile / WriteTextFile sidecar is in flight. Throttled to
 /// `file_preview_disk_poll_interval_ms` of `model.now_ms`.
 /// Size or mtime change (or a failed stat after a previously valid
 /// fingerprint) reuses `reloadFilePreview`. A daemon fill that could
@@ -1181,6 +1285,7 @@ pub fn pollFilePreviewDisk(model: *Model, fx: *Effects) bool {
     if (model.right_panel_file_preview_id == 0) return false;
     if (model.right_panel_file_preview_abs_len == 0) return false;
     if (model.file_preview_key != 0) return false;
+    if (model.file_preview_save_key != 0) return false;
     const io = model.store_io orelse return false;
     if (isPreviewDirty(model)) return false;
 
@@ -1552,6 +1657,13 @@ fn pickFile(model: *Model, id: u32) void {
     selectCachedFile(model, &fx, id);
 }
 
+fn savePreview(model: *Model) void {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    saveFilePreview(model, &fx);
+}
+
 fn reloadPreview(model: *Model) void {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
@@ -1872,7 +1984,7 @@ test "edit buffer dirty/save gates; save writes abs path and returns to read-onl
     try std.testing.expect(!model.file_preview_can_save());
     try std.testing.expect(model.file_preview_can_reload());
 
-    saveFilePreview(&model);
+    savePreview(&model);
     try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
 
     startFilePreviewEdit(&model);
@@ -1888,7 +2000,7 @@ test "edit buffer dirty/save gates; save writes abs path and returns to read-onl
     try std.testing.expectEqualStrings("hello\nworld\n", model.file_preview_draft());
     try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
 
-    saveFilePreview(&model);
+    savePreview(&model);
     try std.testing.expect(!model.file_preview_editing());
     try std.testing.expect(!model.file_preview_dirty());
     try std.testing.expect(!model.file_preview_can_save());
@@ -1955,7 +2067,7 @@ test "reload discards dirty buffer; truncated and binary refuse save" {
     startFilePreviewEdit(&model);
     try std.testing.expect(!model.file_preview_editing());
     try std.testing.expectEqualStrings(binary_save_label, model.file_preview_status());
-    saveFilePreview(&model);
+    savePreview(&model);
     try std.testing.expectEqualStrings(binary_save_label, model.file_preview_status());
     const bin_still = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, nul_abs, std.testing.allocator, .limited(64));
     defer std.testing.allocator.free(bin_still);
@@ -1969,7 +2081,7 @@ test "reload discards dirty buffer; truncated and binary refuse save" {
     startFilePreviewEdit(&model);
     try std.testing.expect(!model.file_preview_editing());
     try std.testing.expectEqualStrings(truncated_save_label, model.file_preview_status());
-    saveFilePreview(&model);
+    savePreview(&model);
     try std.testing.expectEqualStrings(truncated_save_label, model.file_preview_status());
     try std.testing.expectEqual(max_file_preview_bytes, model.right_panel_file_preview_len);
 }
@@ -2086,7 +2198,7 @@ test "dirty preview discard switches file; save and reload clear pending confirm
     applyFilePreviewEdit(&model, .{ .insert_text = "y" });
     pickFile(&model, 2);
     try std.testing.expect(model.file_preview_discard_confirm());
-    saveFilePreview(&model);
+    savePreview(&model);
     try std.testing.expect(!model.file_preview_dirty());
     try std.testing.expect(!model.file_preview_discard_confirm());
     try std.testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
@@ -2511,4 +2623,182 @@ test "ReadTextFile sidecar content over 256KB is truncated client-side" {
     try std.testing.expect(model.file_preview_truncated());
     try std.testing.expectEqual(max_file_preview_bytes, model.right_panel_file_preview_len);
     try std.testing.expect(!model.file_preview_binary());
+}
+
+fn dirtyLocalPreview(model: *Model, project: []const u8, insert: []const u8) !void {
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, abs, "hello\n");
+    model.store_io = std.testing.io;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(model, "note.txt\n");
+    pickFile(model, 1);
+    startFilePreviewEdit(model);
+    applyFilePreviewEdit(model, .{ .insert_text = insert });
+}
+
+test "Files preview Save with a daemon address spawns WriteTextFile sidecar" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-save-daemon-spawn-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    const id = model.addSession("preview save daemon spawn", .fx);
+    model.selected = id;
+    try dirtyLocalPreview(&model, project, "world\n");
+    defer clearFilePreview(&model);
+    try std.testing.expectEqualStrings("hello\nworld\n", model.file_preview_draft());
+
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    saveFilePreview(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.file_preview_save_key) orelse return error.MissingDaemonWriteTextFile;
+    try std.testing.expect(daemon_proxy.isSidecarArgv(sidecar.argv));
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"writeTextFile\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"relative_path\":\"note.txt\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"content\":\"hello\\nworld\\n\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "relativePath") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"readTextFile\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try std.testing.expect(model.file_preview_save_via_daemon);
+    try std.testing.expect(!model.file_preview_save_daemon_ok);
+    try std.testing.expectEqual(sidecar.key, model.file_preview_save_key);
+    try std.testing.expect(sidecar.key != model.file_preview_key);
+    try std.testing.expect(sidecar.key < file_mention.file_mention_key_first);
+    try std.testing.expect(model.file_preview_editing());
+    try std.testing.expect(model.file_preview_dirty());
+}
+
+test "WriteTextFile sidecar Ack adopts the saved buffer without a local write" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-save-daemon-ack-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    const id = model.addSession("preview save daemon ack", .fx);
+    model.selected = id;
+    try dirtyLocalPreview(&model, project, "world\n");
+    defer clearFilePreview(&model);
+
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    saveFilePreview(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.file_preview_save_key) orelse return error.MissingDaemonWriteTextFileAck;
+    applyDaemonSaveLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"hello\"}" });
+    try std.testing.expect(model.file_preview_editing());
+    try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
+    applyDaemonSaveLine(&model, .{ .key = sidecar.key, .line = text_file_ok_line });
+    try std.testing.expect(!model.file_preview_save_daemon_ok);
+    try std.testing.expect(model.file_preview_editing());
+    applyDaemonSaveLine(&model, .{ .key = sidecar.key, .line = text_file_ack_line });
+    try std.testing.expect(model.file_preview_save_daemon_ok);
+    try std.testing.expect(!model.file_preview_editing());
+    try std.testing.expect(!model.file_preview_dirty());
+    try std.testing.expectEqualStrings("hello\nworld\n", model.file_preview_body());
+    try std.testing.expectEqual(@as(usize, 0), model.file_preview_draft().len);
+    handleDaemonSaveExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.file_preview_save_key);
+    try std.testing.expect(!model.file_preview_save_via_daemon);
+    try std.testing.expectEqualStrings("hello\nworld\n", model.file_preview_body());
+
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    const got = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, abs, std.testing.allocator, .limited(64));
+    defer std.testing.allocator.free(got);
+    try std.testing.expectEqualStrings("hello\n", got);
+}
+
+test "WriteTextFile sidecar non-ack falls back to local atomic write" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-save-daemon-fallback-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    const id = model.addSession("preview save daemon fallback", .fx);
+    model.selected = id;
+    try dirtyLocalPreview(&model, project, "world\n");
+    defer clearFilePreview(&model);
+
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    saveFilePreview(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.file_preview_save_key) orelse return error.MissingDaemonWriteTextFileFallback;
+    applyDaemonSaveLine(&model, .{ .key = sidecar.key, .line = text_file_ok_line });
+    try std.testing.expect(!model.file_preview_save_daemon_ok);
+    handleDaemonSaveExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
+    try std.testing.expectEqual(@as(u64, 0), model.file_preview_save_key);
+    try std.testing.expect(!model.file_preview_save_via_daemon);
+    try std.testing.expect(!model.file_preview_editing());
+    try std.testing.expect(!model.file_preview_dirty());
+    try std.testing.expectEqualStrings("hello\nworld\n", model.file_preview_body());
+
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    const got = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, abs, std.testing.allocator, .limited(64));
+    defer std.testing.allocator.free(got);
+    try std.testing.expectEqualStrings("hello\nworld\n", got);
+}
+
+test "WriteTextFile stdin overflow falls back to local write; truncated stays local" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-save-overflow-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    const id = model.addSession("preview save overflow", .fx);
+    model.selected = id;
+    const blob = try std.testing.allocator.alloc(u8, 3800);
+    defer std.testing.allocator.free(blob);
+    @memset(blob, 'a');
+    try dirtyLocalPreview(&model, project, blob);
+    defer clearFilePreview(&model);
+
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    saveFilePreview(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.file_preview_save_key);
+    try std.testing.expect(pendingSpawnKey(&fx, model.file_preview_save_key) == null);
+    try std.testing.expect(!model.file_preview_save_via_daemon);
+    try std.testing.expect(!model.file_preview_editing());
+    try std.testing.expect(std.mem.startsWith(u8, model.file_preview_body(), "hello\n"));
+    try std.testing.expectEqual(@as(usize, "hello\n".len + blob.len), model.file_preview_body().len);
+
+    model.right_panel_file_preview_truncated = true;
+    startFilePreviewEdit(&model);
+    try std.testing.expect(!model.file_preview_editing());
+    saveFilePreview(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.file_preview_save_key);
+    try std.testing.expectEqualStrings(truncated_save_label, model.file_preview_status());
 }

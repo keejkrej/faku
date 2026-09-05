@@ -863,6 +863,16 @@ pub const Model = struct {
     /// `textFile`. Exit falls back to local read when this is false.
     /// Runtime only; not persisted.
     file_preview_daemon_ok: bool = false,
+    /// True while the in-flight `file_preview_save_key` is a daemon-proxy
+    /// WriteTextFile sidecar. Distinct from `file_preview_key` so an
+    /// in-flight ReadTextFile / ListTree / BrowseDirectory stays
+    /// separate. Line/exit handlers parse workspace Ack. Runtime only.
+    file_preview_save_key: u64 = 0,
+    file_preview_save_via_daemon: bool = false,
+    /// True after an in-flight WriteTextFile sidecar applied a usable
+    /// Ack. Exit falls back to local atomic write when this is false.
+    /// Runtime only; not persisted.
+    file_preview_save_daemon_ok: bool = false,
     /// True when Reload should restore the edit buffer after a
     /// daemon or local fill. Runtime only; not persisted.
     file_preview_restore_editing: bool = false,
@@ -1553,6 +1563,9 @@ pub const Model = struct {
         "file_preview_key",
         "file_preview_via_daemon",
         "file_preview_daemon_ok",
+        "file_preview_save_key",
+        "file_preview_save_via_daemon",
+        "file_preview_save_daemon_ok",
         "file_preview_restore_editing",
         "file_preview_edit_buffer",
         "right_panel_file_preview_editing",

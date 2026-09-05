@@ -20,7 +20,7 @@
 //! A workspace-only stdin waits for a `response` / `rejected` /
 //! `shutting_down` frame (not hello, not a driver event) like save/close,
 //! prints that line, and exits non-zero unless the response is an ok
-//! workspace ack (Push / Commit / CaptureTurnStart), `worktreeCreated` (CreateWorktree),
+//! workspace ack (Push / Commit / CaptureTurnStart / WriteTextFile), `worktreeCreated` (CreateWorktree),
 //! or `branches` with a usable snapshot (InspectBranches), or
 //! `branchChanged` with a usable snapshot (CheckoutBranch), or
 //! `commitSnapshot` with a usable snapshot (InspectCommit), or
@@ -370,7 +370,7 @@ pub fn writeGoalStdin(buf: []u8, args: GoalStdin) WriteError![]const u8 {
 /// NDJSON stdin for first-cut workspace Push / CreateWorktree / Commit /
 /// InspectBranches / CheckoutBranch / InspectCommit / CaptureTurnStart /
 /// CaptureTurn / GenerateCommitMessage / ListTree /
-/// CollectReviewDiff / BrowseDirectory / ReadTextFile.
+/// CollectReviewDiff / BrowseDirectory / ReadTextFile / WriteTextFile.
 /// Hello + `workspace`
 /// (nil request-frame `sessionId` / `runtimeId`, command payload
 /// `operation`). Own spawn key — Native cannot write into a running
@@ -1446,6 +1446,34 @@ test "writeWorkspaceStdin emits hello and workspace readTextFile with snake_case
     var tiny: [32]u8 = undefined;
     try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
         .operation = .{ .read_text_file = .{ .root = "/tmp/faku", .relative_path = "src/main.zig" } },
+    }));
+}
+
+test "writeWorkspaceStdin emits hello and workspace writeTextFile with snake_case relative_path and content" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{ .write_text_file = .{ .root = "/tmp/faku", .relative_path = "src/main.zig", .content = "hello\nworld" } },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ WORKSPACE_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"writeTextFile\",\"root\":\"/tmp/faku\",\"relative_path\":\"src/main.zig\",\"content\":\"hello\\nworld\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"writeTextFile\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "relativePath") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"readTextFile\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"listTree\"") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForWorkspace(stdin));
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
+        .operation = .{ .write_text_file = .{ .root = "/tmp/faku", .relative_path = "src/main.zig", .content = "hello" } },
     }));
 }
 

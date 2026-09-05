@@ -54,13 +54,15 @@
 //! the local OS folder dialog). First-cut daemon `WorkspaceOperation::ReadTextFile`
 //! ships in `right_panel` (Files preview load / Reload when a daemon
 //! address is set; overflow / error / unusable parse falls back to
-//! local `readFileAlloc`; Save / Edit stay local). First-cut daemon `WorkspaceOperation::CaptureTurnStart`
+//! local `readFileAlloc`). First-cut daemon `WorkspaceOperation::WriteTextFile`
+//! ships in `right_panel` (Files preview Save when a daemon address
+//! is set; overflow / non-ack falls back to local atomic write). First-cut daemon `WorkspaceOperation::CaptureTurnStart`
 //! ships in `fork` (best-effort Send sidecar after local capture;
 //! Ack; local sha stays canonical). First-cut daemon
 //! `WorkspaceOperation::CaptureTurn` ships in `fork` (best-effort
 //! finish sidecar after local end capture; Checkpoint; local end
 //! shas stay canonical). Leftovers:
-//! other daemon `WorkspaceOperation` variants (WriteTextFile, ref
+//! other daemon `WorkspaceOperation` variants (ref
 //! ops, remotes-on-daemon-list, amend/force over daemon, remote
 //! `--track` over daemon, …). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).
