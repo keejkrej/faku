@@ -3,7 +3,9 @@
 //! project row.
 //!
 //! Native has no git/workspace effect. When the selected session has a
-//! non-empty `project_path` that exists, Faku `fx.spawn`s
+//! non-empty `project_path` that exists, Faku prefers hello + daemon
+//! `WorkspaceOperation::InspectBranches` when `WAKU_DAEMON_ADDRESS` or
+//! persisted `last_daemon_address` is set, else `fx.spawn`s
 //! `git for-each-ref --format=%(refname)%00%(worktreepath) refs/heads refs/remotes`
 //! through the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`). `%(refname)` (not `:short`) is required
@@ -107,16 +109,28 @@
 //! with snake_case fields; ok is `worktreeCreated` path + branch).
 //! Native 4 KiB stdin overflow falls back to local `git worktree add`.
 //! The branch-menu New worktree… card still creates immediately via
-//! local git. Not daemon `InspectBranches` / `InspectCommit`.
+//! local git. First-cut daemon `WorkspaceOperation::InspectBranches`
+//! ships on the composer branch-list picker when a daemon address is
+//! set (nil request-frame session/runtime ids; `{ "type":
+//! "inspectBranches", "cwd" }`; ok is nested `branches` + snake_case
+//! `BranchSnapshot`). Native 4 KiB stdin overflow, spawn failure,
+//! error response, or a null/empty unusable snapshot falls back to
+//! local `git for-each-ref`. Waku inspect lists local heads only
+//! (`refs/heads`); first-cut omits remote-tracking rows when the
+//! daemon path succeeds (leftover: remotes-on-daemon-list). Local
+//! `for-each-ref` (heads+remotes) remains the no-daemon path. Not a
+//! live watch. Not daemon `CheckoutBranch` / `InspectCommit`.
 //! Cap is 64 local heads plus 32
 //! remote-tracking names that have no local counterpart (skip
-//! symbolic `*/HEAD`), sorted lexicographically. Not Waku's daemon
-//! `InspectBranches` picker, live watch, `waku/` prefix /
+//! symbolic `*/HEAD`), sorted lexicographically. Not Waku's live
+//! watch, `waku/` prefix /
 //! `~/.waku/worktrees/{project_id}` UUID nest. Composer Push… still
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
 //! Leftovers: other daemon `WorkspaceOperation` variants
-//! (InspectBranches, CaptureTurn, ListTree, …). Fetch
+//! (CheckoutBranch, CaptureTurn, ListTree, InspectCommit,
+//! GenerateCommitMessage, CollectReviewDiff, ref ops,
+//! remotes-on-daemon-list, amend/force over daemon, …). Fetch
 //! already `--prune`; there is no prune-alone menu (not in Waku).
 //! First-cut defer-until-Send Work in reuses this same add path on
 //! Send (`session_workspace`) when no daemon address is set;
@@ -151,7 +165,10 @@
 //! assigned onto `git_worktree_add_key` so `handleWorktreeAddExit`
 //! still owns Send prep. First-cut daemon `WorkspaceOperation::Commit`
 //! lives in `git_commit` (best-effort sidecar; Amend and Force+Commit
-//! and Push stay local git).
+//! and Push stay local git). First-cut daemon
+//! `WorkspaceOperation::InspectBranches` reuses `next_daemon_key`
+//! assigned onto `git_branch_list_key` so `applyListLine` /
+//! `handleListExit` still own the picker.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -2139,6 +2156,7 @@ fn cancelList(model: *Model, fx: *Effects) void {
     if (model.git_branch_list_key == 0) return;
     fx.cancel(model.git_branch_list_key);
     model.git_branch_list_key = 0;
+    model.git_branch_list_via_daemon = false;
 }
 
 fn cancelCheckout(model: *Model, fx: *Effects) void {
@@ -2417,9 +2435,10 @@ fn probePath(model: *const Model) []const u8 {
 
 /// Cancel any in-flight list / checkout / create / delete / fetch /
 /// push / worktree-add, drop the cached heads and remotes, and spawn
-/// `for-each-ref` when the selected session has an existing
-/// `project_path`. Empty / missing skips the spawn so the
-/// picker stays omitted unless `has_git_branch` is already true.
+/// InspectBranches (when a daemon address is set) or `for-each-ref`
+/// when the selected session has an existing `project_path`. Empty /
+/// missing skips the spawn so the picker stays omitted unless
+/// `has_git_branch` is already true.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelList(model, fx);
     cancelCheckout(model, fx);
@@ -2456,10 +2475,46 @@ pub fn refresh(model: *Model, fx: *Effects) void {
     if (!probeSupported()) return;
     const cwd = probePath(model);
     if (cwd.len == 0) return;
+    if (trySpawnDaemonInspectBranches(model, fx, cwd)) return;
+    spawnLocalBranchList(model, fx, cwd);
+}
 
+/// Best-effort hello + `WorkspaceOperation::InspectBranches` when a
+/// daemon address is set. Own daemon spawn key assigned to
+/// `git_branch_list_key` so `applyListLine` / `handleListExit` still
+/// own the picker. Missing address or Native 4 KiB stdin overflow
+/// returns false and leaves local `git for-each-ref`.
+fn trySpawnDaemonInspectBranches(model: *Model, fx: *Effects, cwd: []const u8) bool {
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{ .inspect_branches = .{ .cwd = cwd } },
+    }) catch return false;
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.git_branch_list_key = key;
+    model.git_branch_list_via_daemon = true;
+    model.git_branch_list_probe_session = model.selected;
+    writeFixed(&model.git_branch_list_probe_path_storage, &model.git_branch_list_probe_path_len, cwd);
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
+fn spawnLocalBranchList(model: *Model, fx: *Effects, cwd: []const u8) void {
     const key = model.next_git_branch_list_key;
     model.next_git_branch_list_key = key + 1;
     model.git_branch_list_key = key;
+    model.git_branch_list_via_daemon = false;
     model.git_branch_list_probe_session = model.selected;
     writeFixed(&model.git_branch_list_probe_path_storage, &model.git_branch_list_probe_path_len, cwd);
 
@@ -2543,14 +2598,53 @@ pub fn gitMutationInFlight(model: *const Model) bool {
 pub fn applyListLine(model: *Model, line: native_sdk.EffectLine) void {
     if (line.key != model.git_branch_list_key or model.git_branch_list_key == 0) return;
     if (!listStillCurrent(model)) return;
+    if (model.git_branch_list_via_daemon) {
+        applyDaemonBranchesLine(model, line.line);
+        return;
+    }
     applyStdoutBranches(model, line.line);
 }
 
-pub fn handleListExit(model: *Model, exit: native_sdk.EffectExit) void {
+fn applyDaemonBranchesLine(model: *Model, raw: []const u8) void {
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseBranches(arena_state.allocator(), raw);
+    if (!parsed.ok) return;
+    clearListedBranches(model);
+    var i: usize = 0;
+    while (i < parsed.entry_count) : (i += 1) {
+        const entry = parsed.entries[i];
+        appendListedBranch(model, entry.name, false, entry.occupied);
+    }
+    git_branch.applySnapshotLabels(model, parsed.current, parsed.detached_head);
+}
+
+pub fn handleListExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
     if (exit.key != model.git_branch_list_key or model.git_branch_list_key == 0) return;
     const current = listStillCurrent(model);
+    const via_daemon = model.git_branch_list_via_daemon;
     model.git_branch_list_key = 0;
-    if (!current or exit.reason != .exited or exit.code != 0) {
+    model.git_branch_list_via_daemon = false;
+    if (!current) {
+        clearListedBranches(model);
+        if (!git_branch.hasGitBranch(model)) closePicker(model);
+        return;
+    }
+    if (via_daemon) {
+        if (model.git_branch_list_count > 0) {
+            finalizeListedBranches(model);
+            return;
+        }
+        const cwd = occupancyCwd(model);
+        if (cwd.len == 0) {
+            clearListedBranches(model);
+            if (!git_branch.hasGitBranch(model)) closePicker(model);
+            return;
+        }
+        spawnLocalBranchList(model, fx, cwd);
+        return;
+    }
+    if (exit.reason != .exited or exit.code != 0) {
         clearListedBranches(model);
         if (!git_branch.hasGitBranch(model)) closePicker(model);
         return;
@@ -5475,4 +5569,143 @@ test "applyWorktreeAddLine copies worktreeCreated path and branch" {
         .line = "{\"type\":\"hello\"}",
     });
     try std.testing.expectEqualStrings("/tmp/wt", model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len]);
+}
+
+test "refresh with a daemon address spawns InspectBranches sidecar" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-list-daemon", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("list daemon", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingDaemonInspectBranches;
+    try std.testing.expect(isDaemonWorkspacePushArgv(sidecar.argv));
+    try std.testing.expect(!isGitBranchListArgv(sidecar.argv));
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"inspectBranches\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"cwd\":\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(model.git_branch_list_via_daemon);
+    try std.testing.expectEqual(sidecar.key, model.git_branch_list_key);
+}
+
+test "refresh without a daemon address still uses local for-each-ref" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-list-local", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setSidecarPath("faku");
+    const id = model.addSession("list local", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    refresh(&model, &fx);
+    const list = pendingSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingGitBranchListSpawn;
+    try std.testing.expect(isGitBranchListArgv(list.argv));
+    try std.testing.expect(!isDaemonWorkspacePushArgv(list.argv));
+    try std.testing.expectEqualStrings("", list.stdin);
+    try std.testing.expect(!model.git_branch_list_via_daemon);
+}
+
+test "InspectBranches sidecar fills local heads and applies current" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-list-fill", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("list fill", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingDaemonInspectBranchesFill;
+    applyListLine(&model, .{
+        .key = sidecar.key,
+        .line = "{\"type\":\"hello\"}",
+    });
+    try std.testing.expectEqual(@as(u32, 0), model.git_branch_list_count);
+    applyListLine(&model, .{
+        .key = sidecar.key,
+        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"branches\",\"snapshot\":{\"repository\":\"/tmp/faku\",\"current\":\"main\",\"detached_head\":null,\"default_branch\":\"main\",\"branches\":[{\"name\":\"feat\",\"checked_out_elsewhere\":true},{\"name\":\"main\",\"checked_out_elsewhere\":false}],\"additions\":1,\"deletions\":0}}}}}",
+    });
+    try std.testing.expectEqual(@as(u32, 2), model.git_branch_list_count);
+    try std.testing.expectEqualStrings("main", git_branch.gitBranchLabel(&model));
+    handleListExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.git_branch_list_key);
+    try std.testing.expect(!model.git_branch_list_via_daemon);
+    try std.testing.expectEqual(@as(u32, 2), model.git_branch_list_count);
+    try std.testing.expectEqualStrings("feat", listedBranch(&model, 0));
+    try std.testing.expect(listedBranchIsOccupied(&model, 0));
+    try std.testing.expect(!listedBranchIsRemote(&model, 0));
+    try std.testing.expectEqualStrings("main", listedBranch(&model, 1));
+    try std.testing.expect(!listedBranchIsOccupied(&model, 1));
+}
+
+test "InspectBranches null snapshot falls back to local for-each-ref" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/git-list-fallback", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("list fallback", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingDaemonInspectBranchesFallback;
+    applyListLine(&model, .{
+        .key = sidecar.key,
+        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"branches\",\"snapshot\":null}}}}",
+    });
+    try std.testing.expectEqual(@as(u32, 0), model.git_branch_list_count);
+    handleListExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
+    try std.testing.expect(!model.git_branch_list_via_daemon);
+    const list = pendingSpawnKey(&fx, model.git_branch_list_key) orelse return error.MissingGitBranchListFallback;
+    try std.testing.expect(isGitBranchListArgv(list.argv));
+    try std.testing.expect(!isDaemonWorkspacePushArgv(list.argv));
+    try std.testing.expectEqualStrings("", list.stdin);
 }

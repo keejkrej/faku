@@ -948,6 +948,11 @@ pub const Model = struct {
     git_branch_list_probe_session: u32 = 0,
     git_branch_list_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     git_branch_list_probe_path_len: usize = 0,
+    /// True while the in-flight `git_branch_list_key` is a daemon-proxy
+    /// InspectBranches sidecar. Line/exit handlers parse a `branches`
+    /// snapshot instead of `for-each-ref` stdout. Runtime only; not
+    /// persisted.
+    git_branch_list_via_daemon: bool = false,
     git_checkout_key: u64 = 0,
     next_git_checkout_key: u64 = git_checkout.git_checkout_key_first,
     git_checkout_probe_session: u32 = 0,
@@ -1465,6 +1470,7 @@ pub const Model = struct {
         "git_branch_list_probe_session",
         "git_branch_list_probe_path_storage",
         "git_branch_list_probe_path_len",
+        "git_branch_list_via_daemon",
         "git_checkout_key",
         "next_git_checkout_key",
         "git_checkout_probe_session",
@@ -3427,7 +3433,7 @@ pub const Model = struct {
     /// Ghost select on the project row: current branch and/or a listed
     /// local head or remote-tracking ref. Occupied locals stay listed.
     /// Detached HEAD can still open the picker when `for-each-ref`
-    /// returned ≥1 name.
+    /// (or a daemon InspectBranches snapshot) returned ≥1 name.
     pub fn can_pick_git_branch(model: *const Model) bool {
         return git_checkout.canPickGitBranch(model);
     }

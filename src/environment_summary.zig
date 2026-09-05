@@ -135,9 +135,12 @@
 //! New worktree… `git worktree add`; optional `baseBranch` persist
 //! ships on that draft). First-cut daemon `WorkspaceOperation::Push`
 //! and `CreateWorktree` ship in `git_checkout` / Send prep. First-cut
-//! daemon `WorkspaceOperation::Commit` ships in `git_commit`. Leftovers:
-//! other daemon `WorkspaceOperation` variants (InspectBranches,
-//! CaptureTurn, ListTree, …).
+//! daemon `WorkspaceOperation::Commit` ships in `git_commit`. First-cut
+//! daemon `WorkspaceOperation::InspectBranches` ships in
+//! `git_checkout`. Leftovers: other daemon `WorkspaceOperation`
+//! variants (CheckoutBranch, CaptureTurn, ListTree, InspectCommit,
+//! GenerateCommitMessage, CollectReviewDiff, ref ops,
+//! remotes-on-daemon-list, amend/force over daemon, …).
 
 const std = @import("std");
 const main = @import("main.zig");

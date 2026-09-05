@@ -6,8 +6,10 @@
 //! follow-up `git rev-parse --short HEAD` may fill the select label
 //! with a conservative short hex. Non-repos stay omitted. Local
 //! heads, remote-tracking checkout, create, safe delete, fetch,
-//! push, and New worktree… live in `git_checkout.zig`. Not Waku's
-//! daemon `InspectBranches` picker and not a live watch.
+//! push, and New worktree… live in `git_checkout.zig`. The list
+//! picker first-cut daemon `InspectBranches` sidecar also lives
+//! there (not a live watch). This module is still one-shot
+//! `--show-current` / detached `rev-parse`.
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
@@ -248,6 +250,20 @@ pub fn clearGitBranch(model: *Model) void {
 
 fn setGitBranch(model: *Model, name: []const u8) void {
     writeFixed(&model.git_branch_storage, &model.git_branch_len, name);
+}
+
+/// Apply InspectBranches `current` / `detached_head` into the composer
+/// branch label the same way `--show-current` / `rev-parse --short`
+/// would. Current wins when it is a plausible name; otherwise a
+/// conservative short SHA. Empty / implausible values leave the label.
+pub fn applySnapshotLabels(model: *Model, current: []const u8, detached_head: []const u8) void {
+    if (takeBranchName(current)) |name| {
+        setGitBranch(model, name);
+        return;
+    }
+    if (takeShortSha(detached_head)) |sha| {
+        setGitBranch(model, sha);
+    }
 }
 
 fn cancelInFlight(model: *Model, fx: *Effects) void {
@@ -504,4 +520,14 @@ test "takeShortSha accepts conservative hex only" {
     try std.testing.expect(takeShortSha("   ") == null);
     try std.testing.expect(!isPlausibleShortSha("123"));
     try std.testing.expect(isPlausibleShortSha("abcd"));
+}
+
+test "applySnapshotLabels prefers current then detached short SHA" {
+    var model = Model{};
+    applySnapshotLabels(&model, "  feat/foo \n", "a1b2c3d");
+    try std.testing.expectEqualStrings("feat/foo", gitBranchLabel(&model));
+    applySnapshotLabels(&model, "", "  a1b2c3d \n");
+    try std.testing.expectEqualStrings("a1b2c3d", gitBranchLabel(&model));
+    applySnapshotLabels(&model, "not a branch", "zzzz");
+    try std.testing.expectEqualStrings("a1b2c3d", gitBranchLabel(&model));
 }

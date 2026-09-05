@@ -969,7 +969,7 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
         return;
     }
     if (model.git_branch_list_key != 0 and exit.key == model.git_branch_list_key) {
-        git_checkout.handleListExit(model, exit);
+        git_checkout.handleListExit(model, fx, exit);
         return;
     }
     if (model.git_checkout_key != 0 and exit.key == model.git_checkout_key) {
