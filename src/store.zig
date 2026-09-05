@@ -1471,15 +1471,17 @@ fn jsonString(value: ?std.json.Value) ?[]const u8 {
     };
 }
 
-/// `sessions.json` `workspace`. Missing / unknown / `local` → local
-/// (same skip as Waku `skip_serializing_if`). `newWorktree` is a
-/// draft; `worktree` restores path + branch.
-fn parseWorkspace(value: ?std.json.Value) struct {
+const ParsedWorkspace = struct {
     kind: main.Session.WorkspaceKind,
     path: []const u8,
     branch: []const u8,
-} {
-    const empty = .{ .kind = .local, .path = "", .branch = "" };
+};
+
+/// `sessions.json` `workspace`. Missing / unknown / `local` → local
+/// (same skip as Waku `skip_serializing_if`). `newWorktree` is a
+/// draft; `worktree` restores path + branch.
+fn parseWorkspace(value: ?std.json.Value) ParsedWorkspace {
+    const empty: ParsedWorkspace = .{ .kind = .local, .path = "", .branch = "" };
     const item = value orelse return empty;
     const obj = switch (item) {
         .object => |o| o,
