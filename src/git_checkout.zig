@@ -2516,7 +2516,10 @@ fn spawnLocalBranchList(model: *Model, fx: *Effects, cwd: []const u8) void {
     model.git_branch_list_key = key;
     model.git_branch_list_via_daemon = false;
     model.git_branch_list_probe_session = model.selected;
-    writeFixed(&model.git_branch_list_probe_path_storage, &model.git_branch_list_probe_path_len, cwd);
+    const probed = model.git_branch_list_probe_path_storage[0..model.git_branch_list_probe_path_len];
+    if (cwd.ptr != probed.ptr) {
+        writeFixed(&model.git_branch_list_probe_path_storage, &model.git_branch_list_probe_path_len, cwd);
+    }
 
     var argv_buf: [list_argv_len][]const u8 = undefined;
     fx.spawn(.{
