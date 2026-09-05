@@ -13,6 +13,7 @@ const session_switcher = @import("switcher.zig");
 const turn_stream = @import("stream.zig");
 const git_checkout = @import("git_checkout.zig");
 const git_commit = @import("git_commit.zig");
+const session_workspace = @import("session_workspace.zig");
 const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const skills = @import("skills.zig");
@@ -33,6 +34,10 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
     }
     if (model.git_branch_picker_open) {
         model.closeGitBranchPicker();
+        return;
+    }
+    if (model.workspace_picker_open) {
+        model.closeWorkspacePicker();
         return;
     }
     if (model.access_picker_open) {
@@ -375,6 +380,7 @@ pub fn handleToggleGitBranchPicker(model: *Model) void {
         model.effort_picker_open = false;
         model.settings_effort_picker_open = false;
         model.goal_status_picker_open = false;
+        model.workspace_picker_open = false;
         git_checkout.closeDelete(model);
         git_checkout.closePushConfirm(model);
     }
@@ -470,6 +476,30 @@ pub fn handleToggleGitWorktreeBasePicker(model: *Model) void {
 
 pub fn handlePickGitWorktreeBase(model: *Model, name: []const u8) void {
     git_checkout.pickWorktreeBaseName(model, name);
+}
+
+pub fn handleToggleWorkspacePicker(model: *Model) void {
+    if (!model.workspace_picker_open) {
+        session_switcher.closeSwitcher(model);
+        if (model.palette_open) model.closePalette();
+        model.model_picker_open = false;
+        model.access_picker_open = false;
+        model.effort_picker_open = false;
+        model.settings_effort_picker_open = false;
+        model.goal_status_picker_open = false;
+        model.git_branch_picker_open = false;
+        git_checkout.closeDelete(model);
+        git_checkout.closePushConfirm(model);
+    }
+    model.toggleWorkspacePicker();
+}
+
+pub fn handlePickWorkspaceLocal(model: *Model, fx: *Effects) void {
+    session_workspace.pickLocal(model, fx);
+}
+
+pub fn handlePickWorkspaceNewWorktree(model: *Model, fx: *Effects) void {
+    session_workspace.pickNewWorktree(model, fx);
 }
 
 pub fn handleStartGitCommit(model: *Model, fx: *Effects) void {

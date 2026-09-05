@@ -34,6 +34,8 @@ pub const max_available_commands = acp.max_available_commands;
 pub const max_model_options = acp.max_model_options;
 pub const max_command_name = 64;
 pub const max_command_description = 256;
+/// Worktree dest branch / `faku/<slug>` cap. Matches git_branch.max_git_branch.
+pub const max_workspace_branch = 255;
 
 pub const Provider = protocol.ProviderId;
 
@@ -73,6 +75,8 @@ pub const ModelOption = struct {
 };
 
 pub const Session = struct {
+    pub const WorkspaceKind = enum { local, new_worktree, worktree };
+
     id: u32 = 0,
     title_storage: [max_title]u8 = [_]u8{0} ** max_title,
     title_len: usize = 0,
@@ -88,6 +92,15 @@ pub const Session = struct {
     /// Workspace path for `fx ask`. Empty means inherit the host process cwd.
     project_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     project_path_len: usize = 0,
+    /// Waku-shaped workspace kind. `local` is the default and is omitted
+    /// from `sessions.json`. `new_worktree` is a draft until the first
+    /// Send materializes a git worktree. `worktree` is that dest after
+    /// Send prep succeeds (`path` + `branch`).
+    workspace_kind: WorkspaceKind = .local,
+    workspace_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    workspace_path_len: usize = 0,
+    workspace_branch_storage: [max_workspace_branch]u8 = [_]u8{0} ** max_workspace_branch,
+    workspace_branch_len: usize = 0,
     /// Saved fx session id (`fx ask --json` `session_id` / ACP `sessionId`).
     /// fx ACP sessions are the same saved sessions as interactive fx.
     fx_session_id_storage: [max_fx_session_id]u8 = [_]u8{0} ** max_fx_session_id,
@@ -182,6 +195,32 @@ pub const Session = struct {
 
     pub fn setProjectPath(self: *Session, path: []const u8) void {
         writeFixed(&self.project_path_storage, &self.project_path_len, path);
+    }
+
+    pub fn workspacePath(self: *const Session) []const u8 {
+        return self.workspace_path_storage[0..self.workspace_path_len];
+    }
+
+    pub fn workspaceBranch(self: *const Session) []const u8 {
+        return self.workspace_branch_storage[0..self.workspace_branch_len];
+    }
+
+    pub fn setWorkspaceLocal(self: *Session) void {
+        self.workspace_kind = .local;
+        self.workspace_path_len = 0;
+        self.workspace_branch_len = 0;
+    }
+
+    pub fn setWorkspaceNewWorktree(self: *Session) void {
+        self.workspace_kind = .new_worktree;
+        self.workspace_path_len = 0;
+        self.workspace_branch_len = 0;
+    }
+
+    pub fn setWorkspaceWorktree(self: *Session, path: []const u8, branch: []const u8) void {
+        self.workspace_kind = .worktree;
+        writeFixed(&self.workspace_path_storage, &self.workspace_path_len, path);
+        writeFixed(&self.workspace_branch_storage, &self.workspace_branch_len, branch);
     }
 
     pub fn fxSessionId(self: *const Session) []const u8 {

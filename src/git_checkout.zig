@@ -98,9 +98,11 @@
 //! `~/.waku/worktrees/{project_id}` UUID nest. Composer Push… still
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
-//! Leftovers: defer-until-Send workspace mode / stash / merge /
-//! daemon `WorkspaceOperation`. Fetch already `--prune`; there is
-//! no prune-alone menu (not in Waku).
+//! Leftovers: stash / merge / daemon `WorkspaceOperation`. Fetch
+//! already `--prune`; there is no prune-alone menu (not in Waku).
+//! First-cut defer-until-Send Work in reuses this same add path on
+//! Send (`session_workspace`); the branch-menu New worktree… card
+//! still creates immediately.
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:
@@ -1843,7 +1845,14 @@ pub fn closeWorktreeCreate(model: *Model) void {
     model.git_worktree_create_active = false;
     model.git_worktree_create_buffer.clear();
     model.git_worktree_base_picker_open = false;
-    model.git_worktree_base_override_len = 0;
+    if (!sessionIsNewWorktree(model)) {
+        model.git_worktree_base_override_len = 0;
+    }
+}
+
+fn sessionIsNewWorktree(model: *const Model) bool {
+    const session = model.sessionByIdConst(model.selected) orelse return false;
+    return session.workspace_kind == .new_worktree;
 }
 
 fn closeCommitCard(model: *Model) void {
@@ -1953,7 +1962,7 @@ pub fn closeWorktreeBasePicker(model: *Model) void {
 }
 
 pub fn toggleWorktreeBasePicker(model: *Model) void {
-    if (!model.git_worktree_create_active) {
+    if (!model.git_worktree_create_active and !sessionIsNewWorktree(model)) {
         model.git_worktree_base_picker_open = false;
         return;
     }
@@ -2220,6 +2229,7 @@ fn cancelWorktreeAdd(model: *Model, fx: *Effects) void {
     fx.cancel(model.git_worktree_add_key);
     model.git_worktree_add_key = 0;
     resetWorktreeAddState(model);
+    if (model.workspace_prep_active) model.abortWorkspacePrep();
 }
 
 fn cancelWorktreeBase(model: *Model, fx: *Effects) void {
@@ -2227,6 +2237,7 @@ fn cancelWorktreeBase(model: *Model, fx: *Effects) void {
     fx.cancel(model.git_worktree_base_key);
     model.git_worktree_base_key = 0;
     resetWorktreeAddState(model);
+    if (model.workspace_prep_active) model.abortWorkspacePrep();
 }
 
 fn probeSupported() bool {
@@ -2864,6 +2875,16 @@ pub fn confirmWorktreeAdd(model: *Model, fx: *Effects) void {
     if (model.is_streaming()) return;
     const raw = std.mem.trim(u8, model.git_worktree_create_buffer.text(), " \t\r\n");
     const name = sanitizeWorktreeName(raw) orelse return;
+    beginWorktreeAdd(model, fx, name);
+}
+
+/// Shared by the New worktree… confirm card and defer-until-Send.
+/// `name` is a dest slug (`sanitizeWorktreeName`); empty / unsafe is
+/// a no-op. Same spawn / retry / candidate path as confirm.
+pub fn beginWorktreeAdd(model: *Model, fx: *Effects, name: []const u8) void {
+    if (gitMutationInFlight(model)) return;
+    if (model.is_streaming()) return;
+    const slug = sanitizeWorktreeName(name) orelse return;
     if (!probeSupported()) return;
     const cwd = probePath(model);
     if (cwd.len == 0) return;
@@ -2871,8 +2892,8 @@ pub fn confirmWorktreeAdd(model: *Model, fx: *Effects) void {
 
     var parent_buf: [main.max_project_path]u8 = undefined;
     const parent = worktreeParentPathFor(home, cwd, parent_buf[0..], model) orelse return;
-    writeFixed(&model.git_worktree_add_slug_storage, &model.git_worktree_add_slug_len, name);
-    if (!pickWorktreeCandidate(model, home, cwd, name, 0)) {
+    writeFixed(&model.git_worktree_add_slug_storage, &model.git_worktree_add_slug_len, slug);
+    if (!pickWorktreeCandidate(model, home, cwd, slug, 0)) {
         resetWorktreeAddState(model);
         model.setAttachStatus(worktree_add_failed_status);
         return;
@@ -2918,6 +2939,7 @@ pub fn handleWorktreeBaseExit(model: *Model, fx: *Effects, exit: native_sdk.Effe
     model.git_worktree_base_key = 0;
     if (!current) {
         model.git_worktree_base_len = 0;
+        if (model.workspace_prep_active) model.abortWorkspacePrep();
         return;
     }
     if (gitWorktreeBase(model).len == 0) {
@@ -2938,10 +2960,19 @@ pub fn handleWorktreeAddExit(model: *Model, fx: *Effects, exit: native_sdk.Effec
     if (exit.key != model.git_worktree_add_key or model.git_worktree_add_key == 0) return false;
     const current = worktreeAddStillCurrent(model);
     model.git_worktree_add_key = 0;
-    if (!current) return false;
+    if (!current) {
+        if (model.workspace_prep_active) model.abortWorkspacePrep();
+        return false;
+    }
     if (exit.reason == .exited and exit.code == 0) {
         const dest = model.git_worktree_add_dest_storage[0..model.git_worktree_add_dest_len];
+        const branch = model.git_worktree_add_branch_storage[0..model.git_worktree_add_branch_len];
         if (dest.len > 0) model.setSelectedProjectPath(dest);
+        if (model.workspace_prep_active) {
+            if (model.sessionById(model.selected)) |session| {
+                session.setWorkspaceWorktree(dest, branch);
+            }
+        }
         closeWorktreeCreate(model);
         resetWorktreeAddState(model);
         return true;

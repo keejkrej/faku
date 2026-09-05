@@ -31,6 +31,7 @@ const session_fork = @import("fork.zig");
 const copy_helpers = @import("copy.zig");
 const attach_helpers = @import("attach.zig");
 const environment_summary = @import("environment_summary.zig");
+const session_workspace = @import("session_workspace.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -66,6 +67,15 @@ pub fn handleSend(model: *Model, fx: *Effects) void {
         return;
     }
     if (text.len == 0) return;
+    if (session_workspace.shouldPrepOnSend(model)) {
+        if (session_workspace.beginPrep(model, fx, text)) {
+            model.draft_buffer.clear();
+            if (draft_key) |key| store.discardDraftIfPossible(model, key);
+            model.clearImageAttach();
+            attach_helpers.refreshAttachPreview(model, fx);
+        }
+        return;
+    }
     prompt_spawn.startPrompt(model, fx, model.selected, text);
     model.draft_buffer.clear();
     if (draft_key) |key| store.discardDraftIfPossible(model, key);

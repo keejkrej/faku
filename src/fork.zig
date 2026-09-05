@@ -142,6 +142,10 @@ pub fn forkSelectedThrough(model: *Model, fx: *Effects, through_index: u32) void
     if (model.sessionById(source_id)) |from| {
         if (model.sessionById(fork_id)) |session| {
             session.setProjectPath(from.projectPath());
+            // Fork copies the ordinary cwd (including a materialized
+            // worktree dest) and resets kind to `local`. It does not
+            // spawn a second worktree or copy `newWorktree`.
+            session.setWorkspaceLocal();
             session.setModel(from.model());
             session.setAccessMode(from.accessMode());
             session.setInteractionMode(from.interactionMode());

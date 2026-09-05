@@ -528,6 +528,7 @@ test {
     _ = @import("layout.zig");
     _ = @import("effect_keys.zig");
     _ = @import("session.zig");
+    _ = @import("session_workspace.zig");
     _ = @import("model.zig");
     _ = @import("i18n.zig");
     _ = @import("git_branch.zig");
