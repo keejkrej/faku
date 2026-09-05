@@ -134,8 +134,10 @@
 //! workspace mode ships (composer Work in; Send prep reuses
 //! New worktree… `git worktree add`; optional `baseBranch` persist
 //! ships on that draft). First-cut daemon `WorkspaceOperation::Push`
-//! and `CreateWorktree` ship in `git_checkout` / Send prep. Leftovers:
-//! other daemon `WorkspaceOperation` variants.
+//! and `CreateWorktree` ship in `git_checkout` / Send prep. First-cut
+//! daemon `WorkspaceOperation::Commit` ships in `git_commit`. Leftovers:
+//! other daemon `WorkspaceOperation` variants (InspectBranches,
+//! CaptureTurn, ListTree, …).
 
 const std = @import("std");
 const main = @import("main.zig");

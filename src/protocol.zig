@@ -114,14 +114,18 @@
 //! tagged `type` camelCase). Verified against egoist/waku
 //! `crates/waku-protocol` `WorkspaceClient::request` (nil `sessionId` and
 //! nil `runtimeId` on the request frame), `WorkspaceOperation::Push`
-//! `{ "type": "push", "cwd": "<path>" }`, and
+//! `{ "type": "push", "cwd": "<path>" }`,
 //! `WorkspaceOperation::CreateWorktree`
 //! `{ "type": "createWorktree", "project_path", "project_id",
 //! "session_id", "prompt", "base_branch" }` (snake_case fields;
-//! `base_branch` is a string or JSON null). This cut ships Push and
-//! CreateWorktree. There is no force flag on daemon Push. An ok
-//! outcome is `ResponsePayload::Workspace { result }` where Push
-//! yields `WorkspaceResult::Ack` — wire `outcome.payload`
+//! `base_branch` is a string or JSON null), and
+//! `WorkspaceOperation::Commit`
+//! `{ "type": "commit", "cwd", "message", "include_unstaged", "push" }`
+//! (bools JSON true/false; no amend and no force on daemon Commit).
+//! This cut ships Push, CreateWorktree, and Commit. There is no force
+//! flag on daemon Push. An ok outcome is
+//! `ResponsePayload::Workspace { result }` where Push and Commit
+//! yield `WorkspaceResult::Ack` — wire `outcome.payload`
 //! `{ "type": "workspace", "result": { "type": "ack" } }` (not a bare
 //! `ack`) — and CreateWorktree yields
 //! `WorkspaceResult::WorktreeCreated` — wire
@@ -323,8 +327,8 @@ pub fn defaultStartOptions() StartOptions {
 /// `fork` command on this wire — session fork is a local catalog clone.
 /// `goal` is the Codex `/goal` first cut (set/clear/refresh over the
 /// daemon sidecar). It is not an fx / ACP method. `workspace` is
-/// first-cut `WorkspaceOperation::Push` and `CreateWorktree` (hello +
-/// workspace sidecar).
+/// first-cut `WorkspaceOperation::Push`, `CreateWorktree`, and
+/// `Commit` (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -488,9 +492,11 @@ pub const GoalOperation = union(GoalKind) {
 };
 
 /// `WorkspaceOperation` tagged `type` (Waku serde camelCase `type`).
-/// First-cut ships `Push { cwd }` and `CreateWorktree` (snake_case
-/// fields; `base_branch` string or JSON null). No force flag.
-pub const WorkspaceKind = enum { push, create_worktree };
+/// First-cut ships `Push { cwd }`, `CreateWorktree` (snake_case
+/// fields; `base_branch` string or JSON null), and `Commit`
+/// `{ cwd, message, include_unstaged, push }`. No force flag on Push
+/// or Commit. No amend on daemon Commit.
+pub const WorkspaceKind = enum { push, create_worktree, commit };
 
 pub const WorkspacePush = struct {
     cwd: []const u8,
@@ -504,9 +510,17 @@ pub const WorkspaceCreateWorktree = struct {
     base_branch: ?[]const u8 = null,
 };
 
+pub const WorkspaceCommit = struct {
+    cwd: []const u8,
+    message: []const u8,
+    include_unstaged: bool,
+    push: bool,
+};
+
 pub const WorkspaceOperation = union(WorkspaceKind) {
     push: WorkspacePush,
     create_worktree: WorkspaceCreateWorktree,
+    commit: WorkspaceCommit,
 };
 
 /// Path + branch from an ok `worktreeCreated` workspace result.
@@ -744,9 +758,10 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// Request frame wrapping verified `command: { type: "workspace", operation }`.
 /// Same request-frame shape as `writeGoal`. Waku `WorkspaceClient::request`
 /// uses nil `sessionId` and nil `runtimeId` for workspace RPCs. Callers
-/// for Push and CreateWorktree pass `NIL_UUID` for those ids. `operation`
-/// is `WorkspaceOperation` tagged `type`. A non-nil `requestId` is
-/// required so the daemon replies (nil is a notify). Timeout 120s.
+/// for Push, CreateWorktree, and Commit pass `NIL_UUID` for those ids.
+/// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
+/// `requestId` is required so the daemon replies (nil is a notify).
+/// Timeout 120s.
 pub fn writeWorkspace(
     buf: []u8,
     request_id: []const u8,
@@ -789,6 +804,17 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
             } else {
                 try cur.write("null");
             }
+            try cur.write("}");
+        },
+        .commit => |args| {
+            try cur.write("{\"type\":\"commit\",\"cwd\":");
+            try writeJsonString(cur, args.cwd);
+            try cur.write(",\"message\":");
+            try writeJsonString(cur, args.message);
+            try cur.write(",\"include_unstaged\":");
+            try writeBool(cur, args.include_unstaged);
+            try cur.write(",\"push\":");
+            try writeBool(cur, args.push);
             try cur.write("}");
         },
     }
@@ -1197,8 +1223,8 @@ pub fn parseWorktreeCreated(allocator: std.mem.Allocator, line: []const u8) Pars
     return parsed;
 }
 
-/// True when the line is an ok workspace Push ack or CreateWorktree
-/// `worktreeCreated` (non-empty path + branch).
+/// True when the line is an ok workspace Push / Commit ack or
+/// CreateWorktree `worktreeCreated` (non-empty path + branch).
 pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (isWorkspaceAck(allocator, line)) return true;
     return parseWorktreeCreated(allocator, line).ok;
@@ -1426,6 +1452,48 @@ test "isWorkspaceAck accepts nested workspace ack and rejects bare ack or error"
     try std.testing.expect(!isWorkspaceAck(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}"));
     try std.testing.expect(!isWorkspaceAck(arena, "{\"type\":\"rejected\",\"message\":\"bad token\"}"));
     try std.testing.expect(!isWorkspaceAck(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"worktreeCreated\",\"worktree\":{\"path\":\"/tmp/wt\",\"branch\":\"waku/feat\"}}}}}"));
+}
+
+test "workspace request wraps camelCase Commit with include_unstaged/push and nil ids" {
+    var buf: [512]u8 = undefined;
+    const json = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .commit = .{
+            .cwd = "/tmp/faku",
+            .message = "ship the commit cut",
+            .include_unstaged = true,
+            .push = false,
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"commit\",\"cwd\":\"/tmp/faku\",\"message\":\"ship the commit cut\",\"include_unstaged\":true,\"push\":false}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"push\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"createWorktree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "includeUnstaged") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
+
+    const pushed = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .commit = .{
+            .cwd = "/tmp/faku",
+            .message = "ship and push",
+            .include_unstaged = false,
+            .push = true,
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, pushed, "\"include_unstaged\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, pushed, "\"push\":true") != null);
 }
 
 test "workspace request wraps camelCase CreateWorktree with snake_case fields and nil ids" {

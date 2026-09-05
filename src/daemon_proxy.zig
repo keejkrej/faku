@@ -20,7 +20,7 @@
 //! A workspace-only stdin waits for a `response` / `rejected` /
 //! `shutting_down` frame (not hello, not a driver event) like save/close,
 //! prints that line, and exits non-zero unless the response is an ok
-//! workspace ack (Push) or `worktreeCreated` (CreateWorktree).
+//! workspace ack (Push / Commit) or `worktreeCreated` (CreateWorktree).
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -358,11 +358,11 @@ pub fn writeGoalStdin(buf: []u8, args: GoalStdin) WriteError![]const u8 {
     return cur.slice();
 }
 
-/// NDJSON stdin for first-cut workspace Push / CreateWorktree. Hello +
-/// `workspace` (nil request-frame `sessionId` / `runtimeId`, command
-/// payload `operation`). Own spawn key — Native cannot write into a
-/// running prompt sidecar. No attachSession, no prompt command. Wait
-/// for a `response` frame (ok or error), not a driver event.
+/// NDJSON stdin for first-cut workspace Push / CreateWorktree / Commit.
+/// Hello + `workspace` (nil request-frame `sessionId` / `runtimeId`,
+/// command payload `operation`). Own spawn key — Native cannot write
+/// into a running prompt sidecar. No attachSession, no prompt command.
+/// Wait for a `response` frame (ok or error), not a driver event.
 pub fn writeWorkspaceStdin(buf: []u8, args: WorkspaceStdin) WriteError![]const u8 {
     var cur = Cursor{ .buf = buf };
     const hello = try protocol.writeClientHello(cur.remaining(), args.token, args.client_id, &.{});
@@ -990,6 +990,49 @@ test "writeWorkspaceStdin emits hello and workspace createWorktree without a pro
     });
     try std.testing.expect(std.mem.indexOf(u8, no_base, "\"base_branch\":null") != null);
     try std.testing.expect(outboundWaitsForWorkspace(no_base));
+}
+
+test "writeWorkspaceStdin emits hello and workspace commit without a prompt" {
+    var buf: [2048]u8 = undefined;
+    const stdin = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{ .commit = .{
+            .cwd = "/tmp/faku",
+            .message = "ship the commit cut",
+            .include_unstaged = true,
+            .push = false,
+        } },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ WORKSPACE_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"commit\",\"cwd\":\"/tmp/faku\",\"message\":\"ship the commit cut\",\"include_unstaged\":true,\"push\":false}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"push\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"createWorktree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "includeUnstaged") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "force") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(!outboundWaitsForLoadResponse(stdin));
+    try std.testing.expect(!outboundWaitsForHydrateResponse(stdin));
+    try std.testing.expect(!outboundWaitsForGoal(stdin));
+    try std.testing.expect(outboundWaitsForWorkspace(stdin));
+
+    const pushed = try writeWorkspaceStdin(&buf, .{
+        .operation = .{ .commit = .{
+            .cwd = "/tmp/faku",
+            .message = "ship and push",
+            .include_unstaged = false,
+            .push = true,
+        } },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, pushed, "\"include_unstaged\":false") != null);
+    try std.testing.expect(std.mem.indexOf(u8, pushed, "\"push\":true") != null);
+    try std.testing.expect(outboundWaitsForWorkspace(pushed));
 }
 
 test "localIdFromWire reverses wireUuid" {
