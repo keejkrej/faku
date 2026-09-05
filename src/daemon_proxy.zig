@@ -27,7 +27,8 @@
 //! `checkpoint` with a nested checkpoint object (CaptureTurn), or
 //! `commitMessage` with a string `message` (GenerateCommitMessage), or
 //! `workingTree` with a parsed `entries` array (ListTree), or
-//! `reviewDiff` with nested `data` (CollectReviewDiff).
+//! `reviewDiff` with nested `data` (CollectReviewDiff), or
+//! `directory` with `path` + `entries` (BrowseDirectory).
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -368,7 +369,7 @@ pub fn writeGoalStdin(buf: []u8, args: GoalStdin) WriteError![]const u8 {
 /// NDJSON stdin for first-cut workspace Push / CreateWorktree / Commit /
 /// InspectBranches / CheckoutBranch / InspectCommit / CaptureTurnStart /
 /// CaptureTurn / GenerateCommitMessage / ListTree /
-/// CollectReviewDiff.
+/// CollectReviewDiff / BrowseDirectory.
 /// Hello + `workspace`
 /// (nil request-frame `sessionId` / `runtimeId`, command payload
 /// `operation`). Own spawn key — Native cannot write into a running
@@ -1383,6 +1384,39 @@ test "writeWorkspaceStdin emits hello and workspace collectReviewDiff without a 
     var tiny: [32]u8 = undefined;
     try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
         .operation = .{ .collect_review_diff = .{ .cwd = "/tmp/faku", .source = .branch } },
+    }));
+}
+
+test "writeWorkspaceStdin emits hello and workspace browseDirectory with null or absolute path" {
+    var buf: [1024]u8 = undefined;
+    const home = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{ .browse_directory = .{} },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"requestId\":\"" ++ WORKSPACE_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"browseDirectory\",\"path\":null}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"type\":\"listTree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"type\":\"collectReviewDiff\"") == null);
+    try std.testing.expect(!outboundWaitsForTurn(home));
+    try std.testing.expect(outboundWaitsForWorkspace(home));
+
+    const abs = try writeWorkspaceStdin(&buf, .{
+        .operation = .{ .browse_directory = .{ .path = "/abs/dir" } },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, abs, "\"path\":\"/abs/dir\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, abs, "\"path\":null") == null);
+    try std.testing.expect(outboundWaitsForWorkspace(abs));
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
+        .operation = .{ .browse_directory = .{ .path = "/abs/dir" } },
     }));
 }
 

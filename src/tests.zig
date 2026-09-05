@@ -4368,6 +4368,79 @@ test "in-flight second Pick folder is a no-op" {
     try testing.expect(model.pick_folder_live);
 }
 
+test "Pick folder with a daemon address opens the in-app BrowseDirectory browser" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var store_buf: [256]u8 = undefined;
+    const store_dir = try std.fmt.bufPrint(&store_buf, ".zig-cache/tmp/{s}/browse-ui", .{tmp.sub_path[0..]});
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(store_dir);
+    model.store_io = testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("browse ui", .fx);
+    model.selected = id;
+
+    main.update(&model, .start_project_edit, &fx);
+    var tree = try buildTree(arena, &model);
+    const pick = try expectButtonMsg(tree, "Pick folder", .pick_folder);
+    try testing.expect(findByText(tree.root, .button, "Choose") == null);
+
+    main.update(&model, tree.msgForPointer(pick.id, .up).?, &fx);
+    try testing.expect(model.daemon_dir_browser_open);
+    try testing.expect(!model.pick_folder_live);
+    try testing.expect(findFolderPickerSpawn(&fx) == null);
+    const key = model.daemon_dir_browser_key;
+    try testing.expect(key != 0);
+    try testing.expect(key != main.pick_folder_key);
+    const sidecar = findPendingSpawnKey(&fx, key) orelse return error.MissingDaemonBrowseDirectory;
+    try testing.expect(daemon_proxy.isSidecarArgv(sidecar.argv));
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"browseDirectory\"") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"path\":null") != null);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Loading…");
+    _ = try expectButtonMsg(tree, "Home", .daemon_dir_browser_home);
+    _ = try expectButtonMsg(tree, "Cancel", .cancel_daemon_dir_browser);
+    try testing.expect(findByText(tree.root, .button, "Choose") == null);
+    try testing.expect(findByText(tree.root, .button, "Up") == null);
+
+    try fx.feedLine(key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"directory\",\"path\":\"/home/me\",\"parent\":null,\"home\":\"/home/me\",\"filesystemRoot\":\"/\",\"entries\":[{\"relativePath\":\"src\",\"absolutePath\":\"/home/me/src\",\"name\":\"src\",\"isDir\":true,\"expanded\":false,\"depth\":0},{\"relativePath\":\"README.md\",\"absolutePath\":\"/home/me/README.md\",\"name\":\"README.md\",\"isDir\":false,\"expanded\":false,\"depth\":0}]}}}}");
+    drainEffects(&model, &fx);
+    try fx.feedExit(key, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(model.daemon_dir_browser_ok);
+    try testing.expect(model.daemon_dir_browser_open);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "/home/me");
+    try testing.expect(findByText(tree.root, .text, "Loading…") == null);
+    _ = try expectButtonMsg(tree, "Choose", .confirm_daemon_dir_browser);
+    _ = try expectButtonMsg(tree, "Home", .daemon_dir_browser_home);
+    _ = try expectButtonMsg(tree, "Cancel", .cancel_daemon_dir_browser);
+    try testing.expect(findByText(tree.root, .button, "Up") == null);
+    const src_row = try expectByText(tree.root, .list_item, "src");
+    try testing.expectEqual(Msg{ .pick_daemon_dir_entry = 1 }, tree.msgForPointer(src_row.id, .up).?);
+    const file_row = try expectByText(tree.root, .list_item, "README.md");
+    try testing.expect(tree.msgForPointer(file_row.id, .up) == null);
+
+    const choose = try expectButtonMsg(tree, "Choose", .confirm_daemon_dir_browser);
+    main.update(&model, tree.msgForPointer(choose.id, .up).?, &fx);
+    try testing.expectEqualStrings("/home/me", model.selectedProjectPath());
+    try testing.expect(!model.daemon_dir_browser_open);
+    try testing.expect(!model.pick_folder_live);
+}
+
 test "pick_folder stdout line does not set image_path" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();

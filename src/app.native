@@ -753,6 +753,40 @@
                 <button variant="ghost" size="sm" on-press="cancel_git_push">Cancel</button>
               </row>
             </if>
+            <if test="{daemon_dir_browser_open}">
+              <card size="sm" padding="10">
+                <column gap="8">
+                  <row gap="8" cross="center">
+                    <text wrap="false" overflow="ellipsis" grow="1">{daemon_dir_browser_path}</text>
+                    <if test="{daemon_dir_browser_can_up}">
+                      <button variant="ghost" size="sm" on-press="daemon_dir_browser_up">Up</button>
+                    </if>
+                    <button variant="ghost" size="sm" on-press="daemon_dir_browser_home">Home</button>
+                    <if test="{daemon_dir_browser_ready}">
+                      <button variant="ghost" size="sm" on-press="confirm_daemon_dir_browser">Choose</button>
+                    </if>
+                    <button variant="ghost" size="sm" on-press="cancel_daemon_dir_browser">Cancel</button>
+                  </row>
+                  <if test="{daemon_dir_browser_loading}">
+                    <text foreground="text_muted">Loading…</text>
+                  </if>
+                  <column>
+                    <for each="daemon_dir_browser_rows" key="row_id" as="e">
+                      <if test="{e.is_dir}">
+                        <list-item height="32" padding="8" gap="4" cross="center" on-press="pick_daemon_dir_entry:{e.row_id}" label="{e.label}">
+                          <text wrap="false" overflow="ellipsis">{e.label}</text>
+                        </list-item>
+                      </if>
+                      <else>
+                        <list-item height="32" padding="8" gap="4" cross="center" label="{e.label}">
+                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{e.label}</text>
+                        </list-item>
+                      </else>
+                    </for>
+                  </column>
+                </column>
+              </card>
+            </if>
             <if test="{project_edit_active}">
               <row gap="8" cross="center">
                 <text-field grow="1" placeholder="Workspace path" text="{project_edit}" on-input="project_path_edit" autofocus="true" />

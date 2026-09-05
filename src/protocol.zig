@@ -153,10 +153,15 @@
 //! are JSON strings `"uncommitted"` / `"unstaged"` / `"staged"` /
 //! `"committed"` / `"branch"`; LastTurn is
 //! `{ "lastTurn": { "session_id", "turn_id", "turn_count" } }` with
-//! nested snake_case fields). This cut
+//! nested snake_case fields), and
+//! `WorkspaceOperation::BrowseDirectory`
+//! `{ "type": "browseDirectory", "path": null }` or
+//! `{ "type": "browseDirectory", "path": "/abs/dir" }` (`path` is a
+//! JSON string or null; null ⇒ daemon home_dir). This cut
 //! ships Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
 //! InspectCommit, CaptureTurnStart, CaptureTurn,
-//! GenerateCommitMessage, ListTree, and CollectReviewDiff.
+//! GenerateCommitMessage, ListTree, CollectReviewDiff, and
+//! BrowseDirectory.
 //! There is no force flag on daemon Push. An ok outcome is
 //! `ResponsePayload::Workspace { result }` where Push, Commit, and
 //! CaptureTurnStart yield `WorkspaceResult::Ack` — wire `outcome.payload`
@@ -187,12 +192,19 @@
 //! Ack) — and CollectReviewDiff yields `WorkspaceResult::ReviewDiff`
 //! — wire `result: { "type": "reviewDiff", "data": { …ReviewDiffData… } }`
 //! nested under `outcome.payload` (not a bare reviewDiff object; not
-//! Ack; `data` is required). `ReviewDiffData` uses serde rename_all
+//! Ack; `data` is required) — and BrowseDirectory yields
+//! `WorkspaceResult::Directory` — wire
+//! `result: { "type": "directory", "path", "parent", "home",
+//! "filesystemRoot", "entries": [ WorkingTreeEntry, … ] }` nested
+//! under `outcome.payload` (not a bare directory object; not Ack;
+//! `path` and `entries` are required; `parent` may be JSON null at
+//! the filesystem root). `ReviewDiffData` uses serde rename_all
 //! camelCase: `source`, `numstat`, `patch`, `completeContext`. Empty
 //! `numstat` + `patch` with ok nesting is still ok (clean tree).
 //! `WorkingTreeEntry` uses serde rename_all camelCase:
 //! `relativePath`, `absolutePath`, `name`, `isDir`, `expanded`,
-//! `depth`.
+//! `depth`. Empty `entries` with ok Directory nesting is still ok
+//! (empty dir).
 //! `BranchSnapshot` /
 //! `BranchEntry` have no serde rename_all: snake_case `repository`,
 //! `current`, `detached_head`, `default_branch`, `branches`,
@@ -403,8 +415,8 @@ pub fn defaultStartOptions() StartOptions {
 /// first-cut `WorkspaceOperation::Push`, `CreateWorktree`,
 /// `Commit`, `InspectBranches`, `CheckoutBranch`,
 /// `InspectCommit`, `CaptureTurnStart`, `CaptureTurn`,
-/// `GenerateCommitMessage`, `ListTree`, and `CollectReviewDiff`
-/// (hello + workspace sidecar).
+/// `GenerateCommitMessage`, `ListTree`, `CollectReviewDiff`,
+/// and `BrowseDirectory` (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -582,9 +594,10 @@ pub const GoalOperation = union(GoalKind) {
 /// (snake_case `expanded_paths` JSON array), and
 /// `CollectReviewDiff { cwd, source }` (`ReviewDiffSource`
 /// externally tagged camelCase; LastTurn nested fields stay
-/// snake_case). No force flag on Push or Commit. No amend on
+/// snake_case), and `BrowseDirectory { path }` (`path` JSON string
+/// or null). No force flag on Push or Commit. No amend on
 /// daemon Commit, InspectCommit, or CollectReviewDiff.
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff };
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory };
 
 /// Waku `AgentInvocation`. Wire keys match generated TS:
 /// `provider`, `binary`, `model`, `reasoning_effort` (snake_case
@@ -676,6 +689,10 @@ pub const WorkspaceCollectReviewDiff = struct {
     source: ReviewDiffSource,
 };
 
+pub const WorkspaceBrowseDirectory = struct {
+    path: ?[]const u8 = null,
+};
+
 pub const WorkspaceOperation = union(WorkspaceKind) {
     push: WorkspacePush,
     create_worktree: WorkspaceCreateWorktree,
@@ -688,6 +705,7 @@ pub const WorkspaceOperation = union(WorkspaceKind) {
     generate_commit_message: WorkspaceGenerateCommitMessage,
     list_tree: WorkspaceListTree,
     collect_review_diff: WorkspaceCollectReviewDiff,
+    browse_directory: WorkspaceBrowseDirectory,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -757,6 +775,20 @@ pub const ParsedWorkingTreeEntry = struct {
 
 pub const ParsedWorkingTree = struct {
     ok: bool = false,
+    entries: [max_parsed_tree_entries]ParsedWorkingTreeEntry = [_]ParsedWorkingTreeEntry{.{}} ** max_parsed_tree_entries,
+    entry_count: usize = 0,
+};
+
+/// Directory listing from an ok `directory` workspace result.
+/// Cap matches ListTree (`max_parsed_tree_entries`); overflow
+/// entries are ignored. Slices alias the JSON arena. `parent`
+/// is empty when the wire value is JSON null (filesystem root).
+pub const ParsedDirectory = struct {
+    ok: bool = false,
+    path: []const u8 = "",
+    parent: []const u8 = "",
+    home: []const u8 = "",
+    filesystem_root: []const u8 = "",
     entries: [max_parsed_tree_entries]ParsedWorkingTreeEntry = [_]ParsedWorkingTreeEntry{.{}} ** max_parsed_tree_entries,
     entry_count: usize = 0,
 };
@@ -1001,7 +1033,8 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// uses nil `sessionId` and nil `runtimeId` for workspace RPCs. Callers
 /// for Push, CreateWorktree, Commit, InspectBranches,
 /// CheckoutBranch, InspectCommit, CaptureTurnStart, CaptureTurn,
-/// GenerateCommitMessage, ListTree, and CollectReviewDiff pass
+/// GenerateCommitMessage, ListTree, CollectReviewDiff, and
+/// BrowseDirectory pass
 /// `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
@@ -1136,6 +1169,15 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
             try writeJsonString(cur, args.cwd);
             try cur.write(",\"source\":");
             try writeReviewDiffSource(cur, args.source);
+            try cur.write("}");
+        },
+        .browse_directory => |args| {
+            try cur.write("{\"type\":\"browseDirectory\",\"path\":");
+            if (args.path) |path| {
+                try writeJsonString(cur, path);
+            } else {
+                try cur.write("null");
+            }
             try cur.write("}");
         },
     }
@@ -1692,32 +1734,69 @@ pub fn parseWorkingTree(allocator: std.mem.Allocator, line: []const u8) ParsedWo
     var parsed = ParsedWorkingTree{};
     const result = workspaceResultObject(allocator, line) orelse return parsed;
     if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "workingTree")) return parsed;
-    const entries_val = result.get("entries") orelse return parsed;
-    const items = jsonArrayItems(entries_val) orelse return parsed;
-
-    var n: usize = 0;
-    for (items) |item| {
-        if (n >= max_parsed_tree_entries) break;
-        const entry = jsonObject(item) orelse return parsed;
-        const relative_path = jsonStringValue(entry.get("relativePath")) orelse return parsed;
-        const absolute_path = jsonStringValue(entry.get("absolutePath")) orelse return parsed;
-        const name = jsonStringValue(entry.get("name")) orelse return parsed;
-        const is_dir = jsonBoolValue(entry.get("isDir")) orelse return parsed;
-        const expanded = jsonBoolValue(entry.get("expanded")) orelse return parsed;
-        const depth = jsonUintValue(entry.get("depth")) orelse return parsed;
-        parsed.entries[n] = .{
-            .relative_path = relative_path,
-            .absolute_path = absolute_path,
-            .name = name,
-            .is_dir = is_dir,
-            .expanded = expanded,
-            .depth = depth,
-        };
-        n += 1;
-    }
+    const n = parseWorkingTreeEntries(result.get("entries") orelse return parsed, &parsed.entries) orelse return parsed;
     parsed.ok = true;
     parsed.entry_count = n;
     return parsed;
+}
+
+/// Light parser for ok BrowseDirectory. True/`ok` when an ok `response`
+/// carries nested `result: { "type": "directory", "path", "parent",
+/// "home", "filesystemRoot", "entries": [ … ] }` with camelCase
+/// `WorkingTreeEntry` fields. Empty `entries` is still ok. Bare
+/// `directory`, ack, missing `path`/`entries`, snake_case
+/// `filesystem_root`, or a malformed entry inside the 256 cap are
+/// rejected. Overflow entries are ignored. `parent` may be JSON null
+/// (filesystem root). Slices alias `allocator`.
+pub fn parseDirectory(allocator: std.mem.Allocator, line: []const u8) ParsedDirectory {
+    var parsed = ParsedDirectory{};
+    const result = workspaceResultObject(allocator, line) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "directory")) return parsed;
+    const path = jsonStringValue(result.get("path")) orelse return parsed;
+    if (path.len == 0) return parsed;
+    const parent = jsonNullOrString(result.get("parent")) orelse return parsed;
+    const home = jsonStringValue(result.get("home")) orelse return parsed;
+    const filesystem_root = jsonStringValue(result.get("filesystemRoot")) orelse return parsed;
+    const n = parseWorkingTreeEntries(result.get("entries") orelse return parsed, &parsed.entries) orelse return parsed;
+    parsed.ok = true;
+    parsed.path = path;
+    parsed.parent = parent;
+    parsed.home = home;
+    parsed.filesystem_root = filesystem_root;
+    parsed.entry_count = n;
+    return parsed;
+}
+
+fn parseWorkingTreeEntries(
+    entries_val: std.json.Value,
+    dest: *[max_parsed_tree_entries]ParsedWorkingTreeEntry,
+) ?usize {
+    const items = jsonArrayItems(entries_val) orelse return null;
+    var n: usize = 0;
+    for (items) |item| {
+        if (n >= max_parsed_tree_entries) break;
+        const entry = jsonObject(item) orelse return null;
+        dest[n] = parseWorkingTreeEntry(entry) orelse return null;
+        n += 1;
+    }
+    return n;
+}
+
+fn parseWorkingTreeEntry(entry: std.json.ObjectMap) ?ParsedWorkingTreeEntry {
+    const relative_path = jsonStringValue(entry.get("relativePath")) orelse return null;
+    const absolute_path = jsonStringValue(entry.get("absolutePath")) orelse return null;
+    const name = jsonStringValue(entry.get("name")) orelse return null;
+    const is_dir = jsonBoolValue(entry.get("isDir")) orelse return null;
+    const expanded = jsonBoolValue(entry.get("expanded")) orelse return null;
+    const depth = jsonUintValue(entry.get("depth")) orelse return null;
+    return .{
+        .relative_path = relative_path,
+        .absolute_path = absolute_path,
+        .name = name,
+        .is_dir = is_dir,
+        .expanded = expanded,
+        .depth = depth,
+    };
 }
 
 /// Light parser for ok CollectReviewDiff. True/`ok` when an ok
@@ -1780,7 +1859,8 @@ pub fn isWorkspaceCheckpoint(allocator: std.mem.Allocator, line: []const u8) boo
 /// snapshot, InspectCommit `commitSnapshot` with a usable snapshot,
 /// GenerateCommitMessage `commitMessage` with a string `message`,
 /// ListTree `workingTree` with a parsed `entries` array,
-/// CollectReviewDiff `reviewDiff` with nested `data`, or
+/// CollectReviewDiff `reviewDiff` with nested `data`,
+/// BrowseDirectory `directory` with `path` + `entries`, or
 /// CaptureTurn `checkpoint` with a nested checkpoint object.
 pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (isWorkspaceAck(allocator, line)) return true;
@@ -1791,6 +1871,7 @@ pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (parseCommitMessage(allocator, line).ok) return true;
     if (parseWorkingTree(allocator, line).ok) return true;
     if (parseReviewDiff(allocator, line).ok) return true;
+    if (parseDirectory(allocator, line).ok) return true;
     return isWorkspaceCheckpoint(allocator, line);
 }
 
@@ -2772,6 +2853,92 @@ test "parseReviewDiff extracts camelCase data and rejects bare reviewDiff or ack
     try std.testing.expect(!parseReviewDiff(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"reviewDiff\",\"data\":{\"source\":\"branch\",\"numstat\":\"\",\"completeContext\":false}}}}}").ok);
     try std.testing.expect(!parseReviewDiff(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
     try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"reviewDiff\"}}}}"));
+}
+
+test "workspace request wraps camelCase browseDirectory with null or string path and nil ids" {
+    var buf: [1024]u8 = undefined;
+    const home = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .browse_directory = .{} },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"browseDirectory\",\"path\":null}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"type\":\"listTree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"type\":\"collectReviewDiff\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"kind\":\"browseDirectory\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, home, "\"type\":\"readTextFile\"") == null);
+
+    const abs = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .browse_directory = .{ .path = "/abs/dir" } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, abs, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"browseDirectory\",\"path\":\"/abs/dir\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, abs, "\"path\":null") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .browse_directory = .{ .path = "/abs/dir" } },
+    ));
+}
+
+test "parseDirectory extracts camelCase directory and rejects bare directory, ack, or filesystem_root" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"directory\",\"path\":\"/home/me\",\"parent\":null,\"home\":\"/home/me\",\"filesystemRoot\":\"/\",\"entries\":[{\"relativePath\":\"src\",\"absolutePath\":\"/home/me/src\",\"name\":\"src\",\"isDir\":true,\"expanded\":false,\"depth\":0},{\"relativePath\":\"README.md\",\"absolutePath\":\"/home/me/README.md\",\"name\":\"README.md\",\"isDir\":false,\"expanded\":false,\"depth\":0}]}}}}";
+    const parsed = parseDirectory(arena, ok_line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqualStrings("/home/me", parsed.path);
+    try std.testing.expectEqualStrings("", parsed.parent);
+    try std.testing.expectEqualStrings("/home/me", parsed.home);
+    try std.testing.expectEqualStrings("/", parsed.filesystem_root);
+    try std.testing.expectEqual(@as(usize, 2), parsed.entry_count);
+    try std.testing.expectEqualStrings("src", parsed.entries[0].name);
+    try std.testing.expect(parsed.entries[0].is_dir);
+    try std.testing.expectEqualStrings("/home/me/src", parsed.entries[0].absolute_path);
+    try std.testing.expect(!parsed.entries[0].expanded);
+    try std.testing.expectEqual(@as(u32, 0), parsed.entries[0].depth);
+    try std.testing.expectEqualStrings("README.md", parsed.entries[1].name);
+    try std.testing.expect(!parsed.entries[1].is_dir);
+    try std.testing.expect(isWorkspaceSuccess(arena, ok_line));
+    try std.testing.expect(!isWorkspaceAck(arena, ok_line));
+    try std.testing.expect(!parseWorkingTree(arena, ok_line).ok);
+    try std.testing.expect(!parseReviewDiff(arena, ok_line).ok);
+
+    const nested = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"directory\",\"path\":\"/home/me/src\",\"parent\":\"/home/me\",\"home\":\"/home/me\",\"filesystemRoot\":\"/\",\"entries\":[]}}}}";
+    const nested_parsed = parseDirectory(arena, nested);
+    try std.testing.expect(nested_parsed.ok);
+    try std.testing.expectEqualStrings("/home/me/src", nested_parsed.path);
+    try std.testing.expectEqualStrings("/home/me", nested_parsed.parent);
+    try std.testing.expectEqual(@as(usize, 0), nested_parsed.entry_count);
+    try std.testing.expect(isWorkspaceSuccess(arena, nested));
+
+    try std.testing.expect(!parseDirectory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"directory\",\"path\":\"/home/me\",\"parent\":null,\"home\":\"/home/me\",\"filesystemRoot\":\"/\",\"entries\":[]}}}").ok);
+    try std.testing.expect(!parseDirectory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
+    try std.testing.expect(!parseDirectory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"directory\"}}}}").ok);
+    try std.testing.expect(!parseDirectory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"directory\",\"path\":\"/home/me\",\"parent\":null,\"home\":\"/home/me\",\"filesystemRoot\":\"/\"}}}}").ok);
+    try std.testing.expect(!parseDirectory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"directory\",\"path\":\"\",\"parent\":null,\"home\":\"/home/me\",\"filesystemRoot\":\"/\",\"entries\":[]}}}}").ok);
+    try std.testing.expect(!parseDirectory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"directory\",\"path\":\"/home/me\",\"parent\":null,\"home\":\"/home/me\",\"filesystem_root\":\"/\",\"entries\":[]}}}}").ok);
+    try std.testing.expect(!parseDirectory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"directory\",\"path\":\"/home/me\",\"parent\":null,\"home\":\"/home/me\",\"filesystemRoot\":\"/\",\"entries\":[{\"relative_path\":\"src\",\"absolute_path\":\"/home/me/src\",\"name\":\"src\",\"is_dir\":true,\"expanded\":false,\"depth\":0}]}}}}").ok);
+    try std.testing.expect(!parseDirectory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
+    try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"directory\"}}}}"));
 }
 
 test "start defaults to first-party fx over acp" {

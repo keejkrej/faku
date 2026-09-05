@@ -1,11 +1,18 @@
-//! One-shot OS directory-picker sidecar.
+//! One-shot directory picker: daemon BrowseDirectory, else OS dialog.
 //!
 //! Native has no `fx.pickFile`. `Runtime.showOpenDialog` is a host-bridge
 //! / WebView API, not an fx effect the TEA loop can call. Pick folder
-//! therefore `fx.spawn`s a documented OS folder dialog that prints one
-//! absolute directory path to stdout and exits. Spawn stdin is unused
-//! (write-once then close). This is not Waku's daemon project catalog
-//! and not an invented Native file-open effect.
+//! prefers hello + daemon `WorkspaceOperation::BrowseDirectory` when
+//! `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set
+//! (in-app directory browser; initial probe `path: null` ⇒ daemon
+//! home). Local OS `osascript` / `zenity` / `kdialog` / PowerShell
+//! FolderBrowserDialog stays the fallback and remains the path when
+//! there is no daemon address. Native 4 KiB stdin overflow / spawn
+//! failure / non-ok / unusable parse fall back to that OS argv path.
+//! Own daemon spawn key (`next_daemon_key`) so OS fallback can still
+//! use `pick_folder_key` 29 after a daemon miss. This is not Waku's
+//! DaemonFilePicker (no Virtuoso / filter / history stack) and not an
+//! invented Native file-open effect.
 //!
 //!   macOS:  osascript `choose folder`, POSIX path
 //!   Linux:  zenity --file-selection --directory, else kdialog
@@ -21,14 +28,43 @@ const builtin = @import("builtin");
 const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const persist = @import("persist.zig");
+const daemon_proxy = @import("daemon_proxy.zig");
+const protocol = @import("protocol.zig");
+const store = @import("store.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
+const writeFixed = main.writeFixed;
 
 /// Distinct from pick_image (31), maximize (30), copy_turn (32),
 /// attach_preview 33–63, fx_probe (3), fx_spawn 64+, git_branch 200+.
 /// 29 sits in that gap and is unused by those tables.
 pub const pick_folder_key: u64 = 29;
+
+pub const max_dir_entries: usize = protocol.max_parsed_tree_entries;
+pub const max_dir_entry_name: usize = 255;
+
+pub const CachedDirEntry = struct {
+    name_storage: [max_dir_entry_name]u8 = [_]u8{0} ** max_dir_entry_name,
+    name_len: usize = 0,
+    abs_storage: [main.max_project_path]u8 = [_]u8{0} ** main.max_project_path,
+    abs_len: usize = 0,
+    is_dir: bool = false,
+
+    pub fn name(self: *const CachedDirEntry) []const u8 {
+        return self.name_storage[0..self.name_len];
+    }
+
+    pub fn absolutePath(self: *const CachedDirEntry) []const u8 {
+        return self.abs_storage[0..self.abs_len];
+    }
+
+    pub fn set(self: *CachedDirEntry, entry_name: []const u8, abs: []const u8, is_dir: bool) void {
+        writeFixed(&self.name_storage, &self.name_len, entry_name);
+        writeFixed(&self.abs_storage, &self.abs_len, abs);
+        self.is_dir = is_dir;
+    }
+};
 
 pub const cancel_exit: u8 = 1;
 pub const missing_exit: u8 = 2;
@@ -126,6 +162,12 @@ pub fn takeErrorMessage(line: []const u8) ?[]const u8 {
 }
 
 pub fn startPickFolder(model: *Model, fx: *Effects) void {
+    if (model.pick_folder_live or model.daemon_dir_browser_open) return;
+    if (trySpawnDaemonBrowseDirectory(model, fx, null)) return;
+    startOsPickFolder(model, fx);
+}
+
+fn startOsPickFolder(model: *Model, fx: *Effects) void {
     if (model.pick_folder_live) return;
     const argv = hostArgv(.first) orelse {
         model.setWindowStatus(hostMissingStatus());
@@ -142,6 +184,143 @@ pub fn startPickFolder(model: *Model, fx: *Effects) void {
         .on_line = Effects.lineMsg(.fx_line),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
+}
+
+/// Best-effort hello + `WorkspaceOperation::BrowseDirectory`. Own
+/// daemon spawn key so OS fallback can use `pick_folder_key` 29
+/// after a miss. Missing address or Native 4 KiB stdin overflow
+/// returns false. `path` null is the initial home probe.
+fn trySpawnDaemonBrowseDirectory(model: *Model, fx: *Effects, path: ?[]const u8) bool {
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{ .browse_directory = .{ .path = path } },
+    }) catch return false;
+
+    cancelDaemonBrowseSpawn(model, fx);
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.daemon_dir_browser_key = key;
+    model.daemon_dir_browser_open = true;
+    model.daemon_dir_browser_ok = false;
+    model.daemon_dir_browser_count = 0;
+    model.clearWindowStatus();
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
+fn cancelDaemonBrowseSpawn(model: *Model, fx: *Effects) void {
+    if (model.daemon_dir_browser_key == 0) return;
+    fx.cancel(model.daemon_dir_browser_key);
+    model.daemon_dir_browser_key = 0;
+}
+
+fn clearDaemonBrowserPaint(model: *Model) void {
+    model.daemon_dir_browser_path_len = 0;
+    model.daemon_dir_browser_parent_len = 0;
+    model.daemon_dir_browser_home_len = 0;
+    model.daemon_dir_browser_root_len = 0;
+    model.daemon_dir_browser_count = 0;
+}
+
+pub fn closeDaemonBrowser(model: *Model, fx: *Effects) void {
+    cancelDaemonBrowseSpawn(model, fx);
+    model.daemon_dir_browser_open = false;
+    model.daemon_dir_browser_ok = false;
+    clearDaemonBrowserPaint(model);
+}
+
+pub fn dropDaemonBrowser(model: *Model) void {
+    model.daemon_dir_browser_open = false;
+    model.daemon_dir_browser_ok = false;
+    clearDaemonBrowserPaint(model);
+}
+
+pub fn confirmDaemonBrowser(model: *Model, fx: *Effects) void {
+    if (!model.daemon_dir_browser_open or !model.daemon_dir_browser_ok) return;
+    const path = model.daemon_dir_browser_path_storage[0..model.daemon_dir_browser_path_len];
+    if (path.len == 0) return;
+    model.setSelectedProjectPath(path);
+    model.clearWindowStatus();
+    persist.persistComposerProject(model, fx);
+    closeDaemonBrowser(model, fx);
+}
+
+pub fn navigateDaemonBrowserUp(model: *Model, fx: *Effects) void {
+    if (!model.daemon_dir_browser_open) return;
+    const parent = model.daemon_dir_browser_parent_storage[0..model.daemon_dir_browser_parent_len];
+    if (parent.len == 0) return;
+    if (!trySpawnDaemonBrowseDirectory(model, fx, parent)) {
+        fallbackOsAfterDaemonMiss(model, fx);
+    }
+}
+
+pub fn navigateDaemonBrowserHome(model: *Model, fx: *Effects) void {
+    if (!model.daemon_dir_browser_open) return;
+    const home = model.daemon_dir_browser_home_storage[0..model.daemon_dir_browser_home_len];
+    const path: ?[]const u8 = if (home.len > 0) home else null;
+    if (!trySpawnDaemonBrowseDirectory(model, fx, path)) {
+        fallbackOsAfterDaemonMiss(model, fx);
+    }
+}
+
+pub fn navigateDaemonBrowserEntry(model: *Model, fx: *Effects, row_id: u32) void {
+    if (!model.daemon_dir_browser_open or row_id == 0) return;
+    const index = row_id - 1;
+    if (index >= model.daemon_dir_browser_count) return;
+    const entry = model.daemon_dir_browser_store[index];
+    if (!entry.is_dir) return;
+    const abs = entry.absolutePath();
+    if (abs.len == 0) return;
+    if (!trySpawnDaemonBrowseDirectory(model, fx, abs)) {
+        fallbackOsAfterDaemonMiss(model, fx);
+    }
+}
+
+fn fallbackOsAfterDaemonMiss(model: *Model, fx: *Effects) void {
+    closeDaemonBrowser(model, fx);
+    startOsPickFolder(model, fx);
+}
+
+pub fn applyDaemonLine(model: *Model, line: native_sdk.EffectLine) void {
+    if (line.key != model.daemon_dir_browser_key or model.daemon_dir_browser_key == 0) return;
+    if (!model.daemon_dir_browser_open) return;
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseDirectory(arena_state.allocator(), line.line);
+    if (!parsed.ok) return;
+    writeFixed(&model.daemon_dir_browser_path_storage, &model.daemon_dir_browser_path_len, parsed.path);
+    writeFixed(&model.daemon_dir_browser_parent_storage, &model.daemon_dir_browser_parent_len, parsed.parent);
+    writeFixed(&model.daemon_dir_browser_home_storage, &model.daemon_dir_browser_home_len, parsed.home);
+    writeFixed(&model.daemon_dir_browser_root_storage, &model.daemon_dir_browser_root_len, parsed.filesystem_root);
+    model.daemon_dir_browser_count = 0;
+    var i: usize = 0;
+    while (i < parsed.entry_count) : (i += 1) {
+        if (model.daemon_dir_browser_count >= max_dir_entries) break;
+        const entry = parsed.entries[i];
+        model.daemon_dir_browser_store[model.daemon_dir_browser_count].set(entry.name, entry.absolute_path, entry.is_dir);
+        model.daemon_dir_browser_count += 1;
+    }
+    model.daemon_dir_browser_ok = true;
+}
+
+pub fn handleDaemonExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (exit.key != model.daemon_dir_browser_key or model.daemon_dir_browser_key == 0) return;
+    const open = model.daemon_dir_browser_open;
+    const ok = model.daemon_dir_browser_ok;
+    model.daemon_dir_browser_key = 0;
+    if (!open) return;
+    if (ok) return;
+    fallbackOsAfterDaemonMiss(model, fx);
 }
 
 pub fn applyPickFolderLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
@@ -305,4 +484,174 @@ test "pick_folder_key is distinct from pick_image and neighbors" {
     try std.testing.expect(pick_folder_key != copy.copy_turn_key);
     try std.testing.expect(pick_folder_key != 3);
     try std.testing.expect(pick_folder_key < 64);
+}
+
+fn pendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key) return spawn;
+    }
+    return null;
+}
+
+const directory_ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"directory\",\"path\":\"/home/me\",\"parent\":null,\"home\":\"/home/me\",\"filesystemRoot\":\"/\",\"entries\":[{\"relativePath\":\"src\",\"absolutePath\":\"/home/me/src\",\"name\":\"src\",\"isDir\":true,\"expanded\":false,\"depth\":0},{\"relativePath\":\"README.md\",\"absolutePath\":\"/home/me/README.md\",\"name\":\"README.md\",\"isDir\":false,\"expanded\":false,\"depth\":0}]}}}}";
+
+const directory_nested_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"directory\",\"path\":\"/home/me/src\",\"parent\":\"/home/me\",\"home\":\"/home/me\",\"filesystemRoot\":\"/\",\"entries\":[{\"relativePath\":\"main.zig\",\"absolutePath\":\"/home/me/src/main.zig\",\"name\":\"main.zig\",\"isDir\":false,\"expanded\":false,\"depth\":0}]}}}}";
+
+test "pick folder with a daemon address spawns BrowseDirectory sidecar" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    startPickFolder(&model, &fx);
+    try std.testing.expect(model.daemon_dir_browser_open);
+    try std.testing.expect(!model.pick_folder_live);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_dir_browser_key) orelse return error.MissingDaemonBrowseDirectory;
+    try std.testing.expect(daemon_proxy.isSidecarArgv(sidecar.argv));
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"browseDirectory\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"path\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"listTree\"") == null);
+    try std.testing.expect(sidecar.key != pick_folder_key);
+    try std.testing.expectEqual(sidecar.key, model.daemon_dir_browser_key);
+}
+
+test "pick folder without a daemon address still uses OS argv helpers" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    try std.testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+    startPickFolder(&model, &fx);
+    try std.testing.expect(!model.daemon_dir_browser_open);
+    if (hostArgv(.first) == null) {
+        try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+        try std.testing.expect(model.has_window_status());
+        return;
+    }
+    try std.testing.expect(model.pick_folder_live);
+    const spawn = pendingSpawnKey(&fx, pick_folder_key) orelse return error.MissingOsFolderPicker;
+    try std.testing.expect(isPickerArgv(spawn.argv));
+    try std.testing.expect(!daemon_proxy.isSidecarArgv(spawn.argv));
+    try std.testing.expectEqualStrings("", spawn.stdin);
+    try std.testing.expectEqual(pick_folder_key, spawn.key);
+}
+
+test "BrowseDirectory sidecar paints the in-app browser and Choose sets project_path" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var store_buf: [256]u8 = undefined;
+    const store_dir = try std.fmt.bufPrint(&store_buf, ".zig-cache/tmp/{s}/browse-choose", .{tmp.sub_path[0..]});
+
+    var model = Model{};
+    model.task_state_loaded = true;
+    model.setStoreDir(store_dir);
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("browse choose", .fx);
+    model.selected = id;
+
+    startPickFolder(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_dir_browser_key) orelse return error.MissingDaemonBrowseDirectoryFill;
+    applyDaemonLine(&model, .{ .key = sidecar.key, .line = directory_ok_line });
+    try std.testing.expect(model.daemon_dir_browser_ok);
+    try std.testing.expectEqualStrings("/home/me", model.daemon_dir_browser_path_storage[0..model.daemon_dir_browser_path_len]);
+    try std.testing.expectEqual(@as(u32, 2), model.daemon_dir_browser_count);
+    try std.testing.expect(model.daemon_dir_browser_store[0].is_dir);
+    try std.testing.expectEqualStrings("src", model.daemon_dir_browser_store[0].name());
+    try std.testing.expect(!model.daemon_dir_browser_store[1].is_dir);
+    handleDaemonExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
+    try std.testing.expect(model.daemon_dir_browser_open);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_dir_browser_key);
+
+    confirmDaemonBrowser(&model, &fx);
+    try std.testing.expectEqualStrings("/home/me", model.selectedProjectPath());
+    try std.testing.expect(!model.daemon_dir_browser_open);
+    try std.testing.expect(!model.pick_folder_live);
+}
+
+test "BrowseDirectory non-ok falls back to OS pick_folder argv" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    startPickFolder(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_dir_browser_key) orelse return error.MissingDaemonBrowseDirectoryFallback;
+    applyDaemonLine(&model, .{
+        .key = sidecar.key,
+        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}",
+    });
+    try std.testing.expect(!model.daemon_dir_browser_ok);
+    handleDaemonExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
+    try std.testing.expect(!model.daemon_dir_browser_open);
+    if (hostArgv(.first) == null) {
+        try std.testing.expect(model.has_window_status());
+        return;
+    }
+    try std.testing.expect(model.pick_folder_live);
+    const os_spawn = pendingSpawnKey(&fx, pick_folder_key) orelse return error.MissingOsFallbackAfterDaemonMiss;
+    try std.testing.expect(isPickerArgv(os_spawn.argv));
+    try std.testing.expectEqual(pick_folder_key, os_spawn.key);
+    try std.testing.expect(os_spawn.key != sidecar.key);
+}
+
+test "BrowseDirectory navigate into a dir re-spawns with absolutePath" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    startPickFolder(&model, &fx);
+    const first = pendingSpawnKey(&fx, model.daemon_dir_browser_key) orelse return error.MissingDaemonBrowseDirectoryNav;
+    applyDaemonLine(&model, .{ .key = first.key, .line = directory_ok_line });
+    handleDaemonExit(&model, &fx, .{ .key = first.key, .reason = .exited, .code = 0 });
+
+    navigateDaemonBrowserEntry(&model, &fx, 1);
+    const second = pendingSpawnKey(&fx, model.daemon_dir_browser_key) orelse return error.MissingDaemonBrowseDirectoryChild;
+    try std.testing.expect(second.key != first.key);
+    try std.testing.expect(std.mem.indexOf(u8, second.stdin, "\"type\":\"browseDirectory\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, second.stdin, "\"path\":\"/home/me/src\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, second.stdin, "\"path\":null") == null);
+    applyDaemonLine(&model, .{ .key = second.key, .line = directory_nested_line });
+    try std.testing.expectEqualStrings("/home/me/src", model.daemon_dir_browser_path_storage[0..model.daemon_dir_browser_path_len]);
+    try std.testing.expectEqualStrings("/home/me", model.daemon_dir_browser_parent_storage[0..model.daemon_dir_browser_parent_len]);
+}
+
+test "BrowseDirectory cancel closes without changing project" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("browse cancel", .fx);
+    model.selected = id;
+    startPickFolder(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_dir_browser_key) orelse return error.MissingDaemonBrowseDirectoryCancel;
+    applyDaemonLine(&model, .{ .key = sidecar.key, .line = directory_ok_line });
+    closeDaemonBrowser(&model, &fx);
+    try std.testing.expect(!model.daemon_dir_browser_open);
+    try std.testing.expectEqualStrings("", model.selectedProjectPath());
+    try std.testing.expect(!model.pick_folder_live);
 }

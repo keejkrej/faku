@@ -377,6 +377,7 @@ pub const TurnRow = model_mod.TurnRow;
 pub const CommandRow = model_mod.CommandRow;
 pub const ModelPickerRow = model_mod.ModelPickerRow;
 pub const ChipPickerRow = model_mod.ChipPickerRow;
+pub const DaemonDirBrowserRow = model_mod.DaemonDirBrowserRow;
 
 pub const fxPermissionMode = composer.fxPermissionMode;
 pub const startOptionsFromSession = prompt_spawn.startOptionsFromSession;

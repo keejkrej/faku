@@ -22,8 +22,7 @@
 //! `refs/faku/...` stay canonical; the Checkpoint payload must not
 //! replace them. Missing address / Native 4 KiB stdin overflow /
 //! sidecar failure must not break Send or finish or clear the
-//! local shas. Leftovers: BrowseDirectory,
-//! ReadTextFile, remotes-on-daemon-list, amend/force over
+//! local shas. Leftovers: ReadTextFile, remotes-on-daemon-list, amend/force over
 //! daemon, remote `--track` over daemon, ref ops.
 
 const std = @import("std");

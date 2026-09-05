@@ -92,7 +92,7 @@
 //! hunk spawn when that patch is usable). LastTurn stays local.
 //! Overflow / spawn failure / non-ok / unusable parse fall back
 //! to local git. Leftovers: force, background work, daemon
-//! BrowseDirectory / ReadTextFile / remotes-on-daemon-list /
+//! ReadTextFile / remotes-on-daemon-list /
 //! amend/force over daemon / remote `--track` over daemon / ref
 //! ops. Not transcript checkpoint +/-.
 //! LastTurn uses stored shas, not the refs, and not a

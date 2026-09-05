@@ -42,8 +42,11 @@
 //! paints the file list from `numstat` and selected hunk from
 //! `patch`; LastTurn stays local; Native 4 KiB stdin overflow /
 //! error / unusable parse falls back to local name-status + hunk
-//! probes; no address keeps today's local path). Not daemon
-//! `WorkspaceOperation::browseDirectory` / readTextFile.
+//! probes; no address keeps today's local path). First-cut daemon
+//! `WorkspaceOperation::BrowseDirectory` ships in `pick_folder`
+//! (Pick folder in-app browser when a daemon address is set;
+//! overflow / error / unusable parse falls back to the local OS
+//! folder dialog). Leftover: daemon `ReadTextFile`.
 //! Not Waku's 50k-file index (cap 256). Windows probes the same
 //! cache (`git.exe -C` then a PowerShell walk; still not Waku's
 //! 50k index or a Native FS watcher).
