@@ -391,7 +391,7 @@ branch label then omit/HEAD). First-cut defer-until-Send workspace
 mode ships (composer Work in Local / New worktree; optional
 `baseBranch` persist on that draft; Send queues the prompt, one-shots the same `git worktree add` as New worktree… when no daemon address is set,
 retargets `project_path`, then `startPrompt`). Leftovers: other
-daemon `WorkspaceOperation` variants (ReadTextFile, remotes-on-daemon-list, amend/force over daemon,
+daemon `WorkspaceOperation` variants (WriteTextFile, remotes-on-daemon-list, amend/force over daemon,
 remote `--track` over daemon, ref ops, …). Fetch already
 `--prune`; there is no prune-alone menu (not in Waku).
 Windows probes, checkout / push / worktree, and commit mutations (add / cached-quiet / commit /
@@ -741,7 +741,7 @@ Honest gaps this cut does not implement:
   Zig `std.fs` atomic write, Reload discards unsaved edits. First-cut
   live reload via mtime/size poll on the update tick. Not a real FS
   watcher / Native watch API)
-- Other daemon `WorkspaceOperation` variants (ReadTextFile, ref ops,
+- Other daemon `WorkspaceOperation` variants (WriteTextFile, ref ops,
   remotes-on-daemon-list, amend/force over daemon, remote `--track`
   over daemon, …). First-cut
   `WorkspaceOperation::Push` ships as a best-effort sidecar when
@@ -795,6 +795,14 @@ Honest gaps this cut does not implement:
   sets `project_path`; Native 4 KiB stdin overflow / error / unusable
   parse falls back to the local OS folder dialog; no address keeps
   today's OS path. First-cut
+  `WorkspaceOperation::ReadTextFile` ships on Files preview load
+  (select / Reload that re-reads) when a daemon address is set; ok is
+  nested `textFile` + `content`; paints the same 256KB UTF-8 preview
+  buffers (client-side cap / binary / truncated label); fingerprint
+  refresh matches local when stat works; Native 4 KiB stdin overflow
+  / error / unusable parse falls back to local `readFileAlloc`;
+  Reload re-prefers ReadTextFile while an address is set; Save /
+  Edit / Open-in-editor stay local (no WriteTextFile). First-cut
   `WorkspaceOperation::CaptureTurnStart` ships on Send after local
   capture when a daemon address is set; ok is workspace Ack; local
   `worktree_snapshot_sha` / `refs/faku/...` stay canonical; Native

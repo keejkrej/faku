@@ -44,6 +44,7 @@ const file_mention = @import("file_mention.zig");
 const skills = @import("skills.zig");
 const environment_summary = @import("environment_summary.zig");
 const pick_folder = @import("pick_folder.zig");
+const right_panel = @import("right_panel.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
 const open_url = @import("open_url.zig");
@@ -123,6 +124,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
     }
     if (model.daemon_dir_browser_key != 0 and line.key == model.daemon_dir_browser_key) {
         pick_folder.applyDaemonLine(model, line);
+        return;
+    }
+    if (model.file_preview_key != 0 and line.key == model.file_preview_key) {
+        right_panel.applyDaemonLine(model, line);
         return;
     }
     if (model.skill_key != 0 and line.key == model.skill_key) {
@@ -1073,6 +1078,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.daemon_dir_browser_key != 0 and exit.key == model.daemon_dir_browser_key) {
         pick_folder.handleDaemonExit(model, fx, exit);
+        return;
+    }
+    if (model.file_preview_key != 0 and exit.key == model.file_preview_key) {
+        right_panel.handleDaemonExit(model, fx, exit);
         return;
     }
     if (model.skill_key != 0 and exit.key == model.skill_key) {
