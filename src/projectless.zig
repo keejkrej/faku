@@ -169,8 +169,9 @@ fn createLocalWorkspace(model: *const Model, dest: []u8) ?[]const u8 {
     std.Io.Dir.cwd().createDirPath(io, root) catch return null;
     if (!main.directoryExists(io, root)) return null;
 
+    if (model.now_ms <= 0) return null;
     var date_buf: [10]u8 = undefined;
-    const date = formatUtcDate(workspaceNowMs(model), &date_buf) orelse return null;
+    const date = formatUtcDate(model.now_ms, &date_buf) orelse return null;
     var date_dir_buf: [main.max_project_path]u8 = undefined;
     const date_dir = joinPath(root, date, &date_dir_buf) orelse return null;
     std.Io.Dir.cwd().createDirPath(io, date_dir) catch return null;
@@ -190,11 +191,6 @@ fn createLocalWorkspace(model: *const Model, dest: []u8) ?[]const u8 {
         return dest[0..cwd.len];
     }
     return null;
-}
-
-fn workspaceNowMs(model: *const Model) i64 {
-    if (model.now_ms > 0) return model.now_ms;
-    return std.time.milliTimestamp();
 }
 
 fn candidateName(index: u32, buf: []u8) ?[]const u8 {
