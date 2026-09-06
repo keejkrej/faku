@@ -16,6 +16,7 @@ const git_remotes = @import("git_remotes.zig");
 const git_toplevel = @import("git_toplevel.zig");
 const git_common_dir = @import("git_common_dir.zig");
 const file_mention = @import("file_mention.zig");
+const slash_commands = @import("slash_commands.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -62,5 +63,6 @@ pub fn persistComposerProject(model: *Model, fx: *Effects) void {
     git_common_dir.refresh(model, fx);
     file_mention.refresh(model, fx);
     git_checkout.refresh(model, fx);
+    slash_commands.refresh(model, fx);
     model.maybeEnsureSkillsScanned(fx);
 }

@@ -37,6 +37,7 @@ const git_commit = @import("git_commit.zig");
 const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
+const slash_commands = @import("slash_commands.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
@@ -109,6 +110,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.autocomplete_highlight = 0;
             store.persistDraftIfPossible(model);
             model.maybeEnsureSkillsScanned(fx);
+            model.maybeEnsureSlashCommands(fx);
         },
         .composer_enter => {
             if (model.commands_list_open() or model.skills_list_open() or model.mentions_list_open()) {
@@ -421,5 +423,6 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     file_mention.refresh(model, fx);
     git_checkout.refresh(model, fx);
     session_fork.refreshSessionTurnRefs(model, fx);
+    slash_commands.refresh(model, fx);
     fx_probe.startFxProbe(model, fx);
 }

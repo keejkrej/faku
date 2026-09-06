@@ -33,7 +33,8 @@
 //! `textFile` with a string `content` (ReadTextFile), or
 //! `bool` with a JSON boolean `value` (HasRef), or
 //! `turnRefs` with a parsed `turn_counts` array (SessionTurnRefs), or
-//! `projectFiles` with a parsed `entries` array (ListProjectFiles).
+//! `projectFiles` with a parsed `entries` array (ListProjectFiles), or
+//! `slashCommands` with a parsed `commands` array (DiscoverSlashCommands).
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -375,7 +376,7 @@ pub fn writeGoalStdin(buf: []u8, args: GoalStdin) WriteError![]const u8 {
 /// InspectBranches / CheckoutBranch / InspectCommit / CaptureTurnStart /
 /// CaptureTurn / GenerateCommitMessage / ListTree /
 /// CollectReviewDiff / BrowseDirectory / ReadTextFile / WriteTextFile /
-/// CopySessionRefs / DeleteSessionRefs / HasRef / CaptureRef / RestoreRef / DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs / ListProjectFiles.
+/// CopySessionRefs / DeleteSessionRefs / HasRef / CaptureRef / RestoreRef / DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs / ListProjectFiles / DiscoverSlashCommands.
 /// Hello + `workspace`
 /// (nil request-frame `sessionId` / `runtimeId`, command payload
 /// `operation`). Own spawn key — Native cannot write into a running
@@ -1888,6 +1889,7 @@ test "writeWorkspaceStdin emits hello and workspace listProjectFiles without for
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"cap\":256") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"listTree\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"sessionTurnRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"discoverSlashCommands\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "amend") == null);
@@ -1901,6 +1903,59 @@ test "writeWorkspaceStdin emits hello and workspace listProjectFiles without for
             .list_project_files = .{
                 .root = "/tmp/faku",
                 .cap = 256,
+            },
+        },
+    }));
+}
+
+test "writeWorkspaceStdin emits hello and workspace discoverSlashCommands with openCode mapping and binary_override omit vs string" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{
+            .discover_slash_commands = .{
+                .provider = protocol.ProviderId.opencode.daemonProviderKind(),
+                .project_root = "/tmp/faku",
+            },
+        },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ WORKSPACE_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"discoverSlashCommands\",\"provider\":\"openCode\",\"project_root\":\"/tmp/faku\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"provider\":\"opencode\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "binary_override") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"listProjectFiles\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "force") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForWorkspace(stdin));
+
+    const with_override = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{
+            .discover_slash_commands = .{
+                .provider = protocol.ProviderId.claude.daemonProviderKind(),
+                .project_root = "/tmp/faku",
+                .binary_override = "/home/user/.local/bin/claude",
+            },
+        },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, with_override, "\"provider\":\"claude\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, with_override, "\"binary_override\":\"/home/user/.local/bin/claude\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, with_override, "\"binary_override\":null") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
+        .operation = .{
+            .discover_slash_commands = .{
+                .provider = "openCode",
+                .project_root = "/tmp/faku",
             },
         },
     }));

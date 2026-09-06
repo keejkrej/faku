@@ -97,8 +97,12 @@
 //! `refs/faku/session-{id}-*`, `turn-{n}` ordinals only) stays the
 //! overflow / miss / non-ok / no-address path and remains
 //! canonical. Runtime cache only; miss must not break rewind /
-//! checkpoint bookkeeping. Leftovers:
-//! `discoverSlashCommands`, `createProjectlessWorkspace`,
+//! checkpoint bookkeeping. First-cut daemon
+//! `WorkspaceOperation::DiscoverSlashCommands` ships in
+//! `slash_commands` (prefer hello + discoverSlashCommands when a
+//! daemon address is set and `project_path` exists; seed
+//! `session.available_commands`; miss / overflow keep ACP). Leftovers:
+//! `createProjectlessWorkspace`,
 //! `migrateProjectlessWorkspace`; amend/force and remote `--track`
 //! stay local (not daemon WorkspaceOperation variants).
 

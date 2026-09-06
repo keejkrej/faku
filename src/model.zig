@@ -31,6 +31,7 @@ const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const skills = @import("skills.zig");
+const slash_commands = @import("slash_commands.zig");
 const providers = @import("providers.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
@@ -1457,6 +1458,17 @@ pub const Model = struct {
     session_turn_ref_session: u32 = 0,
     session_turn_ref_counts: [max_turns]u32 = [_]u32{0} ** max_turns,
     session_turn_ref_count: usize = 0,
+    /// Prefer composer `/` `WorkspaceOperation::DiscoverSlashCommands`
+    /// sidecar when a daemon address is set. Distinct from SessionTurnRefs
+    /// so miss cannot settle a live turn or clear a good ACP list.
+    /// Runtime seed only — later ACP `available_commands_update` replace/wins.
+    daemon_slash_commands_key: u64 = 0,
+    daemon_slash_commands_session: u32 = 0,
+    daemon_slash_commands_ok: bool = false,
+    daemon_slash_commands_probe_session: u32 = 0,
+    daemon_slash_commands_probe_provider: protocol.ProviderId = .fx,
+    daemon_slash_commands_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    daemon_slash_commands_probe_path_len: usize = 0,
     fx_spawn_key: u64 = 0,
     next_fx_key: u64 = fx_spawn_overlap_key_first,
     fx_spawn_live: bool = false,
@@ -1898,6 +1910,7 @@ pub const Model = struct {
         "insertAvailableCommand",
         "insertAvailableSkill",
         "maybeEnsureSkillsScanned",
+        "maybeEnsureSlashCommands",
         "switcher_ids",
         "switcher_count",
         "switcher_highlight",
@@ -2064,6 +2077,13 @@ pub const Model = struct {
         "session_turn_ref_session",
         "session_turn_ref_counts",
         "session_turn_ref_count",
+        "daemon_slash_commands_key",
+        "daemon_slash_commands_session",
+        "daemon_slash_commands_ok",
+        "daemon_slash_commands_probe_session",
+        "daemon_slash_commands_probe_provider",
+        "daemon_slash_commands_probe_path_storage",
+        "daemon_slash_commands_probe_path_len",
         "fx_spawn_key",
         "next_fx_key",
         "fx_spawn_live",
@@ -4607,6 +4627,13 @@ pub const Model = struct {
     pub fn maybeEnsureSkillsScanned(model: *Model, fx: *main.Effects) void {
         if (skillQuery(model.draft()) == null) return;
         skills.ensureScanned(model, fx);
+    }
+
+    /// Seed composer `/` commands from daemon DiscoverSlashCommands when
+    /// the slash-prefix card would show. No-op without `/` or when the
+    /// sidecar already probed this session/provider/path.
+    pub fn maybeEnsureSlashCommands(model: *Model, fx: *main.Effects) void {
+        slash_commands.maybeRefresh(model, fx);
     }
 
     pub fn lastSpawnImagePath(model: *const Model) []const u8 {

@@ -20,6 +20,7 @@ const git_remotes = @import("git_remotes.zig");
 const git_toplevel = @import("git_toplevel.zig");
 const git_common_dir = @import("git_common_dir.zig");
 const file_mention = @import("file_mention.zig");
+const slash_commands = @import("slash_commands.zig");
 const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const right_panel = @import("right_panel.zig");
@@ -130,6 +131,8 @@ pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     session_fork.cancelDaemonDeleteTurnRefsAfter(model, fx);
     session_fork.cancelDaemonSessionTurnRefs(model, fx);
     session_fork.refreshSessionTurnRefs(model, fx);
+    slash_commands.cancel(model, fx);
+    slash_commands.refresh(model, fx);
     model.maybeEnsureSkillsScanned(fx);
     model.pinTranscriptToLatest();
     model.composer_active = true;

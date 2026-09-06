@@ -230,7 +230,8 @@ InspectBranches, CheckoutBranch, InspectCommit, CaptureTurnStart,
 CaptureTurn, GenerateCommitMessage, ListTree, CollectReviewDiff,
 BrowseDirectory, ReadTextFile, WriteTextFile, CopySessionRefs,
 DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef,
-DeleteTurnRefsAfter, SessionTurnRefs, and ListProjectFiles.
+DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles, and
+DiscoverSlashCommands.
 
 Local `sessions.json` remains the catalog of record. Daemon
 `saveTaskState` is a best-effort one-shot mirror. Wire `loadTaskState`
@@ -359,6 +360,16 @@ cache from files + trailing-slash dir sentinels; Native 4 KiB
 stdin overflow / error / unusable parse falls back to ListTree
 then local `git ls-files` then walk; no address keeps today's
 local path). First-cut daemon
+`WorkspaceOperation::DiscoverSlashCommands` ships on composer `/`
+slash-prefix / session or provider change when a daemon address is
+set and the selected session has a usable non-empty `project_path`
+(ok is nested `slashCommands` + `{ name, description, scope,
+argument_hint, template }` rows; paints the same
+`session.available_commands` list ACP `available_commands_update`
+already paints; Native 4 KiB stdin overflow / error / empty /
+unusable parse keep today's ACP-only catalog and must not clear a
+good ACP list; later live ACP replace/wins; no address keeps
+today's ACP path). First-cut daemon
 `WorkspaceOperation::ListTree` ships on Files expand after a
 daemon fill when a daemon address is set (ok is nested
 `workingTree` + camelCase `WorkingTreeEntry` rows; paints the
@@ -587,7 +598,7 @@ on one-shot `claude -p` ships (live Stop dismisses that live row;
 settled rows offer Dismiss; not Claude TaskStop mid-turn). Not daemon
 `WorkspaceOperation` for Background (first-cut daemon Push,
 CreateWorktree, Commit, InspectBranches, CheckoutBranch,
-InspectCommit, GenerateCommitMessage, ListTree, ListProjectFiles, CollectReviewDiff,
+InspectCommit, GenerateCommitMessage, ListTree, ListProjectFiles, DiscoverSlashCommands, CollectReviewDiff,
 BrowseDirectory, ReadTextFile, and WriteTextFile live on composer git / Send prep / Commit… / the
 branch picker / Files refresh / Review Diff / Pick folder / Files
 preview load / Files preview Save; CaptureTurnStart is a best-effort Send sidecar
@@ -604,7 +615,9 @@ that same turn-start `refs/faku` name; DeleteTurnRefsAfter is a
 best-effort sidecar after that same bookkeeping that range-deletes
 turn / turn-start / turn-diff names for the dropped prompt;
 SessionTurnRefs is a prefer+fallback sidecar on session select /
-boot that lists daemon-side turn ordinals). Environment Summary Background is
+boot that lists daemon-side turn ordinals; DiscoverSlashCommands is
+a prefer+fallback sidecar on composer `/` / session or provider
+change that seeds `session.available_commands`). Environment Summary Background is
 Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
 runtime-only multi-row registry. This cut populates Process
 ("Agent turn") from window-side `is_streaming`, plus Stop agent,
@@ -767,7 +780,7 @@ live watch.
 | Right panel | `src/right_panel.zig`, `src/review_diff.zig`, `src/open_url.zig` |
 | Skills scan | `src/skills.zig` |
 | Providers catalog | `src/providers.zig`, `src/cli_probe.zig` |
-| Composer / attach | `src/composer.zig`, `src/attach.zig` |
+| Composer / attach | `src/composer.zig`, `src/attach.zig`, `src/slash_commands.zig` |
 | Settings chrome + sidebar date i18n | `src/i18n.zig`, `src/sidebar_dates.zig` |
 
 ## Leftovers
@@ -882,8 +895,8 @@ Honest gaps this cut does not implement:
   `std.fs` atomic write), Reload discards unsaved edits. First-cut
   live reload via mtime/size poll on the update tick. Not a real FS
   watcher / Native watch API)
-- Other daemon `WorkspaceOperation` variants (`discoverSlashCommands`,
-  `createProjectlessWorkspace`, `migrateProjectlessWorkspace`).
+- Other daemon `WorkspaceOperation` variants (`createProjectlessWorkspace`,
+  `migrateProjectlessWorkspace`).
   Amend/force and remote `--track` stay local (not daemon
   WorkspaceOperation variants). First-cut
   `WorkspaceOperation::Push` ships as a best-effort sidecar when
@@ -924,6 +937,15 @@ Honest gaps this cut does not implement:
   dir sentinels; Native 4 KiB stdin overflow / error / unusable parse
   falls back to ListTree then local `git ls-files` then walk; no
   address keeps today's local path. First-cut
+  `WorkspaceOperation::DiscoverSlashCommands` ships on composer `/`
+  slash-prefix / session or provider change when a daemon address is
+  set and the selected session has a usable non-empty `project_path`;
+  ok is nested `slashCommands` + `{ name, description, scope,
+  argument_hint, template }` rows; paints
+  `session.available_commands`; Native 4 KiB stdin overflow / error /
+  empty / unusable parse keep today's ACP-only catalog and must not
+  clear a good ACP list; later live ACP replace/wins; no address
+  keeps today's ACP path. First-cut
   `WorkspaceOperation::ListTree` ships on Files expand after a
   daemon fill when a daemon address is set; ok is nested `workingTree`
   + camelCase `WorkingTreeEntry` rows; paints the Files cache from
@@ -1037,7 +1059,18 @@ Honest gaps this cut does not implement:
   overflow / miss / non-ok fall back to ListTree then local `git
   ls-files` then walk; expand after a daemon fill re-prefers
   ListTree; no address keeps today's local path; miss must not
-  break `@` / Files
+  break `@` / Files. First-cut
+  `WorkspaceOperation::DiscoverSlashCommands` prefers hello +
+  discoverSlashCommands on composer `/` slash-prefix / session or
+  provider change when a daemon address is set and `project_path`
+  exists; ok is nested `slashCommands.commands` (`name`,
+  `description`, `scope`, snake_case `argument_hint` / `template`);
+  `provider` is Waku `ProviderKind` camelCase (`openCode`);
+  `binary_override` omitted when null; paints
+  `session.available_commands`; Native 4 KiB stdin overflow / miss /
+  non-ok / empty keep today's ACP-only catalog and must not clear a
+  good ACP list; later live ACP `available_commands_update`
+  replace/wins; no address keeps today's ACP path
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size
