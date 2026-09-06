@@ -105,9 +105,14 @@
 //! Dismiss all settled ships for the selected session (settled
 //! Monitor / Subagent slots plus the cap-1 Process settle; live
 //! rows and the stream stay). Leftovers: Claude CLI TaskStop /
-//! long-lived ACP, daemon `refreshBackgroundWork` /
-//! WorkspaceOperation, full BackgroundWorkRegistry event/reconcile
-//! parity. Kind chrome, Process registry,
+//! long-lived ACP, daemon `StopBackgroundWork`, long-lived Waku
+//! `BACKGROUND_WORK_REFRESH_INTERVAL` tick, full BackgroundWorkRegistry
+//! event/reconcile parity. First-cut daemon `refreshBackgroundWork`
+//! prefers hello + that command when a daemon address and usable
+//! session `runtimeId` are set on Background tab / Environment Summary
+//! open (one-shot sidecar; Ack plus `backgroundWork` events;
+//! reconcileProcesses / reconcileLive / upsert into daemon-sourced
+//! registry rows; miss keeps local Process / Monitor / Subagent). Kind chrome, Process registry,
 //! first-cut live Monitor rows from Claude `Monitor` tool_use plus
 //! a Waku-sized 512KB last-window log from matching user
 //! `tool_result` (Environment Summary stays a one-line preview;
@@ -124,10 +129,11 @@
 //! row; not Claude TaskStop mid-turn), first-cut settled Monitor /
 //! Subagent persist after the turn (status from Process settle;
 //! Monitor / Subagent last-window kept; Faku-side Dismiss, not
-//! Claude TaskStop / daemon `refreshBackgroundWork`), Faku-side
+//! Claude TaskStop / daemon `StopBackgroundWork`), Faku-side
 //! Dismiss all settled for the selected session, and
 //! first-cut right-panel Background ship; not Waku
-//! BackgroundWorkRegistry event/reconcile/driver parity.
+//! BackgroundWorkRegistry event/reconcile/driver parity (first-cut
+//! refreshBackgroundWork prefer path ships; not StopBackgroundWork).
 //! Not transcript checkpoint +/-. First-cut Force push ships on
 //! composer Push… / Commit… (runtime-only ghost). New worktree…
 //! first-cut Base picker ships. First-cut defer-until-Send
@@ -211,6 +217,7 @@
 
 const std = @import("std");
 const main = @import("main.zig");
+const protocol = @import("protocol.zig");
 const git_commit = @import("git_commit.zig");
 const git_numstat = @import("git_numstat.zig");
 const review_diff = @import("review_diff.zig");
@@ -266,10 +273,18 @@ pub const subagent_row_id_first: u32 = 2;
 /// share the visible cap.
 pub const monitor_row_id_first: u32 = 100;
 
+/// First Native `for` key for daemon-sourced Background rows
+/// (`refreshBackgroundWork` upsert / reconcile). Offset from
+/// Monitor ids so local and daemon keys never collide.
+pub const daemon_row_id_first: u32 = 200;
+
 /// Live Monitor / Subagent caps: leave one slot for Process.
 /// Visible fill still stops at `max_background_rows`.
 pub const max_live_monitors: usize = max_background_rows - 1;
 pub const max_live_subagents: usize = max_background_rows - 1;
+/// Daemon-sourced rows share the visible cap. Not local Claude
+/// stream slots.
+pub const max_daemon_background: usize = max_background_rows;
 
 /// `parent_tool_use_id` / Agent `tool_use` id, and Monitor
 /// `tool_use` id. Same cap as ACP tool-call ids (documented
@@ -426,6 +441,35 @@ pub const LiveMonitor = struct {
     }
 };
 
+/// Runtime-only daemon-sourced Background slot from
+/// `refreshBackgroundWork` events. Keyed by `BackgroundWorkKey`
+/// (`kind` + `providerId`). Does not replace local Process /
+/// Monitor / Subagent stream rows. Heap last-window from item
+/// `output` / `detail` when present. Not persisted.
+pub const DaemonBackground = struct {
+    kind: BackgroundKind = .process,
+    id_storage: [max_monitor_id]u8 = [_]u8{0} ** max_monitor_id,
+    id_len: usize = 0,
+    title_storage: [max_monitor_title]u8 = [_]u8{0} ** max_monitor_title,
+    title_len: usize = 0,
+    session_id: u32 = 0,
+    settled: SettledStatus = .none,
+    log: LastWindow = .{},
+
+    pub fn providerId(self: *const DaemonBackground) []const u8 {
+        return self.id_storage[0..self.id_len];
+    }
+
+    pub fn title(self: *const DaemonBackground) []const u8 {
+        if (self.title_len == 0) return backgroundKindLabel(self.kind);
+        return self.title_storage[0..self.title_len];
+    }
+
+    pub fn preview(self: *const DaemonBackground) []const u8 {
+        return self.log.preview();
+    }
+};
+
 /// Process-kind row title. Honest about Faku-side stream state
 /// (not an OS process watch).
 pub const process_row_label = "Agent turn";
@@ -453,6 +497,9 @@ pub const subagent_stop_label = "Stop subagent";
 /// Settled Subagent dismiss. Faku-side clear of that leftover row;
 /// not live Stop and not Claude TaskStop.
 pub const subagent_dismiss_label = "Dismiss subagent";
+/// Daemon-sourced settled dismiss. Faku-side clear of that leftover
+/// row; not `StopBackgroundWork`.
+pub const daemon_dismiss_label = "Dismiss";
 
 /// Visible Background registry row. Native `background_rows`
 /// iterates this. Not persisted to sessions.json / drafts.json.
@@ -522,6 +569,14 @@ pub fn clearSettledIfSession(model: *Model, session_id: u32) void {
     while (i < model.background_subagent_count) {
         if (model.background_subagents[i].session_id == session_id) {
             removeSubagentAt(model, i);
+            continue;
+        }
+        i += 1;
+    }
+    i = 0;
+    while (i < model.background_daemon_count) {
+        if (model.background_daemon[i].session_id == session_id) {
+            removeDaemonAt(model, i);
             continue;
         }
         i += 1;
@@ -597,6 +652,154 @@ pub fn clearLiveMonitors(model: *Model) void {
 pub fn clearLiveBackgroundSignals(model: *Model) void {
     clearLiveMonitors(model);
     clearLiveSubagents(model);
+    clearDaemonBackground(model);
+}
+
+/// Drop every daemon-sourced Background slot and free heap logs.
+/// Local Process / Monitor / Subagent stay. Test / session-remove
+/// helper; miss on refresh does not call this.
+pub fn clearDaemonBackground(model: *Model) void {
+    var i: u32 = 0;
+    while (i < max_daemon_background) : (i += 1) {
+        releaseLog(&model.background_daemon[i].log);
+        model.background_daemon[i] = .{};
+    }
+    model.background_daemon_count = 0;
+}
+
+/// Apply a parsed `backgroundWork` event into daemon-sourced registry
+/// rows. Local Process / Monitor / Subagent slots are left alone
+/// (including settled leftovers a reconcile does not mention).
+/// `outputDelta` / `stopRequested` / `stopFailed` never reach here.
+pub fn applyDaemonBackgroundEvent(model: *Model, session_id: u32, parsed: protocol.ParsedBackgroundWorkEvent) void {
+    if (!parsed.ok or session_id == 0) return;
+    switch (parsed.kind) {
+        .upsert => _ = upsertDaemonItem(model, session_id, parsed.item),
+        .reconcile_processes => reconcileDaemon(model, session_id, parsed.items[0..parsed.item_count], .process_only),
+        .reconcile_live => reconcileDaemon(model, session_id, parsed.items[0..parsed.item_count], .live),
+    }
+    _ = refreshBackgroundOutputCacheNow(model);
+}
+
+const DaemonReconcileMode = enum { process_only, live };
+
+fn reconcileDaemon(
+    model: *Model,
+    session_id: u32,
+    items: []const protocol.ParsedBackgroundWorkItem,
+    mode: DaemonReconcileMode,
+) void {
+    var i: u32 = 0;
+    while (i < model.background_daemon_count) {
+        const slot = &model.background_daemon[i];
+        if (slot.session_id != session_id) {
+            i += 1;
+            continue;
+        }
+        const drop = switch (mode) {
+            .process_only => slot.kind == .process,
+            .live => slot.settled == .none,
+        };
+        if (drop) {
+            removeDaemonAt(model, i);
+            continue;
+        }
+        i += 1;
+    }
+    for (items) |item| {
+        if (mode == .process_only and item.key.kind != .process) continue;
+        _ = upsertDaemonItem(model, session_id, item);
+    }
+}
+
+fn upsertDaemonItem(model: *Model, session_id: u32, item: protocol.ParsedBackgroundWorkItem) bool {
+    const kind = kindFromDaemon(item.key.kind);
+    if (localOwnsKey(model, kind, item.key.provider_id)) return false;
+    if (findDaemonSlot(model, session_id, kind, item.key.provider_id)) |index| {
+        paintDaemonSlot(&model.background_daemon[index], session_id, item);
+        return true;
+    }
+    if (model.background_daemon_count >= max_daemon_background) {
+        if (!trimOldestSettledDaemon(model, session_id)) return false;
+    }
+    const slot = &model.background_daemon[model.background_daemon_count];
+    releaseLog(&slot.log);
+    slot.* = .{};
+    paintDaemonSlot(slot, session_id, item);
+    model.background_daemon_count += 1;
+    return true;
+}
+
+fn kindFromDaemon(kind: protocol.BackgroundWorkKind) BackgroundKind {
+    return switch (kind) {
+        .process => .process,
+        .monitor => .monitor,
+        .subagent => .subagent,
+    };
+}
+
+fn settledFromDaemon(status: protocol.BackgroundWorkStatus) SettledStatus {
+    return switch (status) {
+        .starting, .running, .monitoring, .stopping => .none,
+        .completed => .completed,
+        .failed => .failed,
+        .stopped, .lost => .stopped,
+    };
+}
+
+fn localOwnsKey(model: *const Model, kind: BackgroundKind, provider_id: []const u8) bool {
+    if (provider_id.len == 0) return false;
+    switch (kind) {
+        .process => return false,
+        .monitor => {
+            var i: u32 = 0;
+            while (i < model.background_monitor_count) : (i += 1) {
+                if (std.mem.eql(u8, model.background_monitors[i].toolUseId(), provider_id)) return true;
+            }
+            return false;
+        },
+        .subagent => {
+            var i: u32 = 0;
+            while (i < model.background_subagent_count) : (i += 1) {
+                if (std.mem.eql(u8, model.background_subagents[i].parentId(), provider_id)) return true;
+            }
+            return false;
+        },
+    }
+}
+
+fn findDaemonSlot(model: *const Model, session_id: u32, kind: BackgroundKind, provider_id: []const u8) ?u32 {
+    var i: u32 = 0;
+    while (i < model.background_daemon_count) : (i += 1) {
+        const slot = &model.background_daemon[i];
+        if (slot.session_id != session_id) continue;
+        if (slot.kind != kind) continue;
+        if (!std.mem.eql(u8, slot.providerId(), provider_id)) continue;
+        return i;
+    }
+    return null;
+}
+
+fn paintDaemonSlot(slot: *DaemonBackground, session_id: u32, item: protocol.ParsedBackgroundWorkItem) void {
+    const writeFixed = main.writeFixed;
+    slot.kind = kindFromDaemon(item.key.kind);
+    writeFixed(&slot.id_storage, &slot.id_len, item.key.provider_id);
+    const title = if (item.title.len > 0) item.title else backgroundKindLabel(slot.kind);
+    writeFixed(&slot.title_storage, &slot.title_len, title);
+    slot.session_id = session_id;
+    slot.settled = settledFromDaemon(item.status);
+    const text = if (item.output.len > 0) item.output else item.detail;
+    if (text.len > 0) replaceLog(&slot.log, text);
+}
+
+fn replaceLog(log: *LastWindow, text: []const u8) void {
+    releaseLog(log);
+    if (text.len == 0) return;
+    const storage = ensureLog(log);
+    if (storage.len == 0) return;
+    appendBounded(storage, &log.output_len, text);
+    rebuildPreview(log);
+    log.dirty_output = true;
 }
 
 fn statusLabel(status: SettledStatus) []const u8 {
@@ -847,6 +1050,10 @@ fn anyDirtyBackgroundOutput(model: *const Model) bool {
     while (i < model.background_subagent_count) : (i += 1) {
         if (model.background_subagents[i].log.dirty_output) return true;
     }
+    i = 0;
+    while (i < model.background_daemon_count) : (i += 1) {
+        if (model.background_daemon[i].log.dirty_output) return true;
+    }
     return false;
 }
 
@@ -873,6 +1080,11 @@ fn refreshBackgroundOutputCacheAt(model: *Model, force: bool) bool {
     i = 0;
     while (i < model.background_subagent_count) : (i += 1) {
         const log = &model.background_subagents[i].log;
+        if (log.dirty_output) rebuildRendered(log);
+    }
+    i = 0;
+    while (i < model.background_daemon_count) : (i += 1) {
+        const log = &model.background_daemon[i].log;
         if (log.dirty_output) rebuildRendered(log);
     }
     model.background_output_cache_refresh_ms = model.now_ms;
@@ -1033,12 +1245,31 @@ fn hasVisibleSettledSignals(model: *const Model) bool {
     return false;
 }
 
+fn visibleDaemon(model: *const Model, index: u32) bool {
+    if (index >= model.background_daemon_count) return false;
+    return settledSessionVisible(model, model.background_daemon[index].session_id);
+}
+
+fn hasVisibleDaemonBackground(model: *const Model) bool {
+    var i: u32 = 0;
+    while (i < model.background_daemon_count) : (i += 1) {
+        if (visibleDaemon(model, i)) return true;
+    }
+    return false;
+}
+
 /// At least one dismissable settled leftover for the selected
 /// session: visible last-turn Process, and/or a visible settled
 /// Monitor / Subagent. Gates Environment Summary **Dismiss all
 /// settled**. Live-only streaming is false (live Stop is unchanged).
 pub fn hasDismissableSettledBackground(model: *const Model) bool {
-    return hasSettledBackground(model) or hasVisibleSettledSignals(model);
+    if (hasSettledBackground(model) or hasVisibleSettledSignals(model)) return true;
+    var i: u32 = 0;
+    while (i < model.background_daemon_count) : (i += 1) {
+        if (!visibleDaemon(model, i)) continue;
+        if (model.background_daemon[i].settled != .none) return true;
+    }
+    return false;
 }
 
 /// Visible settled Process row for the selected session. Hidden
@@ -1051,10 +1282,10 @@ pub fn hasSettledBackground(model: *const Model) bool {
 }
 
 /// Background section: live Process, the selected session's
-/// settled last-turn Process, and/or that session's settled
-/// Monitor / Subagent rows.
+/// settled last-turn Process, that session's settled Monitor /
+/// Subagent rows, and/or daemon-sourced refreshBackgroundWork rows.
 pub fn hasBackgroundSection(model: *const Model) bool {
-    return model.is_streaming() or hasSettledBackground(model) or hasVisibleSettledSignals(model);
+    return model.is_streaming() or hasSettledBackground(model) or hasVisibleSettledSignals(model) or hasVisibleDaemonBackground(model);
 }
 
 pub fn settledStatusLabel(model: *const Model) []const u8 {
@@ -1093,6 +1324,25 @@ fn fillSubagentRow(slot: *const LiveSubagent, index: u32) BackgroundRow {
         .live = live,
         .can_stop = true,
         .stop_label = if (live) subagent_stop_label else subagent_dismiss_label,
+        .has_status = status.len > 0,
+        .settled_status = status,
+        .has_detail = detail.len > 0,
+        .detail = detail,
+    };
+}
+
+fn fillDaemonRow(slot: *const DaemonBackground, index: u32) BackgroundRow {
+    const live = slot.settled == .none;
+    const status = if (live) "" else statusLabel(slot.settled);
+    const detail = slot.preview();
+    return .{
+        .id = daemon_row_id_first + index,
+        .kind = slot.kind,
+        .kind_label = backgroundKindLabel(slot.kind),
+        .title = slot.title(),
+        .live = live,
+        .can_stop = !live,
+        .stop_label = if (live) "" else daemon_dismiss_label,
         .has_status = status.len > 0,
         .settled_status = status,
         .has_detail = detail.len > 0,
@@ -1150,6 +1400,20 @@ pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]Backgr
     while (i < model.background_subagent_count and n < max_background_rows) : (i += 1) {
         if (!visibleSettledSubagent(model, i)) continue;
         out[n] = fillSubagentRow(&model.background_subagents[i], i);
+        n += 1;
+    }
+    var di: u32 = 0;
+    while (di < model.background_daemon_count and n < max_background_rows) : (di += 1) {
+        if (!visibleDaemon(model, di)) continue;
+        if (model.background_daemon[di].settled != .none) continue;
+        out[n] = fillDaemonRow(&model.background_daemon[di], di);
+        n += 1;
+    }
+    di = 0;
+    while (di < model.background_daemon_count and n < max_background_rows) : (di += 1) {
+        if (!visibleDaemon(model, di)) continue;
+        if (model.background_daemon[di].settled == .none) continue;
+        out[n] = fillDaemonRow(&model.background_daemon[di], di);
         n += 1;
     }
     return out[0..n];
@@ -1267,6 +1531,11 @@ pub fn stopBackground(model: *Model, fx: *Effects, row_id: u32) void {
         dismissMonitor(model, index);
         return;
     }
+    if (daemonIndex(model, row_id)) |index| {
+        close(model);
+        dismissDaemon(model, index);
+        return;
+    }
     const sub_index = subagentIndex(model, row_id) orelse return;
     close(model);
     dismissSubagent(model, sub_index);
@@ -1281,7 +1550,7 @@ pub fn stopBackground(model: *Model, fx: *Effects, row_id: u32) void {
 /// a live stream, does not dismiss live Monitor / Subagent
 /// (`settled == .none`), and does not `stopStream`. Other sessions'
 /// leftovers stay. Closes the Environment Summary dropdown.
-/// Not Claude TaskStop / daemon `refreshBackgroundWork`.
+/// Not Claude TaskStop / daemon `StopBackgroundWork`.
 pub fn dismissSettledBackground(model: *Model) void {
     close(model);
     const session_id = model.selected;
@@ -1299,6 +1568,15 @@ pub fn dismissSettledBackground(model: *Model) void {
     while (i < model.background_subagent_count) {
         if (visibleSettledSubagent(model, i)) {
             dismissSubagent(model, i);
+            continue;
+        }
+        i += 1;
+    }
+
+    i = 0;
+    while (i < model.background_daemon_count) {
+        if (visibleDaemon(model, i) and model.background_daemon[i].settled != .none) {
+            dismissDaemon(model, i);
             continue;
         }
         i += 1;
@@ -1355,6 +1633,56 @@ fn trimOldestSettledMonitor(model: *Model) bool {
 /// or settled. Does not cancel the Process / stream.
 fn dismissMonitor(model: *Model, index: u32) void {
     removeMonitorAt(model, index);
+}
+
+fn daemonIndex(model: *const Model, row_id: u32) ?u32 {
+    if (row_id < daemon_row_id_first) return null;
+    const idx = row_id - daemon_row_id_first;
+    if (idx >= model.background_daemon_count) return null;
+    return idx;
+}
+
+fn removeDaemonAt(model: *Model, index: u32) void {
+    if (index >= model.background_daemon_count) return;
+    const old_count = model.background_daemon_count;
+    const removed_id = daemon_row_id_first + index;
+    remapBackgroundSelectionAfterDaemonRemove(model, removed_id, old_count);
+    releaseLog(&model.background_daemon[index].log);
+    var j = index;
+    while (j + 1 < model.background_daemon_count) : (j += 1) {
+        model.background_daemon[j] = model.background_daemon[j + 1];
+    }
+    model.background_daemon_count -= 1;
+    model.background_daemon[model.background_daemon_count] = .{};
+}
+
+fn trimOldestSettledDaemon(model: *Model, session_id: u32) bool {
+    var i: u32 = 0;
+    while (i < model.background_daemon_count) : (i += 1) {
+        const slot = &model.background_daemon[i];
+        if (slot.settled == .none) continue;
+        if (session_id != 0 and slot.session_id != session_id) continue;
+        removeDaemonAt(model, i);
+        return true;
+    }
+    return false;
+}
+
+fn dismissDaemon(model: *Model, index: u32) void {
+    removeDaemonAt(model, index);
+}
+
+fn remapBackgroundSelectionAfterDaemonRemove(model: *Model, removed_id: u32, old_count: u32) void {
+    const selected = model.right_panel_background_row_id;
+    if (selected == removed_id) {
+        model.right_panel_background_row_id = 0;
+        return;
+    }
+    if (old_count == 0) return;
+    const last_id = daemon_row_id_first + old_count - 1;
+    if (selected > removed_id and selected <= last_id) {
+        model.right_panel_background_row_id -= 1;
+    }
 }
 
 fn remapBackgroundSelectionAfterMonitorRemove(model: *Model, removed_id: u32, old_count: u32) void {
@@ -1496,10 +1824,14 @@ pub fn backgroundWorkStatus(row: BackgroundRow) []const u8 {
 
 /// Right-panel Background body. Monitor and Subagent rows return
 /// the CSI-stripped render cache (newlines kept), live or settled.
-/// Does not `stripAnsi` on the Native view bind. Process stays
+/// Daemon-sourced rows use the same cache when they have output.
+/// Does not `stripAnsi` on the Native view bind. Local Process stays
 /// empty so the pane shows "No output".
 pub fn backgroundWorkOutput(model: *const Model) []const u8 {
     const row = selectedBackgroundRow(model) orelse return "";
+    if (daemonIndex(model, row.id)) |index| {
+        return model.background_daemon[index].log.rendered();
+    }
     switch (row.kind) {
         .monitor => {
             const idx = row.id - monitor_row_id_first;

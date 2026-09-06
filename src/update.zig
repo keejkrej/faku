@@ -35,6 +35,7 @@ const git_toplevel = @import("git_toplevel.zig");
 const git_common_dir = @import("git_common_dir.zig");
 const git_commit = @import("git_commit.zig");
 const environment_summary = @import("environment_summary.zig");
+const background_work = @import("background_work.zig");
 const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const slash_commands = @import("slash_commands.zig");
@@ -218,7 +219,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .pick_workspace_local => settings_actions.handlePickWorkspaceLocal(model, fx),
         .pick_workspace_new_worktree => settings_actions.handlePickWorkspaceNewWorktree(model, fx),
         .start_git_commit => settings_actions.handleStartGitCommit(model, fx),
-        .toggle_environment_summary => environment_summary.toggle(model),
+        .toggle_environment_summary => {
+            environment_summary.toggle(model);
+            if (model.environment_summary_open) background_work.refresh(model, fx);
+        },
         .close_environment_summary => environment_summary.close(model),
         .environment_commit_or_push => environment_summary.commitOrPush(model, fx),
         .environment_compare => {
@@ -372,10 +376,12 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .set_right_panel_tab_background => {
             right_panel.selectBackground(model, fx, 0);
+            background_work.refresh(model, fx);
             store.persistLayoutIfPossible(model);
         },
         .open_background_work => |id| {
             environment_summary.openBackgroundWork(model, fx, id);
+            background_work.refresh(model, fx);
             store.persistLayoutIfPossible(model);
         },
         .sidebar_resized => |fraction| {

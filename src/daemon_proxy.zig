@@ -5,7 +5,8 @@
 //! runtime id, hello + attachSession + prompt when one is stored, hello +
 //! saveTaskState, hello + loadTaskState, hello + hydrateSession,
 //! hello + closeSession, hello + cancel, hello + steer, hello +
-//! hello + `goal`, hello + `loadUsageHistory`, or hello + `workspace`) and,
+//! hello + `goal`, hello + `loadUsageHistory`, hello +
+//! `refreshBackgroundWork`, or hello + `workspace`) and,
 //! when run as `faku daemon-proxy <addr>`, forwards those JSON frames over
 //! `ws://{addr}/v1`, prints each incoming text frame as one stdout line,
 //! and exits on `turnFinished` / `rejected` / `error`. A save-only stdin
@@ -17,6 +18,9 @@
 //! hello / response like save. A goal-only stdin waits for a response
 //! or `goalUpdated` / `error` (not hello) so a same-batch event can
 //! reach stdout; missing event keeps last-known local goal fields.
+//! A refreshBackgroundWork-only stdin waits for a `response` /
+//! `rejected` / `error` frame (not hello) like load, so
+//! `backgroundWork` events printed before the Ack reach stdout.
 //! A workspace-only stdin waits for a `response` / `rejected` /
 //! `shutting_down` frame (not hello, not a driver event) like save/close,
 //! prints that line, and exits non-zero unless the response is an ok
@@ -81,6 +85,9 @@ pub const ATTACH_REQUEST_ID = "00000000-0000-0000-0000-000000000012";
 /// Non-nil: a nil `requestId` is a notify and the daemon sends no
 /// `usageHistory`.
 pub const USAGE_HISTORY_REQUEST_ID = "00000000-0000-0000-0000-000000000015";
+/// Non-nil: a nil `requestId` is a notify and the daemon sends no Ack
+/// for `refreshBackgroundWork`.
+pub const BACKGROUND_WORK_REQUEST_ID = "00000000-0000-0000-0000-000000000016";
 
 pub const LoadStdin = struct {
     token: []const u8 = "",
@@ -103,6 +110,14 @@ pub const UsageHistoryStdin = struct {
     request_id: []const u8 = USAGE_HISTORY_REQUEST_ID,
     window: protocol.UsageWindow,
     project_roots: []const []const u8 = &.{},
+};
+
+pub const RefreshBackgroundWorkStdin = struct {
+    token: []const u8 = "",
+    client_id: []const u8 = CLIENT_ID,
+    request_id: []const u8 = BACKGROUND_WORK_REQUEST_ID,
+    session_id: []const u8,
+    runtime_id: []const u8,
 };
 
 pub const CloseStdin = struct {
@@ -322,6 +337,27 @@ pub fn writeUsageHistoryStdin(buf: []u8, args: UsageHistoryStdin) WriteError![]c
     return cur.slice();
 }
 
+/// NDJSON stdin for Environment Summary / right-panel Background.
+/// Hello + bare `refreshBackgroundWork` (request-frame `sessionId` /
+/// `runtimeId`, no payload). Own spawn key. No attachSession, no
+/// prompt. Wait for a `response` frame so `backgroundWork` events
+/// printed before the Ack reach stdout. Not `StopBackgroundWork`.
+pub fn writeRefreshBackgroundWorkStdin(buf: []u8, args: RefreshBackgroundWorkStdin) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    const hello = try protocol.writeClientHello(cur.remaining(), args.token, args.client_id, &.{});
+    cur.pos += hello.len;
+    try cur.write("\n");
+    const refresh = try protocol.writeRefreshBackgroundWork(
+        cur.remaining(),
+        args.request_id,
+        args.session_id,
+        args.runtime_id,
+    );
+    cur.pos += refresh.len;
+    try cur.write("\n");
+    return cur.slice();
+}
+
 /// NDJSON stdin for a local-remove notify. Hello + bare closeSession,
 /// no prompt and no attachSession. Native stdin is still one buffer.
 pub fn writeCloseStdin(buf: []u8, args: CloseStdin) WriteError![]const u8 {
@@ -454,6 +490,12 @@ fn outboundWaitsForGoal(outbound: []const u8) bool {
         std.mem.indexOf(u8, outbound, "\"type\":\"saveTaskState\"") == null;
 }
 
+fn outboundWaitsForBackgroundWork(outbound: []const u8) bool {
+    return std.mem.indexOf(u8, outbound, "\"type\":\"refreshBackgroundWork\"") != null and
+        std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") == null and
+        std.mem.indexOf(u8, outbound, "\"type\":\"saveTaskState\"") == null;
+}
+
 fn outboundWaitsForWorkspace(outbound: []const u8) bool {
     return std.mem.indexOf(u8, outbound, "\"type\":\"workspace\"") != null and
         std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") == null;
@@ -570,6 +612,7 @@ pub fn run(io: std.Io, address: []const u8, outbound: []const u8, stdout: *std.I
     const wait_for_load = outboundWaitsForLoadResponse(outbound);
     const wait_for_hydrate = outboundWaitsForHydrateResponse(outbound);
     const wait_for_goal = outboundWaitsForGoal(outbound);
+    const wait_for_background = outboundWaitsForBackgroundWork(outbound);
     const wait_for_workspace = outboundWaitsForWorkspace(outbound);
     var payload_buf: [nativeLineCap]u8 = undefined;
     while (true) {
@@ -598,7 +641,7 @@ pub fn run(io: std.Io, address: []const u8, outbound: []const u8, stdout: *std.I
         }
         if (protocol.isTerminalServerFrame(parsed)) return;
         if (wait_for_turn) continue;
-        if (wait_for_load or wait_for_hydrate) {
+        if (wait_for_load or wait_for_hydrate or wait_for_background) {
             if (isLoadOnlyTerminal(parsed)) return;
             continue;
         }
@@ -904,6 +947,39 @@ test "writeUsageHistoryStdin emits hello and loadUsageHistory with a non-nil req
     try std.testing.expectError(error.NoSpaceLeft, writeUsageHistoryStdin(&tiny, .{
         .window = .{ .trailing_days = 30 },
         .project_roots = &.{"/tmp/faku"},
+    }));
+}
+
+test "writeRefreshBackgroundWorkStdin emits hello and bare refreshBackgroundWork" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeRefreshBackgroundWorkStdin(&buf, .{
+        .token = "secret",
+        .session_id = "00000000-0000-0000-0000-000000000007",
+        .runtime_id = "00000000-0000-0000-0000-000000000003",
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"refreshBackgroundWork\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"00000000-0000-0000-0000-000000000007\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"00000000-0000-0000-0000-000000000003\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"refreshBackgroundWork\"}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"cancel\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"stopBackgroundWork\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadUsageHistory\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ BACKGROUND_WORK_REQUEST_ID) != null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(!outboundWaitsForLoadResponse(stdin));
+    try std.testing.expect(!outboundWaitsForHydrateResponse(stdin));
+    try std.testing.expect(!outboundWaitsForGoal(stdin));
+    try std.testing.expect(!outboundWaitsForWorkspace(stdin));
+    try std.testing.expect(outboundWaitsForBackgroundWork(stdin));
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeRefreshBackgroundWorkStdin(&tiny, .{
+        .session_id = "00000000-0000-0000-0000-000000000007",
+        .runtime_id = "00000000-0000-0000-0000-000000000003",
     }));
 }
 
