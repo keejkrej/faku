@@ -141,7 +141,8 @@ pub const Session = struct {
     /// address is set, else `restoreRef` on this sha when set, then
     /// clears the slot. Successful bookkeeping also best-effort
     /// deletes that turn-start `refs/faku` name (local `deleteFakuRef`,
-    /// then daemon DeleteRef when an address is set).
+    /// then daemon DeleteRef when an address is set) and one-shots
+    /// daemon DeleteTurnRefsAfter for the dropped prompt range.
     worktree_snapshot_sha_storage: [rewind.stored_sha_len]u8 = [_]u8{0} ** rewind.stored_sha_len,
     worktree_snapshot_sha_len: usize = 0,
     /// Latest finish-time worktree snapshot (dangling 40-hex).

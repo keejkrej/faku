@@ -137,8 +137,11 @@
 //! `WorkspaceOperation::DeleteRef` lives in `fork` (best-effort
 //! sidecar after successful Rewind bookkeeping; Ack; local
 //! `deleteFakuRef` first; miss / overflow leave rewind transcript
-//! alone). Leftovers: DeleteTurnRefsAfter /
-//! SessionTurnRefs / amend/force
+//! alone). First-cut daemon `WorkspaceOperation::DeleteTurnRefsAfter`
+//! lives in `fork` (best-effort sidecar after successful Rewind
+//! bookkeeping; Ack; range cleanup of turn / turn-start / turn-diff;
+//! miss / overflow leave rewind transcript
+//! alone). Leftovers: SessionTurnRefs / amend/force
 //! over daemon / remote `--track` over daemon / …
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses

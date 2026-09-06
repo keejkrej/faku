@@ -21,7 +21,7 @@
 //! `shutting_down` frame (not hello, not a driver event) like save/close,
 //! prints that line, and exits non-zero unless the response is an ok
 //! workspace ack (Push / Commit / CaptureTurnStart / WriteTextFile /
-//! CopySessionRefs / DeleteSessionRefs / CaptureRef / RestoreRef / DeleteRef), `worktreeCreated` (CreateWorktree),
+//! CopySessionRefs / DeleteSessionRefs / CaptureRef / RestoreRef / DeleteRef / DeleteTurnRefsAfter), `worktreeCreated` (CreateWorktree),
 //! or `branches` with a usable snapshot (InspectBranches), or
 //! `branchChanged` with a usable snapshot (CheckoutBranch), or
 //! `commitSnapshot` with a usable snapshot (InspectCommit), or
@@ -373,7 +373,7 @@ pub fn writeGoalStdin(buf: []u8, args: GoalStdin) WriteError![]const u8 {
 /// InspectBranches / CheckoutBranch / InspectCommit / CaptureTurnStart /
 /// CaptureTurn / GenerateCommitMessage / ListTree /
 /// CollectReviewDiff / BrowseDirectory / ReadTextFile / WriteTextFile /
-/// CopySessionRefs / DeleteSessionRefs / HasRef / CaptureRef / RestoreRef / DeleteRef.
+/// CopySessionRefs / DeleteSessionRefs / HasRef / CaptureRef / RestoreRef / DeleteRef / DeleteTurnRefsAfter.
 /// Hello + `workspace`
 /// (nil request-frame `sessionId` / `runtimeId`, command payload
 /// `operation`). Own spawn key — Native cannot write into a running
@@ -1599,6 +1599,7 @@ test "writeWorkspaceStdin emits hello and workspace hasRef with snake_case git_r
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"captureRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"restoreRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"deleteRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"deleteTurnRefsAfter\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "amend") == null);
@@ -1645,6 +1646,7 @@ test "writeWorkspaceStdin emits hello and workspace captureRef with snake_case g
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"writeTextFile\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"restoreRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"deleteRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"deleteTurnRefsAfter\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "amend") == null);
@@ -1691,6 +1693,7 @@ test "writeWorkspaceStdin emits hello and workspace restoreRef with snake_case g
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"captureTurn\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"writeTextFile\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"deleteRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"deleteTurnRefsAfter\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "amend") == null);
@@ -1734,6 +1737,7 @@ test "writeWorkspaceStdin emits hello and workspace deleteRef with snake_case gi
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hasRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"deleteSessionRefs\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"copySessionRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"deleteTurnRefsAfter\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"captureTurnStart\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"captureTurn\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"writeTextFile\"") == null);
@@ -1750,6 +1754,61 @@ test "writeWorkspaceStdin emits hello and workspace deleteRef with snake_case gi
             .delete_ref = .{
                 .cwd = "/tmp/faku",
                 .git_ref = "refs/faku/session-7-turn-start-1",
+            },
+        },
+    }));
+}
+
+test "writeWorkspaceStdin emits hello and workspace deleteTurnRefsAfter with snake_case session_id / retained_turn_count / previous_turn_count" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{
+            .delete_turn_refs_after = .{
+                .cwd = "/tmp/faku",
+                .session_id = "00000000-0000-0000-0000-000000000007",
+                .retained_turn_count = 0,
+                .previous_turn_count = 1,
+            },
+        },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ WORKSPACE_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"deleteTurnRefsAfter\",\"cwd\":\"/tmp/faku\",\"session_id\":\"00000000-0000-0000-0000-000000000007\",\"retained_turn_count\":0,\"previous_turn_count\":1}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"session_id\":\"00000000-0000-0000-0000-000000000007\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"00000000-0000-0000-0000-000000000007\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"retained_turn_count\":0") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"previous_turn_count\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "retainedTurnCount") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "previousTurnCount") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"deleteRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"deleteSessionRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"copySessionRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"restoreRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"captureRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hasRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"captureTurnStart\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"captureTurn\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"writeTextFile\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "force") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForWorkspace(stdin));
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
+        .operation = .{
+            .delete_turn_refs_after = .{
+                .cwd = "/tmp/faku",
+                .session_id = "00000000-0000-0000-0000-000000000007",
+                .retained_turn_count = 0,
+                .previous_turn_count = 1,
             },
         },
     }));

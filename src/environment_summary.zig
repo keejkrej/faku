@@ -181,9 +181,12 @@
 //! `WorkspaceOperation::DeleteRef` ships in `fork` (best-effort
 //! sidecar after successful Rewind bookkeeping; Ack; local
 //! `deleteFakuRef` first; miss / overflow leave rewind transcript
+//! alone). First-cut daemon `WorkspaceOperation::DeleteTurnRefsAfter`
+//! ships in `fork` (best-effort sidecar after that same bookkeeping;
+//! Ack; range cleanup of turn / turn-start / turn-diff; miss /
+//! overflow leave rewind transcript
 //! alone). Leftovers: other daemon `WorkspaceOperation`
-//! variants (DeleteTurnRefsAfter /
-//! SessionTurnRefs, amend/force over daemon,
+//! variants (SessionTurnRefs, amend/force over daemon,
 //! remote `--track` over daemon, …).
 
 const std = @import("std");

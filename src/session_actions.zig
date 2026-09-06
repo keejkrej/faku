@@ -65,6 +65,7 @@ pub fn handleNewSession(model: *Model, fx: *Effects) void {
     session_fork.cancelDaemonCaptureRef(model, fx);
     session_fork.cancelDaemonRestoreRef(model, fx);
     session_fork.cancelDaemonDeleteRef(model, fx);
+    session_fork.cancelDaemonDeleteTurnRefsAfter(model, fx);
     model.maybeEnsureSkillsScanned(fx);
     model.composer_active = true;
 }
@@ -161,6 +162,7 @@ pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
     session_fork.cancelDaemonCaptureRef(model, fx);
     session_fork.cancelDaemonRestoreRef(model, fx);
     session_fork.cancelDaemonDeleteRef(model, fx);
+    session_fork.cancelDaemonDeleteTurnRefsAfter(model, fx);
     model.maybeEnsureSkillsScanned(fx);
 }
 
