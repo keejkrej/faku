@@ -12124,6 +12124,7 @@ test "settings Usage tab sits after Skills; local context and thread-goal labels
     tree = try buildTree(arena, &model);
     try testing.expect((try expectButtonMsg(tree, "7d", .set_usage_window_7d)).state.selected);
     _ = try expectByText(tree.root, .text, "Connect a daemon for usage history");
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter projects") == null);
     try testing.expect(findByText(tree.root, .button, "Cost") == null);
     try testing.expect(findByText(tree.root, .button, "Tokens") == null);
     try expectNoContextProgress(tree.root);
@@ -12217,6 +12218,7 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect((try expectButtonMsg(tree, "Daily", .set_usage_view_daily)).state.selected);
     try testing.expect((try expectButtonMsg(tree, "30d", .set_usage_window_30d)).state.selected);
     try testing.expect(model.usage_window_selector_visible());
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter projects") == null);
     try testing.expect(model.usage_share_cost());
     try testing.expect(!model.usage_share_tokens());
     const cost_chip = try expectButtonMsg(tree, "Cost", .set_usage_share_cost);
@@ -12254,6 +12256,7 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect(findByText(tree.root, .text, "2026-09-05 · 100 · $1.00") == null);
     try testing.expect((try expectButtonMsg(tree, "Monthly", .set_usage_view_monthly)).state.selected);
     try testing.expect(!model.usage_window_selector_visible());
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter projects") == null);
     try testing.expect(findByText(tree.root, .button, "7d") == null);
     try testing.expect(findByText(tree.root, .button, "30d") == null);
     try testing.expect(findByText(tree.root, .button, "This month") == null);
@@ -12350,8 +12353,39 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     _ = try expectUsageShareProgress(tree.root, "50.0%", 0.5);
     try testing.expect(findByText(tree.root, .text, "25.0%") == null);
     try testing.expect(findByText(tree.root, .progress, "0.0%") == null);
+    const projects_filter = findByPlaceholder(tree.root, .search_field, "Filter projects") orelse return error.WidgetNotFound;
+    try testing.expect(!projects_filter.autofocus);
+    try testing.expectEqualStrings("", model.usage_project_filter());
 
     const projects_spawn_count = fx.pendingSpawnCount();
+    main.update(&model, .{ .usage_project_filter_edit = .{ .insert_text = "OTHER" } }, &fx);
+    try testing.expectEqualStrings("OTHER", model.usage_project_filter());
+    try testing.expectEqual(projects_spawn_count, fx.pendingSpawnCount());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "other · 400 · $0.50 · 4 sessions");
+    try testing.expect(findByText(tree.root, .text, "faku · 100 · $1.00 · 2 sessions") == null);
+    try testing.expect(findByText(tree.root, .text, "empty · 0 · 0 sessions") == null);
+    try testing.expect(findByText(tree.root, .text, "No matching projects") == null);
+    try testing.expect(findByText(tree.root, .text, "No project usage") == null);
+    _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
+    try testing.expect(findByText(tree.root, .text, "50.0%") == null);
+
+    main.update(&model, .{ .usage_project_filter_edit = .clear }, &fx);
+    main.update(&model, .{ .usage_project_filter_edit = .{ .insert_text = "zzzz" } }, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No matching projects");
+    try testing.expect(findByText(tree.root, .text, "No project usage") == null);
+    try testing.expect(findByText(tree.root, .text, "faku · 100 · $1.00 · 2 sessions") == null);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter projects") != null);
+
+    main.update(&model, .{ .usage_project_filter_edit = .clear }, &fx);
+    try testing.expectEqualStrings("", model.usage_project_filter());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "faku · 100 · $1.00 · 2 sessions");
+    _ = try expectByText(tree.root, .text, "other · 400 · $0.50 · 4 sessions");
+    _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
+    _ = try expectUsageShareProgress(tree.root, "50.0%", 0.5);
+
     const projects_tokens_chip = try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens);
     main.update(&model, tree.msgForPointer(projects_tokens_chip.id, .up).?, &fx);
     try testing.expect(model.usage_share_tokens());
@@ -12378,6 +12412,8 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     } }, &fx);
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "No project usage");
+    try testing.expect(findByText(tree.root, .text, "No matching projects") == null);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter projects") != null);
     try testing.expect(!(try expectButtonMsg(tree, "Cost", .set_usage_share_cost)).state.selected);
     try testing.expect((try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens)).state.selected);
     try testing.expect(findByText(tree.root, .text, "faku · 100 · $1.00 · 2 sessions") == null);

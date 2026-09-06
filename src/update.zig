@@ -167,6 +167,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .set_usage_share_cost => settings_actions.handleSetUsageShareCost(model),
         .set_usage_share_tokens => settings_actions.handleSetUsageShareTokens(model),
         .refresh_usage_history => settings_actions.handleRefreshUsageHistory(model, fx),
+        .usage_project_filter_edit => |edit| settings_actions.handleUsageProjectFilterEdit(model, edit),
         .settings_theme_system => settings_actions.handleSettingsThemeSystem(model),
         .settings_theme_light => settings_actions.handleSettingsThemeLight(model),
         .settings_theme_dark => settings_actions.handleSettingsThemeDark(model),

@@ -25,12 +25,18 @@
 //! vs the max month in the painted window (Cost → `costUsd`, Tokens
 //! → `totalTokens`); zero-value months stay text-only. Projects
 //! first-cut paints the same chip and relative Native `<progress>`
-//! vs the max project in the painted window (Cost → `costUsd`,
-//! Tokens → `totalTokens`); zero-value projects stay text-only.
-//! Chip flip recomputes Daily, Monthly, and Projects shares from
-//! the cached snapshot without re-fetching. Still not Waku's
-//! GPUI / T3 layered chart, not quality / rate-table / LiteLLM.
-//! Hello stays v4.
+//! vs the max Cost / Tokens among **visible** filtered rows (Waku
+//! `usage_project_filter` peak-of-visible; Cost → `costUsd`, Tokens
+//! → `totalTokens`); zero-value rows stay text-only. A runtime-only
+//! search filter (empty on boot; not `sessions.json`) case-insensitive
+//! contains-matches project basename **or** full `path` (trim; empty
+//! shows all, cap 16, no virtualization). Chip flip recomputes
+//! Daily, Monthly, and Projects shares from the cached snapshot
+//! without re-fetching and respects that filter. No-match empty
+//! ("No matching projects") is distinct from no project usage.
+//! Filter clears when leaving Settings Usage or switching away from
+//! Projects. Still not Waku's GPUI / T3 layered chart, not quality /
+//! rate-table / LiteLLM. Hello stays v4.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -180,7 +186,8 @@ pub const CachedProject = struct {
     }
 
     /// Cost → `cost_usd`; Tokens → `total_tokens`. Used for the
-    /// first-cut Projects bar (share vs max project in the window).
+    /// first-cut Projects bar (share vs max among visible filtered
+    /// rows).
     pub fn valueFor(self: *const CachedProject, metric: ShareMetric) f64 {
         return switch (metric) {
             .cost => self.cost_usd,
@@ -301,6 +308,9 @@ pub fn refresh(model: *Model, fx: *Effects) void {
 }
 
 pub fn setView(model: *Model, fx: *Effects, view: View) void {
+    if (model.usage_view == .projects and view != .projects) {
+        clearProjectFilter(model);
+    }
     const previous = windowForView(model);
     model.usage_view = view;
     const next = windowForView(model);
@@ -317,9 +327,41 @@ pub fn setWindow(model: *Model, fx: *Effects, choice: WindowChoice) void {
 
 /// Runtime-only Daily / Monthly / Projects Cost | Tokens chip. Does
 /// not re-fetch history. Provider, daily, monthly, and project bars
-/// recompute from the cached snapshot.
+/// recompute from the cached snapshot (Projects respects the filter).
 pub fn setShareMetric(model: *Model, metric: ShareMetric) void {
     model.usage_share_metric = metric;
+}
+
+/// Runtime-only Waku `usage_project_filter`. Not persisted.
+pub fn projectFilter(model: *const Model) []const u8 {
+    return std.mem.trim(u8, model.usage_project_filter_buffer.text(), " \t\r\n");
+}
+
+pub fn applyProjectFilter(model: *Model, edit: native_sdk.canvas.TextInputEvent) void {
+    model.usage_project_filter_buffer.apply(edit);
+}
+
+pub fn clearProjectFilter(model: *Model) void {
+    model.usage_project_filter_buffer.clear();
+}
+
+/// Drop the runtime Projects filter when leaving Settings Usage.
+/// Does not cancel an in-flight sidecar or clear the history cache.
+pub fn leaveUsage(model: *Model) void {
+    clearProjectFilter(model);
+}
+
+/// Case-insensitive contains on full `path` or basename. Empty /
+/// whitespace-only `query` matches every project (caller may trim).
+pub fn projectFilterMatches(path: []const u8, query: []const u8) bool {
+    const needle = std.mem.trim(u8, query, " \t\r\n");
+    if (needle.len == 0) return true;
+    if (main.asciiContainsIgnoreCase(path, needle)) return true;
+    return main.asciiContainsIgnoreCase(projectBasename(path), needle);
+}
+
+fn cachedProjectMatches(project: CachedProject, query: []const u8) bool {
+    return projectFilterMatches(project.path(), query);
 }
 
 fn ensure(model: *Model, fx: *Effects, force: bool) void {
@@ -502,8 +544,8 @@ fn monthShare(month: CachedMonth, max: f64, metric: ShareMetric) f64 {
     return clampShare(month.valueFor(metric) / max);
 }
 
-/// Max Cost / Tokens value among cached Projects rows. 0 when every
-/// project is empty so shares stay text-only.
+/// Max Cost / Tokens among the given project slice (visible filtered
+/// rows). 0 when every row is empty so shares stay text-only.
 fn maxProjectValue(projects: []const CachedProject, metric: ShareMetric) f64 {
     var max: f64 = 0;
     for (projects) |project| {
@@ -513,8 +555,8 @@ fn maxProjectValue(projects: []const CachedProject, metric: ShareMetric) f64 {
     return max;
 }
 
-/// Share vs the window's max project. 0 when the project (or the
-/// window) is empty so Native skips the progress bar.
+/// Share vs the peak of visible filtered rows. 0 when the project
+/// (or that visible set) is empty so Native skips the progress bar.
 fn projectShare(project: CachedProject, max: f64, metric: ShareMetric) f64 {
     if (!(max > 0)) return 0;
     return clampShare(project.valueFor(metric) / max);
@@ -669,16 +711,49 @@ pub fn monthRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     return out;
 }
 
+pub fn projectsEmpty(model: *const Model) bool {
+    return historyPainted(model) and model.usage_view == .projects and model.usage_history.project_count == 0;
+}
+
+/// Filter is non-empty and no cached project matches. Distinct from
+/// `projectsEmpty` (history has no projects at all).
+pub fn projectsNoMatch(model: *const Model) bool {
+    if (!historyPainted(model) or model.usage_view != .projects) return false;
+    const count = model.usage_history.project_count;
+    if (count == 0) return false;
+    const query = projectFilter(model);
+    if (query.len == 0) return false;
+    for (model.usage_history.projects[0..count]) |row| {
+        if (cachedProjectMatches(row, query)) return false;
+    }
+    return true;
+}
+
 pub fn projectRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     if (!historyPainted(model) or model.usage_view != .projects) return &.{};
     const count = model.usage_history.project_count;
     if (count == 0) return &.{};
     const projects = model.usage_history.projects[0..count];
-    const max = maxProjectValue(projects, model.usage_share_metric);
-    const out = arena.alloc(Row, count) catch return &.{};
+    const query = projectFilter(model);
+    var idx_buf: [max_projects]usize = undefined;
+    var visible_n: usize = 0;
     var i: usize = 0;
     while (i < count) : (i += 1) {
-        const row = projects[i];
+        if (!cachedProjectMatches(projects[i], query)) continue;
+        idx_buf[visible_n] = i;
+        visible_n += 1;
+    }
+    if (visible_n == 0) return &.{};
+    var max: f64 = 0;
+    i = 0;
+    while (i < visible_n) : (i += 1) {
+        const value = projects[idx_buf[i]].valueFor(model.usage_share_metric);
+        if (value > max) max = value;
+    }
+    const out = arena.alloc(Row, visible_n) catch return &.{};
+    i = 0;
+    while (i < visible_n) : (i += 1) {
+        const row = projects[idx_buf[i]];
         const share = projectShare(row, max, model.usage_share_metric);
         var percent_buf: [16]u8 = undefined;
         const percent = if (formatPercent(&percent_buf, share)) |text|
@@ -1282,5 +1357,139 @@ test "project zero window keeps shares at 0; empty projects paint no rows" {
 
     applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":100,\"costUsd\":1,\"projects\":[]}}}}" });
     try std.testing.expectEqual(@as(usize, 0), projectRows(&model, arena).len);
+}
+
+fn seedFilteredProjects(model: *Model) void {
+    model.settings_page = .usage;
+    model.usage_view = .projects;
+    model.usage_share_metric = .cost;
+    model.usage_history.present = true;
+    model.usage_history.window = .{ .trailing_days = 30 };
+    model.usage_history.project_count = 2;
+    writeFixed(&model.usage_history.projects[0].path_storage, &model.usage_history.projects[0].path_len, "/tmp/faku");
+    model.usage_history.projects[0].total_tokens = 100;
+    model.usage_history.projects[0].cost_usd = 1.0;
+    model.usage_history.projects[0].sessions = 2;
+    writeFixed(&model.usage_history.projects[1].path_storage, &model.usage_history.projects[1].path_len, "/home/me/other");
+    model.usage_history.projects[1].total_tokens = 400;
+    model.usage_history.projects[1].cost_usd = 0.5;
+    model.usage_history.projects[1].sessions = 4;
+}
+
+test "project filter matches path and basename; empty query shows all" {
+    try std.testing.expect(projectFilterMatches("/tmp/faku", ""));
+    try std.testing.expect(projectFilterMatches("/tmp/faku", "  \t"));
+    try std.testing.expect(projectFilterMatches("/tmp/faku", "FAKU"));
+    try std.testing.expect(projectFilterMatches("/tmp/faku", "faku"));
+    try std.testing.expect(projectFilterMatches("/tmp/faku", "tmp"));
+    try std.testing.expect(projectFilterMatches("/tmp/faku", "/tmp/faku"));
+    try std.testing.expect(!projectFilterMatches("/tmp/faku", "other"));
+    try std.testing.expect(projectFilterMatches("/home/me/other", "OTHER"));
+    try std.testing.expect(projectFilterMatches("/home/me/other", "me/other"));
+    try std.testing.expect(!projectFilterMatches("/home/me/other", "faku"));
+}
+
+test "empty project filter paints all rows; no-match is distinct from no project usage" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    try std.testing.expectEqualStrings("", projectFilter(&model));
+    seedFilteredProjects(&model);
+
+    const all_rows = projectRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 2), all_rows.len);
+    try std.testing.expect(!projectsEmpty(&model));
+    try std.testing.expect(!projectsNoMatch(&model));
+
+    applyProjectFilter(&model, .{ .insert_text = "  OTHER  " });
+    try std.testing.expectEqualStrings("  OTHER  ", model.usage_project_filter_buffer.text());
+    try std.testing.expectEqualStrings("OTHER", projectFilter(&model));
+    const matched = projectRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 1), matched.len);
+    try std.testing.expect(!projectsEmpty(&model));
+    try std.testing.expect(!projectsNoMatch(&model));
+
+    applyProjectFilter(&model, .clear);
+    applyProjectFilter(&model, .{ .insert_text = "zzzz" });
+    try std.testing.expectEqual(@as(usize, 0), projectRows(&model, arena).len);
+    try std.testing.expect(!projectsEmpty(&model));
+    try std.testing.expect(projectsNoMatch(&model));
+
+    model.usage_history.project_count = 0;
+    try std.testing.expectEqual(@as(usize, 0), projectRows(&model, arena).len);
+    try std.testing.expect(projectsEmpty(&model));
+    try std.testing.expect(!projectsNoMatch(&model));
+}
+
+test "project shares rescale to the peak of visible filtered rows; chip flip does not refetch" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    seedFilteredProjects(&model);
+
+    const unfiltered = projectRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 2), unfiltered.len);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), unfiltered[0].share, 0.0001);
+    try std.testing.expectEqualStrings("100.0%", unfiltered[0].percent);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), unfiltered[1].share, 0.0001);
+    try std.testing.expectEqualStrings("50.0%", unfiltered[1].percent);
+
+    applyProjectFilter(&model, .{ .insert_text = "other" });
+    const spawn_count = fx.pendingSpawnCount();
+    const filtered = projectRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 1), filtered.len);
+    try std.testing.expect(filtered[0].has_share);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), filtered[0].share, 0.0001);
+    try std.testing.expectEqualStrings("100.0%", filtered[0].percent);
+    try std.testing.expect(std.mem.indexOf(u8, filtered[0].line, "other") != null);
+    try std.testing.expectEqual(spawn_count, fx.pendingSpawnCount());
+
+    setShareMetric(&model, .tokens);
+    try std.testing.expectEqual(ShareMetric.tokens, model.usage_share_metric);
+    try std.testing.expectEqual(spawn_count, fx.pendingSpawnCount());
+    const token_filtered = projectRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 1), token_filtered.len);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), token_filtered[0].share, 0.0001);
+    try std.testing.expectEqualStrings("100.0%", token_filtered[0].percent);
+
+    applyProjectFilter(&model, .clear);
+    applyProjectFilter(&model, .{ .insert_text = "faku" });
+    const smaller = projectRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 1), smaller.len);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), smaller[0].share, 0.0001);
+    try std.testing.expectEqualStrings("100.0%", smaller[0].percent);
+    try std.testing.expect(std.mem.indexOf(u8, smaller[0].line, "faku") != null);
+    try std.testing.expectEqual(spawn_count, fx.pendingSpawnCount());
+}
+
+test "project filter clears when leaving Projects or Settings Usage" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    seedFilteredProjects(&model);
+    applyProjectFilter(&model, .{ .insert_text = "other" });
+    try std.testing.expectEqualStrings("other", projectFilter(&model));
+
+    setView(&model, &fx, .daily);
+    try std.testing.expectEqual(View.daily, model.usage_view);
+    try std.testing.expectEqualStrings("", projectFilter(&model));
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+
+    model.usage_view = .projects;
+    applyProjectFilter(&model, .{ .insert_text = "faku" });
+    try std.testing.expectEqualStrings("faku", projectFilter(&model));
+    leaveUsage(&model);
+    try std.testing.expectEqualStrings("", projectFilter(&model));
+    try std.testing.expect(model.usage_history.present);
 }
 
