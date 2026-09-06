@@ -498,6 +498,7 @@ pub const Msg = union(enum) {
     set_usage_share_cost,
     set_usage_share_tokens,
     refresh_usage_history,
+    usage_project_filter_edit: canvas.TextInputEvent,
     settings_theme_system,
     settings_theme_light,
     settings_theme_dark,
@@ -954,6 +955,9 @@ pub const Model = struct {
     /// Runtime-only Daily / Monthly / Projects Cost | Tokens metric
     /// (Waku `UsageMetric`). Default Cost. Not persisted.
     usage_share_metric: usage_history.ShareMetric = .cost,
+    /// Runtime-only Settings Usage Projects search filter (Waku
+    /// `usage_project_filter`). Empty on boot. Not persisted.
+    usage_project_filter_buffer: canvas.TextBuffer(max_search) = .{},
     /// In-flight `loadUsageHistory` sidecar. Distinct from workspace
     /// keys so miss cannot settle a live turn or toast Settings.
     daemon_usage_history_key: u64 = 0,
@@ -1681,6 +1685,9 @@ pub const Model = struct {
         "usage_view",
         "usage_window",
         "usage_share_metric",
+        "usage_project_filter_buffer",
+        "applyUsageProjectFilter",
+        "clearUsageProjectFilter",
         "daemon_usage_history_key",
         "daemon_background_work_key",
         "daemon_background_work_session",
@@ -3714,6 +3721,7 @@ pub const Model = struct {
         model.settings_page = .general;
         model.provider_selected_id = 0;
         model.usage_view = .daily;
+        usage_history.clearProjectFilter(model);
     }
 
     pub fn toggleSettings(model: *Model) void {
@@ -4356,8 +4364,24 @@ pub const Model = struct {
         return model.has_usage_history() and model.usage_view == .monthly and model.usage_history.month_count == 0;
     }
 
+    pub fn usage_project_filter(model: *const Model) []const u8 {
+        return model.usage_project_filter_buffer.text();
+    }
+
+    pub fn applyUsageProjectFilter(model: *Model, edit: canvas.TextInputEvent) void {
+        usage_history.applyProjectFilter(model, edit);
+    }
+
+    pub fn clearUsageProjectFilter(model: *Model) void {
+        usage_history.clearProjectFilter(model);
+    }
+
     pub fn usage_projects_empty(model: *const Model) bool {
-        return model.has_usage_history() and model.usage_view == .projects and model.usage_history.project_count == 0;
+        return usage_history.projectsEmpty(model);
+    }
+
+    pub fn usage_projects_no_match(model: *const Model) bool {
+        return usage_history.projectsNoMatch(model);
     }
 
     pub fn usage_provider_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {

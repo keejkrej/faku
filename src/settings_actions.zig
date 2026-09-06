@@ -222,19 +222,23 @@ pub fn handlePickSettingsEffort(model: *Model, id: []const u8) void {
 }
 
 pub fn handleSetSettingsPageGeneral(model: *Model) void {
+    leaveUsagePage(model);
     model.settings_page = .general;
 }
 
 pub fn handleSetSettingsPageAppearance(model: *Model) void {
+    leaveUsagePage(model);
     model.settings_page = .appearance;
 }
 
 pub fn handleSetSettingsPageProviders(model: *Model, fx: *Effects) void {
+    leaveUsagePage(model);
     model.settings_page = .providers;
     providers.startProbes(model, fx);
 }
 
 pub fn handleSetSettingsPageSkills(model: *Model, fx: *Effects) void {
+    leaveUsagePage(model);
     model.settings_page = .skills;
     skills.refresh(model, fx);
 }
@@ -299,8 +303,19 @@ pub fn handleRefreshUsageHistory(model: *Model, fx: *Effects) void {
     usage_history.refresh(model, fx);
 }
 
+pub fn handleUsageProjectFilterEdit(model: *Model, edit: canvas.TextInputEvent) void {
+    if (model.settings_page != .usage or model.usage_view != .projects) return;
+    usage_history.applyProjectFilter(model, edit);
+}
+
 pub fn handleSetSettingsPageComputerUse(model: *Model) void {
+    leaveUsagePage(model);
     model.settings_page = .computer_use;
+}
+
+fn leaveUsagePage(model: *Model) void {
+    if (model.settings_page != .usage) return;
+    usage_history.leaveUsage(model);
 }
 
 pub fn handleSettingsThemeSystem(model: *Model) void {
