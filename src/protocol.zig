@@ -50,6 +50,21 @@
 //! unknown-command / parse miss fall back quietly to local session
 //! Usage. Not a cost chart, not a rate-table fetch.
 //!
+//! `refreshBackgroundWork` is a bare command. Verified against
+//! egoist/waku `Command::RefreshBackgroundWork` (unit variant, wire
+//! camelCase `refreshBackgroundWork`), `crates/waku-core/src/daemon.rs`
+//! (forwarded to `driver.refresh_background_work()` after lookup by
+//! request-frame `sessionId` / `runtimeId`), and
+//! `crates/waku-protocol/src/driver_wire.rs` (`kind: "backgroundWork"`
+//! with a `BackgroundWorkEvent` payload). Same request-frame shape as
+//! cancel / steer / goal: usable `sessionId` + `runtimeId`, not nil
+//! UUIDs. A non-nil `requestId` is required so the daemon Acks. The
+//! useful data arrives as `event` frames (`kind: "backgroundWork"`);
+//! first-cut parse applies `reconcileProcesses`, `reconcileLive`, and
+//! `upsert` and ignores `outputDelta` / `stopRequested` / `stopFailed`
+//! / extra JSON. Not `StopBackgroundWork`. Not a long-lived Waku
+//! `BACKGROUND_WORK_REFRESH_INTERVAL` tick. Hello stays protocol v4.
+//!
 //! `saveTaskState` is not a bare command. Verified against egoist/waku
 //! `crates/waku-protocol/src/protocol.rs` and `persistSession` in
 //! `apps/web/src/lib/daemon-api.ts`: `{ type, projects, liveSessionIds,
@@ -583,7 +598,9 @@ pub fn defaultStartOptions() StartOptions {
 /// `goal` is the Codex `/goal` first cut (set/clear/refresh over the
 /// daemon sidecar). It is not an fx / ACP method. `loadUsageHistory`
 /// is Settings → Usage history (hello + one-shot; not a workspace
-/// op). `workspace` is
+/// op). `refreshBackgroundWork` is Environment Summary / right-panel
+/// Background (hello + one-shot; request-frame sessionId / runtimeId;
+/// not StopBackgroundWork). `workspace` is
 /// first-cut `WorkspaceOperation::Push`, `CreateWorktree`,
 /// `Commit`, `InspectBranches`, `CheckoutBranch`,
 /// `InspectCommit`, `CaptureTurnStart`, `CaptureTurn`,
@@ -608,6 +625,7 @@ pub const CommandTag = enum {
     workspace,
     close_session,
     load_usage_history,
+    refresh_background_work,
 
     pub fn wireName(tag: CommandTag) []const u8 {
         return switch (tag) {
@@ -623,6 +641,7 @@ pub const CommandTag = enum {
             .workspace => "workspace",
             .close_session => "closeSession",
             .load_usage_history => "loadUsageHistory",
+            .refresh_background_work => "refreshBackgroundWork",
         };
     }
 };
@@ -703,6 +722,7 @@ pub const EventKind = enum {
     steer_accepted,
     steer_rejected,
     goal_updated,
+    background_work,
     turn_finished,
     @"error",
     process_exited,
@@ -718,6 +738,7 @@ pub const EventKind = enum {
             .steer_accepted => "steerAccepted",
             .steer_rejected => "steerRejected",
             .goal_updated => "goalUpdated",
+            .background_work => "backgroundWork",
             .turn_finished => "turnFinished",
             .@"error" => "error",
             .process_exited => "processExited",
@@ -730,6 +751,104 @@ pub const EventKind = enum {
         }
         return null;
     }
+};
+
+/// Waku `BackgroundWorkKind`. Serde camelCase: `process` | `monitor` | `subagent`.
+pub const BackgroundWorkKind = enum {
+    process,
+    monitor,
+    subagent,
+
+    pub fn wireName(kind: BackgroundWorkKind) []const u8 {
+        return switch (kind) {
+            .process => "process",
+            .monitor => "monitor",
+            .subagent => "subagent",
+        };
+    }
+
+    pub fn fromWire(name: []const u8) ?BackgroundWorkKind {
+        inline for (std.meta.tags(BackgroundWorkKind)) |kind| {
+            if (std.mem.eql(u8, kind.wireName(), name)) return kind;
+        }
+        return null;
+    }
+};
+
+/// Waku `BackgroundWorkStatus`. Serde camelCase.
+pub const BackgroundWorkStatus = enum {
+    starting,
+    running,
+    monitoring,
+    stopping,
+    completed,
+    failed,
+    stopped,
+    lost,
+
+    pub fn wireName(status: BackgroundWorkStatus) []const u8 {
+        return switch (status) {
+            .starting => "starting",
+            .running => "running",
+            .monitoring => "monitoring",
+            .stopping => "stopping",
+            .completed => "completed",
+            .failed => "failed",
+            .stopped => "stopped",
+            .lost => "lost",
+        };
+    }
+
+    pub fn fromWire(name: []const u8) ?BackgroundWorkStatus {
+        inline for (std.meta.tags(BackgroundWorkStatus)) |status| {
+            if (std.mem.eql(u8, status.wireName(), name)) return status;
+        }
+        return null;
+    }
+
+    pub fn isLive(status: BackgroundWorkStatus) bool {
+        return switch (status) {
+            .starting, .running, .monitoring, .stopping => true,
+            .completed, .failed, .stopped, .lost => false,
+        };
+    }
+};
+
+pub const max_parsed_background_items: usize = 8;
+
+/// `BackgroundWorkKey { kind, providerId }`. Slices alias the JSON arena.
+pub const ParsedBackgroundWorkKey = struct {
+    kind: BackgroundWorkKind = .process,
+    provider_id: []const u8 = "",
+};
+
+/// One `BackgroundWorkItem`. Extra JSON ignored. Slices alias the arena.
+pub const ParsedBackgroundWorkItem = struct {
+    key: ParsedBackgroundWorkKey = .{},
+    title: []const u8 = "",
+    detail: []const u8 = "",
+    output: []const u8 = "",
+    can_stop: bool = false,
+    status: BackgroundWorkStatus = .running,
+};
+
+/// First-cut `BackgroundWorkEvent` kinds this port applies.
+/// `outputDelta` / `stopRequested` / `stopFailed` stay ignored.
+pub const BackgroundWorkEventKind = enum {
+    upsert,
+    reconcile_processes,
+    reconcile_live,
+};
+
+/// Light parse of a `backgroundWork` driver event. Unknown event
+/// types / extra JSON / missing fields on a row are ignored. Empty
+/// `items` is still ok for reconcile.
+pub const ParsedBackgroundWorkEvent = struct {
+    ok: bool = false,
+    kind: BackgroundWorkEventKind = .upsert,
+    item: ParsedBackgroundWorkItem = .{},
+    items: [max_parsed_background_items]ParsedBackgroundWorkItem = [_]ParsedBackgroundWorkItem{.{}} ** max_parsed_background_items,
+    item_count: usize = 0,
 };
 
 pub const ClientFrame = enum { hello, request, shutdown };
@@ -1959,7 +2078,8 @@ pub fn writeAttachSession(
     return writeBareCommand(buf, request_id, session_id, NIL_UUID, .attach_session);
 }
 
-/// Bare first-cut command (attachSession, cancel, loadTaskState, closeSession, …).
+/// Bare first-cut command (attachSession, cancel, loadTaskState,
+/// closeSession, refreshBackgroundWork, …).
 pub fn writeBareCommand(
     buf: []u8,
     request_id: []const u8,
@@ -1978,6 +2098,19 @@ pub fn writeBareCommand(
     try writeJsonString(&cur, tag.wireName());
     try cur.write("}}");
     return cur.slice();
+}
+
+/// Bare verified `refreshBackgroundWork`. Request-frame `sessionId` /
+/// `runtimeId` name the live session driver (same as cancel / steer /
+/// goal). Non-nil `requestId` so the daemon Acks. Useful data arrives
+/// as `backgroundWork` events, not the Ack payload.
+pub fn writeRefreshBackgroundWork(
+    buf: []u8,
+    request_id: []const u8,
+    session_id: []const u8,
+    runtime_id: []const u8,
+) WriteError![]const u8 {
+    return writeBareCommand(buf, request_id, session_id, runtime_id, .refresh_background_work);
 }
 
 /// Request wrapping verified `hydrateSession` `{ type, sessionId }`.
@@ -2191,6 +2324,78 @@ pub fn parseUsageHistory(allocator: std.mem.Allocator, line: []const u8) ParsedU
     parsed.month_count = parseUsageMonths(history.get("months"), &parsed.months);
     parsed.project_count = parseUsageProjects(history.get("projects"), &parsed.projects);
     return parsed;
+}
+
+/// Extract a first-cut `backgroundWork` event. Empty / `ok = false`
+/// on any other frame, a non-event, a payload that is not
+/// `reconcileProcesses` / `reconcileLive` / `upsert`, or a missing
+/// key. Unknown fields and extra array rows are ignored. `upsert`
+/// accepts internally tagged flattened item fields or a nested
+/// `item` object.
+pub fn parseBackgroundWorkEvent(allocator: std.mem.Allocator, line: []const u8) ParsedBackgroundWorkEvent {
+    var parsed = ParsedBackgroundWorkEvent{};
+    const trimmed = std.mem.trim(u8, line, " \t\r\n");
+    if (trimmed.len < 2 or trimmed[0] != '{') return parsed;
+
+    const root = std.json.parseFromSliceLeaky(std.json.Value, allocator, trimmed, .{}) catch return parsed;
+    const obj = jsonObject(root) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(obj.get("type")) orelse "", "event")) return parsed;
+    const event_obj = jsonObject(obj.get("event") orelse return parsed) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(event_obj.get("kind")) orelse "", EventKind.background_work.wireName())) return parsed;
+    const payload = jsonObject(event_obj.get("payload") orelse return parsed) orelse return parsed;
+    const type_name = jsonStringValue(payload.get("type")) orelse return parsed;
+
+    if (std.mem.eql(u8, type_name, "upsert")) {
+        const item_obj = if (payload.get("item")) |item_val|
+            jsonObject(item_val) orelse return parsed
+        else
+            payload;
+        parsed.item = parseBackgroundWorkItem(item_obj) orelse return parsed;
+        parsed.kind = .upsert;
+        parsed.ok = true;
+        return parsed;
+    }
+    if (std.mem.eql(u8, type_name, "reconcileProcesses")) {
+        parsed.kind = .reconcile_processes;
+        parsed.item_count = parseBackgroundWorkItems(payload.get("items"), &parsed.items);
+        parsed.ok = true;
+        return parsed;
+    }
+    if (std.mem.eql(u8, type_name, "reconcileLive")) {
+        parsed.kind = .reconcile_live;
+        parsed.item_count = parseBackgroundWorkItems(payload.get("items"), &parsed.items);
+        parsed.ok = true;
+        return parsed;
+    }
+    return parsed;
+}
+
+fn parseBackgroundWorkItems(value: ?std.json.Value, dest: *[max_parsed_background_items]ParsedBackgroundWorkItem) usize {
+    const items = jsonArrayItems(value orelse return 0) orelse return 0;
+    var n: usize = 0;
+    for (items) |item| {
+        if (n >= dest.len) break;
+        const obj = jsonObject(item) orelse continue;
+        dest[n] = parseBackgroundWorkItem(obj) orelse continue;
+        n += 1;
+    }
+    return n;
+}
+
+fn parseBackgroundWorkItem(obj: std.json.ObjectMap) ?ParsedBackgroundWorkItem {
+    const key_obj = jsonObject(obj.get("key") orelse return null) orelse return null;
+    const kind = BackgroundWorkKind.fromWire(jsonStringValue(key_obj.get("kind")) orelse return null) orelse return null;
+    const provider_id = jsonStringValue(key_obj.get("providerId")) orelse return null;
+    if (provider_id.len == 0) return null;
+    const status = BackgroundWorkStatus.fromWire(jsonStringValue(obj.get("status")) orelse return null) orelse return null;
+    return .{
+        .key = .{ .kind = kind, .provider_id = provider_id },
+        .title = jsonStringValue(obj.get("title")) orelse "",
+        .detail = jsonStringValue(obj.get("detail")) orelse "",
+        .output = jsonStringValue(obj.get("output")) orelse "",
+        .can_stop = jsonBoolValue(obj.get("canStop")) orelse false,
+        .status = status,
+    };
 }
 
 fn parseUsageProviders(value: ?std.json.Value, dest: *[max_parsed_usage_providers]ParsedUsageProvider) usize {
@@ -4852,9 +5057,11 @@ test "first-cut command tags stay camelCase on the wire" {
     try std.testing.expectEqualStrings("goal", CommandTag.goal.wireName());
     try std.testing.expectEqualStrings("workspace", CommandTag.workspace.wireName());
     try std.testing.expectEqualStrings("loadUsageHistory", CommandTag.load_usage_history.wireName());
+    try std.testing.expectEqualStrings("refreshBackgroundWork", CommandTag.refresh_background_work.wireName());
     try std.testing.expectEqualStrings("steerAccepted", EventKind.steer_accepted.wireName());
     try std.testing.expectEqualStrings("steerRejected", EventKind.steer_rejected.wireName());
     try std.testing.expectEqualStrings("goalUpdated", EventKind.goal_updated.wireName());
+    try std.testing.expectEqualStrings("backgroundWork", EventKind.background_work.wireName());
     try std.testing.expectEqualStrings("turnFinished", EventKind.turn_finished.wireName());
     try std.testing.expectEqualStrings("textDelta", EventKind.text_delta.wireName());
 }
@@ -5219,4 +5426,95 @@ test "parseUsageHistory reads a minimal usageHistory fixture and ignores unknown
     try std.testing.expect(!parseUsageHistory(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"unknown command\"}}}").ok);
     try std.testing.expect(!parseUsageHistory(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
     try std.testing.expect(!parseUsageHistory(arena, "{\"type\":\"rejected\",\"message\":\"unknown command\"}").ok);
+}
+
+test "refreshBackgroundWork is a bare command with sessionId and runtimeId on the request frame" {
+    var buf: [512]u8 = undefined;
+    const json = try writeRefreshBackgroundWork(
+        &buf,
+        "00000000-0000-0000-0000-000000000016",
+        "00000000-0000-0000-0000-000000000007",
+        "00000000-0000-0000-0000-000000000003",
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000016\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"00000000-0000-0000-0000-000000000007\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"00000000-0000-0000-0000-000000000003\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"refreshBackgroundWork\"}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"cancel\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"stopBackgroundWork\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"loadUsageHistory\"") == null);
+}
+
+test "parseBackgroundWorkEvent reads reconcile upsert fixtures and ignores unknown types" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const reconcile =
+        \\{"type":"event","sessionId":"00000000-0000-0000-0000-000000000007","runtimeId":"00000000-0000-0000-0000-000000000003","epoch":"00000000-0000-0000-0000-000000000004","sequence":1,"event":{"kind":"backgroundWork","payload":{"type":"reconcileProcesses","items":[{"key":{"kind":"process","providerId":"proc-1"},"title":"npm run dev","detail":"watching","command":"npm","cwd":"/tmp","output":"ready\n","outputTruncated":false,"startedAtMs":1,"updatedAtMs":2,"durationMs":3,"exitCode":null,"background":true,"canStop":true,"controlId":"c1","originActivityId":"a1","role":"assistant","model":"opus","parentId":null,"status":"running","unknownField":true}],"extra":true}}}
+    ;
+    const processes = parseBackgroundWorkEvent(arena, reconcile);
+    try std.testing.expect(processes.ok);
+    try std.testing.expectEqual(BackgroundWorkEventKind.reconcile_processes, processes.kind);
+    try std.testing.expectEqual(@as(usize, 1), processes.item_count);
+    try std.testing.expectEqual(BackgroundWorkKind.process, processes.items[0].key.kind);
+    try std.testing.expectEqualStrings("proc-1", processes.items[0].key.provider_id);
+    try std.testing.expectEqualStrings("npm run dev", processes.items[0].title);
+    try std.testing.expectEqualStrings("watching", processes.items[0].detail);
+    try std.testing.expectEqualStrings("ready\n", processes.items[0].output);
+    try std.testing.expect(processes.items[0].can_stop);
+    try std.testing.expectEqual(BackgroundWorkStatus.running, processes.items[0].status);
+
+    const live =
+        \\{"type":"event","event":{"kind":"backgroundWork","payload":{"type":"reconcileLive","items":[{"key":{"kind":"monitor","providerId":"toolu_1"},"title":"Monitor","status":"monitoring"},{"key":{"kind":"subagent","providerId":"toolu_2"},"title":"Subagent","status":"running"},{"key":{"kind":"process"},"title":"skip","status":"running"}]}}}
+    ;
+    const live_parsed = parseBackgroundWorkEvent(arena, live);
+    try std.testing.expect(live_parsed.ok);
+    try std.testing.expectEqual(BackgroundWorkEventKind.reconcile_live, live_parsed.kind);
+    try std.testing.expectEqual(@as(usize, 2), live_parsed.item_count);
+    try std.testing.expectEqual(BackgroundWorkKind.monitor, live_parsed.items[0].key.kind);
+    try std.testing.expectEqualStrings("toolu_1", live_parsed.items[0].key.provider_id);
+    try std.testing.expectEqual(BackgroundWorkStatus.monitoring, live_parsed.items[0].status);
+    try std.testing.expectEqual(BackgroundWorkKind.subagent, live_parsed.items[1].key.kind);
+
+    const upsert =
+        \\{"type":"event","event":{"kind":"backgroundWork","payload":{"type":"upsert","key":{"kind":"subagent","providerId":"toolu_3"},"title":"Explore","status":"completed","output":"done","canStop":false,"unknown":1}}}
+    ;
+    const upsert_parsed = parseBackgroundWorkEvent(arena, upsert);
+    try std.testing.expect(upsert_parsed.ok);
+    try std.testing.expectEqual(BackgroundWorkEventKind.upsert, upsert_parsed.kind);
+    try std.testing.expectEqual(BackgroundWorkKind.subagent, upsert_parsed.item.key.kind);
+    try std.testing.expectEqualStrings("toolu_3", upsert_parsed.item.key.provider_id);
+    try std.testing.expectEqualStrings("Explore", upsert_parsed.item.title);
+    try std.testing.expectEqualStrings("done", upsert_parsed.item.output);
+    try std.testing.expectEqual(BackgroundWorkStatus.completed, upsert_parsed.item.status);
+
+    const nested =
+        \\{"type":"event","event":{"kind":"backgroundWork","payload":{"type":"upsert","item":{"key":{"kind":"process","providerId":"bash-1"},"title":"sleep","status":"starting"}}}}
+    ;
+    const nested_parsed = parseBackgroundWorkEvent(arena, nested);
+    try std.testing.expect(nested_parsed.ok);
+    try std.testing.expectEqualStrings("bash-1", nested_parsed.item.key.provider_id);
+    try std.testing.expectEqual(BackgroundWorkStatus.starting, nested_parsed.item.status);
+
+    const empty_reconcile =
+        \\{"type":"event","event":{"kind":"backgroundWork","payload":{"type":"reconcileProcesses","items":[]}}}
+    ;
+    const empty = parseBackgroundWorkEvent(arena, empty_reconcile);
+    try std.testing.expect(empty.ok);
+    try std.testing.expectEqual(@as(usize, 0), empty.item_count);
+
+    try std.testing.expect(!parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"outputDelta\",\"key\":{\"kind\":\"process\",\"providerId\":\"p\"},\"delta\":\"x\"}}}").ok);
+    try std.testing.expect(!parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"stopRequested\",\"key\":{\"kind\":\"process\",\"providerId\":\"p\"}}}}").ok);
+    try std.testing.expect(!parseBackgroundWorkEvent(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}").ok);
+    try std.testing.expect(!parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"textDelta\",\"payload\":\"hi\"}}").ok);
+
+    const frame = parseServerFrame(arena, reconcile);
+    try std.testing.expectEqual(ServerFrame.event, frame.frame);
+    try std.testing.expectEqual(EventKind.background_work, frame.event_kind.?);
+    try std.testing.expectEqualStrings("backgroundWork", frame.event_kind_name);
+    try std.testing.expect(!isTerminalServerFrame(frame));
 }

@@ -22,15 +22,18 @@
 //! Subagent Stop on one-shot `claude -p` ships; live Stop dismisses
 //! that live row and does not invoke TaskStop mid-turn; settled
 //! rows offer Dismiss), daemon
-//! `refreshBackgroundWork`, GPUI SharedString, or full
-//! BackgroundWorkRegistry event/reconcile parity. This cut ships a
+//! `StopBackgroundWork`, GPUI SharedString, or full
+//! BackgroundWorkRegistry event/reconcile parity. First-cut daemon
+//! `refreshBackgroundWork` prefers hello + that command when a daemon
+//! address and usable session `runtimeId` are set on Background tab
+//! open/select (one-shot sidecar; miss keeps local rows). This cut ships a
 //! 100ms CSI-stripped last-window render cache on Monitor / Subagent
 //! (piggybacks `now_ms` / the stream tick; Native has no dedicated
 //! 100ms timer). First-cut
 //! settled Monitor / Subagent stay in the runtime registry after the
 //! turn (status from Process settle; Monitor / Subagent last-window kept;
 //! Faku-side Dismiss, not Claude TaskStop / daemon
-//! `refreshBackgroundWork`; not live after `-p` exits). First-cut
+//! `StopBackgroundWork`; not live after `-p` exits). First-cut
 //! daemon `WorkspaceOperation::ListProjectFiles` ships on Files
 //! refresh when a daemon address is set (ok paints the file cache from
 //! `projectFiles` file + dir entries; Native 4 KiB stdin overflow /

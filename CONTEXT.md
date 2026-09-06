@@ -223,7 +223,8 @@ incoming text frame as one stdout line, and exits on `turnFinished` /
 `rejected` / `error`. Token comes from `WAKU_DAEMON_TOKEN` when set.
 Hello is protocol v4. First-cut commands: `loadTaskState`,
 `hydrateSession`, `saveTaskState`, `attachSession`, `start`, `prompt`,
-`steer`, `cancel`, `goal`, `workspace`, `closeSession`, `loadUsageHistory`. Start defaults to provider
+`steer`, `cancel`, `goal`, `workspace`, `closeSession`, `loadUsageHistory`,
+`refreshBackgroundWork`. Start defaults to provider
 `fx`. fx-first (`fx acp` / `fx ask` / demo) does not use daemon hello.
 First-cut `workspace` ships Push, CreateWorktree, Commit,
 InspectBranches, CheckoutBranch, InspectCommit, CaptureTurnStart,
@@ -621,8 +622,14 @@ Environment Summary Process / Monitor / Subagent row surface (kind,
 title, live-or-settled status, Monitor / Subagent 512KB last-window log). Not an embedded BrowserView or alacritty PTY,
 or a full BackgroundWorkRegistry. Faku-side Monitor and Subagent Stop
 on one-shot `claude -p` ships (live Stop dismisses that live row;
-settled rows offer Dismiss; not Claude TaskStop mid-turn). Not daemon
-`WorkspaceOperation` for Background (first-cut daemon Push,
+settled rows offer Dismiss; not Claude TaskStop mid-turn). First-cut
+daemon `refreshBackgroundWork` prefers hello + that command when a
+daemon address and usable session `runtimeId` are set on Background
+tab open/select or Environment Summary open (one-shot sidecar; Ack
+plus `backgroundWork` events apply reconcileProcesses / reconcileLive
+/ upsert into daemon-sourced rows; miss / no runtimeId / no address
+keeps local Process / Monitor / Subagent). Not `StopBackgroundWork`,
+not a long-lived Waku tick loop. Not daemon `WorkspaceOperation` for Background (first-cut daemon Push,
 CreateWorktree, Commit, InspectBranches, CheckoutBranch,
 InspectCommit, GenerateCommitMessage, ListTree, ListProjectFiles, DiscoverSlashCommands, CreateProjectlessWorkspace, MigrateProjectlessWorkspace, CollectReviewDiff,
 BrowseDirectory, ReadTextFile, and WriteTextFile live on composer git / Send prep / Commit… / the
@@ -685,7 +692,8 @@ dropdown and opens the right-panel Background tab for that id.
 Dismiss all settled on Environment Summary clears the selected
 session's settled leftovers (Monitor / Subagent slots plus the
 cap-1 Process settle) without stopping a live stream. Not Claude
-TaskStop. Not daemon `refreshBackgroundWork`.
+TaskStop. First-cut daemon `refreshBackgroundWork` prefer path
+ships as above; local Faku-side Stop / Dismiss remains.
 
 ## Settings Providers
 
@@ -886,7 +894,8 @@ Honest gaps this cut does not implement:
   UTC-day bucketing is unchanged. Not full-app catalogs, not Native
   NSLocale, not east-asian calendar formatting)
 - Claude CLI TaskStop / long-lived ACP, daemon
-  `refreshBackgroundWork`, full BackgroundWorkRegistry
+  `StopBackgroundWork`, long-lived Waku
+  `BACKGROUND_WORK_REFRESH_INTERVAL` tick, full BackgroundWorkRegistry
   event/reconcile parity (Environment Summary
   ships Process / Monitor / Subagent kind chrome, a Process
   registry from stream/settle, live Monitor rows from Claude
@@ -909,15 +918,21 @@ Honest gaps this cut does not implement:
   first-cut settled Monitor / Subagent persist after the turn
   (status from Process settle; Monitor / Subagent last-window kept;
   Faku-side Dismiss, not Claude TaskStop / daemon
-  `refreshBackgroundWork`; not live after `-p` exits); Faku-side
+  `StopBackgroundWork`; not live after `-p` exits); Faku-side
   Dismiss all settled for the selected session (settled Monitor /
   Subagent plus the cap-1 Process settle; live rows and the stream
-  stay; not Claude TaskStop / daemon registry reconcile); and a first-cut
+  stay; not Claude TaskStop / daemon StopBackgroundWork); first-cut
+  daemon `refreshBackgroundWork` prefers hello + that command when a
+  daemon address and usable session `runtimeId` are set on Background
+  tab / Environment Summary open (one-shot sidecar; Ack plus
+  `backgroundWork` events apply reconcileProcesses / reconcileLive /
+  upsert into daemon-sourced rows; miss keeps local rows); and a first-cut
   right-panel Background surface from those rows that shows the
   stored Monitor / Subagent log, Stop when the selected row is
   a live Process, live Monitor, or live Subagent, and Dismiss when
   the selected row is a settled Monitor or Subagent; not Waku
-  BackgroundWorkRegistry event/reconcile/driver-refresh parity)
+  BackgroundWorkRegistry event/reconcile/driver-refresh parity,
+  not StopBackgroundWork, not a long-lived tick loop)
 - First-cut GitHub Releases wrap documented `native package` trees
   (host-native; no eject) as user-facing installers: unsigned macOS
   DMG (`--signing none`; no Apple identity / notarize), amd64 Debian

@@ -570,7 +570,7 @@ pub const Msg = union(enum) {
     /// clear of settled Background leftovers for the selected
     /// session (Monitor / Subagent slots plus the cap-1 Process
     /// settle). Does not `stopStream` / dismiss live rows. Not
-    /// Claude TaskStop / daemon `refreshBackgroundWork`.
+    /// Claude TaskStop / daemon `StopBackgroundWork`.
     environment_dismiss_settled_background,
     close_review_diff,
     set_review_diff_source_branch,
@@ -763,6 +763,11 @@ pub const Model = struct {
     /// session frees that session's heap logs.
     background_monitors: [environment_summary.max_live_monitors]environment_summary.LiveMonitor = [_]environment_summary.LiveMonitor{.{}} ** environment_summary.max_live_monitors,
     background_monitor_count: u32 = 0,
+    /// Daemon-sourced Background slots from `refreshBackgroundWork`
+    /// events. Distinct from local Claude stream Monitor / Subagent.
+    /// Runtime-only; not sessions.json. Remove session frees logs.
+    background_daemon: [environment_summary.max_daemon_background]environment_summary.DaemonBackground = [_]environment_summary.DaemonBackground{.{}} ** environment_summary.max_daemon_background,
+    background_daemon_count: u32 = 0,
     /// Last successful Background output-cache refresh (`now_ms`).
     /// Null until the first rebuild. Registry-level; throttles every
     /// LastWindow rendered buffer to
@@ -917,6 +922,10 @@ pub const Model = struct {
     /// In-flight `loadUsageHistory` sidecar. Distinct from workspace
     /// keys so miss cannot settle a live turn or toast Settings.
     daemon_usage_history_key: u64 = 0,
+    /// In-flight `refreshBackgroundWork` sidecar. Distinct from the
+    /// prompt / usage-history keys so miss cannot settle a live turn.
+    daemon_background_work_key: u64 = 0,
+    daemon_background_work_session: u32 = 0,
     /// First-cut daemon usage history cache. Runtime only.
     usage_history: usage_history.Cache = .{},
     /// Persisted chrome theme. Default System (OS-follow).
@@ -1594,6 +1603,8 @@ pub const Model = struct {
         "background_dismissed_subagent_count",
         "background_monitors",
         "background_monitor_count",
+        "background_daemon",
+        "background_daemon_count",
         "background_output_cache_refresh_ms",
         "has_settled_background",
         "background_settled_status",
@@ -1615,6 +1626,8 @@ pub const Model = struct {
         "settings_page",
         "usage_view",
         "daemon_usage_history_key",
+        "daemon_background_work_key",
+        "daemon_background_work_session",
         "usage_history",
         "theme_preference",
         "setThemePreference",
