@@ -352,11 +352,21 @@
                   <if test="{usage_view_monthly}">
                     <card size="sm" padding="10">
                       <column gap="8">
+                        <row gap="8">
+                          <button variant="ghost" size="sm" selected="{usage_share_cost}" on-press="set_usage_share_cost">Cost</button>
+                          <button variant="ghost" size="sm" selected="{usage_share_tokens}" on-press="set_usage_share_tokens">Tokens</button>
+                        </row>
                         <if test="{usage_months_empty}">
                           <text wrap="true" foreground="text_muted">No monthly usage</text>
                         </if>
                         <for each="usage_month_rows" key="id" as="m">
-                          <text wrap="false" overflow="ellipsis">{m.line}</text>
+                          <column gap="4">
+                            <text wrap="false" overflow="ellipsis">{m.line}</text>
+                            <if test="{m.has_share}">
+                              <progress value="{m.share}" width="48" height="6" label="{m.percent}" />
+                              <text wrap="false" overflow="ellipsis" foreground="text_muted">{m.percent}</text>
+                            </if>
+                          </column>
                         </for>
                       </column>
                     </card>
