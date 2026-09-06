@@ -230,7 +230,7 @@ InspectBranches, CheckoutBranch, InspectCommit, CaptureTurnStart,
 CaptureTurn, GenerateCommitMessage, ListTree, CollectReviewDiff,
 BrowseDirectory, ReadTextFile, WriteTextFile, CopySessionRefs,
 DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef,
-DeleteTurnRefsAfter, and SessionTurnRefs.
+DeleteTurnRefsAfter, SessionTurnRefs, and ListProjectFiles.
 
 Local `sessions.json` remains the catalog of record. Daemon
 `saveTaskState` is a best-effort one-shot mirror. Wire `loadTaskState`
@@ -352,12 +352,20 @@ Commit… generate when a daemon address is set (ok is nested
 auto-proceeds; Native 4 KiB stdin overflow / error / empty /
 parse miss falls back to local `fx ask`; no address keeps today's
 local path). First-cut daemon
-`WorkspaceOperation::ListTree` ships on Files refresh when a
-daemon address is set (ok is nested `workingTree` + camelCase
-`WorkingTreeEntry` rows; paints the Files cache from file entries;
-expand after a daemon fill re-prefers ListTree; Native 4 KiB stdin
-overflow / error / unusable parse falls back to local `git ls-files`
-then walk; no address keeps today's local path). First-cut daemon
+`WorkspaceOperation::ListProjectFiles` ships on composer `@` / Files
+refresh when a daemon address is set (ok is nested `projectFiles`
++ `{ path, is_dir }` FileEntry rows; paints the same file-mention
+cache from files + trailing-slash dir sentinels; Native 4 KiB
+stdin overflow / error / unusable parse falls back to ListTree
+then local `git ls-files` then walk; no address keeps today's
+local path). First-cut daemon
+`WorkspaceOperation::ListTree` ships on Files expand after a
+daemon fill when a daemon address is set (ok is nested
+`workingTree` + camelCase `WorkingTreeEntry` rows; paints the
+Files cache from file entries; expand after a daemon fill
+re-prefers ListTree; Native 4 KiB stdin overflow / error /
+unusable parse falls back to local `git ls-files` then walk; no
+address keeps today's local path). First-cut daemon
 `WorkspaceOperation::CollectReviewDiff` ships on Review / Diff
 open / refresh / source-switch when a daemon address is set (ok is
 nested `reviewDiff` + camelCase `ReviewDiffData`; paints the file
@@ -542,8 +550,10 @@ and directory expands stay runtime-only. Files
 lists the same bounded `file_mention` cache used by composer `@`
 mentions (git ls-files, then a bounded walk; Windows `git.exe -C` /
 PowerShell walk with `-Args`; first-cut daemon
-`WorkspaceOperation::ListTree` prefers hello + ListTree when a
-daemon address is set and falls back to that local path; still not
+`WorkspaceOperation::ListProjectFiles` prefers hello +
+ListProjectFiles when a daemon address is set and falls back to
+ListTree then that local path; expand after a daemon fill
+re-prefers ListTree; still not
 Waku's 50k index or a Native FS watcher), with a bounded inline preview on file click
 (256KB cap, truncated / binary / unreadable honest states; Native
 `<code>` highlighting with `line-numbers`; language is a documented
@@ -577,7 +587,7 @@ on one-shot `claude -p` ships (live Stop dismisses that live row;
 settled rows offer Dismiss; not Claude TaskStop mid-turn). Not daemon
 `WorkspaceOperation` for Background (first-cut daemon Push,
 CreateWorktree, Commit, InspectBranches, CheckoutBranch,
-InspectCommit, GenerateCommitMessage, ListTree, CollectReviewDiff,
+InspectCommit, GenerateCommitMessage, ListTree, ListProjectFiles, CollectReviewDiff,
 BrowseDirectory, ReadTextFile, and WriteTextFile live on composer git / Send prep / Commit… / the
 branch picker / Files refresh / Review Diff / Pick folder / Files
 preview load / Files preview Save; CaptureTurnStart is a best-effort Send sidecar
@@ -872,8 +882,10 @@ Honest gaps this cut does not implement:
   `std.fs` atomic write), Reload discards unsaved edits. First-cut
   live reload via mtime/size poll on the update tick. Not a real FS
   watcher / Native watch API)
-- Other daemon `WorkspaceOperation` variants (amend/force over daemon, remote `--track`
-  over daemon, …). First-cut
+- Other daemon `WorkspaceOperation` variants (`discoverSlashCommands`,
+  `createProjectlessWorkspace`, `migrateProjectlessWorkspace`).
+  Amend/force and remote `--track` stay local (not daemon
+  WorkspaceOperation variants). First-cut
   `WorkspaceOperation::Push` ships as a best-effort sidecar when
   `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set;
   Force stays local `git push --force`. First-cut
@@ -905,12 +917,20 @@ Honest gaps this cut does not implement:
   `commitMessage` + `message`; Native 4 KiB stdin overflow / error /
   empty / parse miss falls back to local `fx ask`; no address keeps
   today's local path. First-cut
-  `WorkspaceOperation::ListTree` ships on Files refresh when a
-  daemon address is set; ok is nested `workingTree` + camelCase
-  `WorkingTreeEntry` rows; paints the Files cache from file entries;
-  expand after a daemon fill re-prefers ListTree; Native 4 KiB stdin
-  overflow / error / unusable parse falls back to local `git
-  ls-files` then walk; no address keeps today's local path. First-cut
+  `WorkspaceOperation::ListProjectFiles` ships on composer `@` /
+  Files refresh when a daemon address is set; ok is nested
+  `projectFiles` + `{ path, is_dir }` FileEntry rows (not camelCase
+  `isDir`); paints the file-mention cache from files + trailing-slash
+  dir sentinels; Native 4 KiB stdin overflow / error / unusable parse
+  falls back to ListTree then local `git ls-files` then walk; no
+  address keeps today's local path. First-cut
+  `WorkspaceOperation::ListTree` ships on Files expand after a
+  daemon fill when a daemon address is set; ok is nested `workingTree`
+  + camelCase `WorkingTreeEntry` rows; paints the Files cache from
+  file entries; expand after a daemon fill re-prefers ListTree;
+  Native 4 KiB stdin overflow / error / unusable parse falls back to
+  local `git ls-files` then walk; no address keeps today's local
+  path. First-cut
   `WorkspaceOperation::CollectReviewDiff` ships on Review / Diff
   open / refresh / source-switch when a daemon address is set; ok is
   nested `reviewDiff` + camelCase `ReviewDiffData` (`source`,
@@ -1009,7 +1029,15 @@ Honest gaps this cut does not implement:
   `daemon_proxy.wireUuid`; local `checkpoint.sessionTurnRefs` stays
   the overflow / miss / non-ok / no-address path and remains
   canonical; runtime cache only; miss must not break rewind /
-  checkpoint bookkeeping
+  checkpoint bookkeeping. First-cut
+  `WorkspaceOperation::ListProjectFiles` prefers hello +
+  listProjectFiles on composer `@` / Files refresh when a daemon
+  address is set; ok is nested `projectFiles.entries` (`path`,
+  `is_dir`); paints the file-mention cache; Native 4 KiB stdin
+  overflow / miss / non-ok fall back to ListTree then local `git
+  ls-files` then walk; expand after a daemon fill re-prefers
+  ListTree; no address keeps today's local path; miss must not
+  break `@` / Files
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size

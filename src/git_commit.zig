@@ -115,8 +115,11 @@
 //! (best-effort sidecar after a local sessions.json remove; Ack;
 //! local remove stays canonical; not a replacement for
 //! `closeSession`). First-cut daemon
+//! `WorkspaceOperation::ListProjectFiles` lives in `file_mention` (Files
+//! refresh; prefer hello + listProjectFiles; miss falls back to
+//! ListTree then local git). First-cut daemon
 //! `WorkspaceOperation::ListTree` lives in `file_mention` (Files
-//! refresh; expand after a daemon fill re-prefers ListTree). First-cut daemon
+//! expand after a daemon fill re-prefers ListTree). First-cut daemon
 //! `WorkspaceOperation::CollectReviewDiff` lives in `review_diff` (Review /
 //! Diff panel; LastTurn stays local). First-cut daemon
 //! `WorkspaceOperation::BrowseDirectory` lives in `pick_folder`
@@ -144,8 +147,10 @@
 //! alone). First-cut daemon `WorkspaceOperation::SessionTurnRefs`
 //! lives in `fork` (prefer+fallback sidecar on session select /
 //! boot; ok nested `turnRefs.turn_counts`; miss / overflow fall
-//! back to local `git for-each-ref`). Leftovers: amend/force
-//! over daemon / remote `--track` over daemon / …
+//! back to local `git for-each-ref`). Leftovers: `discoverSlashCommands`,
+//! `createProjectlessWorkspace`, `migrateProjectlessWorkspace`;
+//! amend/force and remote `--track` stay local (not daemon
+//! WorkspaceOperation variants).
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
 //! (`fx_ask_chdir_script`). Windows cannot use `/bin/sh`:

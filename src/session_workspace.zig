@@ -40,10 +40,13 @@
 //! `WorkspaceOperation::GenerateCommitMessage` ships in `git_commit`
 //! (best-effort sidecar on empty-message Commit… generate when a
 //! daemon address is set; overflow / error / empty / parse miss
-//! falls back to local `fx ask`). First-cut daemon `WorkspaceOperation::ListTree`
+//! falls back to local `fx ask`). First-cut daemon `WorkspaceOperation::ListProjectFiles`
 //! ships in `file_mention` (best-effort sidecar on Files refresh when a
-//! daemon address is set; expand after a daemon fill re-prefers
-//! ListTree; overflow / error / unusable parse falls back to local
+//! daemon address is set; prefer hello + listProjectFiles; overflow /
+//! error / unusable parse falls back to ListTree then local git
+//! ls-files then walk). First-cut daemon `WorkspaceOperation::ListTree`
+//! ships in `file_mention` (best-effort sidecar on Files expand after a
+//! daemon fill; overflow / error / unusable parse falls back to local
 //! git ls-files then walk). First-cut daemon `WorkspaceOperation::CollectReviewDiff`
 //! ships in `review_diff` (best-effort sidecar on Review / Diff open /
 //! refresh / source-switch for Branch / Uncommitted / Staged /
@@ -91,8 +94,9 @@
 //! (prefer+fallback sidecar on session select / boot; ok nested
 //! `turnRefs.turn_counts`; miss / overflow fall back to local
 //! `git for-each-ref`). Leftovers:
-//! other daemon `WorkspaceOperation` variants (
-//! amend/force over daemon, remote `--track` over daemon, …). Fork copies
+//! `discoverSlashCommands`, `createProjectlessWorkspace`,
+//! `migrateProjectlessWorkspace`; amend/force and remote `--track`
+//! stay local (not daemon WorkspaceOperation variants). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).
 
 const std = @import("std");

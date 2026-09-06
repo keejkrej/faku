@@ -223,8 +223,11 @@
 //! sidecar after successful Rewind bookkeeping; Ack; range cleanup
 //! of turn / turn-start / turn-diff; miss / overflow leave rewind
 //! transcript alone). First-cut daemon
+//! `WorkspaceOperation::ListProjectFiles` lives in `file_mention` (Files
+//! refresh; prefer hello + listProjectFiles; miss falls back to
+//! ListTree then local git). First-cut daemon
 //! `WorkspaceOperation::ListTree` lives in `file_mention` (Files
-//! refresh; expand after a daemon fill re-prefers ListTree). First-cut daemon
+//! expand after a daemon fill re-prefers ListTree). First-cut daemon
 //! `WorkspaceOperation::CollectReviewDiff` lives in `review_diff` (Review /
 //! Diff panel; LastTurn stays local). First-cut daemon
 //! `WorkspaceOperation::BrowseDirectory` lives in `pick_folder`

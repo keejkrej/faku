@@ -31,8 +31,13 @@
 //! turn (status from Process settle; Monitor / Subagent last-window kept;
 //! Faku-side Dismiss, not Claude TaskStop / daemon
 //! `refreshBackgroundWork`; not live after `-p` exits). First-cut
-//! daemon `WorkspaceOperation::ListTree` ships on Files refresh
-//! when a daemon address is set (ok paints the file cache from
+//! daemon `WorkspaceOperation::ListProjectFiles` ships on Files
+//! refresh when a daemon address is set (ok paints the file cache from
+//! `projectFiles` file + dir entries; Native 4 KiB stdin overflow /
+//! error / unusable parse falls back to ListTree then local git
+//! ls-files then walk; no address keeps today's local path). First-cut
+//! daemon `WorkspaceOperation::ListTree` ships on Files expand after a
+//! daemon fill when a daemon address is set (ok paints the file cache from
 //! `workingTree` file entries; expand after a daemon fill re-probes
 //! ListTree; Native 4 KiB stdin overflow / error / unusable parse
 //! falls back to local git ls-files then walk; no address keeps
@@ -483,8 +488,8 @@ fn makeRow(path: []const u8, id: u32, is_file: bool, expanded: bool, selected: b
 
 /// Toggle a derived-dir id in the runtime expanded set. File ids and
 /// missing dir ids are no-ops. Cap is `max_file_mention_dirs`.
-/// When the last Files fill was daemon ListTree, re-prefers hello +
-/// ListTree with the updated expand set (daemon does not return
+/// When the last Files fill was daemon ListProjectFiles / ListTree, re-prefers hello +
+/// ListTree with the updated expand set (daemon ListTree does not return
 /// children of collapsed dirs). Local fill stays filter-only.
 pub fn toggleDir(model: *Model, fx: *Effects, id: u32) void {
     if (id < file_mention.file_mention_dir_id_base) return;
@@ -905,8 +910,8 @@ fn cancelDaemonSave(model: *Model, fx: *Effects) void {
 }
 
 /// Best-effort hello + `WorkspaceOperation::ReadTextFile` when a
-/// daemon address is set. Own daemon spawn key so ListTree /
-/// BrowseDirectory sidecars stay distinct. Missing address or
+/// daemon address is set. Own daemon spawn key so ListProjectFiles /
+/// ListTree / BrowseDirectory sidecars stay distinct. Missing address or
 /// Native 4 KiB stdin overflow returns false and leaves local
 /// `readFileAlloc`.
 fn trySpawnDaemonReadTextFile(model: *Model, fx: *Effects) bool {
@@ -1123,7 +1128,7 @@ fn saveFilePreviewLocal(model: *Model, bytes: []const u8) void {
 
 /// Best-effort hello + `WorkspaceOperation::WriteTextFile` when a
 /// daemon address is set. Own daemon spawn key so an in-flight
-/// ReadTextFile / ListTree / BrowseDirectory stays distinct. Missing
+/// ReadTextFile / ListProjectFiles / ListTree / BrowseDirectory stays distinct. Missing
 /// address or Native 4 KiB stdin overflow (`NoSpaceLeft` from
 /// `writeWorkspaceStdin` / JSON wrapping of `content`) returns false
 /// and leaves today's local atomic write.

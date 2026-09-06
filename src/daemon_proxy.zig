@@ -32,7 +32,8 @@
 //! `directory` with `path` + `entries` (BrowseDirectory), or
 //! `textFile` with a string `content` (ReadTextFile), or
 //! `bool` with a JSON boolean `value` (HasRef), or
-//! `turnRefs` with a parsed `turn_counts` array (SessionTurnRefs).
+//! `turnRefs` with a parsed `turn_counts` array (SessionTurnRefs), or
+//! `projectFiles` with a parsed `entries` array (ListProjectFiles).
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -374,7 +375,7 @@ pub fn writeGoalStdin(buf: []u8, args: GoalStdin) WriteError![]const u8 {
 /// InspectBranches / CheckoutBranch / InspectCommit / CaptureTurnStart /
 /// CaptureTurn / GenerateCommitMessage / ListTree /
 /// CollectReviewDiff / BrowseDirectory / ReadTextFile / WriteTextFile /
-/// CopySessionRefs / DeleteSessionRefs / HasRef / CaptureRef / RestoreRef / DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs.
+/// CopySessionRefs / DeleteSessionRefs / HasRef / CaptureRef / RestoreRef / DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs / ListProjectFiles.
 /// Hello + `workspace`
 /// (nil request-frame `sessionId` / `runtimeId`, command payload
 /// `operation`). Own spawn key — Native cannot write into a running
@@ -1861,6 +1862,45 @@ test "writeWorkspaceStdin emits hello and workspace sessionTurnRefs with snake_c
             .session_turn_refs = .{
                 .cwd = "/tmp/faku",
                 .session_id = "00000000-0000-0000-0000-000000000007",
+            },
+        },
+    }));
+}
+
+test "writeWorkspaceStdin emits hello and workspace listProjectFiles without force or amend" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{
+            .list_project_files = .{
+                .root = "/tmp/faku",
+                .cap = 256,
+            },
+        },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ WORKSPACE_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"listProjectFiles\",\"root\":\"/tmp/faku\",\"cap\":256}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"cap\":256") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"listTree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"sessionTurnRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "force") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForWorkspace(stdin));
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
+        .operation = .{
+            .list_project_files = .{
+                .root = "/tmp/faku",
+                .cap = 256,
             },
         },
     }));

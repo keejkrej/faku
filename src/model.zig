@@ -865,7 +865,7 @@ pub const Model = struct {
     file_preview_daemon_ok: bool = false,
     /// True while the in-flight `file_preview_save_key` is a daemon-proxy
     /// WriteTextFile sidecar. Distinct from `file_preview_key` so an
-    /// in-flight ReadTextFile / ListTree / BrowseDirectory stays
+    /// in-flight ReadTextFile / ListProjectFiles / ListTree / BrowseDirectory stays
     /// separate. Line/exit handlers parse workspace Ack. Runtime only.
     file_preview_save_key: u64 = 0,
     file_preview_save_via_daemon: bool = false,
@@ -1230,16 +1230,25 @@ pub const Model = struct {
     file_mention_probe_path_len: usize = 0,
     file_mention_probe_is_walk: bool = false,
     /// True while the in-flight `file_mention_key` is a daemon-proxy
-    /// ListTree sidecar. Line/exit handlers parse a `workingTree`
-    /// instead of git/walk stdout. Runtime only; not persisted.
+    /// ListProjectFiles or ListTree sidecar. Line/exit handlers parse
+    /// `projectFiles` or `workingTree` instead of git/walk stdout.
+    /// Runtime only; not persisted.
     file_mention_via_daemon: bool = false,
-    /// True after an in-flight ListTree sidecar applied a usable
-    /// `workingTree`. Exit falls back to local git when this is false.
+    /// True while that in-flight sidecar is ListProjectFiles (initial
+    /// `@` / Files index). False for ListTree (expand, or the
+    /// ListProjectFiles miss fallback). Exit on ListProjectFiles miss
+    /// re-prefers ListTree; ListTree miss falls back to local git.
+    /// Runtime only; not persisted.
+    file_mention_via_list_project_files: bool = false,
+    /// True after an in-flight ListProjectFiles / ListTree sidecar
+    /// applied a usable `projectFiles` / `workingTree`. Exit falls
+    /// back to ListTree then local git when this is false.
     /// Runtime only; not persisted.
     file_mention_daemon_ok: bool = false,
     /// True after the last successful Files fill came from daemon
-    /// ListTree. Expand toggle re-prefers ListTree while this is
-    /// set; local fill keeps filter-only expand. Runtime only.
+    /// ListProjectFiles or ListTree. Expand toggle re-prefers
+    /// ListTree while this is set; local fill keeps filter-only
+    /// expand. Runtime only.
     file_mention_last_via_daemon: bool = false,
     /// Runtime-only Branch name-status rows for the Review card.
     /// One-shot `git diff --name-status @{upstream}...HEAD`. Cap 64.
@@ -1842,6 +1851,7 @@ pub const Model = struct {
         "file_mention_probe_path_len",
         "file_mention_probe_is_walk",
         "file_mention_via_daemon",
+        "file_mention_via_list_project_files",
         "file_mention_daemon_ok",
         "file_mention_last_via_daemon",
         "review_diff_source",
