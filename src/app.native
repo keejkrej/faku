@@ -364,6 +364,20 @@
                                 <progress value="{d.share}" width="48" height="6" label="{d.percent}" />
                                 <text wrap="false" overflow="ellipsis" foreground="text_muted">{d.percent}</text>
                               </if>
+                              <if test="{d.has_by_provider}">
+                                <column gap="4">
+                                  <text wrap="false" overflow="ellipsis">{d.claude_line}</text>
+                                  <if test="{d.claude_has_share}">
+                                    <progress value="{d.claude_share}" width="48" height="6" label="{d.claude_percent}" />
+                                    <text wrap="false" overflow="ellipsis" foreground="text_muted">{d.claude_percent}</text>
+                                  </if>
+                                  <text wrap="false" overflow="ellipsis">{d.codex_line}</text>
+                                  <if test="{d.codex_has_share}">
+                                    <progress value="{d.codex_share}" width="48" height="6" label="{d.codex_percent}" />
+                                    <text wrap="false" overflow="ellipsis" foreground="text_muted">{d.codex_percent}</text>
+                                  </if>
+                                </column>
+                              </if>
                             </column>
                           </for>
                         </if>

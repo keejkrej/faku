@@ -24,7 +24,12 @@
 //! daily bar chart when Days is selected: each day's Native
 //! `<progress>` is relative to the max day in the painted window for
 //! the active metric (Cost → `costUsd`, Tokens → `totalTokens`).
-//! Days with 0 cost/tokens stay text-only. Empty `models` paints no
+//! Days with 0 cost/tokens stay text-only. When a day has any
+//! non-zero `byProvider` slot for that metric, two nested Native
+//! `<progress>` rows (Claude Code / Codex) paint under it; nested
+//! share is that provider's cost or tokens divided by **that day's**
+//! total (not vs the window max). Empty / missing / short
+//! `byProvider` stays day-total-only. Empty `models` paints no
 //! model rows. Provider share bars, Cost quality, notices, and the
 //! scan footer stay on Daily regardless of the breakdown chip.
 //! Monthly
@@ -38,8 +43,9 @@
 //! search filter (empty on boot; not `sessions.json`) case-insensitive
 //! contains-matches project basename **or** full `path` (trim; empty
 //! shows all, cap 16, no virtualization). Chip flip recomputes
-//! Daily, Monthly, and Projects shares from the cached snapshot
-//! without re-fetching and respects that filter. No-match empty
+//! Daily (including nested byProvider shares), Monthly, and Projects
+//! shares from the cached snapshot without re-fetching and respects
+//! that filter. No-match empty
 //! ("No matching projects") is distinct from no project usage.
 //! Filter clears when leaving Settings Usage or switching away from
 //! Projects. Daily also paints a first-cut Cost quality panel from
@@ -47,8 +53,10 @@
 //! plus Cache savings USD) and muted notices when `errors` are
 //! non-empty or `pricing` is `unavailable`. A tiny scan-summary
 //! footer uses `records` / `scannedFiles` / `skippedFiles` /
-//! `scanDuration` when present. Still not Waku's GPUI / T3 layered
-//! chart, not LiteLLM rate-table fetch. Hello stays v4.
+//! `scanDuration` when present. First-cut Daily Days nested
+//! byProvider bars ship as Native `<progress>` (not a stacked
+//! canvas). Still not Waku's GPUI / T3 layered chart, not LiteLLM
+//! rate-table fetch. Hello stays v4.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -131,6 +139,17 @@ pub const Row = struct {
     /// True when Daily, Monthly, Projects, or Cost quality should
     /// paint a share bar (share > 0).
     has_share: bool = false,
+    /// Daily Days: nested Claude/Codex bars from `byProvider`. False
+    /// when empty / missing / the day's active-metric total is 0.
+    has_by_provider: bool = false,
+    claude_line: []const u8 = "",
+    claude_share: f32 = 0,
+    claude_percent: []const u8 = "",
+    claude_has_share: bool = false,
+    codex_line: []const u8 = "",
+    codex_share: f32 = 0,
+    codex_percent: []const u8 = "",
+    codex_has_share: bool = false,
 };
 
 pub const CachedNotice = struct {
@@ -197,6 +216,7 @@ pub const CachedDay = struct {
     day_len: usize = 0,
     total_tokens: u64 = 0,
     cost_usd: f64 = 0,
+    by_provider: [protocol.max_parsed_usage_day_providers]protocol.ParsedProviderDay = [_]protocol.ParsedProviderDay{.{}} ** protocol.max_parsed_usage_day_providers,
 
     pub fn day(self: *const CachedDay) []const u8 {
         return self.day_storage[0..self.day_len];
@@ -526,6 +546,7 @@ fn adopt(cache: *Cache, parsed: protocol.ParsedUsageHistory) void {
         writeFixed(&cache.daily[i].day_storage, &cache.daily[i].day_len, parsed.daily[i].day);
         cache.daily[i].total_tokens = parsed.daily[i].total_tokens;
         cache.daily[i].cost_usd = parsed.daily[i].cost_usd;
+        cache.daily[i].by_provider = parsed.daily[i].by_provider;
     }
     cache.month_count = parsed.month_count;
     i = 0;
@@ -622,6 +643,33 @@ fn maxDayValue(days: []const CachedDay, metric: ShareMetric) f64 {
 fn dayShare(day: CachedDay, max: f64, metric: ShareMetric) f64 {
     if (!(max > 0)) return 0;
     return clampShare(day.valueFor(metric) / max);
+}
+
+const day_provider_ids = [_][]const u8{ "claude", "codex" };
+
+fn providerDayValue(slot: protocol.ParsedProviderDay, metric: ShareMetric) f64 {
+    return switch (metric) {
+        .cost => slot.cost_usd,
+        .tokens => tokensAsFloat(slot.total_tokens),
+    };
+}
+
+/// Nested Claude/Codex bars only when the day's active-metric total
+/// is non-zero and at least one `byProvider` slot is non-zero for
+/// that metric. Empty / missing / all-zero stays day-total-only.
+fn dayHasByProvider(day: CachedDay, metric: ShareMetric) bool {
+    if (!(day.valueFor(metric) > 0)) return false;
+    for (day.by_provider) |slot| {
+        if (providerDayValue(slot, metric) > 0) return true;
+    }
+    return false;
+}
+
+/// Share within the day (provider / that day's total), not vs the
+/// window max. 0 when the day total is empty.
+fn nestedProviderShare(slot: protocol.ParsedProviderDay, day_total: f64, metric: ShareMetric) f64 {
+    if (!(day_total > 0)) return 0;
+    return clampShare(providerDayValue(slot, metric) / day_total);
 }
 
 /// Max Cost / Tokens value among cached Monthly rows. 0 when every
@@ -803,13 +851,14 @@ pub fn dailyRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     const count = model.usage_history.daily_count;
     if (count == 0) return &.{};
     const days = model.usage_history.daily[0..count];
-    const max = maxDayValue(days, model.usage_share_metric);
+    const metric = model.usage_share_metric;
+    const max = maxDayValue(days, metric);
     const out = arena.alloc(Row, count) catch return &.{};
     var i: usize = 0;
     while (i < count) : (i += 1) {
         const row = days[i];
         const label = if (row.day().len > 0) row.day() else "—";
-        const share = dayShare(row, max, model.usage_share_metric);
+        const share = dayShare(row, max, metric);
         var percent_buf: [16]u8 = undefined;
         const percent = if (formatPercent(&percent_buf, share)) |text|
             copyArena(arena, text)
@@ -822,6 +871,29 @@ pub fn dailyRows(model: *const Model, arena: std.mem.Allocator) []const Row {
             .percent = percent,
             .has_share = share > 0,
         };
+        if (!dayHasByProvider(row, metric)) continue;
+        const day_total = row.valueFor(metric);
+        const claude = row.by_provider[protocol.usage_day_provider_claude];
+        const claude_share = nestedProviderShare(claude, day_total, metric);
+        var claude_percent_buf: [16]u8 = undefined;
+        out[i].has_by_provider = true;
+        out[i].claude_line = joinLabelDetail(arena, providerLabel(day_provider_ids[protocol.usage_day_provider_claude]), claude.total_tokens, claude.cost_usd, null);
+        out[i].claude_share = @floatCast(claude_share);
+        out[i].claude_percent = if (formatPercent(&claude_percent_buf, claude_share)) |text|
+            copyArena(arena, text)
+        else
+            "";
+        out[i].claude_has_share = claude_share > 0;
+        const codex = row.by_provider[protocol.usage_day_provider_codex];
+        const codex_share = nestedProviderShare(codex, day_total, metric);
+        var codex_percent_buf: [16]u8 = undefined;
+        out[i].codex_line = joinLabelDetail(arena, providerLabel(day_provider_ids[protocol.usage_day_provider_codex]), codex.total_tokens, codex.cost_usd, null);
+        out[i].codex_share = @floatCast(codex_share);
+        out[i].codex_percent = if (formatPercent(&codex_percent_buf, codex_share)) |text|
+            copyArena(arena, text)
+        else
+            "";
+        out[i].codex_has_share = codex_share > 0;
     }
     return out;
 }
@@ -1457,6 +1529,9 @@ test "daily shares are relative to the max day; Cost|Tokens chip flip updates wi
     try std.testing.expect(!cost_rows[2].has_share);
     try std.testing.expectEqual(@as(f32, 0), cost_rows[2].share);
     try std.testing.expectEqualStrings("", cost_rows[2].percent);
+    try std.testing.expect(!cost_rows[0].has_by_provider);
+    try std.testing.expect(!cost_rows[1].has_by_provider);
+    try std.testing.expect(!cost_rows[2].has_by_provider);
 
     const spawn_count = fx.pendingSpawnCount();
     setShareMetric(&model, .tokens);
@@ -1504,8 +1579,88 @@ test "daily zero window keeps shares at 0; empty daily paints no rows" {
     try std.testing.expect(!zero_rows[0].has_share);
     try std.testing.expectEqual(@as(f32, 0), zero_rows[0].share);
     try std.testing.expectEqualStrings("", zero_rows[0].percent);
+    try std.testing.expect(!zero_rows[0].has_by_provider);
 
     applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":100,\"costUsd\":1,\"daily\":[]}}}}" });
+    try std.testing.expectEqual(@as(usize, 0), dailyRows(&model, arena).len);
+}
+
+test "daily byProvider nested shares are within the day; Cost|Tokens chip flip updates without refetch" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.settings_page = .usage;
+    setBreakdown(&model, .days);
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingDailyByProviderSpawn;
+    const keyed = sidecar.key;
+    applyLine(&model, .{ .key = keyed, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":500,\"costUsd\":1.5,\"sessions\":3,\"daily\":[{\"day\":\"2026-09-05\",\"totalTokens\":100,\"costUsd\":1.0,\"byProvider\":[{\"costUsd\":0.25,\"totalTokens\":40},{\"costUsd\":0.75,\"totalTokens\":60}]},{\"day\":\"2026-09-06\",\"totalTokens\":400,\"costUsd\":0.5,\"byProvider\":[{\"costUsd\":0.5,\"totalTokens\":400}]},{\"day\":\"2026-09-07\",\"totalTokens\":50,\"costUsd\":0.2,\"byProvider\":[]},{\"day\":\"2026-09-04\",\"totalTokens\":0,\"costUsd\":0,\"byProvider\":[{\"costUsd\":0.1,\"totalTokens\":10}]}]}}}}" });
+    handleExit(&model, .{ .key = keyed, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_usage_history_key);
+    try std.testing.expectEqual(@as(usize, 4), model.usage_history.daily_count);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), model.usage_history.daily[0].by_provider[0].cost_usd, 0.0001);
+    try std.testing.expectEqual(@as(u64, 40), model.usage_history.daily[0].by_provider[0].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.75), model.usage_history.daily[0].by_provider[1].cost_usd, 0.0001);
+    try std.testing.expectEqual(@as(u64, 400), model.usage_history.daily[1].by_provider[0].total_tokens);
+    try std.testing.expectEqual(@as(u64, 0), model.usage_history.daily[1].by_provider[1].total_tokens);
+
+    const cost_rows = dailyRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 4), cost_rows.len);
+    try std.testing.expect(cost_rows[0].has_by_provider);
+    try std.testing.expectEqualStrings("Claude Code · 40 · $0.25", cost_rows[0].claude_line);
+    try std.testing.expect(cost_rows[0].claude_has_share);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), cost_rows[0].claude_share, 0.0001);
+    try std.testing.expectEqualStrings("25.0%", cost_rows[0].claude_percent);
+    try std.testing.expectEqualStrings("Codex · 60 · $0.75", cost_rows[0].codex_line);
+    try std.testing.expect(cost_rows[0].codex_has_share);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), cost_rows[0].codex_share, 0.0001);
+    try std.testing.expectEqualStrings("75.0%", cost_rows[0].codex_percent);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), cost_rows[0].share, 0.0001);
+
+    try std.testing.expect(cost_rows[1].has_by_provider);
+    try std.testing.expectEqualStrings("Claude Code · 400 · $0.50", cost_rows[1].claude_line);
+    try std.testing.expect(cost_rows[1].claude_has_share);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), cost_rows[1].claude_share, 0.0001);
+    try std.testing.expectEqualStrings("100.0%", cost_rows[1].claude_percent);
+    try std.testing.expectEqualStrings("Codex · 0", cost_rows[1].codex_line);
+    try std.testing.expect(!cost_rows[1].codex_has_share);
+    try std.testing.expectEqual(@as(f32, 0), cost_rows[1].codex_share);
+    try std.testing.expectEqualStrings("", cost_rows[1].codex_percent);
+
+    try std.testing.expect(!cost_rows[2].has_by_provider);
+    try std.testing.expectEqualStrings("", cost_rows[2].claude_line);
+    try std.testing.expect(!cost_rows[3].has_by_provider);
+    try std.testing.expect(!cost_rows[3].has_share);
+
+    const spawn_count = fx.pendingSpawnCount();
+    setShareMetric(&model, .tokens);
+    try std.testing.expectEqual(ShareMetric.tokens, model.usage_share_metric);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_usage_history_key);
+    try std.testing.expectEqual(spawn_count, fx.pendingSpawnCount());
+
+    const token_rows = dailyRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 4), token_rows.len);
+    try std.testing.expect(token_rows[0].has_by_provider);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.4), token_rows[0].claude_share, 0.0001);
+    try std.testing.expectEqualStrings("40.0%", token_rows[0].claude_percent);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), token_rows[0].codex_share, 0.0001);
+    try std.testing.expectEqualStrings("60.0%", token_rows[0].codex_percent);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), token_rows[0].share, 0.0001);
+    try std.testing.expect(token_rows[1].has_by_provider);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), token_rows[1].claude_share, 0.0001);
+    try std.testing.expect(!token_rows[1].codex_has_share);
+    try std.testing.expect(!token_rows[2].has_by_provider);
+    try std.testing.expect(!token_rows[3].has_by_provider);
+
+    model.usage_view = .monthly;
     try std.testing.expectEqual(@as(usize, 0), dailyRows(&model, arena).len);
 }
 
