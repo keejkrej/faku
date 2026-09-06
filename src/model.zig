@@ -930,6 +930,13 @@ pub const Model = struct {
     /// prompt / usage-history keys so miss cannot settle a live turn.
     daemon_background_work_key: u64 = 0,
     daemon_background_work_session: u32 = 0,
+    /// Last attempted daemon `refreshBackgroundWork` spawn (`now_ms`).
+    /// Null until the first open-path or 5s-tick spawn. Runtime-only;
+    /// not sessions.json. Throttles `maybeRefresh` to
+    /// `background_work_refresh_interval_ms` (Waku
+    /// `BACKGROUND_WORK_REFRESH_INTERVAL`). Piggybacks `now_ms` /
+    /// the update tick; Native has no dedicated 5s timer this cut.
+    last_background_work_refresh_ms: ?i64 = null,
     /// In-flight `stopBackgroundWork` sidecar. Distinct from refresh
     /// so Stop cannot cancel a Background fill, and miss cannot
     /// settle a live turn.
@@ -1640,6 +1647,7 @@ pub const Model = struct {
         "daemon_usage_history_key",
         "daemon_background_work_key",
         "daemon_background_work_session",
+        "last_background_work_refresh_ms",
         "daemon_stop_background_work_key",
         "daemon_stop_background_work_session",
         "daemon_stop_background_kind",

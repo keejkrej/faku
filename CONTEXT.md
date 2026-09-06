@@ -625,15 +625,23 @@ on one-shot `claude -p` ships (live Stop dismisses that live row;
 settled rows offer Dismiss; not Claude TaskStop mid-turn). First-cut
 daemon `refreshBackgroundWork` prefers hello + that command when a
 daemon address and usable session `runtimeId` are set on Background
-tab open/select or Environment Summary open (one-shot sidecar; Ack
-plus `backgroundWork` events apply reconcileProcesses / reconcileLive
-/ upsert into daemon-sourced rows; miss / no runtimeId / no address
-keeps local Process / Monitor / Subagent). First-cut daemon
+tab open/select or Environment Summary open (immediate one-shot
+sidecar; Ack plus `backgroundWork` events apply reconcileProcesses /
+reconcileLive / upsert into daemon-sourced rows; miss / no runtimeId /
+no address keeps local Process / Monitor / Subagent). First-cut 5s
+Waku `BACKGROUND_WORK_REFRESH_INTERVAL` tick ships as
+`background_work.maybeRefresh` on the existing update / stream tick
+(same `now_ms` piggyback as the 100ms output cache; Native has no
+dedicated timer; skips when a refresh sidecar is already in flight;
+selected session only, when the Background tab is showing, Environment
+Summary is open, or that session has live Process / Monitor / Subagent
+/ daemon-sourced rows). First-cut daemon
 `stopBackgroundWork` prefers hello + that command when Background
 Stop targets a daemon-sourced live row and a daemon address, usable
 session `runtimeId`, and usable `controlId` are set (one-shot sidecar,
 distinct from refresh; optimistic Stopping; miss / overflow / no
-controlId keep Faku-side dismiss). Not a long-lived Waku tick loop. Not daemon `WorkspaceOperation` for Background (first-cut daemon Push,
+controlId keep Faku-side dismiss). Not Waku's 1s
+`BACKGROUND_WORK_TICK_INTERVAL` registry loop. Not daemon `WorkspaceOperation` for Background (first-cut daemon Push,
 CreateWorktree, Commit, InspectBranches, CheckoutBranch,
 InspectCommit, GenerateCommitMessage, ListTree, ListProjectFiles, DiscoverSlashCommands, CreateProjectlessWorkspace, MigrateProjectlessWorkspace, CollectReviewDiff,
 BrowseDirectory, ReadTextFile, and WriteTextFile live on composer git / Send prep / Commit… / the
@@ -697,7 +705,7 @@ Dismiss all settled on Environment Summary clears the selected
 session's settled leftovers (Monitor / Subagent slots plus the
 cap-1 Process settle) without stopping a live stream. Not Claude
 TaskStop. First-cut daemon `refreshBackgroundWork` prefer path
-ships as above; first-cut daemon `stopBackgroundWork` prefer path
+ships as above (open plus first-cut 5s tick); first-cut daemon `stopBackgroundWork` prefer path
 ships for live daemon-sourced rows with a controlId; local Faku-side
 Stop / Dismiss remains.
 
@@ -899,9 +907,9 @@ Honest gaps this cut does not implement:
   `i18n.Dates.today`, same string as the Today date-bucket header.
   UTC-day bucketing is unchanged. Not full-app catalogs, not Native
   NSLocale, not east-asian calendar formatting)
-- Claude CLI TaskStop / long-lived ACP, long-lived Waku
-  `BACKGROUND_WORK_REFRESH_INTERVAL` tick, full BackgroundWorkRegistry
-  event/reconcile parity (Environment Summary
+- Claude CLI TaskStop / long-lived ACP, Waku
+  `BACKGROUND_WORK_TICK_INTERVAL` (1s) registry loop, full
+  BackgroundWorkRegistry event/reconcile parity (Environment Summary
   ships Process / Monitor / Subagent kind chrome, a Process
   registry from stream/settle, live Monitor rows from Claude
   `Monitor` `tool_use` with a Waku-sized 512KB last-window log from
@@ -929,9 +937,15 @@ Honest gaps this cut does not implement:
   stay; not Claude TaskStop); first-cut
   daemon `refreshBackgroundWork` prefers hello + that command when a
   daemon address and usable session `runtimeId` are set on Background
-  tab / Environment Summary open (one-shot sidecar; Ack plus
+  tab / Environment Summary open (immediate one-shot sidecar; Ack plus
   `backgroundWork` events apply reconcileProcesses / reconcileLive /
-  upsert into daemon-sourced rows; miss keeps local rows); first-cut
+  upsert into daemon-sourced rows; miss keeps local rows) and on a
+  first-cut 5s `BACKGROUND_WORK_REFRESH_INTERVAL` tick piggybacked
+  off `now_ms` / the update tick (selected session only while the
+  Background tab is showing, Environment Summary is open, or that
+  session has live Process / Monitor / Subagent / daemon-sourced
+  rows; skips an in-flight refresh sidecar; Native has no dedicated
+  timer); first-cut
   daemon `stopBackgroundWork` prefers hello + that command when
   Background Stop targets a daemon-sourced live row and a daemon
   address, usable `runtimeId`, and usable `controlId` are set
@@ -944,7 +958,7 @@ Honest gaps this cut does not implement:
   row with canStop + controlId, and Dismiss when
   the selected row is a settled Monitor, Subagent, or daemon row; not Waku
   BackgroundWorkRegistry event/reconcile/driver-refresh parity,
-  not a long-lived tick loop)
+  not the 1s `BACKGROUND_WORK_TICK_INTERVAL` registry loop)
 - First-cut GitHub Releases wrap documented `native package` trees
   (host-native; no eject) as user-facing installers: unsigned macOS
   DMG (`--signing none`; no Apple identity / notarize), amd64 Debian

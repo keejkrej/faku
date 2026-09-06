@@ -105,14 +105,18 @@
 //! Dismiss all settled ships for the selected session (settled
 //! Monitor / Subagent slots plus the cap-1 Process settle; live
 //! rows and the stream stay). Leftovers: Claude CLI TaskStop /
-//! long-lived ACP, long-lived Waku
-//! `BACKGROUND_WORK_REFRESH_INTERVAL` tick, full BackgroundWorkRegistry
-//! event/reconcile parity. First-cut daemon `refreshBackgroundWork`
+//! long-lived ACP, Waku `BACKGROUND_WORK_TICK_INTERVAL` (1s)
+//! registry loop, full BackgroundWorkRegistry event/reconcile
+//! parity. First-cut 5s `BACKGROUND_WORK_REFRESH_INTERVAL` tick
+//! ships (`background_work.maybeRefresh` piggybacks `now_ms` / the
+//! update tick; Native has no dedicated timer; skips in-flight;
+//! selected session only). First-cut daemon `refreshBackgroundWork`
 //! prefers hello + that command when a daemon address and usable
 //! session `runtimeId` are set on Background tab / Environment Summary
-//! open (one-shot sidecar; Ack plus `backgroundWork` events;
-//! reconcileProcesses / reconcileLive / upsert into daemon-sourced
-//! registry rows; miss keeps local Process / Monitor / Subagent).
+//! open (immediate) and on that 5s tick while the UI cares (one-shot
+//! sidecar; Ack plus `backgroundWork` events; reconcileProcesses /
+//! reconcileLive / upsert into daemon-sourced registry rows; miss
+//! keeps local Process / Monitor / Subagent).
 //! First-cut daemon `stopBackgroundWork` prefers hello + that command
 //! when Background Stop targets a daemon-sourced live row and a
 //! daemon address, usable session `runtimeId`, and usable `controlId`
@@ -139,9 +143,11 @@
 //! Dismiss all settled for the selected session, and
 //! first-cut right-panel Background ship; not Waku
 //! BackgroundWorkRegistry event/reconcile/driver parity (first-cut
-//! refreshBackgroundWork prefer path ships; first-cut
+//! refreshBackgroundWork prefer path ships; first-cut 5s
+//! BACKGROUND_WORK_REFRESH_INTERVAL tick ships; first-cut
 //! stopBackgroundWork prefer path ships for live daemon rows with
-//! a controlId).
+//! a controlId; 1s BACKGROUND_WORK_TICK_INTERVAL registry loop
+//! still deferred).
 //! Not transcript checkpoint +/-. First-cut Force push ships on
 //! composer Push… / Commit… (runtime-only ghost). New worktree…
 //! first-cut Base picker ships. First-cut defer-until-Send

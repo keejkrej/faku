@@ -26,7 +26,9 @@
 //! BackgroundWorkRegistry event/reconcile parity. First-cut daemon
 //! `refreshBackgroundWork` prefers hello + that command when a daemon
 //! address and usable session `runtimeId` are set on Background tab
-//! open/select (one-shot sidecar; miss keeps local rows). First-cut
+//! open/select (immediate) and on a first-cut 5s
+//! `BACKGROUND_WORK_REFRESH_INTERVAL` tick piggybacked off the
+//! update loop (one-shot sidecar; miss keeps local rows). First-cut
 //! daemon `stopBackgroundWork` prefers hello + that command when Stop
 //! targets a daemon-sourced live row with a daemon address, usable
 //! `runtimeId`, and `controlId` (distinct spawn key; optimistic
