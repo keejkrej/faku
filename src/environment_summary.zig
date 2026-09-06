@@ -192,7 +192,11 @@
 //! alone). First-cut daemon `WorkspaceOperation::SessionTurnRefs`
 //! ships in `fork` (prefer+fallback sidecar on session select /
 //! boot; ok nested `turnRefs.turn_counts`; miss / overflow fall
-//! back to local `git for-each-ref`). Leftovers: `discoverSlashCommands`,
+//! back to local `git for-each-ref`). First-cut daemon
+//! `WorkspaceOperation::DiscoverSlashCommands` ships in
+//! `slash_commands` (prefer hello + discoverSlashCommands when a
+//! daemon address is set and `project_path` exists; seed
+//! `session.available_commands`; miss / overflow keep ACP). Leftovers:
 //! `createProjectlessWorkspace`, `migrateProjectlessWorkspace`;
 //! amend/force and remote `--track` stay local (not daemon
 //! WorkspaceOperation variants).

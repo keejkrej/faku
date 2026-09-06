@@ -16,6 +16,7 @@ const git_checkout = @import("git_checkout.zig");
 const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const file_mention = @import("file_mention.zig");
+const slash_commands = @import("slash_commands.zig");
 const sidebar_row_helpers = @import("sidebar_rows.zig");
 const palette_run = @import("palette_run.zig");
 const environment_summary = @import("environment_summary.zig");
@@ -68,6 +69,8 @@ pub fn handleNewSession(model: *Model, fx: *Effects) void {
     session_fork.cancelDaemonDeleteTurnRefsAfter(model, fx);
     session_fork.cancelDaemonSessionTurnRefs(model, fx);
     session_fork.refreshSessionTurnRefs(model, fx);
+    slash_commands.cancel(model, fx);
+    slash_commands.refresh(model, fx);
     model.maybeEnsureSkillsScanned(fx);
     model.composer_active = true;
 }
@@ -167,6 +170,8 @@ pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
     session_fork.cancelDaemonDeleteTurnRefsAfter(model, fx);
     session_fork.cancelDaemonSessionTurnRefs(model, fx);
     session_fork.refreshSessionTurnRefs(model, fx);
+    slash_commands.cancel(model, fx);
+    slash_commands.refresh(model, fx);
     model.maybeEnsureSkillsScanned(fx);
 }
 

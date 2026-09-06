@@ -18,6 +18,7 @@ const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const skills = @import("skills.zig");
 const providers = @import("providers.zig");
+const slash_commands = @import("slash_commands.zig");
 const pick_folder = @import("pick_folder.zig");
 
 const Model = main.Model;
@@ -295,6 +296,7 @@ pub fn handleSelectProvider(model: *Model, id: u32) void {
 pub fn handleApplySessionProvider(model: *Model, fx: *Effects) void {
     if (!providers.applyToSession(model)) return;
     store.persistIfPossible(model, model.selected, fx);
+    slash_commands.refresh(model, fx);
 }
 
 pub fn handleCopyFxInstall(model: *Model, fx: *Effects) void {

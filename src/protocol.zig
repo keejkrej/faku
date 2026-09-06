@@ -222,13 +222,29 @@
 //! and `is_dir: true`; files have no trailing slash and `is_dir:
 //! false`. Empty `entries` is still ok. Faku passes its file-mention
 //! cap (256 / `max_file_mentions`) as `cap`, not a 50k index.
+//! `WorkspaceOperation::DiscoverSlashCommands`
+//! `{ "type": "discoverSlashCommands", "provider", "project_root",
+//! "binary_override"? }` (camelCase op tag; snake_case
+//! `project_root` / `binary_override`; `provider` is Waku
+//! `ProviderKind` camelCase so OpenCode is `"openCode"`, not Faku
+//! `wireName()` `"opencode"`). `binary_override` is omitted when
+//! null (Waku `skip_serializing_if`). Ok is nested
+//! `WorkspaceResult::SlashCommands` — wire
+//! `result: { "type": "slashCommands", "commands": [ SlashCommand, … ] }`
+//! under `outcome.payload` (not Ack, not projectFiles, not a bare
+//! slashCommands object). `SlashCommand` uses serde default field
+//! names (`name`, `description`, `scope`, `argument_hint`,
+//! `template`); `scope` is CommandScope PascalCase
+//! (`Project`/`User`/`Skill`/`Builtin`). Empty `commands` is still
+//! ok. Nil request-frame `sessionId` / `runtimeId`.
 //! This cut
 //! ships Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
 //! InspectCommit, CaptureTurnStart, CaptureTurn,
 //! GenerateCommitMessage, ListTree, CollectReviewDiff,
 //! BrowseDirectory, ReadTextFile, WriteTextFile, CopySessionRefs,
 //! DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef,
-//! DeleteTurnRefsAfter, SessionTurnRefs, and ListProjectFiles.
+//! DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles, and
+//! DiscoverSlashCommands.
 //! There is no force flag on daemon Push. An ok outcome is
 //! `ResponsePayload::Workspace { result }` where Push, Commit,
 //! CaptureTurnStart, WriteTextFile, CopySessionRefs,
@@ -283,7 +299,13 @@
 //! — wire `result: { "type": "projectFiles", "entries": [ FileEntry, … ] }`
 //! nested under `outcome.payload` (not Ack; not workingTree; not a
 //! bare projectFiles object; `entries` is required; empty array is
-//! still ok). `FileEntry` has no serde rename_all: `path`, `is_dir`
+//! still ok) — and DiscoverSlashCommands yields
+//! `WorkspaceResult::SlashCommands` — wire
+//! `result: { "type": "slashCommands", "commands": [ SlashCommand, … ] }`
+//! nested under `outcome.payload` (not Ack; not projectFiles; not a
+//! bare slashCommands object; `commands` is required; empty array is
+//! still ok). `SlashCommand` has no serde rename_all: `name`,
+//! `description`, `scope`, `argument_hint`, `template`. `FileEntry` has no serde rename_all: `path`, `is_dir`
 //! (not camelCase `isDir`). `ReviewDiffData` uses serde rename_all
 //! camelCase: `source`, `numstat`, `patch`, `completeContext`. Empty
 //! `numstat` + `patch` with ok nesting is still ok (clean tree).
@@ -462,6 +484,23 @@ pub const ProviderId = enum {
         };
     }
 
+    /// Waku `ProviderKind` serde camelCase (enum tag `rename_all` only).
+    /// Distinct from Faku `wireName()` (`opencode` vs `"openCode"`).
+    /// Faku does not invent `deepSeek` / `ohMyPi`.
+    pub fn daemonProviderKind(id: ProviderId) []const u8 {
+        return switch (id) {
+            .fx => "fx",
+            .claude => "claude",
+            .codex => "codex",
+            .amp => "amp",
+            .grok => "grok",
+            .opencode => "openCode",
+            .cursor => "cursor",
+            .pi => "pi",
+            .kimi => "kimi",
+        };
+    }
+
     pub fn fromWire(name: []const u8) ?ProviderId {
         inline for (std.meta.tags(ProviderId)) |id| {
             if (std.mem.eql(u8, id.wireName(), name)) return id;
@@ -505,8 +544,8 @@ pub fn defaultStartOptions() StartOptions {
 /// `BrowseDirectory`, `ReadTextFile`, `WriteTextFile`,
 /// `CopySessionRefs`, `DeleteSessionRefs`, `HasRef`,
 /// `CaptureRef`, `RestoreRef`, `DeleteRef`,
-/// `DeleteTurnRefsAfter`, `SessionTurnRefs`, and
-/// `ListProjectFiles` (hello + workspace sidecar).
+/// `DeleteTurnRefsAfter`, `SessionTurnRefs`,
+/// `ListProjectFiles`, and `DiscoverSlashCommands` (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -706,18 +745,22 @@ pub const GoalOperation = union(GoalKind) {
 /// retained_turn_count, previous_turn_count }` (snake_case
 /// session/turn fields, not camelCase `sessionId`), and
 /// `SessionTurnRefs { cwd, session_id }` (snake_case `session_id`,
-/// not camelCase `sessionId`), and `ListProjectFiles { root, cap }`
-/// (plain `root` / `cap`; `cap` JSON number). No force flag on Push
+/// not camelCase `sessionId`), `ListProjectFiles { root, cap }`
+/// (plain `root` / `cap`; `cap` JSON number), and
+/// `DiscoverSlashCommands { provider, project_root, binary_override }`
+/// (snake_case `project_root` / `binary_override`; `provider` is
+/// Waku `ProviderKind` camelCase so OpenCode is `"openCode"`;
+/// `binary_override` omitted when null). No force flag on Push
 /// or Commit. No amend on daemon Commit, InspectCommit, or
 /// CollectReviewDiff. No force/amend on RestoreRef, DeleteRef,
-/// DeleteTurnRefsAfter, SessionTurnRefs, or ListProjectFiles.
+/// DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles, or
+/// DiscoverSlashCommands.
 /// `ParsedBranches` has no remotes (Waku inspect is `refs/heads`
 /// only; remotes-on-daemon-list is a Faku-side local for-each-ref
-/// merge). Leftovers: `discoverSlashCommands`,
-/// `createProjectlessWorkspace`, `migrateProjectlessWorkspace`;
-/// amend/force and remote `--track` stay local (not daemon
-/// WorkspaceOperation variants).
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file, copy_session_refs, delete_session_refs, has_ref, capture_ref, restore_ref, delete_ref, delete_turn_refs_after, session_turn_refs, list_project_files };
+/// merge). Leftovers: `createProjectlessWorkspace`,
+/// `migrateProjectlessWorkspace`; amend/force and remote `--track`
+/// stay local (not daemon WorkspaceOperation variants).
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file, copy_session_refs, delete_session_refs, has_ref, capture_ref, restore_ref, delete_ref, delete_turn_refs_after, session_turn_refs, list_project_files, discover_slash_commands };
 
 /// Waku `AgentInvocation`. Wire keys match generated TS:
 /// `provider`, `binary`, `model`, `reasoning_effort` (snake_case
@@ -793,6 +836,19 @@ pub const WorkspaceListTree = struct {
 pub const WorkspaceListProjectFiles = struct {
     root: []const u8,
     cap: usize,
+};
+
+/// Waku `DiscoverSlashCommands`. Wire keys stay snake_case
+/// `project_root` / `binary_override` (WorkspaceOperation serde
+/// `rename_all` is the camelCase `type` tag only). `provider` is
+/// Waku `ProviderKind` camelCase (`openCode`, not Faku
+/// `wireName()` `"opencode"`). `binary_override` is omitted when
+/// null (Waku `skip_serializing_if`). No force, no amend, no
+/// prompt/attach. Ok is nested `WorkspaceResult::SlashCommands`.
+pub const WorkspaceDiscoverSlashCommands = struct {
+    provider: []const u8,
+    project_root: []const u8,
+    binary_override: ?[]const u8 = null,
 };
 
 /// Waku `ReviewDiffSource`. Unit variants are JSON strings. LastTurn
@@ -948,6 +1004,7 @@ pub const WorkspaceOperation = union(WorkspaceKind) {
     delete_turn_refs_after: WorkspaceDeleteTurnRefsAfter,
     session_turn_refs: WorkspaceSessionTurnRefs,
     list_project_files: WorkspaceListProjectFiles,
+    discover_slash_commands: WorkspaceDiscoverSlashCommands,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -1036,6 +1093,28 @@ pub const ParsedProjectFiles = struct {
     ok: bool = false,
     entries: [max_parsed_tree_entries]ParsedProjectFileEntry = [_]ParsedProjectFileEntry{.{}} ** max_parsed_tree_entries,
     entry_count: usize = 0,
+};
+
+/// Slash-command rows from an ok `slashCommands` workspace result
+/// (DiscoverSlashCommands). Cap matches ACP `max_available_commands`
+/// (32); overflow entries are ignored. `SlashCommand` fields are
+/// serde defaults (`name`, `description`, `scope`, `argument_hint`,
+/// `template`), not camelCase. Slices alias the JSON arena used to
+/// parse the line. Empty `commands` still sets `ok`.
+pub const max_parsed_slash_commands: usize = 32;
+
+pub const ParsedSlashCommand = struct {
+    name: []const u8 = "",
+    description: []const u8 = "",
+    scope: []const u8 = "",
+    argument_hint: []const u8 = "",
+    template: []const u8 = "",
+};
+
+pub const ParsedSlashCommands = struct {
+    ok: bool = false,
+    commands: [max_parsed_slash_commands]ParsedSlashCommand = [_]ParsedSlashCommand{.{}} ** max_parsed_slash_commands,
+    command_count: usize = 0,
 };
 
 /// Directory listing from an ok `directory` workspace result.
@@ -1322,7 +1401,7 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// CheckoutBranch, InspectCommit, CaptureTurnStart, CaptureTurn,
 /// GenerateCommitMessage, ListTree, CollectReviewDiff,
 /// BrowseDirectory, ReadTextFile, WriteTextFile,
-/// CopySessionRefs, DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef, DeleteTurnRefsAfter, SessionTurnRefs, and ListProjectFiles pass `NIL_UUID` for those ids.
+/// CopySessionRefs, DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef, DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles, and DiscoverSlashCommands pass `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
 /// Timeout 120s.
@@ -1552,6 +1631,17 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
             try writeJsonString(cur, args.root);
             try cur.write(",\"cap\":");
             try writeUint(cur, args.cap);
+            try cur.write("}");
+        },
+        .discover_slash_commands => |args| {
+            try cur.write("{\"type\":\"discoverSlashCommands\",\"provider\":");
+            try writeJsonString(cur, args.provider);
+            try cur.write(",\"project_root\":");
+            try writeJsonString(cur, args.project_root);
+            if (args.binary_override) |override| {
+                try cur.write(",\"binary_override\":");
+                try writeJsonString(cur, override);
+            }
             try cur.write("}");
         },
     }
@@ -2243,6 +2333,61 @@ fn parseProjectFileEntry(entry: std.json.ObjectMap) ?ParsedProjectFileEntry {
     };
 }
 
+/// Light parser for ok DiscoverSlashCommands. True/`ok` when an ok
+/// `response` carries nested `result: { "type": "slashCommands",
+/// "commands": [ { "name", "description", "scope", "argument_hint",
+/// "template" }, … ] }`. Empty `commands` is still ok. Missing
+/// wrapper, ack, projectFiles, bare slashCommands, camelCase
+/// `argumentHint`, or a malformed command inside the 32 cap are
+/// rejected. Overflow entries are ignored. Slices alias `allocator`.
+pub fn parseSlashCommands(allocator: std.mem.Allocator, line: []const u8) ParsedSlashCommands {
+    var parsed = ParsedSlashCommands{};
+    const result = workspaceResultObject(allocator, line) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "slashCommands")) return parsed;
+    const n = parseSlashCommandEntries(result.get("commands") orelse return parsed, &parsed.commands) orelse return parsed;
+    parsed.ok = true;
+    parsed.command_count = n;
+    return parsed;
+}
+
+fn parseSlashCommandEntries(
+    commands_val: std.json.Value,
+    dest: *[max_parsed_slash_commands]ParsedSlashCommand,
+) ?usize {
+    const items = jsonArrayItems(commands_val) orelse return null;
+    var n: usize = 0;
+    for (items) |item| {
+        if (n >= max_parsed_slash_commands) break;
+        const entry = jsonObject(item) orelse return null;
+        dest[n] = parseSlashCommandEntry(entry) orelse return null;
+        n += 1;
+    }
+    return n;
+}
+
+fn parseSlashCommandEntry(entry: std.json.ObjectMap) ?ParsedSlashCommand {
+    const name = jsonStringValue(entry.get("name")) orelse return null;
+    const description = jsonStringValue(entry.get("description")) orelse return null;
+    const scope = jsonStringValue(entry.get("scope")) orelse return null;
+    if (!isCommandScope(scope)) return null;
+    const argument_hint = jsonNullOrString(entry.get("argument_hint")) orelse return null;
+    const template = jsonNullOrString(entry.get("template")) orelse return null;
+    return .{
+        .name = name,
+        .description = description,
+        .scope = scope,
+        .argument_hint = argument_hint,
+        .template = template,
+    };
+}
+
+fn isCommandScope(name: []const u8) bool {
+    return std.mem.eql(u8, name, "Project") or
+        std.mem.eql(u8, name, "User") or
+        std.mem.eql(u8, name, "Skill") or
+        std.mem.eql(u8, name, "Builtin");
+}
+
 fn parseWorkingTreeEntries(
     entries_val: std.json.Value,
     dest: *[max_parsed_tree_entries]ParsedWorkingTreeEntry,
@@ -2340,7 +2485,8 @@ pub fn isWorkspaceCheckpoint(allocator: std.mem.Allocator, line: []const u8) boo
 /// ReadTextFile `textFile` with a string `content`, HasRef `bool`
 /// with a JSON boolean `value`, SessionTurnRefs `turnRefs` with a
 /// parsed `turn_counts` array, ListProjectFiles `projectFiles` with
-/// a parsed `entries` array, or
+/// a parsed `entries` array, DiscoverSlashCommands `slashCommands`
+/// with a parsed `commands` array, or
 /// CaptureTurn `checkpoint` with a nested checkpoint object.
 pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (isWorkspaceAck(allocator, line)) return true;
@@ -2356,6 +2502,7 @@ pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (parseWorkspaceBool(allocator, line).ok) return true;
     if (parseWorkspaceTurnRefs(allocator, line).ok) return true;
     if (parseProjectFiles(allocator, line).ok) return true;
+    if (parseSlashCommands(allocator, line).ok) return true;
     return isWorkspaceCheckpoint(allocator, line);
 }
 
@@ -4049,6 +4196,103 @@ test "parseProjectFiles extracts nested path/is_dir entries and rejects bare pro
     try std.testing.expect(!parseProjectFiles(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"projectFiles\",\"entries\":[{\"relativePath\":\"README.md\",\"is_dir\":false}]}}}}").ok);
     try std.testing.expect(!parseProjectFiles(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
     try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"projectFiles\"}}}}"));
+}
+
+test "workspace request wraps camelCase discoverSlashCommands with openCode mapping, project_root, binary_override omit vs string, and nil ids" {
+    var buf: [1024]u8 = undefined;
+    const omitted = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .discover_slash_commands = .{
+            .provider = ProviderId.opencode.daemonProviderKind(),
+            .project_root = "/tmp/faku",
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"discoverSlashCommands\",\"provider\":\"openCode\",\"project_root\":\"/tmp/faku\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"provider\":\"opencode\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "binary_override") == null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"type\":\"listProjectFiles\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "\"kind\":\"discoverSlashCommands\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, omitted, "force") == null);
+
+    const with_override = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .discover_slash_commands = .{
+            .provider = ProviderId.claude.daemonProviderKind(),
+            .project_root = "/tmp/faku",
+            .binary_override = "/opt/claude",
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, with_override, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"discoverSlashCommands\",\"provider\":\"claude\",\"project_root\":\"/tmp/faku\",\"binary_override\":\"/opt/claude\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, with_override, "\"binary_override\":null") == null);
+    try std.testing.expectEqualStrings("fx", ProviderId.fx.daemonProviderKind());
+    try std.testing.expectEqualStrings("openCode", ProviderId.opencode.daemonProviderKind());
+    try std.testing.expectEqualStrings("opencode", ProviderId.opencode.wireName());
+    try std.testing.expectEqualStrings("pi", ProviderId.pi.daemonProviderKind());
+    try std.testing.expectEqualStrings("kimi", ProviderId.kimi.daemonProviderKind());
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .discover_slash_commands = .{
+            .provider = "openCode",
+            .project_root = "/tmp/faku",
+        } },
+    ));
+}
+
+test "parseSlashCommands extracts nested name/description including empty and rejects bare slashCommands, ack, or projectFiles" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"slashCommands\",\"commands\":[{\"name\":\"commit\",\"description\":\"Create a commit\",\"scope\":\"Project\",\"argument_hint\":\"message\",\"template\":null},{\"name\":\"compact\",\"description\":\"Compact the conversation\",\"scope\":\"Builtin\",\"argument_hint\":null,\"template\":null}]}}}}";
+    const parsed = parseSlashCommands(arena, ok_line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqual(@as(usize, 2), parsed.command_count);
+    try std.testing.expectEqualStrings("commit", parsed.commands[0].name);
+    try std.testing.expectEqualStrings("Create a commit", parsed.commands[0].description);
+    try std.testing.expectEqualStrings("Project", parsed.commands[0].scope);
+    try std.testing.expectEqualStrings("message", parsed.commands[0].argument_hint);
+    try std.testing.expectEqualStrings("", parsed.commands[0].template);
+    try std.testing.expectEqualStrings("compact", parsed.commands[1].name);
+    try std.testing.expectEqualStrings("Compact the conversation", parsed.commands[1].description);
+    try std.testing.expectEqualStrings("Builtin", parsed.commands[1].scope);
+    try std.testing.expect(isWorkspaceSuccess(arena, ok_line));
+    try std.testing.expect(!isWorkspaceAck(arena, ok_line));
+    try std.testing.expect(!parseProjectFiles(arena, ok_line).ok);
+
+    const empty_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"slashCommands\",\"commands\":[]}}}}";
+    const empty = parseSlashCommands(arena, empty_line);
+    try std.testing.expect(empty.ok);
+    try std.testing.expectEqual(@as(usize, 0), empty.command_count);
+    try std.testing.expect(isWorkspaceSuccess(arena, empty_line));
+    try std.testing.expect(!isWorkspaceAck(arena, empty_line));
+
+    try std.testing.expect(!parseSlashCommands(arena, "{\"type\":\"slashCommands\",\"commands\":[{\"name\":\"commit\",\"description\":\"Create a commit\",\"scope\":\"Project\",\"argument_hint\":null,\"template\":null}]}").ok);
+    try std.testing.expect(!parseSlashCommands(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
+    try std.testing.expect(!parseSlashCommands(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"projectFiles\",\"entries\":[]}}}}").ok);
+    try std.testing.expect(!parseSlashCommands(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"slashCommands\"}}}}").ok);
+    try std.testing.expect(!parseSlashCommands(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"slashCommands\",\"commands\":[{\"name\":\"commit\",\"description\":\"Create a commit\",\"scope\":\"project\",\"argument_hint\":null,\"template\":null}]}}}").ok);
+    try std.testing.expect(!parseSlashCommands(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"slashCommands\",\"commands\":[{\"name\":\"commit\",\"description\":\"Create a commit\",\"scope\":\"Project\",\"argumentHint\":\"message\",\"template\":null}]}}}").ok);
+    try std.testing.expect(!parseSlashCommands(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
+    try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"slashCommands\"}}}}"));
 }
 
 test "parseWorkspaceBool extracts nested value true/false and rejects ack, bare bool, or missing value" {

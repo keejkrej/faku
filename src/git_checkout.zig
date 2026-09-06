@@ -228,6 +228,9 @@
 //! ListTree then local git). First-cut daemon
 //! `WorkspaceOperation::ListTree` lives in `file_mention` (Files
 //! expand after a daemon fill re-prefers ListTree). First-cut daemon
+//! `WorkspaceOperation::DiscoverSlashCommands` lives in
+//! `slash_commands` (composer `/`; prefer hello + discoverSlashCommands;
+//! miss keeps ACP). First-cut daemon
 //! `WorkspaceOperation::CollectReviewDiff` lives in `review_diff` (Review /
 //! Diff panel; LastTurn stays local). First-cut daemon
 //! `WorkspaceOperation::BrowseDirectory` lives in `pick_folder`
