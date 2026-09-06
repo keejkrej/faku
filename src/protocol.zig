@@ -63,8 +63,10 @@
 //! first-cut parse applies `reconcileProcesses`, `reconcileLive`, and
 //! `upsert` and ignores `outputDelta` / `stopFailed` / extra JSON.
 //! `stopRequested` is parsed when cheap (key only) so a stop sidecar
-//! can keep local Stopping. Not a long-lived Waku
-//! `BACKGROUND_WORK_REFRESH_INTERVAL` tick. Hello stays protocol v4.
+//! can keep local Stopping. First-cut Waku
+//! `BACKGROUND_WORK_REFRESH_INTERVAL` (5s) tick ships as
+//! `background_work.maybeRefresh` on the update tick; not the 1s
+//! `BACKGROUND_WORK_TICK_INTERVAL` registry loop. Hello stays protocol v4.
 //!
 //! `stopBackgroundWork` is not a bare command. Verified against
 //! egoist/waku `Command::StopBackgroundWork { key, control_id }`
@@ -73,8 +75,9 @@
 //! `sessionId` / `runtimeId` as `refreshBackgroundWork`. A non-nil
 //! `requestId` is required so the daemon Acks. First-cut Background
 //! Stop prefers hello + this command when a daemon address, usable
-//! session `runtimeId`, and usable `controlId` are present. Not a
-//! long-lived tick. Not full BackgroundWorkRegistry.
+//! session `runtimeId`, and usable `controlId` are present. First-cut
+//! 5s refresh tick ships; not the 1s registry loop. Not full
+//! BackgroundWorkRegistry.
 //!
 //! `saveTaskState` is not a bare command. Verified against egoist/waku
 //! `crates/waku-protocol/src/protocol.rs` and `persistSession` in

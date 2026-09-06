@@ -13,16 +13,34 @@
 //! runtimeId keep today's local Process / Monitor / Subagent
 //! behavior.
 //!
+//! First-cut Waku `BACKGROUND_WORK_REFRESH_INTERVAL` (5s) tick
+//! ships as `maybeRefresh` on the existing update / stream tick
+//! (same `now_ms` piggyback as the 100ms output cache; Native has
+//! no dedicated timer). It reuses `trySpawn` (hello +
+//! `refreshBackgroundWork`) for the selected session only when a
+//! daemon address and usable `runtimeId` are set **and** the UI
+//! cares: Background tab showing, Environment Summary open, or
+//! that selected session has live Process / Monitor / Subagent /
+//! daemon-sourced rows (Waku `selected == session ||
+//! registry.has_live`, selected-only this cut). Throttled to 5s
+//! from `last_background_work_refresh_ms` (runtime-only; stamped
+//! when a spawn is actually attempted, open path and tick path).
+//! Unset last fires immediately on the first eligible tick. An
+//! in-flight refresh sidecar (`daemon_background_work_key != 0`)
+//! skips quietly — the tick does not cancel/re-spawn. Open-path
+//! `refresh` remains the immediate reconcile. Not Waku's 1s
+//! `BACKGROUND_WORK_TICK_INTERVAL` registry loop, not
+//! `outputDelta` / `stopFailed`, not full BackgroundWorkRegistry
+//! / GPUI SharedString parity. Local Faku-side Process / Monitor /
+//! Subagent Stop / Dismiss remains. Hello stays v4.
+//!
 //! Background Stop on a daemon-sourced live row prefers hello +
 //! `stopBackgroundWork` (`key` + `controlId`) on a distinct spawn
 //! key when a daemon address, usable `runtimeId`, and usable
 //! `controlId` are present. The row is marked Stopping /
 //! non-stoppable locally (Waku StopRequested) and stays that way
 //! until a later refresh upsert settles it. Miss / overflow / no
-//! daemon / no controlId fall back to Faku-side dismiss. Not a
-//! long-lived Waku tick loop. Not full BackgroundWorkRegistry /
-//! GPUI SharedString parity. Local Faku-side Process / Monitor /
-//! Subagent Stop / Dismiss remains. Hello stays v4.
+//! daemon / no controlId fall back to Faku-side dismiss.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -34,6 +52,11 @@ const environment_summary = @import("environment_summary.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
+
+/// Waku `BACKGROUND_WORK_REFRESH_INTERVAL`. First-cut 5s daemon
+/// `refreshBackgroundWork` throttle, piggybacked off `model.now_ms`
+/// / the update tick. Native has no dedicated timer this cut.
+pub const background_work_refresh_interval_ms: i64 = 5000;
 
 fn cancelInFlight(model: *Model, fx: *Effects) void {
     if (model.daemon_background_work_key == 0) return;
@@ -59,9 +82,53 @@ pub fn cancel(model: *Model, fx: *Effects) void {
 /// Prefer hello + `refreshBackgroundWork` when a daemon address and
 /// a usable session `runtimeId` are set. Missing address / runtimeId
 /// / Native 4 KiB stdin overflow keep local Background rows.
+/// Cancels an in-flight refresh sidecar so open/select is immediate.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     _ = trySpawn(model, fx);
+}
+
+/// First-cut Waku `BACKGROUND_WORK_REFRESH_INTERVAL` tick. Reuses
+/// `trySpawn` (does not duplicate sidecar stdin). Skips when a
+/// refresh sidecar is already in flight. Open-path `refresh` stays
+/// the immediate reconcile.
+pub fn maybeRefresh(model: *Model, fx: *Effects) void {
+    if (model.daemon_background_work_key != 0) return;
+    if (!uiWantsBackgroundRefresh(model)) return;
+    if (model.last_background_work_refresh_ms) |last| {
+        if (model.now_ms >= last and model.now_ms - last < background_work_refresh_interval_ms) {
+            return;
+        }
+    }
+    _ = trySpawn(model, fx);
+}
+
+fn uiWantsBackgroundRefresh(model: *const Model) bool {
+    if (model.right_panel_showing_background()) return true;
+    if (model.environment_summary_open) return true;
+    return selectedHasLiveBackground(model);
+}
+
+/// Selected-session live rows only this cut (Waku
+/// `selected == session || registry.has_live`, no fan-out).
+fn selectedHasLiveBackground(model: *const Model) bool {
+    if (model.is_streaming() and model.streaming_session == model.selected) return true;
+    var i: u32 = 0;
+    while (i < model.background_monitor_count) : (i += 1) {
+        const slot = &model.background_monitors[i];
+        if (slot.settled == .none and slot.session_id == model.selected) return true;
+    }
+    i = 0;
+    while (i < model.background_subagent_count) : (i += 1) {
+        const slot = &model.background_subagents[i];
+        if (slot.settled == .none and slot.session_id == model.selected) return true;
+    }
+    i = 0;
+    while (i < model.background_daemon_count) : (i += 1) {
+        const slot = &model.background_daemon[i];
+        if (slot.settled == .none and slot.session_id == model.selected) return true;
+    }
+    return false;
 }
 
 fn trySpawn(model: *Model, fx: *Effects) bool {
@@ -83,6 +150,7 @@ fn trySpawn(model: *Model, fx: *Effects) bool {
     model.next_daemon_key += 1;
     model.daemon_background_work_key = key;
     model.daemon_background_work_session = session.id;
+    model.last_background_work_refresh_ms = model.now_ms;
     fx.spawn(.{
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
@@ -224,6 +292,7 @@ test "refresh with a daemon address and usable runtimeId spawns refreshBackgroun
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"loadUsageHistory\"") == null);
     try std.testing.expectEqual(sidecar.key, model.daemon_background_work_key);
     try std.testing.expectEqual(id, model.daemon_background_work_session);
+    try std.testing.expectEqual(@as(?i64, 0), model.last_background_work_refresh_ms);
 }
 
 test "refresh without a daemon address keeps local Background rows" {
@@ -372,6 +441,7 @@ test "Background tab and Environment Summary open prefer refreshBackgroundWork" 
     const summary = pendingSpawnKey(&fx, model.daemon_background_work_key) orelse return error.MissingEnvironmentSummaryRefresh;
     try std.testing.expect(summary.key != tab.key);
     try std.testing.expect(std.mem.indexOf(u8, summary.stdin, "\"type\":\"refreshBackgroundWork\"") != null);
+    try std.testing.expect(model.last_background_work_refresh_ms != null);
 }
 
 test "Background tab without a daemon address does not spawn refreshBackgroundWork" {
@@ -543,4 +613,168 @@ test "live Monitor Stop does not spawn stopBackgroundWork" {
     const stop = pendingSpawnKey(&fx, model.daemon_stop_background_work_key) orelse return error.MissingStopAfterLocalDismiss;
     try std.testing.expect(std.mem.indexOf(u8, stop.stdin, "\"type\":\"stopBackgroundWork\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, stop.stdin, "\"type\":\"refreshBackgroundWork\"") == null);
+}
+
+fn showBackgroundTab(model: *Model) void {
+    model.right_panel_open = true;
+    model.right_panel_tab = .background;
+}
+
+fn finishRefreshSidecar(model: *Model) void {
+    const key = model.daemon_background_work_key;
+    if (key == 0) return;
+    handleExit(model, .{ .key = key, .reason = .exited, .code = 0 });
+}
+
+fn seedTickModel() Model {
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("bg tick", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setRuntimeId(usable_runtime_id);
+    model.now_ms = 10_000;
+    return model;
+}
+
+test "maybeRefresh eligible and aged past 5s spawns refreshBackgroundWork" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = seedTickModel();
+    showBackgroundTab(&model);
+    model.last_background_work_refresh_ms = model.now_ms - background_work_refresh_interval_ms;
+    maybeRefresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_background_work_key) orelse return error.MissingTickRefresh;
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"refreshBackgroundWork\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expectEqual(@as(?i64, 10_000), model.last_background_work_refresh_ms);
+}
+
+test "maybeRefresh within 5s does not spawn" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = seedTickModel();
+    showBackgroundTab(&model);
+    model.last_background_work_refresh_ms = model.now_ms - (background_work_refresh_interval_ms - 1);
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_background_work_key);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try std.testing.expectEqual(@as(?i64, 10_000 - (background_work_refresh_interval_ms - 1)), model.last_background_work_refresh_ms);
+}
+
+test "maybeRefresh skips while a refresh sidecar is in flight" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = seedTickModel();
+    showBackgroundTab(&model);
+    refresh(&model, &fx);
+    const open_key = model.daemon_background_work_key;
+    try std.testing.expect(open_key != 0);
+    model.now_ms += background_work_refresh_interval_ms;
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(open_key, model.daemon_background_work_key);
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+}
+
+test "maybeRefresh keeps quiet without daemon, runtimeId, or Background UI" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = seedTickModel();
+    model.setLastDaemonAddress("");
+    showBackgroundTab(&model);
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_background_work_key);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try std.testing.expectEqual(@as(?i64, null), model.last_background_work_refresh_ms);
+
+    model = seedTickModel();
+    if (model.sessionById(model.selected)) |session| session.setRuntimeId("");
+    showBackgroundTab(&model);
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_background_work_key);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+
+    model = seedTickModel();
+    model.right_panel_open = true;
+    model.right_panel_tab = .files;
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_background_work_key);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "maybeRefresh unset last fires immediately; open path still refreshes" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = seedTickModel();
+    showBackgroundTab(&model);
+    try std.testing.expectEqual(@as(?i64, null), model.last_background_work_refresh_ms);
+    maybeRefresh(&model, &fx);
+    const first = pendingSpawnKey(&fx, model.daemon_background_work_key) orelse return error.MissingImmediateTick;
+    try std.testing.expect(std.mem.indexOf(u8, first.stdin, "\"type\":\"refreshBackgroundWork\"") != null);
+    try std.testing.expectEqual(@as(?i64, 10_000), model.last_background_work_refresh_ms);
+    finishRefreshSidecar(&model);
+
+    refresh(&model, &fx);
+    const open = pendingSpawnKey(&fx, model.daemon_background_work_key) orelse return error.MissingOpenRefreshAfterTick;
+    try std.testing.expect(open.key != first.key);
+    try std.testing.expect(std.mem.indexOf(u8, open.stdin, "\"type\":\"refreshBackgroundWork\"") != null);
+}
+
+test "maybeRefresh live daemon rows fire without Background tab" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = seedTickModel();
+    applyDaemonLine(&model, model.selected, stoppable_upsert_line);
+    try std.testing.expectEqual(@as(u32, 1), model.background_daemon_count);
+    try std.testing.expect(!model.right_panel_open);
+    try std.testing.expect(!model.environment_summary_open);
+    maybeRefresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_background_work_key) orelse return error.MissingLiveDaemonTick;
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"refreshBackgroundWork\"") != null);
+}
+
+test "update tick path maybeRefresh after 5s; open path still immediate" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var clock = native_sdk.TestClock{};
+    clock.setWallMs(1_000);
+    fx.clock = clock.clock();
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("bg update tick", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setRuntimeId(usable_runtime_id);
+
+    main.update(&model, .set_right_panel_tab_background, &fx);
+    try std.testing.expect(model.right_panel_showing_background());
+    const open_key = model.daemon_background_work_key;
+    try std.testing.expect(open_key != 0);
+    try std.testing.expectEqual(@as(?i64, 1_000), model.last_background_work_refresh_ms);
+    finishRefreshSidecar(&model);
+
+    clock.setWallMs(1_000 + background_work_refresh_interval_ms - 1);
+    main.update(&model, .close_environment_summary, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_background_work_key);
+
+    clock.setWallMs(1_000 + background_work_refresh_interval_ms);
+    main.update(&model, .close_environment_summary, &fx);
+    const tick = pendingSpawnKey(&fx, model.daemon_background_work_key) orelse return error.MissingUpdateTickRefresh;
+    try std.testing.expect(tick.key != open_key);
+    try std.testing.expect(std.mem.indexOf(u8, tick.stdin, "\"type\":\"refreshBackgroundWork\"") != null);
+    try std.testing.expectEqual(@as(?i64, 1_000 + background_work_refresh_interval_ms), model.last_background_work_refresh_ms);
 }

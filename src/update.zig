@@ -411,6 +411,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     // `now_ms` (stamped above) and this stream tick / fx_line
     // path. Native has no dedicated 100ms timer this cut.
     _ = environment_summary.refreshBackgroundOutputCache(model);
+    // First-cut Waku BACKGROUND_WORK_REFRESH_INTERVAL (5s).
+    // Same `now_ms` / update-tick piggyback. Native has no
+    // dedicated timer this cut. Skips when a refresh sidecar is
+    // already in flight; open-path `refresh` stays immediate.
+    background_work.maybeRefresh(model, fx);
     // First-cut Files preview live reload via size + mtime poll.
     // Same `now_ms` / update-tick piggyback. Native has no FS
     // watcher / dedicated timer this cut.
