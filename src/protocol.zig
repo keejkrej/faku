@@ -34,6 +34,22 @@
 //! parsed when present. Local `sessions.json` stays canonical; a daemon
 //! load is only a first-run fill when that file is missing.
 //!
+//! `loadUsageHistory` is not a bare command. Verified against egoist/waku
+//! `Command::LoadUsageHistory { window, project_roots }` (camelCase wire
+//! `loadUsageHistory` / `projectRoots`) and
+//! `ResponsePayload::UsageHistory { history }` (wire type
+//! `usageHistory`). `UsageWindow` is serde camelCase externally tagged:
+//! newtype variants are `{"trailingDays":30}` / `{"months":12}`; unit
+//! variants are JSON strings `"thisMonth"` / `"lastMonth"`. A non-nil
+//! `requestId` is required. Request-frame `sessionId` / `runtimeId` are
+//! nil. Ok payload is `{ type: "usageHistory", history }` where
+//! `UsageHistory` keys stay camelCase (`sinceDay`, `untilDay`,
+//! `totalTokens`, `costUsd`, `sessions`, `providers`, `daily`, `months`,
+//! `projects`, …). `UsageProvider` is `claude` | `codex`. Dates stay
+//! opaque strings. Unknown JSON is ignored. Hello stays protocol v4;
+//! unknown-command / parse miss fall back quietly to local session
+//! Usage. Not a cost chart, not a rate-table fetch.
+//!
 //! `saveTaskState` is not a bare command. Verified against egoist/waku
 //! `crates/waku-protocol/src/protocol.rs` and `persistSession` in
 //! `apps/web/src/lib/daemon-api.ts`: `{ type, projects, liveSessionIds,
@@ -565,7 +581,9 @@ pub fn defaultStartOptions() StartOptions {
 /// names the ones a desktop needs to boot a transcript. There is no
 /// `fork` command on this wire — session fork is a local catalog clone.
 /// `goal` is the Codex `/goal` first cut (set/clear/refresh over the
-/// daemon sidecar). It is not an fx / ACP method. `workspace` is
+/// daemon sidecar). It is not an fx / ACP method. `loadUsageHistory`
+/// is Settings → Usage history (hello + one-shot; not a workspace
+/// op). `workspace` is
 /// first-cut `WorkspaceOperation::Push`, `CreateWorktree`,
 /// `Commit`, `InspectBranches`, `CheckoutBranch`,
 /// `InspectCommit`, `CaptureTurnStart`, `CaptureTurn`,
@@ -589,6 +607,7 @@ pub const CommandTag = enum {
     goal,
     workspace,
     close_session,
+    load_usage_history,
 
     pub fn wireName(tag: CommandTag) []const u8 {
         return switch (tag) {
@@ -603,8 +622,74 @@ pub const CommandTag = enum {
             .goal => "goal",
             .workspace => "workspace",
             .close_session => "closeSession",
+            .load_usage_history => "loadUsageHistory",
         };
     }
+};
+
+/// Waku `UsageWindow`. Serde camelCase, externally tagged: newtype
+/// variants are `{"trailingDays":30}` / `{"months":12}`; unit variants
+/// are JSON strings `"thisMonth"` / `"lastMonth"`.
+pub const UsageWindow = union(enum) {
+    trailing_days: u32,
+    months: u32,
+    this_month,
+    last_month,
+};
+
+pub const max_parsed_usage_providers: usize = 4;
+pub const max_parsed_usage_daily: usize = 8;
+pub const max_parsed_usage_months: usize = 12;
+pub const max_parsed_usage_projects: usize = 16;
+pub const max_usage_project_roots: usize = 32;
+
+/// One `providers[]` row. Slices alias the JSON arena.
+pub const ParsedUsageProvider = struct {
+    provider: []const u8 = "",
+    total_tokens: u64 = 0,
+    cost_usd: f64 = 0,
+};
+
+/// One `daily[]` row. `day` is an opaque date string.
+pub const ParsedUsageDay = struct {
+    day: []const u8 = "",
+    total_tokens: u64 = 0,
+    cost_usd: f64 = 0,
+};
+
+/// One `months[]` row. `first_day` is an opaque date string.
+pub const ParsedUsageMonth = struct {
+    first_day: []const u8 = "",
+    total_tokens: u64 = 0,
+    cost_usd: f64 = 0,
+    sessions: u64 = 0,
+};
+
+/// One `projects[]` row. `path` is the project path as returned.
+pub const ParsedUsageProject = struct {
+    path: []const u8 = "",
+    total_tokens: u64 = 0,
+    cost_usd: f64 = 0,
+    sessions: u64 = 0,
+};
+
+/// Light parse of ok `usageHistory`. Unknown JSON ignored. Dates stay
+/// opaque strings. Empty arrays are still ok.
+pub const ParsedUsageHistory = struct {
+    ok: bool = false,
+    since_day: []const u8 = "",
+    until_day: []const u8 = "",
+    total_tokens: u64 = 0,
+    cost_usd: f64 = 0,
+    sessions: u64 = 0,
+    providers: [max_parsed_usage_providers]ParsedUsageProvider = [_]ParsedUsageProvider{.{}} ** max_parsed_usage_providers,
+    provider_count: usize = 0,
+    daily: [max_parsed_usage_daily]ParsedUsageDay = [_]ParsedUsageDay{.{}} ** max_parsed_usage_daily,
+    daily_count: usize = 0,
+    months: [max_parsed_usage_months]ParsedUsageMonth = [_]ParsedUsageMonth{.{}} ** max_parsed_usage_months,
+    month_count: usize = 0,
+    projects: [max_parsed_usage_projects]ParsedUsageProject = [_]ParsedUsageProject{.{}} ** max_parsed_usage_projects,
+    project_count: usize = 0,
 };
 
 /// `event.kind` values the demo will eventually render.
@@ -1916,6 +2001,53 @@ pub fn writeHydrateSession(
     return cur.slice();
 }
 
+/// Request wrapping verified `loadUsageHistory`
+/// `{ type, window, projectRoots }`. Request-frame `sessionId` /
+/// `runtimeId` are nil (Waku `daemon.request(Uuid::nil(), Uuid::nil(),
+/// …)`). Non-nil `requestId` so the daemon replies. Timeout 120s.
+pub fn writeLoadUsageHistory(
+    buf: []u8,
+    request_id: []const u8,
+    window: UsageWindow,
+    project_roots: []const []const u8,
+) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    try cur.write("{\"type\":\"request\",\"requestId\":");
+    try writeJsonString(&cur, request_id);
+    try cur.write(",\"sessionId\":");
+    try writeJsonString(&cur, NIL_UUID);
+    try cur.write(",\"runtimeId\":");
+    try writeJsonString(&cur, NIL_UUID);
+    try cur.write(",\"command\":{\"type\":");
+    try writeJsonString(&cur, CommandTag.load_usage_history.wireName());
+    try cur.write(",\"window\":");
+    try writeUsageWindow(&cur, window);
+    try cur.write(",\"projectRoots\":[");
+    for (project_roots, 0..) |root, i| {
+        if (i != 0) try cur.write(",");
+        try writeJsonString(&cur, root);
+    }
+    try cur.write("]}}");
+    return cur.slice();
+}
+
+fn writeUsageWindow(cur: *Cursor, window: UsageWindow) WriteError!void {
+    switch (window) {
+        .trailing_days => |days| {
+            try cur.write("{\"trailingDays\":");
+            try writeUint(cur, days);
+            try cur.write("}");
+        },
+        .months => |n| {
+            try cur.write("{\"months\":");
+            try writeUint(cur, n);
+            try cur.write("}");
+        },
+        .this_month => try cur.write("\"thisMonth\""),
+        .last_month => try cur.write("\"lastMonth\""),
+    }
+}
+
 fn jsonObject(value: std.json.Value) ?std.json.ObjectMap {
     return switch (value) {
         .object => |o| o,
@@ -1943,8 +2075,25 @@ fn jsonU64Value(value: ?std.json.Value) ?u64 {
     const item = value orelse return null;
     return switch (item) {
         .integer => |n| if (n >= 0) @intCast(n) else null,
+        .float => |f| if (f >= 0 and std.math.isFinite(f) and f <= @as(f64, @floatFromInt(std.math.maxInt(u64))))
+            @intFromFloat(f)
+        else
+            null,
         else => null,
     };
+}
+
+fn jsonF64Value(value: ?std.json.Value) f64 {
+    const item = value orelse return 0;
+    return switch (item) {
+        .float => |f| if (std.math.isFinite(f)) f else 0,
+        .integer => |n| @floatFromInt(n),
+        else => 0,
+    };
+}
+
+fn jsonU64OrZero(value: ?std.json.Value) u64 {
+    return jsonU64Value(value) orelse 0;
 }
 
 fn jsonBoolValue(value: ?std.json.Value) ?bool {
@@ -2010,6 +2159,110 @@ fn projectPathFor(projects: []const std.json.Value, project_id: []const u8) []co
         return jsonStringValue(obj.get("path")) orelse "";
     }
     return "";
+}
+
+/// Extract a first-cut `usageHistory` payload. Empty / `ok = false` on
+/// any other frame, a failed outcome, a payload that is not
+/// `usageHistory`, or a missing `history` object. Unknown fields and
+/// extra array rows are ignored. Daily / months keep the most recent
+/// cap; projects keep the first cap.
+pub fn parseUsageHistory(allocator: std.mem.Allocator, line: []const u8) ParsedUsageHistory {
+    var parsed = ParsedUsageHistory{};
+    const trimmed = std.mem.trim(u8, line, " \t\r\n");
+    if (trimmed.len < 2 or trimmed[0] != '{') return parsed;
+
+    const root = std.json.parseFromSliceLeaky(std.json.Value, allocator, trimmed, .{}) catch return parsed;
+    const obj = jsonObject(root) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(obj.get("type")) orelse "", "response")) return parsed;
+    const outcome = jsonObject(obj.get("outcome") orelse return parsed) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(outcome.get("status")) orelse "", "ok")) return parsed;
+    const payload = jsonObject(outcome.get("payload") orelse return parsed) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(payload.get("type")) orelse "", "usageHistory")) return parsed;
+    const history = jsonObject(payload.get("history") orelse return parsed) orelse return parsed;
+
+    parsed.ok = true;
+    parsed.since_day = jsonStringValue(history.get("sinceDay")) orelse "";
+    parsed.until_day = jsonStringValue(history.get("untilDay")) orelse "";
+    parsed.total_tokens = jsonU64OrZero(history.get("totalTokens"));
+    parsed.cost_usd = jsonF64Value(history.get("costUsd"));
+    parsed.sessions = jsonU64OrZero(history.get("sessions"));
+    parsed.provider_count = parseUsageProviders(history.get("providers"), &parsed.providers);
+    parsed.daily_count = parseUsageDays(history.get("daily"), &parsed.daily);
+    parsed.month_count = parseUsageMonths(history.get("months"), &parsed.months);
+    parsed.project_count = parseUsageProjects(history.get("projects"), &parsed.projects);
+    return parsed;
+}
+
+fn parseUsageProviders(value: ?std.json.Value, dest: *[max_parsed_usage_providers]ParsedUsageProvider) usize {
+    const items = jsonArrayItems(value orelse return 0) orelse return 0;
+    var n: usize = 0;
+    for (items) |item| {
+        if (n >= dest.len) break;
+        const obj = jsonObject(item) orelse continue;
+        const provider = jsonStringValue(obj.get("provider")) orelse continue;
+        if (provider.len == 0) continue;
+        dest[n] = .{
+            .provider = provider,
+            .total_tokens = jsonU64OrZero(obj.get("totalTokens")),
+            .cost_usd = jsonF64Value(obj.get("costUsd")),
+        };
+        n += 1;
+    }
+    return n;
+}
+
+fn parseUsageDays(value: ?std.json.Value, dest: *[max_parsed_usage_daily]ParsedUsageDay) usize {
+    const items = jsonArrayItems(value orelse return 0) orelse return 0;
+    const start = if (items.len > dest.len) items.len - dest.len else 0;
+    var n: usize = 0;
+    for (items[start..]) |item| {
+        if (n >= dest.len) break;
+        const obj = jsonObject(item) orelse continue;
+        dest[n] = .{
+            .day = jsonStringValue(obj.get("day")) orelse "",
+            .total_tokens = jsonU64OrZero(obj.get("totalTokens")),
+            .cost_usd = jsonF64Value(obj.get("costUsd")),
+        };
+        n += 1;
+    }
+    return n;
+}
+
+fn parseUsageMonths(value: ?std.json.Value, dest: *[max_parsed_usage_months]ParsedUsageMonth) usize {
+    const items = jsonArrayItems(value orelse return 0) orelse return 0;
+    const start = if (items.len > dest.len) items.len - dest.len else 0;
+    var n: usize = 0;
+    for (items[start..]) |item| {
+        if (n >= dest.len) break;
+        const obj = jsonObject(item) orelse continue;
+        dest[n] = .{
+            .first_day = jsonStringValue(obj.get("firstDay")) orelse "",
+            .total_tokens = jsonU64OrZero(obj.get("totalTokens")),
+            .cost_usd = jsonF64Value(obj.get("costUsd")),
+            .sessions = jsonU64OrZero(obj.get("sessions")),
+        };
+        n += 1;
+    }
+    return n;
+}
+
+fn parseUsageProjects(value: ?std.json.Value, dest: *[max_parsed_usage_projects]ParsedUsageProject) usize {
+    const items = jsonArrayItems(value orelse return 0) orelse return 0;
+    var n: usize = 0;
+    for (items) |item| {
+        if (n >= dest.len) break;
+        const obj = jsonObject(item) orelse continue;
+        const path = jsonStringValue(obj.get("path")) orelse continue;
+        if (path.len == 0) continue;
+        dest[n] = .{
+            .path = path,
+            .total_tokens = jsonU64OrZero(obj.get("totalTokens")),
+            .cost_usd = jsonF64Value(obj.get("costUsd")),
+            .sessions = jsonU64OrZero(obj.get("sessions")),
+        };
+        n += 1;
+    }
+    return n;
 }
 
 /// Extract session skeletons from a `taskState` response. Empty on any
@@ -4598,6 +4851,7 @@ test "first-cut command tags stay camelCase on the wire" {
     try std.testing.expectEqualStrings("steer", CommandTag.steer.wireName());
     try std.testing.expectEqualStrings("goal", CommandTag.goal.wireName());
     try std.testing.expectEqualStrings("workspace", CommandTag.workspace.wireName());
+    try std.testing.expectEqualStrings("loadUsageHistory", CommandTag.load_usage_history.wireName());
     try std.testing.expectEqualStrings("steerAccepted", EventKind.steer_accepted.wireName());
     try std.testing.expectEqualStrings("steerRejected", EventKind.steer_rejected.wireName());
     try std.testing.expectEqualStrings("goalUpdated", EventKind.goal_updated.wireName());
@@ -4891,4 +5145,78 @@ test "session hydrate response yields messages and queued_messages content" {
 
     const other = parseHydratedSession(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"taskState\",\"sessions\":[]}}}");
     try std.testing.expect(!other.ok);
+}
+
+test "loadUsageHistory request encodes window and projectRoots" {
+    var buf: [1024]u8 = undefined;
+    const json = try writeLoadUsageHistory(
+        &buf,
+        "00000000-0000-0000-0000-000000000015",
+        .{ .trailing_days = 30 },
+        &.{ "/tmp/faku", "/tmp/other" },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000015\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"loadUsageHistory\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"window\":{\"trailingDays\":30}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"projectRoots\":[\"/tmp/faku\",\"/tmp/other\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"workspace\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"loadTaskState\"") == null);
+
+    const monthly = try writeLoadUsageHistory(&buf, NIL_UUID, .{ .months = 12 }, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, monthly, "\"window\":{\"months\":12}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, monthly, "\"projectRoots\":[]") != null);
+
+    const this_month = try writeLoadUsageHistory(&buf, NIL_UUID, .this_month, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, this_month, "\"window\":\"thisMonth\"") != null);
+    const last_month = try writeLoadUsageHistory(&buf, NIL_UUID, .last_month, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, last_month, "\"window\":\"lastMonth\"") != null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeLoadUsageHistory(&tiny, NIL_UUID, .{ .trailing_days = 30 }, &.{"/tmp/faku"}));
+}
+
+test "parseUsageHistory reads a minimal usageHistory fixture and ignores unknown JSON" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const line =
+        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000015","outcome":{"status":"ok","payload":{"type":"usageHistory","history":{"window":{"trailingDays":30},"sinceDay":"2026-08-08","untilDay":"2026-09-06","totals":{"uncachedInput":1},"totalTokens":12345,"costUsd":1.25,"records":9,"sessions":4,"providers":[{"provider":"claude","costUsd":1.0,"totalTokens":10000,"costShare":0.8,"tokenShare":0.81},{"provider":"codex","costUsd":0.25,"totalTokens":2345}],"models":[{"model":"ignored"}],"daily":[{"day":"2026-09-05","totalTokens":200,"costUsd":0.05,"byProvider":[]},{"day":"2026-09-06","totalTokens":500,"costUsd":0.1}],"months":[{"firstDay":"2026-09-01","totalTokens":12345,"costUsd":1.25,"sessions":4}],"projects":[{"path":"/tmp/faku","totalTokens":12345,"costUsd":1.25,"sessions":4}],"quality":{},"pricing":"fresh","scannedFiles":3,"skippedFiles":0,"errors":[],"scanDuration":{"secs":1,"nanos":0},"unknownField":true}}}}
+    ;
+    const parsed = parseUsageHistory(arena, line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqualStrings("2026-08-08", parsed.since_day);
+    try std.testing.expectEqualStrings("2026-09-06", parsed.until_day);
+    try std.testing.expectEqual(@as(u64, 12345), parsed.total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.25), parsed.cost_usd, 0.0001);
+    try std.testing.expectEqual(@as(u64, 4), parsed.sessions);
+    try std.testing.expectEqual(@as(usize, 2), parsed.provider_count);
+    try std.testing.expectEqualStrings("claude", parsed.providers[0].provider);
+    try std.testing.expectEqual(@as(u64, 10000), parsed.providers[0].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), parsed.providers[0].cost_usd, 0.0001);
+    try std.testing.expectEqualStrings("codex", parsed.providers[1].provider);
+    try std.testing.expectEqual(@as(usize, 2), parsed.daily_count);
+    try std.testing.expectEqualStrings("2026-09-06", parsed.daily[1].day);
+    try std.testing.expectEqual(@as(u64, 500), parsed.daily[1].total_tokens);
+    try std.testing.expectEqual(@as(usize, 1), parsed.month_count);
+    try std.testing.expectEqualStrings("2026-09-01", parsed.months[0].first_day);
+    try std.testing.expectEqual(@as(u64, 4), parsed.months[0].sessions);
+    try std.testing.expectEqual(@as(usize, 1), parsed.project_count);
+    try std.testing.expectEqualStrings("/tmp/faku", parsed.projects[0].path);
+
+    const empty = parseUsageHistory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{}}}}");
+    try std.testing.expect(empty.ok);
+    try std.testing.expectEqual(@as(u64, 0), empty.total_tokens);
+    try std.testing.expectEqual(@as(usize, 0), empty.provider_count);
+
+    try std.testing.expect(!parseUsageHistory(arena, "{\"type\":\"usageHistory\",\"history\":{}}").ok);
+    try std.testing.expect(!parseUsageHistory(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}").ok);
+    try std.testing.expect(!parseUsageHistory(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"unknown command\"}}}").ok);
+    try std.testing.expect(!parseUsageHistory(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
+    try std.testing.expect(!parseUsageHistory(arena, "{\"type\":\"rejected\",\"message\":\"unknown command\"}").ok);
 }

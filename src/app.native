@@ -173,6 +173,9 @@
           <if test="{settings_page_providers}">
             <button variant="ghost" size="sm" on-press="refresh_providers">Refresh</button>
           </if>
+          <if test="{settings_page_usage}">
+            <button variant="ghost" size="sm" on-press="refresh_usage_history">Refresh</button>
+          </if>
         </row>
         <separator />
         <scroll grow="1">
@@ -297,6 +300,63 @@
                     </else>
                   </column>
                 </card>
+                <row gap="8">
+                  <button variant="ghost" size="sm" selected="{usage_view_daily}" on-press="set_usage_view_daily">Daily</button>
+                  <button variant="ghost" size="sm" selected="{usage_view_monthly}" on-press="set_usage_view_monthly">Monthly</button>
+                  <button variant="ghost" size="sm" selected="{usage_view_projects}" on-press="set_usage_view_projects">Projects</button>
+                </row>
+                <if test="{has_usage_history}">
+                  <if test="{usage_view_daily}">
+                    <card size="sm" padding="10">
+                      <column gap="8">
+                        <if test="{has_usage_range}">
+                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{usage_range_caption}</text>
+                        </if>
+                        <text wrap="false" overflow="ellipsis">{usage_headline}</text>
+                        <text wrap="false" overflow="ellipsis" foreground="text_muted">{usage_sessions_label}</text>
+                        <for each="usage_provider_rows" key="id" as="p">
+                          <text wrap="false" overflow="ellipsis">{p.line}</text>
+                        </for>
+                        <for each="usage_daily_rows" key="id" as="d">
+                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{d.line}</text>
+                        </for>
+                      </column>
+                    </card>
+                  </if>
+                  <else>
+                  <if test="{usage_view_monthly}">
+                    <card size="sm" padding="10">
+                      <column gap="8">
+                        <if test="{usage_months_empty}">
+                          <text wrap="true" foreground="text_muted">No monthly usage</text>
+                        </if>
+                        <for each="usage_month_rows" key="id" as="m">
+                          <text wrap="false" overflow="ellipsis">{m.line}</text>
+                        </for>
+                      </column>
+                    </card>
+                  </if>
+                  <else>
+                  <if test="{usage_view_projects}">
+                    <card size="sm" padding="10">
+                      <column gap="8">
+                        <if test="{usage_projects_empty}">
+                          <text wrap="true" foreground="text_muted">No project usage</text>
+                        </if>
+                        <for each="usage_project_rows" key="id" as="pr">
+                          <text wrap="false" overflow="ellipsis">{pr.line}</text>
+                        </for>
+                      </column>
+                    </card>
+                  </if>
+                  </else>
+                  </else>
+                </if>
+                <else>
+                  <if test="{has_usage_history_hint}">
+                    <text wrap="true" foreground="text_muted">{usage_history_hint}</text>
+                  </if>
+                </else>
               </column>
             </row>
           </if>

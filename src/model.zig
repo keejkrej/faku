@@ -42,6 +42,7 @@ const right_panel = @import("right_panel.zig");
 const i18n = @import("i18n.zig");
 const session_workspace = @import("session_workspace.zig");
 const pick_folder = @import("pick_folder.zig");
+const usage_history = @import("usage_history.zig");
 
 const canvas = native_sdk.canvas;
 const main = @import("main.zig");
@@ -324,6 +325,9 @@ pub const SkillRow = struct {
     selected: bool = false,
 };
 
+/// Settings Usage history row. `id` is a 1-based Native `for` key.
+pub const UsageHistoryRow = usage_history.Row;
+
 /// Settings Providers row. `id` is 1-based `ProviderId` so Native
 /// `select_provider:{p.id}` never binds 0. Apply sets
 /// `session.provider`; live Send is `spawn.startPrompt`.
@@ -478,6 +482,10 @@ pub const Msg = union(enum) {
     set_settings_page_skills,
     set_settings_page_usage,
     set_settings_page_computer_use,
+    set_usage_view_daily,
+    set_usage_view_monthly,
+    set_usage_view_projects,
+    refresh_usage_history,
     settings_theme_system,
     settings_theme_light,
     settings_theme_dark,
@@ -903,6 +911,14 @@ pub const Model = struct {
     /// Runtime-only Settings General | Appearance | Providers | Skills |
     /// Usage | Computer Use page. Default General. Not persisted.
     settings_page: skills.Page = .general,
+    /// Runtime-only Settings Usage Daily | Monthly | Projects chip.
+    /// Default Daily. Not persisted.
+    usage_view: usage_history.View = .daily,
+    /// In-flight `loadUsageHistory` sidecar. Distinct from workspace
+    /// keys so miss cannot settle a live turn or toast Settings.
+    daemon_usage_history_key: u64 = 0,
+    /// First-cut daemon usage history cache. Runtime only.
+    usage_history: usage_history.Cache = .{},
     /// Persisted chrome theme. Default System (OS-follow).
     theme_preference: ThemePreference = .system,
     /// Persisted chrome language. Default System (LC_ALL / LC_MESSAGES / LANG).
@@ -1597,6 +1613,9 @@ pub const Model = struct {
         "settings_project_buffer",
         "settings_daemon_buffer",
         "settings_page",
+        "usage_view",
+        "daemon_usage_history_key",
+        "usage_history",
         "theme_preference",
         "setThemePreference",
         "language_preference",
@@ -3607,6 +3626,7 @@ pub const Model = struct {
         model.settings_open = false;
         model.settings_page = .general;
         model.provider_selected_id = 0;
+        model.usage_view = .daily;
     }
 
     pub fn toggleSettings(model: *Model) void {
@@ -4167,6 +4187,74 @@ pub const Model = struct {
     /// Settings Usage identity. Same untitled chrome as the header.
     pub fn settings_usage_session_label(model: *const Model) []const u8 {
         return model.header_title();
+    }
+
+    pub fn usage_view_daily(model: *const Model) bool {
+        return model.usage_view == .daily;
+    }
+
+    pub fn usage_view_monthly(model: *const Model) bool {
+        return model.usage_view == .monthly;
+    }
+
+    pub fn usage_view_projects(model: *const Model) bool {
+        return model.usage_view == .projects;
+    }
+
+    pub fn has_usage_history(model: *const Model) bool {
+        return model.settings_page == .usage and model.usage_history.present;
+    }
+
+    pub fn has_usage_history_hint(model: *const Model) bool {
+        return model.settings_page == .usage and !model.usage_history.present and usage_history.historyHint(model).len > 0;
+    }
+
+    pub fn usage_history_hint(model: *const Model) []const u8 {
+        if (!model.has_usage_history_hint()) return "";
+        return usage_history.historyHint(model);
+    }
+
+    pub fn has_usage_range(model: *const Model) bool {
+        return model.has_usage_history() and (model.usage_history.since_len > 0 or model.usage_history.until_len > 0);
+    }
+
+    pub fn usage_range_caption(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        if (!model.has_usage_range()) return "";
+        return usage_history.rangeCaption(model, arena);
+    }
+
+    pub fn usage_headline(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        if (!model.has_usage_history()) return "";
+        return usage_history.headline(model, arena);
+    }
+
+    pub fn usage_sessions_label(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        if (!model.has_usage_history()) return "";
+        return usage_history.sessionsLabel(model, arena);
+    }
+
+    pub fn usage_months_empty(model: *const Model) bool {
+        return model.has_usage_history() and model.usage_view == .monthly and model.usage_history.month_count == 0;
+    }
+
+    pub fn usage_projects_empty(model: *const Model) bool {
+        return model.has_usage_history() and model.usage_view == .projects and model.usage_history.project_count == 0;
+    }
+
+    pub fn usage_provider_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {
+        return usage_history.providerRows(model, arena);
+    }
+
+    pub fn usage_daily_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {
+        return usage_history.dailyRows(model, arena);
+    }
+
+    pub fn usage_month_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {
+        return usage_history.monthRows(model, arena);
+    }
+
+    pub fn usage_project_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {
+        return usage_history.projectRows(model, arena);
     }
 
     /// Send circle is primary only while there is something to send.

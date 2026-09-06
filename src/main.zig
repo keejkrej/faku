@@ -400,6 +400,7 @@ pub const BackgroundRow = environment_summary.BackgroundRow;
 pub const RightPanelFileRow = model_mod.RightPanelFileRow;
 pub const FilePreviewLineRow = right_panel.FilePreviewLineRow;
 pub const SkillRow = model_mod.SkillRow;
+pub const UsageHistoryRow = model_mod.UsageHistoryRow;
 pub const ProviderRow = model_mod.ProviderRow;
 pub const Msg = model_mod.Msg;
 pub const Model = model_mod.Model;
@@ -542,6 +543,7 @@ test {
     _ = @import("git_common_dir.zig");
     _ = @import("file_mention.zig");
     _ = @import("slash_commands.zig");
+    _ = @import("usage_history.zig");
     _ = @import("projectless.zig");
     _ = @import("skills.zig");
     _ = @import("providers.zig");
