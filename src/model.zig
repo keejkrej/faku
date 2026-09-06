@@ -330,7 +330,9 @@ pub const SkillRow = struct {
 /// carry `share` / `percent` / `has_share` for first-cut share bars
 /// (providers vs totals; days vs the max day in the window; months
 /// vs the max month in the window; projects vs the max project in
-/// the window).
+/// the window) and Daily Cost quality rows (three shares plus cache
+/// savings USD). Notice rows reuse `line` for error / rates-unavailable
+/// captions.
 pub const UsageHistoryRow = usage_history.Row;
 
 /// Settings Providers row. `id` is 1-based `ProviderId` so Native
@@ -4398,6 +4400,31 @@ pub const Model = struct {
 
     pub fn usage_project_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {
         return usage_history.projectRows(model, arena);
+    }
+
+    pub fn has_usage_notice(model: *const Model) bool {
+        return usage_history.hasNotice(model);
+    }
+
+    pub fn usage_notice_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {
+        return usage_history.noticeRows(model, arena);
+    }
+
+    pub fn has_usage_quality(model: *const Model) bool {
+        return usage_history.hasQuality(model);
+    }
+
+    pub fn usage_quality_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {
+        return usage_history.qualityRows(model, arena);
+    }
+
+    pub fn has_usage_scan_footer(model: *const Model) bool {
+        return usage_history.hasScanFooter(model);
+    }
+
+    pub fn usage_scan_footer(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        if (!model.has_usage_scan_footer()) return "";
+        return usage_history.scanFooter(model, arena);
     }
 
     /// Send circle is primary only while there is something to send.

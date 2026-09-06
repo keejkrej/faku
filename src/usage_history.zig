@@ -35,8 +35,13 @@
 //! without re-fetching and respects that filter. No-match empty
 //! ("No matching projects") is distinct from no project usage.
 //! Filter clears when leaving Settings Usage or switching away from
-//! Projects. Still not Waku's GPUI / T3 layered chart, not quality /
-//! rate-table / LiteLLM. Hello stays v4.
+//! Projects. Daily also paints a first-cut Cost quality panel from
+//! `quality` (Provider reported / Model priced / Unpriced percents
+//! plus Cache savings USD) and muted notices when `errors` are
+//! non-empty or `pricing` is `unavailable`. A tiny scan-summary
+//! footer uses `records` / `scannedFiles` / `skippedFiles` /
+//! `scanDuration` when present. Still not Waku's GPUI / T3 layered
+//! chart, not LiteLLM rate-table fetch. Hello stays v4.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -94,21 +99,33 @@ pub const max_providers = protocol.max_parsed_usage_providers;
 pub const max_daily = protocol.max_parsed_usage_daily;
 pub const max_months = protocol.max_parsed_usage_months;
 pub const max_projects = protocol.max_parsed_usage_projects;
+pub const max_errors = protocol.max_parsed_usage_errors;
 pub const max_roots = protocol.max_usage_project_roots;
 pub const max_day_label = 32;
 pub const max_line = 160;
+pub const rates_unavailable_notice = "Rates unavailable";
 
 pub const Row = struct {
     id: u32,
     line: []const u8,
     /// Active Daily / Monthly / Projects share, 0..1.
     share: f32 = 0,
-    /// `"80.0%"` for Daily provider / day bars, Monthly bars, and
-    /// Projects bars.
+    /// `"80.0%"` for Daily provider / day / quality-share bars,
+    /// Monthly bars, and Projects bars. Quality Cache savings reuses
+    /// this for a USD label.
     percent: []const u8 = "",
-    /// True when Daily, Monthly, or Projects should paint a share bar
-    /// (share > 0).
+    /// True when Daily, Monthly, Projects, or Cost quality should
+    /// paint a share bar (share > 0).
     has_share: bool = false,
+};
+
+pub const CachedNotice = struct {
+    text_storage: [max_line]u8 = [_]u8{0} ** max_line,
+    text_len: usize = 0,
+
+    pub fn text(self: *const CachedNotice) []const u8 {
+        return self.text_storage[0..self.text_len];
+    }
 };
 
 pub const CachedProvider = struct {
@@ -219,6 +236,14 @@ pub const Cache = struct {
     month_count: usize = 0,
     projects: [max_projects]CachedProject = [_]CachedProject{.{}} ** max_projects,
     project_count: usize = 0,
+    quality: protocol.ParsedCostQuality = .{},
+    pricing: protocol.PricingStatus = .unknown,
+    records: u64 = 0,
+    scanned_files: u64 = 0,
+    skipped_files: u64 = 0,
+    scan_duration_secs: f64 = 0,
+    errors: [max_errors]CachedNotice = [_]CachedNotice{.{}} ** max_errors,
+    error_count: usize = 0,
 
     pub fn sinceDay(self: *const Cache) []const u8 {
         return self.since_storage[0..self.since_len];
@@ -456,6 +481,17 @@ fn adopt(cache: *Cache, parsed: protocol.ParsedUsageHistory) void {
         cache.projects[i].cost_usd = parsed.projects[i].cost_usd;
         cache.projects[i].sessions = parsed.projects[i].sessions;
     }
+    cache.quality = parsed.quality;
+    cache.pricing = parsed.pricing;
+    cache.records = parsed.records;
+    cache.scanned_files = parsed.scanned_files;
+    cache.skipped_files = parsed.skipped_files;
+    cache.scan_duration_secs = parsed.scan_duration_secs;
+    cache.error_count = parsed.error_count;
+    i = 0;
+    while (i < parsed.error_count) : (i += 1) {
+        writeFixed(&cache.errors[i].text_storage, &cache.errors[i].text_len, parsed.errors[i]);
+    }
 }
 
 pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
@@ -566,6 +602,18 @@ fn formatPercent(buf: []u8, share: f64) ?[]const u8 {
     const clamped = clampShare(share);
     if (!(clamped > 0)) return null;
     return std.fmt.bufPrint(buf, "{d:.1}%", .{clamped * 100.0}) catch null;
+}
+
+/// Quality percents always paint, including 0.0%.
+fn formatPercentLabel(buf: []u8, share: f64) []const u8 {
+    const clamped = clampShare(share);
+    return std.fmt.bufPrint(buf, "{d:.1}%", .{clamped * 100.0}) catch "0.0%";
+}
+
+fn formatUsd(buf: []u8, cost: f64) []const u8 {
+    if (!std.math.isFinite(cost)) return "$0.00";
+    if (cost >= 0) return std.fmt.bufPrint(buf, "${d:.2}", .{cost}) catch "$0.00";
+    return std.fmt.bufPrint(buf, "-${d:.2}", .{-cost}) catch "$0.00";
 }
 
 fn appendTokensCost(buf: []u8, used: usize, tokens: u64, cost: f64) usize {
@@ -769,6 +817,94 @@ pub fn projectRows(model: *const Model, arena: std.mem.Allocator) []const Row {
         };
     }
     return out;
+}
+
+pub fn hasNotice(model: *const Model) bool {
+    if (!historyPainted(model)) return false;
+    return model.usage_history.error_count > 0 or model.usage_history.pricing == .unavailable;
+}
+
+pub fn hasQuality(model: *const Model) bool {
+    return historyPainted(model) and model.usage_view == .daily;
+}
+
+pub fn hasScanFooter(model: *const Model) bool {
+    if (!historyPainted(model)) return false;
+    return model.usage_history.scanned_files > 0 or model.usage_history.records > 0;
+}
+
+pub fn noticeRows(model: *const Model, arena: std.mem.Allocator) []const Row {
+    if (!hasNotice(model)) return &.{};
+    const cache = model.usage_history;
+    const extra: usize = if (cache.pricing == .unavailable) 1 else 0;
+    const count = cache.error_count + extra;
+    const out = arena.alloc(Row, count) catch return &.{};
+    var i: usize = 0;
+    while (i < cache.error_count) : (i += 1) {
+        out[i] = .{
+            .id = @intCast(i + 1),
+            .line = copyArena(arena, cache.errors[i].text()),
+        };
+    }
+    if (extra == 1) {
+        out[i] = .{
+            .id = @intCast(i + 1),
+            .line = rates_unavailable_notice,
+        };
+    }
+    return out;
+}
+
+pub fn qualityRows(model: *const Model, arena: std.mem.Allocator) []const Row {
+    if (!hasQuality(model)) return &.{};
+    const q = model.usage_history.quality;
+    const out = arena.alloc(Row, 4) catch return &.{};
+    const labels = [_][]const u8{ "Provider reported", "Model priced", "Unpriced" };
+    const shares = [_]f64{ q.provider_reported_share, q.model_priced_share, q.unpriced_share };
+    var i: usize = 0;
+    while (i < 3) : (i += 1) {
+        const share = clampShare(shares[i]);
+        var percent_buf: [16]u8 = undefined;
+        out[i] = .{
+            .id = @intCast(i + 1),
+            .line = labels[i],
+            .share = @floatCast(share),
+            .percent = copyArena(arena, formatPercentLabel(&percent_buf, share)),
+            .has_share = share > 0,
+        };
+    }
+    var usd_buf: [24]u8 = undefined;
+    out[3] = .{
+        .id = 4,
+        .line = "Cache savings",
+        .share = 0,
+        .percent = copyArena(arena, formatUsd(&usd_buf, q.cache_savings_usd)),
+        .has_share = false,
+    };
+    return out;
+}
+
+pub fn scanFooter(model: *const Model, arena: std.mem.Allocator) []const u8 {
+    if (!hasScanFooter(model)) return "";
+    const cache = model.usage_history;
+    var buf: [max_line]u8 = undefined;
+    var pos: usize = 0;
+    const files = std.fmt.bufPrint(buf[pos..], "{d} files", .{cache.scanned_files}) catch return "";
+    pos += files.len;
+    if (cache.skipped_files > 0) {
+        const skipped = std.fmt.bufPrint(buf[pos..], " · {d} skipped", .{cache.skipped_files}) catch
+            return copyArena(arena, buf[0..pos]);
+        pos += skipped.len;
+    }
+    const rec = std.fmt.bufPrint(buf[pos..], " · {d} records", .{cache.records}) catch
+        return copyArena(arena, buf[0..pos]);
+    pos += rec.len;
+    if (cache.scan_duration_secs > 0) {
+        const dur = std.fmt.bufPrint(buf[pos..], " · {d:.1}s", .{cache.scan_duration_secs}) catch
+            return copyArena(arena, buf[0..pos]);
+        pos += dur.len;
+    }
+    return copyArena(arena, buf[0..pos]);
 }
 
 pub fn historyHint(model: *const Model) []const u8 {
@@ -1491,5 +1627,89 @@ test "project filter clears when leaving Projects or Settings Usage" {
     leaveUsage(&model);
     try std.testing.expectEqualStrings("", projectFilter(&model));
     try std.testing.expect(model.usage_history.present);
+}
+
+test "quality and pricing adopt from usageHistory; missing fields stay defaults" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.settings_page = .usage;
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingQualitySpawn;
+    applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":100,\"costUsd\":1,\"quality\":{\"providerReportedShare\":0.5,\"modelPricedShare\":0.3,\"unpricedShare\":0.2,\"cacheSavingsUsd\":1.25},\"pricing\":\"unavailable\",\"records\":9,\"scannedFiles\":3,\"skippedFiles\":1,\"errors\":[\"scan failed\"],\"scanDuration\":{\"secs\":1,\"nanos\":0}}}}}" });
+    try std.testing.expect(model.usage_history.present);
+    try std.testing.expectEqual(protocol.PricingStatus.unavailable, model.usage_history.pricing);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5), model.usage_history.quality.provider_reported_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.3), model.usage_history.quality.model_priced_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.2), model.usage_history.quality.unpriced_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.25), model.usage_history.quality.cache_savings_usd, 0.0001);
+    try std.testing.expectEqual(@as(u64, 9), model.usage_history.records);
+    try std.testing.expectEqual(@as(u64, 3), model.usage_history.scanned_files);
+    try std.testing.expectEqual(@as(u64, 1), model.usage_history.skipped_files);
+    try std.testing.expectEqual(@as(usize, 1), model.usage_history.error_count);
+    try std.testing.expectEqualStrings("scan failed", model.usage_history.errors[0].text());
+    try std.testing.expect(hasNotice(&model));
+    try std.testing.expect(hasQuality(&model));
+    try std.testing.expect(hasScanFooter(&model));
+
+    const notices = noticeRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 2), notices.len);
+    try std.testing.expectEqualStrings("scan failed", notices[0].line);
+    try std.testing.expectEqualStrings(rates_unavailable_notice, notices[1].line);
+
+    const quality = qualityRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 4), quality.len);
+    try std.testing.expectEqualStrings("Provider reported", quality[0].line);
+    try std.testing.expectEqualStrings("50.0%", quality[0].percent);
+    try std.testing.expect(quality[0].has_share);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), quality[0].share, 0.0001);
+    try std.testing.expectEqualStrings("Model priced", quality[1].line);
+    try std.testing.expectEqualStrings("30.0%", quality[1].percent);
+    try std.testing.expectEqualStrings("Unpriced", quality[2].line);
+    try std.testing.expectEqualStrings("20.0%", quality[2].percent);
+    try std.testing.expectEqualStrings("Cache savings", quality[3].line);
+    try std.testing.expectEqualStrings("$1.25", quality[3].percent);
+    try std.testing.expect(!quality[3].has_share);
+    try std.testing.expectEqualStrings("3 files · 1 skipped · 9 records · 1.0s", scanFooter(&model, arena));
+
+    model.usage_view = .monthly;
+    try std.testing.expect(!hasQuality(&model));
+    try std.testing.expectEqual(@as(usize, 0), qualityRows(&model, arena).len);
+    try std.testing.expect(!hasNotice(&model));
+    try std.testing.expectEqual(@as(usize, 0), noticeRows(&model, arena).len);
+
+    applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"quality\":{},\"pricing\":\"fresh\"}}}}" });
+    model.usage_view = .daily;
+    try std.testing.expectEqual(protocol.PricingStatus.fresh, model.usage_history.pricing);
+    try std.testing.expect(!hasNotice(&model));
+    try std.testing.expectEqual(@as(usize, 0), noticeRows(&model, arena).len);
+    try std.testing.expectEqual(@as(usize, 0), model.usage_history.error_count);
+    const zeros = qualityRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 4), zeros.len);
+    try std.testing.expectEqualStrings("0.0%", zeros[0].percent);
+    try std.testing.expect(!zeros[0].has_share);
+    try std.testing.expectEqualStrings("$0.00", zeros[3].percent);
+    try std.testing.expect(!hasScanFooter(&model));
+    try std.testing.expectEqualStrings("", scanFooter(&model, arena));
+
+    applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{}}}}" });
+    try std.testing.expectEqual(protocol.PricingStatus.unknown, model.usage_history.pricing);
+    try std.testing.expect(!hasNotice(&model));
+    try std.testing.expectApproxEqAbs(@as(f64, 0), model.usage_history.quality.provider_reported_share, 0.0001);
+
+    applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"pricing\":\"cached\",\"errors\":[\"disk unreadable\"]}}}}" });
+    try std.testing.expectEqual(protocol.PricingStatus.cached, model.usage_history.pricing);
+    const disk = noticeRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 1), disk.len);
+    try std.testing.expectEqualStrings("disk unreadable", disk[0].line);
+    try std.testing.expect(std.mem.indexOf(u8, disk[0].line, rates_unavailable_notice) == null);
 }
 

@@ -45,14 +45,22 @@
 //! nil. Ok payload is `{ type: "usageHistory", history }` where
 //! `UsageHistory` keys stay camelCase (`sinceDay`, `untilDay`,
 //! `totalTokens`, `costUsd`, `sessions`, `providers`, `daily`, `months`,
-//! `projects`, …). `UsageProvider` is `claude` | `codex`. Dates stay
-//! opaque strings. Optional `costShare` / `tokenShare` (0..1) are
-//! parsed when present. Unknown JSON is ignored. Hello stays protocol v4;
-//! unknown-command / parse miss fall back quietly to local session
-//! Usage. Daily first-cut paints per-provider share bars from those
-//! shares (or client-computed totals) and a relative max-day bar
-//! chart from `daily[]` (`costUsd` / `totalTokens`). Still not Waku's
-//! GPUI / T3 layered chart, not quality / rate-table.
+//! `projects`, `quality`, `pricing`, …). `UsageProvider` is `claude` |
+//! `codex`. Dates stay opaque strings. Optional `costShare` /
+//! `tokenShare` (0..1) are parsed when present. `quality` is
+//! `CostQuality` (`providerReportedShare` / `modelPricedShare` /
+//! `unpricedShare` 0..1, `cacheSavingsUsd`). `pricing` is
+//! `PricingStatus`: `"fresh"` | `"cached"` | `"unavailable"`. Missing
+//! / unknown quality or pricing stay safe defaults (shares 0, pricing
+//! unknown). Optional `errors` / `records` / `scannedFiles` /
+//! `skippedFiles` / `scanDuration` are parsed when present. Unknown
+//! JSON is ignored. Hello stays protocol v4; unknown-command / parse
+//! miss fall back quietly to local session Usage. Daily first-cut
+//! paints per-provider share bars from those shares (or
+//! client-computed totals), a relative max-day bar chart from
+//! `daily[]` (`costUsd` / `totalTokens`), and a Cost quality panel
+//! plus rates-unavailable / error notices. Still not Waku's GPUI /
+//! T3 layered chart, not LiteLLM rate-table fetch.
 //!
 //! `refreshBackgroundWork` is a bare command. Verified against
 //! egoist/waku `Command::RefreshBackgroundWork` (unit variant, wire
@@ -688,7 +696,42 @@ pub const max_parsed_usage_providers: usize = 4;
 pub const max_parsed_usage_daily: usize = 8;
 pub const max_parsed_usage_months: usize = 12;
 pub const max_parsed_usage_projects: usize = 16;
+pub const max_parsed_usage_errors: usize = 4;
 pub const max_usage_project_roots: usize = 32;
+
+/// Waku `PricingStatus`. Serde camelCase: `fresh` | `cached` |
+/// `unavailable`. Missing / unknown wire → `unknown`.
+pub const PricingStatus = enum {
+    unknown,
+    fresh,
+    cached,
+    unavailable,
+
+    pub fn wireName(status: PricingStatus) []const u8 {
+        return switch (status) {
+            .unknown => "",
+            .fresh => "fresh",
+            .cached => "cached",
+            .unavailable => "unavailable",
+        };
+    }
+
+    pub fn fromWire(name: []const u8) ?PricingStatus {
+        if (name.len == 0) return null;
+        inline for (std.meta.tags(PricingStatus)) |status| {
+            if (std.mem.eql(u8, status.wireName(), name)) return status;
+        }
+        return null;
+    }
+};
+
+/// Waku `CostQuality`. Shares are 0..1. Missing / empty `{}` stays 0.
+pub const ParsedCostQuality = struct {
+    provider_reported_share: f64 = 0,
+    model_priced_share: f64 = 0,
+    unpriced_share: f64 = 0,
+    cache_savings_usd: f64 = 0,
+};
 
 /// One `providers[]` row. Slices alias the JSON arena.
 /// `cost_share` / `token_share` are 0 when omitted; Settings Usage
@@ -741,6 +784,14 @@ pub const ParsedUsageHistory = struct {
     month_count: usize = 0,
     projects: [max_parsed_usage_projects]ParsedUsageProject = [_]ParsedUsageProject{.{}} ** max_parsed_usage_projects,
     project_count: usize = 0,
+    quality: ParsedCostQuality = .{},
+    pricing: PricingStatus = .unknown,
+    records: u64 = 0,
+    scanned_files: u64 = 0,
+    skipped_files: u64 = 0,
+    scan_duration_secs: f64 = 0,
+    errors: [max_parsed_usage_errors][]const u8 = [_][]const u8{""} ** max_parsed_usage_errors,
+    error_count: usize = 0,
 };
 
 /// `event.kind` values the demo will eventually render.
@@ -2393,6 +2444,13 @@ pub fn parseUsageHistory(allocator: std.mem.Allocator, line: []const u8) ParsedU
     parsed.daily_count = parseUsageDays(history.get("daily"), &parsed.daily);
     parsed.month_count = parseUsageMonths(history.get("months"), &parsed.months);
     parsed.project_count = parseUsageProjects(history.get("projects"), &parsed.projects);
+    parsed.quality = parseCostQuality(history.get("quality"));
+    parsed.pricing = PricingStatus.fromWire(jsonStringValue(history.get("pricing")) orelse "") orelse .unknown;
+    parsed.records = jsonU64OrZero(history.get("records"));
+    parsed.scanned_files = jsonU64OrZero(history.get("scannedFiles"));
+    parsed.skipped_files = jsonU64OrZero(history.get("skippedFiles"));
+    parsed.scan_duration_secs = parseScanDurationSecs(history.get("scanDuration"));
+    parsed.error_count = parseUsageErrors(history.get("errors"), &parsed.errors);
     return parsed;
 }
 
@@ -2574,6 +2632,49 @@ fn parseUsageProjects(value: ?std.json.Value, dest: *[max_parsed_usage_projects]
             .cost_usd = jsonF64Value(obj.get("costUsd")),
             .sessions = jsonU64OrZero(obj.get("sessions")),
         };
+        n += 1;
+    }
+    return n;
+}
+
+fn clampParsedShare(value: f64) f64 {
+    if (!std.math.isFinite(value) or !(value > 0)) return 0;
+    if (value >= 1) return 1;
+    return value;
+}
+
+fn parseCostQuality(value: ?std.json.Value) ParsedCostQuality {
+    var quality = ParsedCostQuality{};
+    const item = value orelse return quality;
+    const obj = jsonObject(item) orelse return quality;
+    quality.provider_reported_share = clampParsedShare(jsonF64Value(obj.get("providerReportedShare")));
+    quality.model_priced_share = clampParsedShare(jsonF64Value(obj.get("modelPricedShare")));
+    quality.unpriced_share = clampParsedShare(jsonF64Value(obj.get("unpricedShare")));
+    const savings = jsonF64Value(obj.get("cacheSavingsUsd"));
+    quality.cache_savings_usd = if (std.math.isFinite(savings)) savings else 0;
+    return quality;
+}
+
+fn parseScanDurationSecs(value: ?std.json.Value) f64 {
+    const item = value orelse return 0;
+    if (jsonObject(item)) |obj| {
+        const secs = jsonF64Value(obj.get("secs"));
+        const nanos = jsonF64Value(obj.get("nanos"));
+        const total = secs + nanos / 1_000_000_000.0;
+        return if (std.math.isFinite(total) and total > 0) total else 0;
+    }
+    const secs = jsonF64Value(item);
+    return if (std.math.isFinite(secs) and secs > 0) secs else 0;
+}
+
+fn parseUsageErrors(value: ?std.json.Value, dest: *[max_parsed_usage_errors][]const u8) usize {
+    const items = jsonArrayItems(value orelse return 0) orelse return 0;
+    var n: usize = 0;
+    for (items) |item| {
+        if (n >= dest.len) break;
+        const text = jsonStringValue(item) orelse continue;
+        if (text.len == 0) continue;
+        dest[n] = text;
         n += 1;
     }
     return n;
@@ -5529,17 +5630,77 @@ test "parseUsageHistory reads a minimal usageHistory fixture and ignores unknown
     try std.testing.expectEqual(@as(u64, 4), parsed.months[0].sessions);
     try std.testing.expectEqual(@as(usize, 1), parsed.project_count);
     try std.testing.expectEqualStrings("/tmp/faku", parsed.projects[0].path);
+    try std.testing.expectEqual(PricingStatus.fresh, parsed.pricing);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), parsed.quality.provider_reported_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), parsed.quality.model_priced_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), parsed.quality.unpriced_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), parsed.quality.cache_savings_usd, 0.0001);
+    try std.testing.expectEqual(@as(u64, 9), parsed.records);
+    try std.testing.expectEqual(@as(u64, 3), parsed.scanned_files);
+    try std.testing.expectEqual(@as(u64, 0), parsed.skipped_files);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), parsed.scan_duration_secs, 0.0001);
+    try std.testing.expectEqual(@as(usize, 0), parsed.error_count);
 
     const empty = parseUsageHistory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{}}}}");
     try std.testing.expect(empty.ok);
     try std.testing.expectEqual(@as(u64, 0), empty.total_tokens);
     try std.testing.expectEqual(@as(usize, 0), empty.provider_count);
+    try std.testing.expectEqual(PricingStatus.unknown, empty.pricing);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), empty.quality.provider_reported_share, 0.0001);
+    try std.testing.expectEqual(@as(usize, 0), empty.error_count);
+    try std.testing.expectEqual(@as(u64, 0), empty.records);
 
     try std.testing.expect(!parseUsageHistory(arena, "{\"type\":\"usageHistory\",\"history\":{}}").ok);
     try std.testing.expect(!parseUsageHistory(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}").ok);
     try std.testing.expect(!parseUsageHistory(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"unknown command\"}}}").ok);
     try std.testing.expect(!parseUsageHistory(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
     try std.testing.expect(!parseUsageHistory(arena, "{\"type\":\"rejected\",\"message\":\"unknown command\"}").ok);
+}
+
+test "parseUsageHistory reads quality shares, pricing status, errors, and scan meta" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const line =
+        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000015","outcome":{"status":"ok","payload":{"type":"usageHistory","history":{"quality":{"providerReportedShare":0.5,"modelPricedShare":0.3,"unpricedShare":0.2,"cacheSavingsUsd":1.5},"pricing":"unavailable","records":12,"scannedFiles":4,"skippedFiles":2,"errors":["scan failed","bad json",""],"scanDuration":{"secs":2,"nanos":500000000}}}}}
+    ;
+    const parsed = parseUsageHistory(arena, line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqual(PricingStatus.unavailable, parsed.pricing);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5), parsed.quality.provider_reported_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.3), parsed.quality.model_priced_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.2), parsed.quality.unpriced_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.5), parsed.quality.cache_savings_usd, 0.0001);
+    try std.testing.expectEqual(@as(u64, 12), parsed.records);
+    try std.testing.expectEqual(@as(u64, 4), parsed.scanned_files);
+    try std.testing.expectEqual(@as(u64, 2), parsed.skipped_files);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.5), parsed.scan_duration_secs, 0.0001);
+    try std.testing.expectEqual(@as(usize, 2), parsed.error_count);
+    try std.testing.expectEqualStrings("scan failed", parsed.errors[0]);
+    try std.testing.expectEqualStrings("bad json", parsed.errors[1]);
+
+    const cached = parseUsageHistory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"pricing\":\"cached\"}}}}");
+    try std.testing.expect(cached.ok);
+    try std.testing.expectEqual(PricingStatus.cached, cached.pricing);
+
+    const fresh = parseUsageHistory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"pricing\":\"fresh\"}}}}");
+    try std.testing.expectEqual(PricingStatus.fresh, fresh.pricing);
+
+    const unknown_pricing = parseUsageHistory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"pricing\":\"stale\"}}}}");
+    try std.testing.expectEqual(PricingStatus.unknown, unknown_pricing.pricing);
+
+    const empty_quality = parseUsageHistory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"quality\":{}}}}}");
+    try std.testing.expect(empty_quality.ok);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), empty_quality.quality.provider_reported_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), empty_quality.quality.cache_savings_usd, 0.0001);
+    try std.testing.expectEqual(PricingStatus.unknown, empty_quality.pricing);
+
+    const clamped = parseUsageHistory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"quality\":{\"providerReportedShare\":1.5,\"modelPricedShare\":-0.2,\"unpricedShare\":0,\"cacheSavingsUsd\":0}}}}}");
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), clamped.quality.provider_reported_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), clamped.quality.model_priced_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), clamped.quality.unpriced_share, 0.0001);
 }
 
 test "refreshBackgroundWork is a bare command with sessionId and runtimeId on the request frame" {

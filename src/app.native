@@ -315,6 +315,11 @@
                   </row>
                 </if>
                 <if test="{has_usage_history}">
+                  <if test="{has_usage_notice}">
+                    <for each="usage_notice_rows" key="id" as="n">
+                      <text wrap="true" foreground="text_muted">{n.line}</text>
+                    </for>
+                  </if>
                   <if test="{usage_view_daily}">
                     <card size="sm" padding="10">
                       <column gap="8">
@@ -347,6 +352,22 @@
                         </for>
                       </column>
                     </card>
+                    <if test="{has_usage_quality}">
+                      <card size="sm" padding="10">
+                        <column gap="8">
+                          <text>Cost quality</text>
+                          <for each="usage_quality_rows" key="id" as="q">
+                            <column gap="4">
+                              <text wrap="false" overflow="ellipsis">{q.line}</text>
+                              <if test="{q.has_share}">
+                                <progress value="{q.share}" width="48" height="6" label="{q.percent}" />
+                              </if>
+                              <text wrap="false" overflow="ellipsis" foreground="text_muted">{q.percent}</text>
+                            </column>
+                          </for>
+                        </column>
+                      </card>
+                    </if>
                   </if>
                   <else>
                   <if test="{usage_view_monthly}">
@@ -400,6 +421,9 @@
                   </if>
                   </else>
                   </else>
+                  <if test="{has_usage_scan_footer}">
+                    <text wrap="true" foreground="text_muted">{usage_scan_footer}</text>
+                  </if>
                 </if>
                 <else>
                   <if test="{has_usage_history_hint}">
