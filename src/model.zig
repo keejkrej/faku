@@ -326,8 +326,10 @@ pub const SkillRow = struct {
 };
 
 /// Settings Usage history row. `id` is a 1-based Native `for` key.
-/// Daily provider rows also carry `share` / `percent` / `has_share`
-/// for first-cut share bars. Monthly / Projects leave those empty.
+/// Daily provider and day rows also carry `share` / `percent` /
+/// `has_share` for first-cut share bars (providers vs totals; days
+/// vs the max day in the window). Monthly / Projects leave those
+/// empty.
 pub const UsageHistoryRow = usage_history.Row;
 
 /// Settings Providers row. `id` is 1-based `ProviderId` so Native

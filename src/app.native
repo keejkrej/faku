@@ -337,7 +337,13 @@
                           </column>
                         </for>
                         <for each="usage_daily_rows" key="id" as="d">
-                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{d.line}</text>
+                          <column gap="4">
+                            <text wrap="false" overflow="ellipsis">{d.line}</text>
+                            <if test="{d.has_share}">
+                              <progress value="{d.share}" width="48" height="6" label="{d.percent}" />
+                              <text wrap="false" overflow="ellipsis" foreground="text_muted">{d.percent}</text>
+                            </if>
+                          </column>
                         </for>
                       </column>
                     </card>
