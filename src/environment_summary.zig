@@ -110,10 +110,11 @@
 //! parity. First-cut 5s `BACKGROUND_WORK_REFRESH_INTERVAL` tick
 //! ships (`background_work.maybeRefresh` piggybacks `now_ms` / the
 //! update tick; Native has no dedicated timer; skips in-flight;
-//! selected session only). First-cut daemon `refreshBackgroundWork`
+//! prefers selected, else one live other session). First-cut daemon `refreshBackgroundWork`
 //! prefers hello + that command when a daemon address and usable
 //! session `runtimeId` are set on Background tab / Environment Summary
-//! open (immediate) and on that 5s tick while the UI cares (one-shot
+//! open (immediate) and on that 5s tick (selected when the UI cares,
+//! else one live other session; one-shot
 //! sidecar; Ack plus `backgroundWork` events; reconcileProcesses /
 //! reconcileLive / upsert / outputDelta / stopFailed into daemon-sourced
 //! registry rows; miss

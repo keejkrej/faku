@@ -18,18 +18,24 @@
 //! ships as `maybeRefresh` on the existing update / stream tick
 //! (same `now_ms` piggyback as the 100ms output cache; Native has
 //! no dedicated timer). It reuses `trySpawn` (hello +
-//! `refreshBackgroundWork`) for the selected session only when a
-//! daemon address and usable `runtimeId` are set **and** the UI
-//! cares: Background tab showing, Environment Summary open, or
-//! that selected session has live Process / Monitor / Subagent /
-//! daemon-sourced rows (Waku `selected == session ||
-//! registry.has_live`, selected-only this cut). Throttled to 5s
-//! from `last_background_work_refresh_ms` (runtime-only; stamped
-//! when a spawn is actually attempted, open path and tick path).
-//! Unset last fires immediately on the first eligible tick. An
-//! in-flight refresh sidecar (`daemon_background_work_key != 0`)
+//! `refreshBackgroundWork`) for **one** session when a daemon
+//! address and usable `runtimeId` are set (Waku
+//! `maybe_refresh_background_work`: `selected == session ||
+//! registry.has_live`). Prefer selected when it has a usable
+//! `runtimeId` and the UI cares: Background tab showing,
+//! Environment Summary open, or that selected session has live
+//! Process / Monitor / Subagent / daemon-sourced rows. Else one
+//! other session with live rows, a usable `runtimeId`, and a
+//! daemon address (catalog fill order, lowest session id). One
+//! in-flight sidecar (`daemon_background_work_key`); do not spawn
+//! N concurrent refreshes. Throttled to 5s from
+//! `last_background_work_refresh_ms` (runtime-only; stamped when
+//! a spawn is actually attempted, open path and tick path; global
+//! this cut, not a per-session map). Unset last fires immediately
+//! on the first eligible tick. An in-flight refresh sidecar
 //! skips quietly — the tick does not cancel/re-spawn. Open-path
-//! `refresh` remains the immediate reconcile. Not Waku's 1s
+//! `refresh` remains the immediate selected-session reconcile
+//! (cancel in-flight then `trySpawn` selected). Not Waku's 1s
 //! `BACKGROUND_WORK_TICK_INTERVAL` registry loop, not full
 //! BackgroundWorkRegistry / GPUI SharedString parity. First-cut
 //! `outputDelta` appends a bounded last-window onto an existing
@@ -86,58 +92,85 @@ pub fn cancel(model: *Model, fx: *Effects) void {
 /// a usable session `runtimeId` are set. Missing address / runtimeId
 /// / Native 4 KiB stdin overflow keep local Background rows.
 /// Cancels an in-flight refresh sidecar so open/select is immediate.
+/// Open-path always targets the selected session.
 pub fn refresh(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
-    _ = trySpawn(model, fx);
+    _ = trySpawn(model, fx, model.selected);
 }
 
 /// First-cut Waku `BACKGROUND_WORK_REFRESH_INTERVAL` tick. Reuses
 /// `trySpawn` (does not duplicate sidecar stdin). Skips when a
-/// refresh sidecar is already in flight. Open-path `refresh` stays
-/// the immediate reconcile.
+/// refresh sidecar is already in flight. Prefers selected when UI
+/// care + usable `runtimeId`; else one other live session. Open-path
+/// `refresh` stays the immediate selected reconcile.
 pub fn maybeRefresh(model: *Model, fx: *Effects) void {
     if (model.daemon_background_work_key != 0) return;
-    if (!uiWantsBackgroundRefresh(model)) return;
+    const session_id = refreshTargetSession(model) orelse return;
     if (model.last_background_work_refresh_ms) |last| {
         if (model.now_ms >= last and model.now_ms - last < background_work_refresh_interval_ms) {
             return;
         }
     }
-    _ = trySpawn(model, fx);
+    _ = trySpawn(model, fx, session_id);
 }
 
-fn uiWantsBackgroundRefresh(model: *const Model) bool {
+fn uiWantsSelectedRefresh(model: *const Model) bool {
     if (model.right_panel_showing_background()) return true;
     if (model.environment_summary_open) return true;
-    return selectedHasLiveBackground(model);
+    return sessionHasLiveBackground(model, model.selected);
 }
 
-/// Selected-session live rows only this cut (Waku
-/// `selected == session || registry.has_live`, no fan-out).
-fn selectedHasLiveBackground(model: *const Model) bool {
-    if (model.is_streaming() and model.streaming_session == model.selected) return true;
+fn sessionHasUsableRuntimeId(model: *const Model, session_id: u32) bool {
+    const session = model.sessionByIdConst(session_id) orelse return false;
+    return protocol.isUsableRuntimeId(session.runtimeId());
+}
+
+fn sessionHasLiveBackground(model: *const Model, session_id: u32) bool {
+    if (session_id == 0) return false;
+    if (model.is_streaming() and model.streaming_session == session_id) return true;
     var i: u32 = 0;
     while (i < model.background_monitor_count) : (i += 1) {
         const slot = &model.background_monitors[i];
-        if (slot.settled == .none and slot.session_id == model.selected) return true;
+        if (slot.settled == .none and slot.session_id == session_id) return true;
     }
     i = 0;
     while (i < model.background_subagent_count) : (i += 1) {
         const slot = &model.background_subagents[i];
-        if (slot.settled == .none and slot.session_id == model.selected) return true;
+        if (slot.settled == .none and slot.session_id == session_id) return true;
     }
     i = 0;
     while (i < model.background_daemon_count) : (i += 1) {
         const slot = &model.background_daemon[i];
-        if (slot.settled == .none and slot.session_id == model.selected) return true;
+        if (slot.settled == .none and slot.session_id == session_id) return true;
     }
     return false;
 }
 
-fn trySpawn(model: *Model, fx: *Effects) bool {
+/// Waku `selected == session || registry.has_live`, one sidecar.
+/// Prefer selected when it is a refresh candidate; else the lowest
+/// other session id with live rows + usable `runtimeId`.
+fn refreshTargetSession(model: *const Model) ?u32 {
+    if (sessionHasUsableRuntimeId(model, model.selected) and uiWantsSelectedRefresh(model)) {
+        return model.selected;
+    }
+    return firstLiveFanoutSession(model);
+}
+
+fn firstLiveFanoutSession(model: *const Model) ?u32 {
+    var chosen: ?u32 = null;
+    for (model.sessions()) |session| {
+        if (session.id == 0 or session.id == model.selected) continue;
+        if (!protocol.isUsableRuntimeId(session.runtimeId())) continue;
+        if (!sessionHasLiveBackground(model, session.id)) continue;
+        if (chosen == null or session.id < chosen.?) chosen = session.id;
+    }
+    return chosen;
+}
+
+fn trySpawn(model: *Model, fx: *Effects, session_id: u32) bool {
     const address = store.resolveDaemonMirrorAddress(model);
     if (address.len == 0) return false;
-    const session = model.sessionById(model.selected) orelse return false;
+    const session = model.sessionById(session_id) orelse return false;
     if (!protocol.isUsableRuntimeId(session.runtimeId())) return false;
 
     var id_buf: [36]u8 = undefined;
@@ -262,6 +295,8 @@ fn pendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
 }
 
 const usable_runtime_id = "00000000-0000-0000-0000-000000000003";
+const other_runtime_id = "00000000-0000-0000-0000-000000000004";
+const third_runtime_id = "00000000-0000-0000-0000-000000000005";
 
 const reconcile_line = "{\"type\":\"event\",\"sessionId\":\"00000000-0000-0000-0000-000000000001\",\"runtimeId\":\"00000000-0000-0000-0000-000000000003\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"reconcileProcesses\",\"items\":[{\"key\":{\"kind\":\"process\",\"providerId\":\"proc-1\"},\"title\":\"npm run dev\",\"status\":\"running\",\"output\":\"ready\\n\"}]}}}";
 
@@ -780,4 +815,202 @@ test "update tick path maybeRefresh after 5s; open path still immediate" {
     try std.testing.expect(tick.key != open_key);
     try std.testing.expect(std.mem.indexOf(u8, tick.stdin, "\"type\":\"refreshBackgroundWork\"") != null);
     try std.testing.expectEqual(@as(?i64, 1_000 + background_work_refresh_interval_ms), model.last_background_work_refresh_ms);
+}
+
+const FanoutSeed = struct {
+    model: Model,
+    selected_id: u32,
+    other_id: u32,
+};
+
+fn seedFanoutModel() FanoutSeed {
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const other_id = model.addSession("bg other", .fx);
+    const selected_id = model.addSession("bg selected", .fx);
+    model.selected = selected_id;
+    if (model.sessionById(selected_id)) |session| session.setRuntimeId(usable_runtime_id);
+    if (model.sessionById(other_id)) |session| session.setRuntimeId(other_runtime_id);
+    model.now_ms = 10_000;
+    return .{ .model = model, .selected_id = selected_id, .other_id = other_id };
+}
+
+fn expectRefreshFor(sidecar: anytype, session_id: u32, runtime_id: []const u8) !void {
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"refreshBackgroundWork\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    var uuid_buf: [36]u8 = undefined;
+    const wire = daemon_proxy.wireUuid(session_id, &uuid_buf);
+    var session_buf: [80]u8 = undefined;
+    const session_needle = std.fmt.bufPrint(&session_buf, "\"sessionId\":\"{s}\"", .{wire}) catch return error.SessionNeedle;
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, session_needle) != null);
+    var runtime_buf: [80]u8 = undefined;
+    const runtime_needle = std.fmt.bufPrint(&runtime_buf, "\"runtimeId\":\"{s}\"", .{runtime_id}) catch return error.RuntimeNeedle;
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, runtime_needle) != null);
+}
+
+test "maybeRefresh still prefers selected when UI cares even if another session is live" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var seed = seedFanoutModel();
+    showBackgroundTab(&seed.model);
+    applyDaemonLine(&seed.model, seed.other_id, stoppable_upsert_line);
+    maybeRefresh(&seed.model, &fx);
+    const sidecar = pendingSpawnKey(&fx, seed.model.daemon_background_work_key) orelse return error.MissingSelectedPreferRefresh;
+    try expectRefreshFor(sidecar, seed.selected_id, usable_runtime_id);
+    try std.testing.expectEqual(seed.selected_id, seed.model.daemon_background_work_session);
+}
+
+test "maybeRefresh still prefers selected live over another live session" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var seed = seedFanoutModel();
+    applyDaemonLine(&seed.model, seed.selected_id, stoppable_upsert_line);
+    applyDaemonLine(&seed.model, seed.other_id, live_no_control_line);
+    try std.testing.expect(!seed.model.right_panel_open);
+    maybeRefresh(&seed.model, &fx);
+    const sidecar = pendingSpawnKey(&fx, seed.model.daemon_background_work_key) orelse return error.MissingSelectedLivePreferRefresh;
+    try expectRefreshFor(sidecar, seed.selected_id, usable_runtime_id);
+    try std.testing.expectEqual(seed.selected_id, seed.model.daemon_background_work_session);
+}
+
+test "maybeRefresh fans out to another live session when selected has no live" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var seed = seedFanoutModel();
+    applyDaemonLine(&seed.model, seed.other_id, stoppable_upsert_line);
+    try std.testing.expectEqual(seed.other_id, seed.model.background_daemon[0].session_id);
+    try std.testing.expectEqual(environment_summary.SettledStatus.none, seed.model.background_daemon[0].settled);
+    try std.testing.expect(!seed.model.right_panel_open);
+    try std.testing.expect(!seed.model.environment_summary_open);
+    maybeRefresh(&seed.model, &fx);
+    const sidecar = pendingSpawnKey(&fx, seed.model.daemon_background_work_key) orelse return error.MissingFanoutRefresh;
+    try expectRefreshFor(sidecar, seed.other_id, other_runtime_id);
+    try std.testing.expectEqual(seed.other_id, seed.model.daemon_background_work_session);
+    try std.testing.expectEqual(@as(?i64, 10_000), seed.model.last_background_work_refresh_ms);
+}
+
+test "maybeRefresh fans out when selected has no usable runtimeId" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var seed = seedFanoutModel();
+    if (seed.model.sessionById(seed.selected_id)) |session| session.setRuntimeId("");
+    showBackgroundTab(&seed.model);
+    applyDaemonLine(&seed.model, seed.other_id, stoppable_upsert_line);
+    maybeRefresh(&seed.model, &fx);
+    const sidecar = pendingSpawnKey(&fx, seed.model.daemon_background_work_key) orelse return error.MissingFanoutNoSelectedRuntime;
+    try expectRefreshFor(sidecar, seed.other_id, other_runtime_id);
+    try std.testing.expectEqual(seed.other_id, seed.model.daemon_background_work_session);
+}
+
+test "maybeRefresh fan-out skips while a refresh sidecar is in flight" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var seed = seedFanoutModel();
+    showBackgroundTab(&seed.model);
+    refresh(&seed.model, &fx);
+    const open_key = seed.model.daemon_background_work_key;
+    try std.testing.expect(open_key != 0);
+    try std.testing.expectEqual(seed.selected_id, seed.model.daemon_background_work_session);
+    applyDaemonLine(&seed.model, seed.other_id, stoppable_upsert_line);
+    seed.model.now_ms += background_work_refresh_interval_ms;
+    maybeRefresh(&seed.model, &fx);
+    try std.testing.expectEqual(open_key, seed.model.daemon_background_work_key);
+    try std.testing.expectEqual(seed.selected_id, seed.model.daemon_background_work_session);
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+}
+
+test "maybeRefresh fan-out within 5s does not spawn" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var seed = seedFanoutModel();
+    seed.model.last_background_work_refresh_ms = seed.model.now_ms - (background_work_refresh_interval_ms - 1);
+    applyDaemonLine(&seed.model, seed.other_id, stoppable_upsert_line);
+    maybeRefresh(&seed.model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), seed.model.daemon_background_work_key);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "open-path refresh still targets selected immediately when another session is live" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var seed = seedFanoutModel();
+    applyDaemonLine(&seed.model, seed.other_id, stoppable_upsert_line);
+    seed.model.last_background_work_refresh_ms = seed.model.now_ms;
+    refresh(&seed.model, &fx);
+    const sidecar = pendingSpawnKey(&fx, seed.model.daemon_background_work_key) orelse return error.MissingOpenPathSelected;
+    try expectRefreshFor(sidecar, seed.selected_id, usable_runtime_id);
+    try std.testing.expectEqual(seed.selected_id, seed.model.daemon_background_work_session);
+
+    finishRefreshSidecar(&seed.model);
+    if (seed.model.sessionById(seed.selected_id)) |session| session.setRuntimeId("");
+    refresh(&seed.model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), seed.model.daemon_background_work_key);
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
+}
+
+test "maybeRefresh fan-out keeps quiet without daemon address or usable other runtimeId" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var seed = seedFanoutModel();
+    seed.model.setLastDaemonAddress("");
+    applyDaemonLine(&seed.model, seed.other_id, stoppable_upsert_line);
+    maybeRefresh(&seed.model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), seed.model.daemon_background_work_key);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try std.testing.expectEqual(@as(?i64, null), seed.model.last_background_work_refresh_ms);
+
+    seed = seedFanoutModel();
+    if (seed.model.sessionById(seed.other_id)) |session| session.setRuntimeId("");
+    applyDaemonLine(&seed.model, seed.other_id, stoppable_upsert_line);
+    maybeRefresh(&seed.model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), seed.model.daemon_background_work_key);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "maybeRefresh does not fan out to settled other-session rows" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var seed = seedFanoutModel();
+    applyDaemonLine(&seed.model, seed.other_id, settled_upsert_line);
+    try std.testing.expectEqual(environment_summary.SettledStatus.completed, seed.model.background_daemon[0].settled);
+    maybeRefresh(&seed.model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), seed.model.daemon_background_work_key);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+test "maybeRefresh fan-out picks the lowest other session id among live sessions" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var seed = seedFanoutModel();
+    const third_id = seed.model.addSession("bg third", .fx);
+    if (seed.model.sessionById(third_id)) |session| session.setRuntimeId(third_runtime_id);
+    applyDaemonLine(&seed.model, seed.other_id, stoppable_upsert_line);
+    applyDaemonLine(&seed.model, third_id, live_no_control_line);
+    try std.testing.expect(seed.other_id < third_id);
+    maybeRefresh(&seed.model, &fx);
+    const sidecar = pendingSpawnKey(&fx, seed.model.daemon_background_work_key) orelse return error.MissingLowestIdFanout;
+    try expectRefreshFor(sidecar, seed.other_id, other_runtime_id);
+    try std.testing.expectEqual(seed.other_id, seed.model.daemon_background_work_session);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, third_runtime_id) == null);
 }
