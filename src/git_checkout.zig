@@ -18,7 +18,10 @@
 //! the session `project_path` / list-probe cwd — `project_path` may
 //! be a subdirectory of that worktree). Occupied locals stay in the
 //! picker with a short label marker and are refused for checkout and
-//! delete. Remotes are never occupied. Empty `%(worktreepath)`
+//! delete. The open picker filters listed names with a runtime-only
+//! case-insensitive substring (empty query shows every row; occupied
+//! rows still appear when they match; not persisted). Remotes are
+//! never occupied. Empty `%(worktreepath)`
 //! is not occupied. Ready toplevel compares `worktreepath` equal to
 //! that root; otherwise today's path-prefix heuristic.
 //! Checking out a listed local name one-shots `git checkout <name>`
@@ -1965,6 +1968,7 @@ pub fn clearListedBranches(model: *Model) void {
 }
 
 pub fn closePicker(model: *Model) void {
+    model.clearGitBranchSearch();
     model.git_branch_picker_open = false;
 }
 
@@ -5266,6 +5270,61 @@ test "delete rows omit occupied locals" {
     try std.testing.expect(!canDeleteGitBranch(&model));
     const none = model.git_branch_delete_rows(arena);
     try std.testing.expectEqual(@as(usize, 0), none.len);
+}
+
+test "git_branch_picker_rows filters listed names case-insensitively" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    model.git_branch_list_store[0].set("feat", false, false);
+    model.git_branch_list_store[1].set("main", false, false);
+    model.git_branch_list_store[2].set("occupied", false, true);
+    model.git_branch_list_store[3].set("origin/only", true, false);
+    model.git_branch_list_count = 4;
+    writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+
+    const all = model.git_branch_picker_rows(arena);
+    try std.testing.expectEqual(@as(usize, 4), all.len);
+    try std.testing.expectEqualStrings("feat", all[0].id);
+    try std.testing.expectEqualStrings("occupied (worktree)", all[2].label);
+
+    model.applyGitBranchSearch(.{ .insert_text = "FEAT" });
+    const feat = model.git_branch_picker_rows(arena);
+    try std.testing.expectEqual(@as(usize, 1), feat.len);
+    try std.testing.expectEqualStrings("feat", feat[0].id);
+    try std.testing.expectEqualStrings("feat", feat[0].label);
+
+    model.applyGitBranchSearch(.clear);
+    model.applyGitBranchSearch(.{ .insert_text = "occup" });
+    const occupied = model.git_branch_picker_rows(arena);
+    try std.testing.expectEqual(@as(usize, 1), occupied.len);
+    try std.testing.expectEqualStrings("occupied", occupied[0].id);
+    try std.testing.expectEqualStrings("occupied (worktree)", occupied[0].label);
+
+    model.applyGitBranchSearch(.clear);
+    model.applyGitBranchSearch(.{ .insert_text = "ORIGIN" });
+    const remote = model.git_branch_picker_rows(arena);
+    try std.testing.expectEqual(@as(usize, 1), remote.len);
+    try std.testing.expectEqualStrings("origin/only", remote[0].id);
+
+    model.applyGitBranchSearch(.clear);
+    model.applyGitBranchSearch(.{ .insert_text = "zzzz" });
+    const none = model.git_branch_picker_rows(arena);
+    try std.testing.expectEqual(@as(usize, 0), none.len);
+
+    model.applyGitBranchSearch(.clear);
+    model.applyGitBranchSearch(.{ .insert_text = "worktree" });
+    const suffix = model.git_branch_picker_rows(arena);
+    try std.testing.expectEqual(@as(usize, 0), suffix.len);
+
+    model.git_branch_picker_open = true;
+    model.applyGitBranchSearch(.{ .insert_text = "feat" });
+    closePicker(&model);
+    try std.testing.expect(!model.git_branch_picker_open);
+    try std.testing.expectEqualStrings("", model.git_branch_search());
+    try std.testing.expectEqual(@as(usize, 4), model.git_branch_picker_rows(arena).len);
 }
 
 test "beginPushAfterCommit starts the upstream probe when canPushGitBranch is false" {

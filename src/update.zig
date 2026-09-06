@@ -184,6 +184,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .pick_effort => |id| settings_actions.handlePickEffort(model, fx, id),
         .toggle_git_branch_picker => settings_actions.handleToggleGitBranchPicker(model),
         .close_git_branch_picker => model.closeGitBranchPicker(),
+        .git_branch_search_edit => |edit| settings_actions.handleGitBranchSearchEdit(model, edit),
         .pick_git_branch => |name| settings_actions.handlePickGitBranch(model, fx, name),
         .start_git_branch_create => settings_actions.handleStartGitBranchCreate(model, fx),
         .git_branch_create_edit => |edit| settings_actions.handleGitBranchCreateEdit(model, edit),

@@ -832,6 +832,7 @@
                     <select size="sm" placeholder="Branch" on-press="toggle_git_branch_picker">{git_branch_label}</select>
                     <if test="{git_branch_picker_open}">
                       <dropdown-menu anchor="above" anchor-alignment="stretch" on-dismiss="close_git_branch_picker">
+                        <search-field grow="1" height="24" placeholder="Search branches" text="{git_branch_search}" on-input="git_branch_search_edit" autofocus="true" label="Search branches" />
                         <menu-item on-press="start_git_branch_create">New branch…</menu-item>
                         <menu-item on-press="start_git_worktree_create">New worktree…</menu-item>
                         <if test="{can_delete_git_branch}">
