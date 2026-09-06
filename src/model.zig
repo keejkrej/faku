@@ -331,10 +331,10 @@ pub const SkillRow = struct {
 /// (providers vs totals; models vs totals; days vs the max day in the
 /// window; months vs the max month in the window; projects vs the max
 /// project in the window) and Daily Cost quality rows (three shares plus cache
-/// savings USD). Daily Days rows also carry first-cut nested Claude/Codex
-/// `byProvider` bars (`has_by_provider` plus `claude_*` / `codex_*`;
-/// share within that day's Cost|Tokens total). Notice rows reuse `line`
-/// for error / rates-unavailable captions.
+/// savings USD). Daily Days / Monthly / Projects rows also carry first-cut
+/// nested Claude/Codex `byProvider` bars (`has_by_provider` plus `claude_*` /
+/// `codex_*`; share within that row's Cost|Tokens total). Notice rows reuse
+/// `line` for error / rates-unavailable captions.
 pub const UsageHistoryRow = usage_history.Row;
 
 /// Settings Providers row. `id` is 1-based `ProviderId` so Native
