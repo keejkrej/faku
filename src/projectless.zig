@@ -378,7 +378,8 @@ fn legacyDatedParts(home: []const u8, path: []const u8) ?LegacyDatedParts {
 }
 
 fn renamePath(io: std.Io, from: []const u8, to: []const u8) bool {
-    std.Io.Dir.cwd().rename(io, from, to) catch return false;
+    const dir = std.Io.Dir.cwd();
+    dir.rename(from, dir, to, io) catch return false;
     return true;
 }
 
