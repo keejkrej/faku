@@ -106,7 +106,7 @@
 //! Monitor / Subagent slots plus the cap-1 Process settle; live
 //! rows and the stream stay). Leftovers: Claude CLI TaskStop /
 //! long-lived ACP, Waku `BACKGROUND_WORK_TICK_INTERVAL` (1s)
-//! registry loop, full BackgroundWorkRegistry event/reconcile
+//! registry loop, full BackgroundWorkRegistry / GPUI SharedString
 //! parity. First-cut 5s `BACKGROUND_WORK_REFRESH_INTERVAL` tick
 //! ships (`background_work.maybeRefresh` piggybacks `now_ms` / the
 //! update tick; Native has no dedicated timer; skips in-flight;
@@ -115,14 +115,19 @@
 //! session `runtimeId` are set on Background tab / Environment Summary
 //! open (immediate) and on that 5s tick while the UI cares (one-shot
 //! sidecar; Ack plus `backgroundWork` events; reconcileProcesses /
-//! reconcileLive / upsert into daemon-sourced registry rows; miss
+//! reconcileLive / upsert / outputDelta / stopFailed into daemon-sourced
+//! registry rows; miss
 //! keeps local Process / Monitor / Subagent).
 //! First-cut daemon `stopBackgroundWork` prefers hello + that command
 //! when Background Stop targets a daemon-sourced live row and a
 //! daemon address, usable session `runtimeId`, and usable `controlId`
 //! are set (one-shot sidecar, distinct from refresh; optimistic
 //! Stopping; miss / overflow / no controlId keep Faku-side dismiss).
-//! Kind chrome, Process registry,
+//! First-cut `outputDelta` appends a bounded 512KB last-window onto
+//! an existing daemon-sourced row (empty delta / missing key are
+//! no-ops; does not mint a row). First-cut `stopFailed` clears
+//! Stopping on a still-live daemon row, restores Running / Monitoring,
+//! and surfaces `message` as detail. Kind chrome, Process registry,
 //! first-cut live Monitor rows from Claude `Monitor` tool_use plus
 //! a Waku-sized 512KB last-window log from matching user
 //! `tool_result` (Environment Summary stays a one-line preview;
@@ -146,8 +151,9 @@
 //! refreshBackgroundWork prefer path ships; first-cut 5s
 //! BACKGROUND_WORK_REFRESH_INTERVAL tick ships; first-cut
 //! stopBackgroundWork prefer path ships for live daemon rows with
-//! a controlId; 1s BACKGROUND_WORK_TICK_INTERVAL registry loop
-//! still deferred).
+//! a controlId; first-cut outputDelta + stopFailed ship for
+//! daemon-sourced rows; 1s BACKGROUND_WORK_TICK_INTERVAL registry
+//! loop still deferred).
 //! Not transcript checkpoint +/-. First-cut Force push ships on
 //! composer Push… / Commit… (runtime-only ghost). New worktree…
 //! first-cut Base picker ships. First-cut defer-until-Send
@@ -460,10 +466,11 @@ pub const LiveMonitor = struct {
 /// `refreshBackgroundWork` events. Keyed by `BackgroundWorkKey`
 /// (`kind` + `providerId`). Does not replace local Process /
 /// Monitor / Subagent stream rows. Heap last-window from item
-/// `output` / `detail` when present. Live rows with daemon
-/// `canStop` and a non-empty `controlId` expose Stop (hello +
-/// `stopBackgroundWork`). Settled rows stay Faku-side Dismiss.
-/// Not persisted.
+/// `output` / `detail` when present, plus first-cut `outputDelta`
+/// append (bounded 512KB). Live rows with daemon `canStop` and a
+/// non-empty `controlId` expose Stop (hello + `stopBackgroundWork`).
+/// First-cut `stopFailed` clears Stopping on a still-live row.
+/// Settled rows stay Faku-side Dismiss. Not persisted.
 pub const DaemonBackground = struct {
     kind: BackgroundKind = .process,
     id_storage: [max_monitor_id]u8 = [_]u8{0} ** max_monitor_id,
@@ -704,7 +711,9 @@ pub fn clearDaemonBackground(model: *Model) void {
 /// Apply a parsed `backgroundWork` event into daemon-sourced registry
 /// rows. Local Process / Monitor / Subagent slots are left alone
 /// (including settled leftovers a reconcile does not mention).
-/// `outputDelta` / `stopFailed` never reach here. `stopRequested`
+/// `outputDelta` appends onto an existing daemon slot (empty delta /
+/// missing key are no-ops; does not mint a row). `stopFailed`
+/// clears Stopping on a still-live daemon row. `stopRequested`
 /// marks that live key Stopping / non-stoppable.
 pub fn applyDaemonBackgroundEvent(model: *Model, session_id: u32, parsed: protocol.ParsedBackgroundWorkEvent) void {
     if (!parsed.ok or session_id == 0) return;
@@ -713,6 +722,8 @@ pub fn applyDaemonBackgroundEvent(model: *Model, session_id: u32, parsed: protoc
         .reconcile_processes => reconcileDaemon(model, session_id, parsed.items[0..parsed.item_count], .process_only),
         .reconcile_live => reconcileDaemon(model, session_id, parsed.items[0..parsed.item_count], .live),
         .stop_requested => markDaemonStopping(model, session_id, kindFromDaemon(parsed.item.key.kind), parsed.item.key.provider_id),
+        .output_delta => applyDaemonOutputDelta(model, session_id, parsed.item),
+        .stop_failed => applyDaemonStopFailed(model, session_id, parsed.item),
     }
     _ = refreshBackgroundOutputCacheNow(model);
 }
@@ -853,6 +864,42 @@ pub fn markDaemonStopping(model: *Model, session_id: u32, kind: BackgroundKind, 
         slot.stop_requested = true;
         slot.can_stop = false;
     }
+}
+
+/// Append `outputDelta` onto an existing daemon-sourced row.
+/// Empty delta / missing session+key are no-ops. Does not mint a
+/// row. Same 512KB drain-from-front last-window as Monitor /
+/// Subagent.
+fn applyDaemonOutputDelta(model: *Model, session_id: u32, item: protocol.ParsedBackgroundWorkItem) void {
+    if (item.output.len == 0) return;
+    const kind = kindFromDaemon(item.key.kind);
+    const index = findDaemonSlot(model, session_id, kind, item.key.provider_id) orelse return;
+    appendDaemonLog(&model.background_daemon[index], item.output);
+}
+
+/// Restore a still-live daemon row after `stopFailed`. Settled
+/// rows and missing keys are no-ops. Clears Stopping, restores
+/// Running (process/subagent) or Monitoring (monitor) — Faku
+/// derives that live label from kind — and surfaces `message` as
+/// the Environment Summary preview / last-window (append onto
+/// existing output so streamed last-window is not wiped).
+fn applyDaemonStopFailed(model: *Model, session_id: u32, item: protocol.ParsedBackgroundWorkItem) void {
+    const kind = kindFromDaemon(item.key.kind);
+    const index = findDaemonSlot(model, session_id, kind, item.key.provider_id) orelse return;
+    const slot = &model.background_daemon[index];
+    if (slot.settled != .none) return;
+    slot.stop_requested = false;
+    if (slot.controlId().len > 0) slot.can_stop = true;
+    if (item.detail.len > 0) appendDaemonLog(slot, item.detail);
+}
+
+fn appendDaemonLog(slot: *DaemonBackground, text: []const u8) void {
+    if (text.len == 0) return;
+    const storage = ensureLog(&slot.log);
+    if (storage.len == 0) return;
+    appendBounded(storage, &slot.log.output_len, text);
+    rebuildPreview(&slot.log);
+    slot.log.dirty_output = true;
 }
 
 pub fn dismissDaemonKey(model: *Model, session_id: u32, kind: BackgroundKind, provider_id: []const u8) void {
@@ -4474,5 +4521,99 @@ test "Subagent output cache throttles and strips split CSI" {
     try std.testing.expect(refreshBackgroundOutputCache(&model));
     try std.testing.expectEqualStrings("red", backgroundWorkOutput(&model));
     try std.testing.expectEqual(model.background_subagents[0].log.rendered().ptr, backgroundWorkOutput(&model).ptr);
+}
+
+fn applyDaemonEventLine(model: *Model, session_id: u32, line: []const u8) void {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseBackgroundWorkEvent(arena_state.allocator(), line);
+    applyDaemonBackgroundEvent(model, session_id, parsed);
+}
+
+test "outputDelta appends daemon last-window; empty delta and missing key are no-ops" {
+    var model = Model{};
+    const id = model.addSession("daemon outputDelta", .fx);
+    model.selected = id;
+    defer clearDaemonBackground(&model);
+
+    applyDaemonEventLine(&model, id, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"upsert\",\"key\":{\"kind\":\"process\",\"providerId\":\"proc-1\"},\"title\":\"npm run dev\",\"status\":\"running\",\"output\":\"ready\\n\",\"canStop\":true,\"controlId\":\"c1\"}}}");
+    try std.testing.expectEqual(@as(u32, 1), model.background_daemon_count);
+    try std.testing.expectEqualStrings("ready\n", model.background_daemon[0].log.output());
+
+    applyDaemonEventLine(&model, id, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"outputDelta\",\"key\":{\"kind\":\"process\",\"providerId\":\"proc-1\"},\"delta\":\"more\"}}}");
+    try std.testing.expectEqual(@as(u32, 1), model.background_daemon_count);
+    try std.testing.expectEqualStrings("ready\nmore", model.background_daemon[0].log.output());
+    try std.testing.expectEqualStrings("ready more", model.background_daemon[0].preview());
+
+    applyDaemonEventLine(&model, id, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"outputDelta\",\"key\":{\"kind\":\"process\",\"providerId\":\"proc-1\"},\"delta\":\"\"}}}");
+    try std.testing.expectEqualStrings("ready\nmore", model.background_daemon[0].log.output());
+
+    applyDaemonEventLine(&model, id, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"outputDelta\",\"key\":{\"kind\":\"process\",\"providerId\":\"missing\"},\"delta\":\"nope\"}}}");
+    try std.testing.expectEqual(@as(u32, 1), model.background_daemon_count);
+    try std.testing.expectEqualStrings("ready\nmore", model.background_daemon[0].log.output());
+    try std.testing.expectEqualStrings("proc-1", model.background_daemon[0].providerId());
+
+    var empty = Model{};
+    const empty_id = empty.addSession("daemon outputDelta miss", .fx);
+    empty.selected = empty_id;
+    defer clearDaemonBackground(&empty);
+    applyDaemonEventLine(&empty, empty_id, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"outputDelta\",\"key\":{\"kind\":\"process\",\"providerId\":\"proc-1\"},\"delta\":\"x\"}}}");
+    try std.testing.expectEqual(@as(u32, 0), empty.background_daemon_count);
+}
+
+test "stopFailed clears Stopping on a live daemon row; settled and missing keys are no-ops" {
+    var model = Model{};
+    const id = model.addSession("daemon stopFailed", .fx);
+    model.selected = id;
+    defer clearDaemonBackground(&model);
+
+    applyDaemonEventLine(&model, id, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"upsert\",\"key\":{\"kind\":\"process\",\"providerId\":\"proc-1\"},\"title\":\"npm run dev\",\"status\":\"running\",\"output\":\"ready\\n\",\"canStop\":true,\"controlId\":\"c1\"}}}");
+    markDaemonStopping(&model, id, .process, "proc-1");
+    try std.testing.expect(model.background_daemon[0].stop_requested);
+    try std.testing.expect(!model.background_daemon[0].can_stop);
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    const stopping = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 1), stopping.len);
+    try std.testing.expectEqualStrings(live_stopping_label, backgroundWorkStatus(stopping[0]));
+
+    applyDaemonEventLine(&model, id, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"stopFailed\",\"key\":{\"kind\":\"process\",\"providerId\":\"proc-1\"},\"message\":\"not running\"}}}");
+    try std.testing.expectEqual(@as(u32, 1), model.background_daemon_count);
+    try std.testing.expect(!model.background_daemon[0].stop_requested);
+    try std.testing.expect(model.background_daemon[0].can_stop);
+    try std.testing.expectEqual(SettledStatus.none, model.background_daemon[0].settled);
+    try std.testing.expectEqualStrings("ready\nnot running", model.background_daemon[0].log.output());
+    const restored = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 1), restored.len);
+    try std.testing.expect(restored[0].live);
+    try std.testing.expect(restored[0].can_stop);
+    try std.testing.expectEqualStrings(live_running_label, backgroundWorkStatus(restored[0]));
+    try std.testing.expect(std.mem.indexOf(u8, restored[0].detail, "not running") != null);
+
+    applyDaemonEventLine(&model, id, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"stopFailed\",\"key\":{\"kind\":\"process\",\"providerId\":\"missing\"},\"message\":\"gone\"}}}");
+    try std.testing.expectEqual(@as(u32, 1), model.background_daemon_count);
+    try std.testing.expectEqualStrings("ready\nnot running", model.background_daemon[0].log.output());
+
+    applyDaemonEventLine(&model, id, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"upsert\",\"key\":{\"kind\":\"monitor\",\"providerId\":\"toolu_live\"},\"title\":\"Watch\",\"status\":\"monitoring\",\"canStop\":true,\"controlId\":\"m1\"}}}");
+    markDaemonStopping(&model, id, .monitor, "toolu_live");
+    try std.testing.expect(model.background_daemon[1].stop_requested);
+    const before_monitor = model.background_daemon[1].log.output();
+    applyDaemonEventLine(&model, id, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"stopFailed\",\"key\":{\"kind\":\"monitor\",\"providerId\":\"toolu_live\"}}}}");
+    try std.testing.expect(!model.background_daemon[1].stop_requested);
+    try std.testing.expect(model.background_daemon[1].can_stop);
+    try std.testing.expectEqual(SettledStatus.none, model.background_daemon[1].settled);
+    try std.testing.expectEqualStrings(before_monitor, model.background_daemon[1].log.output());
+    const monitor_rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 2), monitor_rows.len);
+    try std.testing.expectEqual(BackgroundKind.monitor, monitor_rows[1].kind);
+    try std.testing.expectEqualStrings(live_monitoring_label, backgroundWorkStatus(monitor_rows[1]));
+
+    applyDaemonEventLine(&model, id, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"upsert\",\"key\":{\"kind\":\"monitor\",\"providerId\":\"toolu_s\"},\"title\":\"Watch\",\"status\":\"completed\",\"detail\":\"idle\"}}}");
+    try std.testing.expectEqual(@as(u32, 3), model.background_daemon_count);
+    try std.testing.expectEqual(SettledStatus.completed, model.background_daemon[2].settled);
+    const settled_log = model.background_daemon[2].log.output();
+    applyDaemonEventLine(&model, id, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"stopFailed\",\"key\":{\"kind\":\"monitor\",\"providerId\":\"toolu_s\"},\"message\":\"still dead\"}}}");
+    try std.testing.expectEqual(SettledStatus.completed, model.background_daemon[2].settled);
+    try std.testing.expectEqualStrings(settled_log, model.background_daemon[2].log.output());
+    try std.testing.expect(!model.background_daemon[2].stop_requested);
 }
 

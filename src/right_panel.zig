@@ -32,7 +32,12 @@
 //! daemon `stopBackgroundWork` prefers hello + that command when Stop
 //! targets a daemon-sourced live row with a daemon address, usable
 //! `runtimeId`, and `controlId` (distinct spawn key; optimistic
-//! Stopping; miss falls back to Faku-side dismiss). This cut ships a
+//! Stopping; miss falls back to Faku-side dismiss). First-cut
+//! `outputDelta` streams daemon last-window into an existing
+//! daemon-sourced row (empty delta / missing key are no-ops).
+//! First-cut `stopFailed` clears Stopping on a still-live daemon
+//! row. Leftover remains full BackgroundWorkRegistry / 1s tick /
+//! GPUI SharedString parity. This cut ships a
 //! 100ms CSI-stripped last-window render cache on Monitor / Subagent
 //! (piggybacks `now_ms` / the stream tick; Native has no dedicated
 //! 100ms timer). First-cut

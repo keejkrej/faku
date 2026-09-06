@@ -627,7 +627,7 @@ daemon `refreshBackgroundWork` prefers hello + that command when a
 daemon address and usable session `runtimeId` are set on Background
 tab open/select or Environment Summary open (immediate one-shot
 sidecar; Ack plus `backgroundWork` events apply reconcileProcesses /
-reconcileLive / upsert into daemon-sourced rows; miss / no runtimeId /
+reconcileLive / upsert / outputDelta / stopFailed into daemon-sourced rows; miss / no runtimeId /
 no address keeps local Process / Monitor / Subagent). First-cut 5s
 Waku `BACKGROUND_WORK_REFRESH_INTERVAL` tick ships as
 `background_work.maybeRefresh` on the existing update / stream tick
@@ -640,7 +640,11 @@ Summary is open, or that session has live Process / Monitor / Subagent
 Stop targets a daemon-sourced live row and a daemon address, usable
 session `runtimeId`, and usable `controlId` are set (one-shot sidecar,
 distinct from refresh; optimistic Stopping; miss / overflow / no
-controlId keep Faku-side dismiss). Not Waku's 1s
+controlId keep Faku-side dismiss). First-cut `outputDelta` appends a
+bounded 512KB last-window onto an existing daemon-sourced row (empty
+delta / missing key are no-ops; does not mint a row). First-cut
+`stopFailed` clears Stopping on a still-live daemon row, restores
+Running / Monitoring, and surfaces `message` as detail. Not Waku's 1s
 `BACKGROUND_WORK_TICK_INTERVAL` registry loop. Not daemon `WorkspaceOperation` for Background (first-cut daemon Push,
 CreateWorktree, Commit, InspectBranches, CheckoutBranch,
 InspectCommit, GenerateCommitMessage, ListTree, ListProjectFiles, DiscoverSlashCommands, CreateProjectlessWorkspace, MigrateProjectlessWorkspace, CollectReviewDiff,
@@ -706,7 +710,8 @@ session's settled leftovers (Monitor / Subagent slots plus the
 cap-1 Process settle) without stopping a live stream. Not Claude
 TaskStop. First-cut daemon `refreshBackgroundWork` prefer path
 ships as above (open plus first-cut 5s tick); first-cut daemon `stopBackgroundWork` prefer path
-ships for live daemon-sourced rows with a controlId; local Faku-side
+ships for live daemon-sourced rows with a controlId; first-cut
+`outputDelta` / `stopFailed` apply onto daemon-sourced rows; local Faku-side
 Stop / Dismiss remains.
 
 ## Settings Providers
@@ -939,7 +944,7 @@ Honest gaps this cut does not implement:
   daemon address and usable session `runtimeId` are set on Background
   tab / Environment Summary open (immediate one-shot sidecar; Ack plus
   `backgroundWork` events apply reconcileProcesses / reconcileLive /
-  upsert into daemon-sourced rows; miss keeps local rows) and on a
+  upsert / outputDelta / stopFailed into daemon-sourced rows; miss keeps local rows) and on a
   first-cut 5s `BACKGROUND_WORK_REFRESH_INTERVAL` tick piggybacked
   off `now_ms` / the update tick (selected session only while the
   Background tab is showing, Environment Summary is open, or that
@@ -951,7 +956,11 @@ Honest gaps this cut does not implement:
   address, usable `runtimeId`, and usable `controlId` are set
   (one-shot sidecar, distinct from refresh; optimistic Stopping;
   miss / overflow / no controlId keep Faku-side dismiss; settled
-  daemon rows stay Faku-side Dismiss); and a first-cut
+  daemon rows stay Faku-side Dismiss); first-cut `outputDelta`
+  appends a bounded last-window onto an existing daemon-sourced row
+  (empty delta / missing key are no-ops); first-cut `stopFailed`
+  restores a still-live Stopping row (Running / Monitoring) and
+  surfaces `message` as detail; and a first-cut
   right-panel Background surface from those rows that shows the
   stored Monitor / Subagent log, Stop when the selected row is
   a live Process, live Monitor, live Subagent, or a live daemon
