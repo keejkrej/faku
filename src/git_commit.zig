@@ -151,8 +151,12 @@
 //! `WorkspaceOperation::DiscoverSlashCommands` lives in
 //! `slash_commands` (prefer hello + discoverSlashCommands when a
 //! daemon address is set and `project_path` exists; seed
-//! `session.available_commands`; miss / overflow keep ACP). Leftovers:
-//! `createProjectlessWorkspace`, `migrateProjectlessWorkspace`;
+//! `session.available_commands`; miss / overflow keep ACP). First-cut
+//! daemon `WorkspaceOperation::CreateProjectlessWorkspace` lives in
+//! `projectless` (prefer hello + createProjectlessWorkspace on New
+//! Task when there is no ordinary project; miss / overflow fall back
+//! to local mkdir). Leftovers:
+//! `migrateProjectlessWorkspace`;
 //! amend/force and remote `--track` stay local (not daemon
 //! WorkspaceOperation variants).
 //!

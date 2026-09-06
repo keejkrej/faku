@@ -237,14 +237,26 @@
 //! `template`); `scope` is CommandScope PascalCase
 //! (`Project`/`User`/`Skill`/`Builtin`). Empty `commands` is still
 //! ok. Nil request-frame `sessionId` / `runtimeId`.
+//! `WorkspaceOperation::CreateProjectlessWorkspace`
+//! `{ "type": "createProjectlessWorkspace", "prompt": null }` or
+//! `{ "type": "createProjectlessWorkspace", "prompt": "Fix the login" }`
+//! (camelCase op tag; `prompt` is `string | null` and always present;
+//! JSON null when none. Same serde as DiscoverSlashCommands /
+//! CreateWorktree: `rename_all` is the camelCase `type` tag only —
+//! no `rename_all_fields`. No force/amend/cwd/project_path). Ok is
+//! nested `WorkspaceResult::ProjectlessWorkspace` — wire
+//! `result: { "type": "projectlessWorkspace", "cwd": "/abs/path" }`
+//! under `outcome.payload` (not Ack, not Bool, not a bare
+//! projectlessWorkspace object). Empty `cwd` is rejected. Nil
+//! request-frame `sessionId` / `runtimeId`.
 //! This cut
 //! ships Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
 //! InspectCommit, CaptureTurnStart, CaptureTurn,
 //! GenerateCommitMessage, ListTree, CollectReviewDiff,
 //! BrowseDirectory, ReadTextFile, WriteTextFile, CopySessionRefs,
 //! DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef,
-//! DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles, and
-//! DiscoverSlashCommands.
+//! DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles,
+//! DiscoverSlashCommands, and CreateProjectlessWorkspace.
 //! There is no force flag on daemon Push. An ok outcome is
 //! `ResponsePayload::Workspace { result }` where Push, Commit,
 //! CaptureTurnStart, WriteTextFile, CopySessionRefs,
@@ -304,7 +316,12 @@
 //! `result: { "type": "slashCommands", "commands": [ SlashCommand, … ] }`
 //! nested under `outcome.payload` (not Ack; not projectFiles; not a
 //! bare slashCommands object; `commands` is required; empty array is
-//! still ok). `SlashCommand` has no serde rename_all: `name`,
+//! still ok) — and CreateProjectlessWorkspace yields
+//! `WorkspaceResult::ProjectlessWorkspace` — wire
+//! `result: { "type": "projectlessWorkspace", "cwd": "/abs/path" }`
+//! nested under `outcome.payload` (not Ack; not Bool; not a bare
+//! projectlessWorkspace object; `cwd` is required; empty `cwd` is
+//! rejected). `SlashCommand` has no serde rename_all: `name`,
 //! `description`, `scope`, `argument_hint`, `template`. `FileEntry` has no serde rename_all: `path`, `is_dir`
 //! (not camelCase `isDir`). `ReviewDiffData` uses serde rename_all
 //! camelCase: `source`, `numstat`, `patch`, `completeContext`. Empty
@@ -545,7 +562,8 @@ pub fn defaultStartOptions() StartOptions {
 /// `CopySessionRefs`, `DeleteSessionRefs`, `HasRef`,
 /// `CaptureRef`, `RestoreRef`, `DeleteRef`,
 /// `DeleteTurnRefsAfter`, `SessionTurnRefs`,
-/// `ListProjectFiles`, and `DiscoverSlashCommands` (hello + workspace sidecar).
+/// `ListProjectFiles`, `DiscoverSlashCommands`, and
+/// `CreateProjectlessWorkspace` (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -750,17 +768,18 @@ pub const GoalOperation = union(GoalKind) {
 /// `DiscoverSlashCommands { provider, project_root, binary_override }`
 /// (snake_case `project_root` / `binary_override`; `provider` is
 /// Waku `ProviderKind` camelCase so OpenCode is `"openCode"`;
-/// `binary_override` omitted when null). No force flag on Push
+/// `binary_override` omitted when null), and
+/// `CreateProjectlessWorkspace { prompt }` (`prompt` is a JSON
+/// string or null; always present). No force flag on Push
 /// or Commit. No amend on daemon Commit, InspectCommit, or
 /// CollectReviewDiff. No force/amend on RestoreRef, DeleteRef,
-/// DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles, or
-/// DiscoverSlashCommands.
+/// DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles,
+/// DiscoverSlashCommands, or CreateProjectlessWorkspace.
 /// `ParsedBranches` has no remotes (Waku inspect is `refs/heads`
 /// only; remotes-on-daemon-list is a Faku-side local for-each-ref
-/// merge). Leftovers: `createProjectlessWorkspace`,
-/// `migrateProjectlessWorkspace`; amend/force and remote `--track`
-/// stay local (not daemon WorkspaceOperation variants).
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file, copy_session_refs, delete_session_refs, has_ref, capture_ref, restore_ref, delete_ref, delete_turn_refs_after, session_turn_refs, list_project_files, discover_slash_commands };
+/// merge). Leftovers: `migrateProjectlessWorkspace`; amend/force and
+/// remote `--track` stay local (not daemon WorkspaceOperation variants).
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file, copy_session_refs, delete_session_refs, has_ref, capture_ref, restore_ref, delete_ref, delete_turn_refs_after, session_turn_refs, list_project_files, discover_slash_commands, create_projectless_workspace };
 
 /// Waku `AgentInvocation`. Wire keys match generated TS:
 /// `provider`, `binary`, `model`, `reasoning_effort` (snake_case
@@ -849,6 +868,16 @@ pub const WorkspaceDiscoverSlashCommands = struct {
     provider: []const u8,
     project_root: []const u8,
     binary_override: ?[]const u8 = null,
+};
+
+/// Waku `CreateProjectlessWorkspace`. Wire key `prompt` is a JSON
+/// string or null and is always present (WorkspaceOperation serde
+/// `rename_all` is the camelCase `type` tag only). First-cut New
+/// Task call sites send `prompt: null`. No force, no amend, no
+/// cwd/project_path. Ok is nested
+/// `WorkspaceResult::ProjectlessWorkspace`.
+pub const WorkspaceCreateProjectlessWorkspace = struct {
+    prompt: ?[]const u8 = null,
 };
 
 /// Waku `ReviewDiffSource`. Unit variants are JSON strings. LastTurn
@@ -1005,6 +1034,7 @@ pub const WorkspaceOperation = union(WorkspaceKind) {
     session_turn_refs: WorkspaceSessionTurnRefs,
     list_project_files: WorkspaceListProjectFiles,
     discover_slash_commands: WorkspaceDiscoverSlashCommands,
+    create_projectless_workspace: WorkspaceCreateProjectlessWorkspace,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -1115,6 +1145,14 @@ pub const ParsedSlashCommands = struct {
     ok: bool = false,
     commands: [max_parsed_slash_commands]ParsedSlashCommand = [_]ParsedSlashCommand{.{}} ** max_parsed_slash_commands,
     command_count: usize = 0,
+};
+
+/// Cwd from an ok `projectlessWorkspace` workspace result
+/// (CreateProjectlessWorkspace). Slices alias the JSON arena used
+/// to parse the line. Empty `cwd` does not set `ok`.
+pub const ParsedProjectlessWorkspace = struct {
+    ok: bool = false,
+    cwd: []const u8 = "",
 };
 
 /// Directory listing from an ok `directory` workspace result.
@@ -1401,7 +1439,7 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// CheckoutBranch, InspectCommit, CaptureTurnStart, CaptureTurn,
 /// GenerateCommitMessage, ListTree, CollectReviewDiff,
 /// BrowseDirectory, ReadTextFile, WriteTextFile,
-/// CopySessionRefs, DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef, DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles, and DiscoverSlashCommands pass `NIL_UUID` for those ids.
+/// CopySessionRefs, DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef, DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles, DiscoverSlashCommands, and CreateProjectlessWorkspace pass `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
 /// Timeout 120s.
@@ -1641,6 +1679,15 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
             if (args.binary_override) |override| {
                 try cur.write(",\"binary_override\":");
                 try writeJsonString(cur, override);
+            }
+            try cur.write("}");
+        },
+        .create_projectless_workspace => |args| {
+            try cur.write("{\"type\":\"createProjectlessWorkspace\",\"prompt\":");
+            if (args.prompt) |prompt| {
+                try writeJsonString(cur, prompt);
+            } else {
+                try cur.write("null");
             }
             try cur.write("}");
         },
@@ -2381,6 +2428,23 @@ fn parseSlashCommandEntry(entry: std.json.ObjectMap) ?ParsedSlashCommand {
     };
 }
 
+/// Light parser for ok CreateProjectlessWorkspace. True/`ok` when
+/// an ok `response` carries nested
+/// `result: { "type": "projectlessWorkspace", "cwd": "/abs/path" }`
+/// with a non-empty `cwd`. Bare `projectlessWorkspace`, ack, Bool,
+/// missing `cwd`, empty `cwd`, or a non-string value are rejected.
+/// Slices alias `allocator`.
+pub fn parseProjectlessWorkspace(allocator: std.mem.Allocator, line: []const u8) ParsedProjectlessWorkspace {
+    var parsed = ParsedProjectlessWorkspace{};
+    const result = workspaceResultObject(allocator, line) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "projectlessWorkspace")) return parsed;
+    const cwd = jsonStringValue(result.get("cwd")) orelse return parsed;
+    if (cwd.len == 0) return parsed;
+    parsed.ok = true;
+    parsed.cwd = cwd;
+    return parsed;
+}
+
 fn isCommandScope(name: []const u8) bool {
     return std.mem.eql(u8, name, "Project") or
         std.mem.eql(u8, name, "User") or
@@ -2486,7 +2550,8 @@ pub fn isWorkspaceCheckpoint(allocator: std.mem.Allocator, line: []const u8) boo
 /// with a JSON boolean `value`, SessionTurnRefs `turnRefs` with a
 /// parsed `turn_counts` array, ListProjectFiles `projectFiles` with
 /// a parsed `entries` array, DiscoverSlashCommands `slashCommands`
-/// with a parsed `commands` array, or
+/// with a parsed `commands` array, CreateProjectlessWorkspace
+/// `projectlessWorkspace` with a non-empty `cwd`, or
 /// CaptureTurn `checkpoint` with a nested checkpoint object.
 pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (isWorkspaceAck(allocator, line)) return true;
@@ -2503,6 +2568,7 @@ pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (parseWorkspaceTurnRefs(allocator, line).ok) return true;
     if (parseProjectFiles(allocator, line).ok) return true;
     if (parseSlashCommands(allocator, line).ok) return true;
+    if (parseProjectlessWorkspace(allocator, line).ok) return true;
     return isWorkspaceCheckpoint(allocator, line);
 }
 
@@ -4293,6 +4359,72 @@ test "parseSlashCommands extracts nested name/description including empty and re
     try std.testing.expect(!parseSlashCommands(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"slashCommands\",\"commands\":[{\"name\":\"commit\",\"description\":\"Create a commit\",\"scope\":\"Project\",\"argumentHint\":\"message\",\"template\":null}]}}}").ok);
     try std.testing.expect(!parseSlashCommands(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
     try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"slashCommands\"}}}}"));
+}
+
+test "workspace request wraps camelCase createProjectlessWorkspace with prompt null vs string and nil ids" {
+    var buf: [1024]u8 = undefined;
+    const none = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .create_projectless_workspace = .{} },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, none, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, none, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, none, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, none, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, none, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"createProjectlessWorkspace\",\"prompt\":null}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, none, "\"type\":\"discoverSlashCommands\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, none, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, none, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, none, "\"kind\":\"createProjectlessWorkspace\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, none, "project_path") == null);
+    try std.testing.expect(std.mem.indexOf(u8, none, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, none, "force") == null);
+
+    const with_prompt = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .create_projectless_workspace = .{ .prompt = "Fix the login" } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, with_prompt, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"createProjectlessWorkspace\",\"prompt\":\"Fix the login\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, with_prompt, "\"prompt\":null") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .create_projectless_workspace = .{ .prompt = "Fix the login" } },
+    ));
+}
+
+test "parseProjectlessWorkspace extracts nested cwd and rejects ack, bare object, or empty cwd" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"projectlessWorkspace\",\"cwd\":\"/home/me/.waku/projects/2026-09-06/new-chat\"}}}}";
+    const parsed = parseProjectlessWorkspace(arena, ok_line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqualStrings("/home/me/.waku/projects/2026-09-06/new-chat", parsed.cwd);
+    try std.testing.expect(isWorkspaceSuccess(arena, ok_line));
+    try std.testing.expect(!isWorkspaceAck(arena, ok_line));
+    try std.testing.expect(!parseSlashCommands(arena, ok_line).ok);
+    try std.testing.expect(!parseWorkspaceBool(arena, ok_line).ok);
+
+    try std.testing.expect(!parseProjectlessWorkspace(arena, "{\"type\":\"projectlessWorkspace\",\"cwd\":\"/home/me/.waku/projects/2026-09-06/new-chat\"}").ok);
+    try std.testing.expect(!parseProjectlessWorkspace(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
+    try std.testing.expect(!parseProjectlessWorkspace(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"bool\",\"value\":true}}}}").ok);
+    try std.testing.expect(!parseProjectlessWorkspace(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"projectlessWorkspace\"}}}}").ok);
+    try std.testing.expect(!parseProjectlessWorkspace(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"projectlessWorkspace\",\"cwd\":\"\"}}}}").ok);
+    try std.testing.expect(!parseProjectlessWorkspace(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
+    try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"projectlessWorkspace\"}}}}"));
 }
 
 test "parseWorkspaceBool extracts nested value true/false and rejects ack, bare bool, or missing value" {

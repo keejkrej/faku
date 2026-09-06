@@ -43,6 +43,7 @@ const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const skills = @import("skills.zig");
 const slash_commands = @import("slash_commands.zig");
+const projectless = @import("projectless.zig");
 const environment_summary = @import("environment_summary.zig");
 const pick_folder = @import("pick_folder.zig");
 const right_panel = @import("right_panel.zig");
@@ -217,6 +218,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
     }
     if (model.daemon_slash_commands_key != 0 and line.key == model.daemon_slash_commands_key) {
         slash_commands.applyLine(model, fx, line);
+        return;
+    }
+    if (model.daemon_projectless_key != 0 and line.key == model.daemon_projectless_key) {
+        projectless.applyLine(model, fx, line);
         return;
     }
     if (model.phase != .streaming) return;
@@ -1218,6 +1223,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.daemon_slash_commands_key != 0 and exit.key == model.daemon_slash_commands_key) {
         slash_commands.handleExit(model, fx, exit);
+        return;
+    }
+    if (model.daemon_projectless_key != 0 and exit.key == model.daemon_projectless_key) {
+        projectless.handleExit(model, fx, exit);
         return;
     }
     const daemon = model.daemon_spawn_key != 0 and exit.key == model.daemon_spawn_key;

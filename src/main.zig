@@ -542,6 +542,7 @@ test {
     _ = @import("git_common_dir.zig");
     _ = @import("file_mention.zig");
     _ = @import("slash_commands.zig");
+    _ = @import("projectless.zig");
     _ = @import("skills.zig");
     _ = @import("providers.zig");
     _ = @import("environment_summary.zig");
