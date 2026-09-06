@@ -35,8 +35,10 @@
 //! on the first eligible tick. An in-flight refresh sidecar
 //! skips quietly — the tick does not cancel/re-spawn. Open-path
 //! `refresh` remains the immediate selected-session reconcile
-//! (cancel in-flight then `trySpawn` selected). Not Waku's 1s
-//! `BACKGROUND_WORK_TICK_INTERVAL` registry loop, not full
+//! (cancel in-flight then `trySpawn` selected). First-cut 1s
+//! `BACKGROUND_WORK_TICK_INTERVAL` elapsed duration labels ship
+//! in `environment_summary.maybeTickElapsed` (same `now_ms`
+//! piggyback; Native has no dedicated timer). Not full
 //! BackgroundWorkRegistry / GPUI SharedString parity. First-cut
 //! `outputDelta` appends a bounded last-window onto an existing
 //! daemon-sourced row; first-cut `stopFailed` restores a live
@@ -66,6 +68,10 @@ const Effects = main.Effects;
 /// `refreshBackgroundWork` throttle, piggybacked off `model.now_ms`
 /// / the update tick. Native has no dedicated timer this cut.
 pub const background_work_refresh_interval_ms: i64 = 5000;
+
+/// Waku `BACKGROUND_WORK_TICK_INTERVAL`. First-cut 1s elapsed
+/// duration labels live in `environment_summary.maybeTickElapsed`.
+pub const background_work_tick_interval_ms = environment_summary.background_work_tick_interval_ms;
 
 fn cancelInFlight(model: *Model, fx: *Effects) void {
     if (model.daemon_background_work_key == 0) return;

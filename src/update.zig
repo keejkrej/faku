@@ -411,6 +411,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     // `now_ms` (stamped above) and this stream tick / fx_line
     // path. Native has no dedicated 100ms timer this cut.
     _ = environment_summary.refreshBackgroundOutputCache(model);
+    // First-cut Waku BACKGROUND_WORK_TICK_INTERVAL (1s) elapsed
+    // duration labels. Same `now_ms` / update-tick piggyback.
+    // Native has no dedicated timer this cut. Skips when no live
+    // Background row needs a duration; within 1s is a no-op.
+    _ = environment_summary.maybeTickElapsed(model);
     // First-cut Waku BACKGROUND_WORK_REFRESH_INTERVAL (5s).
     // Same `now_ms` / update-tick piggyback. Native has no
     // dedicated timer this cut. Skips when a refresh sidecar is
