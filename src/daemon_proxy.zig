@@ -5,7 +5,7 @@
 //! runtime id, hello + attachSession + prompt when one is stored, hello +
 //! saveTaskState, hello + loadTaskState, hello + hydrateSession,
 //! hello + closeSession, hello + cancel, hello + steer, hello +
-//! `goal`, or hello + `workspace`) and,
+//! hello + `goal`, hello + `loadUsageHistory`, or hello + `workspace`) and,
 //! when run as `faku daemon-proxy <addr>`, forwards those JSON frames over
 //! `ws://{addr}/v1`, prints each incoming text frame as one stdout line,
 //! and exits on `turnFinished` / `rejected` / `error`. A save-only stdin
@@ -78,6 +78,9 @@ pub const LOAD_REQUEST_ID = "00000000-0000-0000-0000-000000000010";
 pub const HYDRATE_REQUEST_ID = "00000000-0000-0000-0000-000000000011";
 /// Non-nil: a nil `requestId` is a notify and the daemon sends no `sessionRuntime`.
 pub const ATTACH_REQUEST_ID = "00000000-0000-0000-0000-000000000012";
+/// Non-nil: a nil `requestId` is a notify and the daemon sends no
+/// `usageHistory`.
+pub const USAGE_HISTORY_REQUEST_ID = "00000000-0000-0000-0000-000000000015";
 
 pub const LoadStdin = struct {
     token: []const u8 = "",
@@ -92,6 +95,14 @@ pub const HydrateStdin = struct {
     client_id: []const u8 = CLIENT_ID,
     request_id: []const u8 = HYDRATE_REQUEST_ID,
     session_id: []const u8,
+};
+
+pub const UsageHistoryStdin = struct {
+    token: []const u8 = "",
+    client_id: []const u8 = CLIENT_ID,
+    request_id: []const u8 = USAGE_HISTORY_REQUEST_ID,
+    window: protocol.UsageWindow,
+    project_roots: []const []const u8 = &.{},
 };
 
 pub const CloseStdin = struct {
@@ -292,6 +303,25 @@ pub fn writeHydrateStdin(buf: []u8, args: HydrateStdin) WriteError![]const u8 {
     return cur.slice();
 }
 
+/// NDJSON stdin for Settings → Usage. Hello + `loadUsageHistory`, no
+/// prompt. Uses a non-nil requestId so the daemon replies. Native
+/// stdin is still one 4 KiB buffer.
+pub fn writeUsageHistoryStdin(buf: []u8, args: UsageHistoryStdin) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    const hello = try protocol.writeClientHello(cur.remaining(), args.token, args.client_id, &.{});
+    cur.pos += hello.len;
+    try cur.write("\n");
+    const load = try protocol.writeLoadUsageHistory(
+        cur.remaining(),
+        args.request_id,
+        args.window,
+        args.project_roots,
+    );
+    cur.pos += load.len;
+    try cur.write("\n");
+    return cur.slice();
+}
+
 /// NDJSON stdin for a local-remove notify. Hello + bare closeSession,
 /// no prompt and no attachSession. Native stdin is still one buffer.
 pub fn writeCloseStdin(buf: []u8, args: CloseStdin) WriteError![]const u8 {
@@ -406,7 +436,8 @@ fn outboundWaitsForTurn(outbound: []const u8) bool {
 }
 
 fn outboundWaitsForLoadResponse(outbound: []const u8) bool {
-    return std.mem.indexOf(u8, outbound, "\"type\":\"loadTaskState\"") != null and
+    return (std.mem.indexOf(u8, outbound, "\"type\":\"loadTaskState\"") != null or
+        std.mem.indexOf(u8, outbound, "\"type\":\"loadUsageHistory\"") != null) and
         std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") == null and
         std.mem.indexOf(u8, outbound, "\"type\":\"saveTaskState\"") == null;
 }
@@ -839,6 +870,41 @@ test "writeHydrateStdin emits hello and hydrateSession with a non-nil requestId"
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ HYDRATE_REQUEST_ID) != null);
     try std.testing.expect(!outboundWaitsForTurn(stdin));
     try std.testing.expect(outboundWaitsForHydrateResponse(stdin));
+}
+
+test "writeUsageHistoryStdin emits hello and loadUsageHistory with a non-nil requestId" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeUsageHistoryStdin(&buf, .{
+        .token = "secret",
+        .window = .{ .trailing_days = 30 },
+        .project_roots = &.{ "/tmp/faku", "/tmp/other" },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadUsageHistory\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"window\":{\"trailingDays\":30}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"projectRoots\":[\"/tmp/faku\",\"/tmp/other\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadTaskState\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ USAGE_HISTORY_REQUEST_ID) != null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForLoadResponse(stdin));
+    try std.testing.expect(!outboundWaitsForHydrateResponse(stdin));
+    try std.testing.expect(!outboundWaitsForWorkspace(stdin));
+
+    const monthly = try writeUsageHistoryStdin(&buf, .{
+        .window = .{ .months = 12 },
+        .project_roots = &.{},
+    });
+    try std.testing.expect(std.mem.indexOf(u8, monthly, "\"window\":{\"months\":12}") != null);
+    try std.testing.expect(outboundWaitsForLoadResponse(monthly));
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeUsageHistoryStdin(&tiny, .{
+        .window = .{ .trailing_days = 30 },
+        .project_roots = &.{"/tmp/faku"},
+    }));
 }
 
 test "writeCloseStdin emits hello and bare closeSession without a prompt" {

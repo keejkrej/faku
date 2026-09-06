@@ -20,6 +20,7 @@ const skills = @import("skills.zig");
 const providers = @import("providers.zig");
 const slash_commands = @import("slash_commands.zig");
 const pick_folder = @import("pick_folder.zig");
+const usage_history = @import("usage_history.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -73,6 +74,7 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
     if (model.settings_open) {
         skills.close(model, fx);
         providers.close(model);
+        usage_history.cancel(model, fx);
         model.closeSettings();
         return;
     }
@@ -156,6 +158,7 @@ pub fn handleToggleSettings(model: *Model, fx: *Effects) void {
     if (model.settings_open) {
         skills.close(model, fx);
         providers.close(model);
+        usage_history.cancel(model, fx);
         model.closeSettings();
         return;
     }
@@ -236,8 +239,29 @@ pub fn handleSetSettingsPageSkills(model: *Model, fx: *Effects) void {
     skills.refresh(model, fx);
 }
 
-pub fn handleSetSettingsPageUsage(model: *Model) void {
+pub fn handleSetSettingsPageUsage(model: *Model, fx: *Effects) void {
     model.settings_page = .usage;
+    usage_history.refresh(model, fx);
+}
+
+pub fn handleSetUsageViewDaily(model: *Model, fx: *Effects) void {
+    if (model.settings_page != .usage) return;
+    usage_history.setView(model, fx, .daily);
+}
+
+pub fn handleSetUsageViewMonthly(model: *Model, fx: *Effects) void {
+    if (model.settings_page != .usage) return;
+    usage_history.setView(model, fx, .monthly);
+}
+
+pub fn handleSetUsageViewProjects(model: *Model, fx: *Effects) void {
+    if (model.settings_page != .usage) return;
+    usage_history.setView(model, fx, .projects);
+}
+
+pub fn handleRefreshUsageHistory(model: *Model, fx: *Effects) void {
+    if (model.settings_page != .usage) return;
+    usage_history.refresh(model, fx);
 }
 
 pub fn handleSetSettingsPageComputerUse(model: *Model) void {

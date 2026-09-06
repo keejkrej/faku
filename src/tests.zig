@@ -12034,12 +12034,19 @@ test "settings Usage tab sits after Skills; local context and thread-goal labels
     try testing.expect(findByText(tree.root, .text, "Language") == null);
     try testing.expect(findByPlaceholder(tree.root, .text_field, "Filter skills") == null);
     try testing.expect(findByText(tree.root, .list_item, "fx") == null);
-    try testing.expect(findByText(tree.root, .button, "Refresh") == null);
+    _ = try expectButtonMsg(tree, "Refresh", .refresh_usage_history);
     _ = try expectByText(tree.root, .text, "port waku to zig");
     _ = try expectByText(tree.root, .text, "Context window");
     _ = try expectByText(tree.root, .text, "No context usage reported yet");
     _ = try expectByText(tree.root, .text, "Thread goal tokens");
     _ = try expectByText(tree.root, .text, "No thread goal usage");
+    const daily = try expectButtonMsg(tree, "Daily", .set_usage_view_daily);
+    try testing.expect(daily.state.selected);
+    const monthly = try expectButtonMsg(tree, "Monthly", .set_usage_view_monthly);
+    try testing.expect(!monthly.state.selected);
+    const projects = try expectButtonMsg(tree, "Projects", .set_usage_view_projects);
+    try testing.expect(!projects.state.selected);
+    _ = try expectByText(tree.root, .text, "Connect a daemon for usage history");
     try expectNoContextProgress(tree.root);
 
     const id = model.selected;
@@ -12075,6 +12082,73 @@ test "settings Usage tab sits after Skills; local context and thread-goal labels
     if (model.sessionById(id)) |session| session.setContextUsage(0, 0);
     try testing.expectEqual(@as(usize, 0), model.context_usage_label(arena).len);
     try testing.expect(!model.has_context_usage());
+}
+
+test "settings Usage history paints daemon usageHistory without clearing local cards" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.selected;
+    if (model.sessionById(id)) |session| {
+        session.setProjectPath("/tmp/faku");
+        session.setContextUsage(53_000, 200_000);
+        session.setThreadGoalUsage(100_000, 12_000, 180);
+    }
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_usage, &fx);
+    try testing.expect(model.settings_page_usage());
+    try testing.expect(model.daemon_usage_history_key != 0);
+
+    var spawn_i: usize = 0;
+    const sidecar = while (fx.pendingSpawnAt(spawn_i)) |spawn| : (spawn_i += 1) {
+        if (spawn.key == model.daemon_usage_history_key) break spawn;
+    } else return error.MissingDaemonLoadUsageHistory;
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"loadUsageHistory\"") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"window\":{\"trailingDays\":30}") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "/tmp/faku") != null);
+
+    main.update(&model, .{ .fx_line = .{
+        .key = sidecar.key,
+        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"window\":{\"trailingDays\":30},\"sinceDay\":\"2026-08-08\",\"untilDay\":\"2026-09-06\",\"totalTokens\":12000,\"costUsd\":1.25,\"sessions\":4,\"providers\":[{\"provider\":\"claude\",\"totalTokens\":10000,\"costUsd\":1.0}],\"daily\":[{\"day\":\"2026-09-06\",\"totalTokens\":500,\"costUsd\":0.1}],\"months\":[{\"firstDay\":\"2026-09-01\",\"totalTokens\":12000,\"costUsd\":1.25,\"sessions\":4}],\"projects\":[{\"path\":\"/tmp/faku\",\"totalTokens\":12000,\"costUsd\":1.25,\"sessions\":4}]}}}}",
+    } }, &fx);
+    try testing.expect(model.has_usage_history());
+    try testing.expectEqualStrings("12k · $1.25", model.usage_headline(arena));
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Context window");
+    _ = try expectByText(tree.root, .text, "53k / 200k");
+    _ = try expectByText(tree.root, .text, "12k/100k · 3m");
+    _ = try expectByText(tree.root, .text, "2026-08-08–2026-09-06");
+    _ = try expectByText(tree.root, .text, "12k · $1.25");
+    _ = try expectByText(tree.root, .text, "4 sessions");
+    _ = try expectByText(tree.root, .text, "Claude Code · 10k · $1.00");
+    _ = try expectByText(tree.root, .text, "2026-09-06 · 500 · $0.10");
+    try testing.expect(findByText(tree.root, .text, "Connect a daemon for usage history") == null);
+    try testing.expect((try expectButtonMsg(tree, "Daily", .set_usage_view_daily)).state.selected);
+
+    main.update(&model, .set_usage_view_monthly, &fx);
+    try testing.expect(model.usage_view_monthly());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "53k / 200k");
+    _ = try expectByText(tree.root, .text, "2026-09-01 · 12k · $1.25 · 4 sessions");
+    try testing.expect(findByText(tree.root, .text, "Claude Code · 10k · $1.00") == null);
+    try testing.expect((try expectButtonMsg(tree, "Monthly", .set_usage_view_monthly)).state.selected);
+
+    main.update(&model, .set_usage_view_projects, &fx);
+    try testing.expect(model.usage_view_projects());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "faku · 12k · $1.25 · 4 sessions");
+    try testing.expect((try expectButtonMsg(tree, "Projects", .set_usage_view_projects)).state.selected);
+    try testing.expectEqual(@as(u64, 53_000), model.sessionById(id).?.context_used);
 }
 
 test "settings Computer Use tab sits after Usage; Unavailable, Off, empty apps" {
