@@ -17,8 +17,13 @@
 //! No daemon shows a muted connect hint. Daily first-cut paints
 //! per-provider share bars (`costShare` / `tokenShare`, or computed
 //! from totals) plus a runtime-only Cost | Tokens metric chip
-//! (default Cost). Not a T3 chart, not quality / rate-table. Hello
-//! stays v4.
+//! (default Cost), and a first-cut daily bar chart: each day's
+//! Native `<progress>` is relative to the max day in the painted
+//! window for the active metric (Cost → `costUsd`, Tokens →
+//! `totalTokens`). Days with 0 cost/tokens stay text-only. Chip
+//! flip recomputes shares without re-fetching. Still not Waku's
+//! GPUI / T3 layered chart, not quality / rate-table / LiteLLM.
+//! Hello stays v4.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -85,7 +90,7 @@ pub const Row = struct {
     line: []const u8,
     /// Active Daily share, 0..1. Unused on Monthly / Projects rows.
     share: f32 = 0,
-    /// `"80.0%"` for Daily provider bars. Empty on other rows.
+    /// `"80.0%"` for Daily provider and day bars. Empty on other rows.
     percent: []const u8 = "",
     /// True when Daily should paint a share bar (share > 0).
     has_share: bool = false,
@@ -121,6 +126,15 @@ pub const CachedDay = struct {
 
     pub fn day(self: *const CachedDay) []const u8 {
         return self.day_storage[0..self.day_len];
+    }
+
+    /// Cost → `cost_usd`; Tokens → `total_tokens`. Used for the
+    /// first-cut Daily bar (share vs max day in the window).
+    pub fn valueFor(self: *const CachedDay, metric: ShareMetric) f64 {
+        return switch (metric) {
+            .cost => self.cost_usd,
+            .tokens => tokensAsFloat(self.total_tokens),
+        };
     }
 };
 
@@ -275,6 +289,7 @@ pub fn setWindow(model: *Model, fx: *Effects, choice: WindowChoice) void {
 }
 
 /// Runtime-only Daily Cost | Tokens chip. Does not re-fetch history.
+/// Provider and first-cut daily bars recompute from the cached snapshot.
 pub fn setShareMetric(model: *Model, metric: ShareMetric) void {
     model.usage_share_metric = metric;
 }
@@ -423,6 +438,24 @@ fn resolveShare(wire: f64, part: f64, total: f64) f64 {
     return clampShare(part / total);
 }
 
+/// Max Cost / Tokens value among cached Daily rows. 0 when every
+/// day is empty so shares stay text-only.
+fn maxDayValue(days: []const CachedDay, metric: ShareMetric) f64 {
+    var max: f64 = 0;
+    for (days) |day| {
+        const value = day.valueFor(metric);
+        if (value > max) max = value;
+    }
+    return max;
+}
+
+/// Share vs the window's max day. 0 when the day (or the window) is
+/// empty so Native skips the progress bar.
+fn dayShare(day: CachedDay, max: f64, metric: ShareMetric) f64 {
+    if (!(max > 0)) return 0;
+    return clampShare(day.valueFor(metric) / max);
+}
+
 fn formatPercent(buf: []u8, share: f64) ?[]const u8 {
     const clamped = clampShare(share);
     if (!(clamped > 0)) return null;
@@ -520,14 +553,25 @@ pub fn dailyRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     if (!historyPainted(model) or model.usage_view != .daily) return &.{};
     const count = model.usage_history.daily_count;
     if (count == 0) return &.{};
+    const days = model.usage_history.daily[0..count];
+    const max = maxDayValue(days, model.usage_share_metric);
     const out = arena.alloc(Row, count) catch return &.{};
     var i: usize = 0;
     while (i < count) : (i += 1) {
-        const row = model.usage_history.daily[i];
+        const row = days[i];
         const label = if (row.day().len > 0) row.day() else "—";
+        const share = dayShare(row, max, model.usage_share_metric);
+        var percent_buf: [16]u8 = undefined;
+        const percent = if (formatPercent(&percent_buf, share)) |text|
+            copyArena(arena, text)
+        else
+            "";
         out[i] = .{
             .id = @intCast(i + 1),
             .line = joinLabelDetail(arena, label, row.total_tokens, row.cost_usd, null),
+            .share = @floatCast(share),
+            .percent = percent,
+            .has_share = share > 0,
         };
     }
     return out;
@@ -888,4 +932,89 @@ test "zero totals keep shares at 0; empty providers paint no share rows" {
 
     applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":100,\"costUsd\":1,\"providers\":[]}}}}" });
     try std.testing.expectEqual(@as(usize, 0), providerRows(&model, arena).len);
+}
+
+test "daily shares are relative to the max day; Cost|Tokens chip flip updates without refetch" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.settings_page = .usage;
+    try std.testing.expectEqual(ShareMetric.cost, model.usage_share_metric);
+
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingDailyShareSpawn;
+    const keyed = sidecar.key;
+    applyLine(&model, .{ .key = keyed, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":500,\"costUsd\":1.5,\"sessions\":3,\"daily\":[{\"day\":\"2026-09-05\",\"totalTokens\":100,\"costUsd\":1.0},{\"day\":\"2026-09-06\",\"totalTokens\":400,\"costUsd\":0.5},{\"day\":\"2026-09-04\",\"totalTokens\":0,\"costUsd\":0}]}}}}" });
+    handleExit(&model, .{ .key = keyed, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_usage_history_key);
+    try std.testing.expectEqual(@as(usize, 3), model.usage_history.daily_count);
+
+    const cost_rows = dailyRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), cost_rows.len);
+    try std.testing.expect(cost_rows[0].has_share);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), cost_rows[0].share, 0.0001);
+    try std.testing.expectEqualStrings("100.0%", cost_rows[0].percent);
+    try std.testing.expect(cost_rows[1].has_share);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), cost_rows[1].share, 0.0001);
+    try std.testing.expectEqualStrings("50.0%", cost_rows[1].percent);
+    try std.testing.expect(!cost_rows[2].has_share);
+    try std.testing.expectEqual(@as(f32, 0), cost_rows[2].share);
+    try std.testing.expectEqualStrings("", cost_rows[2].percent);
+
+    const spawn_count = fx.pendingSpawnCount();
+    setShareMetric(&model, .tokens);
+    try std.testing.expectEqual(ShareMetric.tokens, model.usage_share_metric);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_usage_history_key);
+    try std.testing.expectEqual(spawn_count, fx.pendingSpawnCount());
+
+    const token_rows = dailyRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), token_rows.len);
+    try std.testing.expect(token_rows[0].has_share);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), token_rows[0].share, 0.0001);
+    try std.testing.expectEqualStrings("25.0%", token_rows[0].percent);
+    try std.testing.expect(token_rows[1].has_share);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), token_rows[1].share, 0.0001);
+    try std.testing.expectEqualStrings("100.0%", token_rows[1].percent);
+    try std.testing.expect(!token_rows[2].has_share);
+    try std.testing.expectEqual(@as(f32, 0), token_rows[2].share);
+    try std.testing.expectEqualStrings("", token_rows[2].percent);
+
+    model.usage_view = .monthly;
+    try std.testing.expectEqual(@as(usize, 0), dailyRows(&model, arena).len);
+    model.usage_view = .projects;
+    try std.testing.expectEqual(@as(usize, 0), dailyRows(&model, arena).len);
+}
+
+test "daily zero window keeps shares at 0; empty daily paints no rows" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.settings_page = .usage;
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingZeroDailyShareSpawn;
+    applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":0,\"costUsd\":0,\"daily\":[{\"day\":\"2026-09-06\",\"totalTokens\":0,\"costUsd\":0}]}}}}" });
+    const zero_rows = dailyRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 1), zero_rows.len);
+    try std.testing.expect(!zero_rows[0].has_share);
+    try std.testing.expectEqual(@as(f32, 0), zero_rows[0].share);
+    try std.testing.expectEqualStrings("", zero_rows[0].percent);
+
+    applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":100,\"costUsd\":1,\"daily\":[]}}}}" });
+    try std.testing.expectEqual(@as(usize, 0), dailyRows(&model, arena).len);
 }

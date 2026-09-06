@@ -50,8 +50,9 @@
 //! parsed when present. Unknown JSON is ignored. Hello stays protocol v4;
 //! unknown-command / parse miss fall back quietly to local session
 //! Usage. Daily first-cut paints per-provider share bars from those
-//! shares (or client-computed totals). Not a T3 chart, not quality /
-//! rate-table.
+//! shares (or client-computed totals) and a relative max-day bar
+//! chart from `daily[]` (`costUsd` / `totalTokens`). Still not Waku's
+//! GPUI / T3 layered chart, not quality / rate-table.
 //!
 //! `refreshBackgroundWork` is a bare command. Verified against
 //! egoist/waku `Command::RefreshBackgroundWork` (unit variant, wire
