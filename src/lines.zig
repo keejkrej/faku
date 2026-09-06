@@ -224,6 +224,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         projectless.applyLine(model, fx, line);
         return;
     }
+    if (model.daemon_migrate_projectless_key != 0 and line.key == model.daemon_migrate_projectless_key) {
+        projectless.applyMigrateLine(model, fx, line);
+        return;
+    }
     if (model.phase != .streaming) return;
     if (line.key == model.daemon_spawn_key and model.daemon_spawn_key != 0) {
         handleDaemonLine(model, fx, line);
@@ -1227,6 +1231,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.daemon_projectless_key != 0 and exit.key == model.daemon_projectless_key) {
         projectless.handleExit(model, fx, exit);
+        return;
+    }
+    if (model.daemon_migrate_projectless_key != 0 and exit.key == model.daemon_migrate_projectless_key) {
+        projectless.handleMigrateExit(model, fx, exit);
         return;
     }
     const daemon = model.daemon_spawn_key != 0 and exit.key == model.daemon_spawn_key;

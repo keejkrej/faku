@@ -249,6 +249,17 @@
 //! under `outcome.payload` (not Ack, not Bool, not a bare
 //! projectlessWorkspace object). Empty `cwd` is rejected. Nil
 //! request-frame `sessionId` / `runtimeId`.
+//! `WorkspaceOperation::MigrateProjectlessWorkspace`
+//! `{ "type": "migrateProjectlessWorkspace", "path": "/abs/legacy/path" }`
+//! (camelCase op tag; field is plain `path`, always present. Same
+//! serde as CreateProjectlessWorkspace: `rename_all` is the camelCase
+//! `type` tag only — no `rename_all_fields`. No force/amend/cwd/
+//! prompt/project_path). Ok is the same nested
+//! `WorkspaceResult::ProjectlessWorkspace` as Create — wire
+//! `result: { "type": "projectlessWorkspace", "cwd": "/abs/path" }`
+//! under `outcome.payload` (not Ack, not Bool, not a bare
+//! projectlessWorkspace object). Empty `cwd` is rejected. Nil
+//! request-frame `sessionId` / `runtimeId`.
 //! This cut
 //! ships Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
 //! InspectCommit, CaptureTurnStart, CaptureTurn,
@@ -256,7 +267,8 @@
 //! BrowseDirectory, ReadTextFile, WriteTextFile, CopySessionRefs,
 //! DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef,
 //! DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles,
-//! DiscoverSlashCommands, and CreateProjectlessWorkspace.
+//! DiscoverSlashCommands, CreateProjectlessWorkspace, and
+//! MigrateProjectlessWorkspace.
 //! There is no force flag on daemon Push. An ok outcome is
 //! `ResponsePayload::Workspace { result }` where Push, Commit,
 //! CaptureTurnStart, WriteTextFile, CopySessionRefs,
@@ -316,7 +328,7 @@
 //! `result: { "type": "slashCommands", "commands": [ SlashCommand, … ] }`
 //! nested under `outcome.payload` (not Ack; not projectFiles; not a
 //! bare slashCommands object; `commands` is required; empty array is
-//! still ok) — and CreateProjectlessWorkspace yields
+//! still ok) — and CreateProjectlessWorkspace / MigrateProjectlessWorkspace yield
 //! `WorkspaceResult::ProjectlessWorkspace` — wire
 //! `result: { "type": "projectlessWorkspace", "cwd": "/abs/path" }`
 //! nested under `outcome.payload` (not Ack; not Bool; not a bare
@@ -562,8 +574,9 @@ pub fn defaultStartOptions() StartOptions {
 /// `CopySessionRefs`, `DeleteSessionRefs`, `HasRef`,
 /// `CaptureRef`, `RestoreRef`, `DeleteRef`,
 /// `DeleteTurnRefsAfter`, `SessionTurnRefs`,
-/// `ListProjectFiles`, `DiscoverSlashCommands`, and
-/// `CreateProjectlessWorkspace` (hello + workspace sidecar).
+/// `ListProjectFiles`, `DiscoverSlashCommands`,
+/// `CreateProjectlessWorkspace`, and `MigrateProjectlessWorkspace`
+/// (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -770,16 +783,19 @@ pub const GoalOperation = union(GoalKind) {
 /// Waku `ProviderKind` camelCase so OpenCode is `"openCode"`;
 /// `binary_override` omitted when null), and
 /// `CreateProjectlessWorkspace { prompt }` (`prompt` is a JSON
-/// string or null; always present). No force flag on Push
+/// string or null; always present), and
+/// `MigrateProjectlessWorkspace { path }` (`path` is a JSON string;
+/// always present). No force flag on Push
 /// or Commit. No amend on daemon Commit, InspectCommit, or
 /// CollectReviewDiff. No force/amend on RestoreRef, DeleteRef,
 /// DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles,
-/// DiscoverSlashCommands, or CreateProjectlessWorkspace.
+/// DiscoverSlashCommands, CreateProjectlessWorkspace, or
+/// MigrateProjectlessWorkspace.
 /// `ParsedBranches` has no remotes (Waku inspect is `refs/heads`
 /// only; remotes-on-daemon-list is a Faku-side local for-each-ref
-/// merge). Leftovers: `migrateProjectlessWorkspace`; amend/force and
-/// remote `--track` stay local (not daemon WorkspaceOperation variants).
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file, copy_session_refs, delete_session_refs, has_ref, capture_ref, restore_ref, delete_ref, delete_turn_refs_after, session_turn_refs, list_project_files, discover_slash_commands, create_projectless_workspace };
+/// merge). Leftovers: amend/force and remote `--track` stay local
+/// (not daemon WorkspaceOperation variants).
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file, copy_session_refs, delete_session_refs, has_ref, capture_ref, restore_ref, delete_ref, delete_turn_refs_after, session_turn_refs, list_project_files, discover_slash_commands, create_projectless_workspace, migrate_projectless_workspace };
 
 /// Waku `AgentInvocation`. Wire keys match generated TS:
 /// `provider`, `binary`, `model`, `reasoning_effort` (snake_case
@@ -878,6 +894,15 @@ pub const WorkspaceDiscoverSlashCommands = struct {
 /// `WorkspaceResult::ProjectlessWorkspace`.
 pub const WorkspaceCreateProjectlessWorkspace = struct {
     prompt: ?[]const u8 = null,
+};
+
+/// Waku `MigrateProjectlessWorkspace`. Wire key `path` is a JSON
+/// string and is always present (WorkspaceOperation serde
+/// `rename_all` is the camelCase `type` tag only). No force, no
+/// amend, no cwd/prompt/project_path. Ok is nested
+/// `WorkspaceResult::ProjectlessWorkspace` (same as Create).
+pub const WorkspaceMigrateProjectlessWorkspace = struct {
+    path: []const u8,
 };
 
 /// Waku `ReviewDiffSource`. Unit variants are JSON strings. LastTurn
@@ -1035,6 +1060,7 @@ pub const WorkspaceOperation = union(WorkspaceKind) {
     list_project_files: WorkspaceListProjectFiles,
     discover_slash_commands: WorkspaceDiscoverSlashCommands,
     create_projectless_workspace: WorkspaceCreateProjectlessWorkspace,
+    migrate_projectless_workspace: WorkspaceMigrateProjectlessWorkspace,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -1148,8 +1174,9 @@ pub const ParsedSlashCommands = struct {
 };
 
 /// Cwd from an ok `projectlessWorkspace` workspace result
-/// (CreateProjectlessWorkspace). Slices alias the JSON arena used
-/// to parse the line. Empty `cwd` does not set `ok`.
+/// (CreateProjectlessWorkspace / MigrateProjectlessWorkspace).
+/// Slices alias the JSON arena used to parse the line. Empty `cwd`
+/// does not set `ok`.
 pub const ParsedProjectlessWorkspace = struct {
     ok: bool = false,
     cwd: []const u8 = "",
@@ -1439,7 +1466,7 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// CheckoutBranch, InspectCommit, CaptureTurnStart, CaptureTurn,
 /// GenerateCommitMessage, ListTree, CollectReviewDiff,
 /// BrowseDirectory, ReadTextFile, WriteTextFile,
-/// CopySessionRefs, DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef, DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles, DiscoverSlashCommands, and CreateProjectlessWorkspace pass `NIL_UUID` for those ids.
+/// CopySessionRefs, DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef, DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles, DiscoverSlashCommands, CreateProjectlessWorkspace, and MigrateProjectlessWorkspace pass `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
 /// Timeout 120s.
@@ -1689,6 +1716,11 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
             } else {
                 try cur.write("null");
             }
+            try cur.write("}");
+        },
+        .migrate_projectless_workspace => |args| {
+            try cur.write("{\"type\":\"migrateProjectlessWorkspace\",\"path\":");
+            try writeJsonString(cur, args.path);
             try cur.write("}");
         },
     }
@@ -2428,8 +2460,9 @@ fn parseSlashCommandEntry(entry: std.json.ObjectMap) ?ParsedSlashCommand {
     };
 }
 
-/// Light parser for ok CreateProjectlessWorkspace. True/`ok` when
-/// an ok `response` carries nested
+/// Light parser for ok CreateProjectlessWorkspace /
+/// MigrateProjectlessWorkspace. True/`ok` when an ok `response`
+/// carries nested
 /// `result: { "type": "projectlessWorkspace", "cwd": "/abs/path" }`
 /// with a non-empty `cwd`. Bare `projectlessWorkspace`, ack, Bool,
 /// missing `cwd`, empty `cwd`, or a non-string value are rejected.
@@ -2550,8 +2583,9 @@ pub fn isWorkspaceCheckpoint(allocator: std.mem.Allocator, line: []const u8) boo
 /// with a JSON boolean `value`, SessionTurnRefs `turnRefs` with a
 /// parsed `turn_counts` array, ListProjectFiles `projectFiles` with
 /// a parsed `entries` array, DiscoverSlashCommands `slashCommands`
-/// with a parsed `commands` array, CreateProjectlessWorkspace
-/// `projectlessWorkspace` with a non-empty `cwd`, or
+/// with a parsed `commands` array, CreateProjectlessWorkspace /
+/// MigrateProjectlessWorkspace `projectlessWorkspace` with a
+/// non-empty `cwd`, or
 /// CaptureTurn `checkpoint` with a nested checkpoint object.
 pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (isWorkspaceAck(allocator, line)) return true;
@@ -4400,6 +4434,39 @@ test "workspace request wraps camelCase createProjectlessWorkspace with prompt n
         NIL_UUID,
         NIL_UUID,
         .{ .create_projectless_workspace = .{ .prompt = "Fix the login" } },
+    ));
+}
+
+test "workspace request wraps camelCase migrateProjectlessWorkspace with path and nil ids" {
+    var buf: [1024]u8 = undefined;
+    const encoded = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .migrate_projectless_workspace = .{ .path = "/home/me/.waku/2026-09-06/new-chat" } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"migrateProjectlessWorkspace\",\"path\":\"/home/me/.waku/2026-09-06/new-chat\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "\"type\":\"createProjectlessWorkspace\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "\"kind\":\"migrateProjectlessWorkspace\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "project_path") == null);
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, encoded, "force") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .migrate_projectless_workspace = .{ .path = "/home/me/.waku/2026-09-06/new-chat" } },
     ));
 }
 

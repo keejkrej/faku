@@ -200,9 +200,14 @@
 //! daemon `WorkspaceOperation::CreateProjectlessWorkspace` ships in
 //! `projectless` (prefer hello + createProjectlessWorkspace on New
 //! Task when there is no ordinary project; miss / overflow fall back
-//! to local mkdir). Leftovers:
-//! `migrateProjectlessWorkspace`; amend/force and remote `--track`
-//! stay local (not daemon WorkspaceOperation variants).
+//! to local mkdir). First-cut daemon
+//! `WorkspaceOperation::MigrateProjectlessWorkspace` ships in
+//! `projectless` (prefer hello + migrateProjectlessWorkspace on
+//! session select / boot when the selected cwd still needs
+//! migration; miss / overflow fall back to local rename / fresh
+//! mkdir). Leftovers:
+//! amend/force and remote `--track` stay local (not daemon
+//! WorkspaceOperation variants).
 
 const std = @import("std");
 const main = @import("main.zig");

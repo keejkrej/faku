@@ -235,6 +235,11 @@
 //! `projectless` (New Task when there is no ordinary project; prefer
 //! hello + createProjectlessWorkspace; miss falls back to local mkdir).
 //! First-cut daemon
+//! `WorkspaceOperation::MigrateProjectlessWorkspace` lives in
+//! `projectless` (session select / boot when the selected cwd still
+//! needs migration; prefer hello + migrateProjectlessWorkspace;
+//! miss falls back to local rename / fresh mkdir).
+//! First-cut daemon
 //! `WorkspaceOperation::CollectReviewDiff` lives in `review_diff` (Review /
 //! Diff panel; LastTurn stays local). First-cut daemon
 //! `WorkspaceOperation::BrowseDirectory` lives in `pick_folder`

@@ -231,7 +231,8 @@ CaptureTurn, GenerateCommitMessage, ListTree, CollectReviewDiff,
 BrowseDirectory, ReadTextFile, WriteTextFile, CopySessionRefs,
 DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef,
 DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles,
-DiscoverSlashCommands, and CreateProjectlessWorkspace.
+DiscoverSlashCommands, CreateProjectlessWorkspace, and
+MigrateProjectlessWorkspace.
 
 Local `sessions.json` remains the catalog of record. Daemon
 `saveTaskState` is a best-effort one-shot mirror. Wire `loadTaskState`
@@ -381,6 +382,18 @@ local mkdir under `~/.waku/projects/<YYYY-MM-DD>/<slug>` with
 `new-chat` for a null prompt; no address keeps that local mkdir;
 home/`~/.waku/projects` failure keeps today's empty/copied
 `last_project_path`). First-cut daemon
+`WorkspaceOperation::MigrateProjectlessWorkspace` ships on session
+select / boot when the selected session's `project_path` still
+needs migration (legacy projectless, not under `~/.waku/projects` —
+dated `~/.waku/<date>/<slug>` or bare `~/.waku`) and a daemon
+address is set (ok is nested `projectlessWorkspace` + `cwd`; paints
+that session `project_path` and `last_project_path`; Native 4 KiB
+stdin overflow / error / unusable parse / empty cwd fall back to
+local rename into `~/.waku/projects/<date>/<slug>` with numbered
+`-2`… if taken, or a fresh mkdir like Create when the path is bare
+`~/.waku`; already-under-projects is a no-op; no address keeps that
+local fallback; home/failure must not toast-block session select).
+Ordinary real project paths do not spawn migrate. First-cut daemon
 `WorkspaceOperation::ListTree` ships on Files expand after a
 daemon fill when a daemon address is set (ok is nested
 `workingTree` + camelCase `WorkingTreeEntry` rows; paints the
@@ -609,7 +622,7 @@ on one-shot `claude -p` ships (live Stop dismisses that live row;
 settled rows offer Dismiss; not Claude TaskStop mid-turn). Not daemon
 `WorkspaceOperation` for Background (first-cut daemon Push,
 CreateWorktree, Commit, InspectBranches, CheckoutBranch,
-InspectCommit, GenerateCommitMessage, ListTree, ListProjectFiles, DiscoverSlashCommands, CreateProjectlessWorkspace, CollectReviewDiff,
+InspectCommit, GenerateCommitMessage, ListTree, ListProjectFiles, DiscoverSlashCommands, CreateProjectlessWorkspace, MigrateProjectlessWorkspace, CollectReviewDiff,
 BrowseDirectory, ReadTextFile, and WriteTextFile live on composer git / Send prep / Commit… / the
 branch picker / Files refresh / Review Diff / Pick folder / Files
 preview load / Files preview Save; CaptureTurnStart is a best-effort Send sidecar
@@ -630,7 +643,9 @@ boot that lists daemon-side turn ordinals; DiscoverSlashCommands is
 a prefer+fallback sidecar on composer `/` / session or provider
 change that seeds `session.available_commands`; CreateProjectlessWorkspace is
 a prefer+fallback sidecar on New Task when there is no ordinary
-project that seeds `project_path`). Environment Summary Background is
+project that seeds `project_path`; MigrateProjectlessWorkspace is
+a prefer+fallback sidecar on session select / boot when the
+selected cwd still needs migration that retargets `project_path`). Environment Summary Background is
 Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
 runtime-only multi-row registry. This cut populates Process
 ("Agent turn") from window-side `is_streaming`, plus Stop agent,
@@ -908,8 +923,7 @@ Honest gaps this cut does not implement:
   `std.fs` atomic write), Reload discards unsaved edits. First-cut
   live reload via mtime/size poll on the update tick. Not a real FS
   watcher / Native watch API)
-- Other daemon `WorkspaceOperation` variants (`migrateProjectlessWorkspace`).
-  Amend/force and remote `--track` stay local (not daemon
+- Amend/force and remote `--track` stay local (not daemon
   WorkspaceOperation variants). First-cut
   `WorkspaceOperation::Push` ships as a best-effort sidecar when
   `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set;
@@ -1102,8 +1116,20 @@ Honest gaps this cut does not implement:
   (`new-chat` for a null prompt; numbered candidates if taken); home
   / mkdir failure keeps today's empty/copied `last_project_path`
   and must not toast-block New Task; ordinary New Task with a real
-  project path still copies `last_project_path`. Leftover:
-  `migrateProjectlessWorkspace`; reusing an unstarted projectless
+  project path still copies `last_project_path`. First-cut
+  `WorkspaceOperation::MigrateProjectlessWorkspace` prefers hello +
+  migrateProjectlessWorkspace on session select / boot when the
+  selected session's `project_path` still needs migration (legacy
+  projectless, not under `~/.waku/projects`); ok is nested
+  `projectlessWorkspace.cwd` (same as Create; not Ack, not Bool,
+  not a bare object; empty cwd rejected); `path` is always present;
+  Native 4 KiB stdin overflow / miss / non-ok fall back to local
+  rename of dated `~/.waku/<date>/<slug>` into
+  `~/.waku/projects/<date>/<slug>` (numbered `-2`… if taken) or a
+  fresh mkdir like Create when the path is bare `~/.waku`;
+  already-under-projects is a no-op; home / failure must not
+  toast-block session select; ordinary real project paths do not
+  spawn migrate. Leftover: reusing an unstarted projectless
   draft is skipped this cut. Amend/force and remote `--track`
   stay local (not daemon WorkspaceOperation variants)
 - Long-lived ACP or daemon socket in the update loop

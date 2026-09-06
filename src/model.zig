@@ -1476,6 +1476,13 @@ pub const Model = struct {
     daemon_projectless_key: u64 = 0,
     daemon_projectless_session: u32 = 0,
     daemon_projectless_ok: bool = false,
+    /// Prefer session-select `WorkspaceOperation::MigrateProjectlessWorkspace`
+    /// sidecar when a daemon address is set and the selected cwd still
+    /// needs migration. Distinct from Create so a cancelled Create
+    /// sidecar cannot paint a migrate, and vice versa.
+    daemon_migrate_projectless_key: u64 = 0,
+    daemon_migrate_projectless_session: u32 = 0,
+    daemon_migrate_projectless_ok: bool = false,
     fx_spawn_key: u64 = 0,
     next_fx_key: u64 = fx_spawn_overlap_key_first,
     fx_spawn_live: bool = false,
@@ -2094,6 +2101,9 @@ pub const Model = struct {
         "daemon_projectless_key",
         "daemon_projectless_session",
         "daemon_projectless_ok",
+        "daemon_migrate_projectless_key",
+        "daemon_migrate_projectless_session",
+        "daemon_migrate_projectless_ok",
         "fx_spawn_key",
         "next_fx_key",
         "fx_spawn_live",
