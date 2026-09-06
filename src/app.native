@@ -332,6 +332,10 @@
                           <button variant="ghost" size="sm" selected="{usage_share_cost}" on-press="set_usage_share_cost">Cost</button>
                           <button variant="ghost" size="sm" selected="{usage_share_tokens}" on-press="set_usage_share_tokens">Tokens</button>
                         </row>
+                        <row gap="8">
+                          <button variant="ghost" size="sm" selected="{usage_breakdown_model}" on-press="set_usage_breakdown_model">Model</button>
+                          <button variant="ghost" size="sm" selected="{usage_breakdown_days}" on-press="set_usage_breakdown_days">Days</button>
+                        </row>
                         <for each="usage_provider_rows" key="id" as="p">
                           <column gap="4">
                             <text wrap="false" overflow="ellipsis">{p.line}</text>
@@ -341,15 +345,28 @@
                             </if>
                           </column>
                         </for>
-                        <for each="usage_daily_rows" key="id" as="d">
-                          <column gap="4">
-                            <text wrap="false" overflow="ellipsis">{d.line}</text>
-                            <if test="{d.has_share}">
-                              <progress value="{d.share}" width="48" height="6" label="{d.percent}" />
-                              <text wrap="false" overflow="ellipsis" foreground="text_muted">{d.percent}</text>
-                            </if>
-                          </column>
-                        </for>
+                        <if test="{usage_breakdown_model}">
+                          <for each="usage_model_rows" key="id" as="md">
+                            <column gap="4">
+                              <text wrap="false" overflow="ellipsis">{md.line}</text>
+                              <if test="{md.has_share}">
+                                <progress value="{md.share}" width="48" height="6" label="{md.percent}" />
+                                <text wrap="false" overflow="ellipsis" foreground="text_muted">{md.percent}</text>
+                              </if>
+                            </column>
+                          </for>
+                        </if>
+                        <if test="{usage_breakdown_days}">
+                          <for each="usage_daily_rows" key="id" as="d">
+                            <column gap="4">
+                              <text wrap="false" overflow="ellipsis">{d.line}</text>
+                              <if test="{d.has_share}">
+                                <progress value="{d.share}" width="48" height="6" label="{d.percent}" />
+                                <text wrap="false" overflow="ellipsis" foreground="text_muted">{d.percent}</text>
+                              </if>
+                            </column>
+                          </for>
+                        </if>
                       </column>
                     </card>
                     <if test="{has_usage_quality}">

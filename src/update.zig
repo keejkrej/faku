@@ -166,6 +166,8 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .set_usage_window_last_month => settings_actions.handleSetUsageWindowLastMonth(model, fx),
         .set_usage_share_cost => settings_actions.handleSetUsageShareCost(model),
         .set_usage_share_tokens => settings_actions.handleSetUsageShareTokens(model),
+        .set_usage_breakdown_model => settings_actions.handleSetUsageBreakdownModel(model),
+        .set_usage_breakdown_days => settings_actions.handleSetUsageBreakdownDays(model),
         .refresh_usage_history => settings_actions.handleRefreshUsageHistory(model, fx),
         .usage_project_filter_edit => |edit| settings_actions.handleUsageProjectFilterEdit(model, edit),
         .settings_theme_system => settings_actions.handleSettingsThemeSystem(model),

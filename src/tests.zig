@@ -12127,6 +12127,8 @@ test "settings Usage tab sits after Skills; local context and thread-goal labels
     try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter projects") == null);
     try testing.expect(findByText(tree.root, .button, "Cost") == null);
     try testing.expect(findByText(tree.root, .button, "Tokens") == null);
+    try testing.expect(findByText(tree.root, .button, "Model") == null);
+    try testing.expect(findByText(tree.root, .button, "Days") == null);
     try expectNoContextProgress(tree.root);
 
     const id = model.selected;
@@ -12198,7 +12200,7 @@ test "settings Usage history paints daemon usageHistory without clearing local c
 
     main.update(&model, .{ .fx_line = .{
         .key = sidecar.key,
-        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"window\":{\"trailingDays\":30},\"sinceDay\":\"2026-08-08\",\"untilDay\":\"2026-09-06\",\"totalTokens\":12000,\"costUsd\":1.25,\"sessions\":4,\"providers\":[{\"provider\":\"claude\",\"totalTokens\":10000,\"costUsd\":1.0}],\"daily\":[{\"day\":\"2026-09-05\",\"totalTokens\":100,\"costUsd\":1.0},{\"day\":\"2026-09-06\",\"totalTokens\":400,\"costUsd\":0.5},{\"day\":\"2026-09-04\",\"totalTokens\":0,\"costUsd\":0}],\"months\":[{\"firstDay\":\"2026-09-01\",\"totalTokens\":12000,\"costUsd\":1.25,\"sessions\":4}],\"projects\":[{\"path\":\"/tmp/faku\",\"totalTokens\":12000,\"costUsd\":1.25,\"sessions\":4}]}}}}",
+        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"window\":{\"trailingDays\":30},\"sinceDay\":\"2026-08-08\",\"untilDay\":\"2026-09-06\",\"totalTokens\":12000,\"costUsd\":1.25,\"sessions\":4,\"providers\":[{\"provider\":\"claude\",\"totalTokens\":10000,\"costUsd\":1.0}],\"models\":[{\"provider\":\"claude\",\"model\":\"opus\",\"totalTokens\":10000,\"costUsd\":1.0,\"costShare\":0.8},{\"provider\":\"codex\",\"model\":\"gpt-5\",\"totalTokens\":2000,\"costUsd\":0.25}],\"daily\":[{\"day\":\"2026-09-05\",\"totalTokens\":100,\"costUsd\":1.0},{\"day\":\"2026-09-06\",\"totalTokens\":400,\"costUsd\":0.5},{\"day\":\"2026-09-04\",\"totalTokens\":0,\"costUsd\":0}],\"months\":[{\"firstDay\":\"2026-09-01\",\"totalTokens\":12000,\"costUsd\":1.25,\"sessions\":4}],\"projects\":[{\"path\":\"/tmp/faku\",\"totalTokens\":12000,\"costUsd\":1.25,\"sessions\":4}]}}}}",
     } }, &fx);
     try testing.expect(model.has_usage_history());
     try testing.expectEqualStrings("12k · $1.25", model.usage_headline(arena));
@@ -12211,9 +12213,11 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     _ = try expectByText(tree.root, .text, "12k · $1.25");
     _ = try expectByText(tree.root, .text, "4 sessions");
     _ = try expectByText(tree.root, .text, "Claude Code · 10k · $1.00");
-    _ = try expectByText(tree.root, .text, "2026-09-05 · 100 · $1.00");
-    _ = try expectByText(tree.root, .text, "2026-09-06 · 400 · $0.50");
-    _ = try expectByText(tree.root, .text, "2026-09-04 · 0");
+    _ = try expectByText(tree.root, .text, "Claude Code · opus · 10k · $1.00");
+    _ = try expectByText(tree.root, .text, "Codex · gpt-5 · 2k · $0.25");
+    try testing.expect(findByText(tree.root, .text, "2026-09-05 · 100 · $1.00") == null);
+    try testing.expect(findByText(tree.root, .text, "2026-09-06 · 400 · $0.50") == null);
+    try testing.expect(findByText(tree.root, .text, "2026-09-04 · 0") == null);
     try testing.expect(findByText(tree.root, .text, "Connect a daemon for usage history") == null);
     try testing.expect((try expectButtonMsg(tree, "Daily", .set_usage_view_daily)).state.selected);
     try testing.expect((try expectButtonMsg(tree, "30d", .set_usage_window_30d)).state.selected);
@@ -12223,12 +12227,18 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect(!model.usage_share_tokens());
     const cost_chip = try expectButtonMsg(tree, "Cost", .set_usage_share_cost);
     try testing.expect(cost_chip.state.selected);
-    const tokens_chip = try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens);
-    try testing.expect(!tokens_chip.state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens)).state.selected);
+    try testing.expect(model.usage_breakdown_model());
+    try testing.expect(!model.usage_breakdown_days());
+    const model_chip = try expectButtonMsg(tree, "Model", .set_usage_breakdown_model);
+    try testing.expect(model_chip.state.selected);
+    const days_chip = try expectButtonMsg(tree, "Days", .set_usage_breakdown_days);
+    try testing.expect(!days_chip.state.selected);
     _ = try expectByText(tree.root, .text, "80.0%");
     _ = try expectUsageShareProgress(tree.root, "80.0%", 0.8);
-    _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
-    _ = try expectUsageShareProgress(tree.root, "50.0%", 0.5);
+    _ = try expectUsageShareProgress(tree.root, "20.0%", 0.2);
+    try testing.expect(findByText(tree.root, .text, "100.0%") == null);
+    try testing.expect(findByText(tree.root, .text, "50.0%") == null);
     try testing.expect(findByText(tree.root, .text, "25.0%") == null);
     try testing.expect(findByText(tree.root, .progress, "0.0%") == null);
     _ = try expectByText(tree.root, .text, "Cost quality");
@@ -12240,7 +12250,27 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     _ = try expectByText(tree.root, .text, "$0.00");
     try testing.expect(findByText(tree.root, .text, "Rates unavailable") == null);
 
-    main.update(&model, tree.msgForPointer(tokens_chip.id, .up).?, &fx);
+    main.update(&model, tree.msgForPointer(days_chip.id, .up).?, &fx);
+    try testing.expect(model.usage_breakdown_days());
+    try testing.expect(!model.usage_breakdown_model());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Days", .set_usage_breakdown_days)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Model", .set_usage_breakdown_model)).state.selected);
+    _ = try expectByText(tree.root, .text, "Claude Code · 10k · $1.00");
+    _ = try expectByText(tree.root, .text, "2026-09-05 · 100 · $1.00");
+    _ = try expectByText(tree.root, .text, "2026-09-06 · 400 · $0.50");
+    _ = try expectByText(tree.root, .text, "2026-09-04 · 0");
+    try testing.expect(findByText(tree.root, .text, "Claude Code · opus · 10k · $1.00") == null);
+    try testing.expect(findByText(tree.root, .text, "Codex · gpt-5 · 2k · $0.25") == null);
+    _ = try expectUsageShareProgress(tree.root, "80.0%", 0.8);
+    _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
+    _ = try expectUsageShareProgress(tree.root, "50.0%", 0.5);
+    try testing.expect(findByText(tree.root, .text, "20.0%") == null);
+    try testing.expect(findByText(tree.root, .progress, "0.0%") == null);
+    _ = try expectByText(tree.root, .text, "Cost quality");
+    _ = try expectByText(tree.root, .text, "Provider reported");
+
+    main.update(&model, tree.msgForPointer((try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens)).id, .up).?, &fx);
     try testing.expect(model.usage_share_tokens());
     try testing.expect(!model.usage_share_cost());
     tree = try buildTree(arena, &model);
@@ -12270,6 +12300,8 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect(findByText(tree.root, .button, "This month") == null);
     try testing.expect(findByText(tree.root, .button, "Cost") == null);
     try testing.expect(findByText(tree.root, .button, "Tokens") == null);
+    try testing.expect(findByText(tree.root, .button, "Model") == null);
+    try testing.expect(findByText(tree.root, .button, "Days") == null);
     try testing.expect(findByText(tree.root, .text, "83.3%") == null);
     try testing.expect(findByText(tree.root, .text, "100.0%") == null);
     try testing.expect(findByText(tree.root, .text, "25.0%") == null);
@@ -12303,6 +12335,8 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect((try expectButtonMsg(tree, "Monthly", .set_usage_view_monthly)).state.selected);
     try testing.expect(!model.usage_window_selector_visible());
     try testing.expect(findByText(tree.root, .button, "7d") == null);
+    try testing.expect(findByText(tree.root, .button, "Model") == null);
+    try testing.expect(findByText(tree.root, .button, "Days") == null);
     const monthly_tokens_chip = try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens);
     try testing.expect(monthly_tokens_chip.state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Cost", .set_usage_share_cost)).state.selected);
@@ -12357,6 +12391,8 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect(findByText(tree.root, .text, "2026-08-01 · 100 · $1.00 · 2 sessions") == null);
     try testing.expect(findByText(tree.root, .text, "Claude Code · 10k · $1.00") == null);
     try testing.expect(findByText(tree.root, .text, "Cost quality") == null);
+    try testing.expect(findByText(tree.root, .button, "Model") == null);
+    try testing.expect(findByText(tree.root, .button, "Days") == null);
     const projects_cost_chip = try expectButtonMsg(tree, "Cost", .set_usage_share_cost);
     try testing.expect(projects_cost_chip.state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens)).state.selected);
@@ -12493,6 +12529,21 @@ test "settings Usage Daily paints Cost quality and rates-unavailable notice" {
     try testing.expect((try expectButtonMsg(tree, "Daily", .set_usage_view_daily)).state.selected);
     try testing.expect((try expectButtonMsg(tree, "30d", .set_usage_window_30d)).state.selected);
     try testing.expect((try expectButtonMsg(tree, "Cost", .set_usage_share_cost)).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "Model", .set_usage_breakdown_model)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Days", .set_usage_breakdown_days)).state.selected);
+    try testing.expect(findByText(tree.root, .text, "2026-09-06 · 400 · $0.50") == null);
+    try testing.expectEqual(@as(u64, 53_000), model.sessionById(id).?.context_used);
+
+    main.update(&model, .set_usage_breakdown_days, &fx);
+    try testing.expect(model.usage_breakdown_days());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "2026-09-06 · 400 · $0.50");
+    _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
+    _ = try expectByText(tree.root, .text, "Cost quality");
+    _ = try expectByText(tree.root, .text, "Provider reported");
+    _ = try expectByText(tree.root, .text, "scan failed");
+    _ = try expectByText(tree.root, .text, "Rates unavailable");
+    _ = try expectByText(tree.root, .text, "3 files · 1 skipped · 9 records · 1.0s");
     try testing.expectEqual(@as(u64, 53_000), model.sessionById(id).?.context_used);
 
     main.update(&model, .set_usage_view_monthly, &fx);
