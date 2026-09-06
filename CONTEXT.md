@@ -229,8 +229,8 @@ First-cut `workspace` ships Push, CreateWorktree, Commit,
 InspectBranches, CheckoutBranch, InspectCommit, CaptureTurnStart,
 CaptureTurn, GenerateCommitMessage, ListTree, CollectReviewDiff,
 BrowseDirectory, ReadTextFile, WriteTextFile, CopySessionRefs,
-DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef, and
-DeleteTurnRefsAfter.
+DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef,
+DeleteTurnRefsAfter, and SessionTurnRefs.
 
 Local `sessions.json` remains the catalog of record. Daemon
 `saveTaskState` is a best-effort one-shot mirror. Wire `loadTaskState`
@@ -453,6 +453,16 @@ deletes refs for turns `retained_turn_count+1 ..= previous_turn_count`;
 local `deleteFakuRef` + DeleteRef stay; Native 4 KiB stdin overflow /
 miss / non-ack leave rewind transcript bookkeeping alone; no
 address keeps today's local-only path).
+First-cut daemon `WorkspaceOperation::SessionTurnRefs` prefers
+hello + `sessionTurnRefs` on session select / boot when a daemon
+address is set and cwd is a git worktree (snake_case `session_id`
+is `daemon_proxy.wireUuid`; ok is nested `turnRefs.turn_counts`;
+empty array is still ok). Local `checkpoint.sessionTurnRefs`
+(`git for-each-ref` of `refs/faku/session-{id}-*`, `turn-{n}`
+ordinals only) stays the overflow / miss / non-ok / no-address
+path and remains canonical. Runtime cache only (not
+`sessions.json`). Miss must not break rewind/checkpoint
+bookkeeping.
 New worktree… first-cut
 Base picker ships (listed unoccupied local heads; runtime-only
 override on the immediate card; Work-in `newWorktree` persists
@@ -462,7 +472,7 @@ branch label then omit/HEAD). First-cut defer-until-Send workspace
 mode ships (composer Work in Local / New worktree; optional
 `baseBranch` persist on that draft; Send queues the prompt, one-shots the same `git worktree add` as New worktree… when no daemon address is set,
 retargets `project_path`, then `startPrompt`). Leftovers: amend/force over daemon,
-remote `--track` over daemon, SessionTurnRefs, etc. Fetch already
+remote `--track` over daemon, etc. Fetch already
 `--prune`; there is no prune-alone menu (not in Waku).
 Windows probes, checkout / push / worktree, and commit mutations (add / cached-quiet / commit /
 amend / CommitSnapshot tracked-cached) use `git.exe -C <project_path>`;
@@ -502,7 +512,13 @@ one-shots hello + daemon
 `WorkspaceOperation::DeleteTurnRefsAfter` as a best-effort range
 cleanup (Ack; covers turn / turn-start / turn-diff for
 `retained_turn_count+1 ..= previous_turn_count`; does not undo
-transcript bookkeeping). Fork clones
+transcript bookkeeping). When a daemon address is set, session
+select / boot prefers hello + daemon
+`WorkspaceOperation::SessionTurnRefs` to learn which prompt
+ordinals have daemon-side `refs/faku` turn refs (ok nested
+`turnRefs.turn_counts`; overflow / miss / non-ok fall back to
+local `git for-each-ref`; runtime cache only; miss must not break
+rewind/checkpoint bookkeeping). Fork clones
 the local transcript into a new `sessions.json` row; it is not a
 provider session fork. When a daemon address is set, Fork also
 one-shots hello + daemon `WorkspaceOperation::CopySessionRefs`
@@ -576,7 +592,9 @@ sidecar for the stored turn-start snapshot; DeleteRef is a
 best-effort sidecar after successful Rewind bookkeeping that drops
 that same turn-start `refs/faku` name; DeleteTurnRefsAfter is a
 best-effort sidecar after that same bookkeeping that range-deletes
-turn / turn-start / turn-diff names for the dropped prompt). Environment Summary Background is
+turn / turn-start / turn-diff names for the dropped prompt;
+SessionTurnRefs is a prefer+fallback sidecar on session select /
+boot that lists daemon-side turn ordinals). Environment Summary Background is
 Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
 runtime-only multi-row registry. This cut populates Process
 ("Agent turn") from window-side `is_streaming`, plus Stop agent,
@@ -854,8 +872,7 @@ Honest gaps this cut does not implement:
   `std.fs` atomic write), Reload discards unsaved edits. First-cut
   live reload via mtime/size poll on the update tick. Not a real FS
   watcher / Native watch API)
-- Other daemon `WorkspaceOperation` variants (SessionTurnRefs,
-  amend/force over daemon, remote `--track`
+- Other daemon `WorkspaceOperation` variants (amend/force over daemon, remote `--track`
   over daemon, …). First-cut
   `WorkspaceOperation::Push` ships as a best-effort sidecar when
   `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set;
@@ -984,7 +1001,15 @@ Honest gaps this cut does not implement:
   turn_n - 1` when `turn_n > 0` else 0; local `deleteFakuRef` +
   DeleteRef stay; Native 4 KiB stdin overflow / miss / non-ack /
   no address leave rewind transcript bookkeeping alone; spawn only
-  when cwd is a git worktree
+  when cwd is a git worktree. First-cut
+  `WorkspaceOperation::SessionTurnRefs` prefers hello +
+  sessionTurnRefs on session select / boot when a daemon address is
+  set and cwd is a git worktree; ok is nested `turnRefs.turn_counts`
+  (empty array still ok); snake_case `session_id` is
+  `daemon_proxy.wireUuid`; local `checkpoint.sessionTurnRefs` stays
+  the overflow / miss / non-ok / no-address path and remains
+  canonical; runtime cache only; miss must not break rewind /
+  checkpoint bookkeeping
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size

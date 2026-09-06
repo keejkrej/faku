@@ -86,8 +86,12 @@
 //! `WorkspaceOperation::DeleteTurnRefsAfter` ships in `fork`
 //! (best-effort sidecar after that same bookkeeping; Ack; range
 //! cleanup of turn / turn-start / turn-diff; miss / overflow leave
-//! rewind transcript alone). Leftovers:
-//! other daemon `WorkspaceOperation` variants (SessionTurnRefs,
+//! rewind transcript alone). First-cut daemon
+//! `WorkspaceOperation::SessionTurnRefs` ships in `fork`
+//! (prefer+fallback sidecar on session select / boot; ok nested
+//! `turnRefs.turn_counts`; miss / overflow fall back to local
+//! `git for-each-ref`). Leftovers:
+//! other daemon `WorkspaceOperation` variants (
 //! amend/force over daemon, remote `--track` over daemon, …). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).
 

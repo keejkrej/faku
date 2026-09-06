@@ -420,5 +420,6 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     git_common_dir.refresh(model, fx);
     file_mention.refresh(model, fx);
     git_checkout.refresh(model, fx);
+    session_fork.refreshSessionTurnRefs(model, fx);
     fx_probe.startFxProbe(model, fx);
 }

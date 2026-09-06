@@ -1438,6 +1438,16 @@ pub const Model = struct {
     /// settle a live turn. Local `deleteFakuRef` / DeleteRef already ran.
     daemon_delete_turn_refs_after_key: u64 = 0,
     daemon_delete_turn_refs_after_session: u32 = 0,
+    /// Best-effort session-select `WorkspaceOperation::SessionTurnRefs`
+    /// sidecar. Distinct from DeleteTurnRefsAfter so miss cannot
+    /// settle a live turn or undo rewind bookkeeping. Runtime cache
+    /// only — not persisted in `sessions.json`.
+    daemon_session_turn_refs_key: u64 = 0,
+    daemon_session_turn_refs_session: u32 = 0,
+    daemon_session_turn_refs_ok: bool = false,
+    session_turn_ref_session: u32 = 0,
+    session_turn_ref_counts: [max_turns]u32 = [_]u32{0} ** max_turns,
+    session_turn_ref_count: usize = 0,
     fx_spawn_key: u64 = 0,
     next_fx_key: u64 = fx_spawn_overlap_key_first,
     fx_spawn_live: bool = false,
@@ -2038,6 +2048,12 @@ pub const Model = struct {
         "daemon_delete_ref_git_ref_len",
         "daemon_delete_turn_refs_after_key",
         "daemon_delete_turn_refs_after_session",
+        "daemon_session_turn_refs_key",
+        "daemon_session_turn_refs_session",
+        "daemon_session_turn_refs_ok",
+        "session_turn_ref_session",
+        "session_turn_ref_counts",
+        "session_turn_ref_count",
         "fx_spawn_key",
         "next_fx_key",
         "fx_spawn_live",

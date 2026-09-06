@@ -202,13 +202,21 @@
 //! `previous_turn_count` like CopySessionRefs / DeleteSessionRefs,
 //! not camelCase `sessionId`). Waku deletes refs for turns
 //! `retained_turn_count+1 ..= previous_turn_count`.
+//! `WorkspaceOperation::SessionTurnRefs`
+//! `{ "type": "sessionTurnRefs", "cwd", "session_id" }` (camelCase
+//! op tag; snake_case `session_id` like CopySessionRefs /
+//! DeleteSessionRefs / DeleteTurnRefsAfter, not camelCase
+//! `sessionId`). Ok is nested `WorkspaceResult::TurnRefs` — wire
+//! `result: { "type": "turnRefs", "turn_counts": [<usize>, …] }`
+//! under `outcome.payload` (not Ack, not Bool, not a bare turnRefs
+//! object). Empty `turn_counts` is still ok (no refs).
 //! This cut
 //! ships Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
 //! InspectCommit, CaptureTurnStart, CaptureTurn,
 //! GenerateCommitMessage, ListTree, CollectReviewDiff,
 //! BrowseDirectory, ReadTextFile, WriteTextFile, CopySessionRefs,
 //! DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef,
-//! and DeleteTurnRefsAfter.
+//! DeleteTurnRefsAfter, and SessionTurnRefs.
 //! There is no force flag on daemon Push. An ok outcome is
 //! `ResponsePayload::Workspace { result }` where Push, Commit,
 //! CaptureTurnStart, WriteTextFile, CopySessionRefs,
@@ -255,7 +263,11 @@
 //! `WorkspaceResult::Bool` — wire
 //! `result: { "type": "bool", "value": true|false }` nested
 //! under `outcome.payload` (not a bare bool; not Ack; `value` is
-//! required). `ReviewDiffData` uses serde rename_all
+//! required) — and SessionTurnRefs yields `WorkspaceResult::TurnRefs`
+//! — wire `result: { "type": "turnRefs", "turn_counts": [<usize>, …] }`
+//! nested under `outcome.payload` (not Ack; not Bool; not a bare
+//! turnRefs object; `turn_counts` is required; empty array is still
+//! ok). `ReviewDiffData` uses serde rename_all
 //! camelCase: `source`, `numstat`, `patch`, `completeContext`. Empty
 //! `numstat` + `patch` with ok nesting is still ok (clean tree).
 //! `WorkingTreeEntry` uses serde rename_all camelCase:
@@ -672,18 +684,19 @@ pub const GoalOperation = union(GoalKind) {
 /// camelCase `gitRef`), `RestoreRef { cwd, git_ref }`
 /// (snake_case `git_ref`, not camelCase `gitRef`), and
 /// `DeleteRef { cwd, git_ref }` (snake_case `git_ref`, not
-/// camelCase `gitRef`), and `DeleteTurnRefsAfter { cwd, session_id,
+/// camelCase `gitRef`), `DeleteTurnRefsAfter { cwd, session_id,
 /// retained_turn_count, previous_turn_count }` (snake_case
-/// session/turn fields, not camelCase `sessionId`). No force flag on Push
+/// session/turn fields, not camelCase `sessionId`), and
+/// `SessionTurnRefs { cwd, session_id }` (snake_case `session_id`,
+/// not camelCase `sessionId`). No force flag on Push
 /// or Commit. No amend on daemon Commit, InspectCommit, or
-/// CollectReviewDiff. No force/amend on RestoreRef, DeleteRef, or
-/// DeleteTurnRefsAfter.
+/// CollectReviewDiff. No force/amend on RestoreRef, DeleteRef,
+/// DeleteTurnRefsAfter, or SessionTurnRefs.
 /// `ParsedBranches` has no remotes (Waku inspect is `refs/heads`
 /// only; remotes-on-daemon-list is a Faku-side local for-each-ref
-/// merge). Leftovers: SessionTurnRefs,
-/// amend/force over daemon,
+/// merge). Leftovers: amend/force over daemon,
 /// remote `--track` over daemon, etc.
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file, copy_session_refs, delete_session_refs, has_ref, capture_ref, restore_ref, delete_ref, delete_turn_refs_after };
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file, copy_session_refs, delete_session_refs, has_ref, capture_ref, restore_ref, delete_ref, delete_turn_refs_after, session_turn_refs };
 
 /// Waku `AgentInvocation`. Wire keys match generated TS:
 /// `provider`, `binary`, `model`, `reasoning_effort` (snake_case
@@ -859,13 +872,25 @@ pub const WorkspaceDeleteRef = struct {
 /// turns `retained_turn_count+1 ..= previous_turn_count` (turn-n,
 /// turn-start-n, turn-diff-n via batched `update-ref --stdin`). Ok
 /// is workspace Ack (nested `result: { "type": "ack" }`, not
-/// Bool, not a bare ack). Leftover: SessionTurnRefs next;
-/// amend/force and remote `--track` stay local.
+/// Bool, not a bare ack). SessionTurnRefs is a separate prefer+fallback
+/// list; amend/force and remote `--track` stay local.
 pub const WorkspaceDeleteTurnRefsAfter = struct {
     cwd: []const u8,
     session_id: []const u8,
     retained_turn_count: u32,
     previous_turn_count: u32,
+};
+
+/// Waku `SessionTurnRefs`. Wire keys stay snake_case `session_id`
+/// (WorkspaceOperation serde `rename_all` is the camelCase `type`
+/// tag only). Matches CopySessionRefs / DeleteSessionRefs /
+/// DeleteTurnRefsAfter, not camelCase `sessionId`. Ok is nested
+/// `WorkspaceResult::TurnRefs` — `result: { "type": "turnRefs",
+/// "turn_counts": [<usize>, …] }` (not Ack, not Bool, not a bare
+/// turnRefs object). Empty `turn_counts` is still ok (no refs).
+pub const WorkspaceSessionTurnRefs = struct {
+    cwd: []const u8,
+    session_id: []const u8,
 };
 
 pub const WorkspaceOperation = union(WorkspaceKind) {
@@ -890,6 +915,7 @@ pub const WorkspaceOperation = union(WorkspaceKind) {
     restore_ref: WorkspaceRestoreRef,
     delete_ref: WorkspaceDeleteRef,
     delete_turn_refs_after: WorkspaceDeleteTurnRefsAfter,
+    session_turn_refs: WorkspaceSessionTurnRefs,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -990,6 +1016,19 @@ pub const ParsedTextFile = struct {
 pub const ParsedBool = struct {
     ok: bool = false,
     value: bool = false,
+};
+
+/// Prompt ordinals from an ok `turnRefs` workspace result
+/// (SessionTurnRefs). `turn_counts` aliases `allocator` (the JSON
+/// arena). Empty array still sets `ok`. Missing `turn_counts`, Ack,
+/// Bool, or a bare turnRefs object are rejected. Overflow past
+/// `max_parsed_turn_refs` is ignored; a malformed item inside the
+/// cap rejects the parse.
+pub const max_parsed_turn_refs: usize = 128;
+
+pub const ParsedTurnRefs = struct {
+    ok: bool = false,
+    turn_counts: []const u32 = &.{},
 };
 
 /// Review / Diff payload from an ok `reviewDiff` workspace result.
@@ -1234,7 +1273,7 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// CheckoutBranch, InspectCommit, CaptureTurnStart, CaptureTurn,
 /// GenerateCommitMessage, ListTree, CollectReviewDiff,
 /// BrowseDirectory, ReadTextFile, WriteTextFile,
-/// CopySessionRefs, DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef, and DeleteTurnRefsAfter pass `NIL_UUID` for those ids.
+/// CopySessionRefs, DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef, DeleteTurnRefsAfter, and SessionTurnRefs pass `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
 /// Timeout 120s.
@@ -1450,6 +1489,13 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
             try writeUint(cur, args.retained_turn_count);
             try cur.write(",\"previous_turn_count\":");
             try writeUint(cur, args.previous_turn_count);
+            try cur.write("}");
+        },
+        .session_turn_refs => |args| {
+            try cur.write("{\"type\":\"sessionTurnRefs\",\"cwd\":");
+            try writeJsonString(cur, args.cwd);
+            try cur.write(",\"session_id\":");
+            try writeJsonString(cur, args.session_id);
             try cur.write("}");
         },
     }
@@ -2069,6 +2115,37 @@ pub fn parseWorkspaceBool(allocator: std.mem.Allocator, line: []const u8) Parsed
     return parsed;
 }
 
+/// Light parser for ok SessionTurnRefs. True/`ok` when an ok
+/// `response` carries nested `result: { "type": "turnRefs",
+/// "turn_counts": [<usize>, …] }`. Empty `turn_counts` is still ok.
+/// Missing `turn_counts`, Ack, Bool, a bare turnRefs object, camelCase
+/// `turnCounts`, or a non-uint item inside the cap are rejected.
+/// Overflow entries are ignored. The `turn_counts` slice aliases
+/// `allocator`.
+pub fn parseWorkspaceTurnRefs(allocator: std.mem.Allocator, line: []const u8) ParsedTurnRefs {
+    var parsed = ParsedTurnRefs{};
+    const result = workspaceResultObject(allocator, line) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "turnRefs")) return parsed;
+    const counts_val = result.get("turn_counts") orelse return parsed;
+    const items = jsonArrayItems(counts_val) orelse return parsed;
+    var buf: [max_parsed_turn_refs]u32 = undefined;
+    var n: usize = 0;
+    for (items) |item| {
+        if (n >= max_parsed_turn_refs) break;
+        buf[n] = jsonUintValue(item) orelse return parsed;
+        n += 1;
+    }
+    if (n == 0) {
+        parsed.ok = true;
+        parsed.turn_counts = &.{};
+        return parsed;
+    }
+    const copied = allocator.dupe(u32, buf[0..n]) catch return parsed;
+    parsed.ok = true;
+    parsed.turn_counts = copied;
+    return parsed;
+}
+
 fn parseWorkingTreeEntries(
     entries_val: std.json.Value,
     dest: *[max_parsed_tree_entries]ParsedWorkingTreeEntry,
@@ -2164,7 +2241,8 @@ pub fn isWorkspaceCheckpoint(allocator: std.mem.Allocator, line: []const u8) boo
 /// CollectReviewDiff `reviewDiff` with nested `data`,
 /// BrowseDirectory `directory` with `path` + `entries`,
 /// ReadTextFile `textFile` with a string `content`, HasRef `bool`
-/// with a JSON boolean `value`, or
+/// with a JSON boolean `value`, SessionTurnRefs `turnRefs` with a
+/// parsed `turn_counts` array, or
 /// CaptureTurn `checkpoint` with a nested checkpoint object.
 pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (isWorkspaceAck(allocator, line)) return true;
@@ -2178,6 +2256,7 @@ pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (parseDirectory(allocator, line).ok) return true;
     if (parseTextFile(allocator, line).ok) return true;
     if (parseWorkspaceBool(allocator, line).ok) return true;
+    if (parseWorkspaceTurnRefs(allocator, line).ok) return true;
     return isWorkspaceCheckpoint(allocator, line);
 }
 
@@ -3470,6 +3549,7 @@ test "workspace request wraps camelCase hasRef with snake_case git_ref and nil i
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"restoreRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteTurnRefsAfter\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"sessionTurnRefs\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
 
@@ -3516,6 +3596,7 @@ test "workspace request wraps camelCase captureRef with snake_case git_ref and n
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"restoreRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteTurnRefsAfter\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"sessionTurnRefs\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
     {
@@ -3568,6 +3649,7 @@ test "workspace request wraps camelCase restoreRef with snake_case git_ref and n
     try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"restoreRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteTurnRefsAfter\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"sessionTurnRefs\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
     {
@@ -3625,6 +3707,7 @@ test "workspace request wraps camelCase deleteRef with snake_case git_ref and ni
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"deleteRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteTurnRefsAfter\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"sessionTurnRefs\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
     {
@@ -3678,6 +3761,7 @@ test "workspace request wraps camelCase deleteTurnRefsAfter with snake_case sess
     try std.testing.expect(std.mem.indexOf(u8, json, "retainedTurnCount") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "previousTurnCount") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"sessionTurnRefs\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteSessionRefs\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"copySessionRefs\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"restoreRef\"") == null);
@@ -3715,6 +3799,84 @@ test "workspace request wraps camelCase deleteTurnRefsAfter with snake_case sess
             .previous_turn_count = 1,
         } },
     ));
+}
+
+test "workspace request wraps camelCase sessionTurnRefs with snake_case session_id and nil ids" {
+    var buf: [768]u8 = undefined;
+    const json = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .session_turn_refs = .{
+            .cwd = "/tmp/faku",
+            .session_id = "00000000-0000-0000-0000-000000000007",
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"sessionTurnRefs\",\"cwd\":\"/tmp/faku\",\"session_id\":\"00000000-0000-0000-0000-000000000007\"}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"session_id\":\"00000000-0000-0000-0000-000000000007\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"00000000-0000-0000-0000-000000000007\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteTurnRefsAfter\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteSessionRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"copySessionRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"hasRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"captureTurnStart\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"captureTurn\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"writeTextFile\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"sessionTurnRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .session_turn_refs = .{
+            .cwd = "/tmp/faku",
+            .session_id = "00000000-0000-0000-0000-000000000007",
+        } },
+    ));
+}
+
+test "parseWorkspaceTurnRefs extracts nested turn_counts including empty and rejects ack, bool, or bare turnRefs" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const counts_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"turnRefs\",\"turn_counts\":[1,3]}}}}";
+    const parsed = parseWorkspaceTurnRefs(arena, counts_line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqual(@as(usize, 2), parsed.turn_counts.len);
+    try std.testing.expectEqual(@as(u32, 1), parsed.turn_counts[0]);
+    try std.testing.expectEqual(@as(u32, 3), parsed.turn_counts[1]);
+    try std.testing.expect(isWorkspaceSuccess(arena, counts_line));
+    try std.testing.expect(!isWorkspaceAck(arena, counts_line));
+    try std.testing.expect(!parseWorkspaceBool(arena, counts_line).ok);
+
+    const empty_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"turnRefs\",\"turn_counts\":[]}}}}";
+    const empty = parseWorkspaceTurnRefs(arena, empty_line);
+    try std.testing.expect(empty.ok);
+    try std.testing.expectEqual(@as(usize, 0), empty.turn_counts.len);
+    try std.testing.expect(isWorkspaceSuccess(arena, empty_line));
+    try std.testing.expect(!isWorkspaceAck(arena, empty_line));
+
+    try std.testing.expect(!parseWorkspaceTurnRefs(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
+    try std.testing.expect(!parseWorkspaceTurnRefs(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"bool\",\"value\":true}}}}").ok);
+    try std.testing.expect(!parseWorkspaceTurnRefs(arena, "{\"type\":\"turnRefs\",\"turn_counts\":[1]}").ok);
+    try std.testing.expect(!parseWorkspaceTurnRefs(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"turnRefs\"}}}}").ok);
+    try std.testing.expect(!parseWorkspaceTurnRefs(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"turnRefs\",\"turnCounts\":[1]}}}}").ok);
+    try std.testing.expect(!parseWorkspaceTurnRefs(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"turnRefs\",\"turn_counts\":[1,\"x\"]}}}}").ok);
+    try std.testing.expect(!parseWorkspaceTurnRefs(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
+    try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"turnRefs\"}}}}"));
 }
 
 test "parseWorkspaceBool extracts nested value true/false and rejects ack, bare bool, or missing value" {

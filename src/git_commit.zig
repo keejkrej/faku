@@ -141,7 +141,10 @@
 //! lives in `fork` (best-effort sidecar after successful Rewind
 //! bookkeeping; Ack; range cleanup of turn / turn-start / turn-diff;
 //! miss / overflow leave rewind transcript
-//! alone). Leftovers: SessionTurnRefs / amend/force
+//! alone). First-cut daemon `WorkspaceOperation::SessionTurnRefs`
+//! lives in `fork` (prefer+fallback sidecar on session select /
+//! boot; ok nested `turnRefs.turn_counts`; miss / overflow fall
+//! back to local `git for-each-ref`). Leftovers: amend/force
 //! over daemon / remote `--track` over daemon / …
 //!
 //! Unix uses the same `/bin/sh -c` chdir workaround `fx ask` uses
