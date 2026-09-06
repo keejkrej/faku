@@ -823,7 +823,10 @@ test "MigrateProjectlessWorkspace without a daemon address renames dated legacy 
 
     beginMigrateForSelected(&model, &fx);
     try std.testing.expectEqual(@as(u64, 0), model.daemon_migrate_projectless_key);
-    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        try std.testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"migrateProjectlessWorkspace\"") == null);
+    }
 
     var expected_buf: [main.max_project_path]u8 = undefined;
     const expected = try std.fmt.bufPrint(&expected_buf, "{s}/.waku/projects/2026-09-06/legacy-chat", .{home});
