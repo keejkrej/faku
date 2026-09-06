@@ -98,7 +98,9 @@
 //! overflow / miss / non-ok / no-address path and remains
 //! canonical. Runtime cache only; miss must not break rewind /
 //! checkpoint bookkeeping. Leftovers:
-//! amend/force over daemon, remote `--track` over daemon, etc.
+//! `discoverSlashCommands`, `createProjectlessWorkspace`,
+//! `migrateProjectlessWorkspace`; amend/force and remote `--track`
+//! stay local (not daemon WorkspaceOperation variants).
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");

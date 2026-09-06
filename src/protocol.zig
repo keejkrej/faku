@@ -210,13 +210,25 @@
 //! `result: { "type": "turnRefs", "turn_counts": [<usize>, …] }`
 //! under `outcome.payload` (not Ack, not Bool, not a bare turnRefs
 //! object). Empty `turn_counts` is still ok (no refs).
+//! `WorkspaceOperation::ListProjectFiles`
+//! `{ "type": "listProjectFiles", "root", "cap" }` (camelCase op
+//! tag; request fields `root` and `cap` are plain identifiers, not
+//! snake_case renames; `cap` is a JSON number). Ok is nested
+//! `WorkspaceResult::ProjectFiles` — wire
+//! `result: { "type": "projectFiles", "entries": [ FileEntry, … ] }`
+//! under `outcome.payload` (not Ack, not workingTree, not a bare
+//! projectFiles object). `FileEntry` uses serde default field names
+//! (`path`, `is_dir`), not camelCase `isDir`. Dirs use trailing `/`
+//! and `is_dir: true`; files have no trailing slash and `is_dir:
+//! false`. Empty `entries` is still ok. Faku passes its file-mention
+//! cap (256 / `max_file_mentions`) as `cap`, not a 50k index.
 //! This cut
 //! ships Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
 //! InspectCommit, CaptureTurnStart, CaptureTurn,
 //! GenerateCommitMessage, ListTree, CollectReviewDiff,
 //! BrowseDirectory, ReadTextFile, WriteTextFile, CopySessionRefs,
 //! DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef,
-//! DeleteTurnRefsAfter, and SessionTurnRefs.
+//! DeleteTurnRefsAfter, SessionTurnRefs, and ListProjectFiles.
 //! There is no force flag on daemon Push. An ok outcome is
 //! `ResponsePayload::Workspace { result }` where Push, Commit,
 //! CaptureTurnStart, WriteTextFile, CopySessionRefs,
@@ -267,7 +279,12 @@
 //! — wire `result: { "type": "turnRefs", "turn_counts": [<usize>, …] }`
 //! nested under `outcome.payload` (not Ack; not Bool; not a bare
 //! turnRefs object; `turn_counts` is required; empty array is still
-//! ok). `ReviewDiffData` uses serde rename_all
+//! ok) — and ListProjectFiles yields `WorkspaceResult::ProjectFiles`
+//! — wire `result: { "type": "projectFiles", "entries": [ FileEntry, … ] }`
+//! nested under `outcome.payload` (not Ack; not workingTree; not a
+//! bare projectFiles object; `entries` is required; empty array is
+//! still ok). `FileEntry` has no serde rename_all: `path`, `is_dir`
+//! (not camelCase `isDir`). `ReviewDiffData` uses serde rename_all
 //! camelCase: `source`, `numstat`, `patch`, `completeContext`. Empty
 //! `numstat` + `patch` with ok nesting is still ok (clean tree).
 //! `WorkingTreeEntry` uses serde rename_all camelCase:
@@ -487,8 +504,9 @@ pub fn defaultStartOptions() StartOptions {
 /// `GenerateCommitMessage`, `ListTree`, `CollectReviewDiff`,
 /// `BrowseDirectory`, `ReadTextFile`, `WriteTextFile`,
 /// `CopySessionRefs`, `DeleteSessionRefs`, `HasRef`,
-/// `CaptureRef`, `RestoreRef`, `DeleteRef`, and
-/// `DeleteTurnRefsAfter` (hello + workspace sidecar).
+/// `CaptureRef`, `RestoreRef`, `DeleteRef`,
+/// `DeleteTurnRefsAfter`, `SessionTurnRefs`, and
+/// `ListProjectFiles` (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -688,15 +706,18 @@ pub const GoalOperation = union(GoalKind) {
 /// retained_turn_count, previous_turn_count }` (snake_case
 /// session/turn fields, not camelCase `sessionId`), and
 /// `SessionTurnRefs { cwd, session_id }` (snake_case `session_id`,
-/// not camelCase `sessionId`). No force flag on Push
+/// not camelCase `sessionId`), and `ListProjectFiles { root, cap }`
+/// (plain `root` / `cap`; `cap` JSON number). No force flag on Push
 /// or Commit. No amend on daemon Commit, InspectCommit, or
 /// CollectReviewDiff. No force/amend on RestoreRef, DeleteRef,
-/// DeleteTurnRefsAfter, or SessionTurnRefs.
+/// DeleteTurnRefsAfter, SessionTurnRefs, or ListProjectFiles.
 /// `ParsedBranches` has no remotes (Waku inspect is `refs/heads`
 /// only; remotes-on-daemon-list is a Faku-side local for-each-ref
-/// merge). Leftovers: amend/force over daemon,
-/// remote `--track` over daemon, etc.
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file, copy_session_refs, delete_session_refs, has_ref, capture_ref, restore_ref, delete_ref, delete_turn_refs_after, session_turn_refs };
+/// merge). Leftovers: `discoverSlashCommands`,
+/// `createProjectlessWorkspace`, `migrateProjectlessWorkspace`;
+/// amend/force and remote `--track` stay local (not daemon
+/// WorkspaceOperation variants).
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file, copy_session_refs, delete_session_refs, has_ref, capture_ref, restore_ref, delete_ref, delete_turn_refs_after, session_turn_refs, list_project_files };
 
 /// Waku `AgentInvocation`. Wire keys match generated TS:
 /// `provider`, `binary`, `model`, `reasoning_effort` (snake_case
@@ -762,6 +783,16 @@ pub const WorkspaceGenerateCommitMessage = struct {
 pub const WorkspaceListTree = struct {
     root: []const u8,
     expanded_paths: []const []const u8 = &.{},
+};
+
+/// Waku `ListProjectFiles`. Wire keys stay `root` / `cap` (plain
+/// identifiers; WorkspaceOperation serde `rename_all` is the
+/// camelCase `type` tag only — no `rename_all_fields`). `cap` is
+/// Faku's file-mention cap (256), not a 50k index. No force and no
+/// amend. Ok is nested `WorkspaceResult::ProjectFiles`.
+pub const WorkspaceListProjectFiles = struct {
+    root: []const u8,
+    cap: usize,
 };
 
 /// Waku `ReviewDiffSource`. Unit variants are JSON strings. LastTurn
@@ -916,6 +947,7 @@ pub const WorkspaceOperation = union(WorkspaceKind) {
     delete_ref: WorkspaceDeleteRef,
     delete_turn_refs_after: WorkspaceDeleteTurnRefsAfter,
     session_turn_refs: WorkspaceSessionTurnRefs,
+    list_project_files: WorkspaceListProjectFiles,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -986,6 +1018,23 @@ pub const ParsedWorkingTreeEntry = struct {
 pub const ParsedWorkingTree = struct {
     ok: bool = false,
     entries: [max_parsed_tree_entries]ParsedWorkingTreeEntry = [_]ParsedWorkingTreeEntry{.{}} ** max_parsed_tree_entries,
+    entry_count: usize = 0,
+};
+
+/// Flat project-file rows from an ok `projectFiles` workspace result
+/// (ListProjectFiles). Cap matches ListTree (`max_parsed_tree_entries`);
+/// overflow entries are ignored. `FileEntry` fields are serde
+/// defaults (`path`, `is_dir`), not camelCase `isDir`. Slices alias
+/// the JSON arena used to parse the line. Empty `entries` still sets
+/// `ok`.
+pub const ParsedProjectFileEntry = struct {
+    path: []const u8 = "",
+    is_dir: bool = false,
+};
+
+pub const ParsedProjectFiles = struct {
+    ok: bool = false,
+    entries: [max_parsed_tree_entries]ParsedProjectFileEntry = [_]ParsedProjectFileEntry{.{}} ** max_parsed_tree_entries,
     entry_count: usize = 0,
 };
 
@@ -1273,7 +1322,7 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// CheckoutBranch, InspectCommit, CaptureTurnStart, CaptureTurn,
 /// GenerateCommitMessage, ListTree, CollectReviewDiff,
 /// BrowseDirectory, ReadTextFile, WriteTextFile,
-/// CopySessionRefs, DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef, DeleteTurnRefsAfter, and SessionTurnRefs pass `NIL_UUID` for those ids.
+/// CopySessionRefs, DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef, DeleteTurnRefsAfter, SessionTurnRefs, and ListProjectFiles pass `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
 /// Timeout 120s.
@@ -1496,6 +1545,13 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
             try writeJsonString(cur, args.cwd);
             try cur.write(",\"session_id\":");
             try writeJsonString(cur, args.session_id);
+            try cur.write("}");
+        },
+        .list_project_files => |args| {
+            try cur.write("{\"type\":\"listProjectFiles\",\"root\":");
+            try writeJsonString(cur, args.root);
+            try cur.write(",\"cap\":");
+            try writeUint(cur, args.cap);
             try cur.write("}");
         },
     }
@@ -2146,6 +2202,47 @@ pub fn parseWorkspaceTurnRefs(allocator: std.mem.Allocator, line: []const u8) Pa
     return parsed;
 }
 
+/// Light parser for ok ListProjectFiles. True/`ok` when an ok
+/// `response` carries nested `result: { "type": "projectFiles",
+/// "entries": [ { "path", "is_dir" }, … ] }`. Empty `entries` is
+/// still ok. Missing wrapper, ack, workingTree, bare projectFiles,
+/// camelCase `isDir`, snake_case path renames, or a malformed entry
+/// inside the 256 cap are rejected. Overflow entries are ignored.
+/// Slices alias `allocator`.
+pub fn parseProjectFiles(allocator: std.mem.Allocator, line: []const u8) ParsedProjectFiles {
+    var parsed = ParsedProjectFiles{};
+    const result = workspaceResultObject(allocator, line) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "projectFiles")) return parsed;
+    const n = parseProjectFileEntries(result.get("entries") orelse return parsed, &parsed.entries) orelse return parsed;
+    parsed.ok = true;
+    parsed.entry_count = n;
+    return parsed;
+}
+
+fn parseProjectFileEntries(
+    entries_val: std.json.Value,
+    dest: *[max_parsed_tree_entries]ParsedProjectFileEntry,
+) ?usize {
+    const items = jsonArrayItems(entries_val) orelse return null;
+    var n: usize = 0;
+    for (items) |item| {
+        if (n >= max_parsed_tree_entries) break;
+        const entry = jsonObject(item) orelse return null;
+        dest[n] = parseProjectFileEntry(entry) orelse return null;
+        n += 1;
+    }
+    return n;
+}
+
+fn parseProjectFileEntry(entry: std.json.ObjectMap) ?ParsedProjectFileEntry {
+    const path = jsonStringValue(entry.get("path")) orelse return null;
+    const is_dir = jsonBoolValue(entry.get("is_dir")) orelse return null;
+    return .{
+        .path = path,
+        .is_dir = is_dir,
+    };
+}
+
 fn parseWorkingTreeEntries(
     entries_val: std.json.Value,
     dest: *[max_parsed_tree_entries]ParsedWorkingTreeEntry,
@@ -2242,7 +2339,8 @@ pub fn isWorkspaceCheckpoint(allocator: std.mem.Allocator, line: []const u8) boo
 /// BrowseDirectory `directory` with `path` + `entries`,
 /// ReadTextFile `textFile` with a string `content`, HasRef `bool`
 /// with a JSON boolean `value`, SessionTurnRefs `turnRefs` with a
-/// parsed `turn_counts` array, or
+/// parsed `turn_counts` array, ListProjectFiles `projectFiles` with
+/// a parsed `entries` array, or
 /// CaptureTurn `checkpoint` with a nested checkpoint object.
 pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (isWorkspaceAck(allocator, line)) return true;
@@ -2257,6 +2355,7 @@ pub fn isWorkspaceSuccess(allocator: std.mem.Allocator, line: []const u8) bool {
     if (parseTextFile(allocator, line).ok) return true;
     if (parseWorkspaceBool(allocator, line).ok) return true;
     if (parseWorkspaceTurnRefs(allocator, line).ok) return true;
+    if (parseProjectFiles(allocator, line).ok) return true;
     return isWorkspaceCheckpoint(allocator, line);
 }
 
@@ -3877,6 +3976,79 @@ test "parseWorkspaceTurnRefs extracts nested turn_counts including empty and rej
     try std.testing.expect(!parseWorkspaceTurnRefs(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"turnRefs\",\"turn_counts\":[1,\"x\"]}}}}").ok);
     try std.testing.expect(!parseWorkspaceTurnRefs(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
     try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"turnRefs\"}}}}"));
+}
+
+test "workspace request wraps camelCase listProjectFiles with root and cap and nil ids" {
+    var buf: [1024]u8 = undefined;
+    const json = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .list_project_files = .{
+            .root = "/tmp/faku",
+            .cap = 256,
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"listProjectFiles\",\"root\":\"/tmp/faku\",\"cap\":256}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"cap\":256") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"listTree\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"sessionTurnRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"listProjectFiles\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .list_project_files = .{ .root = "/tmp/faku", .cap = 256 } },
+    ));
+}
+
+test "parseProjectFiles extracts nested path/is_dir entries and rejects bare projectFiles, ack, workingTree, or isDir" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"projectFiles\",\"entries\":[{\"path\":\"README.md\",\"is_dir\":false},{\"path\":\"src/\",\"is_dir\":true},{\"path\":\"src/main.zig\",\"is_dir\":false}]}}}}";
+    const parsed = parseProjectFiles(arena, ok_line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqual(@as(usize, 3), parsed.entry_count);
+    try std.testing.expectEqualStrings("README.md", parsed.entries[0].path);
+    try std.testing.expect(!parsed.entries[0].is_dir);
+    try std.testing.expectEqualStrings("src/", parsed.entries[1].path);
+    try std.testing.expect(parsed.entries[1].is_dir);
+    try std.testing.expectEqualStrings("src/main.zig", parsed.entries[2].path);
+    try std.testing.expect(!parsed.entries[2].is_dir);
+    try std.testing.expect(isWorkspaceSuccess(arena, ok_line));
+    try std.testing.expect(!isWorkspaceAck(arena, ok_line));
+    try std.testing.expect(!parseWorkingTree(arena, ok_line).ok);
+    try std.testing.expect(!parseWorkspaceTurnRefs(arena, ok_line).ok);
+
+    const empty_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"projectFiles\",\"entries\":[]}}}}";
+    const empty = parseProjectFiles(arena, empty_line);
+    try std.testing.expect(empty.ok);
+    try std.testing.expectEqual(@as(usize, 0), empty.entry_count);
+    try std.testing.expect(isWorkspaceSuccess(arena, empty_line));
+
+    try std.testing.expect(!parseProjectFiles(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"projectFiles\",\"entries\":[{\"path\":\"README.md\",\"is_dir\":false}]}}}").ok);
+    try std.testing.expect(!parseProjectFiles(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
+    try std.testing.expect(!parseProjectFiles(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"workingTree\",\"entries\":[]}}}}").ok);
+    try std.testing.expect(!parseProjectFiles(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"projectFiles\"}}}}").ok);
+    try std.testing.expect(!parseProjectFiles(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"projectFiles\",\"entries\":[{\"path\":\"README.md\",\"isDir\":false}]}}}}").ok);
+    try std.testing.expect(!parseProjectFiles(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"projectFiles\",\"entries\":[{\"relativePath\":\"README.md\",\"is_dir\":false}]}}}}").ok);
+    try std.testing.expect(!parseProjectFiles(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
+    try std.testing.expect(!isWorkspaceSuccess(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"projectFiles\"}}}}"));
 }
 
 test "parseWorkspaceBool extracts nested value true/false and rejects ack, bare bool, or missing value" {

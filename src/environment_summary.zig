@@ -156,10 +156,14 @@
 //! `WorkspaceOperation::DeleteSessionRefs` ships in `store`
 //! (best-effort sidecar after a local sessions.json remove; Ack;
 //! local remove stays canonical; not a replacement for
-//! `closeSession`). First-cut daemon `WorkspaceOperation::ListTree` ships in
-//! `file_mention` (Files refresh; expand after a daemon fill
-//! re-prefers ListTree; overflow / error / unusable parse falls
-//! back to local git ls-files then walk). First-cut daemon
+//! `closeSession`). First-cut daemon `WorkspaceOperation::ListProjectFiles` ships in
+//! `file_mention` (Files refresh; prefer hello + listProjectFiles;
+//! overflow / error / unusable parse falls back to ListTree then
+//! local git ls-files then walk). First-cut daemon
+//! `WorkspaceOperation::ListTree` ships in
+//! `file_mention` (Files expand after a daemon fill re-prefers
+//! ListTree; overflow / error / unusable parse falls back to local
+//! git ls-files then walk). First-cut daemon
 //! `WorkspaceOperation::CollectReviewDiff` ships in `review_diff`
 //! (Review / Diff panel; LastTurn stays local). First-cut daemon
 //! `WorkspaceOperation::BrowseDirectory` ships in `pick_folder`
@@ -188,9 +192,10 @@
 //! alone). First-cut daemon `WorkspaceOperation::SessionTurnRefs`
 //! ships in `fork` (prefer+fallback sidecar on session select /
 //! boot; ok nested `turnRefs.turn_counts`; miss / overflow fall
-//! back to local `git for-each-ref`). Leftovers: other daemon `WorkspaceOperation`
-//! variants (amend/force over daemon,
-//! remote `--track` over daemon, …).
+//! back to local `git for-each-ref`). Leftovers: `discoverSlashCommands`,
+//! `createProjectlessWorkspace`, `migrateProjectlessWorkspace`;
+//! amend/force and remote `--track` stay local (not daemon
+//! WorkspaceOperation variants).
 
 const std = @import("std");
 const main = @import("main.zig");
