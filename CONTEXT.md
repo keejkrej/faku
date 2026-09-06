@@ -633,9 +633,11 @@ Waku `BACKGROUND_WORK_REFRESH_INTERVAL` tick ships as
 `background_work.maybeRefresh` on the existing update / stream tick
 (same `now_ms` piggyback as the 100ms output cache; Native has no
 dedicated timer; skips when a refresh sidecar is already in flight;
-selected session only, when the Background tab is showing, Environment
-Summary is open, or that session has live Process / Monitor / Subagent
-/ daemon-sourced rows). First-cut daemon
+prefers the selected session when it has a usable `runtimeId` and
+the Background tab is showing, Environment Summary is open, or that
+session has live Process / Monitor / Subagent / daemon-sourced
+rows; else one other live session with a usable `runtimeId` and a
+daemon address, single in-flight sidecar). First-cut daemon
 `stopBackgroundWork` prefers hello + that command when Background
 Stop targets a daemon-sourced live row and a daemon address, usable
 session `runtimeId`, and usable `controlId` are set (one-shot sidecar,
@@ -946,10 +948,12 @@ Honest gaps this cut does not implement:
   `backgroundWork` events apply reconcileProcesses / reconcileLive /
   upsert / outputDelta / stopFailed into daemon-sourced rows; miss keeps local rows) and on a
   first-cut 5s `BACKGROUND_WORK_REFRESH_INTERVAL` tick piggybacked
-  off `now_ms` / the update tick (selected session only while the
-  Background tab is showing, Environment Summary is open, or that
-  session has live Process / Monitor / Subagent / daemon-sourced
-  rows; skips an in-flight refresh sidecar; Native has no dedicated
+  off `now_ms` / the update tick (prefers selected when it has a
+  usable `runtimeId` and the Background tab is showing, Environment
+  Summary is open, or that session has live Process / Monitor /
+  Subagent / daemon-sourced rows; else one other live session with
+  a usable `runtimeId` and a daemon address; one in-flight sidecar;
+  skips an in-flight refresh sidecar; Native has no dedicated
   timer); first-cut
   daemon `stopBackgroundWork` prefers hello + that command when
   Background Stop targets a daemon-sourced live row and a daemon
