@@ -12124,6 +12124,8 @@ test "settings Usage tab sits after Skills; local context and thread-goal labels
     tree = try buildTree(arena, &model);
     try testing.expect((try expectButtonMsg(tree, "7d", .set_usage_window_7d)).state.selected);
     _ = try expectByText(tree.root, .text, "Connect a daemon for usage history");
+    try testing.expect(findByText(tree.root, .button, "Cost") == null);
+    try testing.expect(findByText(tree.root, .button, "Tokens") == null);
     try expectNoContextProgress(tree.root);
 
     const id = model.selected;
@@ -12213,6 +12215,25 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect((try expectButtonMsg(tree, "Daily", .set_usage_view_daily)).state.selected);
     try testing.expect((try expectButtonMsg(tree, "30d", .set_usage_window_30d)).state.selected);
     try testing.expect(model.usage_window_selector_visible());
+    try testing.expect(model.usage_share_cost());
+    try testing.expect(!model.usage_share_tokens());
+    const cost_chip = try expectButtonMsg(tree, "Cost", .set_usage_share_cost);
+    try testing.expect(cost_chip.state.selected);
+    const tokens_chip = try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens);
+    try testing.expect(!tokens_chip.state.selected);
+    _ = try expectByText(tree.root, .text, "80.0%");
+    _ = try expectUsageShareProgress(tree.root, "80.0%", 0.8);
+
+    main.update(&model, tree.msgForPointer(tokens_chip.id, .up).?, &fx);
+    try testing.expect(model.usage_share_tokens());
+    try testing.expect(!model.usage_share_cost());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Cost", .set_usage_share_cost)).state.selected);
+    _ = try expectByText(tree.root, .text, "Claude Code · 10k · $1.00");
+    _ = try expectByText(tree.root, .text, "83.3%");
+    _ = try expectUsageShareProgress(tree.root, "83.3%", 10_000.0 / 12_000.0);
+    try testing.expect(findByText(tree.root, .text, "80.0%") == null);
 
     main.update(&model, .set_usage_view_monthly, &fx);
     try testing.expect(model.usage_view_monthly());
@@ -12225,6 +12246,9 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect(findByText(tree.root, .button, "7d") == null);
     try testing.expect(findByText(tree.root, .button, "30d") == null);
     try testing.expect(findByText(tree.root, .button, "This month") == null);
+    try testing.expect(findByText(tree.root, .button, "Cost") == null);
+    try testing.expect(findByText(tree.root, .button, "Tokens") == null);
+    try testing.expect(findByText(tree.root, .text, "83.3%") == null);
 
     main.update(&model, .set_usage_view_projects, &fx);
     try testing.expect(model.usage_view_projects());
@@ -12233,6 +12257,8 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect((try expectButtonMsg(tree, "Projects", .set_usage_view_projects)).state.selected);
     try testing.expect((try expectButtonMsg(tree, "30d", .set_usage_window_30d)).state.selected);
     try testing.expect(model.usage_window_selector_visible());
+    try testing.expect(findByText(tree.root, .button, "Cost") == null);
+    try testing.expect(findByText(tree.root, .button, "Tokens") == null);
     try testing.expectEqual(@as(u64, 53_000), model.sessionById(id).?.context_used);
 }
 
@@ -20082,6 +20108,16 @@ test "git ls-files sidecar argv and first-N stdout; empty missing rejected skip"
 fn expectContextProgress(widget: canvas.Widget, expected: f32) !canvas.Widget {
     const progress = findByText(widget, .progress, "Context usage") orelse {
         std.debug.print("no progress labeled Context usage\n", .{});
+        dumpTexts(widget, 0);
+        return error.WidgetNotFound;
+    };
+    try testing.expectApproxEqAbs(expected, progress.value, 0.0001);
+    return progress;
+}
+
+fn expectUsageShareProgress(widget: canvas.Widget, label: []const u8, expected: f32) !canvas.Widget {
+    const progress = findByText(widget, .progress, label) orelse {
+        std.debug.print("no progress labeled {s}\n", .{label});
         dumpTexts(widget, 0);
         return error.WidgetNotFound;
     };

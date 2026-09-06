@@ -284,6 +284,16 @@ pub fn handleSetUsageWindowLastMonth(model: *Model, fx: *Effects) void {
     usage_history.setWindow(model, fx, .last_month);
 }
 
+pub fn handleSetUsageShareCost(model: *Model) void {
+    if (model.settings_page != .usage) return;
+    usage_history.setShareMetric(model, .cost);
+}
+
+pub fn handleSetUsageShareTokens(model: *Model) void {
+    if (model.settings_page != .usage) return;
+    usage_history.setShareMetric(model, .tokens);
+}
+
 pub fn handleRefreshUsageHistory(model: *Model, fx: *Effects) void {
     if (model.settings_page != .usage) return;
     usage_history.refresh(model, fx);

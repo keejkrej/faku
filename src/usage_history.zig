@@ -14,8 +14,11 @@
 //! Daily / Projects and vice versa. Native 4 KiB stdin overflow /
 //! sidecar failure / unusable parse keep today's local session
 //! Context + Thread goal cards and must not toast-block Settings.
-//! No daemon shows a muted connect hint. Not a T3 chart, not
-//! quality / rate-table. Hello stays v4.
+//! No daemon shows a muted connect hint. Daily first-cut paints
+//! per-provider share bars (`costShare` / `tokenShare`, or computed
+//! from totals) plus a runtime-only Cost | Tokens metric chip
+//! (default Cost). Not a T3 chart, not quality / rate-table. Hello
+//! stays v4.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -64,6 +67,11 @@ pub const window_choices = [_]WindowChoice{
 pub const default_window_choice: WindowChoice = .trailing_30;
 pub const monthly_window: protocol.UsageWindow = .{ .months = 12 };
 
+/// Waku Daily headline metric. Runtime-only; default Cost.
+pub const ShareMetric = enum { cost, tokens };
+
+pub const default_share_metric: ShareMetric = .cost;
+
 pub const max_providers = protocol.max_parsed_usage_providers;
 pub const max_daily = protocol.max_parsed_usage_daily;
 pub const max_months = protocol.max_parsed_usage_months;
@@ -75,6 +83,12 @@ pub const max_line = 160;
 pub const Row = struct {
     id: u32,
     line: []const u8,
+    /// Active Daily share, 0..1. Unused on Monthly / Projects rows.
+    share: f32 = 0,
+    /// `"80.0%"` for Daily provider bars. Empty on other rows.
+    percent: []const u8 = "",
+    /// True when Daily should paint a share bar (share > 0).
+    has_share: bool = false,
 };
 
 pub const CachedProvider = struct {
@@ -82,9 +96,20 @@ pub const CachedProvider = struct {
     id_len: usize = 0,
     total_tokens: u64 = 0,
     cost_usd: f64 = 0,
+    /// 0..1. Wire `costShare` when present and > 0, else computed.
+    cost_share: f64 = 0,
+    /// 0..1. Wire `tokenShare` when present and > 0, else computed.
+    token_share: f64 = 0,
 
     pub fn id(self: *const CachedProvider) []const u8 {
         return self.id_storage[0..self.id_len];
+    }
+
+    pub fn shareFor(self: *const CachedProvider, metric: ShareMetric) f64 {
+        return switch (metric) {
+            .cost => self.cost_share,
+            .tokens => self.token_share,
+        };
     }
 };
 
@@ -249,6 +274,11 @@ pub fn setWindow(model: *Model, fx: *Effects, choice: WindowChoice) void {
     ensure(model, fx, false);
 }
 
+/// Runtime-only Daily Cost | Tokens chip. Does not re-fetch history.
+pub fn setShareMetric(model: *Model, metric: ShareMetric) void {
+    model.usage_share_metric = metric;
+}
+
 fn ensure(model: *Model, fx: *Effects, force: bool) void {
     const window = windowForView(model);
     if (!force) {
@@ -307,6 +337,16 @@ fn adopt(cache: *Cache, parsed: protocol.ParsedUsageHistory) void {
         writeFixed(&cache.providers[i].id_storage, &cache.providers[i].id_len, parsed.providers[i].provider);
         cache.providers[i].total_tokens = parsed.providers[i].total_tokens;
         cache.providers[i].cost_usd = parsed.providers[i].cost_usd;
+        cache.providers[i].cost_share = resolveShare(
+            parsed.providers[i].cost_share,
+            parsed.providers[i].cost_usd,
+            parsed.cost_usd,
+        );
+        cache.providers[i].token_share = resolveShare(
+            parsed.providers[i].token_share,
+            tokensAsFloat(parsed.providers[i].total_tokens),
+            tokensAsFloat(parsed.total_tokens),
+        );
     }
     cache.daily_count = parsed.daily_count;
     i = 0;
@@ -361,6 +401,32 @@ pub fn projectBasename(path: []const u8) []const u8 {
 fn formatCost(buf: []u8, cost: f64) ?[]const u8 {
     if (!(cost > 0)) return null;
     return std.fmt.bufPrint(buf, "${d:.2}", .{cost}) catch null;
+}
+
+fn tokensAsFloat(tokens: u64) f64 {
+    return @floatFromInt(tokens);
+}
+
+/// Clamp a relative share to 0..1. Non-finite / negative → 0.
+fn clampShare(value: f64) f64 {
+    if (!std.math.isFinite(value) or !(value > 0)) return 0;
+    if (value >= 1) return 1;
+    return value;
+}
+
+/// Prefer a positive wire share; otherwise compute part/total when
+/// totals exist (older daemons omit `costShare` / `tokenShare`).
+fn resolveShare(wire: f64, part: f64, total: f64) f64 {
+    const from_wire = clampShare(wire);
+    if (from_wire > 0) return from_wire;
+    if (!(total > 0)) return 0;
+    return clampShare(part / total);
+}
+
+fn formatPercent(buf: []u8, share: f64) ?[]const u8 {
+    const clamped = clampShare(share);
+    if (!(clamped > 0)) return null;
+    return std.fmt.bufPrint(buf, "{d:.1}%", .{clamped * 100.0}) catch null;
 }
 
 fn appendTokensCost(buf: []u8, used: usize, tokens: u64, cost: f64) usize {
@@ -433,9 +499,18 @@ pub fn providerRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     var i: usize = 0;
     while (i < count) : (i += 1) {
         const row = model.usage_history.providers[i];
+        const share = clampShare(row.shareFor(model.usage_share_metric));
+        var percent_buf: [16]u8 = undefined;
+        const percent = if (formatPercent(&percent_buf, share)) |text|
+            copyArena(arena, text)
+        else
+            "";
         out[i] = .{
             .id = @intCast(i + 1),
             .line = joinLabelDetail(arena, providerLabel(row.id()), row.total_tokens, row.cost_usd, null),
+            .share = @floatCast(share),
+            .percent = percent,
+            .has_share = share > 0,
         };
     }
     return out;
@@ -740,4 +815,77 @@ test "same-shape history stays painted while a new window scans; months does not
     try std.testing.expect(cacheShapeMatches(&model));
     try std.testing.expect(std.meta.eql(model.usage_history.window, monthly_window));
     try std.testing.expectEqual(@as(usize, 1), monthRows(&model, arena).len);
+}
+
+test "provider shares prefer wire costShare/tokenShare and compute when missing" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.settings_page = .usage;
+    try std.testing.expectEqual(ShareMetric.cost, model.usage_share_metric);
+
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingShareParseSpawn;
+    const wired =
+        "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":12345,\"costUsd\":1.25,\"sessions\":4,\"providers\":[{\"provider\":\"claude\",\"totalTokens\":10000,\"costUsd\":1.0,\"costShare\":0.8,\"tokenShare\":0.81},{\"provider\":\"codex\",\"totalTokens\":2345,\"costUsd\":0.25}]}}}}";
+    applyLine(&model, .{ .key = sidecar.key, .line = wired });
+    try std.testing.expect(model.usage_history.present);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.8), model.usage_history.providers[0].cost_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.81), model.usage_history.providers[0].token_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.2), model.usage_history.providers[1].cost_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 2345.0 / 12345.0), model.usage_history.providers[1].token_share, 0.0001);
+
+    const cost_rows = providerRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 2), cost_rows.len);
+    try std.testing.expect(cost_rows[0].has_share);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.8), cost_rows[0].share, 0.0001);
+    try std.testing.expectEqualStrings("80.0%", cost_rows[0].percent);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), cost_rows[1].share, 0.0001);
+    try std.testing.expectEqualStrings("20.0%", cost_rows[1].percent);
+
+    setShareMetric(&model, .tokens);
+    try std.testing.expectEqual(ShareMetric.tokens, model.usage_share_metric);
+    const token_rows = providerRows(&model, arena);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.81), token_rows[0].share, 0.0001);
+    try std.testing.expectEqualStrings("81.0%", token_rows[0].percent);
+    try std.testing.expectApproxEqAbs(@as(f32, @floatCast(2345.0 / 12345.0)), token_rows[1].share, 0.0001);
+
+    model.usage_view = .monthly;
+    try std.testing.expectEqual(@as(usize, 0), providerRows(&model, arena).len);
+}
+
+test "zero totals keep shares at 0; empty providers paint no share rows" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.settings_page = .usage;
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingZeroShareSpawn;
+    applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":0,\"costUsd\":0,\"providers\":[{\"provider\":\"claude\",\"totalTokens\":0,\"costUsd\":0}]}}}}" });
+    try std.testing.expectApproxEqAbs(@as(f64, 0), model.usage_history.providers[0].cost_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), model.usage_history.providers[0].token_share, 0.0001);
+    const rows = providerRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 1), rows.len);
+    try std.testing.expect(!rows[0].has_share);
+    try std.testing.expectEqual(@as(f32, 0), rows[0].share);
+    try std.testing.expectEqualStrings("", rows[0].percent);
+
+    applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":100,\"costUsd\":1,\"providers\":[]}}}}" });
+    try std.testing.expectEqual(@as(usize, 0), providerRows(&model, arena).len);
 }
