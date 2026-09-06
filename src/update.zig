@@ -38,6 +38,7 @@ const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const slash_commands = @import("slash_commands.zig");
+const projectless = @import("projectless.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
@@ -424,5 +425,6 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     git_checkout.refresh(model, fx);
     session_fork.refreshSessionTurnRefs(model, fx);
     slash_commands.refresh(model, fx);
+    projectless.beginMigrateForSelected(model, fx);
     fx_probe.startFxProbe(model, fx);
 }

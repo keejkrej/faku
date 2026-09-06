@@ -9,6 +9,11 @@
 //! already projectless under `~/.waku/projects`); Native 4 KiB
 //! stdin overflow / sidecar miss fall back to local mkdir. Ordinary
 //! New Task with a real project path still copies `last_project_path`.
+//! First-cut daemon `WorkspaceOperation::MigrateProjectlessWorkspace`
+//! prefers hello + migrateProjectlessWorkspace on session select /
+//! boot when the selected cwd still needs migration (legacy
+//! projectless, not under `~/.waku/projects`); Native 4 KiB stdin
+//! overflow / sidecar miss fall back to local rename / fresh mkdir.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -65,6 +70,7 @@ pub fn handleNewSession(model: *Model, fx: *Effects) void {
     store.persistIfPossible(model, id, fx);
     store.loadDraftIfPossible(model);
     projectless.beginForNewSession(model, fx, prior);
+    projectless.cancelMigrate(model, fx);
     attach_helpers.refreshAttachPreview(model, fx);
     git_branch.refresh(model, fx);
     git_dirty.refresh(model, fx);
@@ -186,6 +192,7 @@ pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
     slash_commands.cancel(model, fx);
     slash_commands.refresh(model, fx);
     if (model.daemon_projectless_session == id) projectless.cancel(model, fx);
+    if (model.daemon_migrate_projectless_session == id) projectless.cancelMigrate(model, fx);
     model.maybeEnsureSkillsScanned(fx);
 }
 
@@ -257,4 +264,26 @@ test "handleNewSession with a real last_project_path does not spawn createProjec
     try std.testing.expectEqual(@as(u64, 0), model.daemon_projectless_key);
     try std.testing.expectEqualStrings(project, model.sessionById(model.selected).?.projectPath());
     try std.testing.expectEqualStrings(project, model.lastProjectPath());
+}
+
+test "handleSelect with a daemon address and legacy path issues migrateProjectlessWorkspace" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setHome("/home/me");
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const first = model.addSession("first", .fx);
+    model.selected = first;
+    model.setLastProjectPath("/home/me/.waku/2026-09-06/legacy-chat");
+    const legacy = model.addSession("legacy", .fx);
+
+    handleSelect(&model, &fx, legacy);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_migrate_projectless_key) orelse return error.MissingHandleSelectMigrate;
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"migrateProjectlessWorkspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"path\":\"/home/me/.waku/2026-09-06/legacy-chat\"") != null);
+    try std.testing.expectEqual(legacy, model.selected);
 }
