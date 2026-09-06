@@ -5753,7 +5753,7 @@ test "parseUsageHistory reads daily byProvider into two fixed Claude/Codex slots
     const arena = arena_state.allocator();
 
     const line =
-        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000015","outcome":{"status":"ok","payload":{"type":"usageHistory","history":{"daily":[{"day":"2026-09-05","totalTokens":100,"costUsd":1.0,"byProvider":[{"costUsd":0.25,"totalTokens":40,"unknownProviderField":true},{"costUsd":0.75,"totalTokens":60}]},{"day":"2026-09-06","totalTokens":400,"costUsd":0.5,"byProvider":[{"costUsd":0.5,"totalTokens":400}]},{"day":"2026-09-04","totalTokens":0,"costUsd":0,"byProvider":[]},{"day":"2026-09-03","totalTokens":10,"costUsd":0.1}]}}}
+        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000015","outcome":{"status":"ok","payload":{"type":"usageHistory","history":{"daily":[{"day":"2026-09-05","totalTokens":100,"costUsd":1.0,"byProvider":[{"costUsd":0.25,"totalTokens":40,"unknownProviderField":true},{"costUsd":0.75,"totalTokens":60}]},{"day":"2026-09-06","totalTokens":400,"costUsd":0.5,"byProvider":[{"costUsd":0.5,"totalTokens":400}]},{"day":"2026-09-04","totalTokens":0,"costUsd":0,"byProvider":[]},{"day":"2026-09-03","totalTokens":10,"costUsd":0.1}]}}}}
     ;
     const parsed = parseUsageHistory(arena, line);
     try std.testing.expect(parsed.ok);
