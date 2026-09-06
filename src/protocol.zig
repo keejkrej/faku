@@ -61,9 +61,20 @@
 //! UUIDs. A non-nil `requestId` is required so the daemon Acks. The
 //! useful data arrives as `event` frames (`kind: "backgroundWork"`);
 //! first-cut parse applies `reconcileProcesses`, `reconcileLive`, and
-//! `upsert` and ignores `outputDelta` / `stopRequested` / `stopFailed`
-//! / extra JSON. Not `StopBackgroundWork`. Not a long-lived Waku
+//! `upsert` and ignores `outputDelta` / `stopFailed` / extra JSON.
+//! `stopRequested` is parsed when cheap (key only) so a stop sidecar
+//! can keep local Stopping. Not a long-lived Waku
 //! `BACKGROUND_WORK_REFRESH_INTERVAL` tick. Hello stays protocol v4.
+//!
+//! `stopBackgroundWork` is not a bare command. Verified against
+//! egoist/waku `Command::StopBackgroundWork { key, control_id }`
+//! (wire camelCase `stopBackgroundWork` / `controlId`; `key` is
+//! `BackgroundWorkKey` `{ kind, providerId }`), same request-frame
+//! `sessionId` / `runtimeId` as `refreshBackgroundWork`. A non-nil
+//! `requestId` is required so the daemon Acks. First-cut Background
+//! Stop prefers hello + this command when a daemon address, usable
+//! session `runtimeId`, and usable `controlId` are present. Not a
+//! long-lived tick. Not full BackgroundWorkRegistry.
 //!
 //! `saveTaskState` is not a bare command. Verified against egoist/waku
 //! `crates/waku-protocol/src/protocol.rs` and `persistSession` in
@@ -599,8 +610,10 @@ pub fn defaultStartOptions() StartOptions {
 /// daemon sidecar). It is not an fx / ACP method. `loadUsageHistory`
 /// is Settings → Usage history (hello + one-shot; not a workspace
 /// op). `refreshBackgroundWork` is Environment Summary / right-panel
-/// Background (hello + one-shot; request-frame sessionId / runtimeId;
-/// not StopBackgroundWork). `workspace` is
+/// Background (hello + one-shot; request-frame sessionId / runtimeId).
+/// `stopBackgroundWork` is Background Stop on a daemon-sourced live
+/// row (hello + one-shot; `key` + `controlId`; request-frame
+/// sessionId / runtimeId). `workspace` is
 /// first-cut `WorkspaceOperation::Push`, `CreateWorktree`,
 /// `Commit`, `InspectBranches`, `CheckoutBranch`,
 /// `InspectCommit`, `CaptureTurnStart`, `CaptureTurn`,
@@ -626,6 +639,7 @@ pub const CommandTag = enum {
     close_session,
     load_usage_history,
     refresh_background_work,
+    stop_background_work,
 
     pub fn wireName(tag: CommandTag) []const u8 {
         return switch (tag) {
@@ -642,6 +656,7 @@ pub const CommandTag = enum {
             .close_session => "closeSession",
             .load_usage_history => "loadUsageHistory",
             .refresh_background_work => "refreshBackgroundWork",
+            .stop_background_work => "stopBackgroundWork",
         };
     }
 };
@@ -829,15 +844,18 @@ pub const ParsedBackgroundWorkItem = struct {
     detail: []const u8 = "",
     output: []const u8 = "",
     can_stop: bool = false,
+    control_id: []const u8 = "",
     status: BackgroundWorkStatus = .running,
 };
 
 /// First-cut `BackgroundWorkEvent` kinds this port applies.
-/// `outputDelta` / `stopRequested` / `stopFailed` stay ignored.
+/// `outputDelta` / `stopFailed` stay ignored. `stopRequested` is
+/// key-only (Waku StopRequested → local Stopping).
 pub const BackgroundWorkEventKind = enum {
     upsert,
     reconcile_processes,
     reconcile_live,
+    stop_requested,
 };
 
 /// Light parse of a `backgroundWork` driver event. Unknown event
@@ -2079,7 +2097,8 @@ pub fn writeAttachSession(
 }
 
 /// Bare first-cut command (attachSession, cancel, loadTaskState,
-/// closeSession, refreshBackgroundWork, …).
+/// closeSession, refreshBackgroundWork, …). `stopBackgroundWork` is
+/// not bare — use `writeStopBackgroundWork`.
 pub fn writeBareCommand(
     buf: []u8,
     request_id: []const u8,
@@ -2111,6 +2130,37 @@ pub fn writeRefreshBackgroundWork(
     runtime_id: []const u8,
 ) WriteError![]const u8 {
     return writeBareCommand(buf, request_id, session_id, runtime_id, .refresh_background_work);
+}
+
+/// Verified `stopBackgroundWork` `{ type, key, controlId }`.
+/// Request-frame `sessionId` / `runtimeId` name the live session
+/// driver (same as `refreshBackgroundWork` / cancel / steer / goal).
+/// Non-nil `requestId` so the daemon Acks. `key` is
+/// `{ kind, providerId }` (`process` | `monitor` | `subagent`).
+pub fn writeStopBackgroundWork(
+    buf: []u8,
+    request_id: []const u8,
+    session_id: []const u8,
+    runtime_id: []const u8,
+    key_kind: BackgroundWorkKind,
+    provider_id: []const u8,
+    control_id: []const u8,
+) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    try cur.write("{\"type\":\"request\",\"requestId\":");
+    try writeJsonString(&cur, request_id);
+    try cur.write(",\"sessionId\":");
+    try writeJsonString(&cur, session_id);
+    try cur.write(",\"runtimeId\":");
+    try writeJsonString(&cur, runtime_id);
+    try cur.write(",\"command\":{\"type\":\"stopBackgroundWork\",\"key\":{\"kind\":");
+    try writeJsonString(&cur, key_kind.wireName());
+    try cur.write(",\"providerId\":");
+    try writeJsonString(&cur, provider_id);
+    try cur.write("},\"controlId\":");
+    try writeJsonString(&cur, control_id);
+    try cur.write("}}");
+    return cur.slice();
 }
 
 /// Request wrapping verified `hydrateSession` `{ type, sessionId }`.
@@ -2328,10 +2378,11 @@ pub fn parseUsageHistory(allocator: std.mem.Allocator, line: []const u8) ParsedU
 
 /// Extract a first-cut `backgroundWork` event. Empty / `ok = false`
 /// on any other frame, a non-event, a payload that is not
-/// `reconcileProcesses` / `reconcileLive` / `upsert`, or a missing
-/// key. Unknown fields and extra array rows are ignored. `upsert`
-/// accepts internally tagged flattened item fields or a nested
-/// `item` object.
+/// `reconcileProcesses` / `reconcileLive` / `upsert` /
+/// `stopRequested`, or a missing key. Unknown fields and extra
+/// array rows are ignored. `upsert` accepts internally tagged
+/// flattened item fields or a nested `item` object. `stopRequested`
+/// is key-only.
 pub fn parseBackgroundWorkEvent(allocator: std.mem.Allocator, line: []const u8) ParsedBackgroundWorkEvent {
     var parsed = ParsedBackgroundWorkEvent{};
     const trimmed = std.mem.trim(u8, line, " \t\r\n");
@@ -2367,6 +2418,16 @@ pub fn parseBackgroundWorkEvent(allocator: std.mem.Allocator, line: []const u8) 
         parsed.ok = true;
         return parsed;
     }
+    if (std.mem.eql(u8, type_name, "stopRequested")) {
+        const key_obj = jsonObject(payload.get("key") orelse return parsed) orelse return parsed;
+        const kind = BackgroundWorkKind.fromWire(jsonStringValue(key_obj.get("kind")) orelse return parsed) orelse return parsed;
+        const provider_id = jsonStringValue(key_obj.get("providerId")) orelse return parsed;
+        if (provider_id.len == 0) return parsed;
+        parsed.kind = .stop_requested;
+        parsed.item = .{ .key = .{ .kind = kind, .provider_id = provider_id } };
+        parsed.ok = true;
+        return parsed;
+    }
     return parsed;
 }
 
@@ -2394,6 +2455,7 @@ fn parseBackgroundWorkItem(obj: std.json.ObjectMap) ?ParsedBackgroundWorkItem {
         .detail = jsonStringValue(obj.get("detail")) orelse "",
         .output = jsonStringValue(obj.get("output")) orelse "",
         .can_stop = jsonBoolValue(obj.get("canStop")) orelse false,
+        .control_id = jsonStringValue(obj.get("controlId")) orelse "",
         .status = status,
     };
 }
@@ -5058,6 +5120,7 @@ test "first-cut command tags stay camelCase on the wire" {
     try std.testing.expectEqualStrings("workspace", CommandTag.workspace.wireName());
     try std.testing.expectEqualStrings("loadUsageHistory", CommandTag.load_usage_history.wireName());
     try std.testing.expectEqualStrings("refreshBackgroundWork", CommandTag.refresh_background_work.wireName());
+    try std.testing.expectEqualStrings("stopBackgroundWork", CommandTag.stop_background_work.wireName());
     try std.testing.expectEqualStrings("steerAccepted", EventKind.steer_accepted.wireName());
     try std.testing.expectEqualStrings("steerRejected", EventKind.steer_rejected.wireName());
     try std.testing.expectEqualStrings("goalUpdated", EventKind.goal_updated.wireName());
@@ -5447,6 +5510,27 @@ test "refreshBackgroundWork is a bare command with sessionId and runtimeId on th
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"loadUsageHistory\"") == null);
 }
 
+test "stopBackgroundWork carries key and controlId on the command with sessionId and runtimeId on the request frame" {
+    var buf: [512]u8 = undefined;
+    const json = try writeStopBackgroundWork(
+        &buf,
+        "00000000-0000-0000-0000-000000000017",
+        "00000000-0000-0000-0000-000000000007",
+        "00000000-0000-0000-0000-000000000003",
+        .process,
+        "proc-1",
+        "c1",
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000017\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"00000000-0000-0000-0000-000000000007\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"00000000-0000-0000-0000-000000000003\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"stopBackgroundWork\",\"key\":{\"kind\":\"process\",\"providerId\":\"proc-1\"},\"controlId\":\"c1\"}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"refreshBackgroundWork\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"cancel\"") == null);
+}
+
 test "parseBackgroundWorkEvent reads reconcile upsert fixtures and ignores unknown types" {
     const allocator = std.testing.allocator;
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -5466,6 +5550,7 @@ test "parseBackgroundWorkEvent reads reconcile upsert fixtures and ignores unkno
     try std.testing.expectEqualStrings("watching", processes.items[0].detail);
     try std.testing.expectEqualStrings("ready\n", processes.items[0].output);
     try std.testing.expect(processes.items[0].can_stop);
+    try std.testing.expectEqualStrings("c1", processes.items[0].control_id);
     try std.testing.expectEqual(BackgroundWorkStatus.running, processes.items[0].status);
 
     const live =
@@ -5508,7 +5593,15 @@ test "parseBackgroundWorkEvent reads reconcile upsert fixtures and ignores unkno
     try std.testing.expectEqual(@as(usize, 0), empty.item_count);
 
     try std.testing.expect(!parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"outputDelta\",\"key\":{\"kind\":\"process\",\"providerId\":\"p\"},\"delta\":\"x\"}}}").ok);
-    try std.testing.expect(!parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"stopRequested\",\"key\":{\"kind\":\"process\",\"providerId\":\"p\"}}}}").ok);
+    try std.testing.expect(!parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"stopFailed\",\"key\":{\"kind\":\"process\",\"providerId\":\"p\"}}}}").ok);
+
+    const stop_requested = parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"stopRequested\",\"key\":{\"kind\":\"process\",\"providerId\":\"proc-1\"}}}}");
+    try std.testing.expect(stop_requested.ok);
+    try std.testing.expectEqual(BackgroundWorkEventKind.stop_requested, stop_requested.kind);
+    try std.testing.expectEqual(BackgroundWorkKind.process, stop_requested.item.key.kind);
+    try std.testing.expectEqualStrings("proc-1", stop_requested.item.key.provider_id);
+    try std.testing.expect(!parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"stopRequested\",\"key\":{\"kind\":\"process\"}}}}").ok);
+
     try std.testing.expect(!parseBackgroundWorkEvent(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}").ok);
     try std.testing.expect(!parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"textDelta\",\"payload\":\"hi\"}}").ok);
 

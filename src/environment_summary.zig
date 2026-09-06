@@ -105,14 +105,20 @@
 //! Dismiss all settled ships for the selected session (settled
 //! Monitor / Subagent slots plus the cap-1 Process settle; live
 //! rows and the stream stay). Leftovers: Claude CLI TaskStop /
-//! long-lived ACP, daemon `StopBackgroundWork`, long-lived Waku
+//! long-lived ACP, long-lived Waku
 //! `BACKGROUND_WORK_REFRESH_INTERVAL` tick, full BackgroundWorkRegistry
 //! event/reconcile parity. First-cut daemon `refreshBackgroundWork`
 //! prefers hello + that command when a daemon address and usable
 //! session `runtimeId` are set on Background tab / Environment Summary
 //! open (one-shot sidecar; Ack plus `backgroundWork` events;
 //! reconcileProcesses / reconcileLive / upsert into daemon-sourced
-//! registry rows; miss keeps local Process / Monitor / Subagent). Kind chrome, Process registry,
+//! registry rows; miss keeps local Process / Monitor / Subagent).
+//! First-cut daemon `stopBackgroundWork` prefers hello + that command
+//! when Background Stop targets a daemon-sourced live row and a
+//! daemon address, usable session `runtimeId`, and usable `controlId`
+//! are set (one-shot sidecar, distinct from refresh; optimistic
+//! Stopping; miss / overflow / no controlId keep Faku-side dismiss).
+//! Kind chrome, Process registry,
 //! first-cut live Monitor rows from Claude `Monitor` tool_use plus
 //! a Waku-sized 512KB last-window log from matching user
 //! `tool_result` (Environment Summary stays a one-line preview;
@@ -129,11 +135,13 @@
 //! row; not Claude TaskStop mid-turn), first-cut settled Monitor /
 //! Subagent persist after the turn (status from Process settle;
 //! Monitor / Subagent last-window kept; Faku-side Dismiss, not
-//! Claude TaskStop / daemon `StopBackgroundWork`), Faku-side
+//! Claude TaskStop / daemon `StopBackgroundWork` on settled rows), Faku-side
 //! Dismiss all settled for the selected session, and
 //! first-cut right-panel Background ship; not Waku
 //! BackgroundWorkRegistry event/reconcile/driver parity (first-cut
-//! refreshBackgroundWork prefer path ships; not StopBackgroundWork).
+//! refreshBackgroundWork prefer path ships; first-cut
+//! stopBackgroundWork prefer path ships for live daemon rows with
+//! a controlId).
 //! Not transcript checkpoint +/-. First-cut Force push ships on
 //! composer Push… / Commit… (runtime-only ghost). New worktree…
 //! first-cut Base picker ships. First-cut defer-until-Send
@@ -225,6 +233,7 @@ const right_panel = @import("right_panel.zig");
 const copy_helpers = @import("copy.zig");
 const session_switcher = @import("switcher.zig");
 const turn_stream = @import("stream.zig");
+const background_work = @import("background_work.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -445,19 +454,32 @@ pub const LiveMonitor = struct {
 /// `refreshBackgroundWork` events. Keyed by `BackgroundWorkKey`
 /// (`kind` + `providerId`). Does not replace local Process /
 /// Monitor / Subagent stream rows. Heap last-window from item
-/// `output` / `detail` when present. Not persisted.
+/// `output` / `detail` when present. Live rows with daemon
+/// `canStop` and a non-empty `controlId` expose Stop (hello +
+/// `stopBackgroundWork`). Settled rows stay Faku-side Dismiss.
+/// Not persisted.
 pub const DaemonBackground = struct {
     kind: BackgroundKind = .process,
     id_storage: [max_monitor_id]u8 = [_]u8{0} ** max_monitor_id,
     id_len: usize = 0,
     title_storage: [max_monitor_title]u8 = [_]u8{0} ** max_monitor_title,
     title_len: usize = 0,
+    control_id_storage: [max_monitor_id]u8 = [_]u8{0} ** max_monitor_id,
+    control_id_len: usize = 0,
     session_id: u32 = 0,
     settled: SettledStatus = .none,
+    can_stop: bool = false,
+    /// Local Waku StopRequested: stay live Stopping / non-stoppable
+    /// until a later refresh upsert settles the row.
+    stop_requested: bool = false,
     log: LastWindow = .{},
 
     pub fn providerId(self: *const DaemonBackground) []const u8 {
         return self.id_storage[0..self.id_len];
+    }
+
+    pub fn controlId(self: *const DaemonBackground) []const u8 {
+        return self.control_id_storage[0..self.control_id_len];
     }
 
     pub fn title(self: *const DaemonBackground) []const u8 {
@@ -481,6 +503,9 @@ pub const settled_failed_label = "Failed";
 pub const live_running_label = "Running";
 /// Live Monitor status. Same derivation as `live_running_label`.
 pub const live_monitoring_label = "Monitoring";
+/// Daemon-sourced live row after local StopRequested / a daemon
+/// `stopping` status. Still live until a later refresh settles.
+pub const live_stopping_label = "Stopping";
 pub const empty_background_work_label = "No background work";
 pub const no_output_label = "No output";
 /// Process Stop. Same composer Stop / `stopStream` path.
@@ -497,6 +522,9 @@ pub const subagent_stop_label = "Stop subagent";
 /// Settled Subagent dismiss. Faku-side clear of that leftover row;
 /// not live Stop and not Claude TaskStop.
 pub const subagent_dismiss_label = "Dismiss subagent";
+/// Daemon-sourced live Stop. hello + `stopBackgroundWork` when a
+/// daemon address, usable runtimeId, and controlId are present.
+pub const daemon_stop_label = "Stop";
 /// Daemon-sourced settled dismiss. Faku-side clear of that leftover
 /// row; not `StopBackgroundWork`.
 pub const daemon_dismiss_label = "Dismiss";
@@ -670,13 +698,15 @@ pub fn clearDaemonBackground(model: *Model) void {
 /// Apply a parsed `backgroundWork` event into daemon-sourced registry
 /// rows. Local Process / Monitor / Subagent slots are left alone
 /// (including settled leftovers a reconcile does not mention).
-/// `outputDelta` / `stopRequested` / `stopFailed` never reach here.
+/// `outputDelta` / `stopFailed` never reach here. `stopRequested`
+/// marks that live key Stopping / non-stoppable.
 pub fn applyDaemonBackgroundEvent(model: *Model, session_id: u32, parsed: protocol.ParsedBackgroundWorkEvent) void {
     if (!parsed.ok or session_id == 0) return;
     switch (parsed.kind) {
         .upsert => _ = upsertDaemonItem(model, session_id, parsed.item),
         .reconcile_processes => reconcileDaemon(model, session_id, parsed.items[0..parsed.item_count], .process_only),
         .reconcile_live => reconcileDaemon(model, session_id, parsed.items[0..parsed.item_count], .live),
+        .stop_requested => markDaemonStopping(model, session_id, kindFromDaemon(parsed.item.key.kind), parsed.item.key.provider_id),
     }
     _ = refreshBackgroundOutputCacheNow(model);
 }
@@ -738,6 +768,14 @@ fn kindFromDaemon(kind: protocol.BackgroundWorkKind) BackgroundKind {
     };
 }
 
+pub fn protocolKind(kind: BackgroundKind) protocol.BackgroundWorkKind {
+    return switch (kind) {
+        .process => .process,
+        .monitor => .monitor,
+        .subagent => .subagent,
+    };
+}
+
 fn settledFromDaemon(status: protocol.BackgroundWorkStatus) SettledStatus {
     return switch (status) {
         .starting, .running, .monitoring, .stopping => .none,
@@ -782,14 +820,39 @@ fn findDaemonSlot(model: *const Model, session_id: u32, kind: BackgroundKind, pr
 
 fn paintDaemonSlot(slot: *DaemonBackground, session_id: u32, item: protocol.ParsedBackgroundWorkItem) void {
     const writeFixed = main.writeFixed;
+    const was_stopping = slot.stop_requested;
     slot.kind = kindFromDaemon(item.key.kind);
     writeFixed(&slot.id_storage, &slot.id_len, item.key.provider_id);
     const title = if (item.title.len > 0) item.title else backgroundKindLabel(slot.kind);
     writeFixed(&slot.title_storage, &slot.title_len, title);
+    writeFixed(&slot.control_id_storage, &slot.control_id_len, item.control_id);
     slot.session_id = session_id;
     slot.settled = settledFromDaemon(item.status);
+    slot.can_stop = item.can_stop;
+    slot.stop_requested = false;
+    if (item.status == .stopping or (was_stopping and slot.settled == .none)) {
+        slot.stop_requested = true;
+        slot.can_stop = false;
+    }
     const text = if (item.output.len > 0) item.output else item.detail;
     if (text.len > 0) replaceLog(&slot.log, text);
+}
+
+/// Local StopRequested: keep the live row Stopping / non-stoppable
+/// until a later refresh upsert settles it.
+pub fn markDaemonStopping(model: *Model, session_id: u32, kind: BackgroundKind, provider_id: []const u8) void {
+    if (findDaemonSlot(model, session_id, kind, provider_id)) |index| {
+        const slot = &model.background_daemon[index];
+        if (slot.settled != .none) return;
+        slot.stop_requested = true;
+        slot.can_stop = false;
+    }
+}
+
+pub fn dismissDaemonKey(model: *Model, session_id: u32, kind: BackgroundKind, provider_id: []const u8) void {
+    if (findDaemonSlot(model, session_id, kind, provider_id)) |index| {
+        dismissDaemon(model, index);
+    }
 }
 
 fn replaceLog(log: *LastWindow, text: []const u8) void {
@@ -1333,16 +1396,18 @@ fn fillSubagentRow(slot: *const LiveSubagent, index: u32) BackgroundRow {
 
 fn fillDaemonRow(slot: *const DaemonBackground, index: u32) BackgroundRow {
     const live = slot.settled == .none;
-    const status = if (live) "" else statusLabel(slot.settled);
+    const stopping = live and slot.stop_requested;
+    const status = if (stopping) live_stopping_label else if (live) "" else statusLabel(slot.settled);
     const detail = slot.preview();
+    const live_stop = live and !stopping and slot.can_stop and slot.controlId().len > 0;
     return .{
         .id = daemon_row_id_first + index,
         .kind = slot.kind,
         .kind_label = backgroundKindLabel(slot.kind),
         .title = slot.title(),
         .live = live,
-        .can_stop = !live,
-        .stop_label = if (live) "" else daemon_dismiss_label,
+        .can_stop = if (live) live_stop else true,
+        .stop_label = if (live) (if (live_stop) daemon_stop_label else "") else daemon_dismiss_label,
         .has_status = status.len > 0,
         .settled_status = status,
         .has_detail = detail.len > 0,
@@ -1515,10 +1580,14 @@ pub fn compare(model: *Model, fx: *Effects) void {
 /// log; live dismiss also remembers the id so later
 /// `noteLiveSubagent` is ignored until `clearDismissedSubagentIds`.
 /// Settled dismiss skips remember: that list only matters mid-turn
-/// for a live slot, and `startPrompt` already clears it). Does not
-/// `stopStream` for a Monitor or Subagent. Unknown / Process-idle
-/// ids are no-ops. Not Claude TaskStop: one-shot `claude -p` has no
-/// mid-turn stdin / long-lived session.
+/// for a live slot, and `startPrompt` already clears it). Daemon
+/// live rows prefer hello + `stopBackgroundWork` when a daemon
+/// address, usable runtimeId, and controlId are set (optimistic
+/// Stopping; miss / overflow / no controlId fall back to Faku-side
+/// dismiss). Settled daemon rows stay Faku-side Dismiss. Does not
+/// `stopStream` for a Monitor, Subagent, or daemon row. Unknown /
+/// Process-idle ids are no-ops. Not Claude TaskStop: one-shot
+/// `claude -p` has no mid-turn stdin / long-lived session.
 pub fn stopBackground(model: *Model, fx: *Effects, row_id: u32) void {
     if (row_id == process_row_id) {
         if (!model.is_streaming()) return;
@@ -1533,6 +1602,9 @@ pub fn stopBackground(model: *Model, fx: *Effects, row_id: u32) void {
     }
     if (daemonIndex(model, row_id)) |index| {
         close(model);
+        if (model.background_daemon[index].settled == .none) {
+            if (background_work.tryStop(model, fx, index)) return;
+        }
         dismissDaemon(model, index);
         return;
     }
@@ -1550,7 +1622,7 @@ pub fn stopBackground(model: *Model, fx: *Effects, row_id: u32) void {
 /// a live stream, does not dismiss live Monitor / Subagent
 /// (`settled == .none`), and does not `stopStream`. Other sessions'
 /// leftovers stay. Closes the Environment Summary dropdown.
-/// Not Claude TaskStop / daemon `StopBackgroundWork`.
+/// Not Claude TaskStop. Settled daemon rows stay Faku-side Dismiss.
 pub fn dismissSettledBackground(model: *Model) void {
     close(model);
     const session_id = model.selected;

@@ -1,4 +1,5 @@
-//! First-cut daemon `Command::RefreshBackgroundWork`.
+//! First-cut daemon `Command::RefreshBackgroundWork` and
+//! `Command::StopBackgroundWork`.
 //!
 //! When the right-panel Background tab is selected or Environment
 //! Summary opens, and `WAKU_DAEMON_ADDRESS` or persisted
@@ -10,9 +11,18 @@
 //! into daemon-sourced registry rows. Native 4 KiB stdin overflow /
 //! sidecar failure / unusable parse / missing address / missing
 //! runtimeId keep today's local Process / Monitor / Subagent
-//! behavior. Not `StopBackgroundWork`. Not a long-lived Waku tick
-//! loop. Not full BackgroundWorkRegistry / GPUI SharedString parity.
-//! Local Faku-side Stop / Dismiss remains. Hello stays v4.
+//! behavior.
+//!
+//! Background Stop on a daemon-sourced live row prefers hello +
+//! `stopBackgroundWork` (`key` + `controlId`) on a distinct spawn
+//! key when a daemon address, usable `runtimeId`, and usable
+//! `controlId` are present. The row is marked Stopping /
+//! non-stoppable locally (Waku StopRequested) and stays that way
+//! until a later refresh upsert settles it. Miss / overflow / no
+//! daemon / no controlId fall back to Faku-side dismiss. Not a
+//! long-lived Waku tick loop. Not full BackgroundWorkRegistry /
+//! GPUI SharedString parity. Local Faku-side Process / Monitor /
+//! Subagent Stop / Dismiss remains. Hello stays v4.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -30,6 +40,14 @@ fn cancelInFlight(model: *Model, fx: *Effects) void {
     fx.cancel(model.daemon_background_work_key);
     model.daemon_background_work_key = 0;
     model.daemon_background_work_session = 0;
+}
+
+fn cancelStopInFlight(model: *Model, fx: *Effects) void {
+    if (model.daemon_stop_background_work_key == 0) return;
+    fx.cancel(model.daemon_stop_background_work_key);
+    model.daemon_stop_background_work_key = 0;
+    model.daemon_stop_background_work_session = 0;
+    model.daemon_stop_background_id_len = 0;
 }
 
 /// Drop an in-flight refreshBackgroundWork sidecar. Safe when none
@@ -76,9 +94,69 @@ fn trySpawn(model: *Model, fx: *Effects) bool {
     return true;
 }
 
+/// Prefer hello + `stopBackgroundWork` for a live daemon-sourced
+/// Background row. Requires a daemon address, usable session
+/// `runtimeId`, and a non-empty `controlId`. Marks the row Stopping
+/// on spawn. Missing pieces / Native 4 KiB overflow return false so
+/// the caller can fall back to Faku-side dismiss. An already-Stopping
+/// row returns true so Stop does not dismiss it.
+pub fn tryStop(model: *Model, fx: *Effects, index: u32) bool {
+    if (index >= model.background_daemon_count) return false;
+    const slot = &model.background_daemon[index];
+    if (slot.settled != .none) return false;
+    if (slot.stop_requested) return true;
+    if (slot.controlId().len == 0) return false;
+
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    const session = model.sessionById(slot.session_id) orelse return false;
+    if (!protocol.isUsableRuntimeId(session.runtimeId())) return false;
+
+    const kind = slot.kind;
+    const provider_id = slot.providerId();
+    const control_id = slot.controlId();
+    var id_buf: [36]u8 = undefined;
+    const wire_id = daemon_proxy.wireUuid(session.id, &id_buf);
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeStopBackgroundWorkStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .session_id = wire_id,
+        .runtime_id = session.runtimeId(),
+        .key_kind = environment_summary.protocolKind(kind),
+        .provider_id = provider_id,
+        .control_id = control_id,
+    }) catch return false;
+
+    cancelStopInFlight(model, fx);
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.daemon_stop_background_work_key = key;
+    model.daemon_stop_background_work_session = session.id;
+    model.daemon_stop_background_kind = kind;
+    main.writeFixed(&model.daemon_stop_background_id_storage, &model.daemon_stop_background_id_len, provider_id);
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    environment_summary.markDaemonStopping(model, session.id, kind, provider_id);
+    return true;
+}
+
+fn lineSessionId(model: *const Model, key: u64) u32 {
+    if (model.daemon_background_work_key != 0 and key == model.daemon_background_work_key)
+        return model.daemon_background_work_session;
+    if (model.daemon_stop_background_work_key != 0 and key == model.daemon_stop_background_work_key)
+        return model.daemon_stop_background_work_session;
+    return 0;
+}
+
 pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
-    if (line.key != model.daemon_background_work_key or model.daemon_background_work_key == 0) return;
-    const session_id = model.daemon_background_work_session;
+    const session_id = lineSessionId(model, line.key);
     if (session_id == 0) return;
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_state.deinit();
@@ -88,9 +166,20 @@ pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
 }
 
 pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
-    if (exit.key != model.daemon_background_work_key or model.daemon_background_work_key == 0) return;
-    model.daemon_background_work_key = 0;
-    model.daemon_background_work_session = 0;
+    if (model.daemon_background_work_key != 0 and exit.key == model.daemon_background_work_key) {
+        model.daemon_background_work_key = 0;
+        model.daemon_background_work_session = 0;
+        return;
+    }
+    if (model.daemon_stop_background_work_key == 0 or exit.key != model.daemon_stop_background_work_key) return;
+    const session_id = model.daemon_stop_background_work_session;
+    const kind = model.daemon_stop_background_kind;
+    const provider_id = model.daemon_stop_background_id_storage[0..model.daemon_stop_background_id_len];
+    model.daemon_stop_background_work_key = 0;
+    model.daemon_stop_background_work_session = 0;
+    model.daemon_stop_background_id_len = 0;
+    if (exit.reason == .exited and exit.code == 0) return;
+    environment_summary.dismissDaemonKey(model, session_id, kind, provider_id);
 }
 
 fn pendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
@@ -303,4 +392,155 @@ test "Background tab without a daemon address does not spawn refreshBackgroundWo
     try std.testing.expect(model.environment_summary_open);
     try std.testing.expectEqual(@as(u64, 0), model.daemon_background_work_key);
     try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+}
+
+const stoppable_upsert_line = "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"upsert\",\"key\":{\"kind\":\"process\",\"providerId\":\"proc-1\"},\"title\":\"npm run dev\",\"status\":\"running\",\"canStop\":true,\"controlId\":\"c1\"}}}";
+
+const settled_upsert_line = "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"upsert\",\"key\":{\"kind\":\"monitor\",\"providerId\":\"toolu_s\"},\"title\":\"Watch\",\"status\":\"completed\",\"canStop\":false,\"controlId\":\"\"}}}";
+
+const live_no_control_line = "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"upsert\",\"key\":{\"kind\":\"process\",\"providerId\":\"proc-2\"},\"title\":\"sleep\",\"status\":\"running\",\"canStop\":true}}}";
+
+fn applyDaemonLine(model: *Model, session_id: u32, line: []const u8) void {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseBackgroundWorkEvent(arena_state.allocator(), line);
+    environment_summary.applyDaemonBackgroundEvent(model, session_id, parsed);
+}
+
+test "Stop with daemon runtimeId and controlId spawns stopBackgroundWork sidecar" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("bg stop", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setRuntimeId(usable_runtime_id);
+    applyDaemonLine(&model, id, stoppable_upsert_line);
+    try std.testing.expectEqual(@as(u32, 1), model.background_daemon_count);
+    try std.testing.expect(model.background_daemon[0].can_stop);
+    try std.testing.expectEqualStrings("c1", model.background_daemon[0].controlId());
+
+    var buf: [environment_summary.max_background_rows]environment_summary.BackgroundRow = undefined;
+    const rows = environment_summary.fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 1), rows.len);
+    try std.testing.expect(rows[0].live);
+    try std.testing.expect(rows[0].can_stop);
+    try std.testing.expectEqualStrings(environment_summary.daemon_stop_label, rows[0].stop_label);
+    try std.testing.expectEqual(environment_summary.daemon_row_id_first, rows[0].id);
+
+    environment_summary.stopBackground(&model, &fx, environment_summary.daemon_row_id_first);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_stop_background_work_key) orelse return error.MissingDaemonStopBackgroundWork;
+    try std.testing.expect(daemon_proxy.isSidecarArgv(sidecar.argv));
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"stopBackgroundWork\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"key\":{\"kind\":\"process\",\"providerId\":\"proc-1\"}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"controlId\":\"c1\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"refreshBackgroundWork\"") == null);
+    try std.testing.expect(sidecar.key != model.daemon_background_work_key);
+    try std.testing.expectEqual(id, model.daemon_stop_background_work_session);
+    try std.testing.expect(model.background_daemon[0].stop_requested);
+    try std.testing.expect(!model.background_daemon[0].can_stop);
+    const after = environment_summary.fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 1), after.len);
+    try std.testing.expect(after[0].live);
+    try std.testing.expect(!after[0].can_stop);
+    try std.testing.expectEqualStrings(environment_summary.live_stopping_label, environment_summary.backgroundWorkStatus(after[0]));
+
+    applyLine(&model, .{ .key = sidecar.key, .line = ack_line });
+    handleExit(&model, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_stop_background_work_key);
+    try std.testing.expectEqual(@as(u32, 1), model.background_daemon_count);
+    try std.testing.expect(model.background_daemon[0].stop_requested);
+    try std.testing.expectEqual(environment_summary.SettledStatus.none, model.background_daemon[0].settled);
+}
+
+test "Stop without a daemon address or controlId does not spawn stop sidecar" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setSidecarPath("faku");
+    const id = model.addSession("bg stop local", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setRuntimeId(usable_runtime_id);
+    applyDaemonLine(&model, id, stoppable_upsert_line);
+    try std.testing.expectEqual(@as(u32, 1), model.background_daemon_count);
+
+    environment_summary.stopBackground(&model, &fx, environment_summary.daemon_row_id_first);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_stop_background_work_key);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try std.testing.expectEqual(@as(u32, 0), model.background_daemon_count);
+
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    applyDaemonLine(&model, id, live_no_control_line);
+    try std.testing.expectEqual(@as(u32, 1), model.background_daemon_count);
+    var buf: [environment_summary.max_background_rows]environment_summary.BackgroundRow = undefined;
+    const rows = environment_summary.fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 1), rows.len);
+    try std.testing.expect(rows[0].live);
+    try std.testing.expect(!rows[0].can_stop);
+    try std.testing.expectEqualStrings("", rows[0].stop_label);
+
+    environment_summary.stopBackground(&model, &fx, environment_summary.daemon_row_id_first);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_stop_background_work_key);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try std.testing.expectEqual(@as(u32, 0), model.background_daemon_count);
+}
+
+test "settled daemon Dismiss stays Faku-side and does not spawn stopBackgroundWork" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("bg dismiss", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setRuntimeId(usable_runtime_id);
+    applyDaemonLine(&model, id, settled_upsert_line);
+    try std.testing.expectEqual(@as(u32, 1), model.background_daemon_count);
+    try std.testing.expectEqual(environment_summary.SettledStatus.completed, model.background_daemon[0].settled);
+
+    var buf: [environment_summary.max_background_rows]environment_summary.BackgroundRow = undefined;
+    const rows = environment_summary.fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqual(@as(usize, 1), rows.len);
+    try std.testing.expect(!rows[0].live);
+    try std.testing.expect(rows[0].can_stop);
+    try std.testing.expectEqualStrings(environment_summary.daemon_dismiss_label, rows[0].stop_label);
+
+    environment_summary.stopBackground(&model, &fx, environment_summary.daemon_row_id_first);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_stop_background_work_key);
+    try std.testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
+    try std.testing.expectEqual(@as(u32, 0), model.background_daemon_count);
+}
+
+test "live Monitor Stop does not spawn stopBackgroundWork" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("bg local stop", .claude);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setRuntimeId(usable_runtime_id);
+    environment_summary.noteLiveMonitor(&model, "toolu_local");
+    applyDaemonLine(&model, id, stoppable_upsert_line);
+
+    environment_summary.stopBackground(&model, &fx, environment_summary.monitor_row_id_first);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_stop_background_work_key);
+    try std.testing.expectEqual(@as(u32, 0), model.background_monitor_count);
+    try std.testing.expectEqual(@as(u32, 1), model.background_daemon_count);
+
+    environment_summary.stopBackground(&model, &fx, environment_summary.daemon_row_id_first);
+    const stop = pendingSpawnKey(&fx, model.daemon_stop_background_work_key) orelse return error.MissingStopAfterLocalDismiss;
+    try std.testing.expect(std.mem.indexOf(u8, stop.stdin, "\"type\":\"stopBackgroundWork\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stop.stdin, "\"type\":\"refreshBackgroundWork\"") == null);
 }

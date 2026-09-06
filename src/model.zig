@@ -559,18 +559,22 @@ pub const Msg = union(enum) {
     environment_copy_agent_thread_id,
     /// Environment Summary / right-panel Background Stop. Payload is
     /// the Native `background_rows` id (`process_row_id`, a live
-    /// Monitor `monitor_row_id_first + index`, or a live Subagent
-    /// `subagent_row_id_first + index`). Process closes the
-    /// dropdown then `stopStream` (same path as composer Stop;
-    /// records Stopped). Live Monitor / Subagent is Faku-side
-    /// dismiss of that slot only — not Claude TaskStop on one-shot
-    /// `claude -p`. Unknown / Process-idle ids are no-ops.
+    /// Monitor `monitor_row_id_first + index`, a live Subagent
+    /// `subagent_row_id_first + index`, or a daemon-sourced row).
+    /// Process closes the dropdown then `stopStream` (same path as
+    /// composer Stop; records Stopped). Live Monitor / Subagent is
+    /// Faku-side dismiss of that slot only — not Claude TaskStop on
+    /// one-shot `claude -p`. Live daemon rows prefer hello +
+    /// `stopBackgroundWork` when a daemon address, usable runtimeId,
+    /// and controlId are set. Unknown / Process-idle ids are no-ops.
     environment_stop_background: u32,
     /// Environment Summary Dismiss all settled. Faku-side bulk
     /// clear of settled Background leftovers for the selected
     /// session (Monitor / Subagent slots plus the cap-1 Process
     /// settle). Does not `stopStream` / dismiss live rows. Not
-    /// Claude TaskStop / daemon `StopBackgroundWork`.
+    /// Claude TaskStop. Settled daemon rows stay Faku-side Dismiss;
+    /// live daemon Stop prefers `StopBackgroundWork` when a control
+    /// id is present.
     environment_dismiss_settled_background,
     close_review_diff,
     set_review_diff_source_branch,
@@ -926,6 +930,14 @@ pub const Model = struct {
     /// prompt / usage-history keys so miss cannot settle a live turn.
     daemon_background_work_key: u64 = 0,
     daemon_background_work_session: u32 = 0,
+    /// In-flight `stopBackgroundWork` sidecar. Distinct from refresh
+    /// so Stop cannot cancel a Background fill, and miss cannot
+    /// settle a live turn.
+    daemon_stop_background_work_key: u64 = 0,
+    daemon_stop_background_work_session: u32 = 0,
+    daemon_stop_background_kind: environment_summary.BackgroundKind = .process,
+    daemon_stop_background_id_storage: [environment_summary.max_monitor_id]u8 = [_]u8{0} ** environment_summary.max_monitor_id,
+    daemon_stop_background_id_len: usize = 0,
     /// First-cut daemon usage history cache. Runtime only.
     usage_history: usage_history.Cache = .{},
     /// Persisted chrome theme. Default System (OS-follow).
@@ -1628,6 +1640,11 @@ pub const Model = struct {
         "daemon_usage_history_key",
         "daemon_background_work_key",
         "daemon_background_work_session",
+        "daemon_stop_background_work_key",
+        "daemon_stop_background_work_session",
+        "daemon_stop_background_kind",
+        "daemon_stop_background_id_storage",
+        "daemon_stop_background_id_len",
         "usage_history",
         "theme_preference",
         "setThemePreference",
@@ -2510,8 +2527,9 @@ pub const Model = struct {
     }
 
     /// Selected Background row is a live Process, live Monitor, live
-    /// Subagent, or a settled Monitor / Subagent. Settled Process
-    /// hides Stop. Gates the right-panel Stop / Dismiss control.
+    /// Subagent, a daemon-sourced live row with Stop, or a settled
+    /// Monitor / Subagent / daemon row. Settled Process hides Stop.
+    /// Gates the right-panel Stop / Dismiss control.
     pub fn background_work_can_stop(model: *const Model) bool {
         const row = environment_summary.selectedBackgroundRow(model) orelse return false;
         return row.can_stop;
