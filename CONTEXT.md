@@ -42,7 +42,7 @@ send circle.
 | **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode / kimi `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx (first-cut official ACP v1 image content blocks on `session/prompt` when a composer image is attached: base64 + mimeType, ~256KB raw, fail-closed on overflow / bad file; fx still `fx ask --image`, no ACP image blocks); Available Claude is one-shot `claude -p --output-format stream-json --verbose --include-partial-messages --forward-subagent-text` (not ACP; later Sends pass documented `--resume {fx_session_id}` when that field is non-empty; first Send and Fork omit it; not `--continue`; documented image path inside that `-p` prompt when a composer image is attached; stdout is NDJSON with live `text_delta`; live Subagent Background from `parent_tool_use_id` plus a bounded 512KB last-window from forwarded `parent_tool_use_id` text (Environment Summary stays a one-line preview; right-panel Background shows the stored log with CSI stripped for display); live Monitor Background from Claude `Monitor` `tool_use` plus a bounded 512KB last-window log from matching user `tool_result` (Environment Summary stays a one-line preview; right-panel Background shows the stored log with CSI stripped for display); first-cut settled Monitor / Subagent stay in the runtime registry after the turn (status from Process settle; Monitor / Subagent last-window kept; Faku-side Dismiss, not Claude TaskStop; not live / Running / Monitoring after `-p` exits); Available Codex is one-shot `codex exec {prompt}` (not ACP; documented `--image {path}` after the prompt when a composer image is attached); Available Amp is one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x` prompt when a composer image is attached); Available Pi is one-shot `pi --mode json {prompt}` (not ACP, not `--mode rpc`; documented `@{path}` after json when a composer image is attached; stdout is JSON events with live `text_delta`). fx Not found copies the verified keejkrej/fx Unix install script (`curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash` into `~/.fx/bin`; not fx.sh); fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
 | **Settings Appearance** | Settings page for chrome theme and language. Theme: System (follow OS `on_appearance`), Light, or Dark. Default System. Language: System / English / 简体中文 / 日本語. Default System. System language follows process `LC_ALL` / `LC_MESSAGES` / `LANG` (Native has no locale API). Explicit language chips are autonyms in every locale. Persists `theme_preference` and `language_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. Settings chrome strings (title, nav, Appearance Theme / Language), first-cut sidebar date-bucket titles, and the chrome unassign Today list-item follow the resolved locale this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
-| **Settings Usage** | Settings page showing the selected session's local context window (`context_used` / `context_size` from ACP `usage_update`) and thread-goal tokens (`threadGoalUsageLabel`), plus first-cut Daily / Monthly / Projects chrome. Daemon `LoadUsageHistory` is a best-effort one-shot when `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set (default `trailingDays: 30`, Monthly may request `months: 12`). Unknown-command / parse / overflow keep the local session cards. Not a T3 cost chart, not quality / rate-table / 7–90-day window selector. |
+| **Settings Usage** | Settings page showing the selected session's local context window (`context_used` / `context_size` from ACP `usage_update`) and thread-goal tokens (`threadGoalUsageLabel`), plus first-cut Daily / Monthly / Projects chrome and a Daily / Projects window selector (7 / 30 / 90 days, this month, last month; default `trailingDays: 30`). Daemon `LoadUsageHistory` is a best-effort one-shot when `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set (Daily / Projects use the selected window; Monthly requests `months: 12` and hides the selector). Unknown-command / parse / overflow keep the local session cards. Not a T3 cost chart, not quality / rate-table. |
 | **Settings Computer Use** | Settings page for Waku-nav parity. First-cut is Unavailable / Off / empty always-allowed apps. Native has no Screen Recording or Accessibility APIs; no Swift helper, permission probe, or app grants this cut. |
 
 Avoid: calling ACP a live WebSocket; treating the daemon as the catalog
@@ -804,21 +804,26 @@ session header title. Persist is already on `sessions.json`; local
 cards stay display-only.
 
 View chips Daily | Monthly | Projects are runtime-only (default Daily;
+not persisted). Daily and Projects share a runtime-only window selector
+(7d / 30d / 90d / This month / Last month; default `{"trailingDays":30}`;
 not persisted). When `WAKU_DAEMON_ADDRESS` or persisted
 `last_daemon_address` is set, opening Usage or Refresh one-shots hello
 + `loadUsageHistory` (`window` + `projectRoots` from unique local
-session `project_path` values, cap 32). Daily / Projects default
-`{"trailingDays":30}`; Monthly may request `{"months":12}`. Ok payload
+session `project_path` values, cap 32). Daily / Projects use the
+selected window; Monthly always requests `{"months":12}` and hides the
+selector. Same-window select is a no-op; Daily↔Projects that share
+the window do not re-fetch. Ok payload
 `usageHistory` paints a first-cut section: Daily shows
 `sinceDay`–`untilDay`, `totalTokens` (+ `costUsd` when > 0),
 `sessions`, a few provider rows (Claude Code / Codex), and up to ~8
 recent `daily` lines; Monthly lists up to ~12 `months` rows; Projects
-lists up to ~16 `projects` rows (path basename). Native 4 KiB stdin
+lists up to ~16 `projects` rows (path basename). A same-shape snapshot
+(trailing vs months) stays painted while a replacement scan is in
+flight. Native 4 KiB stdin
 overflow / error / unusable parse / no daemon keep the local session
 cards and must not toast-block Settings — history shows a muted
 "Connect a daemon for usage history" or stays empty. Not a layered
-chart, not hover canvas, not quality / rate-table fetch, not a 7 / 30
-/ 90 / this / last month window selector.
+chart, not hover canvas, not quality / rate-table fetch.
 
 ## Settings Computer Use
 
@@ -903,13 +908,14 @@ Honest gaps this cut does not implement:
   acp` + acp-proxy (not long-lived; ACP v1 image blocks like other
   bare-ACP ids; no invented flags).
 - Usage history from daemon `LoadUsageHistory` ships as a first-cut
-  Settings Usage slice (Daily / Monthly / Projects chrome; headline
-  tokens/cost/sessions + provider / day / month / project text rows
-  when a daemon address is set). Not a T3 cost chart, not quality
-  panel, not rate-table download, not model-breakdown menus, not a
-  7 / 30 / 90 / this / last month window selector beyond Daily's
-  default `trailingDays: 30` and Monthly `months: 12`. Local session
-  context + thread-goal cards stay when the daemon is absent.
+  Settings Usage slice (Daily / Monthly / Projects chrome; Daily /
+  Projects window selector for 7 / 30 / 90 / this / last month,
+  default `trailingDays: 30`; Monthly stays `months: 12` and hides the
+  selector; headline tokens/cost/sessions + provider / day / month /
+  project text rows when a daemon address is set). Not a T3 cost
+  chart, not quality panel, not rate-table download, not
+  model-breakdown menus. Local session context + thread-goal cards
+  stay when the daemon is absent.
 - Real Computer Use: Native Screen Recording / Accessibility APIs,
   macOS helper, permission probe, always-allowed app picker (Settings
   Computer Use first-cut is nav + Unavailable / Off / empty apps)

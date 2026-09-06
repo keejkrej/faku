@@ -12095,6 +12095,34 @@ test "settings Usage tab sits after Skills; local context and thread-goal labels
     try testing.expect(!monthly.state.selected);
     const projects = try expectButtonMsg(tree, "Projects", .set_usage_view_projects);
     try testing.expect(!projects.state.selected);
+    try testing.expect(model.usage_window_selector_visible());
+    try testing.expect(model.usage_window_30d());
+    const window_7d = try expectButtonMsg(tree, "7d", .set_usage_window_7d);
+    try testing.expect(!window_7d.state.selected);
+    const window_30d = try expectButtonMsg(tree, "30d", .set_usage_window_30d);
+    try testing.expect(window_30d.state.selected);
+    const window_90d = try expectButtonMsg(tree, "90d", .set_usage_window_90d);
+    try testing.expect(!window_90d.state.selected);
+    const window_this = try expectButtonMsg(tree, "This month", .set_usage_window_this_month);
+    try testing.expect(!window_this.state.selected);
+    const window_last = try expectButtonMsg(tree, "Last month", .set_usage_window_last_month);
+    try testing.expect(!window_last.state.selected);
+    main.update(&model, tree.msgForPointer(window_7d.id, .up).?, &fx);
+    try testing.expect(model.usage_window_7d());
+    try testing.expect(!model.usage_window_30d());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "7d", .set_usage_window_7d)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "30d", .set_usage_window_30d)).state.selected);
+    main.update(&model, .set_usage_view_monthly, &fx);
+    try testing.expect(model.usage_view_monthly());
+    tree = try buildTree(arena, &model);
+    try testing.expect(!model.usage_window_selector_visible());
+    try testing.expect(findByText(tree.root, .button, "7d") == null);
+    try testing.expect(findByText(tree.root, .button, "30d") == null);
+    main.update(&model, .set_usage_view_daily, &fx);
+    try testing.expect(model.usage_view_daily());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "7d", .set_usage_window_7d)).state.selected);
     _ = try expectByText(tree.root, .text, "Connect a daemon for usage history");
     try expectNoContextProgress(tree.root);
 
@@ -12183,20 +12211,28 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     _ = try expectByText(tree.root, .text, "2026-09-06 · 500 · $0.10");
     try testing.expect(findByText(tree.root, .text, "Connect a daemon for usage history") == null);
     try testing.expect((try expectButtonMsg(tree, "Daily", .set_usage_view_daily)).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "30d", .set_usage_window_30d)).state.selected);
+    try testing.expect(model.usage_window_selector_visible());
 
     main.update(&model, .set_usage_view_monthly, &fx);
     try testing.expect(model.usage_view_monthly());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "53k / 200k");
-    _ = try expectByText(tree.root, .text, "2026-09-01 · 12k · $1.25 · 4 sessions");
+    try testing.expect(findByText(tree.root, .text, "2026-09-01 · 12k · $1.25 · 4 sessions") == null);
     try testing.expect(findByText(tree.root, .text, "Claude Code · 10k · $1.00") == null);
     try testing.expect((try expectButtonMsg(tree, "Monthly", .set_usage_view_monthly)).state.selected);
+    try testing.expect(!model.usage_window_selector_visible());
+    try testing.expect(findByText(tree.root, .button, "7d") == null);
+    try testing.expect(findByText(tree.root, .button, "30d") == null);
+    try testing.expect(findByText(tree.root, .button, "This month") == null);
 
     main.update(&model, .set_usage_view_projects, &fx);
     try testing.expect(model.usage_view_projects());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "faku · 12k · $1.25 · 4 sessions");
     try testing.expect((try expectButtonMsg(tree, "Projects", .set_usage_view_projects)).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "30d", .set_usage_window_30d)).state.selected);
+    try testing.expect(model.usage_window_selector_visible());
     try testing.expectEqual(@as(u64, 53_000), model.sessionById(id).?.context_used);
 }
 

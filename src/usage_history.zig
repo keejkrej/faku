@@ -4,13 +4,18 @@
 //! `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set,
 //! Faku one-shots hello + `loadUsageHistory` (`window` +
 //! `projectRoots` from unique local session `project_path` values,
-//! cap 32). Default window is `{"trailingDays":30}` for Daily /
-//! Projects; Monthly requests `{"months":12}`. Ok payload
-//! `usageHistory` paints a first-cut history section. Native 4 KiB
-//! stdin overflow / sidecar failure / unusable parse keep today's
-//! local session Context + Thread goal cards and must not toast-block
-//! Settings. No daemon shows a muted connect hint. Not a T3 chart,
-//! not quality / rate-table / window selector. Hello stays v4.
+//! cap 32). Daily / Projects share a runtime-only window selector
+//! (Waku `WINDOW_CHOICES`: 7 / 30 / 90 trailing days, this month,
+//! last month; default `{"trailingDays":30}`). Monthly always
+//! requests `{"months":12}` and hides the selector. Ok payload
+//! `usageHistory` paints a first-cut history section. A same-shape
+//! snapshot (trailing vs months) stays painted while a replacement
+//! scan is in flight; a months snapshot must not masquerade as
+//! Daily / Projects and vice versa. Native 4 KiB stdin overflow /
+//! sidecar failure / unusable parse keep today's local session
+//! Context + Thread goal cards and must not toast-block Settings.
+//! No daemon shows a muted connect hint. Not a T3 chart, not
+//! quality / rate-table. Hello stays v4.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -27,6 +32,37 @@ const writeFixed = main.writeFixed;
 const max_project_path = session_mod.max_project_path;
 
 pub const View = enum { daily, monthly, projects };
+
+/// Waku `WINDOW_CHOICES` for Daily / Projects. Monthly uses
+/// `monthly_window` instead and does not offer these.
+pub const WindowChoice = enum {
+    trailing_7,
+    trailing_30,
+    trailing_90,
+    this_month,
+    last_month,
+
+    pub fn toUsageWindow(self: WindowChoice) protocol.UsageWindow {
+        return switch (self) {
+            .trailing_7 => .{ .trailing_days = 7 },
+            .trailing_30 => .{ .trailing_days = 30 },
+            .trailing_90 => .{ .trailing_days = 90 },
+            .this_month => .this_month,
+            .last_month => .last_month,
+        };
+    }
+};
+
+pub const window_choices = [_]WindowChoice{
+    .trailing_7,
+    .trailing_30,
+    .trailing_90,
+    .this_month,
+    .last_month,
+};
+
+pub const default_window_choice: WindowChoice = .trailing_30;
+pub const monthly_window: protocol.UsageWindow = .{ .months = 12 };
 
 pub const max_providers = protocol.max_parsed_usage_providers;
 pub const max_daily = protocol.max_parsed_usage_daily;
@@ -89,6 +125,12 @@ pub const CachedProject = struct {
 
 pub const Cache = struct {
     present: bool = false,
+    /// Window the painted snapshot was requested with. Used to keep a
+    /// same-shape history on screen while a replacement scan is in
+    /// flight (trailing vs months).
+    window: protocol.UsageWindow = .{ .trailing_days = 30 },
+    /// Window of the in-flight sidecar, if any.
+    pending_window: protocol.UsageWindow = .{ .trailing_days = 30 },
     since_storage: [max_day_label]u8 = [_]u8{0} ** max_day_label,
     since_len: usize = 0,
     until_storage: [max_day_label]u8 = [_]u8{0} ** max_day_label,
@@ -126,15 +168,43 @@ pub fn cancel(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
 }
 
-pub fn windowForView(view: View) protocol.UsageWindow {
+pub fn effectiveWindow(view: View, choice: WindowChoice) protocol.UsageWindow {
     return switch (view) {
-        .daily, .projects => .{ .trailing_days = 30 },
-        .monthly => .{ .months = 12 },
+        .daily, .projects => choice.toUsageWindow(),
+        .monthly => monthly_window,
     };
+}
+
+pub fn windowForView(model: *const Model) protocol.UsageWindow {
+    return effectiveWindow(model.usage_view, model.usage_window);
 }
 
 fn windowsEqual(a: protocol.UsageWindow, b: protocol.UsageWindow) bool {
     return std.meta.eql(a, b);
+}
+
+fn isMonthsWindow(window: protocol.UsageWindow) bool {
+    return switch (window) {
+        .months => true,
+        else => false,
+    };
+}
+
+fn sameShape(a: protocol.UsageWindow, b: protocol.UsageWindow) bool {
+    return isMonthsWindow(a) == isMonthsWindow(b);
+}
+
+/// True when the painted snapshot can stand in for the active view:
+/// trailing-shaped history for Daily / Projects, months-shaped for
+/// Monthly. Same-shape previous windows stay visible while a new
+/// scan is in flight.
+pub fn cacheShapeMatches(model: *const Model) bool {
+    if (!model.usage_history.present) return false;
+    return sameShape(model.usage_history.window, windowForView(model));
+}
+
+fn historyPainted(model: *const Model) bool {
+    return model.settings_page == .usage and cacheShapeMatches(model);
 }
 
 fn collectProjectRoots(model: *const Model, dest: *[max_roots][]const u8) usize {
@@ -159,18 +229,39 @@ fn collectProjectRoots(model: *const Model, dest: *[max_roots][]const u8) usize 
 
 /// Prefer hello + `loadUsageHistory` when a daemon address is set.
 /// Missing address / Native 4 KiB stdin overflow keep local session
-/// cards and do not toast.
+/// cards and do not toast. Refresh is a forced re-request.
 pub fn refresh(model: *Model, fx: *Effects) void {
-    cancelInFlight(model, fx);
-    _ = trySpawn(model, fx, windowForView(model.usage_view));
+    ensure(model, fx, true);
 }
 
 pub fn setView(model: *Model, fx: *Effects, view: View) void {
-    const previous = windowForView(model.usage_view);
+    const previous = windowForView(model);
     model.usage_view = view;
-    const next = windowForView(view);
+    const next = windowForView(model);
     if (windowsEqual(previous, next)) return;
-    refresh(model, fx);
+    ensure(model, fx, false);
+}
+
+pub fn setWindow(model: *Model, fx: *Effects, choice: WindowChoice) void {
+    if (model.usage_window == choice) return;
+    model.usage_window = choice;
+    if (model.usage_view == .monthly) return;
+    ensure(model, fx, false);
+}
+
+fn ensure(model: *Model, fx: *Effects, force: bool) void {
+    const window = windowForView(model);
+    if (!force) {
+        if (model.usage_history.present and windowsEqual(model.usage_history.window, window)) {
+            if (model.daemon_usage_history_key != 0 and !windowsEqual(model.usage_history.pending_window, window)) {
+                cancelInFlight(model, fx);
+            }
+            return;
+        }
+        if (model.daemon_usage_history_key != 0 and windowsEqual(model.usage_history.pending_window, window)) return;
+    }
+    cancelInFlight(model, fx);
+    _ = trySpawn(model, fx, window);
 }
 
 fn trySpawn(model: *Model, fx: *Effects, window: protocol.UsageWindow) bool {
@@ -190,6 +281,7 @@ fn trySpawn(model: *Model, fx: *Effects, window: protocol.UsageWindow) bool {
     const key = model.next_daemon_key;
     model.next_daemon_key += 1;
     model.daemon_usage_history_key = key;
+    model.usage_history.pending_window = window;
     fx.spawn(.{
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
@@ -203,6 +295,7 @@ fn trySpawn(model: *Model, fx: *Effects, window: protocol.UsageWindow) bool {
 
 fn adopt(cache: *Cache, parsed: protocol.ParsedUsageHistory) void {
     cache.present = true;
+    cache.window = cache.pending_window;
     writeFixed(&cache.since_storage, &cache.since_len, parsed.since_day);
     writeFixed(&cache.until_storage, &cache.until_len, parsed.until_day);
     cache.total_tokens = parsed.total_tokens;
@@ -333,7 +426,7 @@ fn joinLabelDetail(arena: std.mem.Allocator, label: []const u8, tokens: u64, cos
 }
 
 pub fn providerRows(model: *const Model, arena: std.mem.Allocator) []const Row {
-    if (model.settings_page != .usage or model.usage_view != .daily or !model.usage_history.present) return &.{};
+    if (!historyPainted(model) or model.usage_view != .daily) return &.{};
     const count = model.usage_history.provider_count;
     if (count == 0) return &.{};
     const out = arena.alloc(Row, count) catch return &.{};
@@ -349,7 +442,7 @@ pub fn providerRows(model: *const Model, arena: std.mem.Allocator) []const Row {
 }
 
 pub fn dailyRows(model: *const Model, arena: std.mem.Allocator) []const Row {
-    if (model.settings_page != .usage or model.usage_view != .daily or !model.usage_history.present) return &.{};
+    if (!historyPainted(model) or model.usage_view != .daily) return &.{};
     const count = model.usage_history.daily_count;
     if (count == 0) return &.{};
     const out = arena.alloc(Row, count) catch return &.{};
@@ -366,7 +459,7 @@ pub fn dailyRows(model: *const Model, arena: std.mem.Allocator) []const Row {
 }
 
 pub fn monthRows(model: *const Model, arena: std.mem.Allocator) []const Row {
-    if (model.settings_page != .usage or model.usage_view != .monthly or !model.usage_history.present) return &.{};
+    if (!historyPainted(model) or model.usage_view != .monthly) return &.{};
     const count = model.usage_history.month_count;
     if (count == 0) return &.{};
     const out = arena.alloc(Row, count) catch return &.{};
@@ -383,7 +476,7 @@ pub fn monthRows(model: *const Model, arena: std.mem.Allocator) []const Row {
 }
 
 pub fn projectRows(model: *const Model, arena: std.mem.Allocator) []const Row {
-    if (model.settings_page != .usage or model.usage_view != .projects or !model.usage_history.present) return &.{};
+    if (!historyPainted(model) or model.usage_view != .projects) return &.{};
     const count = model.usage_history.project_count;
     if (count == 0) return &.{};
     const out = arena.alloc(Row, count) catch return &.{};
@@ -495,6 +588,7 @@ test "LoadUsageHistory sidecar paints cache from usageHistory and miss keeps con
     try std.testing.expect(!model.usage_history.present);
     applyLine(&model, .{ .key = sidecar.key, .line = usage_history_ok_line });
     try std.testing.expect(model.usage_history.present);
+    try std.testing.expect(std.meta.eql(model.usage_history.window, protocol.UsageWindow{ .trailing_days = 30 }));
     try std.testing.expectEqual(@as(u64, 12345), model.usage_history.total_tokens);
     try std.testing.expectEqual(@as(u64, 4), model.usage_history.sessions);
     try std.testing.expectEqualStrings("claude", model.usage_history.providers[0].id());
@@ -523,7 +617,11 @@ test "LoadUsageHistory sidecar paints cache from usageHistory and miss keeps con
     }));
 }
 
-test "Monthly view requests months 12; Daily and Projects share trailingDays 30" {
+fn expectWindowJson(stdin: []const u8, needle: []const u8) !void {
+    try std.testing.expect(std.mem.indexOf(u8, stdin, needle) != null);
+}
+
+test "Monthly view requests months 12; Daily and Projects share the selected window" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -532,9 +630,10 @@ test "Monthly view requests months 12; Daily and Projects share trailingDays 30"
     model.setLastDaemonAddress("127.0.0.1:8787");
     model.setSidecarPath("faku");
     try std.testing.expectEqual(View.daily, model.usage_view);
+    try std.testing.expectEqual(WindowChoice.trailing_30, model.usage_window);
     refresh(&model, &fx);
     const daily = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingDailyUsageWindow;
-    try std.testing.expect(std.mem.indexOf(u8, daily.stdin, "\"window\":{\"trailingDays\":30}") != null);
+    try expectWindowJson(daily.stdin, "\"window\":{\"trailingDays\":30}");
 
     setView(&model, &fx, .projects);
     try std.testing.expectEqual(View.projects, model.usage_view);
@@ -544,6 +643,101 @@ test "Monthly view requests months 12; Daily and Projects share trailingDays 30"
     try std.testing.expectEqual(View.monthly, model.usage_view);
     const monthly = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingMonthlyUsageWindow;
     try std.testing.expect(monthly.key != daily.key);
-    try std.testing.expect(std.mem.indexOf(u8, monthly.stdin, "\"window\":{\"months\":12}") != null);
+    try expectWindowJson(monthly.stdin, "\"window\":{\"months\":12}");
     try std.testing.expect(std.mem.indexOf(u8, monthly.stdin, "\"trailingDays\"") == null);
+}
+
+test "WINDOW_CHOICES emit window JSON; same-window select is a no-op; Monthly stays months 12" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.settings_page = .usage;
+    try std.testing.expectEqual(default_window_choice, model.usage_window);
+    try std.testing.expectEqual(@as(usize, 5), window_choices.len);
+    try std.testing.expect(std.meta.eql(windowForView(&model), protocol.UsageWindow{ .trailing_days = 30 }));
+
+    refresh(&model, &fx);
+    var spawn = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingDefaultUsageWindow;
+    try expectWindowJson(spawn.stdin, "\"window\":{\"trailingDays\":30}");
+    const default_key = spawn.key;
+
+    setWindow(&model, &fx, .trailing_30);
+    try std.testing.expectEqual(default_key, model.daemon_usage_history_key);
+    try std.testing.expectEqual(WindowChoice.trailing_30, model.usage_window);
+
+    const cases = [_]struct { choice: WindowChoice, needle: []const u8 }{
+        .{ .choice = .trailing_7, .needle = "\"window\":{\"trailingDays\":7}" },
+        .{ .choice = .trailing_30, .needle = "\"window\":{\"trailingDays\":30}" },
+        .{ .choice = .trailing_90, .needle = "\"window\":{\"trailingDays\":90}" },
+        .{ .choice = .this_month, .needle = "\"window\":\"thisMonth\"" },
+        .{ .choice = .last_month, .needle = "\"window\":\"lastMonth\"" },
+    };
+    for (cases) |case| {
+        setWindow(&model, &fx, case.choice);
+        spawn = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingWindowChoiceSpawn;
+        try expectWindowJson(spawn.stdin, case.needle);
+        const key = spawn.key;
+        setWindow(&model, &fx, case.choice);
+        try std.testing.expectEqual(key, model.daemon_usage_history_key);
+        try std.testing.expectEqual(case.choice, model.usage_window);
+
+        setView(&model, &fx, .projects);
+        try std.testing.expectEqual(View.projects, model.usage_view);
+        try std.testing.expectEqual(key, model.daemon_usage_history_key);
+
+        setView(&model, &fx, .daily);
+        try std.testing.expectEqual(key, model.daemon_usage_history_key);
+    }
+
+    setView(&model, &fx, .monthly);
+    spawn = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingMonthlyUsageWindowChoice;
+    try expectWindowJson(spawn.stdin, "\"window\":{\"months\":12}");
+    const monthly_key = spawn.key;
+    setWindow(&model, &fx, .trailing_7);
+    try std.testing.expectEqual(WindowChoice.trailing_7, model.usage_window);
+    try std.testing.expectEqual(monthly_key, model.daemon_usage_history_key);
+    try std.testing.expect(std.meta.eql(windowForView(&model), monthly_window));
+}
+
+test "same-shape history stays painted while a new window scans; months does not masquerade" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.settings_page = .usage;
+    refresh(&model, &fx);
+    const first = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingShapeScan;
+    applyLine(&model, .{ .key = first.key, .line = usage_history_ok_line });
+    handleExit(&model, .{ .key = first.key, .reason = .exited, .code = 0 });
+    try std.testing.expect(cacheShapeMatches(&model));
+    try std.testing.expectEqual(@as(usize, 1), dailyRows(&model, arena).len);
+
+    setWindow(&model, &fx, .trailing_7);
+    try std.testing.expect(cacheShapeMatches(&model));
+    try std.testing.expectEqual(@as(usize, 1), dailyRows(&model, arena).len);
+    try std.testing.expect(std.meta.eql(model.usage_history.window, protocol.UsageWindow{ .trailing_days = 30 }));
+    const seven = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingSevenDayScan;
+    try expectWindowJson(seven.stdin, "\"window\":{\"trailingDays\":7}");
+
+    setView(&model, &fx, .monthly);
+    try std.testing.expect(!cacheShapeMatches(&model));
+    try std.testing.expectEqual(@as(usize, 0), monthRows(&model, arena).len);
+    try std.testing.expect(model.usage_history.present);
+    const monthly = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingMonthlyShapeScan;
+    try expectWindowJson(monthly.stdin, "\"window\":{\"months\":12}");
+    applyLine(&model, .{ .key = monthly.key, .line = usage_history_ok_line });
+    try std.testing.expect(cacheShapeMatches(&model));
+    try std.testing.expect(std.meta.eql(model.usage_history.window, monthly_window));
+    try std.testing.expectEqual(@as(usize, 1), monthRows(&model, arena).len);
 }

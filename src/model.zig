@@ -485,6 +485,11 @@ pub const Msg = union(enum) {
     set_usage_view_daily,
     set_usage_view_monthly,
     set_usage_view_projects,
+    set_usage_window_7d,
+    set_usage_window_30d,
+    set_usage_window_90d,
+    set_usage_window_this_month,
+    set_usage_window_last_month,
     refresh_usage_history,
     settings_theme_system,
     settings_theme_light,
@@ -935,6 +940,10 @@ pub const Model = struct {
     /// Runtime-only Settings Usage Daily | Monthly | Projects chip.
     /// Default Daily. Not persisted.
     usage_view: usage_history.View = .daily,
+    /// Runtime-only Daily / Projects usage window (Waku WINDOW_CHOICES).
+    /// Default TrailingDays(30). Monthly ignores this and requests
+    /// months:12. Not persisted.
+    usage_window: usage_history.WindowChoice = .trailing_30,
     /// In-flight `loadUsageHistory` sidecar. Distinct from workspace
     /// keys so miss cannot settle a live turn or toast Settings.
     daemon_usage_history_key: u64 = 0,
@@ -1660,6 +1669,7 @@ pub const Model = struct {
         "settings_daemon_buffer",
         "settings_page",
         "usage_view",
+        "usage_window",
         "daemon_usage_history_key",
         "daemon_background_work_key",
         "daemon_background_work_session",
@@ -4267,8 +4277,32 @@ pub const Model = struct {
         return model.usage_view == .projects;
     }
 
+    pub fn usage_window_selector_visible(model: *const Model) bool {
+        return model.settings_page == .usage and (model.usage_view == .daily or model.usage_view == .projects);
+    }
+
+    pub fn usage_window_7d(model: *const Model) bool {
+        return model.usage_window == .trailing_7;
+    }
+
+    pub fn usage_window_30d(model: *const Model) bool {
+        return model.usage_window == .trailing_30;
+    }
+
+    pub fn usage_window_90d(model: *const Model) bool {
+        return model.usage_window == .trailing_90;
+    }
+
+    pub fn usage_window_this_month(model: *const Model) bool {
+        return model.usage_window == .this_month;
+    }
+
+    pub fn usage_window_last_month(model: *const Model) bool {
+        return model.usage_window == .last_month;
+    }
+
     pub fn has_usage_history(model: *const Model) bool {
-        return model.settings_page == .usage and model.usage_history.present;
+        return usage_history.cacheShapeMatches(model) and model.settings_page == .usage;
     }
 
     pub fn has_usage_history_hint(model: *const Model) bool {
