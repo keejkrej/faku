@@ -45,9 +45,11 @@
 //! nil. Ok payload is `{ type: "usageHistory", history }` where
 //! `UsageHistory` keys stay camelCase (`sinceDay`, `untilDay`,
 //! `totalTokens`, `costUsd`, `sessions`, `providers`, `daily`, `months`,
-//! `projects`, `quality`, `pricing`, …). `UsageProvider` is `claude` |
-//! `codex`. Dates stay opaque strings. Optional `costShare` /
-//! `tokenShare` (0..1) are parsed when present. `quality` is
+//! `projects`, `models`, `quality`, `pricing`, …). `UsageProvider` is
+//! `claude` | `codex`. Dates stay opaque strings. Optional `costShare`
+//! / `tokenShare` (0..1) are parsed on providers when present.
+//! `models[]` is Waku `ModelSlice` (`provider`, `model`, `costUsd`,
+//! `totalTokens`, `costShare`; no `tokenShare`). `quality` is
 //! `CostQuality` (`providerReportedShare` / `modelPricedShare` /
 //! `unpricedShare` 0..1, `cacheSavingsUsd`). `pricing` is
 //! `PricingStatus`: `"fresh"` | `"cached"` | `"unavailable"`. Missing
@@ -57,7 +59,8 @@
 //! JSON is ignored. Hello stays protocol v4; unknown-command / parse
 //! miss fall back quietly to local session Usage. Daily first-cut
 //! paints per-provider share bars from those shares (or
-//! client-computed totals), a relative max-day bar chart from
+//! client-computed totals), a Model | Days breakdown (default Model)
+//! with model share bars or a relative max-day bar chart from
 //! `daily[]` (`costUsd` / `totalTokens`), and a Cost quality panel
 //! plus rates-unavailable / error notices. Still not Waku's GPUI /
 //! T3 layered chart, not LiteLLM rate-table fetch.
@@ -693,6 +696,7 @@ pub const UsageWindow = union(enum) {
 };
 
 pub const max_parsed_usage_providers: usize = 4;
+pub const max_parsed_usage_models: usize = 16;
 pub const max_parsed_usage_daily: usize = 8;
 pub const max_parsed_usage_months: usize = 12;
 pub const max_parsed_usage_projects: usize = 16;
@@ -744,6 +748,17 @@ pub const ParsedUsageProvider = struct {
     token_share: f64 = 0,
 };
 
+/// One `models[]` row (Waku `ModelSlice`). Slices alias the JSON
+/// arena. `cost_share` is 0 when omitted. No `tokenShare` on the
+/// wire; Settings Usage computes token share from totals.
+pub const ParsedUsageModel = struct {
+    provider: []const u8 = "",
+    model: []const u8 = "",
+    total_tokens: u64 = 0,
+    cost_usd: f64 = 0,
+    cost_share: f64 = 0,
+};
+
 /// One `daily[]` row. `day` is an opaque date string.
 pub const ParsedUsageDay = struct {
     day: []const u8 = "",
@@ -778,6 +793,8 @@ pub const ParsedUsageHistory = struct {
     sessions: u64 = 0,
     providers: [max_parsed_usage_providers]ParsedUsageProvider = [_]ParsedUsageProvider{.{}} ** max_parsed_usage_providers,
     provider_count: usize = 0,
+    models: [max_parsed_usage_models]ParsedUsageModel = [_]ParsedUsageModel{.{}} ** max_parsed_usage_models,
+    model_count: usize = 0,
     daily: [max_parsed_usage_daily]ParsedUsageDay = [_]ParsedUsageDay{.{}} ** max_parsed_usage_daily,
     daily_count: usize = 0,
     months: [max_parsed_usage_months]ParsedUsageMonth = [_]ParsedUsageMonth{.{}} ** max_parsed_usage_months,
@@ -2419,7 +2436,7 @@ fn projectPathFor(projects: []const std.json.Value, project_id: []const u8) []co
 /// any other frame, a failed outcome, a payload that is not
 /// `usageHistory`, or a missing `history` object. Unknown fields and
 /// extra array rows are ignored. Daily / months keep the most recent
-/// cap; projects keep the first cap.
+/// cap; models / projects keep the first cap.
 pub fn parseUsageHistory(allocator: std.mem.Allocator, line: []const u8) ParsedUsageHistory {
     var parsed = ParsedUsageHistory{};
     const trimmed = std.mem.trim(u8, line, " \t\r\n");
@@ -2441,6 +2458,7 @@ pub fn parseUsageHistory(allocator: std.mem.Allocator, line: []const u8) ParsedU
     parsed.cost_usd = jsonF64Value(history.get("costUsd"));
     parsed.sessions = jsonU64OrZero(history.get("sessions"));
     parsed.provider_count = parseUsageProviders(history.get("providers"), &parsed.providers);
+    parsed.model_count = parseUsageModels(history.get("models"), &parsed.models);
     parsed.daily_count = parseUsageDays(history.get("daily"), &parsed.daily);
     parsed.month_count = parseUsageMonths(history.get("months"), &parsed.months);
     parsed.project_count = parseUsageProjects(history.get("projects"), &parsed.projects);
@@ -2577,6 +2595,28 @@ fn parseUsageProviders(value: ?std.json.Value, dest: *[max_parsed_usage_provider
             .cost_usd = jsonF64Value(obj.get("costUsd")),
             .cost_share = jsonF64Value(obj.get("costShare")),
             .token_share = jsonF64Value(obj.get("tokenShare")),
+        };
+        n += 1;
+    }
+    return n;
+}
+
+fn parseUsageModels(value: ?std.json.Value, dest: *[max_parsed_usage_models]ParsedUsageModel) usize {
+    const items = jsonArrayItems(value orelse return 0) orelse return 0;
+    var n: usize = 0;
+    for (items) |item| {
+        if (n >= dest.len) break;
+        const obj = jsonObject(item) orelse continue;
+        const provider = jsonStringValue(obj.get("provider")) orelse continue;
+        if (provider.len == 0) continue;
+        const model = jsonStringValue(obj.get("model")) orelse continue;
+        if (model.len == 0) continue;
+        dest[n] = .{
+            .provider = provider,
+            .model = model,
+            .total_tokens = jsonU64OrZero(obj.get("totalTokens")),
+            .cost_usd = jsonF64Value(obj.get("costUsd")),
+            .cost_share = jsonF64Value(obj.get("costShare")),
         };
         n += 1;
     }
@@ -5604,7 +5644,7 @@ test "parseUsageHistory reads a minimal usageHistory fixture and ignores unknown
     const arena = arena_state.allocator();
 
     const line =
-        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000015","outcome":{"status":"ok","payload":{"type":"usageHistory","history":{"window":{"trailingDays":30},"sinceDay":"2026-08-08","untilDay":"2026-09-06","totals":{"uncachedInput":1},"totalTokens":12345,"costUsd":1.25,"records":9,"sessions":4,"providers":[{"provider":"claude","costUsd":1.0,"totalTokens":10000,"costShare":0.8,"tokenShare":0.81},{"provider":"codex","costUsd":0.25,"totalTokens":2345}],"models":[{"model":"ignored"}],"daily":[{"day":"2026-09-05","totalTokens":200,"costUsd":0.05,"byProvider":[]},{"day":"2026-09-06","totalTokens":500,"costUsd":0.1}],"months":[{"firstDay":"2026-09-01","totalTokens":12345,"costUsd":1.25,"sessions":4}],"projects":[{"path":"/tmp/faku","totalTokens":12345,"costUsd":1.25,"sessions":4}],"quality":{},"pricing":"fresh","scannedFiles":3,"skippedFiles":0,"errors":[],"scanDuration":{"secs":1,"nanos":0},"unknownField":true}}}}
+        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000015","outcome":{"status":"ok","payload":{"type":"usageHistory","history":{"window":{"trailingDays":30},"sinceDay":"2026-08-08","untilDay":"2026-09-06","totals":{"uncachedInput":1},"totalTokens":12345,"costUsd":1.25,"records":9,"sessions":4,"providers":[{"provider":"claude","costUsd":1.0,"totalTokens":10000,"costShare":0.8,"tokenShare":0.81},{"provider":"codex","costUsd":0.25,"totalTokens":2345}],"models":[{"provider":"claude","model":"opus","costUsd":1.0,"totalTokens":10000,"costShare":0.8,"unknownModelField":true},{"provider":"codex","model":"gpt-5","costUsd":0.25,"totalTokens":2345},{"model":"ignored"}],"daily":[{"day":"2026-09-05","totalTokens":200,"costUsd":0.05,"byProvider":[]},{"day":"2026-09-06","totalTokens":500,"costUsd":0.1}],"months":[{"firstDay":"2026-09-01","totalTokens":12345,"costUsd":1.25,"sessions":4}],"projects":[{"path":"/tmp/faku","totalTokens":12345,"costUsd":1.25,"sessions":4}],"quality":{},"pricing":"fresh","scannedFiles":3,"skippedFiles":0,"errors":[],"scanDuration":{"secs":1,"nanos":0},"unknownField":true}}}}
     ;
     const parsed = parseUsageHistory(arena, line);
     try std.testing.expect(parsed.ok);
@@ -5622,6 +5662,15 @@ test "parseUsageHistory reads a minimal usageHistory fixture and ignores unknown
     try std.testing.expectEqualStrings("codex", parsed.providers[1].provider);
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), parsed.providers[1].cost_share, 0.0001);
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), parsed.providers[1].token_share, 0.0001);
+    try std.testing.expectEqual(@as(usize, 2), parsed.model_count);
+    try std.testing.expectEqualStrings("claude", parsed.models[0].provider);
+    try std.testing.expectEqualStrings("opus", parsed.models[0].model);
+    try std.testing.expectEqual(@as(u64, 10000), parsed.models[0].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), parsed.models[0].cost_usd, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.8), parsed.models[0].cost_share, 0.0001);
+    try std.testing.expectEqualStrings("codex", parsed.models[1].provider);
+    try std.testing.expectEqualStrings("gpt-5", parsed.models[1].model);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), parsed.models[1].cost_share, 0.0001);
     try std.testing.expectEqual(@as(usize, 2), parsed.daily_count);
     try std.testing.expectEqualStrings("2026-09-06", parsed.daily[1].day);
     try std.testing.expectEqual(@as(u64, 500), parsed.daily[1].total_tokens);
@@ -5645,6 +5694,7 @@ test "parseUsageHistory reads a minimal usageHistory fixture and ignores unknown
     try std.testing.expect(empty.ok);
     try std.testing.expectEqual(@as(u64, 0), empty.total_tokens);
     try std.testing.expectEqual(@as(usize, 0), empty.provider_count);
+    try std.testing.expectEqual(@as(usize, 0), empty.model_count);
     try std.testing.expectEqual(PricingStatus.unknown, empty.pricing);
     try std.testing.expectApproxEqAbs(@as(f64, 0), empty.quality.provider_reported_share, 0.0001);
     try std.testing.expectEqual(@as(usize, 0), empty.error_count);

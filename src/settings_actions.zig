@@ -298,6 +298,16 @@ pub fn handleSetUsageShareTokens(model: *Model) void {
     usage_history.setShareMetric(model, .tokens);
 }
 
+pub fn handleSetUsageBreakdownModel(model: *Model) void {
+    if (model.settings_page != .usage) return;
+    usage_history.setBreakdown(model, .model);
+}
+
+pub fn handleSetUsageBreakdownDays(model: *Model) void {
+    if (model.settings_page != .usage) return;
+    usage_history.setBreakdown(model, .days);
+}
+
 pub fn handleRefreshUsageHistory(model: *Model, fx: *Effects) void {
     if (model.settings_page != .usage) return;
     usage_history.refresh(model, fx);

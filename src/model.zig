@@ -326,11 +326,11 @@ pub const SkillRow = struct {
 };
 
 /// Settings Usage history row. `id` is a 1-based Native `for` key.
-/// Daily provider / day rows, Monthly rows, and Projects rows also
+/// Daily provider / model / day rows, Monthly rows, and Projects rows also
 /// carry `share` / `percent` / `has_share` for first-cut share bars
-/// (providers vs totals; days vs the max day in the window; months
-/// vs the max month in the window; projects vs the max project in
-/// the window) and Daily Cost quality rows (three shares plus cache
+/// (providers vs totals; models vs totals; days vs the max day in the
+/// window; months vs the max month in the window; projects vs the max
+/// project in the window) and Daily Cost quality rows (three shares plus cache
 /// savings USD). Notice rows reuse `line` for error / rates-unavailable
 /// captions.
 pub const UsageHistoryRow = usage_history.Row;
@@ -499,6 +499,8 @@ pub const Msg = union(enum) {
     set_usage_window_last_month,
     set_usage_share_cost,
     set_usage_share_tokens,
+    set_usage_breakdown_model,
+    set_usage_breakdown_days,
     refresh_usage_history,
     usage_project_filter_edit: canvas.TextInputEvent,
     settings_theme_system,
@@ -957,6 +959,9 @@ pub const Model = struct {
     /// Runtime-only Daily / Monthly / Projects Cost | Tokens metric
     /// (Waku `UsageMetric`). Default Cost. Not persisted.
     usage_share_metric: usage_history.ShareMetric = .cost,
+    /// Runtime-only Daily Model | Days breakdown (Waku `breakdown`).
+    /// Default Model. Not persisted. Monthly / Projects ignore this.
+    usage_breakdown: usage_history.Breakdown = .model,
     /// Runtime-only Settings Usage Projects search filter (Waku
     /// `usage_project_filter`). Empty on boot. Not persisted.
     usage_project_filter_buffer: canvas.TextBuffer(max_search) = .{},
@@ -1687,6 +1692,7 @@ pub const Model = struct {
         "usage_view",
         "usage_window",
         "usage_share_metric",
+        "usage_breakdown",
         "usage_project_filter_buffer",
         "applyUsageProjectFilter",
         "clearUsageProjectFilter",
@@ -4330,6 +4336,14 @@ pub const Model = struct {
         return model.usage_share_metric == .tokens;
     }
 
+    pub fn usage_breakdown_model(model: *const Model) bool {
+        return model.usage_breakdown == .model;
+    }
+
+    pub fn usage_breakdown_days(model: *const Model) bool {
+        return model.usage_breakdown == .days;
+    }
+
     pub fn has_usage_history(model: *const Model) bool {
         return usage_history.cacheShapeMatches(model) and model.settings_page == .usage;
     }
@@ -4388,6 +4402,10 @@ pub const Model = struct {
 
     pub fn usage_provider_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {
         return usage_history.providerRows(model, arena);
+    }
+
+    pub fn usage_model_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {
+        return usage_history.modelRows(model, arena);
     }
 
     pub fn usage_daily_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {
