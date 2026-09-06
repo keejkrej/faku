@@ -15996,6 +15996,94 @@ test "composer picker marks occupied locals and refuses checkout and delete" {
     main.update(&model, .cancel_git_branch_delete, &fx);
 }
 
+test "composer branch picker search filters listed names; menu actions stay" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const id = model.addSession("branch search", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath("/tmp/proj");
+    main.writeFixed(&model.git_branch_storage, &model.git_branch_len, "main");
+    model.git_branch_list_store[0].set("feat/a", false, false);
+    model.git_branch_list_store[1].set("main", false, false);
+    model.git_branch_list_store[2].set("occupied", false, true);
+    model.git_branch_list_store[3].set("origin/only", true, false);
+    model.git_branch_list_count = 4;
+    try testing.expect(model.can_pick_git_branch());
+
+    var tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Search branches") == null);
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    try testing.expect(model.git_branch_picker_open);
+    try testing.expectEqualStrings("", model.git_branch_search());
+
+    tree = try buildTree(arena, &model);
+    const field = findByPlaceholder(tree.root, .search_field, "Search branches") orelse return error.WidgetNotFound;
+    try testing.expect(field.autofocus);
+    _ = try expectByText(tree.root, .menu_item, "New branch…");
+    _ = try expectByText(tree.root, .menu_item, "New worktree…");
+    _ = try expectByText(tree.root, .menu_item, "Delete branch…");
+    _ = try expectByText(tree.root, .menu_item, "Fetch…");
+    _ = try expectByText(tree.root, .menu_item, "feat/a");
+    _ = try expectByText(tree.root, .menu_item, "main");
+    _ = try expectByText(tree.root, .menu_item, "occupied (worktree)");
+    _ = try expectByText(tree.root, .menu_item, "origin/only");
+
+    main.update(&model, .{ .git_branch_search_edit = .{ .insert_text = "FEAT" } }, &fx);
+    try testing.expectEqualStrings("FEAT", model.git_branch_search());
+    try testing.expect(model.git_branch_picker_open);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "New branch…");
+    _ = try expectByText(tree.root, .menu_item, "Fetch…");
+    _ = try expectByText(tree.root, .menu_item, "feat/a");
+    try testing.expect(findByText(tree.root, .menu_item, "main") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "occupied (worktree)") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "origin/only") == null);
+
+    main.update(&model, .{ .git_branch_search_edit = .clear }, &fx);
+    try testing.expectEqualStrings("", model.git_branch_search());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "feat/a");
+    _ = try expectByText(tree.root, .menu_item, "main");
+    _ = try expectByText(tree.root, .menu_item, "occupied (worktree)");
+    _ = try expectByText(tree.root, .menu_item, "origin/only");
+
+    main.update(&model, .{ .git_branch_search_edit = .{ .insert_text = "OCCUP" } }, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "New branch…");
+    _ = try expectByText(tree.root, .menu_item, "occupied (worktree)");
+    try testing.expect(findByText(tree.root, .menu_item, "feat/a") == null);
+
+    main.update(&model, .{ .git_branch_search_edit = .clear }, &fx);
+    main.update(&model, .{ .git_branch_search_edit = .{ .insert_text = "zzzz" } }, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "New branch…");
+    _ = try expectByText(tree.root, .menu_item, "Fetch…");
+    try testing.expect(findByText(tree.root, .menu_item, "feat/a") == null);
+    try testing.expect(findByText(tree.root, .menu_item, "main") == null);
+
+    main.update(&model, .close_git_branch_picker, &fx);
+    try testing.expect(!model.git_branch_picker_open);
+    try testing.expectEqualStrings("", model.git_branch_search());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Search branches") == null);
+
+    main.update(&model, .toggle_git_branch_picker, &fx);
+    try testing.expect(model.git_branch_picker_open);
+    try testing.expectEqualStrings("", model.git_branch_search());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .menu_item, "feat/a");
+    _ = try expectByText(tree.root, .menu_item, "origin/only");
+    _ = try expectByText(tree.root, .search_field, "Search branches");
+}
+
 test "git checkout failure sets composer status and keeps the previous branch" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();

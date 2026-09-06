@@ -509,6 +509,7 @@ pub const Msg = union(enum) {
     pick_effort: []const u8,
     toggle_git_branch_picker,
     close_git_branch_picker,
+    git_branch_search_edit: canvas.TextInputEvent,
     pick_git_branch: []const u8,
     start_git_branch_create,
     git_branch_create_edit: canvas.TextInputEvent,
@@ -696,6 +697,8 @@ pub const Model = struct {
     goal_status_picker_open: bool = false,
     /// Runtime-only composer project-row branch checkout picker. Not persisted.
     git_branch_picker_open: bool = false,
+    /// Runtime-only branch picker search. Not persisted to sessions.json.
+    git_branch_search_buffer: canvas.TextBuffer(max_search) = .{},
     /// Runtime-only New branch… create card. Draft name is not persisted.
     git_branch_create_active: bool = false,
     /// Runtime-only New worktree… create card. Draft name is not persisted.
@@ -1617,6 +1620,9 @@ pub const Model = struct {
         "skill_body_len",
         "applySkillsFilter",
         "project_edit_buffer",
+        "git_branch_search_buffer",
+        "applyGitBranchSearch",
+        "clearGitBranchSearch",
         "git_branch_create_buffer",
         "git_worktree_create_buffer",
         "git_commit_buffer",
@@ -2167,7 +2173,7 @@ pub const Model = struct {
         model.access_picker_open = false;
         model.effort_picker_open = false;
         model.goal_status_picker_open = false;
-        model.git_branch_picker_open = false;
+        git_checkout.closePicker(model);
         model.git_branch_delete_picker_open = false;
         model.git_worktree_base_picker_open = false;
         model.workspace_picker_open = false;
@@ -2218,7 +2224,19 @@ pub const Model = struct {
     }
 
     pub fn closeGitBranchPicker(model: *Model) void {
-        model.git_branch_picker_open = false;
+        git_checkout.closePicker(model);
+    }
+
+    pub fn git_branch_search(model: *const Model) []const u8 {
+        return model.git_branch_search_buffer.text();
+    }
+
+    pub fn applyGitBranchSearch(model: *Model, edit: canvas.TextInputEvent) void {
+        model.git_branch_search_buffer.apply(edit);
+    }
+
+    pub fn clearGitBranchSearch(model: *Model) void {
+        model.git_branch_search_buffer.clear();
     }
 
     pub fn closeGitBranchDeletePicker(model: *Model) void {
@@ -2278,10 +2296,15 @@ pub const Model = struct {
 
     pub fn toggleGitBranchPicker(model: *Model) void {
         if (!can_pick_git_branch(model)) {
-            model.git_branch_picker_open = false;
+            git_checkout.closePicker(model);
             return;
         }
-        model.git_branch_picker_open = !model.git_branch_picker_open;
+        if (model.git_branch_picker_open) {
+            git_checkout.closePicker(model);
+            return;
+        }
+        model.clearGitBranchSearch();
+        model.git_branch_picker_open = true;
     }
 
     pub fn find_query(model: *const Model) []const u8 {
@@ -3830,23 +3853,34 @@ pub const Model = struct {
         const current = git_branch.gitBranchLabel(model);
         const n = model.git_branch_list_count;
         if (n == 0) return &.{};
-        const out = arena.alloc(ChipPickerRow, n) catch return &.{};
+        const query = std.mem.trim(u8, model.git_branch_search(), " \t\r\n");
+        var count: usize = 0;
         var i: usize = 0;
         while (i < n) : (i += 1) {
+            if (!gitBranchPickerRowMatches(git_checkout.listedBranch(model, i), query)) continue;
+            count += 1;
+        }
+        if (count == 0) return &.{};
+        const out = arena.alloc(ChipPickerRow, count) catch return &.{};
+        var written: usize = 0;
+        i = 0;
+        while (i < n) : (i += 1) {
             const name = git_checkout.listedBranch(model, i);
+            if (!gitBranchPickerRowMatches(name, query)) continue;
             const occupied = git_checkout.listedBranchIsOccupied(model, i);
             const label = if (occupied)
                 std.fmt.allocPrint(arena, "{s}{s}", .{ name, git_checkout.occupied_picker_suffix }) catch name
             else
                 name;
-            out[i] = .{
-                .row_id = @intCast(i + 1),
+            out[written] = .{
+                .row_id = @intCast(written + 1),
                 .id = name,
                 .label = label,
                 .selected = std.mem.eql(u8, current, name),
             };
+            written += 1;
         }
-        return out;
+        return out[0..written];
     }
 
     pub fn can_delete_git_branch(model: *const Model) bool {
@@ -5152,6 +5186,11 @@ fn hasSkillInsertMatch(model: *const Model, query: []const u8) bool {
 fn skillRowMatches(skill: *const skills.CachedSkill, query: []const u8) bool {
     if (query.len == 0) return true;
     return main.asciiContainsIgnoreCase(skill.name(), query) or main.asciiContainsIgnoreCase(skill.path(), query);
+}
+
+fn gitBranchPickerRowMatches(name: []const u8, query: []const u8) bool {
+    if (query.len == 0) return true;
+    return main.asciiContainsIgnoreCase(name, query);
 }
 
 

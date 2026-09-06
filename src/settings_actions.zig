@@ -147,7 +147,7 @@ pub fn handleToggleGoalStatusPicker(model: *Model) void {
         model.access_picker_open = false;
         model.effort_picker_open = false;
         model.settings_effort_picker_open = false;
-        model.git_branch_picker_open = false;
+        model.closeGitBranchPicker();
     }
     model.toggleGoalStatusPicker();
 }
@@ -338,7 +338,7 @@ pub fn handleToggleModelPicker(model: *Model) void {
         model.effort_picker_open = false;
         model.settings_effort_picker_open = false;
         model.goal_status_picker_open = false;
-        model.git_branch_picker_open = false;
+        model.closeGitBranchPicker();
     }
     model.toggleModelPicker();
 }
@@ -356,7 +356,7 @@ pub fn handleToggleAccessPicker(model: *Model) void {
         model.effort_picker_open = false;
         model.settings_effort_picker_open = false;
         model.goal_status_picker_open = false;
-        model.git_branch_picker_open = false;
+        model.closeGitBranchPicker();
     }
     model.toggleAccessPicker();
 }
@@ -374,7 +374,7 @@ pub fn handleToggleEffortPicker(model: *Model) void {
         model.access_picker_open = false;
         model.settings_effort_picker_open = false;
         model.goal_status_picker_open = false;
-        model.git_branch_picker_open = false;
+        model.closeGitBranchPicker();
     }
     model.toggleEffortPicker();
 }
@@ -393,6 +393,10 @@ pub fn handleToggleGitBranchPicker(model: *Model) void {
         git_checkout.closePushConfirm(model);
     }
     model.toggleGitBranchPicker();
+}
+
+pub fn handleGitBranchSearchEdit(model: *Model, edit: canvas.TextInputEvent) void {
+    model.applyGitBranchSearch(edit);
 }
 
 pub fn handlePickGitBranch(model: *Model, fx: *Effects, name: []const u8) void {
@@ -498,7 +502,7 @@ pub fn handleToggleWorkspacePicker(model: *Model) void {
         model.effort_picker_open = false;
         model.settings_effort_picker_open = false;
         model.goal_status_picker_open = false;
-        model.git_branch_picker_open = false;
+        model.closeGitBranchPicker();
         git_checkout.closeDelete(model);
         git_checkout.closePushConfirm(model);
     }

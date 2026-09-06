@@ -335,7 +335,9 @@ are the source of truth for heads/current/occupied; a follow-up
 local `git for-each-ref` merges remote-tracking rows the same as
 the no-daemon path; Native 4 KiB stdin overflow / error /
 null snapshot falls back to local `git for-each-ref`; not a live
-watch). First-cut daemon `WorkspaceOperation::CheckoutBranch` ships
+watch). The open picker filters listed names with a runtime-only
+case-insensitive substring (empty query shows every row; not
+persisted to sessions.json). First-cut daemon `WorkspaceOperation::CheckoutBranch` ships
 on picker local-head checkout (`create: false`) and New branch
 create (`create: true`) when a daemon address is set (ok is nested
 `branchChanged` + snake_case snapshot; Native 4 KiB stdin overflow
