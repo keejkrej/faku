@@ -418,6 +418,20 @@
                               <progress value="{m.share}" width="48" height="6" label="{m.percent}" />
                               <text wrap="false" overflow="ellipsis" foreground="text_muted">{m.percent}</text>
                             </if>
+                            <if test="{m.has_by_provider}">
+                              <column gap="4">
+                                <text wrap="false" overflow="ellipsis">{m.claude_line}</text>
+                                <if test="{m.claude_has_share}">
+                                  <progress value="{m.claude_share}" width="48" height="6" label="{m.claude_percent}" />
+                                  <text wrap="false" overflow="ellipsis" foreground="text_muted">{m.claude_percent}</text>
+                                </if>
+                                <text wrap="false" overflow="ellipsis">{m.codex_line}</text>
+                                <if test="{m.codex_has_share}">
+                                  <progress value="{m.codex_share}" width="48" height="6" label="{m.codex_percent}" />
+                                  <text wrap="false" overflow="ellipsis" foreground="text_muted">{m.codex_percent}</text>
+                                </if>
+                              </column>
+                            </if>
                           </column>
                         </for>
                       </column>
@@ -444,6 +458,20 @@
                             <if test="{pr.has_share}">
                               <progress value="{pr.share}" width="48" height="6" label="{pr.percent}" />
                               <text wrap="false" overflow="ellipsis" foreground="text_muted">{pr.percent}</text>
+                            </if>
+                            <if test="{pr.has_by_provider}">
+                              <column gap="4">
+                                <text wrap="false" overflow="ellipsis">{pr.claude_line}</text>
+                                <if test="{pr.claude_has_share}">
+                                  <progress value="{pr.claude_share}" width="48" height="6" label="{pr.claude_percent}" />
+                                  <text wrap="false" overflow="ellipsis" foreground="text_muted">{pr.claude_percent}</text>
+                                </if>
+                                <text wrap="false" overflow="ellipsis">{pr.codex_line}</text>
+                                <if test="{pr.codex_has_share}">
+                                  <progress value="{pr.codex_share}" width="48" height="6" label="{pr.codex_percent}" />
+                                  <text wrap="false" overflow="ellipsis" foreground="text_muted">{pr.codex_percent}</text>
+                                </if>
+                              </column>
                             </if>
                           </column>
                         </for>

@@ -764,8 +764,9 @@ pub const ParsedUsageModel = struct {
     cost_share: f64 = 0,
 };
 
-/// One `daily[].byProvider[]` slot (Waku `ProviderDay`). Fixed
-/// index, not a provider id field: 0 = Claude, 1 = Codex.
+/// One `daily[]` / `months[]` / `projects[]` `byProvider[]` slot
+/// (Waku `ProviderDay`). Fixed index, not a provider id field:
+/// 0 = Claude, 1 = Codex.
 pub const ParsedProviderDay = struct {
     total_tokens: u64 = 0,
     cost_usd: f64 = 0,
@@ -773,8 +774,7 @@ pub const ParsedProviderDay = struct {
 
 /// One `daily[]` row. `day` is an opaque date string. `by_provider`
 /// is two fixed slots (Claude / Codex); missing / empty / short
-/// `byProvider` stays zero. Months / projects `byProvider` is not
-/// parsed this cut.
+/// `byProvider` stays zero.
 pub const ParsedUsageDay = struct {
     day: []const u8 = "",
     total_tokens: u64 = 0,
@@ -783,19 +783,25 @@ pub const ParsedUsageDay = struct {
 };
 
 /// One `months[]` row. `first_day` is an opaque date string.
+/// `by_provider` is two fixed Claude/Codex slots (same as Daily);
+/// missing / empty / short `byProvider` stays zero.
 pub const ParsedUsageMonth = struct {
     first_day: []const u8 = "",
     total_tokens: u64 = 0,
     cost_usd: f64 = 0,
     sessions: u64 = 0,
+    by_provider: [max_parsed_usage_day_providers]ParsedProviderDay = [_]ParsedProviderDay{.{}} ** max_parsed_usage_day_providers,
 };
 
 /// One `projects[]` row. `path` is the project path as returned.
+/// `by_provider` is two fixed Claude/Codex slots (same as Daily);
+/// missing / empty / short `byProvider` stays zero.
 pub const ParsedUsageProject = struct {
     path: []const u8 = "",
     total_tokens: u64 = 0,
     cost_usd: f64 = 0,
     sessions: u64 = 0,
+    by_provider: [max_parsed_usage_day_providers]ParsedProviderDay = [_]ParsedProviderDay{.{}} ** max_parsed_usage_day_providers,
 };
 
 /// Light parse of ok `usageHistory`. Unknown JSON ignored. Dates stay
@@ -2639,6 +2645,9 @@ fn parseUsageModels(value: ?std.json.Value, dest: *[max_parsed_usage_models]Pars
     return n;
 }
 
+/// Two fixed Claude/Codex slots from `byProvider` (daily / months /
+/// projects). Missing / empty / short stays zero. Extra rows ignored.
+/// Unknown fields ignored.
 fn parseUsageDayByProvider(value: ?std.json.Value) [max_parsed_usage_day_providers]ParsedProviderDay {
     var slots = [_]ParsedProviderDay{.{}} ** max_parsed_usage_day_providers;
     const items = jsonArrayItems(value orelse return slots) orelse return slots;
@@ -2683,6 +2692,7 @@ fn parseUsageMonths(value: ?std.json.Value, dest: *[max_parsed_usage_months]Pars
             .total_tokens = jsonU64OrZero(obj.get("totalTokens")),
             .cost_usd = jsonF64Value(obj.get("costUsd")),
             .sessions = jsonU64OrZero(obj.get("sessions")),
+            .by_provider = parseUsageDayByProvider(obj.get("byProvider")),
         };
         n += 1;
     }
@@ -2702,6 +2712,7 @@ fn parseUsageProjects(value: ?std.json.Value, dest: *[max_parsed_usage_projects]
             .total_tokens = jsonU64OrZero(obj.get("totalTokens")),
             .cost_usd = jsonF64Value(obj.get("costUsd")),
             .sessions = jsonU64OrZero(obj.get("sessions")),
+            .by_provider = parseUsageDayByProvider(obj.get("byProvider")),
         };
         n += 1;
     }
@@ -5716,8 +5727,14 @@ test "parseUsageHistory reads a minimal usageHistory fixture and ignores unknown
     try std.testing.expectEqual(@as(usize, 1), parsed.month_count);
     try std.testing.expectEqualStrings("2026-09-01", parsed.months[0].first_day);
     try std.testing.expectEqual(@as(u64, 4), parsed.months[0].sessions);
+    try std.testing.expectEqual(@as(u64, 0), parsed.months[0].by_provider[0].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), parsed.months[0].by_provider[0].cost_usd, 0.0001);
+    try std.testing.expectEqual(@as(u64, 0), parsed.months[0].by_provider[1].total_tokens);
     try std.testing.expectEqual(@as(usize, 1), parsed.project_count);
     try std.testing.expectEqualStrings("/tmp/faku", parsed.projects[0].path);
+    try std.testing.expectEqual(@as(u64, 0), parsed.projects[0].by_provider[0].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), parsed.projects[0].by_provider[0].cost_usd, 0.0001);
+    try std.testing.expectEqual(@as(u64, 0), parsed.projects[0].by_provider[1].total_tokens);
     try std.testing.expectEqual(PricingStatus.fresh, parsed.pricing);
     try std.testing.expectApproxEqAbs(@as(f64, 0), parsed.quality.provider_reported_share, 0.0001);
     try std.testing.expectApproxEqAbs(@as(f64, 0), parsed.quality.model_priced_share, 0.0001);
@@ -5778,6 +5795,58 @@ test "parseUsageHistory reads daily byProvider into two fixed Claude/Codex slots
     try std.testing.expect(extra.ok);
     try std.testing.expectEqual(@as(u64, 1), extra.daily[0].by_provider[0].total_tokens);
     try std.testing.expectEqual(@as(u64, 2), extra.daily[0].by_provider[1].total_tokens);
+}
+
+test "parseUsageHistory reads months/projects byProvider into two fixed Claude/Codex slots" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const line =
+        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000015","outcome":{"status":"ok","payload":{"type":"usageHistory","history":{"months":[{"firstDay":"2026-09-01","totalTokens":100,"costUsd":1.0,"sessions":2,"byProvider":[{"costUsd":0.25,"totalTokens":40,"unknownProviderField":true},{"costUsd":0.75,"totalTokens":60}]},{"firstDay":"2026-08-01","totalTokens":400,"costUsd":0.5,"sessions":4,"byProvider":[{"costUsd":0.5,"totalTokens":400}]},{"firstDay":"2026-07-01","totalTokens":0,"costUsd":0,"sessions":0,"byProvider":[]},{"firstDay":"2026-06-01","totalTokens":10,"costUsd":0.1,"sessions":1}],"projects":[{"path":"/tmp/faku","totalTokens":100,"costUsd":1.0,"sessions":2,"byProvider":[{"costUsd":0.25,"totalTokens":40,"unknownProviderField":true},{"costUsd":0.75,"totalTokens":60}]},{"path":"/tmp/other","totalTokens":400,"costUsd":0.5,"sessions":4,"byProvider":[{"costUsd":0.5,"totalTokens":400}]},{"path":"/tmp/empty","totalTokens":0,"costUsd":0,"sessions":0,"byProvider":[]},{"path":"/tmp/missing","totalTokens":10,"costUsd":0.1,"sessions":1}]}}}}
+    ;
+    const parsed = parseUsageHistory(arena, line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqual(@as(usize, 4), parsed.month_count);
+    try std.testing.expectEqual(@as(usize, 4), parsed.project_count);
+
+    try std.testing.expectEqual(@as(u64, 40), parsed.months[0].by_provider[usage_day_provider_claude].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), parsed.months[0].by_provider[usage_day_provider_claude].cost_usd, 0.0001);
+    try std.testing.expectEqual(@as(u64, 60), parsed.months[0].by_provider[usage_day_provider_codex].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.75), parsed.months[0].by_provider[usage_day_provider_codex].cost_usd, 0.0001);
+
+    try std.testing.expectEqual(@as(u64, 400), parsed.months[1].by_provider[usage_day_provider_claude].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5), parsed.months[1].by_provider[usage_day_provider_claude].cost_usd, 0.0001);
+    try std.testing.expectEqual(@as(u64, 0), parsed.months[1].by_provider[usage_day_provider_codex].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), parsed.months[1].by_provider[usage_day_provider_codex].cost_usd, 0.0001);
+
+    try std.testing.expectEqual(@as(u64, 0), parsed.months[2].by_provider[0].total_tokens);
+    try std.testing.expectEqual(@as(u64, 0), parsed.months[2].by_provider[1].total_tokens);
+    try std.testing.expectEqual(@as(u64, 0), parsed.months[3].by_provider[0].total_tokens);
+    try std.testing.expectEqual(@as(u64, 0), parsed.months[3].by_provider[1].total_tokens);
+
+    try std.testing.expectEqual(@as(u64, 40), parsed.projects[0].by_provider[usage_day_provider_claude].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), parsed.projects[0].by_provider[usage_day_provider_claude].cost_usd, 0.0001);
+    try std.testing.expectEqual(@as(u64, 60), parsed.projects[0].by_provider[usage_day_provider_codex].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.75), parsed.projects[0].by_provider[usage_day_provider_codex].cost_usd, 0.0001);
+
+    try std.testing.expectEqual(@as(u64, 400), parsed.projects[1].by_provider[usage_day_provider_claude].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5), parsed.projects[1].by_provider[usage_day_provider_claude].cost_usd, 0.0001);
+    try std.testing.expectEqual(@as(u64, 0), parsed.projects[1].by_provider[usage_day_provider_codex].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), parsed.projects[1].by_provider[usage_day_provider_codex].cost_usd, 0.0001);
+
+    try std.testing.expectEqual(@as(u64, 0), parsed.projects[2].by_provider[0].total_tokens);
+    try std.testing.expectEqual(@as(u64, 0), parsed.projects[2].by_provider[1].total_tokens);
+    try std.testing.expectEqual(@as(u64, 0), parsed.projects[3].by_provider[0].total_tokens);
+    try std.testing.expectEqual(@as(u64, 0), parsed.projects[3].by_provider[1].total_tokens);
+
+    const extra = parseUsageHistory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"months\":[{\"firstDay\":\"2026-09-01\",\"totalTokens\":3,\"costUsd\":1,\"sessions\":1,\"byProvider\":[{\"costUsd\":0.1,\"totalTokens\":1},{\"costUsd\":0.2,\"totalTokens\":2},{\"costUsd\":9,\"totalTokens\":9}]}],\"projects\":[{\"path\":\"/tmp/faku\",\"totalTokens\":3,\"costUsd\":1,\"sessions\":1,\"byProvider\":[{\"costUsd\":0.1,\"totalTokens\":1},{\"costUsd\":0.2,\"totalTokens\":2},{\"costUsd\":9,\"totalTokens\":9}]}]}}}}");
+    try std.testing.expect(extra.ok);
+    try std.testing.expectEqual(@as(u64, 1), extra.months[0].by_provider[0].total_tokens);
+    try std.testing.expectEqual(@as(u64, 2), extra.months[0].by_provider[1].total_tokens);
+    try std.testing.expectEqual(@as(u64, 1), extra.projects[0].by_provider[0].total_tokens);
+    try std.testing.expectEqual(@as(u64, 2), extra.projects[0].by_provider[1].total_tokens);
 }
 
 test "parseUsageHistory reads quality shares, pricing status, errors, and scan meta" {
