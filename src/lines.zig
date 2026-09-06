@@ -230,6 +230,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         background_work.applyLine(model, line);
         return;
     }
+    if (model.daemon_stop_background_work_key != 0 and line.key == model.daemon_stop_background_work_key) {
+        background_work.applyLine(model, line);
+        return;
+    }
     if (model.daemon_projectless_key != 0 and line.key == model.daemon_projectless_key) {
         projectless.applyLine(model, fx, line);
         return;
@@ -1244,6 +1248,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
         return;
     }
     if (model.daemon_background_work_key != 0 and exit.key == model.daemon_background_work_key) {
+        background_work.handleExit(model, exit);
+        return;
+    }
+    if (model.daemon_stop_background_work_key != 0 and exit.key == model.daemon_stop_background_work_key) {
         background_work.handleExit(model, exit);
         return;
     }

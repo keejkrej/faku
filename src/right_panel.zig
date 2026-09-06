@@ -12,8 +12,9 @@
 //! title, live-or-settled status, Monitor / Subagent 512KB last-window log
 //! with newlines kept and CSI/ANSI stripped for display;
 //! Environment Summary stays a one-line preview; Stop when the
-//! selected row is a live Process, live Monitor, or live Subagent;
-//! Dismiss when the selected row is a settled Monitor or Subagent). Tab
+//! selected row is a live Process, live Monitor, live Subagent, or a
+//! live daemon-sourced row with canStop + controlId; Dismiss when the
+//! selected row is a settled Monitor, Subagent, or daemon row). Tab
 //! click with no selected row, or a selected row that is gone, shows
 //! "No background work". Browser and Terminal are honest OS-open
 //! first-cuts this cut (system browser via `open_url`, host terminal
@@ -21,19 +22,21 @@
 //! Claude CLI TaskStop (Faku-side Monitor and
 //! Subagent Stop on one-shot `claude -p` ships; live Stop dismisses
 //! that live row and does not invoke TaskStop mid-turn; settled
-//! rows offer Dismiss), daemon
-//! `StopBackgroundWork`, GPUI SharedString, or full
+//! rows offer Dismiss), GPUI SharedString, or full
 //! BackgroundWorkRegistry event/reconcile parity. First-cut daemon
 //! `refreshBackgroundWork` prefers hello + that command when a daemon
 //! address and usable session `runtimeId` are set on Background tab
-//! open/select (one-shot sidecar; miss keeps local rows). This cut ships a
+//! open/select (one-shot sidecar; miss keeps local rows). First-cut
+//! daemon `stopBackgroundWork` prefers hello + that command when Stop
+//! targets a daemon-sourced live row with a daemon address, usable
+//! `runtimeId`, and `controlId` (distinct spawn key; optimistic
+//! Stopping; miss falls back to Faku-side dismiss). This cut ships a
 //! 100ms CSI-stripped last-window render cache on Monitor / Subagent
 //! (piggybacks `now_ms` / the stream tick; Native has no dedicated
 //! 100ms timer). First-cut
 //! settled Monitor / Subagent stay in the runtime registry after the
 //! turn (status from Process settle; Monitor / Subagent last-window kept;
-//! Faku-side Dismiss, not Claude TaskStop / daemon
-//! `StopBackgroundWork`; not live after `-p` exits). First-cut
+//! Faku-side Dismiss, not Claude TaskStop; not live after `-p` exits). First-cut
 //! daemon `WorkspaceOperation::ListProjectFiles` ships on Files
 //! refresh when a daemon address is set (ok paints the file cache from
 //! `projectFiles` file + dir entries; Native 4 KiB stdin overflow /
