@@ -20,8 +20,12 @@
 //! (default Cost), and a first-cut daily bar chart: each day's
 //! Native `<progress>` is relative to the max day in the painted
 //! window for the active metric (Cost → `costUsd`, Tokens →
-//! `totalTokens`). Days with 0 cost/tokens stay text-only. Chip
-//! flip recomputes shares without re-fetching. Still not Waku's
+//! `totalTokens`). Days with 0 cost/tokens stay text-only. Monthly
+//! first-cut paints the same chip and relative Native `<progress>`
+//! vs the max month in the painted window (Cost → `costUsd`, Tokens
+//! → `totalTokens`); zero-value months stay text-only. Chip flip
+//! recomputes Daily and Monthly shares from the cached snapshot
+//! without re-fetching. Projects stay list-only. Still not Waku's
 //! GPUI / T3 layered chart, not quality / rate-table / LiteLLM.
 //! Hello stays v4.
 
@@ -72,7 +76,7 @@ pub const window_choices = [_]WindowChoice{
 pub const default_window_choice: WindowChoice = .trailing_30;
 pub const monthly_window: protocol.UsageWindow = .{ .months = 12 };
 
-/// Waku Daily headline metric. Runtime-only; default Cost.
+/// Waku Daily / Monthly headline metric. Runtime-only; default Cost.
 pub const ShareMetric = enum { cost, tokens };
 
 pub const default_share_metric: ShareMetric = .cost;
@@ -88,11 +92,12 @@ pub const max_line = 160;
 pub const Row = struct {
     id: u32,
     line: []const u8,
-    /// Active Daily share, 0..1. Unused on Monthly / Projects rows.
+    /// Active Daily / Monthly share, 0..1. Unused on Projects rows.
     share: f32 = 0,
-    /// `"80.0%"` for Daily provider and day bars. Empty on other rows.
+    /// `"80.0%"` for Daily provider / day bars and Monthly bars.
+    /// Empty on Projects rows.
     percent: []const u8 = "",
-    /// True when Daily should paint a share bar (share > 0).
+    /// True when Daily or Monthly should paint a share bar (share > 0).
     has_share: bool = false,
 };
 
@@ -147,6 +152,15 @@ pub const CachedMonth = struct {
 
     pub fn firstDay(self: *const CachedMonth) []const u8 {
         return self.first_day_storage[0..self.first_day_len];
+    }
+
+    /// Cost → `cost_usd`; Tokens → `total_tokens`. Used for the
+    /// first-cut Monthly bar (share vs max month in the window).
+    pub fn valueFor(self: *const CachedMonth, metric: ShareMetric) f64 {
+        return switch (metric) {
+            .cost => self.cost_usd,
+            .tokens => tokensAsFloat(self.total_tokens),
+        };
     }
 };
 
@@ -288,8 +302,9 @@ pub fn setWindow(model: *Model, fx: *Effects, choice: WindowChoice) void {
     ensure(model, fx, false);
 }
 
-/// Runtime-only Daily Cost | Tokens chip. Does not re-fetch history.
-/// Provider and first-cut daily bars recompute from the cached snapshot.
+/// Runtime-only Daily / Monthly Cost | Tokens chip. Does not
+/// re-fetch history. Provider, daily, and monthly bars recompute
+/// from the cached snapshot.
 pub fn setShareMetric(model: *Model, metric: ShareMetric) void {
     model.usage_share_metric = metric;
 }
@@ -456,6 +471,24 @@ fn dayShare(day: CachedDay, max: f64, metric: ShareMetric) f64 {
     return clampShare(day.valueFor(metric) / max);
 }
 
+/// Max Cost / Tokens value among cached Monthly rows. 0 when every
+/// month is empty so shares stay text-only.
+fn maxMonthValue(months: []const CachedMonth, metric: ShareMetric) f64 {
+    var max: f64 = 0;
+    for (months) |month| {
+        const value = month.valueFor(metric);
+        if (value > max) max = value;
+    }
+    return max;
+}
+
+/// Share vs the window's max month. 0 when the month (or the window)
+/// is empty so Native skips the progress bar.
+fn monthShare(month: CachedMonth, max: f64, metric: ShareMetric) f64 {
+    if (!(max > 0)) return 0;
+    return clampShare(month.valueFor(metric) / max);
+}
+
 fn formatPercent(buf: []u8, share: f64) ?[]const u8 {
     const clamped = clampShare(share);
     if (!(clamped > 0)) return null;
@@ -581,14 +614,25 @@ pub fn monthRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     if (!historyPainted(model) or model.usage_view != .monthly) return &.{};
     const count = model.usage_history.month_count;
     if (count == 0) return &.{};
+    const months = model.usage_history.months[0..count];
+    const max = maxMonthValue(months, model.usage_share_metric);
     const out = arena.alloc(Row, count) catch return &.{};
     var i: usize = 0;
     while (i < count) : (i += 1) {
-        const row = model.usage_history.months[i];
+        const row = months[i];
         const label = if (row.firstDay().len > 0) row.firstDay() else "—";
+        const share = monthShare(row, max, model.usage_share_metric);
+        var percent_buf: [16]u8 = undefined;
+        const percent = if (formatPercent(&percent_buf, share)) |text|
+            copyArena(arena, text)
+        else
+            "";
         out[i] = .{
             .id = @intCast(i + 1),
             .line = joinLabelDetail(arena, label, row.total_tokens, row.cost_usd, row.sessions),
+            .share = @floatCast(share),
+            .percent = percent,
+            .has_share = share > 0,
         };
     }
     return out;
@@ -1018,3 +1062,95 @@ test "daily zero window keeps shares at 0; empty daily paints no rows" {
     applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":100,\"costUsd\":1,\"daily\":[]}}}}" });
     try std.testing.expectEqual(@as(usize, 0), dailyRows(&model, arena).len);
 }
+
+test "monthly shares are relative to the max month; Cost|Tokens chip flip updates without refetch" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.settings_page = .usage;
+    model.usage_view = .monthly;
+    try std.testing.expectEqual(ShareMetric.cost, model.usage_share_metric);
+
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingMonthlyShareSpawn;
+    try expectWindowJson(sidecar.stdin, "\"window\":{\"months\":12}");
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"trailingDays\"") == null);
+    const keyed = sidecar.key;
+    applyLine(&model, .{ .key = keyed, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":500,\"costUsd\":1.5,\"sessions\":6,\"months\":[{\"firstDay\":\"2026-08-01\",\"totalTokens\":100,\"costUsd\":1.0,\"sessions\":2},{\"firstDay\":\"2026-09-01\",\"totalTokens\":400,\"costUsd\":0.5,\"sessions\":4},{\"firstDay\":\"2026-07-01\",\"totalTokens\":0,\"costUsd\":0,\"sessions\":0}]}}}}" });
+    handleExit(&model, .{ .key = keyed, .reason = .exited, .code = 0 });
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_usage_history_key);
+    try std.testing.expectEqual(@as(usize, 3), model.usage_history.month_count);
+    try std.testing.expect(std.meta.eql(model.usage_history.window, monthly_window));
+
+    const cost_rows = monthRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), cost_rows.len);
+    try std.testing.expect(cost_rows[0].has_share);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), cost_rows[0].share, 0.0001);
+    try std.testing.expectEqualStrings("100.0%", cost_rows[0].percent);
+    try std.testing.expect(cost_rows[1].has_share);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), cost_rows[1].share, 0.0001);
+    try std.testing.expectEqualStrings("50.0%", cost_rows[1].percent);
+    try std.testing.expect(!cost_rows[2].has_share);
+    try std.testing.expectEqual(@as(f32, 0), cost_rows[2].share);
+    try std.testing.expectEqualStrings("", cost_rows[2].percent);
+
+    const spawn_count = fx.pendingSpawnCount();
+    setShareMetric(&model, .tokens);
+    try std.testing.expectEqual(ShareMetric.tokens, model.usage_share_metric);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_usage_history_key);
+    try std.testing.expectEqual(spawn_count, fx.pendingSpawnCount());
+
+    const token_rows = monthRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), token_rows.len);
+    try std.testing.expect(token_rows[0].has_share);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), token_rows[0].share, 0.0001);
+    try std.testing.expectEqualStrings("25.0%", token_rows[0].percent);
+    try std.testing.expect(token_rows[1].has_share);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), token_rows[1].share, 0.0001);
+    try std.testing.expectEqualStrings("100.0%", token_rows[1].percent);
+    try std.testing.expect(!token_rows[2].has_share);
+    try std.testing.expectEqual(@as(f32, 0), token_rows[2].share);
+    try std.testing.expectEqualStrings("", token_rows[2].percent);
+
+    model.usage_view = .daily;
+    try std.testing.expectEqual(@as(usize, 0), monthRows(&model, arena).len);
+    model.usage_view = .projects;
+    try std.testing.expectEqual(@as(usize, 0), monthRows(&model, arena).len);
+}
+
+test "monthly zero window keeps shares at 0; empty months paint no rows" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.settings_page = .usage;
+    model.usage_view = .monthly;
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingZeroMonthlyShareSpawn;
+    try expectWindowJson(sidecar.stdin, "\"window\":{\"months\":12}");
+    applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":0,\"costUsd\":0,\"months\":[{\"firstDay\":\"2026-09-01\",\"totalTokens\":0,\"costUsd\":0,\"sessions\":0}]}}}}" });
+    const zero_rows = monthRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 1), zero_rows.len);
+    try std.testing.expect(!zero_rows[0].has_share);
+    try std.testing.expectEqual(@as(f32, 0), zero_rows[0].share);
+    try std.testing.expectEqualStrings("", zero_rows[0].percent);
+
+    applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":100,\"costUsd\":1,\"months\":[]}}}}" });
+    try std.testing.expectEqual(@as(usize, 0), monthRows(&model, arena).len);
+}
+

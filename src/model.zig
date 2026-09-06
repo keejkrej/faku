@@ -326,10 +326,10 @@ pub const SkillRow = struct {
 };
 
 /// Settings Usage history row. `id` is a 1-based Native `for` key.
-/// Daily provider and day rows also carry `share` / `percent` /
-/// `has_share` for first-cut share bars (providers vs totals; days
-/// vs the max day in the window). Monthly / Projects leave those
-/// empty.
+/// Daily provider / day rows and Monthly rows also carry `share` /
+/// `percent` / `has_share` for first-cut share bars (providers vs
+/// totals; days vs the max day in the window; months vs the max
+/// month in the window). Projects leave those empty.
 pub const UsageHistoryRow = usage_history.Row;
 
 /// Settings Providers row. `id` is 1-based `ProviderId` so Native
@@ -950,8 +950,8 @@ pub const Model = struct {
     /// Default TrailingDays(30). Monthly ignores this and requests
     /// months:12. Not persisted.
     usage_window: usage_history.WindowChoice = .trailing_30,
-    /// Runtime-only Daily Cost | Tokens metric (Waku `UsageMetric`).
-    /// Default Cost. Not persisted. Monthly / Projects ignore this.
+    /// Runtime-only Daily / Monthly Cost | Tokens metric (Waku `UsageMetric`).
+    /// Default Cost. Not persisted. Projects ignore this.
     usage_share_metric: usage_history.ShareMetric = .cost,
     /// In-flight `loadUsageHistory` sidecar. Distinct from workspace
     /// keys so miss cannot settle a live turn or toast Settings.
