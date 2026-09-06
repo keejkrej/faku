@@ -259,6 +259,31 @@ pub fn handleSetUsageViewProjects(model: *Model, fx: *Effects) void {
     usage_history.setView(model, fx, .projects);
 }
 
+pub fn handleSetUsageWindow7d(model: *Model, fx: *Effects) void {
+    if (model.settings_page != .usage) return;
+    usage_history.setWindow(model, fx, .trailing_7);
+}
+
+pub fn handleSetUsageWindow30d(model: *Model, fx: *Effects) void {
+    if (model.settings_page != .usage) return;
+    usage_history.setWindow(model, fx, .trailing_30);
+}
+
+pub fn handleSetUsageWindow90d(model: *Model, fx: *Effects) void {
+    if (model.settings_page != .usage) return;
+    usage_history.setWindow(model, fx, .trailing_90);
+}
+
+pub fn handleSetUsageWindowThisMonth(model: *Model, fx: *Effects) void {
+    if (model.settings_page != .usage) return;
+    usage_history.setWindow(model, fx, .this_month);
+}
+
+pub fn handleSetUsageWindowLastMonth(model: *Model, fx: *Effects) void {
+    if (model.settings_page != .usage) return;
+    usage_history.setWindow(model, fx, .last_month);
+}
+
 pub fn handleRefreshUsageHistory(model: *Model, fx: *Effects) void {
     if (model.settings_page != .usage) return;
     usage_history.refresh(model, fx);
