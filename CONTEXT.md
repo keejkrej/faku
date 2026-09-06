@@ -637,7 +637,13 @@ prefers the selected session when it has a usable `runtimeId` and
 the Background tab is showing, Environment Summary is open, or that
 session has live Process / Monitor / Subagent / daemon-sourced
 rows; else one other live session with a usable `runtimeId` and a
-daemon address, single in-flight sidecar). First-cut daemon
+daemon address, single in-flight sidecar). First-cut 1s Waku
+`BACKGROUND_WORK_TICK_INTERVAL` elapsed duration labels ship as
+`environment_summary.maybeTickElapsed` on that same update tick
+(stamps `started_ms` on become-live for Process / Monitor / Subagent /
+daemon-sourced rows; compact `0s` / `12s` / `1m 5s` / `1h 2m` on live
+rows; empty on settled; Native has no dedicated timer; skips when
+nothing live needs a duration). First-cut daemon
 `stopBackgroundWork` prefers hello + that command when Background
 Stop targets a daemon-sourced live row and a daemon address, usable
 session `runtimeId`, and usable `controlId` are set (one-shot sidecar,
@@ -646,8 +652,9 @@ controlId keep Faku-side dismiss). First-cut `outputDelta` appends a
 bounded 512KB last-window onto an existing daemon-sourced row (empty
 delta / missing key are no-ops; does not mint a row). First-cut
 `stopFailed` clears Stopping on a still-live daemon row, restores
-Running / Monitoring, and surfaces `message` as detail. Not Waku's 1s
-`BACKGROUND_WORK_TICK_INTERVAL` registry loop. Not daemon `WorkspaceOperation` for Background (first-cut daemon Push,
+Running / Monitoring, and surfaces `message` as detail. Fuller
+BackgroundWorkRegistry / GPUI SharedString parity still leftover.
+Not daemon `WorkspaceOperation` for Background (first-cut daemon Push,
 CreateWorktree, Commit, InspectBranches, CheckoutBranch,
 InspectCommit, GenerateCommitMessage, ListTree, ListProjectFiles, DiscoverSlashCommands, CreateProjectlessWorkspace, MigrateProjectlessWorkspace, CollectReviewDiff,
 BrowseDirectory, ReadTextFile, and WriteTextFile live on composer git / Send prep / Commit… / the
@@ -914,8 +921,7 @@ Honest gaps this cut does not implement:
   `i18n.Dates.today`, same string as the Today date-bucket header.
   UTC-day bucketing is unchanged. Not full-app catalogs, not Native
   NSLocale, not east-asian calendar formatting)
-- Claude CLI TaskStop / long-lived ACP, Waku
-  `BACKGROUND_WORK_TICK_INTERVAL` (1s) registry loop, full
+- Claude CLI TaskStop / long-lived ACP, full
   BackgroundWorkRegistry event/reconcile parity (Environment Summary
   ships Process / Monitor / Subagent kind chrome, a Process
   registry from stream/settle, live Monitor rows from Claude
@@ -969,9 +975,13 @@ Honest gaps this cut does not implement:
   stored Monitor / Subagent log, Stop when the selected row is
   a live Process, live Monitor, live Subagent, or a live daemon
   row with canStop + controlId, and Dismiss when
-  the selected row is a settled Monitor, Subagent, or daemon row; not Waku
-  BackgroundWorkRegistry event/reconcile/driver-refresh parity,
-  not the 1s `BACKGROUND_WORK_TICK_INTERVAL` registry loop)
+  the selected row is a settled Monitor, Subagent, or daemon row;
+  first-cut 1s `BACKGROUND_WORK_TICK_INTERVAL` elapsed duration
+  labels ship (`maybeTickElapsed` piggybacks `now_ms` / the update
+  tick; stamps `started_ms` on become-live; compact `0s` / `12s` /
+  `1m 5s` / `1h 2m` on live rows; empty on settled); not Waku
+  BackgroundWorkRegistry event/reconcile/driver-refresh / GPUI
+  SharedString parity)
 - First-cut GitHub Releases wrap documented `native package` trees
   (host-native; no eject) as user-facing installers: unsigned macOS
   DMG (`--signing none`; no Apple identity / notarize), amd64 Debian

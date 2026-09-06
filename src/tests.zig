@@ -9845,6 +9845,55 @@ test "Environment Summary Process row opens right-panel Background; unknown id n
     try testing.expect(findByText(tree.root, .button, "Stop agent") == null);
 }
 
+test "update tick path advances live Background elapsed after 1s and skips settled" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var clock = native_sdk.TestClock{};
+    pinClock(&fx, &clock, 2_000);
+
+    var model = main.initialModel();
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "stream for elapsed tick" } }, &fx);
+    main.update(&model, .send, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqual(@as(?i64, 2_000), model.background_process_started_ms);
+    try testing.expectEqualStrings("0s", model.background_process_elapsed_storage[0..model.background_process_elapsed_len]);
+    main.update(&model, .toggle_environment_summary, &fx);
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "0s");
+
+    main.update(&model, .{ .open_background_work = 1 }, &fx);
+    try testing.expectEqualStrings("Running", model.background_work_status());
+    try testing.expectEqualStrings("0s", model.background_work_elapsed());
+    try testing.expect(model.has_background_work_elapsed());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Running");
+    _ = try expectByText(tree.root, .text, "0s");
+
+    pinClock(&fx, &clock, 2_000 + environment_summary.background_work_tick_interval_ms - 1);
+    main.update(&model, .close_environment_summary, &fx);
+    try testing.expectEqualStrings("0s", model.background_work_elapsed());
+
+    pinClock(&fx, &clock, 2_000 + environment_summary.background_work_tick_interval_ms);
+    main.update(&model, .close_environment_summary, &fx);
+    try testing.expectEqualStrings("1s", model.background_work_elapsed());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "1s");
+
+    main.update(&model, .stop_turn, &fx);
+    try testing.expectEqualStrings("Stopped", model.background_work_status());
+    try testing.expectEqualStrings("", model.background_work_elapsed());
+    try testing.expect(!model.has_background_work_elapsed());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Stopped");
+    try testing.expect(findByText(tree.root, .text, "1s") == null);
+    try testing.expect(findByText(tree.root, .text, "0s") == null);
+}
+
 test "Environment Summary Monitor row opens Background with the 512KB log" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
@@ -21072,6 +21121,10 @@ test "header Environment trigger opens a dropdown; Esc and second click close it
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.kind_label}").? < std.mem.indexOf(u8, main.app_markup, "{b.title}").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{b.title}").? < std.mem.indexOf(u8, main.app_markup, "b.has_detail").?);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "b.has_detail").? < std.mem.indexOf(u8, main.app_markup, "{b.detail}").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "b.has_status").? < std.mem.indexOf(u8, main.app_markup, "b.has_elapsed").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "b.has_elapsed").? < std.mem.indexOf(u8, main.app_markup, "{b.elapsed}").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "has_background_work_status").? < std.mem.indexOf(u8, main.app_markup, "has_background_work_elapsed").?);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{background_work_elapsed}") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"environment_compare\">{header_git_numstat_label}").? < std.mem.indexOf(u8, main.app_markup, "menu-item on-press=\"environment_compare\"").?);
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };

@@ -779,6 +779,18 @@ pub const Model = struct {
     /// sessions.json. Piggybacks `now_ms` / the stream tick; Native
     /// has no dedicated 100ms timer this cut.
     background_output_cache_refresh_ms: ?i64 = null,
+    /// Process-row started wall time (`now_ms`) while the Agent
+    /// turn is live. Runtime-only; first `noteLiveProcess` /
+    /// `startPrompt`. Cleared on settle. Not sessions.json.
+    background_process_started_ms: ?i64 = null,
+    background_process_elapsed_storage: [environment_summary.max_elapsed_label]u8 = [_]u8{0} ** environment_summary.max_elapsed_label,
+    background_process_elapsed_len: usize = 0,
+    /// Last 1s elapsed-label tick (`now_ms`). Null until the first
+    /// become-live stamp or `maybeTickElapsed`. Runtime-only; not
+    /// sessions.json. Throttles to `background_work_tick_interval_ms`
+    /// (Waku `BACKGROUND_WORK_TICK_INTERVAL`). Piggybacks `now_ms` /
+    /// the update tick; Native has no dedicated 1s timer this cut.
+    last_background_work_tick_ms: ?i64 = null,
     /// Runtime-only Environment Compare Review card. Not persisted.
     review_diff_active: bool = false,
     /// Runtime-only Review name-status source. Compare / header +/-
@@ -1625,6 +1637,10 @@ pub const Model = struct {
         "background_daemon",
         "background_daemon_count",
         "background_output_cache_refresh_ms",
+        "background_process_started_ms",
+        "background_process_elapsed_storage",
+        "background_process_elapsed_len",
+        "last_background_work_tick_ms",
         "has_settled_background",
         "background_settled_status",
         "queued_store",
@@ -2524,6 +2540,17 @@ pub const Model = struct {
 
     pub fn has_background_work_status(model: *const Model) bool {
         return model.background_work_status().len > 0;
+    }
+
+    /// Compact elapsed duration on the selected live Background row.
+    /// Empty when settled or not yet stamped.
+    pub fn background_work_elapsed(model: *const Model) []const u8 {
+        const row = environment_summary.selectedBackgroundRow(model) orelse return "";
+        return row.elapsed;
+    }
+
+    pub fn has_background_work_elapsed(model: *const Model) bool {
+        return model.background_work_elapsed().len > 0;
     }
 
     pub fn background_work_output(model: *const Model) []const u8 {

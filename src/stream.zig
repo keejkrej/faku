@@ -130,6 +130,7 @@ pub fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
     const settle_status: environment_summary.SettledStatus = if (drain) .completed else .failed;
+    environment_summary.clearLiveProcess(model);
     environment_summary.settleLiveBackgroundSignals(model, finished_id, settle_status);
     if (drain) {
         session_fork.recordTurnEndIfPossible(model, fx, finished_id);
@@ -162,6 +163,7 @@ pub fn stopStream(model: *Model, fx: *Effects) void {
     if (model.daemon_spawn_key != 0) fx.cancel(model.daemon_spawn_key);
     model.fx_spawn_live = false;
     if (was_daemon) maybeCancelDaemonTurn(model, fx, finished_id);
+    environment_summary.clearLiveProcess(model);
     environment_summary.settleLiveBackgroundSignals(model, finished_id, .stopped);
     environment_summary.settle(model, finished_id, .stopped);
     store.persistIfPossible(model, finished_id, fx);

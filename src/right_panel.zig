@@ -36,8 +36,10 @@
 //! `outputDelta` streams daemon last-window into an existing
 //! daemon-sourced row (empty delta / missing key are no-ops).
 //! First-cut `stopFailed` clears Stopping on a still-live daemon
-//! row. Leftover remains full BackgroundWorkRegistry / 1s tick /
-//! GPUI SharedString parity. This cut ships a
+//! row. First-cut 1s `BACKGROUND_WORK_TICK_INTERVAL` elapsed
+//! duration labels ship (`environment_summary.maybeTickElapsed`
+//! piggybacks `now_ms` / the update tick). Leftover remains full
+//! BackgroundWorkRegistry / GPUI SharedString parity. This cut ships a
 //! 100ms CSI-stripped last-window render cache on Monitor / Subagent
 //! (piggybacks `now_ms` / the stream tick; Native has no dedicated
 //! 100ms timer). First-cut

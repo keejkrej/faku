@@ -478,6 +478,9 @@
                     <if test="{b.has_status}">
                       <text foreground="text_muted">{b.settled_status}</text>
                     </if>
+                    <if test="{b.has_elapsed}">
+                      <text foreground="text_muted">{b.elapsed}</text>
+                    </if>
                   </for>
                   <if test="{has_dismissable_settled_background}">
                     <menu-item on-press="environment_dismiss_settled_background">Dismiss all settled</menu-item>
@@ -1044,6 +1047,9 @@
               <text>{background_work_title}</text>
               <if test="{has_background_work_status}">
                 <text foreground="text_muted">{background_work_status}</text>
+              </if>
+              <if test="{has_background_work_elapsed}">
+                <text foreground="text_muted">{background_work_elapsed}</text>
               </if>
               <if test="{background_work_can_stop}">
                 <button variant="ghost" size="sm" on-press="environment_stop_background:{background_work_row_id}">{background_work_stop_label}</button>

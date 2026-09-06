@@ -91,6 +91,7 @@ pub fn startPrompt(model: *Model, fx: *Effects, session_id: u32, text: []const u
     model.fx_spawn_pi_json = false;
     model.fx_spawn_claude_json = false;
     environment_summary.clearDismissedSubagentIds(model);
+    environment_summary.noteLiveProcess(model);
     if (model.daemonAddress().len > 0) {
         model.reply_path = .daemon;
         startDaemonProxy(model, fx, session, text);

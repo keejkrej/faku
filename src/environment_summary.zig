@@ -104,11 +104,16 @@
 //! when the selected row is a settled Monitor or Subagent). Faku-side
 //! Dismiss all settled ships for the selected session (settled
 //! Monitor / Subagent slots plus the cap-1 Process settle; live
-//! rows and the stream stay). Leftovers: Claude CLI TaskStop /
-//! long-lived ACP, Waku `BACKGROUND_WORK_TICK_INTERVAL` (1s)
-//! registry loop, full BackgroundWorkRegistry / GPUI SharedString
-//! parity. First-cut 5s `BACKGROUND_WORK_REFRESH_INTERVAL` tick
-//! ships (`background_work.maybeRefresh` piggybacks `now_ms` / the
+//! rows and the stream stay). First-cut Waku
+//! `BACKGROUND_WORK_TICK_INTERVAL` (1s) elapsed duration labels
+//! ship (`maybeTickElapsed` piggybacks `now_ms` / the update tick;
+//! Native has no dedicated timer; stamps `started_ms` on become-live
+//! for Process / Monitor / Subagent / daemon-sourced rows; compact
+//! `0s` / `12s` / `1m 5s` / `1h 2m`; empty on settled rows). Leftovers:
+//! Claude CLI TaskStop / long-lived ACP, full BackgroundWorkRegistry
+//! / GPUI SharedString parity. First-cut 5s
+//! `BACKGROUND_WORK_REFRESH_INTERVAL` tick ships
+//! (`background_work.maybeRefresh` piggybacks `now_ms` / the
 //! update tick; Native has no dedicated timer; skips in-flight;
 //! prefers selected, else one live other session). First-cut daemon `refreshBackgroundWork`
 //! prefers hello + that command when a daemon address and usable
@@ -153,8 +158,10 @@
 //! BACKGROUND_WORK_REFRESH_INTERVAL tick ships; first-cut
 //! stopBackgroundWork prefer path ships for live daemon rows with
 //! a controlId; first-cut outputDelta + stopFailed ship for
-//! daemon-sourced rows; 1s BACKGROUND_WORK_TICK_INTERVAL registry
-//! loop still deferred).
+//! daemon-sourced rows; first-cut 1s BACKGROUND_WORK_TICK_INTERVAL
+//! elapsed duration labels ship; fuller BackgroundWorkRegistry
+//! event/reconcile/driver-refresh / GPUI SharedString parity still
+//! leftover).
 //! Not transcript checkpoint +/-. First-cut Force push ships on
 //! composer Push… / Commit… (runtime-only ghost). New worktree…
 //! first-cut Base picker ships. First-cut defer-until-Send
@@ -339,6 +346,17 @@ pub const max_subagent_preview: usize = max_monitor_preview;
 /// dedicated 100ms timer this cut.
 pub const output_cache_refresh_interval_ms: i64 = 100;
 
+/// Waku `BACKGROUND_WORK_TICK_INTERVAL`. First-cut 1s elapsed
+/// duration label throttle for live Background rows, piggybacked
+/// off `model.now_ms` / the update tick. Native has no dedicated
+/// timer this cut. Compact labels (`0s` / `12s` / `1m 5s` /
+/// `1h 2m`) are a sibling of the Codex goal meter (`3m` drops
+/// seconds under an hour) — elapsed wall time, not a token budget.
+pub const background_work_tick_interval_ms: i64 = 1000;
+
+/// Compact elapsed label cap (`{d}h {d}m` / `{d}m {d}s` / `{d}s`).
+pub const max_elapsed_label: usize = 32;
+
 /// Shared heap last-window + one-line preview + CSI-stripped
 /// render cache. Monitor and Subagent both embed this so append /
 /// preview / strip / free stay one implementation. Raw bytes stay
@@ -385,6 +403,11 @@ pub const LiveSubagent = struct {
     title_len: usize = 0,
     session_id: u32 = 0,
     settled: SettledStatus = .none,
+    /// Wall time when this row first became live (`model.now_ms`).
+    /// Runtime-only; not sessions.json. Cleared when the row settles.
+    started_ms: ?i64 = null,
+    elapsed_storage: [max_elapsed_label]u8 = [_]u8{0} ** max_elapsed_label,
+    elapsed_len: usize = 0,
     log: LastWindow = .{},
 
     pub fn parentId(self: *const LiveSubagent) []const u8 {
@@ -405,6 +428,10 @@ pub const LiveSubagent = struct {
     /// visible output has landed (chrome hides it).
     pub fn preview(self: *const LiveSubagent) []const u8 {
         return self.log.preview();
+    }
+
+    pub fn elapsed(self: *const LiveSubagent) []const u8 {
+        return self.elapsed_storage[0..self.elapsed_len];
     }
 };
 
@@ -436,6 +463,11 @@ pub const LiveMonitor = struct {
     title_len: usize = 0,
     session_id: u32 = 0,
     settled: SettledStatus = .none,
+    /// Wall time when this row first became live (`model.now_ms`).
+    /// Runtime-only; not sessions.json. Cleared when the row settles.
+    started_ms: ?i64 = null,
+    elapsed_storage: [max_elapsed_label]u8 = [_]u8{0} ** max_elapsed_label,
+    elapsed_len: usize = 0,
     /// Heap last-window (`max_monitor_output`). Empty until the
     /// first matching `tool_result`. Kept after settle; freed
     /// when the row is dismissed, trimmed, or the session is
@@ -461,6 +493,10 @@ pub const LiveMonitor = struct {
     pub fn preview(self: *const LiveMonitor) []const u8 {
         return self.log.preview();
     }
+
+    pub fn elapsed(self: *const LiveMonitor) []const u8 {
+        return self.elapsed_storage[0..self.elapsed_len];
+    }
 };
 
 /// Runtime-only daemon-sourced Background slot from
@@ -482,6 +518,12 @@ pub const DaemonBackground = struct {
     control_id_len: usize = 0,
     session_id: u32 = 0,
     settled: SettledStatus = .none,
+    /// Wall time when this daemon-sourced row first became live
+    /// (`model.now_ms`). Runtime-only; first upsert while live.
+    /// Cleared when the row settles. Not sessions.json.
+    started_ms: ?i64 = null,
+    elapsed_storage: [max_elapsed_label]u8 = [_]u8{0} ** max_elapsed_label,
+    elapsed_len: usize = 0,
     can_stop: bool = false,
     /// Local Waku StopRequested: stay live Stopping / non-stoppable
     /// until a later refresh upsert settles the row.
@@ -503,6 +545,10 @@ pub const DaemonBackground = struct {
 
     pub fn preview(self: *const DaemonBackground) []const u8 {
         return self.log.preview();
+    }
+
+    pub fn elapsed(self: *const DaemonBackground) []const u8 {
+        return self.elapsed_storage[0..self.elapsed_len];
     }
 };
 
@@ -561,6 +607,13 @@ pub const BackgroundRow = struct {
     stop_label: []const u8,
     has_status: bool,
     settled_status: []const u8,
+    /// Compact elapsed duration for live rows (`0s` / `12s` /
+    /// `1m 5s` / `1h 2m`). Empty when settled or not yet stamped.
+    /// Native Environment Summary binds this where live settled
+    /// status is blank; right-panel Background binds the selected
+    /// row via `background_work_elapsed`.
+    has_elapsed: bool,
+    elapsed: []const u8,
     /// Monitor / Subagent one-line preview. Process stays empty so
     /// Completed / Stopped / Failed is not reused. Hidden when
     /// empty. The right-panel body reads the stored log, not this
@@ -637,6 +690,7 @@ pub fn settleLiveBackgroundSignals(model: *Model, session_id: u32, status: Settl
         const slot = &model.background_monitors[i];
         if (slot.settled != .none) continue;
         slot.settled = status;
+        clearElapsed(&slot.started_ms, &slot.elapsed_len);
         if (slot.session_id == 0) slot.session_id = session_id;
     }
     i = 0;
@@ -644,6 +698,7 @@ pub fn settleLiveBackgroundSignals(model: *Model, session_id: u32, status: Settl
         const slot = &model.background_subagents[i];
         if (slot.settled != .none) continue;
         slot.settled = status;
+        clearElapsed(&slot.started_ms, &slot.elapsed_len);
         if (slot.session_id == 0) slot.session_id = session_id;
     }
     // Settled rows stay visible with no further stream ticks;
@@ -764,7 +819,7 @@ fn upsertDaemonItem(model: *Model, session_id: u32, item: protocol.ParsedBackgro
     const kind = kindFromDaemon(item.key.kind);
     if (localOwnsKey(model, kind, item.key.provider_id)) return false;
     if (findDaemonSlot(model, session_id, kind, item.key.provider_id)) |index| {
-        paintDaemonSlot(&model.background_daemon[index], session_id, item);
+        paintDaemonSlot(model, &model.background_daemon[index], session_id, item);
         return true;
     }
     if (model.background_daemon_count >= max_daemon_background) {
@@ -773,7 +828,7 @@ fn upsertDaemonItem(model: *Model, session_id: u32, item: protocol.ParsedBackgro
     const slot = &model.background_daemon[model.background_daemon_count];
     releaseLog(&slot.log);
     slot.* = .{};
-    paintDaemonSlot(slot, session_id, item);
+    paintDaemonSlot(model, slot, session_id, item);
     model.background_daemon_count += 1;
     return true;
 }
@@ -836,9 +891,10 @@ fn findDaemonSlot(model: *const Model, session_id: u32, kind: BackgroundKind, pr
     return null;
 }
 
-fn paintDaemonSlot(slot: *DaemonBackground, session_id: u32, item: protocol.ParsedBackgroundWorkItem) void {
+fn paintDaemonSlot(model: *Model, slot: *DaemonBackground, session_id: u32, item: protocol.ParsedBackgroundWorkItem) void {
     const writeFixed = main.writeFixed;
     const was_stopping = slot.stop_requested;
+    const was_settled = slot.settled != .none;
     slot.kind = kindFromDaemon(item.key.kind);
     writeFixed(&slot.id_storage, &slot.id_len, item.key.provider_id);
     const title = if (item.title.len > 0) item.title else backgroundKindLabel(slot.kind);
@@ -854,6 +910,12 @@ fn paintDaemonSlot(slot: *DaemonBackground, session_id: u32, item: protocol.Pars
     }
     const text = if (item.output.len > 0) item.output else item.detail;
     if (text.len > 0) replaceLog(&slot.log, text);
+    if (slot.settled == .none) {
+        if (was_settled) clearElapsed(&slot.started_ms, &slot.elapsed_len);
+        stampLiveStarted(model, &slot.started_ms, &slot.elapsed_storage, &slot.elapsed_len);
+    } else {
+        clearElapsed(&slot.started_ms, &slot.elapsed_len);
+    }
 }
 
 /// Local StopRequested: keep the live row Stopping / non-stoppable
@@ -964,6 +1026,7 @@ pub fn noteLiveSubagent(model: *Model, parent_id: []const u8) void {
     writeFixed(&slot.title_storage, &slot.title_len, kind_subagent_label);
     slot.session_id = model.streaming_session;
     slot.settled = .none;
+    stampLiveStarted(model, &slot.started_ms, &slot.elapsed_storage, &slot.elapsed_len);
     model.background_subagent_count += 1;
 }
 
@@ -995,6 +1058,7 @@ pub fn noteLiveMonitor(model: *Model, tool_use_id: []const u8) void {
     writeFixed(&slot.title_storage, &slot.title_len, kind_monitor_label);
     slot.session_id = model.streaming_session;
     slot.settled = .none;
+    stampLiveStarted(model, &slot.started_ms, &slot.elapsed_storage, &slot.elapsed_len);
     model.background_monitor_count += 1;
 }
 
@@ -1221,6 +1285,157 @@ fn refreshBackgroundOutputCacheNow(model: *Model) bool {
     return refreshBackgroundOutputCacheAt(model, true);
 }
 
+/// Compact elapsed duration for live Background rows. Seconds under
+/// a minute (`0s`, `12s`); `1m 5s` under an hour (omit ` 0s`);
+/// `1h 2m` from an hour (seconds dropped, omit ` 0m`). Distinct from
+/// the Codex goal meter (`formatGoalTime`), which drops seconds
+/// after 59s. Writes into `buf`; empty on overflow.
+pub fn formatElapsedDuration(buf: []u8, elapsed_ms: i64) []const u8 {
+    const ms: u64 = if (elapsed_ms <= 0) 0 else @as(u64, @intCast(elapsed_ms));
+    const total_s = ms / 1000;
+    if (total_s < 60) {
+        return std.fmt.bufPrint(buf, "{d}s", .{total_s}) catch return "";
+    }
+    const total_m = total_s / 60;
+    const s = total_s % 60;
+    if (total_m < 60) {
+        if (s == 0) return std.fmt.bufPrint(buf, "{d}m", .{total_m}) catch return "";
+        return std.fmt.bufPrint(buf, "{d}m {d}s", .{ total_m, s }) catch return "";
+    }
+    const h = total_m / 60;
+    const m = total_m % 60;
+    if (m == 0) return std.fmt.bufPrint(buf, "{d}h", .{h}) catch return "";
+    return std.fmt.bufPrint(buf, "{d}h {d}m", .{ h, m }) catch return "";
+}
+
+fn writeElapsedLabel(storage: *[max_elapsed_label]u8, len: *usize, elapsed_ms: i64) void {
+    const label = formatElapsedDuration(storage, elapsed_ms);
+    len.* = label.len;
+}
+
+fn writeElapsedFromStarted(now_ms: i64, started_ms: ?i64, storage: *[max_elapsed_label]u8, len: *usize) void {
+    const started = started_ms orelse {
+        len.* = 0;
+        return;
+    };
+    const elapsed = if (now_ms >= started) now_ms - started else 0;
+    writeElapsedLabel(storage, len, elapsed);
+}
+
+fn stampLiveStarted(model: *Model, started: *?i64, storage: *[max_elapsed_label]u8, len: *usize) void {
+    if (started.* != null) return;
+    started.* = model.now_ms;
+    writeElapsedLabel(storage, len, 0);
+    if (model.last_background_work_tick_ms == null) {
+        model.last_background_work_tick_ms = model.now_ms;
+    }
+}
+
+fn clearElapsed(started: *?i64, len: *usize) void {
+    started.* = null;
+    len.* = 0;
+}
+
+/// Stamp Process started wall time on first live note (`startPrompt`
+/// / a queued restart). No-op when already stamped or not streaming.
+/// Runtime-only; not sessions.json.
+pub fn noteLiveProcess(model: *Model) void {
+    if (!model.is_streaming()) return;
+    stampLiveStarted(
+        model,
+        &model.background_process_started_ms,
+        &model.background_process_elapsed_storage,
+        &model.background_process_elapsed_len,
+    );
+}
+
+/// Drop Process elapsed when the stream settles. Settled Process
+/// rows show Completed / Stopped / Failed, not a duration.
+pub fn clearLiveProcess(model: *Model) void {
+    clearElapsed(&model.background_process_started_ms, &model.background_process_elapsed_len);
+}
+
+fn liveElapsedNeeded(model: *const Model) bool {
+    if (model.is_streaming()) return true;
+    var i: u32 = 0;
+    while (i < model.background_monitor_count) : (i += 1) {
+        if (model.background_monitors[i].settled == .none) return true;
+    }
+    i = 0;
+    while (i < model.background_subagent_count) : (i += 1) {
+        if (model.background_subagents[i].settled == .none) return true;
+    }
+    i = 0;
+    while (i < model.background_daemon_count) : (i += 1) {
+        if (model.background_daemon[i].settled == .none) return true;
+    }
+    return false;
+}
+
+fn refreshElapsedLabels(model: *Model) void {
+    if (model.is_streaming()) {
+        if (model.background_process_started_ms == null) {
+            stampLiveStarted(
+                model,
+                &model.background_process_started_ms,
+                &model.background_process_elapsed_storage,
+                &model.background_process_elapsed_len,
+            );
+        } else {
+            writeElapsedFromStarted(
+                model.now_ms,
+                model.background_process_started_ms,
+                &model.background_process_elapsed_storage,
+                &model.background_process_elapsed_len,
+            );
+        }
+    }
+    var i: u32 = 0;
+    while (i < model.background_monitor_count) : (i += 1) {
+        const slot = &model.background_monitors[i];
+        if (slot.settled != .none) continue;
+        writeElapsedFromStarted(model.now_ms, slot.started_ms, &slot.elapsed_storage, &slot.elapsed_len);
+    }
+    i = 0;
+    while (i < model.background_subagent_count) : (i += 1) {
+        const slot = &model.background_subagents[i];
+        if (slot.settled != .none) continue;
+        writeElapsedFromStarted(model.now_ms, slot.started_ms, &slot.elapsed_storage, &slot.elapsed_len);
+    }
+    i = 0;
+    while (i < model.background_daemon_count) : (i += 1) {
+        const slot = &model.background_daemon[i];
+        if (slot.settled != .none) continue;
+        writeElapsedFromStarted(model.now_ms, slot.started_ms, &slot.elapsed_storage, &slot.elapsed_len);
+    }
+}
+
+/// First-cut Waku `BACKGROUND_WORK_TICK_INTERVAL` (1s) elapsed
+/// labels. Piggybacks `model.now_ms` / the update tick — Native has
+/// no dedicated timer. Skips when no live Process / Monitor /
+/// Subagent / daemon-sourced row needs a duration. Within 1s of the
+/// last stamp, leaves labels alone (no churn). Returns true when
+/// labels were rewritten.
+pub fn maybeTickElapsed(model: *Model) bool {
+    if (!liveElapsedNeeded(model)) return false;
+    if (model.is_streaming() and model.background_process_started_ms == null) {
+        noteLiveProcess(model);
+    }
+    if (model.last_background_work_tick_ms) |last| {
+        if (model.now_ms >= last and model.now_ms - last < background_work_tick_interval_ms) {
+            return false;
+        }
+    }
+    refreshElapsedLabels(model);
+    model.last_background_work_tick_ms = model.now_ms;
+    return true;
+}
+
+fn liveElapsedSlice(live: bool, label: []const u8) []const u8 {
+    if (!live or label.len == 0) return "";
+    return label;
+}
+
 fn appendBounded(storage: []u8, len: *usize, text: []const u8) void {
     if (text.len == 0 or storage.len == 0) return;
     if (text.len >= storage.len) {
@@ -1414,6 +1629,7 @@ fn fillMonitorRow(slot: *const LiveMonitor, index: u32) BackgroundRow {
     const live = slot.settled == .none;
     const status = if (live) "" else statusLabel(slot.settled);
     const detail = slot.preview();
+    const elapsed = liveElapsedSlice(live, slot.elapsed());
     return .{
         .id = monitor_row_id_first + index,
         .kind = .monitor,
@@ -1424,6 +1640,8 @@ fn fillMonitorRow(slot: *const LiveMonitor, index: u32) BackgroundRow {
         .stop_label = if (live) monitor_stop_label else monitor_dismiss_label,
         .has_status = status.len > 0,
         .settled_status = status,
+        .has_elapsed = elapsed.len > 0,
+        .elapsed = elapsed,
         .has_detail = detail.len > 0,
         .detail = detail,
     };
@@ -1433,6 +1651,7 @@ fn fillSubagentRow(slot: *const LiveSubagent, index: u32) BackgroundRow {
     const live = slot.settled == .none;
     const status = if (live) "" else statusLabel(slot.settled);
     const detail = slot.preview();
+    const elapsed = liveElapsedSlice(live, slot.elapsed());
     return .{
         .id = subagent_row_id_first + index,
         .kind = .subagent,
@@ -1443,6 +1662,8 @@ fn fillSubagentRow(slot: *const LiveSubagent, index: u32) BackgroundRow {
         .stop_label = if (live) subagent_stop_label else subagent_dismiss_label,
         .has_status = status.len > 0,
         .settled_status = status,
+        .has_elapsed = elapsed.len > 0,
+        .elapsed = elapsed,
         .has_detail = detail.len > 0,
         .detail = detail,
     };
@@ -1454,6 +1675,7 @@ fn fillDaemonRow(slot: *const DaemonBackground, index: u32) BackgroundRow {
     const status = if (stopping) live_stopping_label else if (live) "" else statusLabel(slot.settled);
     const detail = slot.preview();
     const live_stop = live and !stopping and slot.can_stop and slot.controlId().len > 0;
+    const elapsed = liveElapsedSlice(live, slot.elapsed());
     return .{
         .id = daemon_row_id_first + index,
         .kind = slot.kind,
@@ -1464,6 +1686,8 @@ fn fillDaemonRow(slot: *const DaemonBackground, index: u32) BackgroundRow {
         .stop_label = if (live) (if (live_stop) daemon_stop_label else "") else daemon_dismiss_label,
         .has_status = status.len > 0,
         .settled_status = status,
+        .has_elapsed = elapsed.len > 0,
+        .elapsed = elapsed,
         .has_detail = detail.len > 0,
         .detail = detail,
     };
@@ -1482,6 +1706,7 @@ pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]Backgr
     const live = model.is_streaming();
     if (live or hasSettledBackground(model)) {
         const status = if (live) "" else settledStatusLabel(model);
+        const elapsed = liveElapsedSlice(live, model.background_process_elapsed_storage[0..model.background_process_elapsed_len]);
         out[0] = .{
             .id = process_row_id,
             .kind = .process,
@@ -1492,6 +1717,8 @@ pub fn fillBackgroundRows(model: *const Model, out: *[max_background_rows]Backgr
             .stop_label = if (live) process_stop_label else "",
             .has_status = status.len > 0,
             .settled_status = status,
+            .has_elapsed = elapsed.len > 0,
+            .elapsed = elapsed,
             .has_detail = false,
             .detail = "",
         };
@@ -2032,6 +2259,8 @@ fn expectSettledProcessRow(model: *const Model, status: []const u8) !void {
     try std.testing.expectEqualStrings("", rows[0].stop_label);
     try std.testing.expect(rows[0].has_status);
     try std.testing.expectEqualStrings(status, rows[0].settled_status);
+    try std.testing.expect(!rows[0].has_elapsed);
+    try std.testing.expectEqualStrings("", rows[0].elapsed);
     try std.testing.expect(!rows[0].has_detail);
     try std.testing.expectEqualStrings("", rows[0].detail);
 }
@@ -4616,5 +4845,130 @@ test "stopFailed clears Stopping on a live daemon row; settled and missing keys 
     try std.testing.expectEqual(SettledStatus.completed, model.background_daemon[2].settled);
     try std.testing.expectEqualStrings(settled_log, model.background_daemon[2].log.output());
     try std.testing.expect(!model.background_daemon[2].stop_requested);
+}
+
+test "formatElapsedDuration compact 0s / 12s / 1m 5s / 1h 2m" {
+    var buf: [max_elapsed_label]u8 = undefined;
+    try std.testing.expectEqualStrings("0s", formatElapsedDuration(&buf, 0));
+    try std.testing.expectEqualStrings("0s", formatElapsedDuration(&buf, 999));
+    try std.testing.expectEqualStrings("1s", formatElapsedDuration(&buf, 1000));
+    try std.testing.expectEqualStrings("12s", formatElapsedDuration(&buf, 12_000));
+    try std.testing.expectEqualStrings("1m", formatElapsedDuration(&buf, 60_000));
+    try std.testing.expectEqualStrings("1m 5s", formatElapsedDuration(&buf, 65_000));
+    try std.testing.expectEqualStrings("1h", formatElapsedDuration(&buf, 3_600_000));
+    try std.testing.expectEqualStrings("1h 2m", formatElapsedDuration(&buf, 3_720_000));
+    try std.testing.expectEqualStrings("0s", formatElapsedDuration(&buf, -5));
+}
+
+test "stamp on become-live; elapsed advances after 1s; settled has none; tick throttles" {
+    var model = streamingClaudeModel("elapsed tick");
+    defer clearLiveMonitors(&model);
+    defer clearLiveSubagents(&model);
+    model.now_ms = 5_000;
+    try expectLiveProcessRow(&model);
+    try std.testing.expect(model.background_process_started_ms == null);
+
+    noteLiveProcess(&model);
+    try std.testing.expectEqual(@as(?i64, 5_000), model.background_process_started_ms);
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    var rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expect(rows[0].has_elapsed);
+    try std.testing.expectEqualStrings("0s", rows[0].elapsed);
+
+    noteLiveMonitor(&model, "toolu_elapsed_mon");
+    try std.testing.expectEqual(@as(?i64, 5_000), model.background_monitors[0].started_ms);
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expect(rows[1].has_elapsed);
+    try std.testing.expectEqualStrings("0s", rows[1].elapsed);
+
+    noteLiveSubagent(&model, "toolu_elapsed_sub");
+    try std.testing.expectEqual(@as(?i64, 5_000), model.background_subagents[0].started_ms);
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expect(rows[2].has_elapsed);
+    try std.testing.expectEqualStrings("0s", rows[2].elapsed);
+
+    const last = model.last_background_work_tick_ms;
+    try std.testing.expectEqual(@as(?i64, 5_000), last);
+
+    model.now_ms = 5_000 + background_work_tick_interval_ms - 1;
+    try std.testing.expect(!maybeTickElapsed(&model));
+    try std.testing.expectEqual(last, model.last_background_work_tick_ms);
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqualStrings("0s", rows[0].elapsed);
+    try std.testing.expectEqualStrings("0s", rows[1].elapsed);
+    try std.testing.expectEqualStrings("0s", rows[2].elapsed);
+
+    model.now_ms = 5_000 + background_work_tick_interval_ms;
+    try std.testing.expect(maybeTickElapsed(&model));
+    try std.testing.expectEqual(@as(?i64, 6_000), model.last_background_work_tick_ms);
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqualStrings("1s", rows[0].elapsed);
+    try std.testing.expectEqualStrings("1s", rows[1].elapsed);
+    try std.testing.expectEqualStrings("1s", rows[2].elapsed);
+    try std.testing.expectEqualStrings(live_running_label, backgroundWorkStatus(rows[0]));
+    try std.testing.expectEqualStrings(live_monitoring_label, backgroundWorkStatus(rows[1]));
+
+    settleLiveBackgroundSignals(&model, model.selected, .completed);
+    settle(&model, model.selected, .completed);
+    model.phase = .idle;
+    model.streaming_session = 0;
+    clearLiveProcess(&model);
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expect(rows.len >= 1);
+    try std.testing.expect(!rows[0].has_elapsed);
+    try std.testing.expectEqualStrings("", rows[0].elapsed);
+    try std.testing.expectEqualStrings(settled_completed_label, rows[0].settled_status);
+    try std.testing.expect(!rows[1].has_elapsed);
+    try std.testing.expectEqualStrings("", rows[1].elapsed);
+    try std.testing.expect(!rows[2].has_elapsed);
+}
+
+test "maybeTickElapsed skips when nothing live needs a duration" {
+    var model = Model{};
+    model.now_ms = 10_000;
+    try std.testing.expect(!maybeTickElapsed(&model));
+    try std.testing.expectEqual(@as(?i64, null), model.last_background_work_tick_ms);
+    const id = model.addSession("settled only", .fx);
+    model.selected = id;
+    settle(&model, id, .completed);
+    try std.testing.expect(!maybeTickElapsed(&model));
+    try std.testing.expectEqual(@as(?i64, null), model.last_background_work_tick_ms);
+}
+
+test "daemon upsert stamps started_ms while live; settled daemon has no elapsed" {
+    var model = Model{};
+    const id = model.addSession("daemon elapsed", .fx);
+    model.selected = id;
+    model.now_ms = 8_000;
+    applyDaemonEventLine(&model, id, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"upsert\",\"key\":{\"kind\":\"process\",\"providerId\":\"proc-elapsed\"},\"title\":\"npm\",\"status\":\"running\",\"canStop\":true,\"controlId\":\"c1\"}}}");
+    try std.testing.expectEqual(@as(?i64, 8_000), model.background_daemon[0].started_ms);
+    var buf: [max_background_rows]BackgroundRow = undefined;
+    var rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expect(rows[0].has_elapsed);
+    try std.testing.expectEqualStrings("0s", rows[0].elapsed);
+
+    model.now_ms = 8_000 + background_work_tick_interval_ms;
+    try std.testing.expect(maybeTickElapsed(&model));
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expectEqualStrings("1s", rows[0].elapsed);
+
+    applyDaemonEventLine(&model, id, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"upsert\",\"key\":{\"kind\":\"process\",\"providerId\":\"proc-elapsed\"},\"title\":\"npm\",\"status\":\"completed\"}}}");
+    try std.testing.expectEqual(@as(?i64, null), model.background_daemon[0].started_ms);
+    rows = fillBackgroundRows(&model, &buf);
+    try std.testing.expect(!rows[0].has_elapsed);
+    try std.testing.expectEqualStrings("", rows[0].elapsed);
+    try std.testing.expectEqualStrings(settled_completed_label, rows[0].settled_status);
+}
+
+test "duplicate live note does not restamp started_ms" {
+    var model = streamingClaudeModel("no restamp");
+    defer clearLiveMonitors(&model);
+    model.now_ms = 3_000;
+    noteLiveMonitor(&model, "toolu_once");
+    try std.testing.expectEqual(@as(?i64, 3_000), model.background_monitors[0].started_ms);
+    model.now_ms = 4_000;
+    noteLiveMonitor(&model, "toolu_once");
+    try std.testing.expectEqual(@as(?i64, 3_000), model.background_monitors[0].started_ms);
+    try std.testing.expectEqualStrings("0s", model.background_monitors[0].elapsed());
 }
 
