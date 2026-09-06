@@ -83,8 +83,21 @@
 //! deletes refs for turns `retained_turn_count+1 ..= previous_turn_count`
 //! (turn / turn-start / turn-diff). Local `deleteFakuRef` + DeleteRef
 //! stay; miss / overflow / non-ack must not undo rewind transcript
-//! bookkeeping. Leftovers:
-//! SessionTurnRefs,
+//! bookkeeping. First-cut daemon
+//! `WorkspaceOperation::SessionTurnRefs` prefers hello +
+//! sessionTurnRefs on session select / boot when a daemon address
+//! is set and cwd is a git worktree (hello +
+//! `{ "type": "sessionTurnRefs", "cwd", "session_id" }`; snake_case
+//! `session_id` — same serde as CopySessionRefs / DeleteSessionRefs /
+//! DeleteTurnRefsAfter, not camelCase `sessionId`; `session_id` is
+//! `daemon_proxy.wireUuid(session.id)`). Ok is nested
+//! `WorkspaceResult::TurnRefs` — `result: { "type": "turnRefs",
+//! "turn_counts": [<usize>, …] }` (empty array is still ok). Local
+//! `checkpoint.sessionTurnRefs` (`git for-each-ref` of
+//! `refs/faku/session-{id}-*`, `turn-{n}` ordinals only) stays the
+//! overflow / miss / non-ok / no-address path and remains
+//! canonical. Runtime cache only; miss must not break rewind /
+//! checkpoint bookkeeping. Leftovers:
 //! amend/force over daemon, remote `--track` over daemon, etc.
 
 const std = @import("std");
@@ -282,6 +295,32 @@ pub fn cancelDaemonDeleteTurnRefsAfter(model: *Model, fx: *Effects) void {
     clearDaemonDeleteTurnRefsAfter(model);
 }
 
+/// Drop an in-flight SessionTurnRefs sidecar. Safe when none is
+/// live. Does not fall back to local listing (callers refresh the
+/// selected session afterward). Does not touch rewind bookkeeping.
+pub fn cancelDaemonSessionTurnRefs(model: *Model, fx: *Effects) void {
+    if (model.daemon_session_turn_refs_key == 0) return;
+    fx.cancel(model.daemon_session_turn_refs_key);
+    clearDaemonSessionTurnRefs(model);
+}
+
+/// Prefer hello + `WorkspaceOperation::SessionTurnRefs` when a
+/// daemon address is set and cwd is a git worktree. Otherwise fill
+/// the runtime cache from local `checkpoint.sessionTurnRefs`.
+pub fn refreshSessionTurnRefs(model: *Model, fx: *Effects) void {
+    const session = model.sessionById(model.selected) orelse {
+        clearSessionTurnRefCache(model);
+        cancelDaemonSessionTurnRefs(model, fx);
+        return;
+    };
+    if (trySpawnDaemonSessionTurnRefs(model, fx, session)) {
+        model.session_turn_ref_session = session.id;
+        model.session_turn_ref_count = 0;
+        return;
+    }
+    fillLocalSessionTurnRefs(model, session);
+}
+
 fn clearDaemonDeleteRef(model: *Model) void {
     model.daemon_delete_ref_key = 0;
     model.daemon_delete_ref_session = 0;
@@ -292,6 +331,17 @@ fn clearDaemonDeleteRef(model: *Model) void {
 fn clearDaemonDeleteTurnRefsAfter(model: *Model) void {
     model.daemon_delete_turn_refs_after_key = 0;
     model.daemon_delete_turn_refs_after_session = 0;
+}
+
+fn clearDaemonSessionTurnRefs(model: *Model) void {
+    model.daemon_session_turn_refs_key = 0;
+    model.daemon_session_turn_refs_session = 0;
+    model.daemon_session_turn_refs_ok = false;
+}
+
+fn clearSessionTurnRefCache(model: *Model) void {
+    model.session_turn_ref_session = 0;
+    model.session_turn_ref_count = 0;
 }
 
 fn clearDaemonRestoreRef(model: *Model) void {
@@ -992,6 +1042,102 @@ fn trySpawnDaemonDeleteTurnRefsAfter(
     return true;
 }
 
+/// Prefer hello + `WorkspaceOperation::SessionTurnRefs` for the
+/// session-select listing that otherwise calls local
+/// `checkpoint.sessionTurnRefs`. Own daemon spawn key on
+/// `daemon_session_turn_refs_key`. Missing address, empty cwd,
+/// non-git cwd, or Native 4 KiB stdin overflow returns false and
+/// leaves local listing.
+fn trySpawnDaemonSessionTurnRefs(model: *Model, fx: *Effects, session: *main.Session) bool {
+    const address = store.resolveDaemonMirrorAddress(model);
+    if (address.len == 0) return false;
+    const cwd = session.projectPath();
+    if (cwd.len == 0) return false;
+    const io = model.store_io orelse return false;
+    if (!rewind.isGitWorkTree(io, cwd)) return false;
+
+    var id_buf: [36]u8 = undefined;
+    const wire_id = daemon_proxy.wireUuid(session.id, &id_buf);
+    var stdin_buf: [4096]u8 = undefined;
+    const stdin = daemon_proxy.writeWorkspaceStdin(&stdin_buf, .{
+        .token = model.daemonToken(),
+        .operation = .{
+            .session_turn_refs = .{
+                .cwd = cwd,
+                .session_id = wire_id,
+            },
+        },
+    }) catch return false;
+
+    if (model.daemon_session_turn_refs_key != 0) {
+        fx.cancel(model.daemon_session_turn_refs_key);
+        clearDaemonSessionTurnRefs(model);
+    }
+
+    const key = model.next_daemon_key;
+    model.next_daemon_key += 1;
+    model.daemon_session_turn_refs_key = key;
+    model.daemon_session_turn_refs_session = session.id;
+    model.daemon_session_turn_refs_ok = false;
+    fx.spawn(.{
+        .key = key,
+        .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
+        .stdin = stdin,
+        .max_line_bytes = main.daemon_line_bytes,
+        .on_line = Effects.lineMsg(.fx_line),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return true;
+}
+
+pub fn applyDaemonSessionTurnRefsLine(model: *Model, line: native_sdk.EffectLine) void {
+    if (line.key != model.daemon_session_turn_refs_key or model.daemon_session_turn_refs_key == 0) return;
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_state.deinit();
+    const parsed = protocol.parseWorkspaceTurnRefs(arena_state.allocator(), line.line);
+    if (!parsed.ok) return;
+    model.daemon_session_turn_refs_ok = true;
+    adoptSessionTurnRefs(model, model.daemon_session_turn_refs_session, parsed.turn_counts);
+}
+
+pub fn handleDaemonSessionTurnRefsExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
+    if (exit.key != model.daemon_session_turn_refs_key or model.daemon_session_turn_refs_key == 0) return;
+    const session_id = model.daemon_session_turn_refs_session;
+    const ok = model.daemon_session_turn_refs_ok;
+    clearDaemonSessionTurnRefs(model);
+    if (!ok) {
+        if (model.sessionById(session_id)) |session| {
+            fillLocalSessionTurnRefs(model, session);
+        } else {
+            clearSessionTurnRefCache(model);
+        }
+    }
+    _ = fx;
+}
+
+fn fillLocalSessionTurnRefs(model: *Model, session: *main.Session) void {
+    const io = model.store_io orelse {
+        clearSessionTurnRefCache(model);
+        return;
+    };
+    var buf: [checkpoint.max_session_turn_refs]u32 = undefined;
+    const n = checkpoint.sessionTurnRefs(
+        std.heap.page_allocator,
+        io,
+        session.projectPath(),
+        session.id,
+        &buf,
+    );
+    adoptSessionTurnRefs(model, session.id, buf[0..n]);
+}
+
+fn adoptSessionTurnRefs(model: *Model, session_id: u32, counts: []const u32) void {
+    model.session_turn_ref_session = session_id;
+    const n = @min(counts.len, model.session_turn_ref_counts.len);
+    if (n > 0) @memcpy(model.session_turn_ref_counts[0..n], counts[0..n]);
+    model.session_turn_ref_count = n;
+}
+
 fn findCaptureTurnStartSpawn(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
@@ -1108,6 +1254,26 @@ fn anyDeleteTurnRefsAfterSpawn(fx: *Effects) bool {
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (daemon_proxy.isSidecarArgv(spawn.argv) and
             std.mem.indexOf(u8, spawn.stdin, "\"type\":\"deleteTurnRefsAfter\"") != null) return true;
+    }
+    return false;
+}
+
+fn findSessionTurnRefsSpawn(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key != key) continue;
+        if (!daemon_proxy.isSidecarArgv(spawn.argv)) continue;
+        if (std.mem.indexOf(u8, spawn.stdin, "\"type\":\"sessionTurnRefs\"") == null) continue;
+        return spawn;
+    }
+    return null;
+}
+
+fn anySessionTurnRefsSpawn(fx: *Effects) bool {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (daemon_proxy.isSidecarArgv(spawn.argv) and
+            std.mem.indexOf(u8, spawn.stdin, "\"type\":\"sessionTurnRefs\"") != null) return true;
     }
     return false;
 }
@@ -2558,6 +2724,215 @@ test "DeleteTurnRefsAfter sidecar overflow is refused at writeWorkspaceStdin and
                 .session_id = "00000000-0000-0000-0000-000000000007",
                 .retained_turn_count = 0,
                 .previous_turn_count = 1,
+            },
+        },
+    }));
+}
+
+test "refreshSessionTurnRefs with a daemon address and git cwd spawns SessionTurnRefs sidecar" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/session-turn-refs-daemon", .{tmp.sub_path[0..]});
+    try makeGitCwd(std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setDaemonToken("secret");
+    model.setSidecarPath("faku");
+    const id = model.addSession("session turn refs", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    refreshSessionTurnRefs(&model, &fx);
+    try std.testing.expect(model.daemon_session_turn_refs_key != 0);
+    try std.testing.expectEqual(id, model.daemon_session_turn_refs_session);
+    const sidecar = findSessionTurnRefsSpawn(&fx, model.daemon_session_turn_refs_key) orelse return error.MissingDaemonSessionTurnRefs;
+    try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
+    try std.testing.expectEqualStrings(daemon_proxy.SUBCOMMAND, sidecar.argv[1]);
+    try std.testing.expectEqualStrings("127.0.0.1:8787", sidecar.argv[2]);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"sessionTurnRefs\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
+    var id_buf: [36]u8 = undefined;
+    const wire_id = daemon_proxy.wireUuid(id, &id_buf);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, wire_id) != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"session_id\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    var camel_buf: [80]u8 = undefined;
+    const camel_id = try std.fmt.bufPrint(&camel_buf, "\"sessionId\":\"{s}\"", .{wire_id});
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, camel_id) == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"deleteTurnRefsAfter\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hasRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "force") == null);
+    try std.testing.expect(sidecar.key != model.daemon_spawn_key);
+    try std.testing.expect(sidecar.key != model.daemon_has_ref_key);
+}
+
+test "refreshSessionTurnRefs without a daemon address does not spawn SessionTurnRefs" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/session-turn-refs-local", .{tmp.sub_path[0..]});
+    try makeGitCwd(std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setSidecarPath("faku");
+    const id = model.addSession("session turn refs local", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    try std.testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
+
+    refreshSessionTurnRefs(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_session_turn_refs_key);
+    try std.testing.expect(!anySessionTurnRefsSpawn(&fx));
+    try std.testing.expectEqual(id, model.session_turn_ref_session);
+    try std.testing.expectEqual(@as(usize, 0), model.session_turn_ref_count);
+}
+
+test "refreshSessionTurnRefs with a daemon address and non-git cwd does not spawn SessionTurnRefs" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/session-turn-refs-nongit", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("session turn refs nongit", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    refreshSessionTurnRefs(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_session_turn_refs_key);
+    try std.testing.expect(!anySessionTurnRefsSpawn(&fx));
+}
+
+test "SessionTurnRefs sidecar miss falls back to local listing and leaves rewind bookkeeping" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/session-turn-refs-miss", .{tmp.sub_path[0..]});
+    try initFinishRepo(std.testing.allocator, std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.fx_probe_started = true;
+    model.setLastDaemonAddress("10.0.0.2:9");
+    model.setSidecarPath("faku");
+    const id = model.addSession("session turn refs miss", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+    _ = model.appendTurn(id, .user, "keep turns");
+    _ = model.appendTurn(id, .assistant, "ok");
+    const stored_sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    if (model.sessionById(id)) |session| session.setWorktreeSnapshotSha(stored_sha);
+
+    var sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const snap = rewind.revParseHead(std.testing.allocator, std.testing.io, project, &sha_buf) orelse return error.MissingHead;
+    var turn1_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    var start2_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    var diff1_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    var turn3_buf: [checkpoint.max_faku_ref_name]u8 = undefined;
+    const turn1 = checkpoint.formatFakuSessionTurnRef(&turn1_buf, id, 1) orelse return error.MissingTurn1;
+    const start2 = checkpoint.formatFakuSessionTurnStartRef(&start2_buf, id, 2) orelse return error.MissingStart2;
+    const diff1 = checkpoint.formatFakuSessionTurnDiffRef(&diff1_buf, id, 1) orelse return error.MissingDiff1;
+    const turn3 = checkpoint.formatFakuSessionTurnRef(&turn3_buf, id, 3) orelse return error.MissingTurn3;
+    try std.testing.expect(checkpoint.updateFakuRef(std.testing.allocator, std.testing.io, project, turn1, snap));
+    try std.testing.expect(checkpoint.updateFakuRef(std.testing.allocator, std.testing.io, project, start2, snap));
+    try std.testing.expect(checkpoint.updateFakuRef(std.testing.allocator, std.testing.io, project, diff1, snap));
+    try std.testing.expect(checkpoint.updateFakuRef(std.testing.allocator, std.testing.io, project, turn3, snap));
+
+    refreshSessionTurnRefs(&model, &fx);
+    try std.testing.expectEqual(@as(u32, 2), model.turnCount(id));
+    try std.testing.expectEqualStrings(stored_sha, model.sessionByIdConst(id).?.worktreeSnapshotSha());
+
+    const sidecar = findSessionTurnRefsSpawn(&fx, model.daemon_session_turn_refs_key) orelse return error.MissingDaemonSessionTurnRefsMiss;
+    const key = sidecar.key;
+    try fx.feedLine(key, "{\"type\":\"rejected\",\"message\":\"nope\"}");
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+    try fx.feedExit(key, 1);
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_session_turn_refs_key);
+    try std.testing.expectEqual(id, model.session_turn_ref_session);
+    try std.testing.expectEqual(@as(usize, 2), model.session_turn_ref_count);
+    const a = model.session_turn_ref_counts[0];
+    const b = model.session_turn_ref_counts[1];
+    try std.testing.expect((a == 1 and b == 3) or (a == 3 and b == 1));
+    try std.testing.expectEqual(@as(u32, 2), model.turnCount(id));
+    try std.testing.expectEqualStrings(stored_sha, model.sessionByIdConst(id).?.worktreeSnapshotSha());
+    try std.testing.expect(!model.is_streaming());
+}
+
+test "SessionTurnRefs sidecar ok turnRefs adopts counts including empty" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/session-turn-refs-ok", .{tmp.sub_path[0..]});
+    try makeGitCwd(std.testing.io, project);
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.fx_probe_started = true;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("session turn refs ok", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    refreshSessionTurnRefs(&model, &fx);
+    const sidecar = findSessionTurnRefsSpawn(&fx, model.daemon_session_turn_refs_key) orelse return error.MissingDaemonSessionTurnRefsOk;
+    const key = sidecar.key;
+    try fx.feedLine(key, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"turnRefs\",\"turn_counts\":[2,5]}}}}");
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+    try fx.feedExit(key, 0);
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_session_turn_refs_key);
+    try std.testing.expectEqual(id, model.session_turn_ref_session);
+    try std.testing.expectEqual(@as(usize, 2), model.session_turn_ref_count);
+    try std.testing.expectEqual(@as(u32, 2), model.session_turn_ref_counts[0]);
+    try std.testing.expectEqual(@as(u32, 5), model.session_turn_ref_counts[1]);
+}
+
+test "SessionTurnRefs sidecar overflow is refused at writeWorkspaceStdin" {
+    var buf: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, daemon_proxy.writeWorkspaceStdin(&buf, .{
+        .operation = .{
+            .session_turn_refs = .{
+                .cwd = "/tmp/faku",
+                .session_id = "00000000-0000-0000-0000-000000000007",
             },
         },
     }));

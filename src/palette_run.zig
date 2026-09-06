@@ -128,6 +128,8 @@ pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     session_fork.cancelDaemonRestoreRef(model, fx);
     session_fork.cancelDaemonDeleteRef(model, fx);
     session_fork.cancelDaemonDeleteTurnRefsAfter(model, fx);
+    session_fork.cancelDaemonSessionTurnRefs(model, fx);
+    session_fork.refreshSessionTurnRefs(model, fx);
     model.maybeEnsureSkillsScanned(fx);
     model.pinTranscriptToLatest();
     model.composer_active = true;

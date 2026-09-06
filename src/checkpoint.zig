@@ -82,8 +82,16 @@
 //! `fork.completeRewindTranscript` after that bookkeeping (Ack;
 //! range cleanup of turn / turn-start / turn-diff; Native 4 KiB
 //! overflow / miss / non-ack leave rewind transcript bookkeeping
-//! alone). Leftovers:
-//! force, background work, SessionTurnRefs, etc. Not
+//! alone). First-cut daemon `WorkspaceOperation::SessionTurnRefs`
+//! ships as a prefer+fallback sidecar from
+//! `fork.refreshSessionTurnRefs` on session select / boot when a
+//! daemon address is set and cwd is a git worktree (ok nested
+//! `turnRefs.turn_counts`; empty array is still ok; Native 4 KiB
+//! overflow / miss / non-ok / missing `turn_counts` fall back to
+//! this local `git for-each-ref` of `refs/faku/session-{id}-*`,
+//! `turn-{n}` ordinals only). Leftovers:
+//! force, background work, amend/force over daemon, remote
+//! `--track` over daemon, etc. Not
 //! transcript checkpoint +/-.
 
 const std = @import("std");
@@ -377,6 +385,60 @@ pub fn hasFakuRef(
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
     return result.term == .exited and result.term.exited == 0;
+}
+
+pub const max_session_turn_refs: usize = 128;
+const session_turn_refs_stdout_limit: usize = 16 * 1024;
+
+/// Quiet listing of 1-based prompt ordinals that have a local
+/// `refs/faku/session-{id}-turn-{n}` name. Skips `turn-start-*`
+/// and `turn-diff-*`. Missing / non-git / failed `for-each-ref`
+/// writes nothing. Cap is `dest.len` (and `max_session_turn_refs`).
+/// Same `git -C` argv-slot shape as `hasFakuRef`. No `/bin/sh -c`.
+pub fn sessionTurnRefs(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    project_path: []const u8,
+    session_id: u32,
+    dest: []u32,
+) usize {
+    if (dest.len == 0) return 0;
+    if (!rewind.isGitWorkTree(io, project_path)) return 0;
+    var prefix_buf: [max_faku_ref_name]u8 = undefined;
+    const prefix = std.fmt.bufPrint(&prefix_buf, "refs/faku/session-{d}-", .{session_id}) catch return 0;
+    var glob_buf: [max_faku_ref_name + 1]u8 = undefined;
+    const glob = std.fmt.bufPrint(&glob_buf, "{s}*", .{prefix}) catch return 0;
+    const result = std.process.run(allocator, io, .{
+        .argv = &.{ git_bin, "-C", project_path, "for-each-ref", "--format=%(refname)", glob },
+        .stdout_limit = .limited(session_turn_refs_stdout_limit),
+        .stderr_limit = .limited(512),
+    }) catch return 0;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    if (result.term != .exited or result.term.exited != 0) return 0;
+    const cap = @min(dest.len, max_session_turn_refs);
+    var n: usize = 0;
+    var lines = std.mem.splitScalar(u8, result.stdout, '\n');
+    while (lines.next()) |raw| {
+        if (n >= cap) break;
+        const name = std.mem.trim(u8, raw, " \t\r");
+        if (name.len == 0) continue;
+        dest[n] = parseSessionTurnOrdinal(name, prefix) orelse continue;
+        n += 1;
+    }
+    return n;
+}
+
+fn parseSessionTurnOrdinal(ref_name: []const u8, prefix: []const u8) ?u32 {
+    if (!std.mem.startsWith(u8, ref_name, prefix)) return null;
+    const rest = ref_name[prefix.len..];
+    if (std.mem.startsWith(u8, rest, "turn-start-")) return null;
+    if (std.mem.startsWith(u8, rest, "turn-diff-")) return null;
+    const turn_prefix = "turn-";
+    if (!std.mem.startsWith(u8, rest, turn_prefix)) return null;
+    const digits = rest[turn_prefix.len..];
+    if (digits.len == 0) return null;
+    return std.fmt.parseInt(u32, digits, 10) catch null;
 }
 
 /// Name the stored 40-hex as `turn-start-{n}`. If
@@ -1852,6 +1914,46 @@ test "hasFakuRef is false for missing and true after update" {
     const snap = captureWorktreeCommit(allocator, testing.io, path, &sha_buf) orelse return error.MissingSnapshot;
     try testing.expect(updateFakuRef(allocator, testing.io, path, ref_name, snap));
     try testing.expect(hasFakuRef(allocator, testing.io, path, ref_name));
+}
+
+test "sessionTurnRefs lists turn ordinals and skips turn-start and turn-diff" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/session-turn-refs", .{tmp.sub_path[0..]});
+    const head = try initTestRepo(allocator, testing.io, path);
+    defer allocator.free(head);
+
+    var empty: [max_session_turn_refs]u32 = undefined;
+    try testing.expectEqual(@as(usize, 0), sessionTurnRefs(allocator, testing.io, "", 7, &empty));
+    try testing.expectEqual(@as(usize, 0), sessionTurnRefs(allocator, testing.io, ".zig-cache/tmp/faku-session-turn-refs-missing", 7, &empty));
+    try testing.expectEqual(@as(usize, 0), sessionTurnRefs(allocator, testing.io, path, 7, &empty));
+
+    var sha_buf: [rewind.stored_sha_len]u8 = undefined;
+    const snap = captureWorktreeCommit(allocator, testing.io, path, &sha_buf) orelse return error.MissingSnapshot;
+    var turn1_buf: [max_faku_ref_name]u8 = undefined;
+    var start2_buf: [max_faku_ref_name]u8 = undefined;
+    var diff1_buf: [max_faku_ref_name]u8 = undefined;
+    var turn3_buf: [max_faku_ref_name]u8 = undefined;
+    const turn1 = formatFakuSessionTurnRef(&turn1_buf, 7, 1) orelse return error.MissingTurn1;
+    const start2 = formatFakuSessionTurnStartRef(&start2_buf, 7, 2) orelse return error.MissingStart2;
+    const diff1 = formatFakuSessionTurnDiffRef(&diff1_buf, 7, 1) orelse return error.MissingDiff1;
+    const turn3 = formatFakuSessionTurnRef(&turn3_buf, 7, 3) orelse return error.MissingTurn3;
+    try testing.expect(updateFakuRef(allocator, testing.io, path, turn1, snap));
+    try testing.expect(updateFakuRef(allocator, testing.io, path, start2, snap));
+    try testing.expect(updateFakuRef(allocator, testing.io, path, diff1, snap));
+    try testing.expect(updateFakuRef(allocator, testing.io, path, turn3, snap));
+
+    var other_buf: [max_faku_ref_name]u8 = undefined;
+    const other = formatFakuSessionTurnRef(&other_buf, 8, 1) orelse return error.MissingOther;
+    try testing.expect(updateFakuRef(allocator, testing.io, path, other, snap));
+
+    var dest: [max_session_turn_refs]u32 = undefined;
+    const n = sessionTurnRefs(allocator, testing.io, path, 7, &dest);
+    try testing.expectEqual(@as(usize, 2), n);
+    try testing.expect((dest[0] == 1 and dest[1] == 3) or (dest[0] == 3 and dest[1] == 1));
 }
 
 test "deleteFakuRef drops a named refs/faku ref and is quiet on missing" {
