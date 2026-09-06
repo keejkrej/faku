@@ -698,6 +698,11 @@ pub const UsageWindow = union(enum) {
 pub const max_parsed_usage_providers: usize = 4;
 pub const max_parsed_usage_models: usize = 16;
 pub const max_parsed_usage_daily: usize = 8;
+/// Waku `DaySlice.by_provider: [ProviderDay; 2]`. Index 0 = Claude,
+/// index 1 = Codex. Missing / empty / short JSON stays zero.
+pub const max_parsed_usage_day_providers: usize = 2;
+pub const usage_day_provider_claude: usize = 0;
+pub const usage_day_provider_codex: usize = 1;
 pub const max_parsed_usage_months: usize = 12;
 pub const max_parsed_usage_projects: usize = 16;
 pub const max_parsed_usage_errors: usize = 4;
@@ -759,11 +764,22 @@ pub const ParsedUsageModel = struct {
     cost_share: f64 = 0,
 };
 
-/// One `daily[]` row. `day` is an opaque date string.
+/// One `daily[].byProvider[]` slot (Waku `ProviderDay`). Fixed
+/// index, not a provider id field: 0 = Claude, 1 = Codex.
+pub const ParsedProviderDay = struct {
+    total_tokens: u64 = 0,
+    cost_usd: f64 = 0,
+};
+
+/// One `daily[]` row. `day` is an opaque date string. `by_provider`
+/// is two fixed slots (Claude / Codex); missing / empty / short
+/// `byProvider` stays zero. Months / projects `byProvider` is not
+/// parsed this cut.
 pub const ParsedUsageDay = struct {
     day: []const u8 = "",
     total_tokens: u64 = 0,
     cost_usd: f64 = 0,
+    by_provider: [max_parsed_usage_day_providers]ParsedProviderDay = [_]ParsedProviderDay{.{}} ** max_parsed_usage_day_providers,
 };
 
 /// One `months[]` row. `first_day` is an opaque date string.
@@ -2623,6 +2639,20 @@ fn parseUsageModels(value: ?std.json.Value, dest: *[max_parsed_usage_models]Pars
     return n;
 }
 
+fn parseUsageDayByProvider(value: ?std.json.Value) [max_parsed_usage_day_providers]ParsedProviderDay {
+    var slots = [_]ParsedProviderDay{.{}} ** max_parsed_usage_day_providers;
+    const items = jsonArrayItems(value orelse return slots) orelse return slots;
+    var i: usize = 0;
+    while (i < slots.len and i < items.len) : (i += 1) {
+        const obj = jsonObject(items[i]) orelse continue;
+        slots[i] = .{
+            .total_tokens = jsonU64OrZero(obj.get("totalTokens")),
+            .cost_usd = jsonF64Value(obj.get("costUsd")),
+        };
+    }
+    return slots;
+}
+
 fn parseUsageDays(value: ?std.json.Value, dest: *[max_parsed_usage_daily]ParsedUsageDay) usize {
     const items = jsonArrayItems(value orelse return 0) orelse return 0;
     const start = if (items.len > dest.len) items.len - dest.len else 0;
@@ -2634,6 +2664,7 @@ fn parseUsageDays(value: ?std.json.Value, dest: *[max_parsed_usage_daily]ParsedU
             .day = jsonStringValue(obj.get("day")) orelse "",
             .total_tokens = jsonU64OrZero(obj.get("totalTokens")),
             .cost_usd = jsonF64Value(obj.get("costUsd")),
+            .by_provider = parseUsageDayByProvider(obj.get("byProvider")),
         };
         n += 1;
     }
@@ -5672,8 +5703,16 @@ test "parseUsageHistory reads a minimal usageHistory fixture and ignores unknown
     try std.testing.expectEqualStrings("gpt-5", parsed.models[1].model);
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), parsed.models[1].cost_share, 0.0001);
     try std.testing.expectEqual(@as(usize, 2), parsed.daily_count);
+    try std.testing.expectEqualStrings("2026-09-05", parsed.daily[0].day);
+    try std.testing.expectEqual(@as(u64, 200), parsed.daily[0].total_tokens);
+    try std.testing.expectEqual(@as(u64, 0), parsed.daily[0].by_provider[0].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), parsed.daily[0].by_provider[0].cost_usd, 0.0001);
+    try std.testing.expectEqual(@as(u64, 0), parsed.daily[0].by_provider[1].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), parsed.daily[0].by_provider[1].cost_usd, 0.0001);
     try std.testing.expectEqualStrings("2026-09-06", parsed.daily[1].day);
     try std.testing.expectEqual(@as(u64, 500), parsed.daily[1].total_tokens);
+    try std.testing.expectEqual(@as(u64, 0), parsed.daily[1].by_provider[0].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), parsed.daily[1].by_provider[0].cost_usd, 0.0001);
     try std.testing.expectEqual(@as(usize, 1), parsed.month_count);
     try std.testing.expectEqualStrings("2026-09-01", parsed.months[0].first_day);
     try std.testing.expectEqual(@as(u64, 4), parsed.months[0].sessions);
@@ -5705,6 +5744,40 @@ test "parseUsageHistory reads a minimal usageHistory fixture and ignores unknown
     try std.testing.expect(!parseUsageHistory(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"unknown command\"}}}").ok);
     try std.testing.expect(!parseUsageHistory(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}").ok);
     try std.testing.expect(!parseUsageHistory(arena, "{\"type\":\"rejected\",\"message\":\"unknown command\"}").ok);
+}
+
+test "parseUsageHistory reads daily byProvider into two fixed Claude/Codex slots" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const line =
+        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000015","outcome":{"status":"ok","payload":{"type":"usageHistory","history":{"daily":[{"day":"2026-09-05","totalTokens":100,"costUsd":1.0,"byProvider":[{"costUsd":0.25,"totalTokens":40,"unknownProviderField":true},{"costUsd":0.75,"totalTokens":60}]},{"day":"2026-09-06","totalTokens":400,"costUsd":0.5,"byProvider":[{"costUsd":0.5,"totalTokens":400}]},{"day":"2026-09-04","totalTokens":0,"costUsd":0,"byProvider":[]},{"day":"2026-09-03","totalTokens":10,"costUsd":0.1}]}}}
+    ;
+    const parsed = parseUsageHistory(arena, line);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expectEqual(@as(usize, 4), parsed.daily_count);
+
+    try std.testing.expectEqual(@as(u64, 40), parsed.daily[0].by_provider[usage_day_provider_claude].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), parsed.daily[0].by_provider[usage_day_provider_claude].cost_usd, 0.0001);
+    try std.testing.expectEqual(@as(u64, 60), parsed.daily[0].by_provider[usage_day_provider_codex].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.75), parsed.daily[0].by_provider[usage_day_provider_codex].cost_usd, 0.0001);
+
+    try std.testing.expectEqual(@as(u64, 400), parsed.daily[1].by_provider[usage_day_provider_claude].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5), parsed.daily[1].by_provider[usage_day_provider_claude].cost_usd, 0.0001);
+    try std.testing.expectEqual(@as(u64, 0), parsed.daily[1].by_provider[usage_day_provider_codex].total_tokens);
+    try std.testing.expectApproxEqAbs(@as(f64, 0), parsed.daily[1].by_provider[usage_day_provider_codex].cost_usd, 0.0001);
+
+    try std.testing.expectEqual(@as(u64, 0), parsed.daily[2].by_provider[0].total_tokens);
+    try std.testing.expectEqual(@as(u64, 0), parsed.daily[2].by_provider[1].total_tokens);
+    try std.testing.expectEqual(@as(u64, 0), parsed.daily[3].by_provider[0].total_tokens);
+    try std.testing.expectEqual(@as(u64, 0), parsed.daily[3].by_provider[1].total_tokens);
+
+    const extra = parseUsageHistory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"daily\":[{\"day\":\"2026-09-05\",\"totalTokens\":3,\"costUsd\":1,\"byProvider\":[{\"costUsd\":0.1,\"totalTokens\":1},{\"costUsd\":0.2,\"totalTokens\":2},{\"costUsd\":9,\"totalTokens\":9}]}]}}}}");
+    try std.testing.expect(extra.ok);
+    try std.testing.expectEqual(@as(u64, 1), extra.daily[0].by_provider[0].total_tokens);
+    try std.testing.expectEqual(@as(u64, 2), extra.daily[0].by_provider[1].total_tokens);
 }
 
 test "parseUsageHistory reads quality shares, pricing status, errors, and scan meta" {

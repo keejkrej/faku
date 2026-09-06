@@ -42,7 +42,7 @@ send circle.
 | **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. Live Send for probed ACP stdio providers (cursor / opencode / kimi `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx (first-cut official ACP v1 image content blocks on `session/prompt` when a composer image is attached: base64 + mimeType, ~256KB raw, fail-closed on overflow / bad file; fx still `fx ask --image`, no ACP image blocks); Available Claude is one-shot `claude -p --output-format stream-json --verbose --include-partial-messages --forward-subagent-text` (not ACP; later Sends pass documented `--resume {fx_session_id}` when that field is non-empty; first Send and Fork omit it; not `--continue`; documented image path inside that `-p` prompt when a composer image is attached; stdout is NDJSON with live `text_delta`; live Subagent Background from `parent_tool_use_id` plus a bounded 512KB last-window from forwarded `parent_tool_use_id` text (Environment Summary stays a one-line preview; right-panel Background shows the stored log with CSI stripped for display); live Monitor Background from Claude `Monitor` `tool_use` plus a bounded 512KB last-window log from matching user `tool_result` (Environment Summary stays a one-line preview; right-panel Background shows the stored log with CSI stripped for display); first-cut settled Monitor / Subagent stay in the runtime registry after the turn (status from Process settle; Monitor / Subagent last-window kept; Faku-side Dismiss, not Claude TaskStop; not live / Running / Monitoring after `-p` exits); Available Codex is one-shot `codex exec {prompt}` (not ACP; documented `--image {path}` after the prompt when a composer image is attached); Available Amp is one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x` prompt when a composer image is attached); Available Pi is one-shot `pi --mode json {prompt}` (not ACP, not `--mode rpc`; documented `@{path}` after json when a composer image is attached; stdout is JSON events with live `text_delta`). fx Not found copies the verified keejkrej/fx Unix install script (`curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash` into `~/.fx/bin`; not fx.sh); fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
 | **Settings Appearance** | Settings page for chrome theme and language. Theme: System (follow OS `on_appearance`), Light, or Dark. Default System. Language: System / English / 简体中文 / 日本語. Default System. System language follows process `LC_ALL` / `LC_MESSAGES` / `LANG` (Native has no locale API). Explicit language chips are autonyms in every locale. Persists `theme_preference` and `language_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. Settings chrome strings (title, nav, Appearance Theme / Language), first-cut sidebar date-bucket titles, and the chrome unassign Today list-item follow the resolved locale this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
-| **Settings Usage** | Settings page showing the selected session's local context window (`context_used` / `context_size` from ACP `usage_update`) and thread-goal tokens (`threadGoalUsageLabel`), plus first-cut Daily / Monthly / Projects chrome and a Daily / Projects window selector (7 / 30 / 90 days, this month, last month; default `trailingDays: 30`). Daemon `LoadUsageHistory` is a best-effort one-shot when `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set (Daily / Projects use the selected window; Monthly requests `months: 12` and hides the selector). Daily paints per-provider share bars (`costShare` / `tokenShare`, or computed from totals) with a runtime-only Cost | Tokens metric chip (default Cost) and a Daily-only Model | Days breakdown chip (default Model, matching Waku `breakdown === 'model'`). Model paints model share bars (provider label + model name; Cost prefers wire `costShare`, Tokens always computed from `totalTokens` / history totals — ModelSlice has no `tokenShare`); Days keeps the first-cut daily bar chart (each day's Native `<progress>` is relative to the max day in the window for the active metric; zero days stay text-only). Empty `models` paints no model rows. Provider bars, Cost quality, notices, and the scan footer stay on Daily regardless of the breakdown chip. Monthly paints first-cut relative bars vs the max month in the window for that same Cost | Tokens chip (chip flip recomputes from the cached months snapshot; zero months stay text-only). Projects paints first-cut relative bars vs the max Cost|Tokens among **visible** filtered rows for that same chip (runtime-only `usage_project_filter`; case-insensitive contains on basename or full path; empty shows all; chip flip recomputes from the cached projects snapshot and respects the filter; zero-value rows stay text-only; no-match is distinct from no project usage; not persisted). Unknown-command / parse / overflow keep the local session cards. Daily paints a first-cut Cost quality panel from daemon `quality` (Provider reported / Model priced / Unpriced percents + Cache savings USD) and muted notices when `errors` are non-empty or `pricing` is `unavailable`. Still not Waku's GPUI / T3 layered chart, not LiteLLM rate-table fetch. |
+| **Settings Usage** | Settings page showing the selected session's local context window (`context_used` / `context_size` from ACP `usage_update`) and thread-goal tokens (`threadGoalUsageLabel`), plus first-cut Daily / Monthly / Projects chrome and a Daily / Projects window selector (7 / 30 / 90 days, this month, last month; default `trailingDays: 30`). Daemon `LoadUsageHistory` is a best-effort one-shot when `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set (Daily / Projects use the selected window; Monthly requests `months: 12` and hides the selector). Daily paints per-provider share bars (`costShare` / `tokenShare`, or computed from totals) with a runtime-only Cost | Tokens metric chip (default Cost) and a Daily-only Model | Days breakdown chip (default Model, matching Waku `breakdown === 'model'`). Model paints model share bars (provider label + model name; Cost prefers wire `costShare`, Tokens always computed from `totalTokens` / history totals — ModelSlice has no `tokenShare`); Days keeps the first-cut daily bar chart (each day's Native `<progress>` is relative to the max day in the window for the active metric; zero days stay text-only) plus first-cut nested Claude/Codex Native `<progress>` rows from `daily[].byProvider` (share within that day's Cost|Tokens total; empty/missing/short `byProvider` stays day-total-only; chip flip recomputes nested shares from the cached snapshot). Empty `models` paints no model rows. Provider bars, Cost quality, notices, and the scan footer stay on Daily regardless of the breakdown chip. Monthly paints first-cut relative bars vs the max month in the window for that same Cost | Tokens chip (chip flip recomputes from the cached months snapshot; zero months stay text-only). Projects paints first-cut relative bars vs the max Cost|Tokens among **visible** filtered rows for that same chip (runtime-only `usage_project_filter`; case-insensitive contains on basename or full path; empty shows all; chip flip recomputes from the cached projects snapshot and respects the filter; zero-value rows stay text-only; no-match is distinct from no project usage; not persisted). Unknown-command / parse / overflow keep the local session cards. Daily paints a first-cut Cost quality panel from daemon `quality` (Provider reported / Model priced / Unpriced percents + Cache savings USD) and muted notices when `errors` are non-empty or `pricing` is `unavailable`. Still not Waku's GPUI / T3 layered / stacked canvas chart, not LiteLLM rate-table fetch. |
 | **Settings Computer Use** | Settings page for Waku-nav parity. First-cut is Unavailable / Off / empty always-allowed apps. Native has no Screen Recording or Accessibility APIs; no Swift helper, permission probe, or app grants this cut. |
 
 Avoid: calling ACP a live WebSocket; treating the daemon as the catalog
@@ -823,7 +823,11 @@ selected (provider label + model name; Cost prefers wire `costShare`,
 Tokens always computed from totals), and up to ~8 recent `daily`
 rows when Days is selected with first-cut relative bars (share vs the max day in the window
 for Cost → `costUsd` or Tokens → `totalTokens`; Native `<progress>`;
-days with 0 stay text-only). Monthly lists up to ~12 `months` rows
+days with 0 stay text-only) plus first-cut nested Claude/Codex Native
+`<progress>` rows from `daily[].byProvider` when any slot is non-zero
+for the active metric (share within that day's Cost|Tokens total;
+empty / missing / short `byProvider` stays day-total-only; chip flip
+recomputes nested shares from the cached snapshot, no re-fetch). Monthly lists up to ~12 `months` rows
 with first-cut relative bars (share vs the max month in the window
 for Cost → `costUsd` or Tokens → `totalTokens`; Native `<progress>`;
 months with 0 stay text-only) and the same Cost | Tokens chip (flip
@@ -844,15 +848,16 @@ overflow / error / unusable parse / no daemon keep the local session
 cards and must not toast-block Settings — history shows a muted
 "Connect a daemon for usage history" or stays empty. Share bars and
 a Daily Model | Days breakdown (default Model; Days keeps the
-first-cut daily bar chart) ship on Daily; first-cut monthly bars
+first-cut daily bar chart plus first-cut nested byProvider Claude/Codex
+Native `<progress>` rows) ship on Daily; first-cut monthly bars
 ship on Monthly with the same Cost | Tokens chip; first-cut project
 bars ship on Projects with that same chip plus a runtime-only
 project search filter (peak-of-visible shares); Daily also paints a
 first-cut Cost quality panel (`quality` shares + cache savings) and
 muted notices when `errors` are non-empty or `pricing` is
 `unavailable`, plus a tiny scan-summary footer when `records` /
-`scannedFiles` are present. Still not Waku's GPUI / T3 layered
-chart, not hover canvas, not LiteLLM rate-table fetch.
+`scannedFiles` are present. Still not Waku's GPUI / T3 layered /
+stacked canvas chart, not hover canvas, not LiteLLM rate-table fetch.
 
 ## Settings Computer Use
 
@@ -948,7 +953,10 @@ Honest gaps this cut does not implement:
   bars from `models[]` ModelSlice — Cost prefers wire `costShare`,
   Tokens computed from totals; Days keeps first-cut Daily bars
   relative to the max day in the window for that metric, Native
-  `<progress>`); first-cut Monthly bars relative to the
+  `<progress>`, plus first-cut nested Claude/Codex Native `<progress>`
+  from `daily[].byProvider` (share within that day's Cost|Tokens
+  total; empty/missing/short stays day-total-only; chip flip does
+  not re-fetch); first-cut Monthly bars relative to the
   max month in the window for that same Cost | Tokens chip, Native
   `<progress>`; first-cut Projects bars relative to the max Cost|Tokens
   among visible filtered rows for that same chip, Native `<progress>`,
@@ -957,7 +965,7 @@ Honest gaps this cut does not implement:
   `quality` (Provider reported / Model priced / Unpriced percents +
   Cache savings USD) plus muted notices when `errors` are non-empty or
   `pricing` is `unavailable`. Still not Waku's GPUI /
-  T3 layered chart, not LiteLLM rate-table download. Local session
+  T3 layered / stacked canvas chart, not LiteLLM rate-table download. Local session
   context + thread-goal cards
   stay when the daemon is absent.
 - Real Computer Use: Native Screen Recording / Accessibility APIs,

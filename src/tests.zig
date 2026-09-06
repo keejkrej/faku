@@ -12469,6 +12469,80 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expectEqual(@as(u64, 53_000), model.sessionById(id).?.context_used);
 }
 
+test "settings Usage Daily Days paints nested Claude/Codex byProvider bars" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.selected;
+    if (model.sessionById(id)) |session| {
+        session.setProjectPath("/tmp/faku");
+        session.setContextUsage(53_000, 200_000);
+    }
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_usage, &fx);
+    try testing.expect(model.settings_page_usage());
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "d.has_by_provider") != null);
+
+    var spawn_i: usize = 0;
+    const sidecar = while (fx.pendingSpawnAt(spawn_i)) |spawn| : (spawn_i += 1) {
+        if (spawn.key == model.daemon_usage_history_key) break spawn;
+    } else return error.MissingDaemonLoadUsageHistoryByProvider;
+    main.update(&model, .{ .fx_line = .{
+        .key = sidecar.key,
+        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"window\":{\"trailingDays\":30},\"sinceDay\":\"2026-08-08\",\"untilDay\":\"2026-09-06\",\"totalTokens\":500,\"costUsd\":1.5,\"sessions\":3,\"providers\":[{\"provider\":\"claude\",\"totalTokens\":400,\"costUsd\":1.0}],\"daily\":[{\"day\":\"2026-09-05\",\"totalTokens\":100,\"costUsd\":1.0,\"byProvider\":[{\"costUsd\":0.25,\"totalTokens\":40},{\"costUsd\":0.75,\"totalTokens\":60}]},{\"day\":\"2026-09-06\",\"totalTokens\":200,\"costUsd\":0.5,\"byProvider\":[]},{\"day\":\"2026-09-04\",\"totalTokens\":0,\"costUsd\":0}]}}}}",
+    } }, &fx);
+    main.update(&model, .{ .fx_exit = .{
+        .key = sidecar.key,
+        .code = 0,
+        .reason = .exited,
+    } }, &fx);
+    try testing.expectEqual(@as(u64, 0), model.daemon_usage_history_key);
+
+    main.update(&model, .set_usage_breakdown_days, &fx);
+    try testing.expect(model.usage_breakdown_days());
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "2026-09-05 · 100 · $1.00");
+    _ = try expectByText(tree.root, .text, "2026-09-06 · 200 · $0.50");
+    _ = try expectByText(tree.root, .text, "2026-09-04 · 0");
+    _ = try expectByText(tree.root, .text, "Claude Code · 40 · $0.25");
+    _ = try expectByText(tree.root, .text, "Codex · 60 · $0.75");
+    try testing.expect(findByText(tree.root, .text, "Codex · 0") == null);
+    _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
+    _ = try expectUsageShareProgress(tree.root, "50.0%", 0.5);
+    _ = try expectUsageShareProgress(tree.root, "25.0%", 0.25);
+    _ = try expectUsageShareProgress(tree.root, "75.0%", 0.75);
+    try testing.expect(findByText(tree.root, .progress, "0.0%") == null);
+
+    const spawn_count = fx.pendingSpawnCount();
+    main.update(&model, tree.msgForPointer((try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens)).id, .up).?, &fx);
+    try testing.expect(model.usage_share_tokens());
+    try testing.expectEqual(@as(u64, 0), model.daemon_usage_history_key);
+    try testing.expectEqual(spawn_count, fx.pendingSpawnCount());
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Claude Code · 40 · $0.25");
+    _ = try expectByText(tree.root, .text, "Codex · 60 · $0.75");
+    _ = try expectUsageShareProgress(tree.root, "40.0%", 0.4);
+    _ = try expectUsageShareProgress(tree.root, "60.0%", 0.6);
+    try testing.expect(findByText(tree.root, .text, "25.0%") == null);
+    try testing.expect(findByText(tree.root, .text, "75.0%") == null);
+
+    main.update(&model, .set_usage_breakdown_model, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "2026-09-05 · 100 · $1.00") == null);
+    try testing.expect(findByText(tree.root, .text, "Claude Code · 40 · $0.25") == null);
+    try testing.expect(findByText(tree.root, .text, "Codex · 60 · $0.75") == null);
+    try testing.expectEqual(@as(u64, 53_000), model.sessionById(id).?.context_used);
+}
+
 test "settings Usage Daily paints Cost quality and rates-unavailable notice" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
