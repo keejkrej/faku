@@ -7,8 +7,9 @@
 //! usable `runtimeId`, Faku one-shots hello + `refreshBackgroundWork`
 //! (request-frame `sessionId` + `runtimeId`, same as cancel / steer /
 //! goal). Ok is typically Ack; `backgroundWork` events on sidecar
-//! stdout apply `reconcileProcesses` / `reconcileLive` / `upsert`
-//! into daemon-sourced registry rows. Native 4 KiB stdin overflow /
+//! stdout apply `reconcileProcesses` / `reconcileLive` / `upsert` /
+//! `outputDelta` / `stopFailed` into daemon-sourced registry rows.
+//! Native 4 KiB stdin overflow /
 //! sidecar failure / unusable parse / missing address / missing
 //! runtimeId keep today's local Process / Monitor / Subagent
 //! behavior.
@@ -29,9 +30,11 @@
 //! in-flight refresh sidecar (`daemon_background_work_key != 0`)
 //! skips quietly — the tick does not cancel/re-spawn. Open-path
 //! `refresh` remains the immediate reconcile. Not Waku's 1s
-//! `BACKGROUND_WORK_TICK_INTERVAL` registry loop, not
-//! `outputDelta` / `stopFailed`, not full BackgroundWorkRegistry
-//! / GPUI SharedString parity. Local Faku-side Process / Monitor /
+//! `BACKGROUND_WORK_TICK_INTERVAL` registry loop, not full
+//! BackgroundWorkRegistry / GPUI SharedString parity. First-cut
+//! `outputDelta` appends a bounded last-window onto an existing
+//! daemon-sourced row; first-cut `stopFailed` restores a live
+//! Stopping row. Local Faku-side Process / Monitor /
 //! Subagent Stop / Dismiss remains. Hello stays v4.
 //!
 //! Background Stop on a daemon-sourced live row prefers hello +

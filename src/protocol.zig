@@ -60,10 +60,13 @@
 //! cancel / steer / goal: usable `sessionId` + `runtimeId`, not nil
 //! UUIDs. A non-nil `requestId` is required so the daemon Acks. The
 //! useful data arrives as `event` frames (`kind: "backgroundWork"`);
-//! first-cut parse applies `reconcileProcesses`, `reconcileLive`, and
-//! `upsert` and ignores `outputDelta` / `stopFailed` / extra JSON.
-//! `stopRequested` is parsed when cheap (key only) so a stop sidecar
-//! can keep local Stopping. First-cut Waku
+//! first-cut parse applies `reconcileProcesses`, `reconcileLive`,
+//! `upsert`, `outputDelta`, `stopFailed`, and `stopRequested`. Extra
+//! JSON is ignored. `outputDelta` is key + delta (empty delta is a
+//! no-op apply; missing key does not mint a row). `stopFailed` is
+//! key + optional message (live Stopping restores Running /
+//! Monitoring). `stopRequested` is key-only so a stop sidecar can
+//! keep local Stopping. First-cut Waku
 //! `BACKGROUND_WORK_REFRESH_INTERVAL` (5s) tick ships as
 //! `background_work.maybeRefresh` on the update tick; not the 1s
 //! `BACKGROUND_WORK_TICK_INTERVAL` registry loop. Hello stays protocol v4.
@@ -852,13 +855,16 @@ pub const ParsedBackgroundWorkItem = struct {
 };
 
 /// First-cut `BackgroundWorkEvent` kinds this port applies.
-/// `outputDelta` / `stopFailed` stay ignored. `stopRequested` is
-/// key-only (Waku StopRequested → local Stopping).
+/// `outputDelta` is key + delta (delta reused as `item.output`).
+/// `stopFailed` is key + optional message (`item.detail`).
+/// `stopRequested` is key-only (Waku StopRequested → local Stopping).
 pub const BackgroundWorkEventKind = enum {
     upsert,
     reconcile_processes,
     reconcile_live,
     stop_requested,
+    output_delta,
+    stop_failed,
 };
 
 /// Light parse of a `backgroundWork` driver event. Unknown event
@@ -2382,10 +2388,13 @@ pub fn parseUsageHistory(allocator: std.mem.Allocator, line: []const u8) ParsedU
 /// Extract a first-cut `backgroundWork` event. Empty / `ok = false`
 /// on any other frame, a non-event, a payload that is not
 /// `reconcileProcesses` / `reconcileLive` / `upsert` /
-/// `stopRequested`, or a missing key. Unknown fields and extra
-/// array rows are ignored. `upsert` accepts internally tagged
-/// flattened item fields or a nested `item` object. `stopRequested`
-/// is key-only.
+/// `stopRequested` / `outputDelta` / `stopFailed`, or a missing key.
+/// Unknown fields and extra array rows are ignored. `upsert`
+/// accepts internally tagged flattened item fields or a nested
+/// `item` object. `stopRequested` is key-only. `outputDelta` is
+/// key + `delta` (empty / missing delta still ok; reused as
+/// `item.output`). `stopFailed` is key + optional `message`
+/// (reused as `item.detail`).
 pub fn parseBackgroundWorkEvent(allocator: std.mem.Allocator, line: []const u8) ParsedBackgroundWorkEvent {
     var parsed = ParsedBackgroundWorkEvent{};
     const trimmed = std.mem.trim(u8, line, " \t\r\n");
@@ -2422,12 +2431,29 @@ pub fn parseBackgroundWorkEvent(allocator: std.mem.Allocator, line: []const u8) 
         return parsed;
     }
     if (std.mem.eql(u8, type_name, "stopRequested")) {
-        const key_obj = jsonObject(payload.get("key") orelse return parsed) orelse return parsed;
-        const kind = BackgroundWorkKind.fromWire(jsonStringValue(key_obj.get("kind")) orelse return parsed) orelse return parsed;
-        const provider_id = jsonStringValue(key_obj.get("providerId")) orelse return parsed;
-        if (provider_id.len == 0) return parsed;
+        const key = parseBackgroundWorkKey(payload) orelse return parsed;
         parsed.kind = .stop_requested;
-        parsed.item = .{ .key = .{ .kind = kind, .provider_id = provider_id } };
+        parsed.item = .{ .key = key };
+        parsed.ok = true;
+        return parsed;
+    }
+    if (std.mem.eql(u8, type_name, "outputDelta")) {
+        const key = parseBackgroundWorkKey(payload) orelse return parsed;
+        parsed.kind = .output_delta;
+        parsed.item = .{
+            .key = key,
+            .output = jsonStringValue(payload.get("delta")) orelse "",
+        };
+        parsed.ok = true;
+        return parsed;
+    }
+    if (std.mem.eql(u8, type_name, "stopFailed")) {
+        const key = parseBackgroundWorkKey(payload) orelse return parsed;
+        parsed.kind = .stop_failed;
+        parsed.item = .{
+            .key = key,
+            .detail = jsonStringValue(payload.get("message")) orelse "",
+        };
         parsed.ok = true;
         return parsed;
     }
@@ -2446,14 +2472,19 @@ fn parseBackgroundWorkItems(value: ?std.json.Value, dest: *[max_parsed_backgroun
     return n;
 }
 
-fn parseBackgroundWorkItem(obj: std.json.ObjectMap) ?ParsedBackgroundWorkItem {
+fn parseBackgroundWorkKey(obj: std.json.ObjectMap) ?ParsedBackgroundWorkKey {
     const key_obj = jsonObject(obj.get("key") orelse return null) orelse return null;
     const kind = BackgroundWorkKind.fromWire(jsonStringValue(key_obj.get("kind")) orelse return null) orelse return null;
     const provider_id = jsonStringValue(key_obj.get("providerId")) orelse return null;
     if (provider_id.len == 0) return null;
+    return .{ .kind = kind, .provider_id = provider_id };
+}
+
+fn parseBackgroundWorkItem(obj: std.json.ObjectMap) ?ParsedBackgroundWorkItem {
+    const key = parseBackgroundWorkKey(obj) orelse return null;
     const status = BackgroundWorkStatus.fromWire(jsonStringValue(obj.get("status")) orelse return null) orelse return null;
     return .{
-        .key = .{ .kind = kind, .provider_id = provider_id },
+        .key = key,
         .title = jsonStringValue(obj.get("title")) orelse "",
         .detail = jsonStringValue(obj.get("detail")) orelse "",
         .output = jsonStringValue(obj.get("output")) orelse "",
@@ -5534,7 +5565,7 @@ test "stopBackgroundWork carries key and controlId on the command with sessionId
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"cancel\"") == null);
 }
 
-test "parseBackgroundWorkEvent reads reconcile upsert fixtures and ignores unknown types" {
+test "parseBackgroundWorkEvent reads reconcile upsert outputDelta stopFailed fixtures and ignores unknown types" {
     const allocator = std.testing.allocator;
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
@@ -5595,8 +5626,34 @@ test "parseBackgroundWorkEvent reads reconcile upsert fixtures and ignores unkno
     try std.testing.expect(empty.ok);
     try std.testing.expectEqual(@as(usize, 0), empty.item_count);
 
-    try std.testing.expect(!parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"outputDelta\",\"key\":{\"kind\":\"process\",\"providerId\":\"p\"},\"delta\":\"x\"}}}").ok);
-    try std.testing.expect(!parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"stopFailed\",\"key\":{\"kind\":\"process\",\"providerId\":\"p\"}}}}").ok);
+    const delta = parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"outputDelta\",\"key\":{\"kind\":\"process\",\"providerId\":\"p\"},\"delta\":\"x\"}}}");
+    try std.testing.expect(delta.ok);
+    try std.testing.expectEqual(BackgroundWorkEventKind.output_delta, delta.kind);
+    try std.testing.expectEqual(BackgroundWorkKind.process, delta.item.key.kind);
+    try std.testing.expectEqualStrings("p", delta.item.key.provider_id);
+    try std.testing.expectEqualStrings("x", delta.item.output);
+
+    const empty_delta = parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"outputDelta\",\"key\":{\"kind\":\"process\",\"providerId\":\"p\"},\"delta\":\"\"}}}");
+    try std.testing.expect(empty_delta.ok);
+    try std.testing.expectEqual(BackgroundWorkEventKind.output_delta, empty_delta.kind);
+    try std.testing.expectEqualStrings("", empty_delta.item.output);
+
+    try std.testing.expect(!parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"outputDelta\",\"key\":{\"kind\":\"process\"},\"delta\":\"x\"}}}").ok);
+
+    const stop_failed = parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"stopFailed\",\"key\":{\"kind\":\"process\",\"providerId\":\"p\"},\"message\":\"not running\"}}}");
+    try std.testing.expect(stop_failed.ok);
+    try std.testing.expectEqual(BackgroundWorkEventKind.stop_failed, stop_failed.kind);
+    try std.testing.expectEqual(BackgroundWorkKind.process, stop_failed.item.key.kind);
+    try std.testing.expectEqualStrings("p", stop_failed.item.key.provider_id);
+    try std.testing.expectEqualStrings("not running", stop_failed.item.detail);
+
+    const stop_failed_no_message = parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"stopFailed\",\"key\":{\"kind\":\"process\",\"providerId\":\"p\"}}}}");
+    try std.testing.expect(stop_failed_no_message.ok);
+    try std.testing.expectEqual(BackgroundWorkEventKind.stop_failed, stop_failed_no_message.kind);
+    try std.testing.expectEqualStrings("", stop_failed_no_message.item.detail);
+
+    try std.testing.expect(!parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"stopFailed\",\"key\":{\"kind\":\"process\"}}}}").ok);
+    try std.testing.expect(!parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"notARealEvent\",\"key\":{\"kind\":\"process\",\"providerId\":\"p\"}}}}").ok);
 
     const stop_requested = parseBackgroundWorkEvent(arena, "{\"type\":\"event\",\"event\":{\"kind\":\"backgroundWork\",\"payload\":{\"type\":\"stopRequested\",\"key\":{\"kind\":\"process\",\"providerId\":\"proc-1\"}}}}");
     try std.testing.expect(stop_requested.ok);
