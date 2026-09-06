@@ -12323,16 +12323,66 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect(std.mem.indexOf(u8, projects_sidecar.stdin, "\"window\":{\"trailingDays\":30}") != null);
     main.update(&model, .{ .fx_line = .{
         .key = projects_sidecar.key,
-        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"window\":{\"trailingDays\":30},\"sinceDay\":\"2026-08-08\",\"untilDay\":\"2026-09-06\",\"totalTokens\":12000,\"costUsd\":1.25,\"sessions\":4,\"providers\":[{\"provider\":\"claude\",\"totalTokens\":10000,\"costUsd\":1.0}],\"daily\":[{\"day\":\"2026-09-05\",\"totalTokens\":100,\"costUsd\":1.0},{\"day\":\"2026-09-06\",\"totalTokens\":400,\"costUsd\":0.5},{\"day\":\"2026-09-04\",\"totalTokens\":0,\"costUsd\":0}],\"months\":[{\"firstDay\":\"2026-09-01\",\"totalTokens\":12000,\"costUsd\":1.25,\"sessions\":4}],\"projects\":[{\"path\":\"/tmp/faku\",\"totalTokens\":12000,\"costUsd\":1.25,\"sessions\":4}]}}}}",
+        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"window\":{\"trailingDays\":30},\"sinceDay\":\"2026-08-08\",\"untilDay\":\"2026-09-06\",\"totalTokens\":500,\"costUsd\":1.5,\"sessions\":6,\"projects\":[{\"path\":\"/tmp/faku\",\"totalTokens\":100,\"costUsd\":1.0,\"sessions\":2},{\"path\":\"/tmp/other\",\"totalTokens\":400,\"costUsd\":0.5,\"sessions\":4},{\"path\":\"/tmp/empty\",\"totalTokens\":0,\"costUsd\":0,\"sessions\":0}]}}}}",
     } }, &fx);
+    main.update(&model, .{ .fx_exit = .{
+        .key = projects_sidecar.key,
+        .code = 0,
+        .reason = .exited,
+    } }, &fx);
+    try testing.expectEqual(@as(u64, 0), model.daemon_usage_history_key);
+    try testing.expect(model.has_usage_history());
+    try testing.expect(model.usage_share_cost());
+
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "faku · 12k · $1.25 · 4 sessions");
+    _ = try expectByText(tree.root, .text, "faku · 100 · $1.00 · 2 sessions");
+    _ = try expectByText(tree.root, .text, "other · 400 · $0.50 · 4 sessions");
+    _ = try expectByText(tree.root, .text, "empty · 0 · 0 sessions");
     try testing.expect((try expectButtonMsg(tree, "Projects", .set_usage_view_projects)).state.selected);
     try testing.expect((try expectButtonMsg(tree, "30d", .set_usage_window_30d)).state.selected);
     try testing.expect(model.usage_window_selector_visible());
-    try testing.expect(findByText(tree.root, .button, "Cost") == null);
-    try testing.expect(findByText(tree.root, .button, "Tokens") == null);
+    try testing.expect(findByText(tree.root, .text, "2026-08-01 · 100 · $1.00 · 2 sessions") == null);
+    try testing.expect(findByText(tree.root, .text, "Claude Code · 10k · $1.00") == null);
+    const projects_cost_chip = try expectButtonMsg(tree, "Cost", .set_usage_share_cost);
+    try testing.expect(projects_cost_chip.state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens)).state.selected);
+    _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
+    _ = try expectUsageShareProgress(tree.root, "50.0%", 0.5);
+    try testing.expect(findByText(tree.root, .text, "25.0%") == null);
+    try testing.expect(findByText(tree.root, .progress, "0.0%") == null);
+
+    const projects_spawn_count = fx.pendingSpawnCount();
+    const projects_tokens_chip = try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens);
+    main.update(&model, tree.msgForPointer(projects_tokens_chip.id, .up).?, &fx);
+    try testing.expect(model.usage_share_tokens());
+    try testing.expect(!model.usage_share_cost());
+    try testing.expectEqual(@as(u64, 0), model.daemon_usage_history_key);
+    try testing.expectEqual(projects_spawn_count, fx.pendingSpawnCount());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens)).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "Cost", .set_usage_share_cost)).state.selected);
+    _ = try expectByText(tree.root, .text, "faku · 100 · $1.00 · 2 sessions");
+    _ = try expectUsageShareProgress(tree.root, "25.0%", 0.25);
+    _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
+    try testing.expect(findByText(tree.root, .text, "50.0%") == null);
+    try testing.expect(findByText(tree.root, .progress, "0.0%") == null);
+
+    main.update(&model, .refresh_usage_history, &fx);
+    spawn_i = 0;
+    const empty_projects_sidecar = while (fx.pendingSpawnAt(spawn_i)) |spawn| : (spawn_i += 1) {
+        if (spawn.key == model.daemon_usage_history_key) break spawn;
+    } else return error.MissingEmptyProjectsLoadUsageHistory;
+    main.update(&model, .{ .fx_line = .{
+        .key = empty_projects_sidecar.key,
+        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"window\":{\"trailingDays\":30},\"totalTokens\":0,\"costUsd\":0,\"sessions\":0,\"projects\":[]}}}}",
+    } }, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No project usage");
+    try testing.expect(!(try expectButtonMsg(tree, "Cost", .set_usage_share_cost)).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "Tokens", .set_usage_share_tokens)).state.selected);
+    try testing.expect(findByText(tree.root, .text, "faku · 100 · $1.00 · 2 sessions") == null);
     try testing.expect(findByText(tree.root, .text, "100.0%") == null);
+    try testing.expect(findByText(tree.root, .text, "25.0%") == null);
     try testing.expectEqual(@as(u64, 53_000), model.sessionById(id).?.context_used);
 }
 
