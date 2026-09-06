@@ -2,8 +2,13 @@
 //!
 //! `handleNewSession` / `handleSelect` / folder + title edits /
 //! `handleRemoveSession` / `handleEditQueued` live here.
-//! Msg routing stays in `update.zig`. Behavior is unchanged
-//! from the former `main` update arms.
+//! Msg routing stays in `update.zig`. First-cut daemon
+//! `WorkspaceOperation::CreateProjectlessWorkspace` prefers hello +
+//! createProjectlessWorkspace on New Task when there is no ordinary
+//! project (empty `last_project_path`, or the selected session is
+//! already projectless under `~/.waku/projects`); Native 4 KiB
+//! stdin overflow / sidecar miss fall back to local mkdir. Ordinary
+//! New Task with a real project path still copies `last_project_path`.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -17,6 +22,7 @@ const git_dirty = @import("git_dirty.zig");
 const git_numstat = @import("git_numstat.zig");
 const file_mention = @import("file_mention.zig");
 const slash_commands = @import("slash_commands.zig");
+const projectless = @import("projectless.zig");
 const sidebar_row_helpers = @import("sidebar_rows.zig");
 const palette_run = @import("palette_run.zig");
 const environment_summary = @import("environment_summary.zig");
@@ -28,6 +34,7 @@ const pick_folder = @import("pick_folder.zig");
 const Model = main.Model;
 const Effects = main.Effects;
 const max_title = main.max_title;
+const max_project_path = main.max_project_path;
 const max_queued_text = main.max_queued_text;
 const canvas = native_sdk.canvas;
 
@@ -44,6 +51,11 @@ pub fn handleNewSession(model: *Model, fx: *Effects) void {
     model.closeModelPicker();
     model.closeFolderTitleEdit();
     model.closeSessionTitleEdit();
+    var prior_buf: [max_project_path]u8 = undefined;
+    const prior_src = model.selectedProjectPath();
+    const prior_n = @min(prior_src.len, prior_buf.len);
+    @memcpy(prior_buf[0..prior_n], prior_src[0..prior_n]);
+    const prior = prior_buf[0..prior_n];
     const id = model.addSession("untitled", .fx);
     if (id == 0) return;
     if (model.sessionById(id)) |session| session.untitled = true;
@@ -52,6 +64,7 @@ pub fn handleNewSession(model: *Model, fx: *Effects) void {
     // Client-built; persist is a no-op until first real content.
     store.persistIfPossible(model, id, fx);
     store.loadDraftIfPossible(model);
+    projectless.beginForNewSession(model, fx, prior);
     attach_helpers.refreshAttachPreview(model, fx);
     git_branch.refresh(model, fx);
     git_dirty.refresh(model, fx);
@@ -172,6 +185,7 @@ pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
     session_fork.refreshSessionTurnRefs(model, fx);
     slash_commands.cancel(model, fx);
     slash_commands.refresh(model, fx);
+    if (model.daemon_projectless_session == id) projectless.cancel(model, fx);
     model.maybeEnsureSkillsScanned(fx);
 }
 
@@ -194,4 +208,53 @@ pub fn handleEditQueued(model: *Model, fx: *Effects, id: u32) void {
     store.persistIfPossible(model, model.selected, fx);
     store.persistDraftIfPossible(model);
     attach_helpers.refreshAttachPreview(model, fx);
+}
+
+fn pendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
+        if (spawn.key == key) return spawn;
+    }
+    return null;
+}
+
+test "handleNewSession with a daemon address issues createProjectlessWorkspace" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+
+    handleNewSession(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_projectless_key) orelse return error.MissingHandleNewSessionProjectless;
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"createProjectlessWorkspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"prompt\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"sessionId\":\"" ++ @import("protocol.zig").NIL_UUID ++ "\"") != null);
+    try std.testing.expect(model.sessionById(model.selected).?.untitled);
+}
+
+test "handleNewSession with a real last_project_path does not spawn createProjectlessWorkspace" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/new-task-real-project", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.setLastProjectPath(project);
+
+    handleNewSession(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_projectless_key);
+    try std.testing.expectEqualStrings(project, model.sessionById(model.selected).?.projectPath());
+    try std.testing.expectEqualStrings(project, model.lastProjectPath());
 }

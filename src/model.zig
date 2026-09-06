@@ -1469,6 +1469,13 @@ pub const Model = struct {
     daemon_slash_commands_probe_provider: protocol.ProviderId = .fx,
     daemon_slash_commands_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
     daemon_slash_commands_probe_path_len: usize = 0,
+    /// Prefer New Task `WorkspaceOperation::CreateProjectlessWorkspace`
+    /// sidecar when a daemon address is set and there is no ordinary
+    /// project. Distinct from DiscoverSlashCommands so miss cannot
+    /// clear a good ACP list. Overflow / miss fall back to local mkdir.
+    daemon_projectless_key: u64 = 0,
+    daemon_projectless_session: u32 = 0,
+    daemon_projectless_ok: bool = false,
     fx_spawn_key: u64 = 0,
     next_fx_key: u64 = fx_spawn_overlap_key_first,
     fx_spawn_live: bool = false,
@@ -2084,6 +2091,9 @@ pub const Model = struct {
         "daemon_slash_commands_probe_provider",
         "daemon_slash_commands_probe_path_storage",
         "daemon_slash_commands_probe_path_len",
+        "daemon_projectless_key",
+        "daemon_projectless_session",
+        "daemon_projectless_ok",
         "fx_spawn_key",
         "next_fx_key",
         "fx_spawn_live",

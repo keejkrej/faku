@@ -231,6 +231,10 @@
 //! `WorkspaceOperation::DiscoverSlashCommands` lives in
 //! `slash_commands` (composer `/`; prefer hello + discoverSlashCommands;
 //! miss keeps ACP). First-cut daemon
+//! `WorkspaceOperation::CreateProjectlessWorkspace` lives in
+//! `projectless` (New Task when there is no ordinary project; prefer
+//! hello + createProjectlessWorkspace; miss falls back to local mkdir).
+//! First-cut daemon
 //! `WorkspaceOperation::CollectReviewDiff` lives in `review_diff` (Review /
 //! Diff panel; LastTurn stays local). First-cut daemon
 //! `WorkspaceOperation::BrowseDirectory` lives in `pick_folder`

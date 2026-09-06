@@ -230,8 +230,8 @@ InspectBranches, CheckoutBranch, InspectCommit, CaptureTurnStart,
 CaptureTurn, GenerateCommitMessage, ListTree, CollectReviewDiff,
 BrowseDirectory, ReadTextFile, WriteTextFile, CopySessionRefs,
 DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef,
-DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles, and
-DiscoverSlashCommands.
+DeleteTurnRefsAfter, SessionTurnRefs, ListProjectFiles,
+DiscoverSlashCommands, and CreateProjectlessWorkspace.
 
 Local `sessions.json` remains the catalog of record. Daemon
 `saveTaskState` is a best-effort one-shot mirror. Wire `loadTaskState`
@@ -370,6 +370,17 @@ already paints; Native 4 KiB stdin overflow / error / empty /
 unusable parse keep today's ACP-only catalog and must not clear a
 good ACP list; later live ACP replace/wins; no address keeps
 today's ACP path). First-cut daemon
+`WorkspaceOperation::CreateProjectlessWorkspace` ships on New Task
+when there is no ordinary project (empty `last_project_path`, or
+the selected session's `project_path` is already a projectless path
+under `~/.waku/projects` / legacy `~/.waku/<date>/…`) and a daemon
+address is set (ok is nested `projectlessWorkspace` + `cwd`; paints
+the new session `project_path` and `last_project_path`; Native 4 KiB
+stdin overflow / error / unusable parse / empty cwd fall back to
+local mkdir under `~/.waku/projects/<YYYY-MM-DD>/<slug>` with
+`new-chat` for a null prompt; no address keeps that local mkdir;
+home/`~/.waku/projects` failure keeps today's empty/copied
+`last_project_path`). First-cut daemon
 `WorkspaceOperation::ListTree` ships on Files expand after a
 daemon fill when a daemon address is set (ok is nested
 `workingTree` + camelCase `WorkingTreeEntry` rows; paints the
@@ -598,7 +609,7 @@ on one-shot `claude -p` ships (live Stop dismisses that live row;
 settled rows offer Dismiss; not Claude TaskStop mid-turn). Not daemon
 `WorkspaceOperation` for Background (first-cut daemon Push,
 CreateWorktree, Commit, InspectBranches, CheckoutBranch,
-InspectCommit, GenerateCommitMessage, ListTree, ListProjectFiles, DiscoverSlashCommands, CollectReviewDiff,
+InspectCommit, GenerateCommitMessage, ListTree, ListProjectFiles, DiscoverSlashCommands, CreateProjectlessWorkspace, CollectReviewDiff,
 BrowseDirectory, ReadTextFile, and WriteTextFile live on composer git / Send prep / Commit… / the
 branch picker / Files refresh / Review Diff / Pick folder / Files
 preview load / Files preview Save; CaptureTurnStart is a best-effort Send sidecar
@@ -617,7 +628,9 @@ turn / turn-start / turn-diff names for the dropped prompt;
 SessionTurnRefs is a prefer+fallback sidecar on session select /
 boot that lists daemon-side turn ordinals; DiscoverSlashCommands is
 a prefer+fallback sidecar on composer `/` / session or provider
-change that seeds `session.available_commands`). Environment Summary Background is
+change that seeds `session.available_commands`; CreateProjectlessWorkspace is
+a prefer+fallback sidecar on New Task when there is no ordinary
+project that seeds `project_path`). Environment Summary Background is
 Faku-side kind chrome (Process / Monitor / Subagent labels) plus a
 runtime-only multi-row registry. This cut populates Process
 ("Agent turn") from window-side `is_streaming`, plus Stop agent,
@@ -895,8 +908,7 @@ Honest gaps this cut does not implement:
   `std.fs` atomic write), Reload discards unsaved edits. First-cut
   live reload via mtime/size poll on the update tick. Not a real FS
   watcher / Native watch API)
-- Other daemon `WorkspaceOperation` variants (`createProjectlessWorkspace`,
-  `migrateProjectlessWorkspace`).
+- Other daemon `WorkspaceOperation` variants (`migrateProjectlessWorkspace`).
   Amend/force and remote `--track` stay local (not daemon
   WorkspaceOperation variants). First-cut
   `WorkspaceOperation::Push` ships as a best-effort sidecar when
@@ -946,6 +958,13 @@ Honest gaps this cut does not implement:
   empty / unusable parse keep today's ACP-only catalog and must not
   clear a good ACP list; later live ACP replace/wins; no address
   keeps today's ACP path. First-cut
+  `WorkspaceOperation::CreateProjectlessWorkspace` ships on New Task
+  when there is no ordinary project (empty `last_project_path`, or
+  the selected session's `project_path` is already a projectless path
+  under `~/.waku/projects`); ok is nested `projectlessWorkspace` +
+  `cwd`; Native 4 KiB stdin overflow / error / unusable parse / empty
+  cwd fall back to local mkdir under `~/.waku/projects/<date>/<slug>`;
+  no address keeps that local mkdir. First-cut
   `WorkspaceOperation::ListTree` ships on Files expand after a
   daemon fill when a daemon address is set; ok is nested `workingTree`
   + camelCase `WorkingTreeEntry` rows; paints the Files cache from
@@ -1070,7 +1089,23 @@ Honest gaps this cut does not implement:
   `session.available_commands`; Native 4 KiB stdin overflow / miss /
   non-ok / empty keep today's ACP-only catalog and must not clear a
   good ACP list; later live ACP `available_commands_update`
-  replace/wins; no address keeps today's ACP path
+  replace/wins; no address keeps today's ACP path. First-cut
+  `WorkspaceOperation::CreateProjectlessWorkspace` prefers hello +
+  createProjectlessWorkspace on New Task when there is no ordinary
+  project (empty `last_project_path`, or the selected session's
+  `project_path` is already a projectless path under
+  `~/.waku/projects` and legacy `~/.waku/<date>/…`); ok is nested
+  `projectlessWorkspace.cwd` (not Ack, not Bool, not a bare
+  object; empty cwd rejected); `prompt` is JSON null on this
+  first-cut; Native 4 KiB stdin overflow / miss / non-ok fall back
+  to local mkdir under `~/.waku/projects/<YYYY-MM-DD>/<slug>`
+  (`new-chat` for a null prompt; numbered candidates if taken); home
+  / mkdir failure keeps today's empty/copied `last_project_path`
+  and must not toast-block New Task; ordinary New Task with a real
+  project path still copies `last_project_path`. Leftover:
+  `migrateProjectlessWorkspace`; reusing an unstarted projectless
+  draft is skipped this cut. Amend/force and remote `--track`
+  stay local (not daemon WorkspaceOperation variants)
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size

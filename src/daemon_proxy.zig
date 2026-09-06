@@ -34,7 +34,8 @@
 //! `bool` with a JSON boolean `value` (HasRef), or
 //! `turnRefs` with a parsed `turn_counts` array (SessionTurnRefs), or
 //! `projectFiles` with a parsed `entries` array (ListProjectFiles), or
-//! `slashCommands` with a parsed `commands` array (DiscoverSlashCommands).
+//! `slashCommands` with a parsed `commands` array (DiscoverSlashCommands), or
+//! `projectlessWorkspace` with a non-empty `cwd` (CreateProjectlessWorkspace).
 //!
 //! The desktop update loop never holds a WebSocket. Catalog persist stays
 //! local `sessions.json`; `loadTaskState` / `saveTaskState` on the wire
@@ -376,7 +377,7 @@ pub fn writeGoalStdin(buf: []u8, args: GoalStdin) WriteError![]const u8 {
 /// InspectBranches / CheckoutBranch / InspectCommit / CaptureTurnStart /
 /// CaptureTurn / GenerateCommitMessage / ListTree /
 /// CollectReviewDiff / BrowseDirectory / ReadTextFile / WriteTextFile /
-/// CopySessionRefs / DeleteSessionRefs / HasRef / CaptureRef / RestoreRef / DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs / ListProjectFiles / DiscoverSlashCommands.
+/// CopySessionRefs / DeleteSessionRefs / HasRef / CaptureRef / RestoreRef / DeleteRef / DeleteTurnRefsAfter / SessionTurnRefs / ListProjectFiles / DiscoverSlashCommands / CreateProjectlessWorkspace.
 /// Hello + `workspace`
 /// (nil request-frame `sessionId` / `runtimeId`, command payload
 /// `operation`). Own spawn key — Native cannot write into a running
@@ -1958,6 +1959,41 @@ test "writeWorkspaceStdin emits hello and workspace discoverSlashCommands with o
                 .project_root = "/tmp/faku",
             },
         },
+    }));
+}
+
+test "writeWorkspaceStdin emits hello and workspace createProjectlessWorkspace with prompt null vs string" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{ .create_projectless_workspace = .{} },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ WORKSPACE_REQUEST_ID) != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"createProjectlessWorkspace\",\"prompt\":null}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"discoverSlashCommands\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"attachSession\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "project_path") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "force") == null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForWorkspace(stdin));
+
+    const with_prompt = try writeWorkspaceStdin(&buf, .{
+        .token = "secret",
+        .operation = .{ .create_projectless_workspace = .{ .prompt = "Fix the login" } },
+    });
+    try std.testing.expect(std.mem.indexOf(u8, with_prompt, "\"prompt\":\"Fix the login\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, with_prompt, "\"prompt\":null") == null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspaceStdin(&tiny, .{
+        .operation = .{ .create_projectless_workspace = .{ .prompt = "Fix the login" } },
     }));
 }
 

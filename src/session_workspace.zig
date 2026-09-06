@@ -97,8 +97,11 @@
 //! `WorkspaceOperation::DiscoverSlashCommands` ships in
 //! `slash_commands` (prefer hello + discoverSlashCommands when a
 //! daemon address is set and `project_path` exists; paints
-//! `session.available_commands`; miss / overflow keep ACP). Leftovers:
-//! `createProjectlessWorkspace`,
+//! `session.available_commands`; miss / overflow keep ACP). First-cut
+//! daemon `WorkspaceOperation::CreateProjectlessWorkspace` ships in
+//! `projectless` (prefer hello + createProjectlessWorkspace on New
+//! Task when there is no ordinary project; miss / overflow fall back
+//! to local mkdir under `~/.waku/projects/<date>/<slug>`). Leftovers:
 //! `migrateProjectlessWorkspace`; amend/force and remote `--track`
 //! stay local (not daemon WorkspaceOperation variants). Fork copies
 //! `project_path` and resets kind to `local` (drops `baseBranch`).
