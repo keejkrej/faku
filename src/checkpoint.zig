@@ -77,9 +77,13 @@
 //! `fork.completeRewindTranscript` after successful Header Rewind
 //! bookkeeping (Ack; local `refs/faku/...` stay canonical; Native 4
 //! KiB overflow / miss / non-ack leave rewind transcript bookkeeping
+//! alone). First-cut daemon `WorkspaceOperation::DeleteTurnRefsAfter`
+//! ships as a best-effort sidecar from the same
+//! `fork.completeRewindTranscript` after that bookkeeping (Ack;
+//! range cleanup of turn / turn-start / turn-diff; Native 4 KiB
+//! overflow / miss / non-ack leave rewind transcript bookkeeping
 //! alone). Leftovers:
-//! force, background work, DeleteTurnRefsAfter /
-//! SessionTurnRefs, etc. Not
+//! force, background work, SessionTurnRefs, etc. Not
 //! transcript checkpoint +/-.
 
 const std = @import("std");

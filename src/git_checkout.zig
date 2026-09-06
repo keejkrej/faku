@@ -144,7 +144,7 @@
 //! closes any open Commit… card; a push started from that card
 //! keeps it open with in-dialog Pushing… until the push ends.
 //! Leftovers: other daemon `WorkspaceOperation` variants
-//! (DeleteTurnRefsAfter / SessionTurnRefs, amend/force over daemon,
+//! (SessionTurnRefs, amend/force over daemon,
 //! remote `--track` over daemon, …). Fetch
 //! already `--prune`; there is no prune-alone menu (not in Waku).
 //! First-cut defer-until-Send Work in reuses this same add path on
@@ -219,6 +219,10 @@
 //! sidecar after successful Rewind bookkeeping; Ack; local
 //! `deleteFakuRef` first; miss / overflow leave rewind transcript
 //! alone). First-cut daemon
+//! `WorkspaceOperation::DeleteTurnRefsAfter` lives in `fork` (best-effort
+//! sidecar after successful Rewind bookkeeping; Ack; range cleanup
+//! of turn / turn-start / turn-diff; miss / overflow leave rewind
+//! transcript alone). First-cut daemon
 //! `WorkspaceOperation::ListTree` lives in `file_mention` (Files
 //! refresh; expand after a daemon fill re-prefers ListTree). First-cut daemon
 //! `WorkspaceOperation::CollectReviewDiff` lives in `review_diff` (Review /

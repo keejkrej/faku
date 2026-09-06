@@ -1432,6 +1432,12 @@ pub const Model = struct {
     daemon_delete_ref_cwd_len: usize = 0,
     daemon_delete_ref_git_ref_storage: [128]u8 = [_]u8{0} ** 128,
     daemon_delete_ref_git_ref_len: usize = 0,
+    /// Best-effort Rewind-time `WorkspaceOperation::DeleteTurnRefsAfter`
+    /// sidecar after successful Header Rewind bookkeeping. Distinct from
+    /// DeleteRef so Ack / miss cannot undo transcript bookkeeping or
+    /// settle a live turn. Local `deleteFakuRef` / DeleteRef already ran.
+    daemon_delete_turn_refs_after_key: u64 = 0,
+    daemon_delete_turn_refs_after_session: u32 = 0,
     fx_spawn_key: u64 = 0,
     next_fx_key: u64 = fx_spawn_overlap_key_first,
     fx_spawn_live: bool = false,
@@ -2030,6 +2036,8 @@ pub const Model = struct {
         "daemon_delete_ref_cwd_len",
         "daemon_delete_ref_git_ref_storage",
         "daemon_delete_ref_git_ref_len",
+        "daemon_delete_turn_refs_after_key",
+        "daemon_delete_turn_refs_after_session",
         "fx_spawn_key",
         "next_fx_key",
         "fx_spawn_live",

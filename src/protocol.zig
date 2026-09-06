@@ -194,17 +194,26 @@
 //! `WorkspaceOperation::DeleteRef`
 //! `{ "type": "deleteRef", "cwd", "git_ref" }` (camelCase op tag;
 //! snake_case `git_ref` like RestoreRef / CaptureRef / HasRef, not
-//! camelCase `gitRef`; no force and no amend).
+//! camelCase `gitRef`; no force and no amend), and
+//! `WorkspaceOperation::DeleteTurnRefsAfter`
+//! `{ "type": "deleteTurnRefsAfter", "cwd", "session_id",
+//! "retained_turn_count", "previous_turn_count" }` (camelCase op
+//! tag; snake_case `session_id` / `retained_turn_count` /
+//! `previous_turn_count` like CopySessionRefs / DeleteSessionRefs,
+//! not camelCase `sessionId`). Waku deletes refs for turns
+//! `retained_turn_count+1 ..= previous_turn_count`.
 //! This cut
 //! ships Push, CreateWorktree, Commit, InspectBranches, CheckoutBranch,
 //! InspectCommit, CaptureTurnStart, CaptureTurn,
 //! GenerateCommitMessage, ListTree, CollectReviewDiff,
 //! BrowseDirectory, ReadTextFile, WriteTextFile, CopySessionRefs,
-//! DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, and DeleteRef.
+//! DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef,
+//! and DeleteTurnRefsAfter.
 //! There is no force flag on daemon Push. An ok outcome is
 //! `ResponsePayload::Workspace { result }` where Push, Commit,
 //! CaptureTurnStart, WriteTextFile, CopySessionRefs,
-//! DeleteSessionRefs, CaptureRef, RestoreRef, and DeleteRef yield `WorkspaceResult::Ack` — wire `outcome.payload`
+//! DeleteSessionRefs, CaptureRef, RestoreRef, DeleteRef, and
+//! DeleteTurnRefsAfter yield `WorkspaceResult::Ack` — wire `outcome.payload`
 //! `{ "type": "workspace", "result": { "type": "ack" } }` (not a bare
 //! `ack`) — CreateWorktree yields
 //! `WorkspaceResult::WorktreeCreated` — wire
@@ -466,7 +475,8 @@ pub fn defaultStartOptions() StartOptions {
 /// `GenerateCommitMessage`, `ListTree`, `CollectReviewDiff`,
 /// `BrowseDirectory`, `ReadTextFile`, `WriteTextFile`,
 /// `CopySessionRefs`, `DeleteSessionRefs`, `HasRef`,
-/// `CaptureRef`, `RestoreRef`, and `DeleteRef` (hello + workspace sidecar).
+/// `CaptureRef`, `RestoreRef`, `DeleteRef`, and
+/// `DeleteTurnRefsAfter` (hello + workspace sidecar).
 pub const CommandTag = enum {
     load_task_state,
     hydrate_session,
@@ -662,15 +672,18 @@ pub const GoalOperation = union(GoalKind) {
 /// camelCase `gitRef`), `RestoreRef { cwd, git_ref }`
 /// (snake_case `git_ref`, not camelCase `gitRef`), and
 /// `DeleteRef { cwd, git_ref }` (snake_case `git_ref`, not
-/// camelCase `gitRef`). No force flag on Push
+/// camelCase `gitRef`), and `DeleteTurnRefsAfter { cwd, session_id,
+/// retained_turn_count, previous_turn_count }` (snake_case
+/// session/turn fields, not camelCase `sessionId`). No force flag on Push
 /// or Commit. No amend on daemon Commit, InspectCommit, or
-/// CollectReviewDiff. No force/amend on RestoreRef or DeleteRef.
+/// CollectReviewDiff. No force/amend on RestoreRef, DeleteRef, or
+/// DeleteTurnRefsAfter.
 /// `ParsedBranches` has no remotes (Waku inspect is `refs/heads`
 /// only; remotes-on-daemon-list is a Faku-side local for-each-ref
-/// merge). Leftovers: DeleteTurnRefsAfter / SessionTurnRefs,
+/// merge). Leftovers: SessionTurnRefs,
 /// amend/force over daemon,
 /// remote `--track` over daemon, etc.
-pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file, copy_session_refs, delete_session_refs, has_ref, capture_ref, restore_ref, delete_ref };
+pub const WorkspaceKind = enum { push, create_worktree, commit, inspect_branches, checkout_branch, inspect_commit, capture_turn_start, capture_turn, generate_commit_message, list_tree, collect_review_diff, browse_directory, read_text_file, write_text_file, copy_session_refs, delete_session_refs, has_ref, capture_ref, restore_ref, delete_ref, delete_turn_refs_after };
 
 /// Waku `AgentInvocation`. Wire keys match generated TS:
 /// `provider`, `binary`, `model`, `reasoning_effort` (snake_case
@@ -838,6 +851,23 @@ pub const WorkspaceDeleteRef = struct {
     git_ref: []const u8,
 };
 
+/// Waku `DeleteTurnRefsAfter`. Wire keys stay snake_case
+/// `session_id` / `retained_turn_count` / `previous_turn_count`
+/// (WorkspaceOperation serde `rename_all` is the camelCase `type`
+/// tag only). Matches CopySessionRefs / DeleteSessionRefs
+/// `session_id`, not camelCase `sessionId`. Waku deletes refs for
+/// turns `retained_turn_count+1 ..= previous_turn_count` (turn-n,
+/// turn-start-n, turn-diff-n via batched `update-ref --stdin`). Ok
+/// is workspace Ack (nested `result: { "type": "ack" }`, not
+/// Bool, not a bare ack). Leftover: SessionTurnRefs next;
+/// amend/force and remote `--track` stay local.
+pub const WorkspaceDeleteTurnRefsAfter = struct {
+    cwd: []const u8,
+    session_id: []const u8,
+    retained_turn_count: u32,
+    previous_turn_count: u32,
+};
+
 pub const WorkspaceOperation = union(WorkspaceKind) {
     push: WorkspacePush,
     create_worktree: WorkspaceCreateWorktree,
@@ -859,6 +889,7 @@ pub const WorkspaceOperation = union(WorkspaceKind) {
     capture_ref: WorkspaceCaptureRef,
     restore_ref: WorkspaceRestoreRef,
     delete_ref: WorkspaceDeleteRef,
+    delete_turn_refs_after: WorkspaceDeleteTurnRefsAfter,
 };
 
 /// Local heads from an ok `branches` or `branchChanged` workspace
@@ -1203,7 +1234,7 @@ fn writeGoalOperation(cur: *Cursor, operation: GoalOperation) WriteError!void {
 /// CheckoutBranch, InspectCommit, CaptureTurnStart, CaptureTurn,
 /// GenerateCommitMessage, ListTree, CollectReviewDiff,
 /// BrowseDirectory, ReadTextFile, WriteTextFile,
-/// CopySessionRefs, DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, and DeleteRef pass `NIL_UUID` for those ids.
+/// CopySessionRefs, DeleteSessionRefs, HasRef, CaptureRef, RestoreRef, DeleteRef, and DeleteTurnRefsAfter pass `NIL_UUID` for those ids.
 /// `operation` is `WorkspaceOperation` tagged `type`. A non-nil
 /// `requestId` is required so the daemon replies (nil is a notify).
 /// Timeout 120s.
@@ -1408,6 +1439,17 @@ fn writeWorkspaceOperation(cur: *Cursor, operation: WorkspaceOperation) WriteErr
             try writeJsonString(cur, args.cwd);
             try cur.write(",\"git_ref\":");
             try writeJsonString(cur, args.git_ref);
+            try cur.write("}");
+        },
+        .delete_turn_refs_after => |args| {
+            try cur.write("{\"type\":\"deleteTurnRefsAfter\",\"cwd\":");
+            try writeJsonString(cur, args.cwd);
+            try cur.write(",\"session_id\":");
+            try writeJsonString(cur, args.session_id);
+            try cur.write(",\"retained_turn_count\":");
+            try writeUint(cur, args.retained_turn_count);
+            try cur.write(",\"previous_turn_count\":");
+            try writeUint(cur, args.previous_turn_count);
             try cur.write("}");
         },
     }
@@ -1828,7 +1870,7 @@ pub fn parseSessionRuntime(allocator: std.mem.Allocator, line: []const u8) Parse
 }
 
 /// Light ok-ack check for first-cut workspace Push / Commit /
-/// CaptureTurnStart / WriteTextFile / CopySessionRefs / DeleteSessionRefs / CaptureRef / RestoreRef / DeleteRef. True when an ok
+/// CaptureTurnStart / WriteTextFile / CopySessionRefs / DeleteSessionRefs / CaptureRef / RestoreRef / DeleteRef / DeleteTurnRefsAfter. True when an ok
 /// `response` carries `payload: { "type": "workspace", "result": { "type": "ack" } }`.
 /// Does not parse the full `WorkspaceResult` union.
 pub fn isWorkspaceAck(allocator: std.mem.Allocator, line: []const u8) bool {
@@ -2113,7 +2155,7 @@ pub fn isWorkspaceCheckpoint(allocator: std.mem.Allocator, line: []const u8) boo
 }
 
 /// True when the line is an ok workspace Push / Commit /
-/// CaptureTurnStart / WriteTextFile / CopySessionRefs / DeleteSessionRefs / CaptureRef / RestoreRef / DeleteRef ack, CreateWorktree `worktreeCreated`
+/// CaptureTurnStart / WriteTextFile / CopySessionRefs / DeleteSessionRefs / CaptureRef / RestoreRef / DeleteRef / DeleteTurnRefsAfter ack, CreateWorktree `worktreeCreated`
 /// (non-empty path + branch), InspectBranches `branches` with a
 /// usable snapshot, CheckoutBranch `branchChanged` with a usable
 /// snapshot, InspectCommit `commitSnapshot` with a usable snapshot,
@@ -3427,6 +3469,7 @@ test "workspace request wraps camelCase hasRef with snake_case git_ref and nil i
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"captureRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"restoreRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteTurnRefsAfter\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
 
@@ -3472,6 +3515,7 @@ test "workspace request wraps camelCase captureRef with snake_case git_ref and n
     try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"captureRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"restoreRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteTurnRefsAfter\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
     {
@@ -3523,6 +3567,7 @@ test "workspace request wraps camelCase restoreRef with snake_case git_ref and n
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"restoreRef\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteTurnRefsAfter\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
     {
@@ -3579,6 +3624,7 @@ test "workspace request wraps camelCase deleteRef with snake_case git_ref and ni
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"writeTextFile\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"deleteRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteTurnRefsAfter\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
     {
@@ -3602,6 +3648,71 @@ test "workspace request wraps camelCase deleteRef with snake_case git_ref and ni
         .{ .delete_ref = .{
             .cwd = "/tmp/faku",
             .git_ref = "refs/faku/session-7-turn-start-1",
+        } },
+    ));
+}
+
+test "workspace request wraps camelCase deleteTurnRefsAfter with snake_case session/turn fields and nil ids" {
+    var buf: [768]u8 = undefined;
+    const json = try writeWorkspace(
+        &buf,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .delete_turn_refs_after = .{
+            .cwd = "/tmp/faku",
+            .session_id = "00000000-0000-0000-0000-000000000007",
+            .retained_turn_count = 0,
+            .previous_turn_count = 1,
+        } },
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"deleteTurnRefsAfter\",\"cwd\":\"/tmp/faku\",\"session_id\":\"00000000-0000-0000-0000-000000000007\",\"retained_turn_count\":0,\"previous_turn_count\":1}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"session_id\":\"00000000-0000-0000-0000-000000000007\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"00000000-0000-0000-0000-000000000007\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"retained_turn_count\":0") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"previous_turn_count\":1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "retainedTurnCount") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "previousTurnCount") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"deleteSessionRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"copySessionRefs\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"restoreRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"captureRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"hasRef\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"captureTurnStart\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"captureTurn\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"writeTextFile\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":\"deleteTurnRefsAfter\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "amend") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "force") == null);
+    {
+        var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena_state.deinit();
+        const ack = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"ack\"}}}}";
+        try std.testing.expect(isWorkspaceAck(arena_state.allocator(), ack));
+        try std.testing.expect(isWorkspaceSuccess(arena_state.allocator(), ack));
+        try std.testing.expect(!parseWorkspaceBool(arena_state.allocator(), ack).ok);
+        try std.testing.expect(!isWorkspaceAck(arena_state.allocator(), "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"bool\",\"value\":true}}}}"));
+        try std.testing.expect(!isWorkspaceAck(arena_state.allocator(), "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}"));
+        try std.testing.expect(!isWorkspaceAck(arena_state.allocator(), "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":\"ack\"}}}"));
+    }
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeWorkspace(
+        &tiny,
+        "00000000-0000-0000-0000-000000000014",
+        NIL_UUID,
+        NIL_UUID,
+        .{ .delete_turn_refs_after = .{
+            .cwd = "/tmp/faku",
+            .session_id = "00000000-0000-0000-0000-000000000007",
+            .retained_turn_count = 0,
+            .previous_turn_count = 1,
         } },
     ));
 }
