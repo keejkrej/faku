@@ -326,6 +326,8 @@ pub const SkillRow = struct {
 };
 
 /// Settings Usage history row. `id` is a 1-based Native `for` key.
+/// Daily provider rows also carry `share` / `percent` / `has_share`
+/// for first-cut share bars. Monthly / Projects leave those empty.
 pub const UsageHistoryRow = usage_history.Row;
 
 /// Settings Providers row. `id` is 1-based `ProviderId` so Native
@@ -490,6 +492,8 @@ pub const Msg = union(enum) {
     set_usage_window_90d,
     set_usage_window_this_month,
     set_usage_window_last_month,
+    set_usage_share_cost,
+    set_usage_share_tokens,
     refresh_usage_history,
     settings_theme_system,
     settings_theme_light,
@@ -944,6 +948,9 @@ pub const Model = struct {
     /// Default TrailingDays(30). Monthly ignores this and requests
     /// months:12. Not persisted.
     usage_window: usage_history.WindowChoice = .trailing_30,
+    /// Runtime-only Daily Cost | Tokens metric (Waku `UsageMetric`).
+    /// Default Cost. Not persisted. Monthly / Projects ignore this.
+    usage_share_metric: usage_history.ShareMetric = .cost,
     /// In-flight `loadUsageHistory` sidecar. Distinct from workspace
     /// keys so miss cannot settle a live turn or toast Settings.
     daemon_usage_history_key: u64 = 0,
@@ -1670,6 +1677,7 @@ pub const Model = struct {
         "settings_page",
         "usage_view",
         "usage_window",
+        "usage_share_metric",
         "daemon_usage_history_key",
         "daemon_background_work_key",
         "daemon_background_work_session",
@@ -4299,6 +4307,14 @@ pub const Model = struct {
 
     pub fn usage_window_last_month(model: *const Model) bool {
         return model.usage_window == .last_month;
+    }
+
+    pub fn usage_share_cost(model: *const Model) bool {
+        return model.usage_share_metric == .cost;
+    }
+
+    pub fn usage_share_tokens(model: *const Model) bool {
+        return model.usage_share_metric == .tokens;
     }
 
     pub fn has_usage_history(model: *const Model) bool {

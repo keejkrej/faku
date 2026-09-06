@@ -46,9 +46,12 @@
 //! `UsageHistory` keys stay camelCase (`sinceDay`, `untilDay`,
 //! `totalTokens`, `costUsd`, `sessions`, `providers`, `daily`, `months`,
 //! `projects`, …). `UsageProvider` is `claude` | `codex`. Dates stay
-//! opaque strings. Unknown JSON is ignored. Hello stays protocol v4;
+//! opaque strings. Optional `costShare` / `tokenShare` (0..1) are
+//! parsed when present. Unknown JSON is ignored. Hello stays protocol v4;
 //! unknown-command / parse miss fall back quietly to local session
-//! Usage. Not a cost chart, not a rate-table fetch.
+//! Usage. Daily first-cut paints per-provider share bars from those
+//! shares (or client-computed totals). Not a T3 chart, not quality /
+//! rate-table.
 //!
 //! `refreshBackgroundWork` is a bare command. Verified against
 //! egoist/waku `Command::RefreshBackgroundWork` (unit variant, wire
@@ -687,10 +690,14 @@ pub const max_parsed_usage_projects: usize = 16;
 pub const max_usage_project_roots: usize = 32;
 
 /// One `providers[]` row. Slices alias the JSON arena.
+/// `cost_share` / `token_share` are 0 when omitted; Settings Usage
+/// computes from totals when the wire value is missing or zero.
 pub const ParsedUsageProvider = struct {
     provider: []const u8 = "",
     total_tokens: u64 = 0,
     cost_usd: f64 = 0,
+    cost_share: f64 = 0,
+    token_share: f64 = 0,
 };
 
 /// One `daily[]` row. `day` is an opaque date string.
@@ -2509,6 +2516,8 @@ fn parseUsageProviders(value: ?std.json.Value, dest: *[max_parsed_usage_provider
             .provider = provider,
             .total_tokens = jsonU64OrZero(obj.get("totalTokens")),
             .cost_usd = jsonF64Value(obj.get("costUsd")),
+            .cost_share = jsonF64Value(obj.get("costShare")),
+            .token_share = jsonF64Value(obj.get("tokenShare")),
         };
         n += 1;
     }
@@ -5506,7 +5515,11 @@ test "parseUsageHistory reads a minimal usageHistory fixture and ignores unknown
     try std.testing.expectEqualStrings("claude", parsed.providers[0].provider);
     try std.testing.expectEqual(@as(u64, 10000), parsed.providers[0].total_tokens);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), parsed.providers[0].cost_usd, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.8), parsed.providers[0].cost_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.81), parsed.providers[0].token_share, 0.0001);
     try std.testing.expectEqualStrings("codex", parsed.providers[1].provider);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), parsed.providers[1].cost_share, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), parsed.providers[1].token_share, 0.0001);
     try std.testing.expectEqual(@as(usize, 2), parsed.daily_count);
     try std.testing.expectEqualStrings("2026-09-06", parsed.daily[1].day);
     try std.testing.expectEqual(@as(u64, 500), parsed.daily[1].total_tokens);

@@ -323,8 +323,18 @@
                         </if>
                         <text wrap="false" overflow="ellipsis">{usage_headline}</text>
                         <text wrap="false" overflow="ellipsis" foreground="text_muted">{usage_sessions_label}</text>
+                        <row gap="8">
+                          <button variant="ghost" size="sm" selected="{usage_share_cost}" on-press="set_usage_share_cost">Cost</button>
+                          <button variant="ghost" size="sm" selected="{usage_share_tokens}" on-press="set_usage_share_tokens">Tokens</button>
+                        </row>
                         <for each="usage_provider_rows" key="id" as="p">
-                          <text wrap="false" overflow="ellipsis">{p.line}</text>
+                          <column gap="4">
+                            <text wrap="false" overflow="ellipsis">{p.line}</text>
+                            <if test="{p.has_share}">
+                              <progress value="{p.share}" width="48" height="6" label="{p.percent}" />
+                              <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.percent}</text>
+                            </if>
+                          </column>
                         </for>
                         <for each="usage_daily_rows" key="id" as="d">
                           <text wrap="false" overflow="ellipsis" foreground="text_muted">{d.line}</text>
