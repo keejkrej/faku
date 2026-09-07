@@ -11362,7 +11362,7 @@ test "transcript find paints Match chrome on the current turn of every role" {
 
     var i: usize = 0;
     while (i < roles.len) : (i += 1) {
-        var tree = try buildTree(arena, &model);
+        const tree = try buildTree(arena, &model);
         const transcript = try expectByText(tree.root, .scroll_view, "Transcript");
         try testing.expectEqual(@as(usize, 1), countByText(tree.root, .text, "Match"));
         for (roles, 0..) |role, role_i| {
