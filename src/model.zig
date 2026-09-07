@@ -434,11 +434,13 @@ pub const Msg = union(enum) {
     remove_queued: u32,
     /// Click a queued follow-up: restore its text to the composer and drop it.
     edit_queued: u32,
+    /// Cmd/Ctrl-B: collapse/expand the sidebar.
     toggle_sidebar,
     /// Palette / header: open the first-cut Files pane. Default closed.
     show_right_panel,
     /// Palette / Files header: close the Files pane.
     hide_right_panel,
+    /// Cmd/Ctrl-Shift-B: toggle the first-cut Files pane (same as the chrome button).
     toggle_right_panel,
     /// Nested split drag. Fraction is the conversation pane of the inner split.
     right_panel_resized: f32,
