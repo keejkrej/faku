@@ -11743,7 +11743,7 @@ test "cmd-f routes to Files preview find when a preview is open" {
     _ = try expectByText(tree.root, .search_field, "Find in transcript");
     try testing.expect(findByText(tree.root, .search_field, "Find in file") == null);
 
-    if (comptime @hasField(std.meta.FieldType(canvas.WidgetKeyboardEvent, .modifiers), "alt")) {
+    if (comptime @hasField(@FieldType(canvas.WidgetKeyboardEvent, "modifiers"), "alt")) {
         const cmd_alt_f = canvas.WidgetKeyboardEvent{
             .phase = .key_down,
             .key = "f",
