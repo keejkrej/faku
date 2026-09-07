@@ -362,11 +362,18 @@
                         </if>
                         <if test="{usage_breakdown_days}">
                           <if test="{has_usage_daily_chart}">
-                            <chart height="140" y-min="0" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_daily_chart_labels}" label="Daily usage">
-                              <series kind="bar" values="{usage_daily_chart_values}" label="total" />
-                              <series kind="line" values="{usage_daily_chart_claude}" color="info" label="Claude" />
-                              <series kind="line" values="{usage_daily_chart_codex}" color="text_muted" label="Codex" />
-                            </chart>
+                            <if test="{has_usage_daily_chart_y_max}">
+                              <chart height="140" y-min="0" y-max="{usage_daily_chart_y_max}" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_daily_chart_labels}" label="Daily usage">
+                                <series kind="area" values="{usage_daily_chart_claude}" color="info" label="Claude" />
+                                <series kind="area" values="{usage_daily_chart_codex}" color="text_muted" label="Codex" />
+                              </chart>
+                            </if>
+                            <else>
+                              <chart height="140" y-min="0" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_daily_chart_labels}" label="Daily usage">
+                                <series kind="area" values="{usage_daily_chart_claude}" color="info" label="Claude" />
+                                <series kind="area" values="{usage_daily_chart_codex}" color="text_muted" label="Codex" />
+                              </chart>
+                            </else>
                           </if>
                           <for each="usage_daily_rows" key="id" as="d">
                             <column gap="4">
