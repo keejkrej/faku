@@ -11447,6 +11447,78 @@ test "cmd-comma and ctrl-comma open settings via onKey" {
     } else return error.WidgetNotFound;
 }
 
+test "cmd-u and ctrl-u toggle the usage meter via onKey" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expect(model.usage_meter_available());
+    try testing.expect(!model.usage_meter_open);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "u" } }, &fx);
+    try testing.expectEqualStrings("u", model.draft());
+
+    const plain_u = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "u" };
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_u));
+    try testing.expect(!model.usage_meter_open);
+    try testing.expectEqualStrings("u", model.draft());
+
+    var tree = try buildTree(arena, &model);
+    const usage_btn = try expectButtonMsg(tree, "Usage", .toggle_usage_meter);
+    try testing.expect(!usage_btn.state.selected);
+
+    const cmd_u = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "u",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.toggle_usage_meter, keys.onKey(cmd_u).?);
+    main.update(&model, keys.onKey(cmd_u).?, &fx);
+    try testing.expect(model.usage_meter_open);
+    try testing.expectEqualStrings("u", model.draft());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Usage", .toggle_usage_meter)).state.selected);
+    _ = try expectByText(tree.root, .text, "Context window");
+
+    main.update(&model, keys.onKey(cmd_u).?, &fx);
+    try testing.expect(!model.usage_meter_open);
+
+    const ctrl_u = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "U",
+        .modifiers = .{ .control = true },
+    };
+    try testing.expectEqual(Msg.toggle_usage_meter, keys.onKey(ctrl_u).?);
+    main.update(&model, keys.onKey(ctrl_u).?, &fx);
+    try testing.expect(model.usage_meter_open);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Context window");
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+
+    const cmd_k = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "k",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.start_search, keys.onKey(cmd_k).?);
+
+    const cmd_n = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "n",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.new_session, keys.onKey(cmd_n).?);
+}
+
 test "send while busy shows a queued card that dismiss clears" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
