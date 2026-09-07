@@ -142,7 +142,7 @@
 //! substring until `.*` is on; optional ASCII case-sensitivity and whole-word
 //! (`[A-Za-z0-9_]` boundaries). Regex is a self-contained Zig subset (not
 //! the Rust crate). No GPUI match washes. Cap `file_preview_find_max_matches`
-//! (2048; Waku FileSearch is 20k). Runtime-only.
+//! (20000; Waku FileSearch is 20k). Runtime-only.
 //!
 //! Default closed: Waku `RightPanelSessionState::take_or_closed` uses
 //! `empty(false)` and persistence `default_right_panel_visibility` is

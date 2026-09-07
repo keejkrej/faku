@@ -15,9 +15,9 @@
 const std = @import("std");
 const regex = @import("file_preview_regex.zig");
 
-/// Navigable / counted matches. Smaller than Waku's 20k because Native
-/// has no match-wash ranges this cut.
-pub const max_matches: usize = 2048;
+/// Navigable / counted matches. Matches Waku FileSearch's 20k.
+/// Native still has no match-wash ranges this cut.
+pub const max_matches: usize = 20_000;
 
 pub const Scan = struct {
     count: u32 = 0,
@@ -267,8 +267,8 @@ fn eqlSlice(left: []const u8, right: []const u8, case_sensitive: bool) bool {
 }
 
 test "collect is case-sensitive substring and caps" {
-    var starts: [max_matches]u32 = undefined;
-    var ends: [max_matches]u32 = undefined;
+    var starts: [16]u32 = undefined;
+    var ends: [16]u32 = undefined;
     // "Aa" / "AA" match insensitive "aa" only. "Aaa aa" would also
     // match sensitive "aa" at the tail of "Aaa".
     const hay = "Aa aa AA aa";
@@ -331,8 +331,8 @@ test "replace one and replace all on a buffer" {
 }
 
 test "collect and replaceAll respect whole-word ASCII boundaries" {
-    var starts: [max_matches]u32 = undefined;
-    var ends: [max_matches]u32 = undefined;
+    var starts: [16]u32 = undefined;
+    var ends: [16]u32 = undefined;
     const hay = "foo foobar foo_bar foo";
 
     const all = collect(hay, "foo", true, false, false, starts[0..], ends[0..]);
@@ -366,8 +366,8 @@ test "collect and replaceAll respect whole-word ASCII boundaries" {
 }
 
 test "regex collect matches patterns, flags invalid, skips zero-width" {
-    var starts: [max_matches]u32 = undefined;
-    var ends: [max_matches]u32 = undefined;
+    var starts: [16]u32 = undefined;
+    var ends: [16]u32 = undefined;
     const hay = "id: 12, id: 345";
     const digits = collect(hay, "\\d+", false, false, true, starts[0..], ends[0..]);
     try std.testing.expectEqual(@as(u32, 2), digits.count);
@@ -404,8 +404,8 @@ test "regex collect matches patterns, flags invalid, skips zero-width" {
 }
 
 test "regex composes with case and whole-word" {
-    var starts: [max_matches]u32 = undefined;
-    var ends: [max_matches]u32 = undefined;
+    var starts: [16]u32 = undefined;
+    var ends: [16]u32 = undefined;
     const hay = "Foo foo FOO foobar";
     const insensitive = collect(hay, "foo", false, false, true, starts[0..], ends[0..]);
     try std.testing.expectEqual(@as(u32, 4), insensitive.count);
@@ -450,6 +450,28 @@ test "regex replace expands captures; plain keeps dollar" {
 
     const escaped_dollar = replaceAll("ab", "(a)(b)", "$$1$2", false, false, true, dest[0..]).?;
     try std.testing.expectEqualStrings("$1b", escaped_dollar);
+}
+
+test "collect limited when starts/ends fill max_matches" {
+    try std.testing.expectEqual(@as(usize, 20_000), max_matches);
+    const allocator = std.testing.allocator;
+    const starts = try allocator.alloc(u32, max_matches);
+    defer allocator.free(starts);
+    const ends = try allocator.alloc(u32, max_matches);
+    defer allocator.free(ends);
+
+    const extra: usize = 3;
+    const hay = try allocator.alloc(u8, max_matches + extra);
+    defer allocator.free(hay);
+    @memset(hay, 'a');
+
+    const scan = collect(hay, "a", true, false, false, starts, ends);
+    try std.testing.expectEqual(@as(u32, @intCast(max_matches)), scan.count);
+    try std.testing.expect(scan.limited);
+    try std.testing.expect(!scan.invalid);
+    try std.testing.expectEqual(@as(u32, 0), starts[0]);
+    try std.testing.expectEqual(@as(u32, 1), ends[0]);
+    try std.testing.expectEqual(@as(u32, @intCast(max_matches - 1)), starts[max_matches - 1]);
 }
 
 test "lineNumberAt is 1-based" {
