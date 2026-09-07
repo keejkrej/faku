@@ -10,15 +10,18 @@
 //! keeps local context and a muted connect hint. JSON-null `usage` is
 //! unconfigured. Unknown-command / parse miss keep a prior snapshot
 //! or a muted error. Native 4 KiB stdin overflow does not toast.
-//! Closing the panel leaves the runtime cache. Refresh re-spawns
+//! Closing the panel leaves the runtime map. Refresh re-spawns
 //! immediately (cancel in-flight). First-cut Waku cadence ships as
 //! `maybeRefresh` on the existing `now_ms` / update tick (Native has
 //! no dedicated timer): 300s idle, 600s Grok, 30s when the selected
 //! path is stale (panel open / turn settle), 90s after a fetch error.
-//! In-flight skips; unset `checked_at` may fire once when eligible.
-//! Open marks stale then still fetches immediately. Hello stays v4.
-//! Still not a circular GPUI gauge, not LiteLLM, not a full
-//! per-provider plan map.
+//! In-flight skips; unset per-provider `checked_at` may fire once
+//! when eligible. Open marks the selected slot stale then still
+//! fetches immediately. Hello stays v4. First-cut plan_usage map is
+//! four runtime slots (Claude / Codex / OpenCode / Grok), not a
+//! HashMap. Switching session/provider shows that slot immediately
+//! and does not clear the others. Still not a circular GPUI gauge,
+//! not LiteLLM.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -87,6 +90,50 @@ pub const Cache = struct {
     }
 };
 
+/// One provider's runtime snapshot plus Waku-shaped cadence fields.
+pub const Slot = struct {
+    cache: Cache = .{},
+    /// Last settled `fetchPlanUsage` for this provider (`now_ms`).
+    /// Null until the first applyLine / handleExit. Runtime-only.
+    checked_at: ?i64 = null,
+    /// This provider's path is stale (panel open or a settled turn
+    /// moved rate-limit needles). Runtime-only; cleared when a fetch
+    /// for this provider settles.
+    stale: bool = false,
+};
+
+/// First-cut plan_usage map: four runtime slots for the closed
+/// `isPlanUsageProvider` set. Not a HashMap — the set is Claude /
+/// Codex / OpenCode / Grok. Adopt / error write the pending
+/// provider's slot; view helpers read the selected slot. Switching
+/// session/provider must not clear the other three.
+pub const Map = struct {
+    claude: Slot = .{ .cache = .{ .provider = .claude } },
+    codex: Slot = .{ .cache = .{ .provider = .codex } },
+    opencode: Slot = .{ .cache = .{ .provider = .opencode } },
+    grok: Slot = .{ .cache = .{ .provider = .grok } },
+
+    pub fn get(self: *Map, id: ProviderId) ?*Slot {
+        return switch (id) {
+            .claude => &self.claude,
+            .codex => &self.codex,
+            .opencode => &self.opencode,
+            .grok => &self.grok,
+            else => null,
+        };
+    }
+
+    pub fn getConst(self: *const Map, id: ProviderId) ?*const Slot {
+        return switch (id) {
+            .claude => &self.claude,
+            .codex => &self.codex,
+            .opencode => &self.opencode,
+            .grok => &self.grok,
+            else => null,
+        };
+    }
+};
+
 pub fn isPlanUsageProvider(id: ProviderId) bool {
     return switch (id) {
         .claude, .codex, .opencode, .grok => true,
@@ -103,9 +150,45 @@ pub fn selectedProvider(model: *const Model) ?ProviderId {
     return session.provider;
 }
 
+pub fn slot(model: *Model, id: ProviderId) ?*Slot {
+    return model.plan_usage.get(id);
+}
+
+pub fn slotConst(model: *const Model, id: ProviderId) ?*const Slot {
+    return model.plan_usage.getConst(id);
+}
+
+pub fn selectedSlot(model: *Model) ?*Slot {
+    return slot(model, selectedProvider(model) orelse return null);
+}
+
+pub fn selectedSlotConst(model: *const Model) ?*const Slot {
+    return slotConst(model, selectedProvider(model) orelse return null);
+}
+
+pub fn selectedCache(model: *const Model) ?*const Cache {
+    const found = selectedSlotConst(model) orelse return null;
+    return &found.cache;
+}
+
+pub fn selectedStale(model: *const Model) bool {
+    const found = selectedSlotConst(model) orelse return false;
+    return found.stale;
+}
+
+pub fn selectedCheckedAt(model: *const Model) ?i64 {
+    const found = selectedSlotConst(model) orelse return null;
+    return found.checked_at;
+}
+
 fn cacheMatches(model: *const Model) bool {
     const provider = selectedProvider(model) orelse return false;
-    return model.plan_usage.provider == provider;
+    const found = slotConst(model, provider) orelse return false;
+    return found.cache.provider == provider;
+}
+
+fn slotHasSnapshot(found: *const Slot) bool {
+    return found.cache.present or found.cache.unconfigured or found.cache.errored;
 }
 
 fn cancelInFlight(model: *Model, fx: *Effects) void {
@@ -141,8 +224,9 @@ pub fn refresh(model: *Model, fx: *Effects) void {
     ensure(model, fx, true);
 }
 
-/// Session / provider change: keep a matching cache, else load when
-/// the panel is open.
+/// Session / provider change: show the selected provider's slot
+/// immediately when it already has a snapshot (or unconfigured /
+/// errored). Else load when the panel is open. Other slots stay.
 pub fn onSessionChange(model: *Model, fx: *Effects) void {
     if (!model.usage_meter_open) return;
     ensure(model, fx, false);
@@ -151,16 +235,18 @@ pub fn onSessionChange(model: *Model, fx: *Effects) void {
 /// First-cut Waku `maybe_refresh_plan_usage` on the selected provider
 /// path. Skips when the selected id is not a plan-usage provider, no
 /// daemon address, or a sidecar is already in flight. Interval is
-/// error → 90s, else stale → 30s, else Grok → 600s, else 300s.
-/// Unset `last_plan_usage_checked_ms` may fire once when eligible.
-/// Does not cancel in-flight (open / Refresh stay the force path).
+/// error → 90s, else stale → 30s, else Grok → 600s, else 300s, all
+/// from that provider's slot. Unset per-provider `checked_at` may
+/// fire once when eligible. Does not cancel in-flight (open /
+/// Refresh stay the force path).
 pub fn maybeRefresh(model: *Model, fx: *Effects) void {
     if (model.daemon_plan_usage_key != 0) return;
     const provider = selectedProvider(model) orelse return;
     if (!isPlanUsageProvider(provider)) return;
     if (store.resolveDaemonMirrorAddress(model).len == 0) return;
-    if (model.last_plan_usage_checked_ms) |last| {
-        if (model.now_ms >= last and model.now_ms - last < refreshIntervalMs(model, provider)) {
+    const found = slotConst(model, provider) orelse return;
+    if (found.checked_at) |last| {
+        if (model.now_ms >= last and model.now_ms - last < refreshIntervalMs(found, provider)) {
             return;
         }
     }
@@ -168,31 +254,34 @@ pub fn maybeRefresh(model: *Model, fx: *Effects) void {
 }
 
 /// Waku `TurnFinished`: a settled turn moved rate-limit needles.
-/// Marks the selected-path stale flag when that session's provider
-/// is Claude / Codex / OpenCode / Grok. Next `maybeRefresh` uses 30s
-/// unless a fetch error still owns the 90s retry.
+/// Marks that session's provider slot stale when the provider is
+/// Claude / Codex / OpenCode / Grok. Next `maybeRefresh` on that
+/// selected path uses 30s unless a fetch error still owns the 90s
+/// retry. Other providers' slots stay.
 pub fn markStaleForSession(model: *Model, session_id: u32) void {
     const session = model.sessionByIdConst(session_id) orelse return;
     if (!isPlanUsageProvider(session.provider)) return;
-    model.plan_usage_stale = true;
+    const found = slot(model, session.provider) orelse return;
+    found.stale = true;
 }
 
 fn markSelectedStale(model: *Model) void {
-    const provider = selectedProvider(model) orelse return;
-    if (!isPlanUsageProvider(provider)) return;
-    model.plan_usage_stale = true;
+    const found = selectedSlot(model) orelse return;
+    if (!isPlanUsageProvider(found.cache.provider)) return;
+    found.stale = true;
 }
 
-fn refreshIntervalMs(model: *const Model, provider: ProviderId) i64 {
-    if (cacheMatches(model) and model.plan_usage.errored) return plan_usage_retry_ms;
-    if (model.plan_usage_stale) return plan_usage_refresh_stale_ms;
+fn refreshIntervalMs(found: *const Slot, provider: ProviderId) i64 {
+    if (found.cache.errored) return plan_usage_retry_ms;
+    if (found.stale) return plan_usage_refresh_stale_ms;
     if (provider == .grok) return plan_usage_refresh_grok_ms;
     return plan_usage_refresh_ms;
 }
 
-fn noteFetchSettled(model: *Model) void {
-    model.plan_usage_stale = false;
-    model.last_plan_usage_checked_ms = model.now_ms;
+fn noteFetchSettled(model: *Model, provider: ProviderId) void {
+    const found = slot(model, provider) orelse return;
+    found.stale = false;
+    found.checked_at = model.now_ms;
 }
 
 fn ensure(model: *Model, fx: *Effects, force: bool) void {
@@ -203,11 +292,10 @@ fn ensure(model: *Model, fx: *Effects, force: bool) void {
     }
     if (!force) {
         if (model.daemon_plan_usage_key != 0 and model.daemon_plan_usage_provider == provider) return;
-        if (cacheMatches(model) and (model.plan_usage.present or model.plan_usage.unconfigured)) {
-            if (model.daemon_plan_usage_key != 0 and model.daemon_plan_usage_provider != provider) {
-                cancelInFlight(model, fx);
+        if (slotConst(model, provider)) |found| {
+            if (slotHasSnapshot(found)) {
+                return;
             }
-            return;
         }
     }
     cancelInFlight(model, fx);
@@ -228,7 +316,9 @@ fn trySpawn(model: *Model, fx: *Effects, provider: ProviderId) bool {
     model.next_daemon_key += 1;
     model.daemon_plan_usage_key = key;
     model.daemon_plan_usage_provider = provider;
-    model.plan_usage.adopted_ok = false;
+    if (slot(model, provider)) |found| {
+        found.cache.adopted_ok = false;
+    }
     fx.spawn(.{
         .key = key,
         .argv = &.{ model.sidecarPath(), daemon_proxy.SUBCOMMAND, address },
@@ -269,23 +359,25 @@ pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
     defer arena_state.deinit();
     const parsed = protocol.parsePlanUsage(arena_state.allocator(), line.line);
     if (!parsed.ok) return;
-    adopt(&model.plan_usage, model.daemon_plan_usage_provider, parsed);
-    noteFetchSettled(model);
+    const pending = model.daemon_plan_usage_provider;
+    const found = slot(model, pending) orelse return;
+    adopt(&found.cache, pending, parsed);
+    noteFetchSettled(model, pending);
 }
 
 pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
     if (exit.key != model.daemon_plan_usage_key or model.daemon_plan_usage_key == 0) return;
     const pending = model.daemon_plan_usage_provider;
     model.daemon_plan_usage_key = 0;
-    noteFetchSettled(model);
-    if (model.plan_usage.adopted_ok) return;
-    model.plan_usage.errored = true;
-    if (model.plan_usage.present and model.plan_usage.provider == pending) return;
-    model.plan_usage.provider = pending;
-    model.plan_usage.present = false;
-    model.plan_usage.unconfigured = false;
-    model.plan_usage.window_count = 0;
-    model.plan_usage.plan_label_len = 0;
+    noteFetchSettled(model, pending);
+    const found = slot(model, pending) orelse return;
+    if (found.cache.adopted_ok) return;
+    found.cache.errored = true;
+    if (found.cache.present) return;
+    found.cache.provider = pending;
+    found.cache.unconfigured = false;
+    found.cache.window_count = 0;
+    found.cache.plan_label_len = 0;
 }
 
 fn copyArena(arena: std.mem.Allocator, text: []const u8) []const u8 {
@@ -328,8 +420,9 @@ pub fn contextLabel(model: *const Model, arena: std.mem.Allocator) []const u8 {
 }
 
 pub fn planHeader(model: *const Model, arena: std.mem.Allocator) []const u8 {
-    if (!cacheMatches(model) or !model.plan_usage.present) return "Plan limits";
-    const label = model.plan_usage.planLabel();
+    const cache = selectedCache(model) orelse return "Plan limits";
+    if (!cacheMatches(model) or !cache.present) return "Plan limits";
+    const label = cache.planLabel();
     if (label.len == 0) return "Plan limits";
     var buf: [max_line]u8 = undefined;
     const text = std.fmt.bufPrint(&buf, "Plan limits · {s}", .{label}) catch return "Plan limits";
@@ -337,13 +430,14 @@ pub fn planHeader(model: *const Model, arena: std.mem.Allocator) []const u8 {
 }
 
 pub fn planRows(model: *const Model, arena: std.mem.Allocator) []Row {
-    if (!cacheMatches(model) or !model.plan_usage.present) return &.{};
-    const count = model.plan_usage.window_count;
+    const cache = selectedCache(model) orelse return &.{};
+    if (!cacheMatches(model) or !cache.present) return &.{};
+    const count = cache.window_count;
     if (count == 0) return &.{};
     const rows = arena.alloc(Row, count) catch return &.{};
     var i: usize = 0;
     while (i < count) : (i += 1) {
-        const window = model.plan_usage.windows[i];
+        const window = cache.windows[i];
         const share = clampShare(window.percent);
         var percent_buf: [16]u8 = undefined;
         const percent = std.fmt.bufPrint(&percent_buf, "{d:.0}%", .{window.percent}) catch "";
@@ -365,16 +459,14 @@ pub fn hint(model: *const Model) []const u8 {
     const provider = selectedProvider(model) orelse return "";
     if (!isPlanUsageProvider(provider)) return "";
     if (store.resolveDaemonMirrorAddress(model).len == 0) return connect_hint;
+    const cache = selectedCache(model) orelse return "";
     if (model.daemon_plan_usage_key != 0 and model.daemon_plan_usage_provider == provider) {
-        if (!(cacheMatches(model) and (model.plan_usage.present or model.plan_usage.unconfigured))) {
+        if (!(cache.present or cache.unconfigured)) {
             return loading_hint;
         }
     }
-    if (cacheMatches(model) and model.plan_usage.unconfigured) return unconfigured_hint;
-    if (cacheMatches(model) and model.plan_usage.errored and !model.plan_usage.present) {
-        return unavailable_hint;
-    }
-    if (model.daemon_plan_usage_key == 0 and !cacheMatches(model)) return "";
+    if (cache.unconfigured) return unconfigured_hint;
+    if (cache.errored and !cache.present) return unavailable_hint;
     return "";
 }
 
@@ -387,6 +479,7 @@ fn pendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
 }
 
 const plan_usage_ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000018\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"planUsage\",\"usage\":{\"planLabel\":\"Max (5x)\",\"windows\":[{\"label\":\"Session\",\"percent\":42,\"resetsAt\":1750003600},{\"label\":\"Weekly\",\"percent\":80,\"resetsAt\":1750086400}]}}}}";
+const plan_usage_codex_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000018\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"planUsage\",\"usage\":{\"planLabel\":\"Plus\",\"windows\":[{\"label\":\"5h\",\"percent\":10,\"resetsAt\":1750003600}]}}}}";
 const plan_usage_null_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000018\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"planUsage\",\"usage\":null}}}";
 const plan_usage_ack_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000018\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}";
 
@@ -416,7 +509,7 @@ test "panel open without a daemon keeps local context and a muted connect hint" 
     model.selected = id;
     open(&model, &fx);
     try std.testing.expect(model.usage_meter_open);
-    try std.testing.expect(model.plan_usage_stale);
+    try std.testing.expect(model.plan_usage.claude.stale);
     try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
     try std.testing.expectEqualStrings(connect_hint, hint(&model));
     try std.testing.expectEqualStrings(nothing_measured, contextLabel(&model, arena));
@@ -439,7 +532,7 @@ test "panel open with a daemon address spawns fetchPlanUsage sidecar" {
     model.selected = id;
 
     open(&model, &fx);
-    try std.testing.expect(model.plan_usage_stale);
+    try std.testing.expect(model.plan_usage.opencode.stale);
     const sidecar = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingDaemonFetchPlanUsage;
     try std.testing.expect(daemon_proxy.isSidecarArgv(sidecar.argv));
     try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
@@ -470,7 +563,7 @@ test "fx session does not spawn fetchPlanUsage" {
     model.selected = id;
     open(&model, &fx);
     try std.testing.expect(model.usage_meter_open);
-    try std.testing.expect(!model.plan_usage_stale);
+    try std.testing.expect(!selectedStale(&model));
     try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
     try std.testing.expectEqualStrings("", hint(&model));
 }
@@ -495,18 +588,18 @@ test "FetchPlanUsage sidecar paints lanes; null usage is unconfigured; miss keep
     open(&model, &fx);
     const sidecar = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingDaemonFetchPlanUsageFill;
     applyLine(&model, .{ .key = sidecar.key, .line = plan_usage_ack_line });
-    try std.testing.expect(!model.plan_usage.present);
+    try std.testing.expect(!model.plan_usage.claude.cache.present);
     applyLine(&model, .{ .key = sidecar.key, .line = plan_usage_ok_line });
-    try std.testing.expect(model.plan_usage.present);
-    try std.testing.expectEqual(ProviderId.claude, model.plan_usage.provider);
-    try std.testing.expectEqualStrings("Max (5x)", model.plan_usage.planLabel());
-    try std.testing.expectEqual(@as(usize, 2), model.plan_usage.window_count);
-    try std.testing.expectEqualStrings("Session", model.plan_usage.windows[0].label());
-    try std.testing.expectApproxEqAbs(@as(f64, 42), model.plan_usage.windows[0].percent, 0.0001);
+    try std.testing.expect(model.plan_usage.claude.cache.present);
+    try std.testing.expectEqual(ProviderId.claude, model.plan_usage.claude.cache.provider);
+    try std.testing.expectEqualStrings("Max (5x)", model.plan_usage.claude.cache.planLabel());
+    try std.testing.expectEqual(@as(usize, 2), model.plan_usage.claude.cache.window_count);
+    try std.testing.expectEqualStrings("Session", model.plan_usage.claude.cache.windows[0].label());
+    try std.testing.expectApproxEqAbs(@as(f64, 42), model.plan_usage.claude.cache.windows[0].percent, 0.0001);
     handleExit(&model, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
-    try std.testing.expect(!model.plan_usage_stale);
-    try std.testing.expectEqual(@as(?i64, 1_750_000_000_000), model.last_plan_usage_checked_ms);
+    try std.testing.expect(!model.plan_usage.claude.stale);
+    try std.testing.expectEqual(@as(?i64, 1_750_000_000_000), model.plan_usage.claude.checked_at);
     try std.testing.expectEqualStrings("Plan limits · Max (5x)", planHeader(&model, arena));
     const rows = planRows(&model, arena);
     try std.testing.expectEqual(@as(usize, 2), rows.len);
@@ -523,10 +616,10 @@ test "FetchPlanUsage sidecar paints lanes; null usage is unconfigured; miss keep
     const miss = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingDaemonFetchPlanUsageMiss;
     applyLine(&model, .{ .key = miss.key, .line = plan_usage_ack_line });
     handleExit(&model, .{ .key = miss.key, .reason = .exited, .code = 1 });
-    try std.testing.expect(model.plan_usage.present);
-    try std.testing.expect(model.plan_usage.errored);
-    try std.testing.expect(!model.plan_usage_stale);
-    try std.testing.expectEqualStrings("Max (5x)", model.plan_usage.planLabel());
+    try std.testing.expect(model.plan_usage.claude.cache.present);
+    try std.testing.expect(model.plan_usage.claude.cache.errored);
+    try std.testing.expect(!model.plan_usage.claude.stale);
+    try std.testing.expectEqualStrings("Max (5x)", model.plan_usage.claude.cache.planLabel());
     try std.testing.expectEqual(@as(usize, 2), planRows(&model, arena).len);
     try std.testing.expectEqual(@as(usize, 0), model.window_status_len);
 
@@ -534,8 +627,8 @@ test "FetchPlanUsage sidecar paints lanes; null usage is unconfigured; miss keep
     const nulled = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingDaemonFetchPlanUsageNull;
     applyLine(&model, .{ .key = nulled.key, .line = plan_usage_null_line });
     handleExit(&model, .{ .key = nulled.key, .reason = .exited, .code = 0 });
-    try std.testing.expect(!model.plan_usage.present);
-    try std.testing.expect(model.plan_usage.unconfigured);
+    try std.testing.expect(!model.plan_usage.claude.cache.present);
+    try std.testing.expect(model.plan_usage.claude.cache.unconfigured);
     try std.testing.expectEqual(@as(usize, 0), planRows(&model, arena).len);
     try std.testing.expectEqualStrings(unconfigured_hint, hint(&model));
 }
@@ -557,11 +650,11 @@ test "miss without a prior snapshot shows a muted error; overflow keeps context"
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"provider\":\"grok\"") != null);
     applyLine(&model, .{ .key = sidecar.key, .line = plan_usage_ack_line });
     handleExit(&model, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
-    try std.testing.expect(!model.plan_usage.present);
-    try std.testing.expect(model.plan_usage.errored);
-    try std.testing.expect(!model.plan_usage_stale);
-    try std.testing.expectEqual(@as(?i64, 0), model.last_plan_usage_checked_ms);
-    try std.testing.expectEqual(ProviderId.grok, model.plan_usage.provider);
+    try std.testing.expect(!model.plan_usage.grok.cache.present);
+    try std.testing.expect(model.plan_usage.grok.cache.errored);
+    try std.testing.expect(!model.plan_usage.grok.stale);
+    try std.testing.expectEqual(@as(?i64, 0), model.plan_usage.grok.checked_at);
+    try std.testing.expectEqual(ProviderId.grok, model.plan_usage.grok.cache.provider);
     try std.testing.expectEqualStrings(unavailable_hint, hint(&model));
     try std.testing.expectEqual(@as(u64, 100), model.sessionById(id).?.context_used);
 
@@ -607,6 +700,12 @@ fn finishPlanUsageOk(model: *Model) void {
     handleExit(model, .{ .key = key, .reason = .exited, .code = 0 });
 }
 
+fn finishPlanUsageLine(model: *Model, line: []const u8) void {
+    const key = model.daemon_plan_usage_key;
+    applyLine(model, .{ .key = key, .line = line });
+    handleExit(model, .{ .key = key, .reason = .exited, .code = 0 });
+}
+
 fn finishPlanUsageErr(model: *Model) void {
     const key = model.daemon_plan_usage_key;
     applyLine(model, .{ .key = key, .line = plan_usage_ack_line });
@@ -619,13 +718,13 @@ test "maybeRefresh skips inside 300s; unset checked_at fires once" {
     fx.executor = .fake;
 
     var model = seedCadenceModel(.claude);
-    try std.testing.expectEqual(@as(?i64, null), model.last_plan_usage_checked_ms);
+    try std.testing.expectEqual(@as(?i64, null), selectedCheckedAt(&model));
     maybeRefresh(&model, &fx);
     const first = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingUnsetCheckedAt;
     try std.testing.expect(std.mem.indexOf(u8, first.stdin, "\"type\":\"fetchPlanUsage\"") != null);
     finishPlanUsageOk(&model);
-    try std.testing.expectEqual(@as(?i64, 10_000), model.last_plan_usage_checked_ms);
-    try std.testing.expect(!model.plan_usage_stale);
+    try std.testing.expectEqual(@as(?i64, 10_000), selectedCheckedAt(&model));
+    try std.testing.expect(!selectedStale(&model));
 
     maybeRefresh(&model, &fx);
     try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
@@ -674,7 +773,7 @@ test "maybeRefresh uses 30s when stale" {
     maybeRefresh(&model, &fx);
     finishPlanUsageOk(&model);
     markStaleForSession(&model, model.selected);
-    try std.testing.expect(model.plan_usage_stale);
+    try std.testing.expect(selectedStale(&model));
 
     model.now_ms = 10_000 + plan_usage_refresh_stale_ms - 1;
     maybeRefresh(&model, &fx);
@@ -693,10 +792,10 @@ test "maybeRefresh uses 90s after a fetch error" {
     var model = seedCadenceModel(.claude);
     maybeRefresh(&model, &fx);
     finishPlanUsageErr(&model);
-    try std.testing.expect(model.plan_usage.errored);
-    try std.testing.expect(!model.plan_usage_stale);
+    try std.testing.expect(model.plan_usage.claude.cache.errored);
+    try std.testing.expect(!selectedStale(&model));
     markStaleForSession(&model, model.selected);
-    try std.testing.expect(model.plan_usage_stale);
+    try std.testing.expect(selectedStale(&model));
 
     model.now_ms = 10_000 + plan_usage_refresh_stale_ms;
     maybeRefresh(&model, &fx);
@@ -732,24 +831,25 @@ test "open marks stale then still fetches immediately" {
     fx.executor = .fake;
 
     var model = seedCadenceModel(.claude);
-    model.last_plan_usage_checked_ms = 10_000;
+    model.plan_usage.claude.checked_at = 10_000;
     open(&model, &fx);
-    try std.testing.expect(model.plan_usage_stale);
+    try std.testing.expect(selectedStale(&model));
     const sidecar = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingOpenForceFetch;
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"fetchPlanUsage\"") != null);
 }
 
 test "turn settle marks stale for plan-usage providers only" {
     var model = seedCadenceModel(.claude);
-    try std.testing.expect(!model.plan_usage_stale);
+    try std.testing.expect(!selectedStale(&model));
     markStaleForSession(&model, model.selected);
-    try std.testing.expect(model.plan_usage_stale);
+    try std.testing.expect(selectedStale(&model));
 
     var fx_model = seedCadenceModel(.fx);
     markStaleForSession(&fx_model, fx_model.selected);
-    try std.testing.expect(!fx_model.plan_usage_stale);
+    try std.testing.expect(!selectedStale(&fx_model));
+    try std.testing.expect(!fx_model.plan_usage.claude.stale);
     markStaleForSession(&fx_model, 0);
-    try std.testing.expect(!fx_model.plan_usage_stale);
+    try std.testing.expect(!selectedStale(&fx_model));
 }
 
 test "update tick path maybeRefresh after 300s; open path still immediate" {
@@ -770,7 +870,7 @@ test "update tick path maybeRefresh after 300s; open path still immediate" {
     const open_key = model.daemon_plan_usage_key;
     try std.testing.expect(open_key != 0);
     finishPlanUsageOk(&model);
-    try std.testing.expectEqual(@as(?i64, 1_000), model.last_plan_usage_checked_ms);
+    try std.testing.expectEqual(@as(?i64, 1_000), selectedCheckedAt(&model));
 
     clock.setWallMs(1_000 + plan_usage_refresh_ms - 1);
     main.update(&model, .close_environment_summary, &fx);
@@ -781,10 +881,97 @@ test "update tick path maybeRefresh after 300s; open path still immediate" {
     const tick = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingUpdateTickPlanUsage;
     try std.testing.expect(tick.key != open_key);
     try std.testing.expect(std.mem.indexOf(u8, tick.stdin, "\"type\":\"fetchPlanUsage\"") != null);
-    try std.testing.expectEqual(@as(?i64, 1_000), model.last_plan_usage_checked_ms);
+    try std.testing.expectEqual(@as(?i64, 1_000), selectedCheckedAt(&model));
 
     finishPlanUsageOk(&model);
     open(&model, &fx);
     const forced = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingOpenAfterTick;
     try std.testing.expect(forced.key != tick.key);
+}
+
+test "Claude cache survives switch to Codex and back without forced refetch when still fresh" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = seedCadenceModel(.claude);
+    const claude_id = model.selected;
+    const codex_id = model.addSession("usage cadence codex", .codex);
+
+    open(&model, &fx);
+    finishPlanUsageOk(&model);
+    try std.testing.expect(model.plan_usage.claude.cache.present);
+    try std.testing.expectEqualStrings("Max (5x)", model.plan_usage.claude.cache.planLabel());
+    try std.testing.expectEqual(@as(?i64, 10_000), model.plan_usage.claude.checked_at);
+    try std.testing.expect(!model.plan_usage.codex.cache.present);
+
+    model.selected = codex_id;
+    onSessionChange(&model, &fx);
+    const codex_spawn = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingCodexFetchAfterSwitch;
+    try std.testing.expect(std.mem.indexOf(u8, codex_spawn.stdin, "\"provider\":\"codex\"") != null);
+    try std.testing.expect(model.plan_usage.claude.cache.present);
+    try std.testing.expectEqualStrings("Max (5x)", model.plan_usage.claude.cache.planLabel());
+    finishPlanUsageLine(&model, plan_usage_codex_line);
+    try std.testing.expect(model.plan_usage.codex.cache.present);
+    try std.testing.expectEqualStrings("Plus", model.plan_usage.codex.cache.planLabel());
+    try std.testing.expectEqualStrings("5h", model.plan_usage.codex.cache.windows[0].label());
+    try std.testing.expectEqualStrings("Plan limits · Plus", planHeader(&model, arena));
+    try std.testing.expectEqual(@as(usize, 1), planRows(&model, arena).len);
+
+    model.now_ms = 10_000 + 1_000;
+    model.selected = claude_id;
+    onSessionChange(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+    try std.testing.expectEqualStrings("Plan limits · Max (5x)", planHeader(&model, arena));
+    try std.testing.expectEqual(@as(usize, 2), planRows(&model, arena).len);
+    try std.testing.expectEqualStrings("Session", planRows(&model, arena)[0].line);
+    try std.testing.expect(model.plan_usage.codex.cache.present);
+    try std.testing.expectEqualStrings("Plus", model.plan_usage.codex.cache.planLabel());
+
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+}
+
+test "per-provider stale and checked_at isolation" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = seedCadenceModel(.claude);
+    const claude_id = model.selected;
+    const grok_id = model.addSession("usage cadence grok", .grok);
+
+    maybeRefresh(&model, &fx);
+    finishPlanUsageOk(&model);
+    markStaleForSession(&model, claude_id);
+    try std.testing.expect(model.plan_usage.claude.stale);
+    try std.testing.expectEqual(@as(?i64, 10_000), model.plan_usage.claude.checked_at);
+    try std.testing.expect(!model.plan_usage.grok.stale);
+    try std.testing.expectEqual(@as(?i64, null), model.plan_usage.grok.checked_at);
+
+    model.selected = grok_id;
+    maybeRefresh(&model, &fx);
+    const grok_spawn = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingGrokFetchAfterSwitch;
+    try std.testing.expect(std.mem.indexOf(u8, grok_spawn.stdin, "\"provider\":\"grok\"") != null);
+    finishPlanUsageErr(&model);
+    try std.testing.expect(model.plan_usage.grok.cache.errored);
+    try std.testing.expect(!model.plan_usage.grok.cache.present);
+    try std.testing.expectEqual(@as(?i64, 10_000), model.plan_usage.grok.checked_at);
+    try std.testing.expect(model.plan_usage.claude.cache.present);
+    try std.testing.expect(model.plan_usage.claude.stale);
+    try std.testing.expectEqual(@as(?i64, 10_000), model.plan_usage.claude.checked_at);
+    try std.testing.expectEqualStrings("Max (5x)", model.plan_usage.claude.cache.planLabel());
+
+    model.now_ms = 10_000 + plan_usage_refresh_stale_ms;
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+
+    model.selected = claude_id;
+    maybeRefresh(&model, &fx);
+    const stale_claude = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingClaudeStaleAfterGrok;
+    try std.testing.expect(std.mem.indexOf(u8, stale_claude.stdin, "\"provider\":\"claude\"") != null);
 }
