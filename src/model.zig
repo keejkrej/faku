@@ -44,6 +44,7 @@ const session_workspace = @import("session_workspace.zig");
 const pick_folder = @import("pick_folder.zig");
 const usage_history = @import("usage_history.zig");
 const usage_meter = @import("usage_meter.zig");
+const litellm_rates = @import("litellm_rates.zig");
 
 const canvas = native_sdk.canvas;
 const main = @import("main.zig");
@@ -1009,6 +1010,17 @@ pub const Model = struct {
     daemon_stop_background_id_len: usize = 0,
     /// First-cut daemon usage history cache. Runtime only.
     usage_history: usage_history.Cache = .{},
+    /// First-cut LiteLLM rate table. Runtime only; compact cache lives
+    /// beside sessions.json. Not mixed into the session catalog.
+    litellm_rates: litellm_rates.Table = .{},
+    /// In-flight curl for LiteLLM `model_prices_and_context_window.json`.
+    /// Fixed key `litellm_rates_key` (650). Native has no HTTP effect.
+    litellm_rates_live: bool = false,
+    /// True after a curl sidecar settles (success or miss). Distinguishes
+    /// default Unavailable (no fetch yet) from a finished miss.
+    litellm_rates_settled: bool = false,
+    litellm_rates_raw_storage: [litellm_rates.max_rates_path]u8 = [_]u8{0} ** litellm_rates.max_rates_path,
+    litellm_rates_raw_len: usize = 0,
     /// Persisted chrome theme. Default System (OS-follow).
     theme_preference: ThemePreference = .system,
     /// Persisted chrome language. Default System (LC_ALL / LC_MESSAGES / LANG).
@@ -1734,6 +1746,11 @@ pub const Model = struct {
         "daemon_stop_background_id_storage",
         "daemon_stop_background_id_len",
         "usage_history",
+        "litellm_rates",
+        "litellm_rates_live",
+        "litellm_rates_settled",
+        "litellm_rates_raw_storage",
+        "litellm_rates_raw_len",
         "theme_preference",
         "setThemePreference",
         "language_preference",
@@ -4501,6 +4518,19 @@ pub const Model = struct {
 
     pub fn usage_notice_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {
         return usage_history.noticeRows(model, arena);
+    }
+
+    pub fn has_usage_rates_status(model: *const Model) bool {
+        if (!model.has_usage_history()) return false;
+        return switch (model.litellm_rates.status) {
+            .fresh, .cached => true,
+            .unavailable => model.litellm_rates_settled,
+        };
+    }
+
+    pub fn usage_rates_status(model: *const Model) []const u8 {
+        if (!model.has_usage_rates_status()) return "";
+        return litellm_rates.statusLabel(model.litellm_rates.status);
     }
 
     pub fn has_usage_quality(model: *const Model) bool {

@@ -12810,6 +12810,60 @@ test "settings Usage Daily paints Cost quality and rates-unavailable notice" {
     _ = try expectByText(tree.root, .text, "53k / 200k");
 }
 
+test "settings Usage Daily paints LiteLLM Rates cached and a model-row per-MTok hint" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    defer model.litellm_rates.deinit();
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.selected;
+    if (model.sessionById(id)) |session| {
+        session.setProjectPath("/tmp/faku");
+        session.setContextUsage(53_000, 200_000);
+    }
+
+    main.update(&model, .toggle_settings, &fx);
+    main.update(&model, .set_settings_page_usage, &fx);
+
+    var spawn_i: usize = 0;
+    const sidecar = while (fx.pendingSpawnAt(spawn_i)) |spawn| : (spawn_i += 1) {
+        if (spawn.key == model.daemon_usage_history_key) break spawn;
+    } else return error.MissingDaemonLoadUsageHistoryRates;
+    main.update(&model, .{ .fx_line = .{
+        .key = sidecar.key,
+        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"window\":{\"trailingDays\":30},\"sinceDay\":\"2026-08-08\",\"untilDay\":\"2026-09-06\",\"totalTokens\":12000,\"costUsd\":1.25,\"sessions\":4,\"providers\":[{\"provider\":\"claude\",\"totalTokens\":10000,\"costUsd\":1.0}],\"models\":[{\"provider\":\"claude\",\"model\":\"opus\",\"totalTokens\":10000,\"costUsd\":1.0,\"costShare\":0.8},{\"provider\":\"codex\",\"model\":\"gpt-5\",\"totalTokens\":2000,\"costUsd\":0.25}]}}}}",
+    } }, &fx);
+    main.update(&model, .{ .fx_exit = .{
+        .key = sidecar.key,
+        .code = 0,
+        .reason = .exited,
+    } }, &fx);
+
+    const fixture =
+        \\{"gpt-5":{"input_cost_per_token":1e-6,"output_cost_per_token":2e-6},"opus":{"input_cost_per_token":3e-6,"output_cost_per_token":4e-6}}
+    ;
+    const litellm_rates = @import("litellm_rates.zig");
+    model.litellm_rates = litellm_rates.parseLiteLlmDocument(std.heap.page_allocator, fixture);
+    model.litellm_rates.status = .cached;
+
+    try testing.expect(model.has_usage_history());
+    try testing.expect(model.has_usage_rates_status());
+    try testing.expectEqualStrings("Rates cached", model.usage_rates_status());
+
+    const tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Rates cached");
+    _ = try expectByText(tree.root, .text, "Claude Code · opus · 10k · $1.00");
+    _ = try expectByText(tree.root, .text, "Codex · gpt-5 · 2k · $0.25 · $1.00/$2.00/MTok");
+    try testing.expect(findByText(tree.root, .text, "Rates unavailable") == null);
+}
+
 test "settings Computer Use tab sits after Usage; Unavailable, Off, empty apps" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

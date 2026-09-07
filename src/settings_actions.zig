@@ -22,6 +22,7 @@ const slash_commands = @import("slash_commands.zig");
 const pick_folder = @import("pick_folder.zig");
 const usage_history = @import("usage_history.zig");
 const usage_meter = @import("usage_meter.zig");
+const litellm_rates = @import("litellm_rates.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -76,6 +77,7 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
         skills.close(model, fx);
         providers.close(model);
         usage_history.cancel(model, fx);
+        litellm_rates.cancel(model, fx);
         model.closeSettings();
         return;
     }
@@ -160,6 +162,7 @@ pub fn handleToggleSettings(model: *Model, fx: *Effects) void {
         skills.close(model, fx);
         providers.close(model);
         usage_history.cancel(model, fx);
+        litellm_rates.cancel(model, fx);
         model.closeSettings();
         return;
     }
@@ -248,6 +251,7 @@ pub fn handleSetSettingsPageSkills(model: *Model, fx: *Effects) void {
 pub fn handleSetSettingsPageUsage(model: *Model, fx: *Effects) void {
     model.settings_page = .usage;
     usage_history.refresh(model, fx);
+    litellm_rates.ensure(model, fx);
 }
 
 pub fn handleSetUsageViewDaily(model: *Model, fx: *Effects) void {
@@ -313,6 +317,7 @@ pub fn handleSetUsageBreakdownDays(model: *Model) void {
 pub fn handleRefreshUsageHistory(model: *Model, fx: *Effects) void {
     if (model.settings_page != .usage) return;
     usage_history.refresh(model, fx);
+    litellm_rates.ensure(model, fx);
 }
 
 pub fn handleToggleUsageMeter(model: *Model, fx: *Effects) void {

@@ -316,6 +316,9 @@
                   </row>
                 </if>
                 <if test="{has_usage_history}">
+                  <if test="{has_usage_rates_status}">
+                    <text wrap="true" foreground="text_muted">{usage_rates_status}</text>
+                  </if>
                   <if test="{has_usage_notice}">
                     <for each="usage_notice_rows" key="id" as="n">
                       <text wrap="true" foreground="text_muted">{n.line}</text>
