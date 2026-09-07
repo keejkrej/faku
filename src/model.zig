@@ -480,6 +480,9 @@ pub const Msg = union(enum) {
     /// Files preview find-bar whole-word chip. ASCII `[A-Za-z0-9_]`
     /// boundaries. Survives closing the bar like the case toggle.
     toggle_file_preview_find_whole_word,
+    /// Files preview find-bar regex chip (`.*`). Treats the query as a
+    /// regular expression. Survives closing the bar like Aa / Ab.
+    toggle_file_preview_find_regex,
     /// Replace the current Files preview match. No-op when read-only.
     file_preview_find_replace_one,
     /// Replace every Files preview match (uncapped). No-op when read-only.
@@ -995,10 +998,15 @@ pub const Model = struct {
     /// Waku FileSearch default: substring until toggled. ASCII word
     /// chars are `[A-Za-z0-9_]`.
     file_preview_find_whole_word: bool = false,
+    /// Waku FileSearch default: plain substring until toggled.
+    file_preview_find_use_regex: bool = false,
     file_preview_find_match_starts: [right_panel.file_preview_find_max_matches]u32 = [_]u32{0} ** right_panel.file_preview_find_max_matches,
+    file_preview_find_match_ends: [right_panel.file_preview_find_max_matches]u32 = [_]u32{0} ** right_panel.file_preview_find_max_matches,
     file_preview_find_match_count: u32 = 0,
     file_preview_find_match_index: u32 = 0,
     file_preview_find_limited: bool = false,
+    /// Query is a regular expression that does not compile.
+    file_preview_find_invalid: bool = false,
     settings_open: bool = false,
     /// Runtime-only Settings General | Appearance | Providers | Skills |
     /// Usage | Computer Use page. Default General. Not persisted.
@@ -1894,9 +1902,11 @@ pub const Model = struct {
         "file_preview_find_buffer",
         "file_preview_find_replace_buffer",
         "file_preview_find_match_starts",
+        "file_preview_find_match_ends",
         "file_preview_find_match_count",
         "file_preview_find_match_index",
         "file_preview_find_limited",
+        "file_preview_find_invalid",
         "file_preview_line_rows",
         "rightPanelWidthPixels",
         "applyRightPanelWidth",

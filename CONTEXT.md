@@ -610,14 +610,17 @@ replace), Reload re-reads disk and discards dirty; truncated stays
 Open-in-editor + Reload; first-cut live reload via mtime/size poll
 on the update tick — still not a real FS watcher / Native watch API;
 first-cut Files preview find/replace ships when a preview is open:
-Native bar above the body (Find, `n of m` / `0` / capped `m+`,
-prev/next, close, case-sensitive toggle, whole-word toggle, Replace row via chevron or
+Native bar above the body (Find, `n of m` / `0` / capped `m+` / `invalid`,
+prev/next, close, case-sensitive toggle, whole-word toggle, regex toggle, Replace row via chevron or
 Cmd/Ctrl-Alt-F when Native keyboard exposes `alt`/`option`). Cmd/Ctrl-F
 opens that bar instead of transcript find; Cmd/Ctrl-G / Shift-G
 navigate file matches while it is active; Escape closes it without
 Stop. Plain substring with optional ASCII case-sensitivity and
-whole-word (`[A-Za-z0-9_]` boundaries), cap 2048 (Waku FileSearch is
-20k). No regex / GPUI match washes. Runtime-only). Diff hosts Environment Compare / Review (Branch,
+whole-word (`[A-Za-z0-9_]` boundaries) until the `.*` chip is on
+(self-contained Zig subset: `.` `^$` `|` greedy `*+?{n,m}` `(…)`
+`(?:…)` `[…]` `\d\w\s` `\b`, `$n` replace expand; invalid pattern is
+an honest `invalid` count, not a crash or silent fallback). Cap 2048
+(Waku FileSearch is 20k). No GPUI match washes. Runtime-only). Diff hosts Environment Compare / Review (Branch,
 Uncommitted, Staged, Unstaged, Committed, LastTurn; first-cut daemon
 `WorkspaceOperation::CollectReviewDiff` prefers hello + CollectReviewDiff
 for those sources except LastTurn when a daemon address is set). Browser is an
@@ -1189,10 +1192,11 @@ Honest gaps this cut does not implement:
   `std.fs` atomic write), Reload discards unsaved edits. First-cut
   live reload via mtime/size poll on the update tick. First-cut Files
   preview find/replace ships (Native bar: query, match count, prev/next,
-  close, case toggle, whole-word toggle, Replace when editable). Plain
-  substring with optional ASCII case-sensitivity and whole-word
-  (`[A-Za-z0-9_]` boundaries); cap 2048 navigable matches; no regex /
-  GPUI washes. Not a
+  close, case toggle, whole-word toggle, regex `.*` toggle, Replace when
+  editable). Plain substring with optional ASCII case-sensitivity and
+  whole-word (`[A-Za-z0-9_]` boundaries) until regex is on (self-contained
+  Zig subset, `$n` capture expand; invalid pattern shows `invalid`);
+  cap 2048 navigable matches; no GPUI washes. Not a
   real FS watcher / Native watch API)
 - Amend/force and remote `--track` stay local (not daemon
   WorkspaceOperation variants). First-cut

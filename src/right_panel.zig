@@ -130,10 +130,11 @@
 //! watch API, not an embedded Browser / Terminal (those tabs are
 //! OS-open workarounds; Native has no PTY / webview), or autosave.
 //! First-cut Files preview find/replace ships (Native bar above the
-//! preview body: query, `n of m` / `0` / `m+` cap note, prev/next,
-//! close, case toggle, whole-word toggle, Replace row). Plain substring;
-//! optional ASCII case-sensitivity and whole-word (`[A-Za-z0-9_]`
-//! boundaries). No regex / GPUI match washes. Cap `file_preview_find_max_matches`
+//! preview body: query, `n of m` / `0` / `m+` cap note / `invalid`, prev/next,
+//! close, case toggle, whole-word toggle, regex toggle, Replace row). Plain
+//! substring until `.*` is on; optional ASCII case-sensitivity and whole-word
+//! (`[A-Za-z0-9_]` boundaries). Regex is a self-contained Zig subset (not
+//! the Rust crate). No GPUI match washes. Cap `file_preview_find_max_matches`
 //! (2048; Waku FileSearch is 20k). Runtime-only.
 //!
 //! Default closed: Waku `RightPanelSessionState::take_or_closed` uses
@@ -1131,6 +1132,7 @@ pub fn recomputeFilePreviewFind(model: *Model, refresh: FilePreviewFindRefresh) 
         model.file_preview_find_match_count = 0;
         model.file_preview_find_match_index = 0;
         model.file_preview_find_limited = false;
+        model.file_preview_find_invalid = false;
         return;
     }
     const prev_start = currentFilePreviewFindStart(model);
@@ -1140,10 +1142,13 @@ pub fn recomputeFilePreviewFind(model: *Model, refresh: FilePreviewFindRefresh) 
         query,
         model.file_preview_find_case_sensitive,
         model.file_preview_find_whole_word,
+        model.file_preview_find_use_regex,
         model.file_preview_find_match_starts[0..],
+        model.file_preview_find_match_ends[0..],
     );
     model.file_preview_find_match_count = scan.count;
     model.file_preview_find_limited = scan.limited;
+    model.file_preview_find_invalid = scan.invalid;
     if (scan.count == 0) {
         model.file_preview_find_match_index = 0;
         return;
@@ -1175,6 +1180,7 @@ pub fn closeFilePreviewFind(model: *Model) void {
     model.file_preview_find_match_count = 0;
     model.file_preview_find_match_index = 0;
     model.file_preview_find_limited = false;
+    model.file_preview_find_invalid = false;
 }
 
 pub fn applyFilePreviewFindEdit(model: *Model, edit: canvas.TextInputEvent) void {
@@ -1208,6 +1214,12 @@ pub fn toggleFilePreviewFindWholeWord(model: *Model) void {
     recomputeFilePreviewFind(model, .query);
 }
 
+pub fn toggleFilePreviewFindRegex(model: *Model) void {
+    if (!model.file_preview_find_active) return;
+    model.file_preview_find_use_regex = !model.file_preview_find_use_regex;
+    recomputeFilePreviewFind(model, .query);
+}
+
 pub fn stepFilePreviewFind(model: *Model, backward: bool) void {
     if (!filePreviewFindActive(model)) return;
     model.file_preview_find_match_index = file_preview_find.stepIndex(
@@ -1224,6 +1236,7 @@ pub fn hasFilePreviewFindMatchLabel(model: *const Model) bool {
 
 pub fn filePreviewFindMatchLabel(model: *const Model, arena: std.mem.Allocator) []const u8 {
     if (!hasFilePreviewFindMatchLabel(model)) return "";
+    if (model.file_preview_find_invalid) return "invalid";
     const count = model.file_preview_find_match_count;
     if (count == 0) return "0";
     var idx = model.file_preview_find_match_index;
@@ -1259,6 +1272,7 @@ fn applyReplacedDraft(model: *Model, bytes: []const u8) void {
 
 pub fn replaceFilePreviewFindCurrent(model: *Model) void {
     if (!canFilePreviewFindReplace(model)) return;
+    if (model.file_preview_find_invalid) return;
     if (model.file_preview_find_match_count == 0) return;
     const query = model.file_preview_find_buffer.text();
     if (query.len == 0) return;
@@ -1267,14 +1281,29 @@ pub fn replaceFilePreviewFindCurrent(model: *Model) void {
     var idx = model.file_preview_find_match_index;
     if (idx >= model.file_preview_find_match_count) idx = 0;
     const start: usize = model.file_preview_find_match_starts[idx];
+    const end: usize = model.file_preview_find_match_ends[idx];
+    const match_len = if (end >= start) end - start else query.len;
     const haystack = filePreviewFindHaystack(model);
-    const replacement = model.file_preview_find_replace_buffer.text();
+    const template = model.file_preview_find_replace_buffer.text();
     const dest = std.heap.page_allocator.alloc(u8, max_file_preview_bytes) catch return;
     defer std.heap.page_allocator.free(dest);
+    const expanded_buf = std.heap.page_allocator.alloc(u8, max_file_preview_bytes) catch return;
+    defer std.heap.page_allocator.free(expanded_buf);
+    const replacement = file_preview_find.expandReplacement(
+        haystack,
+        query,
+        start,
+        end,
+        template,
+        model.file_preview_find_case_sensitive,
+        model.file_preview_find_whole_word,
+        model.file_preview_find_use_regex,
+        expanded_buf,
+    ) orelse return;
     const next = file_preview_find.replaceOne(
         haystack,
         start,
-        query.len,
+        match_len,
         replacement,
         dest,
     ) orelse return;
@@ -1292,6 +1321,7 @@ pub fn replaceFilePreviewFindCurrent(model: *Model) void {
 
 pub fn replaceFilePreviewFindAll(model: *Model) void {
     if (!canFilePreviewFindReplace(model)) return;
+    if (model.file_preview_find_invalid) return;
     const query = model.file_preview_find_buffer.text();
     if (query.len == 0) return;
     if (!ensureFilePreviewFindEditable(model)) return;
@@ -1305,6 +1335,7 @@ pub fn replaceFilePreviewFindAll(model: *Model) void {
         replacement,
         model.file_preview_find_case_sensitive,
         model.file_preview_find_whole_word,
+        model.file_preview_find_use_regex,
         dest,
     ) orelse return;
     applyReplacedDraft(model, next);
@@ -2378,6 +2409,64 @@ test "Files preview find whole-word toggle filters matches and replaceAll" {
     try std.testing.expect(!model.file_preview_find_active);
     try std.testing.expect(model.file_preview_find_whole_word);
     try std.testing.expectEqualStrings("foo", model.file_preview_find_query());
+}
+
+test "Files preview find regex toggle matches, invalid, replace expand, keep-on-close" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-find-regex-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, abs, "id: 12, id: 345\nlet alpha = 1;\n");
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview find regex", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    defer clearFilePreview(&model);
+
+    pickFile(&model, 1);
+    openFilePreviewFind(&model, true);
+    applyFilePreviewFindEdit(&model, .{ .insert_text = "\\d+" });
+    try std.testing.expect(!model.file_preview_find_use_regex);
+    try std.testing.expectEqual(@as(u32, 0), model.file_preview_find_match_count);
+
+    toggleFilePreviewFindRegex(&model);
+    try std.testing.expect(model.file_preview_find_use_regex);
+    try std.testing.expect(!model.file_preview_find_invalid);
+    try std.testing.expectEqual(@as(u32, 3), model.file_preview_find_match_count);
+    try std.testing.expectEqual(@as(u32, 4), model.file_preview_find_match_starts[0]);
+    try std.testing.expectEqual(@as(u32, 6), model.file_preview_find_match_ends[0]);
+    try std.testing.expectEqual(@as(u32, 12), model.file_preview_find_match_starts[1]);
+    try std.testing.expectEqual(@as(u32, 15), model.file_preview_find_match_ends[1]);
+
+    model.file_preview_find_buffer.set("(unclosed");
+    recomputeFilePreviewFind(&model, .query);
+    try std.testing.expect(model.file_preview_find_invalid);
+    try std.testing.expectEqual(@as(u32, 0), model.file_preview_find_match_count);
+    {
+        var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena_state.deinit();
+        try std.testing.expectEqualStrings("invalid", model.file_preview_find_match_label(arena_state.allocator()));
+    }
+
+    model.file_preview_find_buffer.set("(\\w+) = (\\d+)");
+    recomputeFilePreviewFind(&model, .query);
+    try std.testing.expect(!model.file_preview_find_invalid);
+    try std.testing.expectEqual(@as(u32, 1), model.file_preview_find_match_count);
+    applyFilePreviewFindReplaceEdit(&model, .{ .insert_text = "$2 = $1" });
+    replaceFilePreviewFindAll(&model);
+    try std.testing.expectEqualStrings("id: 12, id: 345\nlet 1 = alpha;\n", model.file_preview_draft());
+
+    closeFilePreviewFind(&model);
+    try std.testing.expect(!model.file_preview_find_active);
+    try std.testing.expect(model.file_preview_find_use_regex);
+    try std.testing.expectEqualStrings("(\\w+) = (\\d+)", model.file_preview_find_query());
 }
 
 test "reload discards dirty buffer; truncated and binary refuse save" {

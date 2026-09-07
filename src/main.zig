@@ -507,6 +507,7 @@ test {
     _ = @import("open_editor.zig");
     _ = @import("right_panel.zig");
     _ = @import("file_preview_find.zig");
+    _ = @import("file_preview_regex.zig");
     _ = @import("maximize_window.zig");
     _ = @import("rewind.zig");
     _ = @import("checkpoint.zig");

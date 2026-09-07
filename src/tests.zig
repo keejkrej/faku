@@ -11665,6 +11665,7 @@ test "cmd-f routes to Files preview find when a preview is open" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Find in file\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"close_file_preview_find\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"file_preview_find_replace_one\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"toggle_file_preview_find_regex\"") != null);
 
     const cmd_f = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
@@ -11684,8 +11685,11 @@ test "cmd-f routes to Files preview find when a preview is open" {
     _ = try expectButton(tree.root, "Show replace");
     _ = try expectButton(tree.root, "Aa");
     _ = try expectButton(tree.root, "Ab");
+    _ = try expectButton(tree.root, ".*");
     _ = try expectButtonMsg(tree, "Ab", .toggle_file_preview_find_whole_word);
+    _ = try expectButtonMsg(tree, ".*", .toggle_file_preview_find_regex);
     try testing.expect(!model.file_preview_find_whole_word);
+    try testing.expect(!model.file_preview_find_use_regex);
 
     main.update(&model, .{ .file_preview_find_edit = .{ .insert_text = "hello" } }, &fx);
     try testing.expectEqualStrings("hello", model.file_preview_find_query());
@@ -11694,6 +11698,10 @@ test "cmd-f routes to Files preview find when a preview is open" {
 
     main.update(&model, .toggle_file_preview_find_whole_word, &fx);
     try testing.expect(model.file_preview_find_whole_word);
+    try testing.expectEqual(@as(u32, 2), model.file_preview_find_match_count);
+
+    main.update(&model, .toggle_file_preview_find_regex, &fx);
+    try testing.expect(model.file_preview_find_use_regex);
     try testing.expectEqual(@as(u32, 2), model.file_preview_find_match_count);
 
     tree = try buildTree(arena, &model);
@@ -11729,6 +11737,7 @@ test "cmd-f routes to Files preview find when a preview is open" {
     try testing.expect(!model.find_active);
     try testing.expectEqualStrings("hello", model.file_preview_find_query());
     try testing.expect(model.file_preview_find_whole_word);
+    try testing.expect(model.file_preview_find_use_regex);
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
     try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
