@@ -37,14 +37,19 @@
 //! when history is painted on Daily, Monthly, and Projects (zeros
 //! still paint).
 //! Monthly
-//! first-cut paints the same Cost | Tokens chip and relative Native `<progress>`
-//! vs the max month in the painted window (Cost → `costUsd`, Tokens
-//! → `totalTokens`); zero-value months stay text-only. When a month
-//! has any non-zero `byProvider` slot for that metric, two nested
-//! Native `<progress>` rows (Claude Code / Codex) paint under it;
-//! nested share is that provider's cost or tokens divided by **that
-//! month's** total. Empty / missing / short `byProvider` stays
-//! month-total-only. Projects
+//! first-cut paints a Native `<chart>` of oldest-first Claude / Codex
+//! `kind="area"` series from a shared zero baseline for the active
+//! Cost | Tokens metric (not stacked; NaN-pad when a month's
+//! `byProvider` is missing; `y-max` pins to the max finite
+//! single-provider-month sample when that peak is > 0), the same Cost
+//! | Tokens chip, and relative Native `<progress>` vs the max month in
+//! the painted window (Cost → `costUsd`, Tokens → `totalTokens`);
+//! zero-value months stay text-only. When a month has any non-zero
+//! `byProvider` slot for that metric, two nested Native `<progress>`
+//! rows (Claude Code / Codex) paint under it; nested share is that
+//! provider's cost or tokens divided by **that month's** total. Empty /
+//! missing / short `byProvider` stays month-total-only. Empty
+//! `months[]` hides the chart (no fake samples). Projects
 //! first-cut paints the same chip and relative Native `<progress>`
 //! vs the max Cost / Tokens among **visible** filtered rows (Waku
 //! `usage_project_filter` peak-of-visible; Cost → `costUsd`, Tokens
@@ -71,10 +76,10 @@
 //! plus Cache savings USD) and muted notices when `errors` are
 //! non-empty or `pricing` is `unavailable`. A tiny scan-summary
 //! footer uses `records` / `scannedFiles` / `skippedFiles` /
-//! `scanDuration` when present. First-cut Daily Days layered Native
-//! `<chart>` ships (Claude / Codex area series from zero, not stacked;
-//! still not Waku GPUI / T3 canvas polish); Monthly / Projects
-//! nested byProvider bars stay Native `<progress>`. Daily Model rows
+//! `scanDuration` when present. First-cut Daily Days and Monthly
+//! layered Native `<chart>` ship (Claude / Codex area series from
+//! zero, not stacked; still not Waku GPUI / T3 canvas polish);
+//! Projects nested byProvider bars stay Native `<progress>`. Daily Model rows
 //! append a compact per-MTok hint when the Faku-side LiteLLM table
 //! hits (unpriceable names stay unpriced). First-cut LiteLLM
 //! rate-table fetch + 24h disk cache ships in `litellm_rates.zig`.
@@ -277,8 +282,9 @@ pub const CachedMonth = struct {
         return self.first_day_storage[0..self.first_day_len];
     }
 
-    /// Cost → `cost_usd`; Tokens → `total_tokens`. Used for the
-    /// first-cut Monthly bar (share vs max month in the window).
+    /// Cost → `cost_usd`; Tokens → `total_tokens`. Used for Monthly
+    /// month-list shares. The Monthly Native chart paints provider
+    /// series, not this combined total.
     pub fn valueFor(self: *const CachedMonth, metric: ShareMetric) f64 {
         return switch (metric) {
             .cost => self.cost_usd,
@@ -1000,8 +1006,8 @@ fn chartSample(value: f64) f32 {
 
 /// Any Claude/Codex slot with cost or tokens. Distinct from the
 /// nested-bar gate: missing / empty `byProvider` NaN-pads the
-/// provider series even when the day total is non-zero.
-fn dayHasByProviderSamples(slots: [protocol.max_parsed_usage_day_providers]protocol.ParsedProviderDay) bool {
+/// provider series even when the period total is non-zero.
+fn hasByProviderSamples(slots: [protocol.max_parsed_usage_day_providers]protocol.ParsedProviderDay) bool {
     for (slots) |slot| {
         if (slot.cost_usd > 0 or slot.total_tokens > 0) return true;
     }
@@ -1036,7 +1042,7 @@ fn dailyChartProviderValues(model: *const Model, arena: std.mem.Allocator, slot:
     var i: usize = 0;
     while (i < n) : (i += 1) {
         const day = days[order[i]];
-        if (!dayHasByProviderSamples(day.by_provider)) {
+        if (!hasByProviderSamples(day.by_provider)) {
             out[i] = std.math.nan(f32);
             continue;
         }
@@ -1069,7 +1075,7 @@ pub fn dailyChartYMax(model: *const Model) ?f32 {
     var peak: f32 = 0;
     var any_finite = false;
     for (days) |day| {
-        if (!dayHasByProviderSamples(day.by_provider)) continue;
+        if (!hasByProviderSamples(day.by_provider)) continue;
         for (day.by_provider) |slot| {
             const sample = chartSample(providerDayValue(slot, metric));
             if (!std.math.isFinite(sample)) continue;
@@ -1101,6 +1107,139 @@ pub fn dailyChartLabels(model: *const Model, arena: std.mem.Allocator) []const [
     var i: usize = 0;
     while (i < n) : (i += 1) {
         const label = days[order[i]].day();
+        out[i] = if (label.len > 0) copyArena(arena, label) else "";
+    }
+    return out;
+}
+
+/// True when Monthly is painted with at least one cached month.
+/// Empty `months[]` hides the Native chart (no fake samples).
+pub fn hasMonthlyChart(model: *const Model) bool {
+    return monthlyChartMonths(model).len > 0;
+}
+
+fn monthlyChartMonths(model: *const Model) []const CachedMonth {
+    if (!historyPainted(model) or model.usage_view != .monthly) return &.{};
+    const count = model.usage_history.month_count;
+    if (count == 0) return &.{};
+    return model.usage_history.months[0..count];
+}
+
+/// Oldest-first indices so Native chart samples match `x-labels`
+/// (label i names sample i). Month strings are opaque `firstDay`
+/// labels (same honesty as Daily day strings).
+fn oldestFirstMonthOrder(months: []const CachedMonth, dest: []usize) usize {
+    const n = @min(months.len, dest.len);
+    var i: usize = 0;
+    while (i < n) : (i += 1) dest[i] = i;
+    i = 1;
+    while (i < n) : (i += 1) {
+        const idx = dest[i];
+        const key = months[idx].firstDay();
+        var j: usize = i;
+        while (j > 0 and std.mem.order(u8, key, months[dest[j - 1]].firstDay()) == .lt) {
+            dest[j] = dest[j - 1];
+            j -= 1;
+        }
+        dest[j] = idx;
+    }
+    return n;
+}
+
+/// Active Cost | Tokens month totals, oldest-first. Empty when the
+/// chart is hidden. Not painted (the Monthly chart is layered Claude /
+/// Codex area series); kept so tests can contrast combined totals
+/// against the single-provider y-max peak.
+pub fn monthlyChartValues(model: *const Model, arena: std.mem.Allocator) []const f32 {
+    const months = monthlyChartMonths(model);
+    if (months.len == 0) return &.{};
+    var order: [max_months]usize = undefined;
+    const n = oldestFirstMonthOrder(months, &order);
+    const out = arena.alloc(f32, n) catch return &.{};
+    const metric = model.usage_share_metric;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        out[i] = chartSample(months[order[i]].valueFor(metric));
+    }
+    return out;
+}
+
+fn monthlyChartProviderValues(model: *const Model, arena: std.mem.Allocator, slot: usize) []const f32 {
+    const months = monthlyChartMonths(model);
+    if (months.len == 0) return &.{};
+    var order: [max_months]usize = undefined;
+    const n = oldestFirstMonthOrder(months, &order);
+    const out = arena.alloc(f32, n) catch return &.{};
+    const metric = model.usage_share_metric;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const month = months[order[i]];
+        if (!hasByProviderSamples(month.by_provider)) {
+            out[i] = std.math.nan(f32);
+            continue;
+        }
+        out[i] = chartSample(providerDayValue(month.by_provider[slot], metric));
+    }
+    return out;
+}
+
+/// Claude `byProvider` totals for the active metric. NaN when that
+/// month's `byProvider` is missing / empty.
+pub fn monthlyChartClaudeValues(model: *const Model, arena: std.mem.Allocator) []const f32 {
+    return monthlyChartProviderValues(model, arena, protocol.usage_day_provider_claude);
+}
+
+/// Codex `byProvider` totals for the active metric. NaN when that
+/// month's `byProvider` is missing / empty.
+pub fn monthlyChartCodexValues(model: *const Model, arena: std.mem.Allocator) []const f32 {
+    return monthlyChartProviderValues(model, arena, protocol.usage_day_provider_codex);
+}
+
+/// Max finite Claude/Codex provider-month sample for the active Cost |
+/// Tokens metric across the painted window (single-provider peak, not
+/// the combined month total). Null when the chart is hidden, there are
+/// no finite samples, or that peak is 0 — omit Native `y-max` and
+/// leave the auto-domain rather than inventing height.
+pub fn monthlyChartYMax(model: *const Model) ?f32 {
+    const months = monthlyChartMonths(model);
+    if (months.len == 0) return null;
+    const metric = model.usage_share_metric;
+    var peak: f32 = 0;
+    var any_finite = false;
+    for (months) |month| {
+        if (!hasByProviderSamples(month.by_provider)) continue;
+        for (month.by_provider) |slot| {
+            const sample = chartSample(providerDayValue(slot, metric));
+            if (!std.math.isFinite(sample)) continue;
+            any_finite = true;
+            if (sample > peak) peak = sample;
+        }
+    }
+    if (!any_finite or !(peak > 0)) return null;
+    return peak;
+}
+
+pub fn hasMonthlyChartYMax(model: *const Model) bool {
+    return monthlyChartYMax(model) != null;
+}
+
+/// Scalar for Native `y-max="{usage_monthly_chart_y_max}"`. 0 when the
+/// pin is omitted (the markup `if` hides this binding).
+pub fn monthlyChartYMaxValue(model: *const Model) f32 {
+    return monthlyChartYMax(model) orelse 0;
+}
+
+/// Category labels oldest-first, one per chart sample. Opaque
+/// `firstDay` strings, same honesty as Daily day labels.
+pub fn monthlyChartLabels(model: *const Model, arena: std.mem.Allocator) []const []const u8 {
+    const months = monthlyChartMonths(model);
+    if (months.len == 0) return &.{};
+    var order: [max_months]usize = undefined;
+    const n = oldestFirstMonthOrder(months, &order);
+    const out = arena.alloc([]const u8, n) catch return &.{};
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const label = months[order[i]].firstDay();
         out[i] = if (label.len > 0) copyArena(arena, label) else "";
     }
     return out;
@@ -2148,6 +2287,113 @@ test "daily chart series is oldest-first Cost|Tokens; empty window is empty; pro
     try std.testing.expectEqual(@as(f32, 0), dailyChartYMaxValue(&model));
 }
 
+test "monthly chart series is oldest-first Cost|Tokens; empty window is empty; provider series NaN-pads; y-max is single-provider peak" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.settings_page = .usage;
+    model.usage_view = .monthly;
+    try std.testing.expect(!hasMonthlyChart(&model));
+    try std.testing.expectEqual(@as(usize, 0), monthlyChartValues(&model, arena).len);
+    try std.testing.expect(monthlyChartYMax(&model) == null);
+    try std.testing.expect(!hasMonthlyChartYMax(&model));
+
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingMonthlyChartSpawn;
+    const keyed = sidecar.key;
+    applyLine(&model, .{ .key = keyed, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":500,\"costUsd\":1.5,\"sessions\":6,\"months\":[{\"firstDay\":\"2026-09-01\",\"totalTokens\":100,\"costUsd\":1.0,\"sessions\":2,\"byProvider\":[{\"costUsd\":0.25,\"totalTokens\":40},{\"costUsd\":0.75,\"totalTokens\":60}]},{\"firstDay\":\"2026-08-01\",\"totalTokens\":400,\"costUsd\":0.5,\"sessions\":4,\"byProvider\":[]},{\"firstDay\":\"2026-07-01\",\"totalTokens\":0,\"costUsd\":0,\"sessions\":0}]}}}}" });
+    handleExit(&model, .{ .key = keyed, .reason = .exited, .code = 0 });
+    try std.testing.expect(hasMonthlyChart(&model));
+    const cost = monthlyChartValues(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), cost.len);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), cost[0], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), cost[1], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), cost[2], 0.0001);
+    const cost_labels = monthlyChartLabels(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), cost_labels.len);
+    try std.testing.expectEqualStrings("2026-07-01", cost_labels[0]);
+    try std.testing.expectEqualStrings("2026-08-01", cost_labels[1]);
+    try std.testing.expectEqualStrings("2026-09-01", cost_labels[2]);
+
+    const claude_cost = monthlyChartClaudeValues(&model, arena);
+    const codex_cost = monthlyChartCodexValues(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), claude_cost.len);
+    try std.testing.expectEqual(@as(usize, 3), codex_cost.len);
+    try std.testing.expect(std.math.isNan(claude_cost[0]));
+    try std.testing.expect(std.math.isNan(codex_cost[0]));
+    try std.testing.expect(std.math.isNan(claude_cost[1]));
+    try std.testing.expect(std.math.isNan(codex_cost[1]));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), claude_cost[2], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), codex_cost[2], 0.0001);
+    // Combined month total is 1.0; y-max is Codex 0.75 (layered, not stacked).
+    const cost_ymax = monthlyChartYMax(&model) orelse return error.MissingCostChartYMax;
+    try std.testing.expect(hasMonthlyChartYMax(&model));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), cost_ymax, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), monthlyChartYMaxValue(&model), 0.0001);
+
+    const saved_claude_cost = model.usage_history.months[0].by_provider[0].cost_usd;
+    const saved_codex_cost = model.usage_history.months[0].by_provider[1].cost_usd;
+    model.usage_history.months[0].by_provider[0].cost_usd = 0;
+    model.usage_history.months[0].by_provider[1].cost_usd = 0;
+    try std.testing.expect(monthlyChartYMax(&model) == null);
+    try std.testing.expect(!hasMonthlyChartYMax(&model));
+    try std.testing.expectEqual(@as(f32, 0), monthlyChartYMaxValue(&model));
+    model.usage_history.months[0].by_provider[0].cost_usd = saved_claude_cost;
+    model.usage_history.months[0].by_provider[1].cost_usd = saved_codex_cost;
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), monthlyChartYMaxValue(&model), 0.0001);
+
+    const spawn_count = fx.pendingSpawnCount();
+    setShareMetric(&model, .tokens);
+    try std.testing.expectEqual(ShareMetric.tokens, model.usage_share_metric);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_usage_history_key);
+    try std.testing.expectEqual(spawn_count, fx.pendingSpawnCount());
+
+    const tokens = monthlyChartValues(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), tokens.len);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), tokens[0], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 400), tokens[1], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 100), tokens[2], 0.0001);
+    const claude_tokens = monthlyChartClaudeValues(&model, arena);
+    const codex_tokens = monthlyChartCodexValues(&model, arena);
+    try std.testing.expect(std.math.isNan(claude_tokens[0]));
+    try std.testing.expect(std.math.isNan(claude_tokens[1]));
+    try std.testing.expect(std.math.isNan(codex_tokens[1]));
+    try std.testing.expectApproxEqAbs(@as(f32, 40), claude_tokens[2], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 60), codex_tokens[2], 0.0001);
+    // Month totals peak at 400 (empty byProvider); y-max is Codex 60.
+    const token_ymax = monthlyChartYMax(&model) orelse return error.MissingTokenChartYMax;
+    try std.testing.expectApproxEqAbs(@as(f32, 60), token_ymax, 0.0001);
+
+    model.usage_view = .daily;
+    try std.testing.expect(!hasMonthlyChart(&model));
+    try std.testing.expectEqual(@as(usize, 0), monthlyChartValues(&model, arena).len);
+    try std.testing.expectEqual(@as(usize, 0), monthlyChartClaudeValues(&model, arena).len);
+    try std.testing.expectEqual(@as(usize, 0), monthlyChartLabels(&model, arena).len);
+    try std.testing.expect(monthlyChartYMax(&model) == null);
+    try std.testing.expect(!hasMonthlyChartYMax(&model));
+
+    model.usage_view = .projects;
+    try std.testing.expect(!hasMonthlyChart(&model));
+    try std.testing.expectEqual(@as(usize, 0), monthlyChartValues(&model, arena).len);
+    try std.testing.expect(monthlyChartYMax(&model) == null);
+
+    model.usage_view = .monthly;
+    model.usage_history.month_count = 0;
+    try std.testing.expect(!hasMonthlyChart(&model));
+    try std.testing.expectEqual(@as(usize, 0), monthlyChartValues(&model, arena).len);
+    try std.testing.expectEqual(@as(usize, 0), monthlyChartLabels(&model, arena).len);
+    try std.testing.expect(monthlyChartYMax(&model) == null);
+    try std.testing.expectEqual(@as(f32, 0), monthlyChartYMaxValue(&model));
+}
+
 test "monthly shares are relative to the max month; Cost|Tokens chip flip updates without refetch" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
@@ -2238,9 +2484,18 @@ test "monthly zero window keeps shares at 0; empty months paint no rows" {
     try std.testing.expectEqual(@as(f32, 0), zero_rows[0].share);
     try std.testing.expectEqualStrings("", zero_rows[0].percent);
     try std.testing.expect(!zero_rows[0].has_by_provider);
+    try std.testing.expect(hasMonthlyChart(&model));
+    try std.testing.expectEqual(@as(usize, 1), monthlyChartValues(&model, arena).len);
+    try std.testing.expect(std.math.isNan(monthlyChartClaudeValues(&model, arena)[0]));
+    try std.testing.expect(monthlyChartYMax(&model) == null);
 
     applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":100,\"costUsd\":1,\"months\":[]}}}}" });
     try std.testing.expectEqual(@as(usize, 0), monthRows(&model, arena).len);
+    try std.testing.expect(!hasMonthlyChart(&model));
+    try std.testing.expectEqual(@as(usize, 0), monthlyChartValues(&model, arena).len);
+    try std.testing.expectEqual(@as(usize, 0), monthlyChartClaudeValues(&model, arena).len);
+    try std.testing.expectEqual(@as(usize, 0), monthlyChartLabels(&model, arena).len);
+    try std.testing.expect(monthlyChartYMax(&model) == null);
 }
 
 test "monthly byProvider nested shares are within the month; Cost|Tokens chip flip updates without refetch" {

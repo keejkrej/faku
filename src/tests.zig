@@ -12945,6 +12945,7 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect(findByText(tree.root, .text, "2026-09-05 · 100 · $1.00") == null);
     try testing.expect((try expectButtonMsg(tree, "Monthly", .set_usage_view_monthly)).state.selected);
     try testing.expect(findByText(tree.root, .chart, "Daily usage") == null);
+    try testing.expect(findByText(tree.root, .chart, "Monthly usage") == null);
     try testing.expect(!model.usage_window_selector_visible());
     try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter projects") == null);
     try testing.expect(findByText(tree.root, .button, "7d") == null);
@@ -12998,6 +12999,7 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
     try testing.expect(findByText(tree.root, .text, "50.0%") == null);
     try testing.expect(findByText(tree.root, .progress, "0.0%") == null);
+    _ = try expectUsageMonthlyChart(tree.root, null);
     _ = try expectByText(tree.root, .text, "Processed tokens");
     _ = try expectByText(tree.root, .text, "Cached input");
     _ = try expectByText(tree.root, .text, "Uncached input");
@@ -13021,6 +13023,7 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     _ = try expectUsageShareProgress(tree.root, "50.0%", 0.5);
     try testing.expect(findByText(tree.root, .text, "25.0%") == null);
     try testing.expect(findByText(tree.root, .progress, "0.0%") == null);
+    _ = try expectUsageMonthlyChart(tree.root, null);
     _ = try expectByText(tree.root, .text, "250 per active month");
     try testing.expect(findByText(tree.root, .text, "Cost quality") == null);
 
@@ -13244,6 +13247,10 @@ test "settings Usage Monthly paints nested Claude/Codex byProvider bars" {
     main.update(&model, .set_settings_page_usage, &fx);
     try testing.expect(model.settings_page_usage());
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "m.has_by_provider") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "y-max=\"{usage_monthly_chart_y_max}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_monthly_chart_claude") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_monthly_chart_values") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Monthly usage\"") != null);
 
     main.update(&model, .set_usage_view_monthly, &fx);
     try testing.expect(model.usage_view_monthly());
@@ -13271,6 +13278,7 @@ test "settings Usage Monthly paints nested Claude/Codex byProvider bars" {
     _ = try expectByText(tree.root, .text, "Claude Code · 40 · $0.25");
     _ = try expectByText(tree.root, .text, "Codex · 60 · $0.75");
     try testing.expect(findByText(tree.root, .text, "Codex · 0") == null);
+    _ = try expectUsageMonthlyChart(tree.root, 0.75);
     _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
     _ = try expectUsageShareProgress(tree.root, "50.0%", 0.5);
     _ = try expectUsageShareProgress(tree.root, "25.0%", 0.25);
@@ -13285,10 +13293,32 @@ test "settings Usage Monthly paints nested Claude/Codex byProvider bars" {
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Claude Code · 40 · $0.25");
     _ = try expectByText(tree.root, .text, "Codex · 60 · $0.75");
+    _ = try expectUsageMonthlyChart(tree.root, 60);
     _ = try expectUsageShareProgress(tree.root, "40.0%", 0.4);
     _ = try expectUsageShareProgress(tree.root, "60.0%", 0.6);
     try testing.expect(findByText(tree.root, .text, "25.0%") == null);
     try testing.expect(findByText(tree.root, .text, "75.0%") == null);
+    try testing.expectEqual(@as(u64, 53_000), model.sessionById(id).?.context_used);
+
+    main.update(&model, .refresh_usage_history, &fx);
+    spawn_i = 0;
+    const empty_months_sidecar = while (fx.pendingSpawnAt(spawn_i)) |spawn| : (spawn_i += 1) {
+        if (spawn.key == model.daemon_usage_history_key) break spawn;
+    } else return error.MissingEmptyMonthlyLoadUsageHistory;
+    main.update(&model, .{ .fx_line = .{
+        .key = empty_months_sidecar.key,
+        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"window\":{\"months\":12},\"totalTokens\":0,\"costUsd\":0,\"sessions\":0,\"months\":[]}}}}",
+    } }, &fx);
+    main.update(&model, .{ .fx_exit = .{
+        .key = empty_months_sidecar.key,
+        .code = 0,
+        .reason = .exited,
+    } }, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "No monthly usage");
+    try testing.expect(findByText(tree.root, .chart, "Monthly usage") == null);
+    try testing.expect(findByText(tree.root, .text, "2026-09-01 · 100 · $1.00 · 2 sessions") == null);
+    try testing.expect(findByText(tree.root, .text, "Claude Code · 40 · $0.25") == null);
     try testing.expectEqual(@as(u64, 53_000), model.sessionById(id).?.context_used);
 }
 
@@ -13457,6 +13487,8 @@ test "settings Usage Daily paints Cost quality and rates-unavailable notice" {
     main.update(&model, .set_usage_view_monthly, &fx);
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "Cost quality") == null);
+    try testing.expect(findByText(tree.root, .chart, "Daily usage") == null);
+    try testing.expect(findByText(tree.root, .chart, "Monthly usage") == null);
     try testing.expect(findByText(tree.root, .text, "Provider reported") == null);
     try testing.expect(findByText(tree.root, .text, "Processed tokens") == null);
     try testing.expect(findByText(tree.root, .text, "Rates unavailable") == null);
@@ -21398,8 +21430,16 @@ fn expectUsageShareProgress(widget: canvas.Widget, label: []const u8, expected: 
 }
 
 fn expectUsageDailyChart(widget: canvas.Widget, y_max: ?f32) !canvas.Widget {
-    const chart = findByText(widget, .chart, "Daily usage") orelse {
-        std.debug.print("no Daily usage chart\n", .{});
+    return expectUsagePeriodChart(widget, "Daily usage", y_max);
+}
+
+fn expectUsageMonthlyChart(widget: canvas.Widget, y_max: ?f32) !canvas.Widget {
+    return expectUsagePeriodChart(widget, "Monthly usage", y_max);
+}
+
+fn expectUsagePeriodChart(widget: canvas.Widget, label: []const u8, y_max: ?f32) !canvas.Widget {
+    const chart = findByText(widget, .chart, label) orelse {
+        std.debug.print("no {s} chart\n", .{label});
         dumpTexts(widget, 0);
         return error.WidgetNotFound;
     };
@@ -21419,7 +21459,7 @@ fn expectUsageDailyChart(widget: canvas.Widget, y_max: ?f32) !canvas.Widget {
     try testing.expectEqualStrings("Codex", codex.label);
     if (y_max) |peak| {
         const pinned = chart.chart.y_max orelse {
-            std.debug.print("Daily usage chart missing y-max pin\n", .{});
+            std.debug.print("{s} chart missing y-max pin\n", .{label});
             return error.MissingChartYMax;
         };
         try testing.expectApproxEqAbs(peak, pinned, 0.0001);

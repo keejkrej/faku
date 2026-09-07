@@ -4625,6 +4625,30 @@ pub const Model = struct {
         return usage_history.monthRows(model, arena);
     }
 
+    pub fn has_usage_monthly_chart(model: *const Model) bool {
+        return usage_history.hasMonthlyChart(model);
+    }
+
+    pub fn has_usage_monthly_chart_y_max(model: *const Model) bool {
+        return usage_history.hasMonthlyChartYMax(model);
+    }
+
+    pub fn usage_monthly_chart_y_max(model: *const Model) f32 {
+        return usage_history.monthlyChartYMaxValue(model);
+    }
+
+    pub fn usage_monthly_chart_claude(model: *const Model, arena: std.mem.Allocator) []const f32 {
+        return usage_history.monthlyChartClaudeValues(model, arena);
+    }
+
+    pub fn usage_monthly_chart_codex(model: *const Model, arena: std.mem.Allocator) []const f32 {
+        return usage_history.monthlyChartCodexValues(model, arena);
+    }
+
+    pub fn usage_monthly_chart_labels(model: *const Model, arena: std.mem.Allocator) []const []const u8 {
+        return usage_history.monthlyChartLabels(model, arena);
+    }
+
     pub fn usage_project_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {
         return usage_history.projectRows(model, arena);
     }
