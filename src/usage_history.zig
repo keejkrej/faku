@@ -21,9 +21,11 @@
 //! `breakdown`; default Model), model share bars when Model is
 //! selected (provider label + model name; Cost prefers wire
 //! `costShare`, Tokens always computed from totals), and a first-cut
-//! Native `<chart>` when Days is selected (oldest-first `[]const f32`
-//! samples for the active Cost | Tokens metric; Claude / Codex line
-//! series NaN-pad when a day's `byProvider` is missing). Nested
+//! Native `<chart>` when Days is selected (oldest-first Claude / Codex
+//! `kind="area"` series from a shared zero baseline for the active
+//! Cost | Tokens metric, not stacked; NaN-pad when a day's
+//! `byProvider` is missing; `y-max` pins to the max finite
+//! single-provider-day sample when that peak is > 0). Nested
 //! Claude/Codex Native `<progress>` rows still paint under each day
 //! when a slot is non-zero for that metric; nested share is that
 //! provider's cost or tokens divided by **that day's** total. Empty /
@@ -69,13 +71,15 @@
 //! plus Cache savings USD) and muted notices when `errors` are
 //! non-empty or `pricing` is `unavailable`. A tiny scan-summary
 //! footer uses `records` / `scannedFiles` / `skippedFiles` /
-//! `scanDuration` when present. First-cut Daily Days Native `<chart>`
-//! ships (not a stacked / layered T3 canvas); Monthly / Projects
+//! `scanDuration` when present. First-cut Daily Days layered Native
+//! `<chart>` ships (Claude / Codex area series from zero, not stacked;
+//! still not Waku GPUI / T3 canvas polish); Monthly / Projects
 //! nested byProvider bars stay Native `<progress>`. Daily Model rows
 //! append a compact per-MTok hint when the Faku-side LiteLLM table
 //! hits (unpriceable names stay unpriced). First-cut LiteLLM
 //! rate-table fetch + 24h disk cache ships in `litellm_rates.zig`.
-//! Still not Waku's GPUI / T3 layered / stacked chart, not a local
+//! Still not Waku's GPUI / T3 canvas (smoothing, 12% fill opacity,
+//! stroke width, paint-order by period total), not a local
 //! transcript scan. Hello stays v4.
 
 const std = @import("std");
@@ -250,8 +254,9 @@ pub const CachedDay = struct {
         return self.day_storage[0..self.day_len];
     }
 
-    /// Cost → `cost_usd`; Tokens → `total_tokens`. Used for the
-    /// first-cut Daily Native chart and remaining list shares.
+    /// Cost → `cost_usd`; Tokens → `total_tokens`. Used for Daily
+    /// day-list shares. The Days Native chart paints provider series,
+    /// not this combined total.
     pub fn valueFor(self: *const CachedDay, metric: ShareMetric) f64 {
         return switch (metric) {
             .cost => self.cost_usd,
@@ -1004,7 +1009,9 @@ fn dayHasByProviderSamples(slots: [protocol.max_parsed_usage_day_providers]proto
 }
 
 /// Active Cost | Tokens day totals, oldest-first. Empty when the
-/// chart is hidden.
+/// chart is hidden. Not painted (the Days chart is layered Claude /
+/// Codex area series); kept so tests can contrast combined totals
+/// against the single-provider y-max peak.
 pub fn dailyChartValues(model: *const Model, arena: std.mem.Allocator) []const f32 {
     const days = dailyChartDays(model);
     if (days.len == 0) return &.{};
@@ -1048,6 +1055,40 @@ pub fn dailyChartClaudeValues(model: *const Model, arena: std.mem.Allocator) []c
 /// day's `byProvider` is missing / empty.
 pub fn dailyChartCodexValues(model: *const Model, arena: std.mem.Allocator) []const f32 {
     return dailyChartProviderValues(model, arena, protocol.usage_day_provider_codex);
+}
+
+/// Max finite Claude/Codex provider-day sample for the active Cost |
+/// Tokens metric across the painted window (single-provider peak, not
+/// the combined day total). Null when the chart is hidden, there are
+/// no finite samples, or that peak is 0 — omit Native `y-max` and
+/// leave the auto-domain rather than inventing height.
+pub fn dailyChartYMax(model: *const Model) ?f32 {
+    const days = dailyChartDays(model);
+    if (days.len == 0) return null;
+    const metric = model.usage_share_metric;
+    var peak: f32 = 0;
+    var any_finite = false;
+    for (days) |day| {
+        if (!dayHasByProviderSamples(day.by_provider)) continue;
+        for (day.by_provider) |slot| {
+            const sample = chartSample(providerDayValue(slot, metric));
+            if (!std.math.isFinite(sample)) continue;
+            any_finite = true;
+            if (sample > peak) peak = sample;
+        }
+    }
+    if (!any_finite or !(peak > 0)) return null;
+    return peak;
+}
+
+pub fn hasDailyChartYMax(model: *const Model) bool {
+    return dailyChartYMax(model) != null;
+}
+
+/// Scalar for Native `y-max="{usage_daily_chart_y_max}"`. 0 when the
+/// pin is omitted (the markup `if` hides this binding).
+pub fn dailyChartYMaxValue(model: *const Model) f32 {
+    return dailyChartYMax(model) orelse 0;
 }
 
 /// Category labels oldest-first, one per chart sample.
@@ -1995,7 +2036,7 @@ test "daily byProvider nested shares are within the day; Cost|Tokens chip flip u
     try std.testing.expectEqual(@as(usize, 0), dailyRows(&model, arena).len);
 }
 
-test "daily chart series is oldest-first Cost|Tokens; empty window is empty; provider series NaN-pads" {
+test "daily chart series is oldest-first Cost|Tokens; empty window is empty; provider series NaN-pads; y-max is single-provider peak" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -2010,6 +2051,8 @@ test "daily chart series is oldest-first Cost|Tokens; empty window is empty; pro
     model.settings_page = .usage;
     try std.testing.expect(!hasDailyChart(&model));
     try std.testing.expectEqual(@as(usize, 0), dailyChartValues(&model, arena).len);
+    try std.testing.expect(dailyChartYMax(&model) == null);
+    try std.testing.expect(!hasDailyChartYMax(&model));
 
     refresh(&model, &fx);
     const sidecar = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingDailyChartSpawn;
@@ -2018,6 +2061,7 @@ test "daily chart series is oldest-first Cost|Tokens; empty window is empty; pro
     handleExit(&model, .{ .key = keyed, .reason = .exited, .code = 0 });
     try std.testing.expect(!hasDailyChart(&model));
     try std.testing.expectEqual(@as(usize, 0), dailyChartValues(&model, arena).len);
+    try std.testing.expect(dailyChartYMax(&model) == null);
 
     setBreakdown(&model, .days);
     try std.testing.expect(hasDailyChart(&model));
@@ -2042,6 +2086,22 @@ test "daily chart series is oldest-first Cost|Tokens; empty window is empty; pro
     try std.testing.expectApproxEqAbs(@as(f32, 0.75), codex_cost[1], 0.0001);
     try std.testing.expect(std.math.isNan(claude_cost[2]));
     try std.testing.expect(std.math.isNan(codex_cost[2]));
+    // Combined day total is 1.0; y-max is Codex 0.75 (layered, not stacked).
+    const cost_ymax = dailyChartYMax(&model) orelse return error.MissingCostChartYMax;
+    try std.testing.expect(hasDailyChartYMax(&model));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), cost_ymax, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), dailyChartYMaxValue(&model), 0.0001);
+
+    const saved_claude_cost = model.usage_history.daily[0].by_provider[0].cost_usd;
+    const saved_codex_cost = model.usage_history.daily[0].by_provider[1].cost_usd;
+    model.usage_history.daily[0].by_provider[0].cost_usd = 0;
+    model.usage_history.daily[0].by_provider[1].cost_usd = 0;
+    try std.testing.expect(dailyChartYMax(&model) == null);
+    try std.testing.expect(!hasDailyChartYMax(&model));
+    try std.testing.expectEqual(@as(f32, 0), dailyChartYMaxValue(&model));
+    model.usage_history.daily[0].by_provider[0].cost_usd = saved_claude_cost;
+    model.usage_history.daily[0].by_provider[1].cost_usd = saved_codex_cost;
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), dailyChartYMaxValue(&model), 0.0001);
 
     const spawn_count = fx.pendingSpawnCount();
     setShareMetric(&model, .tokens);
@@ -2061,23 +2121,31 @@ test "daily chart series is oldest-first Cost|Tokens; empty window is empty; pro
     try std.testing.expectApproxEqAbs(@as(f32, 60), codex_tokens[1], 0.0001);
     try std.testing.expect(std.math.isNan(claude_tokens[2]));
     try std.testing.expect(std.math.isNan(codex_tokens[2]));
+    // Day totals peak at 400 (empty byProvider); y-max is Codex 60.
+    const token_ymax = dailyChartYMax(&model) orelse return error.MissingTokenChartYMax;
+    try std.testing.expectApproxEqAbs(@as(f32, 60), token_ymax, 0.0001);
 
     setBreakdown(&model, .model);
     try std.testing.expect(!hasDailyChart(&model));
     try std.testing.expectEqual(@as(usize, 0), dailyChartValues(&model, arena).len);
     try std.testing.expectEqual(@as(usize, 0), dailyChartClaudeValues(&model, arena).len);
     try std.testing.expectEqual(@as(usize, 0), dailyChartLabels(&model, arena).len);
+    try std.testing.expect(dailyChartYMax(&model) == null);
+    try std.testing.expect(!hasDailyChartYMax(&model));
 
     setBreakdown(&model, .days);
     model.usage_view = .monthly;
     try std.testing.expect(!hasDailyChart(&model));
     try std.testing.expectEqual(@as(usize, 0), dailyChartValues(&model, arena).len);
+    try std.testing.expect(dailyChartYMax(&model) == null);
 
     model.usage_view = .daily;
     model.usage_history.daily_count = 0;
     try std.testing.expect(!hasDailyChart(&model));
     try std.testing.expectEqual(@as(usize, 0), dailyChartValues(&model, arena).len);
     try std.testing.expectEqual(@as(usize, 0), dailyChartLabels(&model, arena).len);
+    try std.testing.expect(dailyChartYMax(&model) == null);
+    try std.testing.expectEqual(@as(f32, 0), dailyChartYMaxValue(&model));
 }
 
 test "monthly shares are relative to the max month; Cost|Tokens chip flip updates without refetch" {

@@ -4601,8 +4601,12 @@ pub const Model = struct {
         return usage_history.hasDailyChart(model);
     }
 
-    pub fn usage_daily_chart_values(model: *const Model, arena: std.mem.Allocator) []const f32 {
-        return usage_history.dailyChartValues(model, arena);
+    pub fn has_usage_daily_chart_y_max(model: *const Model) bool {
+        return usage_history.hasDailyChartYMax(model);
+    }
+
+    pub fn usage_daily_chart_y_max(model: *const Model) f32 {
+        return usage_history.dailyChartYMaxValue(model);
     }
 
     pub fn usage_daily_chart_claude(model: *const Model, arena: std.mem.Allocator) []const f32 {

@@ -12911,7 +12911,7 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     _ = try expectByText(tree.root, .text, "2026-09-04 · 0");
     try testing.expect(findByText(tree.root, .text, "Claude Code · opus · 10k · $1.00") == null);
     try testing.expect(findByText(tree.root, .text, "Codex · gpt-5 · 2k · $0.25") == null);
-    _ = try expectUsageDailyChart(tree.root);
+    _ = try expectUsageDailyChart(tree.root, null);
     _ = try expectUsageShareProgress(tree.root, "80.0%", 0.8);
     try testing.expect(findByText(tree.root, .text, "100.0%") == null);
     try testing.expect(findByText(tree.root, .text, "50.0%") == null);
@@ -12928,7 +12928,7 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect(!(try expectButtonMsg(tree, "Cost", .set_usage_share_cost)).state.selected);
     _ = try expectByText(tree.root, .text, "Claude Code · 10k · $1.00");
     _ = try expectByText(tree.root, .text, "83.3%");
-    _ = try expectUsageDailyChart(tree.root);
+    _ = try expectUsageDailyChart(tree.root, null);
     _ = try expectUsageShareProgress(tree.root, "83.3%", 10_000.0 / 12_000.0);
     try testing.expect(findByText(tree.root, .text, "80.0%") == null);
     try testing.expect(findByText(tree.root, .text, "100.0%") == null);
@@ -13163,7 +13163,11 @@ test "settings Usage Daily Days paints nested Claude/Codex byProvider bars" {
     try testing.expect(model.settings_page_usage());
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "d.has_by_provider") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<chart") != null);
-    try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_daily_chart_values") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "kind=\"area\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "y-max=\"{usage_daily_chart_y_max}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_daily_chart_claude") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_daily_chart_values") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "kind=\"bar\"") == null);
 
     var spawn_i: usize = 0;
     const sidecar = while (fx.pendingSpawnAt(spawn_i)) |spawn| : (spawn_i += 1) {
@@ -13189,7 +13193,7 @@ test "settings Usage Daily Days paints nested Claude/Codex byProvider bars" {
     _ = try expectByText(tree.root, .text, "Claude Code · 40 · $0.25");
     _ = try expectByText(tree.root, .text, "Codex · 60 · $0.75");
     try testing.expect(findByText(tree.root, .text, "Codex · 0") == null);
-    _ = try expectUsageDailyChart(tree.root);
+    _ = try expectUsageDailyChart(tree.root, 0.75);
     _ = try expectUsageShareProgress(tree.root, "25.0%", 0.25);
     _ = try expectUsageShareProgress(tree.root, "75.0%", 0.75);
     try testing.expect(findByText(tree.root, .text, "50.0%") == null);
@@ -13203,7 +13207,7 @@ test "settings Usage Daily Days paints nested Claude/Codex byProvider bars" {
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Claude Code · 40 · $0.25");
     _ = try expectByText(tree.root, .text, "Codex · 60 · $0.75");
-    _ = try expectUsageDailyChart(tree.root);
+    _ = try expectUsageDailyChart(tree.root, 60);
     _ = try expectUsageShareProgress(tree.root, "40.0%", 0.4);
     _ = try expectUsageShareProgress(tree.root, "60.0%", 0.6);
     try testing.expect(findByText(tree.root, .text, "25.0%") == null);
@@ -13441,7 +13445,7 @@ test "settings Usage Daily paints Cost quality and rates-unavailable notice" {
     try testing.expect(model.usage_breakdown_days());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "2026-09-06 · 400 · $0.50");
-    _ = try expectUsageDailyChart(tree.root);
+    _ = try expectUsageDailyChart(tree.root, null);
     try testing.expect(findByText(tree.root, .text, "100.0%") == null);
     _ = try expectByText(tree.root, .text, "Cost quality");
     _ = try expectByText(tree.root, .text, "Provider reported");
@@ -21393,12 +21397,35 @@ fn expectUsageShareProgress(widget: canvas.Widget, label: []const u8, expected: 
     return progress;
 }
 
-fn expectUsageDailyChart(widget: canvas.Widget) !canvas.Widget {
+fn expectUsageDailyChart(widget: canvas.Widget, y_max: ?f32) !canvas.Widget {
     const chart = findByText(widget, .chart, "Daily usage") orelse {
         std.debug.print("no Daily usage chart\n", .{});
         dumpTexts(widget, 0);
         return error.WidgetNotFound;
     };
+    try testing.expectEqual(@as(?f32, 0), chart.chart.y_min);
+    try testing.expect(chart.chart.baseline);
+    try testing.expect(chart.chart.y_labels);
+    try testing.expect(chart.chart.hover_details);
+    try testing.expectEqual(@as(u8, 3), chart.chart.grid_lines);
+    try testing.expectEqual(@as(usize, 2), chart.chart.series.len);
+    const claude = chart.chart.series[0];
+    try testing.expectEqual(canvas.ChartSeriesKind.line, claude.kind);
+    try testing.expect(claude.fill);
+    try testing.expectEqualStrings("Claude", claude.label);
+    const codex = chart.chart.series[1];
+    try testing.expectEqual(canvas.ChartSeriesKind.line, codex.kind);
+    try testing.expect(codex.fill);
+    try testing.expectEqualStrings("Codex", codex.label);
+    if (y_max) |peak| {
+        const pinned = chart.chart.y_max orelse {
+            std.debug.print("Daily usage chart missing y-max pin\n", .{});
+            return error.MissingChartYMax;
+        };
+        try testing.expectApproxEqAbs(peak, pinned, 0.0001);
+    } else {
+        try testing.expectEqual(@as(?f32, null), chart.chart.y_max);
+    }
     return chart;
 }
 
