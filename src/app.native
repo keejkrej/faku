@@ -664,6 +664,8 @@
       <scroll grow="1" value="{transcript_scroll}" on-scroll="transcript_scrolled" label="Transcript">
         <column grow="1" padding="16" gap="12" cross="stretch" label="Conversation history">
           <for each="visible_turns" key="id" as="t">
+            <!-- Current find hit: muted Match on the turn chrome row.
+                 Row-level Native chrome, not Waku glyph washes. -->
             <if test="{t.is_user}">
               <row gap="8" label="{t.text}">
                 <spacer grow="1" min-width="64" />
@@ -672,6 +674,9 @@
                     <text wrap="true">{t.text}</text>
                   </bubble>
                   <row gap="4" cross="center">
+                    <if test="{t.is_find_current}">
+                      <text wrap="false" overflow="ellipsis" foreground="text_muted">Match</text>
+                    </if>
                     <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
                     <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
                   </row>
@@ -683,6 +688,9 @@
                 <column gap="4" label="{t.text}">
                   <row gap="4" cross="center">
                     <text foreground="text_muted">{t.role_label}</text>
+                    <if test="{t.is_find_current}">
+                      <text wrap="false" overflow="ellipsis" foreground="text_muted">Match</text>
+                    </if>
                     <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
                     <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
                   </row>
@@ -694,6 +702,9 @@
                   <column gap="4" label="{t.text}">
                     <row gap="4" cross="center">
                       <text foreground="text_muted">{t.role_label}</text>
+                      <if test="{t.is_find_current}">
+                        <text wrap="false" overflow="ellipsis" foreground="text_muted">Match</text>
+                      </if>
                       <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
                       <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
                     </row>
@@ -706,6 +717,9 @@
                       <text wrap="true" grow="1">{t.text}</text>
                     </row>
                     <row gap="4" cross="center">
+                      <if test="{t.is_find_current}">
+                        <text wrap="false" overflow="ellipsis" foreground="text_muted">Match</text>
+                      </if>
                       <button variant="ghost" size="icon" icon="copy" label="Copy" on-press="copy_turn:{t.id}"></button>
                       <button variant="ghost" size="sm" on-press="fork_turn:{t.id}">Fork</button>
                     </row>
