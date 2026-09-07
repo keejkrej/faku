@@ -2421,6 +2421,7 @@ test "Background tab persists; selected row and output are not written to sessio
     try testing.expect(std.mem.indexOf(u8, bytes, "\"browser_url\":\"\"") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "right_panel_background") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "file_preview") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "file_preview_find") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "background_work") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "Agent turn") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "Running") == null);
@@ -2439,6 +2440,7 @@ test "Background tab persists; selected row and output are not written to sessio
     try testing.expectEqualStrings("", loaded.browser_url());
     try testing.expectEqual(@as(u32, 0), loaded.right_panel_background_row_id);
     try testing.expectEqual(@as(u32, 0), loaded.right_panel_file_preview_id);
+    try testing.expect(!loaded.file_preview_find_active);
     try testing.expect(loaded.background_work_empty());
 }
 

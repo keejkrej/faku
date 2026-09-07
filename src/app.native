@@ -1333,6 +1333,36 @@
                   <button variant="ghost" size="sm" on-press="open_right_panel_file_editor">Open in editor</button>
                   <button variant="ghost" size="sm" on-press="close_right_panel_file_preview">Close</button>
                 </row>
+                <if test="{file_preview_find_active}">
+                  <row height="32" gap="6" cross="center">
+                    <if test="{file_preview_find_replace_visible}">
+                      <button variant="ghost" size="icon" icon="chevron-up" label="Hide replace" on-press="toggle_file_preview_find_replace"></button>
+                    </if>
+                    <else>
+                      <button variant="ghost" size="icon" icon="chevron-down" label="Show replace" on-press="toggle_file_preview_find_replace"></button>
+                    </else>
+                    <search-field grow="1" height="32" placeholder="Find" text="{file_preview_find_query}" on-input="file_preview_find_edit" autofocus="true" label="Find in file" />
+                    <button variant="ghost" size="sm" selected="{file_preview_find_case_sensitive}" on-press="toggle_file_preview_find_case">Aa</button>
+                    <if test="{has_file_preview_find_match_label}">
+                      <text wrap="false" overflow="ellipsis" foreground="text_muted">{file_preview_find_match_label}</text>
+                    </if>
+                    <button variant="ghost" size="icon" icon="chevron-up" label="Previous file match" on-press="find_prev"></button>
+                    <button variant="ghost" size="icon" icon="chevron-down" label="Next file match" on-press="find_next"></button>
+                    <button variant="ghost" size="icon" icon="x" label="Close file find" on-press="close_file_preview_find"></button>
+                  </row>
+                  <if test="{file_preview_find_replace_visible}">
+                    <row height="32" gap="6" cross="center">
+                      <text-field grow="1" height="32" placeholder="Replace" text="{file_preview_find_replace}" on-input="file_preview_find_replace_edit" label="Replace in file" />
+                      <if test="{file_preview_find_can_replace}">
+                        <button variant="ghost" size="sm" on-press="file_preview_find_replace_one">Replace</button>
+                        <button variant="ghost" size="sm" on-press="file_preview_find_replace_all">Replace all</button>
+                      </if>
+                      <else>
+                        <text wrap="false" overflow="ellipsis" foreground="text_muted">Read-only</text>
+                      </else>
+                    </row>
+                  </if>
+                </if>
                 <if test="{file_preview_discard_confirm}">
                   <row gap="8" cross="center">
                     <text wrap="false" overflow="ellipsis" grow="1" foreground="text_muted">Discard unsaved changes?</text>
@@ -1355,7 +1385,7 @@
                   </if>
                   <else>
                     <if test="{file_preview_editing}">
-                      <textarea text="{file_preview_draft}" submit-on-enter="false" on-input="file_preview_edit" autofocus="true" grow="1" label="File preview editor" />
+                      <textarea text="{file_preview_draft}" submit-on-enter="false" on-input="file_preview_edit" autofocus="{file_preview_editor_autofocus}" grow="1" label="File preview editor" />
                     </if>
                     <else>
                     <if test="{file_preview_has_body}">

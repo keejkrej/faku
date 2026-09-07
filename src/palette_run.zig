@@ -54,7 +54,14 @@ fn runPaletteAction(model: *Model, fx: *Effects, action: PaletteAction) void {
         .focus_composer => main.update(model, .focus_composer, fx),
         .toggle_sidebar => main.update(model, .toggle_sidebar, fx),
         .collapse_folders => main.update(model, .collapse_all_folders, fx),
-        .find_in_transcript => main.update(model, .open_find, fx),
+        .find_in_transcript => {
+            // Palette is explicitly transcript find: close file find and
+            // open the transcript bar even when a Files preview is open.
+            right_panel.closeFilePreviewFind(model);
+            model.find_active = true;
+            model.composer_active = false;
+            model.resetFindMatchIndex();
+        },
         .settings => main.update(model, .toggle_settings, fx),
         .minimize => main.update(model, .minimize_window, fx),
         .maximize => main.update(model, .maximize_window, fx),
