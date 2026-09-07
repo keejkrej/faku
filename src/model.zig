@@ -43,6 +43,7 @@ const i18n = @import("i18n.zig");
 const session_workspace = @import("session_workspace.zig");
 const pick_folder = @import("pick_folder.zig");
 const usage_history = @import("usage_history.zig");
+const usage_meter = @import("usage_meter.zig");
 
 const canvas = native_sdk.canvas;
 const main = @import("main.zig");
@@ -336,6 +337,7 @@ pub const SkillRow = struct {
 /// `codex_*`; share within that row's Cost|Tokens total). Notice rows reuse
 /// `line` for error / rates-unavailable captions.
 pub const UsageHistoryRow = usage_history.Row;
+pub const UsageMeterRow = usage_meter.Row;
 
 /// Settings Providers row. `id` is 1-based `ProviderId` so Native
 /// `select_provider:{p.id}` never binds 0. Apply sets
@@ -504,6 +506,9 @@ pub const Msg = union(enum) {
     set_usage_breakdown_model,
     set_usage_breakdown_days,
     refresh_usage_history,
+    toggle_usage_meter,
+    close_usage_meter,
+    refresh_plan_usage,
     usage_project_filter_edit: canvas.TextInputEvent,
     settings_theme_system,
     settings_theme_light,
@@ -970,6 +975,14 @@ pub const Model = struct {
     /// In-flight `loadUsageHistory` sidecar. Distinct from workspace
     /// keys so miss cannot settle a live turn or toast Settings.
     daemon_usage_history_key: u64 = 0,
+    /// In-flight `fetchPlanUsage` sidecar. Distinct from LoadUsageHistory
+    /// / BackgroundWork so miss cannot settle a live turn or toast.
+    daemon_plan_usage_key: u64 = 0,
+    daemon_plan_usage_provider: protocol.ProviderId = .claude,
+    /// Runtime-only composer usage-meter panel. Not persisted.
+    usage_meter_open: bool = false,
+    /// First-cut daemon plan-usage cache. Runtime only.
+    plan_usage: usage_meter.Cache = .{},
     /// In-flight `refreshBackgroundWork` sidecar. Distinct from the
     /// prompt / usage-history keys so miss cannot settle a live turn.
     daemon_background_work_key: u64 = 0,
@@ -1699,6 +1712,9 @@ pub const Model = struct {
         "applyUsageProjectFilter",
         "clearUsageProjectFilter",
         "daemon_usage_history_key",
+        "daemon_plan_usage_key",
+        "daemon_plan_usage_provider",
+        "plan_usage",
         "daemon_background_work_key",
         "daemon_background_work_session",
         "last_background_work_refresh_ms",
@@ -2289,6 +2305,7 @@ pub const Model = struct {
         model.git_worktree_base_picker_open = false;
         model.workspace_picker_open = false;
         model.environment_summary_open = false;
+        model.usage_meter_open = false;
     }
 
     pub fn closeModelPicker(model: *Model) void {
@@ -4287,6 +4304,51 @@ pub const Model = struct {
         const out = arena.alloc(u8, label.len) catch return "";
         @memcpy(out, label);
         return out;
+    }
+
+    /// Composer usage meter. Always true with a selected session
+    /// (empty progress is the honest "nothing measured yet" state).
+    pub fn usage_meter_available(model: *const Model) bool {
+        return usage_meter.available(model);
+    }
+
+    pub fn usage_meter_progress(model: *const Model) f32 {
+        return model.context_usage();
+    }
+
+    pub fn usage_meter_plan_visible(model: *const Model) bool {
+        const provider = usage_meter.selectedProvider(model) orelse return false;
+        return usage_meter.isPlanUsageProvider(provider);
+    }
+
+    pub fn has_usage_meter_plan(model: *const Model) bool {
+        if (!model.usage_meter_open) return false;
+        const provider = usage_meter.selectedProvider(model) orelse return false;
+        return model.plan_usage.present and model.plan_usage.provider == provider and model.plan_usage.window_count > 0;
+    }
+
+    pub fn usage_meter_context_label(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        if (!model.usage_meter_open) return "";
+        return usage_meter.contextLabel(model, arena);
+    }
+
+    pub fn usage_meter_plan_header(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        if (!model.usage_meter_open) return "";
+        return usage_meter.planHeader(model, arena);
+    }
+
+    pub fn usage_meter_plan_rows(model: *const Model, arena: std.mem.Allocator) []UsageMeterRow {
+        if (!model.usage_meter_open) return &.{};
+        return usage_meter.planRows(model, arena);
+    }
+
+    pub fn has_usage_meter_hint(model: *const Model) bool {
+        return model.usage_meter_open and usage_meter.hint(model).len > 0;
+    }
+
+    pub fn usage_meter_hint(model: *const Model) []const u8 {
+        if (!model.has_usage_meter_hint()) return "";
+        return usage_meter.hint(model);
     }
 
     /// Settings Usage identity. Same untitled chrome as the header.

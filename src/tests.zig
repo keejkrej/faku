@@ -1141,6 +1141,8 @@ test "idle send is muted and usage chrome stays hidden until ACP reports a windo
     const tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "Send", .send);
     try expectNoContextProgress(tree.root);
+    try testing.expect(findByText(tree.root, .progress, "Usage meter") == null);
+    try testing.expect(findByText(tree.root, .button, "Usage") == null);
     try testing.expect(findByText(tree.root, .button, "Pick folder") == null);
     _ = try expectButtonMsg(tree, "Attach image", .pick_image);
     _ = try expectChip(tree.root, "Full access");
@@ -20706,6 +20708,9 @@ test "ACP usage_update fills the composer progress; missing usage stays empty" {
 
     var tree = try buildTree(arena, &model);
     try expectNoContextProgress(tree.root);
+    _ = try expectByText(tree.root, .progress, "Usage meter");
+    _ = try expectButtonMsg(tree, "Usage", .toggle_usage_meter);
+    try testing.expect(findByText(tree.root, .text, "Context window") == null);
     _ = try expectByText(tree.root, .button, "choose a project");
     _ = try expectChip(tree.root, "Full access");
     _ = try expectByText(tree.root, .button, "Build");
@@ -20725,6 +20730,7 @@ test "ACP usage_update fills the composer progress; missing usage stays empty" {
     try testing.expectEqual(@as(f32, 0), model.context_usage());
     tree = try buildTree(arena, &model);
     try expectNoContextProgress(tree.root);
+    _ = try expectByText(tree.root, .progress, "Usage meter");
 
     try fx.feedLine(key, "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"fx-usage-1\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"plain reply\"}}}}");
     drainEffects(&model, &fx);
@@ -20761,8 +20767,82 @@ test "ACP usage_update fills the composer progress; missing usage stays empty" {
 
     tree = try buildTree(arena, &loaded);
     _ = try expectContextProgress(tree.root, 0.265);
+    _ = try expectByText(tree.root, .progress, "Usage meter");
     _ = try expectByText(tree.root, .button, "choose a project");
     _ = try expectByText(tree.root, .button, "Build");
+}
+
+test "composer usage meter panel shows context and parsed plan lanes" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    const claude_id = model.session_store[1].id;
+    try testing.expectEqual(protocol.ProviderId.claude, model.sessionById(claude_id).?.provider);
+    main.update(&model, .{ .select = claude_id }, &fx);
+    try testing.expectEqual(claude_id, model.selected);
+    try testing.expect(model.usage_meter_available());
+    try testing.expect(!model.has_context_usage());
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .progress, "Usage meter");
+    const meter = try expectButtonMsg(tree, "Usage", .toggle_usage_meter);
+    try testing.expect(!meter.state.selected);
+    try expectNoContextProgress(tree.root);
+    try testing.expect(findByText(tree.root, .text, "Context window") == null);
+    try testing.expect(findByText(tree.root, .text, "Plan limits") == null);
+
+    main.update(&model, tree.msgForPointer(meter.id, .up).?, &fx);
+    try testing.expect(model.usage_meter_open);
+    try testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Usage", .toggle_usage_meter)).state.selected);
+    _ = try expectByText(tree.root, .text, "Context window");
+    _ = try expectByText(tree.root, .text, "Nothing measured yet");
+    _ = try expectByText(tree.root, .progress, "Session context");
+    _ = try expectByText(tree.root, .text, "Connect a daemon for plan usage");
+    _ = try expectButtonMsg(tree, "Refresh", .refresh_plan_usage);
+    try testing.expect(findByText(tree.root, .text, "Plan limits") == null);
+
+    if (model.sessionById(claude_id)) |session| session.setContextUsage(12_400, 200_000);
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    main.update(&model, .refresh_plan_usage, &fx);
+    try testing.expect(model.daemon_plan_usage_key != 0);
+
+    var spawn_i: usize = 0;
+    const sidecar = while (fx.pendingSpawnAt(spawn_i)) |spawn| : (spawn_i += 1) {
+        if (spawn.key == model.daemon_plan_usage_key) break spawn;
+    } else return error.MissingDaemonFetchPlanUsage;
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"fetchPlanUsage\"") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"provider\":\"claude\"") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"binaryOverride\":null") != null);
+    try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"loadUsageHistory\"") == null);
+
+    main.update(&model, .{ .fx_line = .{
+        .key = sidecar.key,
+        .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000018\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"planUsage\",\"usage\":{\"planLabel\":\"Pro\",\"windows\":[{\"label\":\"5-hour\",\"percent\":42,\"resetsAt\":1735689600},{\"label\":\"Weekly\",\"percent\":80}]}}}}",
+    } }, &fx);
+    main.update(&model, .{ .fx_exit = .{ .key = sidecar.key, .reason = .exited, .code = 0 } }, &fx);
+    try testing.expect(model.has_usage_meter_plan());
+    try testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "12.4k / 200k");
+    _ = try expectByText(tree.root, .progress, "Session context");
+    _ = try expectByText(tree.root, .text, "Plan limits · Pro");
+    _ = try expectByText(tree.root, .text, "5-hour");
+    _ = try expectByText(tree.root, .text, "Weekly");
+    _ = try expectUsageShareProgress(tree.root, "42%", 0.42);
+    _ = try expectUsageShareProgress(tree.root, "80%", 0.8);
+    try testing.expect(findByText(tree.root, .text, "Connect a daemon for plan usage") == null);
+    _ = try expectButtonMsg(tree, "Refresh", .refresh_plan_usage);
 }
 
 test "idle sidebar has no spinner; Send shows one on the busy session only" {

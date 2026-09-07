@@ -70,6 +70,20 @@
 //! plus rates-unavailable / error notices. Still not Waku's GPUI /
 //! T3 layered chart, not LiteLLM rate-table fetch.
 //!
+//! `fetchPlanUsage` is not a bare command. Verified against egoist/waku
+//! `Command::FetchPlanUsage { provider, binary_override, cli_version }`
+//! (camelCase wire `fetchPlanUsage` / `binaryOverride` / `cliVersion`)
+//! and `ResponsePayload::PlanUsage { usage }` (wire type `planUsage`).
+//! `provider` is Waku `ProviderKind` camelCase (`openCode`). Optional
+//! `binaryOverride` / `cliVersion` serialize as JSON null this cut
+//! (serde `Option`, no `skip_serializing_if`). Request-frame
+//! `sessionId` / `runtimeId` are nil. A non-nil `requestId` is
+//! required. Ok payload is `{ type: "planUsage", usage }` where
+//! `usage` is JSON null or `{ planLabel?, windows: [{ label, percent,
+//! resetsAt? }] }` (camelCase; `percent` is 0..100; `resetsAt` is
+//! unix seconds). Unknown JSON is ignored. Windows cap 8. Hello stays
+//! protocol v4; unknown-command / parse miss keep local context UI.
+//!
 //! `refreshBackgroundWork` is a bare command. Verified against
 //! egoist/waku `Command::RefreshBackgroundWork` (unit variant, wire
 //! camelCase `refreshBackgroundWork`), `crates/waku-core/src/daemon.rs`
@@ -638,7 +652,8 @@ pub fn defaultStartOptions() StartOptions {
 /// `goal` is the Codex `/goal` first cut (set/clear/refresh over the
 /// daemon sidecar). It is not an fx / ACP method. `loadUsageHistory`
 /// is Settings → Usage history (hello + one-shot; not a workspace
-/// op). `refreshBackgroundWork` is Environment Summary / right-panel
+/// op). `fetchPlanUsage` is the composer usage-meter plan lanes
+/// (hello + one-shot; not a workspace op). `refreshBackgroundWork` is Environment Summary / right-panel
 /// Background (hello + one-shot; request-frame sessionId / runtimeId).
 /// `stopBackgroundWork` is Background Stop on a daemon-sourced live
 /// row (hello + one-shot; `key` + `controlId`; request-frame
@@ -667,6 +682,7 @@ pub const CommandTag = enum {
     workspace,
     close_session,
     load_usage_history,
+    fetch_plan_usage,
     refresh_background_work,
     stop_background_work,
 
@@ -684,6 +700,7 @@ pub const CommandTag = enum {
             .workspace => "workspace",
             .close_session => "closeSession",
             .load_usage_history => "loadUsageHistory",
+            .fetch_plan_usage => "fetchPlanUsage",
             .refresh_background_work => "refreshBackgroundWork",
             .stop_background_work => "stopBackgroundWork",
         };
@@ -712,6 +729,9 @@ pub const max_parsed_usage_months: usize = 12;
 pub const max_parsed_usage_projects: usize = 16;
 pub const max_parsed_usage_errors: usize = 4;
 pub const max_usage_project_roots: usize = 32;
+/// First-cut composer plan-usage lanes. Waku windows are a small
+/// account-rate-limit set; extra JSON rows are ignored.
+pub const max_parsed_plan_windows: usize = 8;
 
 /// Waku `PricingStatus`. Serde camelCase: `fresh` | `cached` |
 /// `unavailable`. Missing / unknown wire → `unknown`.
@@ -848,6 +868,25 @@ pub const ParsedUsageHistory = struct {
     scan_duration_secs: f64 = 0,
     errors: [max_parsed_usage_errors][]const u8 = [_][]const u8{""} ** max_parsed_usage_errors,
     error_count: usize = 0,
+};
+
+/// Waku `PlanWindow` (`label`, `percent` 0..100, optional unix-seconds
+/// `resetsAt`).
+pub const ParsedPlanWindow = struct {
+    label: []const u8 = "",
+    percent: f64 = 0,
+    resets_at: ?i64 = null,
+};
+
+/// First-cut `planUsage` payload. `ok` is a typed ok `planUsage`
+/// response. `usage_present` is false when `usage` is JSON null
+/// (unconfigured). Unknown fields and extra windows are ignored.
+pub const ParsedPlanUsage = struct {
+    ok: bool = false,
+    usage_present: bool = false,
+    plan_label: []const u8 = "",
+    windows: [max_parsed_plan_windows]ParsedPlanWindow = [_]ParsedPlanWindow{.{}} ** max_parsed_plan_windows,
+    window_count: usize = 0,
 };
 
 /// `event.kind` values the demo will eventually render.
@@ -2341,6 +2380,46 @@ pub fn writeLoadUsageHistory(
     return cur.slice();
 }
 
+/// Request wrapping verified `fetchPlanUsage`
+/// `{ type, provider, binaryOverride, cliVersion }`. Request-frame
+/// `sessionId` / `runtimeId` are nil (Waku `daemon.request(Uuid::nil(),
+/// Uuid::nil(), …)`). Non-nil `requestId` so the daemon replies.
+/// This cut emits JSON null for `binaryOverride` / `cliVersion`
+/// (verified serde `Option`, no skip).
+pub fn writeFetchPlanUsage(
+    buf: []u8,
+    request_id: []const u8,
+    provider: []const u8,
+    binary_override: ?[]const u8,
+    cli_version: ?[]const u8,
+) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    try cur.write("{\"type\":\"request\",\"requestId\":");
+    try writeJsonString(&cur, request_id);
+    try cur.write(",\"sessionId\":");
+    try writeJsonString(&cur, NIL_UUID);
+    try cur.write(",\"runtimeId\":");
+    try writeJsonString(&cur, NIL_UUID);
+    try cur.write(",\"command\":{\"type\":");
+    try writeJsonString(&cur, CommandTag.fetch_plan_usage.wireName());
+    try cur.write(",\"provider\":");
+    try writeJsonString(&cur, provider);
+    try cur.write(",\"binaryOverride\":");
+    if (binary_override) |value| {
+        try writeJsonString(&cur, value);
+    } else {
+        try cur.write("null");
+    }
+    try cur.write(",\"cliVersion\":");
+    if (cli_version) |value| {
+        try writeJsonString(&cur, value);
+    } else {
+        try cur.write("null");
+    }
+    try cur.write("}}");
+    return cur.slice();
+}
+
 fn writeUsageWindow(cur: *Cursor, window: UsageWindow) WriteError!void {
     switch (window) {
         .trailing_days => |days| {
@@ -2399,6 +2478,20 @@ fn jsonF64Value(value: ?std.json.Value) f64 {
         .float => |f| if (std.math.isFinite(f)) f else 0,
         .integer => |n| @floatFromInt(n),
         else => 0,
+    };
+}
+
+fn jsonI64Value(value: ?std.json.Value) ?i64 {
+    const item = value orelse return null;
+    return switch (item) {
+        .integer => |n| n,
+        .float => |f| blk: {
+            if (!std.math.isFinite(f)) break :blk null;
+            if (f < @as(f64, @floatFromInt(std.math.minInt(i64)))) break :blk null;
+            if (f > @as(f64, @floatFromInt(std.math.maxInt(i64)))) break :blk null;
+            break :blk @intFromFloat(f);
+        },
+        else => null,
     };
 }
 
@@ -2510,6 +2603,55 @@ pub fn parseUsageHistory(allocator: std.mem.Allocator, line: []const u8) ParsedU
     parsed.scan_duration_secs = parseScanDurationSecs(history.get("scanDuration"));
     parsed.error_count = parseUsageErrors(history.get("errors"), &parsed.errors);
     return parsed;
+}
+
+/// Extract a first-cut `planUsage` payload. Empty / `ok = false` on
+/// any other frame, a failed outcome, or a payload that is not
+/// `planUsage`. JSON-null `usage` is ok with `usage_present = false`.
+/// Unknown fields and extra window rows are ignored. Cap 8 windows.
+pub fn parsePlanUsage(allocator: std.mem.Allocator, line: []const u8) ParsedPlanUsage {
+    var parsed = ParsedPlanUsage{};
+    const trimmed = std.mem.trim(u8, line, " \t\r\n");
+    if (trimmed.len < 2 or trimmed[0] != '{') return parsed;
+
+    const root = std.json.parseFromSliceLeaky(std.json.Value, allocator, trimmed, .{}) catch return parsed;
+    const obj = jsonObject(root) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(obj.get("type")) orelse "", "response")) return parsed;
+    const outcome = jsonObject(obj.get("outcome") orelse return parsed) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(outcome.get("status")) orelse "", "ok")) return parsed;
+    const payload = jsonObject(outcome.get("payload") orelse return parsed) orelse return parsed;
+    if (!std.mem.eql(u8, jsonStringValue(payload.get("type")) orelse "", "planUsage")) return parsed;
+
+    parsed.ok = true;
+    const usage_val = payload.get("usage") orelse return parsed;
+    switch (usage_val) {
+        .null => return parsed,
+        .object => |usage| {
+            parsed.usage_present = true;
+            parsed.plan_label = jsonStringValue(usage.get("planLabel")) orelse "";
+            parsed.window_count = parsePlanWindows(usage.get("windows"), &parsed.windows);
+            return parsed;
+        },
+        else => return parsed,
+    }
+}
+
+fn parsePlanWindows(value: ?std.json.Value, dest: *[max_parsed_plan_windows]ParsedPlanWindow) usize {
+    const items = jsonArrayItems(value orelse return 0) orelse return 0;
+    var n: usize = 0;
+    for (items) |item| {
+        if (n >= dest.len) break;
+        const obj = jsonObject(item) orelse continue;
+        const label = jsonStringValue(obj.get("label")) orelse continue;
+        if (label.len == 0) continue;
+        dest[n] = .{
+            .label = label,
+            .percent = jsonF64Value(obj.get("percent")),
+            .resets_at = jsonI64Value(obj.get("resetsAt")),
+        };
+        n += 1;
+    }
+    return n;
 }
 
 /// Extract a first-cut `backgroundWork` event. Empty / `ok = false`
@@ -5381,6 +5523,7 @@ test "first-cut command tags stay camelCase on the wire" {
     try std.testing.expectEqualStrings("goal", CommandTag.goal.wireName());
     try std.testing.expectEqualStrings("workspace", CommandTag.workspace.wireName());
     try std.testing.expectEqualStrings("loadUsageHistory", CommandTag.load_usage_history.wireName());
+    try std.testing.expectEqualStrings("fetchPlanUsage", CommandTag.fetch_plan_usage.wireName());
     try std.testing.expectEqualStrings("refreshBackgroundWork", CommandTag.refresh_background_work.wireName());
     try std.testing.expectEqualStrings("stopBackgroundWork", CommandTag.stop_background_work.wireName());
     try std.testing.expectEqualStrings("steerAccepted", EventKind.steer_accepted.wireName());
@@ -5709,6 +5852,81 @@ test "loadUsageHistory request encodes window and projectRoots" {
 
     var tiny: [32]u8 = undefined;
     try std.testing.expectError(error.NoSpaceLeft, writeLoadUsageHistory(&tiny, NIL_UUID, .{ .trailing_days = 30 }, &.{"/tmp/faku"}));
+}
+
+test "fetchPlanUsage request encodes provider and null binaryOverride/cliVersion" {
+    var buf: [1024]u8 = undefined;
+    const json = try writeFetchPlanUsage(
+        &buf,
+        "00000000-0000-0000-0000-000000000018",
+        ProviderId.opencode.daemonProviderKind(),
+        null,
+        null,
+    );
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000018\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"fetchPlanUsage\",\"provider\":\"openCode\",\"binaryOverride\":null,\"cliVersion\":null}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"loadUsageHistory\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"workspace\"") == null);
+
+    const claude = try writeFetchPlanUsage(&buf, NIL_UUID, ProviderId.claude.daemonProviderKind(), null, null);
+    try std.testing.expect(std.mem.indexOf(u8, claude, "\"provider\":\"claude\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, claude, "\"binaryOverride\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, claude, "\"cliVersion\":null") != null);
+
+    const with_override = try writeFetchPlanUsage(&buf, NIL_UUID, "codex", "/usr/bin/codex", "0.1.0");
+    try std.testing.expect(std.mem.indexOf(u8, with_override, "\"binaryOverride\":\"/usr/bin/codex\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, with_override, "\"cliVersion\":\"0.1.0\"") != null);
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writeFetchPlanUsage(&tiny, NIL_UUID, "claude", null, null));
+}
+
+test "parsePlanUsage reads null usage, empty windows, and two lanes with resetsAt" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const null_usage =
+        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000018","outcome":{"status":"ok","payload":{"type":"planUsage","usage":null}}}
+    ;
+    const parsed_null = parsePlanUsage(arena, null_usage);
+    try std.testing.expect(parsed_null.ok);
+    try std.testing.expect(!parsed_null.usage_present);
+    try std.testing.expectEqual(@as(usize, 0), parsed_null.window_count);
+
+    const empty_windows =
+        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000018","outcome":{"status":"ok","payload":{"type":"planUsage","usage":{"windows":[],"unknownField":true}}}}
+    ;
+    const parsed_empty = parsePlanUsage(arena, empty_windows);
+    try std.testing.expect(parsed_empty.ok);
+    try std.testing.expect(parsed_empty.usage_present);
+    try std.testing.expectEqual(@as(usize, 0), parsed_empty.window_count);
+    try std.testing.expectEqualStrings("", parsed_empty.plan_label);
+
+    const two_lanes =
+        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000018","outcome":{"status":"ok","payload":{"type":"planUsage","usage":{"planLabel":"Max (5x)","windows":[{"label":"Session","percent":42.5,"resetsAt":1750000000,"unknownWindowField":true},{"label":"Weekly","percent":80,"resetsAt":1750086400},{"label":""},{"percent":10}],"unknownField":true}}}}
+    ;
+    const parsed = parsePlanUsage(arena, two_lanes);
+    try std.testing.expect(parsed.ok);
+    try std.testing.expect(parsed.usage_present);
+    try std.testing.expectEqualStrings("Max (5x)", parsed.plan_label);
+    try std.testing.expectEqual(@as(usize, 2), parsed.window_count);
+    try std.testing.expectEqualStrings("Session", parsed.windows[0].label);
+    try std.testing.expectApproxEqAbs(@as(f64, 42.5), parsed.windows[0].percent, 0.0001);
+    try std.testing.expectEqual(@as(?i64, 1750000000), parsed.windows[0].resets_at);
+    try std.testing.expectEqualStrings("Weekly", parsed.windows[1].label);
+    try std.testing.expectApproxEqAbs(@as(f64, 80), parsed.windows[1].percent, 0.0001);
+    try std.testing.expectEqual(@as(?i64, 1750086400), parsed.windows[1].resets_at);
+
+    try std.testing.expect(!parsePlanUsage(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"ack\"}}}").ok);
+    try std.testing.expect(!parsePlanUsage(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{}}}}").ok);
+    try std.testing.expect(!parsePlanUsage(arena, "{\"type\":\"response\",\"outcome\":{\"status\":\"error\",\"error\":{\"message\":\"nope\"}}}").ok);
+    try std.testing.expect(!parsePlanUsage(arena, "{\"type\":\"planUsage\",\"usage\":null}").ok);
 }
 
 test "parseUsageHistory reads a minimal usageHistory fixture and ignores unknown JSON" {
