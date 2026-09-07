@@ -476,16 +476,21 @@ pub const Msg = union(enum) {
     file_preview_find_edit: canvas.TextInputEvent,
     file_preview_find_replace_edit: canvas.TextInputEvent,
     toggle_file_preview_find_replace,
+    /// Files preview find-bar case chip. Waku secondary-alt-c when Native
+    /// keyboard exposes `alt`/`option`. No-op if find is inactive.
     toggle_file_preview_find_case,
     /// Files preview find-bar whole-word chip. ASCII `[A-Za-z0-9_]`
     /// boundaries. Survives closing the bar like the case toggle.
+    /// Waku secondary-alt-w when Native exposes `alt`/`option`.
     toggle_file_preview_find_whole_word,
     /// Files preview find-bar regex chip (`.*`). Treats the query as a
     /// regular expression. Survives closing the bar like Aa / Ab.
+    /// Waku secondary-alt-r when Native exposes `alt`/`option`.
     toggle_file_preview_find_regex,
     /// Replace the current Files preview match. No-op when read-only.
     file_preview_find_replace_one,
     /// Replace every Files preview match (uncapped). No-op when read-only.
+    /// Waku secondary-alt-enter when Native exposes `alt`/`option`.
     file_preview_find_replace_all,
     /// Files-pane dir click. Payload is `file_mention_dir_id_base + index`.
     toggle_right_panel_dir: u32,

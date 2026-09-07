@@ -2,6 +2,9 @@
 //!
 //! Chord matching and Cmd/Ctrl mappings live here. `Msg` stays in
 //! `main.zig`. Behavior is unchanged from the former `main.onKey`.
+//! Files preview find: Waku `secondary-alt-c` / `w` / `r` toggles and
+//! `secondary-alt-enter` ReplaceAllMatches when Native exposes alt/option.
+//! Shift-Enter FindPrevious is unbound (`onKey` has no focus/model).
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -56,6 +59,11 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
         return .minimize_window;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "w")) {
+        // Waku secondary-alt-w ToggleFindWholeWord. Cmd/Ctrl-W stays
+        // close_window when alt is not held. Handler no-ops if find is inactive.
+        if (hasAltModifier(keyboard.modifiers) and !keyboard.modifiers.shift) {
+            return .toggle_file_preview_find_whole_word;
+        }
         return .close_window;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "q")) {
@@ -68,10 +76,21 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
         return .toggle_sidebar;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "c")) {
+        // Waku secondary-alt-c ToggleFindCaseSensitive. Cmd/Ctrl-C stays
+        // copy_last_turn when alt is not held. Handler no-ops if find is inactive.
+        if (hasAltModifier(keyboard.modifiers) and !keyboard.modifiers.shift) {
+            return .toggle_file_preview_find_case;
+        }
         return .copy_last_turn;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "u")) {
         return .toggle_usage_meter;
+    }
+    if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "r")) {
+        // Waku secondary-alt-r ToggleFindRegex. No bare Cmd/Ctrl-R bind.
+        if (hasAltModifier(keyboard.modifiers) and !keyboard.modifiers.shift) {
+            return .toggle_file_preview_find_regex;
+        }
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "s")) {
         // Waku `cmd-s` SaveFile / Files preview Save.
@@ -87,6 +106,13 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
         return .history_forward;
     }
     if (keyboard.modifiers.hasNavigationModifier() and isEnterKey(keyboard.key)) {
+        // Waku secondary-alt-enter ReplaceAllMatches. Cmd/Ctrl-Enter stays
+        // steer when alt is not held. Shift-Enter FindPrevious is unbound:
+        // onKey has no focus/model, so Native cannot scope it to the find
+        // bar without stealing composer Shift-Enter newline.
+        if (hasAltModifier(keyboard.modifiers) and !keyboard.modifiers.shift) {
+            return .file_preview_find_replace_all;
+        }
         return .steer;
     }
     return null;
