@@ -454,7 +454,7 @@ pub const Msg = union(enum) {
     open_right_panel_file_edit,
     /// Files-pane preview textarea `on-input`.
     file_preview_edit: canvas.TextInputEvent,
-    /// Files-pane preview header: write the dirty buffer to the abs path.
+    /// Cmd/Ctrl-S: write the dirty Files preview buffer (same as the Save button when dirty-editing).
     file_preview_save,
     /// Files-pane preview header: re-read from disk (discards dirty).
     file_preview_reload,

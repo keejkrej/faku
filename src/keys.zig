@@ -62,6 +62,10 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "u")) {
         return .toggle_usage_meter;
     }
+    if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "s")) {
+        // Waku `cmd-s` SaveFile / Files preview Save.
+        return .file_preview_save;
+    }
     if (keyboard.modifiers.hasNavigationModifier() and std.mem.eql(u8, keyboard.key, ",")) {
         return .toggle_settings;
     }

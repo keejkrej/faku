@@ -599,7 +599,7 @@ Waku's 50k index or a Native FS watcher), with a bounded inline preview on file 
 lexer name from the path, unknown / Dockerfile / Makefile /
 Cargo.toml → `plain`; Native numbered mode omits the gutter above 128
 logical lines but keeps the source; first-cut Edit switches a full
-text window to `<textarea>`, Save prefers hello + daemon
+text window to `<textarea>`, Save (or Cmd/Ctrl-S when dirty-editing) prefers hello + daemon
 `WorkspaceOperation::WriteTextFile` when a daemon address is set
 (ok Ack adopts the saved buffer; Native 4 KiB stdin overflow /
 sidecar failure / non-ack falls back to Zig `std.fs` atomic

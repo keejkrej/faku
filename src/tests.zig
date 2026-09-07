@@ -11589,6 +11589,46 @@ test "cmd-u and ctrl-u toggle the usage meter via onKey" {
     try testing.expectEqual(Msg.new_session, keys.onKey(cmd_n).?);
 }
 
+test "cmd-s and ctrl-s save the Files preview via onKey" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "s" } }, &fx);
+    try testing.expectEqualStrings("s", model.draft());
+
+    const plain_s = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "s" };
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_s));
+    try testing.expectEqualStrings("s", model.draft());
+
+    const cmd_s = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "s",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.file_preview_save, keys.onKey(cmd_s).?);
+
+    const spawn_before = fx.pendingSpawnCount();
+    main.update(&model, keys.onKey(cmd_s).?, &fx);
+    try testing.expectEqual(spawn_before, fx.pendingSpawnCount());
+    try testing.expectEqual(@as(u64, 0), model.file_preview_save_key);
+    try testing.expect(!model.file_preview_save_via_daemon);
+    try testing.expectEqualStrings("s", model.draft());
+
+    const ctrl_s = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "S",
+        .modifiers = .{ .control = true },
+    };
+    try testing.expectEqual(Msg.file_preview_save, keys.onKey(ctrl_s).?);
+    main.update(&model, keys.onKey(ctrl_s).?, &fx);
+    try testing.expectEqual(spawn_before, fx.pendingSpawnCount());
+    try testing.expectEqual(@as(u64, 0), model.file_preview_save_key);
+    try testing.expectEqualStrings("s", model.draft());
+}
+
 test "send while busy shows a queued card that dismiss clears" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
