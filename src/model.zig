@@ -508,6 +508,7 @@ pub const Msg = union(enum) {
     set_usage_breakdown_model,
     set_usage_breakdown_days,
     refresh_usage_history,
+    /// Cmd/Ctrl-U: toggle the composer usage meter (same as the footer Usage button).
     toggle_usage_meter,
     close_usage_meter,
     refresh_plan_usage,
