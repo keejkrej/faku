@@ -188,7 +188,14 @@ fn parseAlt(c: *Compiler) ?u16 {
 }
 
 fn parseConcat(c: *Compiler) ?u16 {
-    const first = parseRepeat(c) orelse return c.addNode(.{ .kind = .epsilon });
+    if (!startsAtom(c.peek())) {
+        const ch = c.peek();
+        if (ch == null or ch == '|' or ch == ')') {
+            return c.addNode(.{ .kind = .epsilon });
+        }
+        return null;
+    }
+    const first = parseRepeat(c) orelse return null;
     var left = first;
     while (startsAtom(c.peek())) {
         const next = parseRepeat(c) orelse return null;
