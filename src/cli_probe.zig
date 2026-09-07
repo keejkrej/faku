@@ -1,11 +1,14 @@
-//! Settings Providers: non-fx CLI `--help` probes.
+//! Non-fx CLI `--help` probes (boot + Settings Providers).
 //!
 //! Each non-fx `protocol.ProviderId` one-shots `{defaultBinary()} --help`
 //! on PATH (no `~/.local/bin/<binary>` fallback this cut). fx stays on
 //! `fx_probe.zig` (`$HOME/.fx/bin/fx`, leftover `~/.local/bin/fx`, then
-//! PATH) and is never spawned here. Same Native collect+on_exit pattern
-//! as `fx_probe`. Fake executor queues the spawn; tests do not need a
-//! live CLI or daemon.
+//! PATH) and is never spawned here. Boot (`initFx`) starts these
+//! alongside the fx probe so `providerEnabled` can AND probe-installed
+//! without starving plan-usage `maybeRefresh` until Settings opens.
+//! Settings → Providers open calls `startCliProbes` (no-op when already
+//! started). Same Native collect+on_exit pattern as `fx_probe`. Fake
+//! executor queues the spawn; tests do not need a live CLI or daemon.
 //!
 //! Spawn key is `cli_probe_key_first + @intFromEnum(id)` so claude=601
 //! … kimi=608. fx (enum 0) is unused on this band. Distinct from
@@ -59,8 +62,9 @@ pub fn isAnyCliProbeArgv(argv: []const []const u8) bool {
     return false;
 }
 
-/// Settings → Providers open. Skip ids already started. Does not
-/// touch fx / `fx_probe_key`.
+/// Boot (`initFx`) and Settings → Providers open. Skip ids already
+/// started (open is a no-op after boot). Does not touch fx /
+/// `fx_probe_key`.
 pub fn startCliProbes(model: *Model, fx: *Effects) void {
     for (std.meta.tags(protocol.ProviderId)) |id| {
         if (id == .fx) continue;

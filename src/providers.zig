@@ -4,16 +4,20 @@
 //! row. fx (first-party default) reads existing `model.fx_available` /
 //! `fxPath()` — no new probe key. Other ids one-shot PATH
 //! `{defaultBinary()} --help` via `cli_probe.zig` (Available / Not
-//! found when that exit lands). Open starts non-fx probes; Refresh
-//! re-runs fx_probe and every non-fx probe. Selecting a row highlights
+//! found when that exit lands). Boot (`initFx`) starts non-fx probes
+//! alongside the fx probe; Settings → Providers open calls
+//! `startProbes` (no-op when already started). Refresh re-runs
+//! fx_probe and every non-fx probe. Selecting a row highlights
 //! and shows detail; Apply ("Use for this session") sets the selected
 //! chat session's `provider` and persists via `sessions.json`. First-cut
 //! per-row Enable/Disable persists `disabled_providers` (wire names) on
-//! that same extras bag. Disabled skips background plan-usage refresh
+//! that same extras bag. The Enable/Disable chip is disable-flag-only
+//! (user can toggle regardless of install). `providerEnabled` (the
+//! plan-usage `maybeRefresh` gate) is `!disabled && isAvailable`.
+//! Disabled or Not-found / unset skips background plan-usage refresh
 //! unless the selected session already uses that id; a started session
-//! on a disabled provider still works and still fetches when selected.
-//! `providerEnabled` is `!disabled` this cut — not AND probe-installed
-//! (probes only start when Settings → Providers opens). New
+//! on a disabled or uninstalled provider still works and still fetches
+//! when selected. New
 //! sessions stay `.fx`. Live Send for probed ACP stdio providers
 //! (cursor, opencode, kimi, grok) is `spawn.startPrompt` (first-cut ACP v1
 //! image content blocks when a composer image is attached); Available Claude
@@ -46,10 +50,11 @@
 //! CLI install.
 //!
 //! Leftovers: full onboarding / OAuth / auto-install; Pi ACP /
-//! `--mode rpc`; Claude ACP; `--continue`; Waku `provider_enabled`
-//! also AND `probe.installed`; disabling does not move unstarted
-//! drafts / last_provider (Faku new sessions stay fx; drafts.json
-//! has no provider).
+//! `--mode rpc`; Claude ACP; `--continue`; circular GPUI gauge;
+//! LiteLLM rate-table; T3 layered Usage chart; amend/force and
+//! remote `--track` over daemon (local already). Disabling does not
+//! move unstarted drafts / last_provider (Faku new sessions stay fx;
+//! drafts.json has no provider).
 //! Claude print-mode stream-json (later Sends pass documented
 //! `--resume {fx_session_id}` when that field is non-empty; first
 //! Send and Fork omit it; `--forward-subagent-text` always;
@@ -112,8 +117,8 @@ pub const ProviderRow = struct {
     has_binary: bool = false,
     first_party: bool = false,
     selected: bool = false,
-    /// First-cut `providerEnabled` (`!disabled_providers`). Not
-    /// probe-installed this cut.
+    /// Settings Enable/Disable chip: persisted `!disabled_providers`
+    /// only. Not the `providerEnabled` gate (that also ANDs installed).
     enabled: bool = true,
     enable_label: []const u8 = disable_label,
 };
@@ -140,12 +145,15 @@ pub fn isAvailable(model: *const Model, id: protocol.ProviderId) bool {
 }
 
 /// First-cut Waku `provider_enabled`: not in persisted
-/// `disabled_providers`. Does **not** AND PATH `--help` probe-installed
-/// this cut — those probes only start when Settings → Providers opens,
-/// and gating maybeRefresh on them would drop concurrent plan-usage
-/// fetches until that page is opened.
+/// `disabled_providers` **and** PATH `--help` probe-installed
+/// (`isAvailable`: fx → `fx_available`, others → `cli_available`).
+/// Boot starts non-fx probes so cadence is not starved until Settings
+/// → Providers opens. Until a probe exit lands, availability defaults
+/// false (unselected plan-usage providers stay skipped). Settings
+/// Enable/Disable chip is still disable-flag-only (`rowFor.enabled`).
 pub fn providerEnabled(model: *const Model, id: protocol.ProviderId) bool {
-    return !model.disabled_providers[@intFromEnum(id)];
+    if (model.disabled_providers[@intFromEnum(id)]) return false;
+    return isAvailable(model, id);
 }
 
 pub fn setProviderEnabled(model: *Model, id: protocol.ProviderId, enabled: bool) void {
@@ -178,7 +186,7 @@ pub fn binaryFor(model: *const Model, id: protocol.ProviderId) []const u8 {
 pub fn rowFor(model: *const Model, id: protocol.ProviderId) ProviderRow {
     const binary = binaryFor(model, id);
     const rid = rowId(id);
-    const enabled = providerEnabled(model, id);
+    const enabled = !model.disabled_providers[@intFromEnum(id)];
     return .{
         .id = rid,
         .name = id.wireName(),
@@ -307,7 +315,9 @@ pub fn close(model: *Model) void {
     model.provider_selected_id = 0;
 }
 
-/// Settings → Providers open. Non-fx PATH `--help` probes only.
+/// Non-fx PATH `--help` probes only. Boot (`initFx`) also calls this
+/// via `cli_probe.startCliProbes`. Settings → Providers open is a
+/// no-op when already started. Does not restart fx.
 pub fn startProbes(model: *Model, fx: *Effects) void {
     cli_probe.startCliProbes(model, fx);
 }
@@ -673,6 +683,48 @@ test "startProbes does not queue fx_probe_key" {
     try testing.expectEqual(cli_probe.nonFxCount(), i);
 }
 
+test "initFx queues fx --help and every non-fx PATH --help probe; startProbes is then a no-op" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    main.initFx(&model, &fx);
+    try testing.expect(model.fx_probe_started);
+
+    var saw_fx = false;
+    var cli_n: usize = 0;
+    var i: usize = 0;
+    while (fx.pendingSpawnAt(i)) |item| : (i += 1) {
+        if (item.key == fx_probe.fx_probe_key and fx_probe.isFxProbeArgv(item.argv)) {
+            saw_fx = true;
+            continue;
+        }
+        if (cli_probe.fromProbeKey(item.key)) |id| {
+            try testing.expect(id != .fx);
+            try testing.expect(cli_probe.isCliProbeArgv(item.argv, id));
+            try testing.expect(item.key != fx_probe.fx_probe_key);
+            try testing.expect(model.cli_probe_started[@intFromEnum(id)]);
+            cli_n += 1;
+        }
+    }
+    try testing.expect(saw_fx);
+    try testing.expectEqual(cli_probe.nonFxCount(), cli_n);
+    try testing.expect(!model.cli_probe_started[0]);
+
+    const after_boot = fx.pendingSpawnCount();
+    startProbes(&model, &fx);
+    try testing.expectEqual(after_boot, fx.pendingSpawnCount());
+
+    var fx_n: usize = 0;
+    i = 0;
+    while (fx.pendingSpawnAt(i)) |item| : (i += 1) {
+        if (item.key == fx_probe.fx_probe_key) fx_n += 1;
+    }
+    try testing.expectEqual(@as(usize, 1), fx_n);
+}
+
 test "rows empty off the Providers page" {
     var model = Model{};
     const off = rows(&model, std.testing.allocator);
@@ -792,19 +844,26 @@ test "copyFxInstall / copyFxLogin write verified commands; wrong state is a no-o
     try testing.expectEqual(@as(usize, 0), other_fx.pendingSpawnCount());
 }
 
-test "providerEnabled defaults true; disable then enable clears" {
+test "providerEnabled is not-disabled AND probe-installed; chip is disable-flag-only" {
     var model = Model{};
-    try std.testing.expect(providerEnabled(&model, .claude));
-    try std.testing.expect(providerEnabled(&model, .grok));
-    try std.testing.expect(providerEnabled(&model, .fx));
+    try std.testing.expect(!providerEnabled(&model, .claude));
+    try std.testing.expect(!providerEnabled(&model, .grok));
+    try std.testing.expect(!providerEnabled(&model, .fx));
     try std.testing.expect(rowFor(&model, .claude).enabled);
     try std.testing.expectEqualStrings(disable_label, rowFor(&model, .claude).enable_label);
+    try std.testing.expect(rowFor(&model, .fx).enabled);
+
+    model.cli_available[@intFromEnum(protocol.ProviderId.claude)] = true;
+    try std.testing.expect(providerEnabled(&model, .claude));
+    try std.testing.expect(rowFor(&model, .claude).enabled);
+    try std.testing.expect(!providerEnabled(&model, .grok));
+    try std.testing.expect(rowFor(&model, .grok).enabled);
 
     setProviderEnabled(&model, .claude, false);
     try std.testing.expect(!providerEnabled(&model, .claude));
-    try std.testing.expect(providerEnabled(&model, .grok));
     try std.testing.expect(!rowFor(&model, .claude).enabled);
     try std.testing.expectEqualStrings(enable_label, rowFor(&model, .claude).enable_label);
+    try std.testing.expect(!providerEnabled(&model, .grok));
     try std.testing.expect(rowFor(&model, .grok).enabled);
 
     setProviderEnabled(&model, .claude, true);
@@ -813,11 +872,21 @@ test "providerEnabled defaults true; disable then enable clears" {
     try std.testing.expect(rowFor(&model, .claude).enabled);
     try std.testing.expectEqualStrings(disable_label, rowFor(&model, .claude).enable_label);
 
+    model.cli_available[@intFromEnum(protocol.ProviderId.grok)] = true;
+    try std.testing.expect(providerEnabled(&model, .grok));
     try std.testing.expect(toggleProviderEnabled(&model, rowId(.grok)));
     try std.testing.expect(!providerEnabled(&model, .grok));
+    try std.testing.expect(!rowFor(&model, .grok).enabled);
     try std.testing.expect(toggleProviderEnabled(&model, rowId(.grok)));
     try std.testing.expect(providerEnabled(&model, .grok));
     try std.testing.expect(!toggleProviderEnabled(&model, 0));
     try std.testing.expect(!toggleProviderEnabled(&model, 99));
+
+    model.fx_available = true;
     try std.testing.expect(providerEnabled(&model, .fx));
+    try std.testing.expect(rowFor(&model, .fx).enabled);
+    setProviderEnabled(&model, .fx, false);
+    try std.testing.expect(!providerEnabled(&model, .fx));
+    try std.testing.expect(!rowFor(&model, .fx).enabled);
+    try std.testing.expectEqualStrings(enable_label, rowFor(&model, .fx).enable_label);
 }

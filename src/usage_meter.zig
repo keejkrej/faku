@@ -25,10 +25,14 @@
 //! Switching session/provider shows that slot immediately and does
 //! not clear the others. `maybeRefresh` skips a provider when
 //! `!providerEnabled && selectedProvider != provider` (Waku
-//! `provider_enabled`; Faku first-cut is `!disabled_providers`, not
-//! AND probe-installed). Selected open / Refresh / `ensure` still
-//! fetch that id even if disabled. Still not a circular GPUI gauge,
-//! not LiteLLM, not a T3 chart.
+//! `provider_enabled`; Faku is `!disabled && isAvailable`). Boot
+//! starts non-fx CLI `--help` probes alongside fx so that AND does
+//! not starve concurrent fetches until Settings opens. Enable/Disable
+//! chip is still disable-flag-only. Selected open / Refresh / `ensure`
+//! still fetch that id even if disabled or not yet Available. Still
+//! not a circular GPUI gauge (Native), not LiteLLM rate-table, not a
+//! T3 layered Usage chart. Amend/force and remote `--track` stay
+//! local (not daemon WorkspaceOperation variants).
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -99,9 +103,9 @@ pub const Cache = struct {
 };
 
 /// Waku `PLAN_USAGE_PROVIDERS`. Closed set; not a HashMap.
-/// `maybeRefresh` skips a disabled id unless it is the selected
-/// session's provider. First-cut `providerEnabled` is
-/// `!disabled_providers` (not AND probe-installed).
+/// `maybeRefresh` skips when `!providerEnabled && selectedProvider !=
+/// provider`. `providerEnabled` is `!disabled && isAvailable` (boot
+/// starts CLI probes; Enable/Disable chip stays disable-flag-only).
 pub const plan_usage_providers = [_]ProviderId{ .claude, .codex, .opencode, .grok };
 
 /// One provider's runtime snapshot plus Waku-shaped cadence fields.
@@ -297,8 +301,8 @@ pub fn onSessionChange(model: *Model, fx: *Effects) void {
 /// First-cut Waku `maybe_refresh_plan_usage`: loop Claude / Codex /
 /// OpenCode / Grok. Skip a provider that already has `pending_key`.
 /// Skip when `!providerEnabled && selectedProvider != provider`
-/// (Waku `provider_enabled`; first-cut is `!disabled_providers`).
-/// Interval is error → 90s, else stale → 30s, else Grok → 600s, else
+/// (Waku `provider_enabled`; `!disabled && isAvailable`). Interval is
+/// error → 90s, else stale → 30s, else Grok → 600s, else
 /// 300s, all from that provider's slot. Unset per-provider
 /// `checked_at` may fire once when eligible. Does not cancel
 /// in-flight (open / Refresh stay the selected-only force path).
@@ -752,12 +756,29 @@ test "opening again cancels an in-flight sidecar for the same provider" {
     try std.testing.expect(pendingSpawnKey(&fx, first_key) == null);
 }
 
+fn markPlanUsageAvailable(model: *Model) void {
+    for (plan_usage_providers) |id| {
+        model.cli_available[@intFromEnum(id)] = true;
+    }
+}
+
 fn seedCadenceModel(provider: ProviderId) Model {
     var model = Model{};
     model.setLastDaemonAddress("127.0.0.1:8787");
     model.setSidecarPath("faku");
     model.now_ms = 10_000;
+    markPlanUsageAvailable(&model);
     const id = model.addSession("usage cadence", provider);
+    model.selected = id;
+    return model;
+}
+
+fn seedCadenceModelUnset(provider: ProviderId) Model {
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.now_ms = 10_000;
+    const id = model.addSession("usage cadence unset", provider);
     model.selected = id;
     return model;
 }
@@ -1170,7 +1191,7 @@ test "applyLine and handleExit resolve provider from slot pending_key" {
     try std.testing.expectEqual(@as(usize, 1), planRows(&model, arena).len);
 }
 
-test "maybeRefresh skips a disabled provider unless it is selected" {
+test "maybeRefresh skips an Available-but-disabled provider unless it is selected" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -1187,6 +1208,34 @@ test "maybeRefresh skips a disabled provider unless it is selected" {
     try std.testing.expect(std.mem.indexOf(u8, claude_spawn.stdin, "\"provider\":\"claude\"") != null);
 }
 
+test "maybeRefresh skips a Not-found / unset provider unless it is selected" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = seedCadenceModelUnset(.claude);
+    try std.testing.expect(!providers.providerEnabled(&model, .claude));
+    try std.testing.expect(!providers.providerEnabled(&model, .grok));
+    maybeRefresh(&model, &fx);
+    try std.testing.expect(pendingKey(&model, .claude) != 0);
+    try std.testing.expectEqual(@as(u64, 0), pendingKey(&model, .codex));
+    try std.testing.expectEqual(@as(u64, 0), pendingKey(&model, .opencode));
+    try std.testing.expectEqual(@as(u64, 0), pendingKey(&model, .grok));
+    const claude_spawn = pendingSpawnKey(&fx, pendingKey(&model, .claude)) orelse return error.MissingSelectedUnsetClaude;
+    try std.testing.expect(std.mem.indexOf(u8, claude_spawn.stdin, "\"provider\":\"claude\"") != null);
+
+    model.cli_available[@intFromEnum(ProviderId.grok)] = false;
+    model.now_ms = 10_000;
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), pendingKey(&model, .grok));
+
+    model.cli_available[@intFromEnum(ProviderId.codex)] = true;
+    maybeRefresh(&model, &fx);
+    try std.testing.expect(pendingKey(&model, .codex) != 0);
+    try std.testing.expectEqual(@as(u64, 0), pendingKey(&model, .grok));
+    try std.testing.expectEqual(@as(u64, 0), pendingKey(&model, .opencode));
+}
+
 test "maybeRefresh still fetches selected when that provider is disabled" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
@@ -1201,6 +1250,22 @@ test "maybeRefresh still fetches selected when that provider is disabled" {
     try std.testing.expect(pendingKey(&model, .codex) != 0);
     try std.testing.expect(pendingKey(&model, .opencode) != 0);
     const grok_spawn = pendingSpawnKey(&fx, selectedPendingKey(&model)) orelse return error.MissingSelectedDisabledGrok;
+    try std.testing.expect(std.mem.indexOf(u8, grok_spawn.stdin, "\"provider\":\"grok\"") != null);
+}
+
+test "maybeRefresh still fetches selected when probe is not yet Available" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = seedCadenceModelUnset(.grok);
+    try std.testing.expect(!providers.providerEnabled(&model, .grok));
+    maybeRefresh(&model, &fx);
+    try std.testing.expect(pendingKey(&model, .grok) != 0);
+    try std.testing.expectEqual(@as(u64, 0), pendingKey(&model, .claude));
+    try std.testing.expectEqual(@as(u64, 0), pendingKey(&model, .codex));
+    try std.testing.expectEqual(@as(u64, 0), pendingKey(&model, .opencode));
+    const grok_spawn = pendingSpawnKey(&fx, selectedPendingKey(&model)) orelse return error.MissingSelectedUnsetGrok;
     try std.testing.expect(std.mem.indexOf(u8, grok_spawn.stdin, "\"provider\":\"grok\"") != null);
 }
 

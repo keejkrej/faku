@@ -1438,9 +1438,9 @@ pub const Model = struct {
     /// Persisted user-disabled providers. Index is `@intFromEnum`.
     /// True means disabled. Default all false (empty list = all
     /// enabled). `sessions.json` extras `disabled_providers` (wire
-    /// names). First-cut `providerEnabled` is `!disabled`; Waku also
-    /// AND probe-installed — leftover so maybeRefresh still concurrent
-    /// fetches before Settings → Providers is opened.
+    /// names). Settings Enable/Disable chip toggles this flag only.
+    /// `providerEnabled` ANDs PATH `--help` probe-installed
+    /// (`isAvailable`). Boot starts non-fx probes alongside fx.
     disabled_providers: [protocol.provider_id_count]bool = [_]bool{false} ** protocol.provider_id_count,
     /// Runtime-only non-fx `--help` probe results. Index is
     /// `@intFromEnum(ProviderId)`. Slot 0 (fx) is unused — fx stays
