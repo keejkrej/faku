@@ -45,11 +45,14 @@
 //! nil. Ok payload is `{ type: "usageHistory", history }` where
 //! `UsageHistory` keys stay camelCase (`sinceDay`, `untilDay`,
 //! `totalTokens`, `costUsd`, `sessions`, `providers`, `daily`, `months`,
-//! `projects`, `models`, `quality`, `pricing`, …). `UsageProvider` is
+//! `projects`, `models`, `totals`, `quality`, `pricing`, …). `UsageProvider` is
 //! `claude` | `codex`. Dates stay opaque strings. Optional `costShare`
 //! / `tokenShare` (0..1) are parsed on providers when present.
 //! `models[]` is Waku `ModelSlice` (`provider`, `model`, `costUsd`,
-//! `totalTokens`, `costShare`; no `tokenShare`). `quality` is
+//! `totalTokens`, `costShare`; no `tokenShare`). `totals` is Waku
+//! `TokenTotals` (`uncachedInput`, `cachedInput`, `cacheCreation`,
+//! `output`, `reasoning`); missing / empty / unknown stay 0.
+//! `quality` is
 //! `CostQuality` (`providerReportedShare` / `modelPricedShare` /
 //! `unpricedShare` 0..1, `cacheSavingsUsd`). `pricing` is
 //! `PricingStatus`: `"fresh"` | `"cached"` | `"unavailable"`. Missing
@@ -61,7 +64,9 @@
 //! paints per-provider share bars from those shares (or
 //! client-computed totals), a Model | Days breakdown (default Model)
 //! with model share bars or a relative max-day bar chart from
-//! `daily[]` (`costUsd` / `totalTokens`), and a Cost quality panel
+//! `daily[]` (`costUsd` / `totalTokens`), a five-tile Native metric
+//! strip from `totalTokens` / `totals` / `quality.cacheSavingsUsd`,
+//! and a Cost quality panel
 //! plus rates-unavailable / error notices. Still not Waku's GPUI /
 //! T3 layered chart, not LiteLLM rate-table fetch.
 //!
@@ -742,6 +747,17 @@ pub const ParsedCostQuality = struct {
     cache_savings_usd: f64 = 0,
 };
 
+/// Waku `TokenTotals` on `history.totals`. CamelCase on the wire.
+/// Missing / empty `{}` / unknown fields stay 0. `reasoning` is a
+/// subset of `output` and is not added into `totalTokens`.
+pub const ParsedTokenTotals = struct {
+    uncached_input: u64 = 0,
+    cached_input: u64 = 0,
+    cache_creation: u64 = 0,
+    output: u64 = 0,
+    reasoning: u64 = 0,
+};
+
 /// One `providers[]` row. Slices alias the JSON arena.
 /// `cost_share` / `token_share` are 0 when omitted; Settings Usage
 /// computes from totals when the wire value is missing or zero.
@@ -805,7 +821,7 @@ pub const ParsedUsageProject = struct {
 };
 
 /// Light parse of ok `usageHistory`. Unknown JSON ignored. Dates stay
-/// opaque strings. Empty arrays are still ok.
+/// opaque strings. Empty arrays are still ok. Missing `totals` stays 0.
 pub const ParsedUsageHistory = struct {
     ok: bool = false,
     since_day: []const u8 = "",
@@ -823,6 +839,7 @@ pub const ParsedUsageHistory = struct {
     month_count: usize = 0,
     projects: [max_parsed_usage_projects]ParsedUsageProject = [_]ParsedUsageProject{.{}} ** max_parsed_usage_projects,
     project_count: usize = 0,
+    totals: ParsedTokenTotals = .{},
     quality: ParsedCostQuality = .{},
     pricing: PricingStatus = .unknown,
     records: u64 = 0,
@@ -2484,6 +2501,7 @@ pub fn parseUsageHistory(allocator: std.mem.Allocator, line: []const u8) ParsedU
     parsed.daily_count = parseUsageDays(history.get("daily"), &parsed.daily);
     parsed.month_count = parseUsageMonths(history.get("months"), &parsed.months);
     parsed.project_count = parseUsageProjects(history.get("projects"), &parsed.projects);
+    parsed.totals = parseTokenTotals(history.get("totals"));
     parsed.quality = parseCostQuality(history.get("quality"));
     parsed.pricing = PricingStatus.fromWire(jsonStringValue(history.get("pricing")) orelse "") orelse .unknown;
     parsed.records = jsonU64OrZero(history.get("records"));
@@ -2723,6 +2741,20 @@ fn clampParsedShare(value: f64) f64 {
     if (!std.math.isFinite(value) or !(value > 0)) return 0;
     if (value >= 1) return 1;
     return value;
+}
+
+/// Light parse of `history.totals`. Missing / empty / non-object /
+/// unknown fields stay 0.
+fn parseTokenTotals(value: ?std.json.Value) ParsedTokenTotals {
+    var totals = ParsedTokenTotals{};
+    const item = value orelse return totals;
+    const obj = jsonObject(item) orelse return totals;
+    totals.uncached_input = jsonU64OrZero(obj.get("uncachedInput"));
+    totals.cached_input = jsonU64OrZero(obj.get("cachedInput"));
+    totals.cache_creation = jsonU64OrZero(obj.get("cacheCreation"));
+    totals.output = jsonU64OrZero(obj.get("output"));
+    totals.reasoning = jsonU64OrZero(obj.get("reasoning"));
+    return totals;
 }
 
 fn parseCostQuality(value: ?std.json.Value) ParsedCostQuality {
@@ -5686,13 +5718,18 @@ test "parseUsageHistory reads a minimal usageHistory fixture and ignores unknown
     const arena = arena_state.allocator();
 
     const line =
-        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000015","outcome":{"status":"ok","payload":{"type":"usageHistory","history":{"window":{"trailingDays":30},"sinceDay":"2026-08-08","untilDay":"2026-09-06","totals":{"uncachedInput":1},"totalTokens":12345,"costUsd":1.25,"records":9,"sessions":4,"providers":[{"provider":"claude","costUsd":1.0,"totalTokens":10000,"costShare":0.8,"tokenShare":0.81},{"provider":"codex","costUsd":0.25,"totalTokens":2345}],"models":[{"provider":"claude","model":"opus","costUsd":1.0,"totalTokens":10000,"costShare":0.8,"unknownModelField":true},{"provider":"codex","model":"gpt-5","costUsd":0.25,"totalTokens":2345},{"model":"ignored"}],"daily":[{"day":"2026-09-05","totalTokens":200,"costUsd":0.05,"byProvider":[]},{"day":"2026-09-06","totalTokens":500,"costUsd":0.1}],"months":[{"firstDay":"2026-09-01","totalTokens":12345,"costUsd":1.25,"sessions":4}],"projects":[{"path":"/tmp/faku","totalTokens":12345,"costUsd":1.25,"sessions":4}],"quality":{},"pricing":"fresh","scannedFiles":3,"skippedFiles":0,"errors":[],"scanDuration":{"secs":1,"nanos":0},"unknownField":true}}}}
+        \\{"type":"response","requestId":"00000000-0000-0000-0000-000000000015","outcome":{"status":"ok","payload":{"type":"usageHistory","history":{"window":{"trailingDays":30},"sinceDay":"2026-08-08","untilDay":"2026-09-06","totals":{"uncachedInput":100,"cachedInput":80,"cacheCreation":20,"output":40,"reasoning":5,"unknownTotalsField":true},"totalTokens":12345,"costUsd":1.25,"records":9,"sessions":4,"providers":[{"provider":"claude","costUsd":1.0,"totalTokens":10000,"costShare":0.8,"tokenShare":0.81},{"provider":"codex","costUsd":0.25,"totalTokens":2345}],"models":[{"provider":"claude","model":"opus","costUsd":1.0,"totalTokens":10000,"costShare":0.8,"unknownModelField":true},{"provider":"codex","model":"gpt-5","costUsd":0.25,"totalTokens":2345},{"model":"ignored"}],"daily":[{"day":"2026-09-05","totalTokens":200,"costUsd":0.05,"byProvider":[]},{"day":"2026-09-06","totalTokens":500,"costUsd":0.1}],"months":[{"firstDay":"2026-09-01","totalTokens":12345,"costUsd":1.25,"sessions":4}],"projects":[{"path":"/tmp/faku","totalTokens":12345,"costUsd":1.25,"sessions":4}],"quality":{},"pricing":"fresh","scannedFiles":3,"skippedFiles":0,"errors":[],"scanDuration":{"secs":1,"nanos":0},"unknownField":true}}}}
     ;
     const parsed = parseUsageHistory(arena, line);
     try std.testing.expect(parsed.ok);
     try std.testing.expectEqualStrings("2026-08-08", parsed.since_day);
     try std.testing.expectEqualStrings("2026-09-06", parsed.until_day);
     try std.testing.expectEqual(@as(u64, 12345), parsed.total_tokens);
+    try std.testing.expectEqual(@as(u64, 100), parsed.totals.uncached_input);
+    try std.testing.expectEqual(@as(u64, 80), parsed.totals.cached_input);
+    try std.testing.expectEqual(@as(u64, 20), parsed.totals.cache_creation);
+    try std.testing.expectEqual(@as(u64, 40), parsed.totals.output);
+    try std.testing.expectEqual(@as(u64, 5), parsed.totals.reasoning);
     try std.testing.expectApproxEqAbs(@as(f64, 1.25), parsed.cost_usd, 0.0001);
     try std.testing.expectEqual(@as(u64, 4), parsed.sessions);
     try std.testing.expectEqual(@as(usize, 2), parsed.provider_count);
@@ -5749,6 +5786,11 @@ test "parseUsageHistory reads a minimal usageHistory fixture and ignores unknown
     const empty = parseUsageHistory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{}}}}");
     try std.testing.expect(empty.ok);
     try std.testing.expectEqual(@as(u64, 0), empty.total_tokens);
+    try std.testing.expectEqual(@as(u64, 0), empty.totals.uncached_input);
+    try std.testing.expectEqual(@as(u64, 0), empty.totals.cached_input);
+    try std.testing.expectEqual(@as(u64, 0), empty.totals.cache_creation);
+    try std.testing.expectEqual(@as(u64, 0), empty.totals.output);
+    try std.testing.expectEqual(@as(u64, 0), empty.totals.reasoning);
     try std.testing.expectEqual(@as(usize, 0), empty.provider_count);
     try std.testing.expectEqual(@as(usize, 0), empty.model_count);
     try std.testing.expectEqual(PricingStatus.unknown, empty.pricing);
@@ -5893,6 +5935,16 @@ test "parseUsageHistory reads quality shares, pricing status, errors, and scan m
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), clamped.quality.provider_reported_share, 0.0001);
     try std.testing.expectApproxEqAbs(@as(f64, 0), clamped.quality.model_priced_share, 0.0001);
     try std.testing.expectApproxEqAbs(@as(f64, 0), clamped.quality.unpriced_share, 0.0001);
+
+    const empty_totals = parseUsageHistory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totals\":{}}}}}");
+    try std.testing.expect(empty_totals.ok);
+    try std.testing.expectEqual(@as(u64, 0), empty_totals.totals.uncached_input);
+    try std.testing.expectEqual(@as(u64, 0), empty_totals.totals.output);
+
+    const unknown_totals = parseUsageHistory(arena, "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totals\":{\"unknown\":9,\"cachedInput\":7}}}}}");
+    try std.testing.expectEqual(@as(u64, 7), unknown_totals.totals.cached_input);
+    try std.testing.expectEqual(@as(u64, 0), unknown_totals.totals.uncached_input);
+    try std.testing.expectEqual(@as(u64, 0), unknown_totals.totals.reasoning);
 }
 
 test "refreshBackgroundWork is a bare command with sessionId and runtimeId on the request frame" {
