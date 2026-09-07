@@ -63,12 +63,13 @@
 //! miss fall back quietly to local session Usage. Daily first-cut
 //! paints per-provider share bars from those shares (or
 //! client-computed totals), a Model | Days breakdown (default Model)
-//! with model share bars or a relative max-day bar chart from
-//! `daily[]` (`costUsd` / `totalTokens`), a five-tile Native metric
+//! with model share bars or a first-cut Native `<chart>` from
+//! `daily[]` (`costUsd` / `totalTokens`, oldest-first `[]const f32`),
+//! a five-tile Native metric
 //! strip from `totalTokens` / `totals` / `quality.cacheSavingsUsd`,
 //! and a Cost quality panel
-//! plus rates-unavailable / error notices. Still not Waku's GPUI /
-//! T3 layered chart, not LiteLLM rate-table fetch.
+//! plus rates-unavailable / error notices. First-cut Native chart
+//! ships; still not Waku's GPUI / T3 layered / stacked chart.
 //!
 //! `fetchPlanUsage` is not a bare command. Verified against egoist/waku
 //! `Command::FetchPlanUsage { provider, binary_override, cli_version }`

@@ -12875,6 +12875,7 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect(model_chip.state.selected);
     const days_chip = try expectButtonMsg(tree, "Days", .set_usage_breakdown_days);
     try testing.expect(!days_chip.state.selected);
+    try testing.expect(findByText(tree.root, .chart, "Daily usage") == null);
     _ = try expectByText(tree.root, .text, "80.0%");
     _ = try expectUsageShareProgress(tree.root, "80.0%", 0.8);
     _ = try expectUsageShareProgress(tree.root, "20.0%", 0.2);
@@ -12910,9 +12911,10 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     _ = try expectByText(tree.root, .text, "2026-09-04 · 0");
     try testing.expect(findByText(tree.root, .text, "Claude Code · opus · 10k · $1.00") == null);
     try testing.expect(findByText(tree.root, .text, "Codex · gpt-5 · 2k · $0.25") == null);
+    _ = try expectUsageDailyChart(tree.root);
     _ = try expectUsageShareProgress(tree.root, "80.0%", 0.8);
-    _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
-    _ = try expectUsageShareProgress(tree.root, "50.0%", 0.5);
+    try testing.expect(findByText(tree.root, .text, "100.0%") == null);
+    try testing.expect(findByText(tree.root, .text, "50.0%") == null);
     try testing.expect(findByText(tree.root, .text, "20.0%") == null);
     try testing.expect(findByText(tree.root, .progress, "0.0%") == null);
     _ = try expectByText(tree.root, .text, "Cost quality");
@@ -12926,11 +12928,12 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect(!(try expectButtonMsg(tree, "Cost", .set_usage_share_cost)).state.selected);
     _ = try expectByText(tree.root, .text, "Claude Code · 10k · $1.00");
     _ = try expectByText(tree.root, .text, "83.3%");
+    _ = try expectUsageDailyChart(tree.root);
     _ = try expectUsageShareProgress(tree.root, "83.3%", 10_000.0 / 12_000.0);
-    _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
-    _ = try expectUsageShareProgress(tree.root, "25.0%", 0.25);
     try testing.expect(findByText(tree.root, .text, "80.0%") == null);
+    try testing.expect(findByText(tree.root, .text, "100.0%") == null);
     try testing.expect(findByText(tree.root, .text, "50.0%") == null);
+    try testing.expect(findByText(tree.root, .text, "25.0%") == null);
     try testing.expect(findByText(tree.root, .progress, "0.0%") == null);
 
     main.update(&model, .set_usage_view_monthly, &fx);
@@ -12941,6 +12944,7 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect(findByText(tree.root, .text, "Claude Code · 10k · $1.00") == null);
     try testing.expect(findByText(tree.root, .text, "2026-09-05 · 100 · $1.00") == null);
     try testing.expect((try expectButtonMsg(tree, "Monthly", .set_usage_view_monthly)).state.selected);
+    try testing.expect(findByText(tree.root, .chart, "Daily usage") == null);
     try testing.expect(!model.usage_window_selector_visible());
     try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter projects") == null);
     try testing.expect(findByText(tree.root, .button, "7d") == null);
@@ -13158,6 +13162,8 @@ test "settings Usage Daily Days paints nested Claude/Codex byProvider bars" {
     main.update(&model, .set_settings_page_usage, &fx);
     try testing.expect(model.settings_page_usage());
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "d.has_by_provider") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<chart") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_daily_chart_values") != null);
 
     var spawn_i: usize = 0;
     const sidecar = while (fx.pendingSpawnAt(spawn_i)) |spawn| : (spawn_i += 1) {
@@ -13183,10 +13189,11 @@ test "settings Usage Daily Days paints nested Claude/Codex byProvider bars" {
     _ = try expectByText(tree.root, .text, "Claude Code · 40 · $0.25");
     _ = try expectByText(tree.root, .text, "Codex · 60 · $0.75");
     try testing.expect(findByText(tree.root, .text, "Codex · 0") == null);
+    _ = try expectUsageDailyChart(tree.root);
     _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
-    _ = try expectUsageShareProgress(tree.root, "50.0%", 0.5);
     _ = try expectUsageShareProgress(tree.root, "25.0%", 0.25);
     _ = try expectUsageShareProgress(tree.root, "75.0%", 0.75);
+    try testing.expect(findByText(tree.root, .text, "50.0%") == null);
     try testing.expect(findByText(tree.root, .progress, "0.0%") == null);
 
     const spawn_count = fx.pendingSpawnCount();
@@ -13197,6 +13204,7 @@ test "settings Usage Daily Days paints nested Claude/Codex byProvider bars" {
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Claude Code · 40 · $0.25");
     _ = try expectByText(tree.root, .text, "Codex · 60 · $0.75");
+    _ = try expectUsageDailyChart(tree.root);
     _ = try expectUsageShareProgress(tree.root, "40.0%", 0.4);
     _ = try expectUsageShareProgress(tree.root, "60.0%", 0.6);
     try testing.expect(findByText(tree.root, .text, "25.0%") == null);
@@ -13207,6 +13215,7 @@ test "settings Usage Daily Days paints nested Claude/Codex byProvider bars" {
     try testing.expect(findByText(tree.root, .text, "2026-09-05 · 100 · $1.00") == null);
     try testing.expect(findByText(tree.root, .text, "Claude Code · 40 · $0.25") == null);
     try testing.expect(findByText(tree.root, .text, "Codex · 60 · $0.75") == null);
+    try testing.expect(findByText(tree.root, .chart, "Daily usage") == null);
     try testing.expectEqual(@as(u64, 53_000), model.sessionById(id).?.context_used);
 }
 
@@ -13433,7 +13442,8 @@ test "settings Usage Daily paints Cost quality and rates-unavailable notice" {
     try testing.expect(model.usage_breakdown_days());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "2026-09-06 · 400 · $0.50");
-    _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
+    _ = try expectUsageDailyChart(tree.root);
+    try testing.expect(findByText(tree.root, .text, "100.0%") == null);
     _ = try expectByText(tree.root, .text, "Cost quality");
     _ = try expectByText(tree.root, .text, "Provider reported");
     _ = try expectByText(tree.root, .text, "scan failed");
@@ -21382,6 +21392,15 @@ fn expectUsageShareProgress(widget: canvas.Widget, label: []const u8, expected: 
     };
     try testing.expectApproxEqAbs(expected, progress.value, 0.0001);
     return progress;
+}
+
+fn expectUsageDailyChart(widget: canvas.Widget) !canvas.Widget {
+    const chart = findByText(widget, .chart, "Daily usage") orelse {
+        std.debug.print("no Daily usage chart\n", .{});
+        dumpTexts(widget, 0);
+        return error.WidgetNotFound;
+    };
+    return chart;
 }
 
 fn expectNoContextProgress(widget: canvas.Widget) !void {
