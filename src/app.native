@@ -795,6 +795,42 @@
                 </else>
               </input-group-actions>
             </input-group>
+            <if test="{usage_meter_available}">
+              <stack>
+                <row gap="8" cross="center">
+                  <progress value="{usage_meter_progress}" width="48" height="6" label="Usage meter" />
+                  <button variant="ghost" size="sm" selected="{usage_meter_open}" on-press="toggle_usage_meter">Usage</button>
+                </row>
+                <if test="{usage_meter_open}">
+                  <card size="sm" padding="10">
+                    <column gap="8">
+                      <text>Context window</text>
+                      <text wrap="false" overflow="ellipsis" foreground="text_muted">{usage_meter_context_label}</text>
+                      <progress value="{usage_meter_progress}" width="48" height="6" label="Session context" />
+                      <if test="{usage_meter_plan_visible}">
+                        <if test="{has_usage_meter_plan}">
+                          <text wrap="false" overflow="ellipsis" foreground="text_muted">{usage_meter_plan_header}</text>
+                          <for each="usage_meter_plan_rows" key="id" as="w">
+                            <column gap="4">
+                              <text wrap="false" overflow="ellipsis">{w.line}</text>
+                              <if test="{w.has_resets}">
+                                <text wrap="false" overflow="ellipsis" foreground="text_muted">{w.resets}</text>
+                              </if>
+                              <progress value="{w.share}" width="48" height="6" label="{w.percent}" />
+                              <text wrap="false" overflow="ellipsis" foreground="text_muted">{w.percent}</text>
+                            </column>
+                          </for>
+                        </if>
+                        <if test="{has_usage_meter_hint}">
+                          <text wrap="true" foreground="text_muted">{usage_meter_hint}</text>
+                        </if>
+                        <button variant="ghost" size="sm" on-press="refresh_plan_usage">Refresh</button>
+                      </if>
+                    </column>
+                  </card>
+                </if>
+              </stack>
+            </if>
             <if test="{show_goal}">
               <row gap="8" cross="center">
                 <text grow="1" wrap="false" overflow="ellipsis" foreground="text_muted">{goal_label}</text>

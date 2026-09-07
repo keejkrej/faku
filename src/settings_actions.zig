@@ -21,6 +21,7 @@ const providers = @import("providers.zig");
 const slash_commands = @import("slash_commands.zig");
 const pick_folder = @import("pick_folder.zig");
 const usage_history = @import("usage_history.zig");
+const usage_meter = @import("usage_meter.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -164,6 +165,7 @@ pub fn handleToggleSettings(model: *Model, fx: *Effects) void {
     }
     review_diff.close(model, fx);
     pick_folder.closeDaemonBrowser(model, fx);
+    usage_meter.close(model);
     model.openSettings();
 }
 
@@ -313,6 +315,32 @@ pub fn handleRefreshUsageHistory(model: *Model, fx: *Effects) void {
     usage_history.refresh(model, fx);
 }
 
+pub fn handleToggleUsageMeter(model: *Model, fx: *Effects) void {
+    if (!usage_meter.available(model) or model.settings_open) return;
+    if (!model.usage_meter_open) {
+        session_switcher.closeSwitcher(model);
+        if (model.palette_open) model.closePalette();
+        model.model_picker_open = false;
+        model.access_picker_open = false;
+        model.effort_picker_open = false;
+        model.settings_effort_picker_open = false;
+        model.goal_status_picker_open = false;
+        model.closeGitBranchPicker();
+        model.workspace_picker_open = false;
+        model.environment_summary_open = false;
+    }
+    usage_meter.toggle(model, fx);
+}
+
+pub fn handleCloseUsageMeter(model: *Model) void {
+    usage_meter.close(model);
+}
+
+pub fn handleRefreshPlanUsage(model: *Model, fx: *Effects) void {
+    if (!model.usage_meter_open) return;
+    usage_meter.refresh(model, fx);
+}
+
 pub fn handleUsageProjectFilterEdit(model: *Model, edit: canvas.TextInputEvent) void {
     if (model.settings_page != .usage or model.usage_view != .projects) return;
     usage_history.applyProjectFilter(model, edit);
@@ -381,6 +409,7 @@ pub fn handleApplySessionProvider(model: *Model, fx: *Effects) void {
     if (!providers.applyToSession(model)) return;
     store.persistIfPossible(model, model.selected, fx);
     slash_commands.refresh(model, fx);
+    usage_meter.onSessionChange(model, fx);
 }
 
 pub fn handleCopyFxInstall(model: *Model, fx: *Effects) void {
@@ -423,6 +452,7 @@ pub fn handleToggleModelPicker(model: *Model) void {
         model.settings_effort_picker_open = false;
         model.goal_status_picker_open = false;
         model.closeGitBranchPicker();
+        model.usage_meter_open = false;
     }
     model.toggleModelPicker();
 }
@@ -441,6 +471,7 @@ pub fn handleToggleAccessPicker(model: *Model) void {
         model.settings_effort_picker_open = false;
         model.goal_status_picker_open = false;
         model.closeGitBranchPicker();
+        model.usage_meter_open = false;
     }
     model.toggleAccessPicker();
 }
@@ -459,6 +490,7 @@ pub fn handleToggleEffortPicker(model: *Model) void {
         model.settings_effort_picker_open = false;
         model.goal_status_picker_open = false;
         model.closeGitBranchPicker();
+        model.usage_meter_open = false;
     }
     model.toggleEffortPicker();
 }

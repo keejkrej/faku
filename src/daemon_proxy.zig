@@ -6,6 +6,7 @@
 //! saveTaskState, hello + loadTaskState, hello + hydrateSession,
 //! hello + closeSession, hello + cancel, hello + steer, hello +
 //! hello + `goal`, hello + `loadUsageHistory`, hello +
+//! `fetchPlanUsage`, hello +
 //! `refreshBackgroundWork`, hello + `stopBackgroundWork`, or hello + `workspace`) and,
 //! when run as `faku daemon-proxy <addr>`, forwards those JSON frames over
 //! `ws://{addr}/v1`, prints each incoming text frame as one stdout line,
@@ -86,6 +87,9 @@ pub const ATTACH_REQUEST_ID = "00000000-0000-0000-0000-000000000012";
 /// Non-nil: a nil `requestId` is a notify and the daemon sends no
 /// `usageHistory`.
 pub const USAGE_HISTORY_REQUEST_ID = "00000000-0000-0000-0000-000000000015";
+/// Non-nil: a nil `requestId` is a notify and the daemon sends no
+/// `planUsage`.
+pub const PLAN_USAGE_REQUEST_ID = "00000000-0000-0000-0000-000000000018";
 /// Non-nil: a nil `requestId` is a notify and the daemon sends no Ack
 /// for `refreshBackgroundWork`.
 pub const BACKGROUND_WORK_REQUEST_ID = "00000000-0000-0000-0000-000000000016";
@@ -115,6 +119,15 @@ pub const UsageHistoryStdin = struct {
     request_id: []const u8 = USAGE_HISTORY_REQUEST_ID,
     window: protocol.UsageWindow,
     project_roots: []const []const u8 = &.{},
+};
+
+pub const PlanUsageStdin = struct {
+    token: []const u8 = "",
+    client_id: []const u8 = CLIENT_ID,
+    request_id: []const u8 = PLAN_USAGE_REQUEST_ID,
+    provider: []const u8,
+    binary_override: ?[]const u8 = null,
+    cli_version: ?[]const u8 = null,
 };
 
 pub const RefreshBackgroundWorkStdin = struct {
@@ -353,6 +366,27 @@ pub fn writeUsageHistoryStdin(buf: []u8, args: UsageHistoryStdin) WriteError![]c
     return cur.slice();
 }
 
+/// NDJSON stdin for the composer usage meter. Hello + `fetchPlanUsage`,
+/// no prompt. Uses a non-nil requestId so the daemon replies. Native
+/// stdin is still one 4 KiB buffer. `binaryOverride` / `cliVersion`
+/// are JSON null this cut.
+pub fn writePlanUsageStdin(buf: []u8, args: PlanUsageStdin) WriteError![]const u8 {
+    var cur = Cursor{ .buf = buf };
+    const hello = try protocol.writeClientHello(cur.remaining(), args.token, args.client_id, &.{});
+    cur.pos += hello.len;
+    try cur.write("\n");
+    const fetch = try protocol.writeFetchPlanUsage(
+        cur.remaining(),
+        args.request_id,
+        args.provider,
+        args.binary_override,
+        args.cli_version,
+    );
+    cur.pos += fetch.len;
+    try cur.write("\n");
+    return cur.slice();
+}
+
 /// NDJSON stdin for Environment Summary / right-panel Background.
 /// Hello + bare `refreshBackgroundWork` (request-frame `sessionId` /
 /// `runtimeId`, no payload). Own spawn key. No attachSession, no
@@ -514,7 +548,8 @@ fn outboundWaitsForTurn(outbound: []const u8) bool {
 
 fn outboundWaitsForLoadResponse(outbound: []const u8) bool {
     return (std.mem.indexOf(u8, outbound, "\"type\":\"loadTaskState\"") != null or
-        std.mem.indexOf(u8, outbound, "\"type\":\"loadUsageHistory\"") != null) and
+        std.mem.indexOf(u8, outbound, "\"type\":\"loadUsageHistory\"") != null or
+        std.mem.indexOf(u8, outbound, "\"type\":\"fetchPlanUsage\"") != null) and
         std.mem.indexOf(u8, outbound, "\"type\":\"prompt\"") == null and
         std.mem.indexOf(u8, outbound, "\"type\":\"saveTaskState\"") == null;
 }
@@ -990,6 +1025,40 @@ test "writeUsageHistoryStdin emits hello and loadUsageHistory with a non-nil req
     try std.testing.expectError(error.NoSpaceLeft, writeUsageHistoryStdin(&tiny, .{
         .window = .{ .trailing_days = 30 },
         .project_roots = &.{"/tmp/faku"},
+    }));
+}
+
+test "writePlanUsageStdin emits hello and fetchPlanUsage with a non-nil requestId" {
+    var buf: [1024]u8 = undefined;
+    const stdin = try writePlanUsageStdin(&buf, .{
+        .token = "secret",
+        .provider = protocol.ProviderId.opencode.daemonProviderKind(),
+    });
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"hello\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"token\":\"secret\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"fetchPlanUsage\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"provider\":\"openCode\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"binaryOverride\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"cliVersion\":null") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"prompt\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"workspace\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadUsageHistory\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"loadTaskState\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ PLAN_USAGE_REQUEST_ID) != null);
+    try std.testing.expect(!outboundWaitsForTurn(stdin));
+    try std.testing.expect(outboundWaitsForLoadResponse(stdin));
+    try std.testing.expect(!outboundWaitsForHydrateResponse(stdin));
+    try std.testing.expect(!outboundWaitsForWorkspace(stdin));
+
+    const claude = try writePlanUsageStdin(&buf, .{
+        .provider = protocol.ProviderId.claude.daemonProviderKind(),
+    });
+    try std.testing.expect(std.mem.indexOf(u8, claude, "\"provider\":\"claude\"") != null);
+    try std.testing.expect(outboundWaitsForLoadResponse(claude));
+
+    var tiny: [32]u8 = undefined;
+    try std.testing.expectError(error.NoSpaceLeft, writePlanUsageStdin(&tiny, .{
+        .provider = "claude",
     }));
 }
 

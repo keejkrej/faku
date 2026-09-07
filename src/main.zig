@@ -544,6 +544,7 @@ test {
     _ = @import("file_mention.zig");
     _ = @import("slash_commands.zig");
     _ = @import("usage_history.zig");
+    _ = @import("usage_meter.zig");
     _ = @import("background_work.zig");
     _ = @import("projectless.zig");
     _ = @import("skills.zig");
