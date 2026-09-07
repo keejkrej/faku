@@ -11447,6 +11447,76 @@ test "cmd-comma and ctrl-comma open settings via onKey" {
     } else return error.WidgetNotFound;
 }
 
+test "cmd-shift-b and ctrl-shift-b toggle the right panel via onKey" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expect(!model.right_panel_open);
+    try testing.expect(!model.sidebar_collapsed);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "b" } }, &fx);
+    try testing.expectEqualStrings("b", model.draft());
+
+    const plain_b = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "b" };
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_b));
+    try testing.expect(!model.right_panel_open);
+    try testing.expect(!model.sidebar_collapsed);
+    try testing.expectEqualStrings("b", model.draft());
+
+    var tree = try buildTree(arena, &model);
+    const show = try expectButton(tree.root, "Show right panel");
+    try testing.expectEqual(Msg.toggle_right_panel, tree.msgForPointer(show.id, .up).?);
+
+    const cmd_shift_b = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "b",
+        .modifiers = .{ .super = true, .shift = true },
+    };
+    try testing.expectEqual(Msg.toggle_right_panel, keys.onKey(cmd_shift_b).?);
+    try testing.expect(keys.onKey(cmd_shift_b).? != .toggle_sidebar);
+    main.update(&model, keys.onKey(cmd_shift_b).?, &fx);
+    try testing.expect(model.right_panel_open);
+    try testing.expect(!model.sidebar_collapsed);
+    try testing.expectEqualStrings("b", model.draft());
+
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "Hide right panel");
+    _ = try expectButtonMsg(tree, "Files", .set_right_panel_tab_files);
+
+    main.update(&model, keys.onKey(cmd_shift_b).?, &fx);
+    try testing.expect(!model.right_panel_open);
+    try testing.expectEqualStrings("b", model.draft());
+
+    const ctrl_shift_b = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "B",
+        .modifiers = .{ .control = true, .shift = true },
+    };
+    try testing.expectEqual(Msg.toggle_right_panel, keys.onKey(ctrl_shift_b).?);
+    main.update(&model, keys.onKey(ctrl_shift_b).?, &fx);
+    try testing.expect(model.right_panel_open);
+    try testing.expect(!model.sidebar_collapsed);
+    try testing.expectEqualStrings("b", model.draft());
+
+    const cmd_b = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "b",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.toggle_sidebar, keys.onKey(cmd_b).?);
+    try testing.expect(keys.onKey(cmd_b).? != .toggle_right_panel);
+    main.update(&model, keys.onKey(cmd_b).?, &fx);
+    try testing.expect(model.sidebar_collapsed);
+    try testing.expect(model.right_panel_open);
+    try testing.expectEqualStrings("b", model.draft());
+}
+
 test "cmd-u and ctrl-u toggle the usage meter via onKey" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

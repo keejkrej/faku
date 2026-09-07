@@ -51,6 +51,9 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
         return .quit_app;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "b")) {
+        // Cmd/Ctrl-B stays Toggle sidebar. Shift-B is Toggle right panel
+        // (Waku secondary-b vs secondary-shift-b).
+        if (keyboard.modifiers.shift) return .toggle_right_panel;
         return .toggle_sidebar;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "c")) {

@@ -579,7 +579,7 @@ it does not spawn a second worktree.
 
 ## Right panel: Files / Diff / Browser / Terminal / Background
 
-Command palette Show / Hide right panel toggles a first-cut Files +
+Command palette Show / Hide right panel (or Cmd/Ctrl-Shift-B; Cmd/Ctrl-B stays the sidebar) toggles a first-cut Files +
 Diff + Browser + Terminal + Background pane. Default closed. Files width persists (`right_panel_open` /
 `right_panel_width`). Selected tab persists (`right_panel_tab`: `files` /
 `diff` / `browser` / `terminal` / `background`; missing / unknown → Files).
