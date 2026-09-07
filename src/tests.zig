@@ -11652,7 +11652,7 @@ test "cmd-o and ctrl-o pick a folder via onKey" {
     try testing.expectEqualStrings("o", model.draft());
 
     main.update(&model, .start_project_edit, &fx);
-    var tree = try buildTree(arena, &model);
+    const tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "Pick folder", .pick_folder);
 
     const cmd_o = canvas.WidgetKeyboardEvent{
