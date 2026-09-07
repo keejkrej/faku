@@ -422,14 +422,14 @@ test "finishStream and stopStream mark plan-usage stale; fx stays quiet" {
     model.phase = .streaming;
     model.streaming_session = claude_id;
     finishStream(&model, &fx, true);
-    try testing.expect(model.plan_usage_stale);
+    try testing.expect(usage_meter.selectedStale(&model));
 
-    model.plan_usage_stale = false;
+    model.plan_usage.claude.stale = false;
     model.phase = .streaming;
     model.streaming_session = claude_id;
     if (model.sessionById(claude_id)) |session| session.busy = true;
     stopStream(&model, &fx);
-    try testing.expect(model.plan_usage_stale);
+    try testing.expect(usage_meter.selectedStale(&model));
 
     var fx_model = Model{};
     const fx_id = fx_model.addSession("plan stale fx", .fx);
@@ -437,5 +437,5 @@ test "finishStream and stopStream mark plan-usage stale; fx stays quiet" {
     fx_model.phase = .streaming;
     fx_model.streaming_session = fx_id;
     finishStream(&fx_model, &fx, false);
-    try testing.expect(!fx_model.plan_usage_stale);
+    try testing.expect(!usage_meter.selectedStale(&fx_model));
 }

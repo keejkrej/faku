@@ -981,19 +981,10 @@ pub const Model = struct {
     daemon_plan_usage_provider: protocol.ProviderId = .claude,
     /// Runtime-only composer usage-meter panel. Not persisted.
     usage_meter_open: bool = false,
-    /// First-cut daemon plan-usage cache. Runtime only.
-    plan_usage: usage_meter.Cache = .{},
-    /// Last settled `fetchPlanUsage` (`now_ms`). Null until the first
-    /// applyLine / handleExit. Runtime-only; not sessions.json.
-    /// Throttles `maybeRefresh` (Waku `plan_usage_checked_at`).
-    /// Piggybacks `now_ms` / the update tick; Native has no dedicated
-    /// timer this cut. Selected-provider path only.
-    last_plan_usage_checked_ms: ?i64 = null,
-    /// Selected plan-usage path is stale (panel open or a settled
-    /// turn moved rate-limit needles). Runtime-only; cleared when a
-    /// fetch settles. Next `maybeRefresh` uses 30s unless a fetch
-    /// error still owns the 90s retry.
-    plan_usage_stale: bool = false,
+    /// First-cut daemon plan-usage map (four runtime slots: Claude /
+    /// Codex / OpenCode / Grok). Not a HashMap. Each slot holds the
+    /// snapshot plus per-provider `checked_at` / `stale`. Runtime only.
+    plan_usage: usage_meter.Map = .{},
     /// In-flight `refreshBackgroundWork` sidecar. Distinct from the
     /// prompt / usage-history keys so miss cannot settle a live turn.
     daemon_background_work_key: u64 = 0,
@@ -1726,8 +1717,6 @@ pub const Model = struct {
         "daemon_plan_usage_key",
         "daemon_plan_usage_provider",
         "plan_usage",
-        "last_plan_usage_checked_ms",
-        "plan_usage_stale",
         "daemon_background_work_key",
         "daemon_background_work_session",
         "last_background_work_refresh_ms",
@@ -4336,8 +4325,8 @@ pub const Model = struct {
 
     pub fn has_usage_meter_plan(model: *const Model) bool {
         if (!model.usage_meter_open) return false;
-        const provider = usage_meter.selectedProvider(model) orelse return false;
-        return model.plan_usage.present and model.plan_usage.provider == provider and model.plan_usage.window_count > 0;
+        const cache = usage_meter.selectedCache(model) orelse return false;
+        return cache.present and cache.window_count > 0;
     }
 
     pub fn usage_meter_context_label(model: *const Model, arena: std.mem.Allocator) []const u8 {
