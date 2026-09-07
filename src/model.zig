@@ -477,6 +477,9 @@ pub const Msg = union(enum) {
     file_preview_find_replace_edit: canvas.TextInputEvent,
     toggle_file_preview_find_replace,
     toggle_file_preview_find_case,
+    /// Files preview find-bar whole-word chip. ASCII `[A-Za-z0-9_]`
+    /// boundaries. Survives closing the bar like the case toggle.
+    toggle_file_preview_find_whole_word,
     /// Replace the current Files preview match. No-op when read-only.
     file_preview_find_replace_one,
     /// Replace every Files preview match (uncapped). No-op when read-only.
@@ -989,6 +992,9 @@ pub const Model = struct {
     file_preview_find_replace_visible: bool = false,
     /// Waku FileSearch default: case-insensitive until toggled.
     file_preview_find_case_sensitive: bool = false,
+    /// Waku FileSearch default: substring until toggled. ASCII word
+    /// chars are `[A-Za-z0-9_]`.
+    file_preview_find_whole_word: bool = false,
     file_preview_find_match_starts: [right_panel.file_preview_find_max_matches]u32 = [_]u32{0} ** right_panel.file_preview_find_max_matches,
     file_preview_find_match_count: u32 = 0,
     file_preview_find_match_index: u32 = 0,

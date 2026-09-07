@@ -11683,11 +11683,18 @@ test "cmd-f routes to Files preview find when a preview is open" {
     _ = try expectButton(tree.root, "Close file find");
     _ = try expectButton(tree.root, "Show replace");
     _ = try expectButton(tree.root, "Aa");
+    _ = try expectButton(tree.root, "Ab");
+    _ = try expectButtonMsg(tree, "Ab", .toggle_file_preview_find_whole_word);
+    try testing.expect(!model.file_preview_find_whole_word);
 
     main.update(&model, .{ .file_preview_find_edit = .{ .insert_text = "hello" } }, &fx);
     try testing.expectEqualStrings("hello", model.file_preview_find_query());
     try testing.expectEqual(@as(u32, 2), model.file_preview_find_match_count);
     try testing.expectEqualStrings("1 of 2 · L1", model.file_preview_find_match_label(arena));
+
+    main.update(&model, .toggle_file_preview_find_whole_word, &fx);
+    try testing.expect(model.file_preview_find_whole_word);
+    try testing.expectEqual(@as(u32, 2), model.file_preview_find_match_count);
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "1 of 2 · L1");
@@ -11721,6 +11728,7 @@ test "cmd-f routes to Files preview find when a preview is open" {
     try testing.expect(!model.file_preview_find_active);
     try testing.expect(!model.find_active);
     try testing.expectEqualStrings("hello", model.file_preview_find_query());
+    try testing.expect(model.file_preview_find_whole_word);
 
     const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
     try testing.expectEqual(Msg.stop, keys.onKey(escape).?);

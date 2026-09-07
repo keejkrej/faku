@@ -1,5 +1,11 @@
 //! First-cut Files preview find/replace: plain substring, optional ASCII
-//! case-sensitivity. No regex crate, no whole-word, no GPUI washes.
+//! case-sensitivity and whole-word. No regex crate, no GPUI washes.
+//!
+//! Whole-word means a substring match counts only when the bytes
+//! immediately before and after the match (if any) are not ASCII word
+//! chars `[A-Za-z0-9_]` — typical editor whole-word, not Unicode.
+//! Case-sensitivity and whole-word compose independently. Empty query
+//! still yields zero matches.
 //!
 //! Match lists are capped at `max_matches` (Native-friendly; Waku's
 //! FileSearch cap is 20_000). Replace All rescans without that cap so
@@ -20,13 +26,14 @@ pub fn collect(
     haystack: []const u8,
     query: []const u8,
     case_sensitive: bool,
+    whole_word: bool,
     starts: []u32,
 ) Scan {
     var scan: Scan = .{};
     if (query.len == 0 or starts.len == 0) return scan;
     var i: usize = 0;
     while (i + query.len <= haystack.len) {
-        if (!eqlSlice(haystack[i .. i + query.len], query, case_sensitive)) {
+        if (!matchAt(haystack, i, query, case_sensitive, whole_word)) {
             i += 1;
             continue;
         }
@@ -100,6 +107,7 @@ pub fn replaceAll(
     query: []const u8,
     replacement: []const u8,
     case_sensitive: bool,
+    whole_word: bool,
     dest: []u8,
 ) ?[]u8 {
     if (query.len == 0) {
@@ -110,7 +118,7 @@ pub fn replaceAll(
     var out: usize = 0;
     var i: usize = 0;
     while (i < haystack.len) {
-        if (i + query.len <= haystack.len and eqlSlice(haystack[i .. i + query.len], query, case_sensitive)) {
+        if (matchAt(haystack, i, query, case_sensitive, whole_word)) {
             if (out + replacement.len > dest.len) return null;
             @memcpy(dest[out .. out + replacement.len], replacement);
             out += replacement.len;
@@ -123,6 +131,30 @@ pub fn replaceAll(
         i += 1;
     }
     return dest[0..out];
+}
+
+fn isAsciiWordChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_';
+}
+
+fn isWholeWordAt(haystack: []const u8, start: usize, match_len: usize) bool {
+    if (start > 0 and isAsciiWordChar(haystack[start - 1])) return false;
+    const after = start + match_len;
+    if (after < haystack.len and isAsciiWordChar(haystack[after])) return false;
+    return true;
+}
+
+fn matchAt(
+    haystack: []const u8,
+    i: usize,
+    query: []const u8,
+    case_sensitive: bool,
+    whole_word: bool,
+) bool {
+    if (i + query.len > haystack.len) return false;
+    if (!eqlSlice(haystack[i .. i + query.len], query, case_sensitive)) return false;
+    if (!whole_word) return true;
+    return isWholeWordAt(haystack, i, query.len);
 }
 
 fn eqlSlice(left: []const u8, right: []const u8, case_sensitive: bool) bool {
@@ -139,24 +171,24 @@ test "collect is case-sensitive substring and caps" {
     // "Aa" / "AA" match insensitive "aa" only. "Aaa aa" would also
     // match sensitive "aa" at the tail of "Aaa".
     const hay = "Aa aa AA aa";
-    const sensitive = collect(hay, "aa", true, starts[0..]);
+    const sensitive = collect(hay, "aa", true, false, starts[0..]);
     try std.testing.expectEqual(@as(u32, 2), sensitive.count);
     try std.testing.expect(!sensitive.limited);
     try std.testing.expectEqual(@as(u32, 3), starts[0]);
     try std.testing.expectEqual(@as(u32, 9), starts[1]);
 
-    const insensitive = collect(hay, "aa", false, starts[0..]);
+    const insensitive = collect(hay, "aa", false, false, starts[0..]);
     try std.testing.expectEqual(@as(u32, 4), insensitive.count);
     try std.testing.expectEqual(@as(u32, 0), starts[0]);
     try std.testing.expectEqual(@as(u32, 3), starts[1]);
     try std.testing.expectEqual(@as(u32, 6), starts[2]);
     try std.testing.expectEqual(@as(u32, 9), starts[3]);
 
-    const empty = collect(hay, "", true, starts[0..]);
+    const empty = collect(hay, "", true, false, starts[0..]);
     try std.testing.expectEqual(@as(u32, 0), empty.count);
 
     var tiny: [2]u32 = undefined;
-    const capped = collect("aa aa aa aa", "aa", true, tiny[0..]);
+    const capped = collect("aa aa aa aa", "aa", true, false, tiny[0..]);
     try std.testing.expectEqual(@as(u32, 2), capped.count);
     try std.testing.expect(capped.limited);
 }
@@ -180,17 +212,51 @@ test "replace one and replace all on a buffer" {
     const one = replaceOne("keep foo keep foo", 5, 3, "bar", dest[0..]).?;
     try std.testing.expectEqualStrings("keep bar keep foo", one);
 
-    const all = replaceAll("keep foo keep foo", "foo", "bar", true, dest[0..]).?;
+    const all = replaceAll("keep foo keep foo", "foo", "bar", true, false, dest[0..]).?;
     try std.testing.expectEqualStrings("keep bar keep bar", all);
 
-    const deleted = replaceAll("aa-aa", "aa", "", true, dest[0..]).?;
+    const deleted = replaceAll("aa-aa", "aa", "", true, false, dest[0..]).?;
     try std.testing.expectEqualStrings("-", deleted);
 
-    const insensitive = replaceAll("Foo foo FOO", "foo", "x", false, dest[0..]).?;
+    const insensitive = replaceAll("Foo foo FOO", "foo", "x", false, false, dest[0..]).?;
     try std.testing.expectEqualStrings("x x x", insensitive);
 
     var tiny: [4]u8 = undefined;
-    try std.testing.expect(replaceAll("aaaa", "a", "bb", true, tiny[0..]) == null);
+    try std.testing.expect(replaceAll("aaaa", "a", "bb", true, false, tiny[0..]) == null);
+}
+
+test "collect and replaceAll respect whole-word ASCII boundaries" {
+    var starts: [max_matches]u32 = undefined;
+    const hay = "foo foobar foo_bar foo";
+
+    const all = collect(hay, "foo", true, false, starts[0..]);
+    try std.testing.expectEqual(@as(u32, 4), all.count);
+    try std.testing.expectEqual(@as(u32, 0), starts[0]);
+    try std.testing.expectEqual(@as(u32, 4), starts[1]);
+    try std.testing.expectEqual(@as(u32, 11), starts[2]);
+    try std.testing.expectEqual(@as(u32, 19), starts[3]);
+
+    const words = collect(hay, "foo", true, true, starts[0..]);
+    try std.testing.expectEqual(@as(u32, 2), words.count);
+    try std.testing.expectEqual(@as(u32, 0), starts[0]);
+    try std.testing.expectEqual(@as(u32, 19), starts[1]);
+
+    const mixed = "Foo foobar FOO_BAR foo";
+    const insensitive_words = collect(mixed, "foo", false, true, starts[0..]);
+    try std.testing.expectEqual(@as(u32, 2), insensitive_words.count);
+    try std.testing.expectEqual(@as(u32, 0), starts[0]);
+    try std.testing.expectEqual(@as(u32, 19), starts[1]);
+
+    const sensitive_words = collect(mixed, "foo", true, true, starts[0..]);
+    try std.testing.expectEqual(@as(u32, 1), sensitive_words.count);
+    try std.testing.expectEqual(@as(u32, 19), starts[0]);
+
+    var dest: [64]u8 = undefined;
+    const replaced = replaceAll(hay, "foo", "bar", true, true, dest[0..]).?;
+    try std.testing.expectEqualStrings("bar foobar foo_bar bar", replaced);
+
+    const empty = collect(hay, "", true, true, starts[0..]);
+    try std.testing.expectEqual(@as(u32, 0), empty.count);
 }
 
 test "lineNumberAt is 1-based" {

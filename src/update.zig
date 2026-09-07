@@ -399,6 +399,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .file_preview_find_replace_edit => |edit| right_panel.applyFilePreviewFindReplaceEdit(model, edit),
         .toggle_file_preview_find_replace => right_panel.toggleFilePreviewFindReplace(model),
         .toggle_file_preview_find_case => right_panel.toggleFilePreviewFindCase(model),
+        .toggle_file_preview_find_whole_word => right_panel.toggleFilePreviewFindWholeWord(model),
         .file_preview_find_replace_one => right_panel.replaceFilePreviewFindCurrent(model),
         .file_preview_find_replace_all => right_panel.replaceFilePreviewFindAll(model),
         .toggle_right_panel_dir => |id| right_panel.toggleDir(model, fx, id),
