@@ -10,9 +10,15 @@
 //! keeps local context and a muted connect hint. JSON-null `usage` is
 //! unconfigured. Unknown-command / parse miss keep a prior snapshot
 //! or a muted error. Native 4 KiB stdin overflow does not toast.
-//! Closing the panel leaves the runtime cache. Refresh re-spawns.
-//! Hello stays v4. Still not a circular GPUI gauge, not Waku's
-//! 300s/600s/stale/retry cadence, not LiteLLM.
+//! Closing the panel leaves the runtime cache. Refresh re-spawns
+//! immediately (cancel in-flight). First-cut Waku cadence ships as
+//! `maybeRefresh` on the existing `now_ms` / update tick (Native has
+//! no dedicated timer): 300s idle, 600s Grok, 30s when the selected
+//! path is stale (panel open / turn settle), 90s after a fetch error.
+//! In-flight skips; unset `checked_at` may fire once when eligible.
+//! Open marks stale then still fetches immediately. Hello stays v4.
+//! Still not a circular GPUI gauge, not LiteLLM, not a full
+//! per-provider plan map.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -29,6 +35,15 @@ const ProviderId = protocol.ProviderId;
 pub const max_windows = protocol.max_parsed_plan_windows;
 pub const max_label = 64;
 pub const max_line = 160;
+
+/// Waku `PLAN_USAGE_REFRESH`. Idle default for Claude / Codex / OpenCode.
+pub const plan_usage_refresh_ms: i64 = 300_000;
+/// Waku `PLAN_USAGE_REFRESH_GROK`. Grok idle; the probe is heavier.
+pub const plan_usage_refresh_grok_ms: i64 = 600_000;
+/// Waku `PLAN_USAGE_REFRESH_STALE`. After panel open / a settled turn.
+pub const plan_usage_refresh_stale_ms: i64 = 30_000;
+/// Waku `PLAN_USAGE_RETRY`. After that provider's fetch error.
+pub const plan_usage_retry_ms: i64 = 90_000;
 
 pub const connect_hint = "Connect a daemon for plan usage";
 pub const loading_hint = "Loading plan usage…";
@@ -109,6 +124,7 @@ pub fn close(model: *Model) void {
 
 pub fn open(model: *Model, fx: *Effects) void {
     model.usage_meter_open = true;
+    markSelectedStale(model);
     ensure(model, fx, true);
 }
 
@@ -130,6 +146,53 @@ pub fn refresh(model: *Model, fx: *Effects) void {
 pub fn onSessionChange(model: *Model, fx: *Effects) void {
     if (!model.usage_meter_open) return;
     ensure(model, fx, false);
+}
+
+/// First-cut Waku `maybe_refresh_plan_usage` on the selected provider
+/// path. Skips when the selected id is not a plan-usage provider, no
+/// daemon address, or a sidecar is already in flight. Interval is
+/// error → 90s, else stale → 30s, else Grok → 600s, else 300s.
+/// Unset `last_plan_usage_checked_ms` may fire once when eligible.
+/// Does not cancel in-flight (open / Refresh stay the force path).
+pub fn maybeRefresh(model: *Model, fx: *Effects) void {
+    if (model.daemon_plan_usage_key != 0) return;
+    const provider = selectedProvider(model) orelse return;
+    if (!isPlanUsageProvider(provider)) return;
+    if (store.resolveDaemonMirrorAddress(model).len == 0) return;
+    if (model.last_plan_usage_checked_ms) |last| {
+        if (model.now_ms >= last and model.now_ms - last < refreshIntervalMs(model, provider)) {
+            return;
+        }
+    }
+    _ = trySpawn(model, fx, provider);
+}
+
+/// Waku `TurnFinished`: a settled turn moved rate-limit needles.
+/// Marks the selected-path stale flag when that session's provider
+/// is Claude / Codex / OpenCode / Grok. Next `maybeRefresh` uses 30s
+/// unless a fetch error still owns the 90s retry.
+pub fn markStaleForSession(model: *Model, session_id: u32) void {
+    const session = model.sessionByIdConst(session_id) orelse return;
+    if (!isPlanUsageProvider(session.provider)) return;
+    model.plan_usage_stale = true;
+}
+
+fn markSelectedStale(model: *Model) void {
+    const provider = selectedProvider(model) orelse return;
+    if (!isPlanUsageProvider(provider)) return;
+    model.plan_usage_stale = true;
+}
+
+fn refreshIntervalMs(model: *const Model, provider: ProviderId) i64 {
+    if (cacheMatches(model) and model.plan_usage.errored) return plan_usage_retry_ms;
+    if (model.plan_usage_stale) return plan_usage_refresh_stale_ms;
+    if (provider == .grok) return plan_usage_refresh_grok_ms;
+    return plan_usage_refresh_ms;
+}
+
+fn noteFetchSettled(model: *Model) void {
+    model.plan_usage_stale = false;
+    model.last_plan_usage_checked_ms = model.now_ms;
 }
 
 fn ensure(model: *Model, fx: *Effects, force: bool) void {
@@ -207,18 +270,20 @@ pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
     const parsed = protocol.parsePlanUsage(arena_state.allocator(), line.line);
     if (!parsed.ok) return;
     adopt(&model.plan_usage, model.daemon_plan_usage_provider, parsed);
+    noteFetchSettled(model);
 }
 
 pub fn handleExit(model: *Model, exit: native_sdk.EffectExit) void {
     if (exit.key != model.daemon_plan_usage_key or model.daemon_plan_usage_key == 0) return;
     const pending = model.daemon_plan_usage_provider;
     model.daemon_plan_usage_key = 0;
+    noteFetchSettled(model);
     if (model.plan_usage.adopted_ok) return;
+    model.plan_usage.errored = true;
     if (model.plan_usage.present and model.plan_usage.provider == pending) return;
     model.plan_usage.provider = pending;
     model.plan_usage.present = false;
     model.plan_usage.unconfigured = false;
-    model.plan_usage.errored = true;
     model.plan_usage.window_count = 0;
     model.plan_usage.plan_label_len = 0;
 }
@@ -351,6 +416,7 @@ test "panel open without a daemon keeps local context and a muted connect hint" 
     model.selected = id;
     open(&model, &fx);
     try std.testing.expect(model.usage_meter_open);
+    try std.testing.expect(model.plan_usage_stale);
     try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
     try std.testing.expectEqualStrings(connect_hint, hint(&model));
     try std.testing.expectEqualStrings(nothing_measured, contextLabel(&model, arena));
@@ -373,6 +439,7 @@ test "panel open with a daemon address spawns fetchPlanUsage sidecar" {
     model.selected = id;
 
     open(&model, &fx);
+    try std.testing.expect(model.plan_usage_stale);
     const sidecar = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingDaemonFetchPlanUsage;
     try std.testing.expect(daemon_proxy.isSidecarArgv(sidecar.argv));
     try std.testing.expectEqualStrings("faku", sidecar.argv[0]);
@@ -403,6 +470,7 @@ test "fx session does not spawn fetchPlanUsage" {
     model.selected = id;
     open(&model, &fx);
     try std.testing.expect(model.usage_meter_open);
+    try std.testing.expect(!model.plan_usage_stale);
     try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
     try std.testing.expectEqualStrings("", hint(&model));
 }
@@ -437,6 +505,8 @@ test "FetchPlanUsage sidecar paints lanes; null usage is unconfigured; miss keep
     try std.testing.expectApproxEqAbs(@as(f64, 42), model.plan_usage.windows[0].percent, 0.0001);
     handleExit(&model, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+    try std.testing.expect(!model.plan_usage_stale);
+    try std.testing.expectEqual(@as(?i64, 1_750_000_000_000), model.last_plan_usage_checked_ms);
     try std.testing.expectEqualStrings("Plan limits · Max (5x)", planHeader(&model, arena));
     const rows = planRows(&model, arena);
     try std.testing.expectEqual(@as(usize, 2), rows.len);
@@ -454,6 +524,8 @@ test "FetchPlanUsage sidecar paints lanes; null usage is unconfigured; miss keep
     applyLine(&model, .{ .key = miss.key, .line = plan_usage_ack_line });
     handleExit(&model, .{ .key = miss.key, .reason = .exited, .code = 1 });
     try std.testing.expect(model.plan_usage.present);
+    try std.testing.expect(model.plan_usage.errored);
+    try std.testing.expect(!model.plan_usage_stale);
     try std.testing.expectEqualStrings("Max (5x)", model.plan_usage.planLabel());
     try std.testing.expectEqual(@as(usize, 2), planRows(&model, arena).len);
     try std.testing.expectEqual(@as(usize, 0), model.window_status_len);
@@ -487,6 +559,8 @@ test "miss without a prior snapshot shows a muted error; overflow keeps context"
     handleExit(&model, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
     try std.testing.expect(!model.plan_usage.present);
     try std.testing.expect(model.plan_usage.errored);
+    try std.testing.expect(!model.plan_usage_stale);
+    try std.testing.expectEqual(@as(?i64, 0), model.last_plan_usage_checked_ms);
     try std.testing.expectEqual(ProviderId.grok, model.plan_usage.provider);
     try std.testing.expectEqualStrings(unavailable_hint, hint(&model));
     try std.testing.expectEqual(@as(u64, 100), model.sessionById(id).?.context_used);
@@ -515,4 +589,202 @@ test "opening again cancels an in-flight sidecar for the same provider" {
     const second = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingReplacedPlanUsage;
     try std.testing.expect(std.mem.indexOf(u8, second.stdin, "\"provider\":\"codex\"") != null);
     try std.testing.expect(pendingSpawnKey(&fx, first_key) == null);
+}
+
+fn seedCadenceModel(provider: ProviderId) Model {
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.now_ms = 10_000;
+    const id = model.addSession("usage cadence", provider);
+    model.selected = id;
+    return model;
+}
+
+fn finishPlanUsageOk(model: *Model) void {
+    const key = model.daemon_plan_usage_key;
+    applyLine(model, .{ .key = key, .line = plan_usage_ok_line });
+    handleExit(model, .{ .key = key, .reason = .exited, .code = 0 });
+}
+
+fn finishPlanUsageErr(model: *Model) void {
+    const key = model.daemon_plan_usage_key;
+    applyLine(model, .{ .key = key, .line = plan_usage_ack_line });
+    handleExit(model, .{ .key = key, .reason = .exited, .code = 1 });
+}
+
+test "maybeRefresh skips inside 300s; unset checked_at fires once" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = seedCadenceModel(.claude);
+    try std.testing.expectEqual(@as(?i64, null), model.last_plan_usage_checked_ms);
+    maybeRefresh(&model, &fx);
+    const first = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingUnsetCheckedAt;
+    try std.testing.expect(std.mem.indexOf(u8, first.stdin, "\"type\":\"fetchPlanUsage\"") != null);
+    finishPlanUsageOk(&model);
+    try std.testing.expectEqual(@as(?i64, 10_000), model.last_plan_usage_checked_ms);
+    try std.testing.expect(!model.plan_usage_stale);
+
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+
+    model.now_ms = 10_000 + plan_usage_refresh_ms - 1;
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+
+    model.now_ms = 10_000 + plan_usage_refresh_ms;
+    maybeRefresh(&model, &fx);
+    const aged = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingClaudeIdleRefresh;
+    try std.testing.expect(aged.key != first.key);
+    try std.testing.expect(std.mem.indexOf(u8, aged.stdin, "\"provider\":\"claude\"") != null);
+}
+
+test "maybeRefresh uses 600s idle for Grok" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = seedCadenceModel(.grok);
+    maybeRefresh(&model, &fx);
+    _ = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingGrokCheckedAt;
+    finishPlanUsageOk(&model);
+
+    model.now_ms = 10_000 + plan_usage_refresh_ms;
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+
+    model.now_ms = 10_000 + plan_usage_refresh_grok_ms - 1;
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+
+    model.now_ms = 10_000 + plan_usage_refresh_grok_ms;
+    maybeRefresh(&model, &fx);
+    const aged = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingGrokIdleRefresh;
+    try std.testing.expect(std.mem.indexOf(u8, aged.stdin, "\"provider\":\"grok\"") != null);
+}
+
+test "maybeRefresh uses 30s when stale" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = seedCadenceModel(.claude);
+    maybeRefresh(&model, &fx);
+    finishPlanUsageOk(&model);
+    markStaleForSession(&model, model.selected);
+    try std.testing.expect(model.plan_usage_stale);
+
+    model.now_ms = 10_000 + plan_usage_refresh_stale_ms - 1;
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+
+    model.now_ms = 10_000 + plan_usage_refresh_stale_ms;
+    maybeRefresh(&model, &fx);
+    _ = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingStaleRefresh;
+}
+
+test "maybeRefresh uses 90s after a fetch error" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = seedCadenceModel(.claude);
+    maybeRefresh(&model, &fx);
+    finishPlanUsageErr(&model);
+    try std.testing.expect(model.plan_usage.errored);
+    try std.testing.expect(!model.plan_usage_stale);
+    markStaleForSession(&model, model.selected);
+    try std.testing.expect(model.plan_usage_stale);
+
+    model.now_ms = 10_000 + plan_usage_refresh_stale_ms;
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+
+    model.now_ms = 10_000 + plan_usage_retry_ms - 1;
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+
+    model.now_ms = 10_000 + plan_usage_retry_ms;
+    maybeRefresh(&model, &fx);
+    _ = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingErrorRetry;
+}
+
+test "maybeRefresh skips while a plan-usage sidecar is in flight" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = seedCadenceModel(.claude);
+    maybeRefresh(&model, &fx);
+    const first = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingInFlightFirst;
+    const first_key = first.key;
+    model.now_ms = 10_000 + plan_usage_refresh_ms;
+    maybeRefresh(&model, &fx);
+    try std.testing.expectEqual(first_key, model.daemon_plan_usage_key);
+    try std.testing.expect(pendingSpawnKey(&fx, first_key) != null);
+}
+
+test "open marks stale then still fetches immediately" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = seedCadenceModel(.claude);
+    model.last_plan_usage_checked_ms = 10_000;
+    open(&model, &fx);
+    try std.testing.expect(model.plan_usage_stale);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingOpenForceFetch;
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"fetchPlanUsage\"") != null);
+}
+
+test "turn settle marks stale for plan-usage providers only" {
+    var model = seedCadenceModel(.claude);
+    try std.testing.expect(!model.plan_usage_stale);
+    markStaleForSession(&model, model.selected);
+    try std.testing.expect(model.plan_usage_stale);
+
+    var fx_model = seedCadenceModel(.fx);
+    markStaleForSession(&fx_model, fx_model.selected);
+    try std.testing.expect(!fx_model.plan_usage_stale);
+    markStaleForSession(&fx_model, 0);
+    try std.testing.expect(!fx_model.plan_usage_stale);
+}
+
+test "update tick path maybeRefresh after 300s; open path still immediate" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var clock = native_sdk.TestClock{};
+    clock.setWallMs(1_000);
+    fx.clock = clock.clock();
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("usage update tick", .claude);
+    model.selected = id;
+
+    main.update(&model, .close_environment_summary, &fx);
+    const open_key = model.daemon_plan_usage_key;
+    try std.testing.expect(open_key != 0);
+    finishPlanUsageOk(&model);
+    try std.testing.expectEqual(@as(?i64, 1_000), model.last_plan_usage_checked_ms);
+
+    clock.setWallMs(1_000 + plan_usage_refresh_ms - 1);
+    main.update(&model, .close_environment_summary, &fx);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+
+    clock.setWallMs(1_000 + plan_usage_refresh_ms);
+    main.update(&model, .close_environment_summary, &fx);
+    const tick = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingUpdateTickPlanUsage;
+    try std.testing.expect(tick.key != open_key);
+    try std.testing.expect(std.mem.indexOf(u8, tick.stdin, "\"type\":\"fetchPlanUsage\"") != null);
+    try std.testing.expectEqual(@as(?i64, 1_000), model.last_plan_usage_checked_ms);
+
+    finishPlanUsageOk(&model);
+    open(&model, &fx);
+    const forced = pendingSpawnKey(&fx, model.daemon_plan_usage_key) orelse return error.MissingOpenAfterTick;
+    try std.testing.expect(forced.key != tick.key);
 }

@@ -36,6 +36,7 @@ const git_common_dir = @import("git_common_dir.zig");
 const git_commit = @import("git_commit.zig");
 const environment_summary = @import("environment_summary.zig");
 const background_work = @import("background_work.zig");
+const usage_meter = @import("usage_meter.zig");
 const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
 const slash_commands = @import("slash_commands.zig");
@@ -434,6 +435,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     // dedicated timer this cut. Skips when a refresh sidecar is
     // already in flight; open-path `refresh` stays immediate.
     background_work.maybeRefresh(model, fx);
+    // First-cut Waku plan-usage cadence (300s idle / 600s Grok /
+    // 30s stale / 90s retry). Same `now_ms` / update-tick piggyback.
+    // Native has no dedicated timer this cut. Skips when a fetch
+    // sidecar is already in flight; open / Refresh stay immediate.
+    usage_meter.maybeRefresh(model, fx);
     // First-cut Files preview live reload via size + mtime poll.
     // Same `now_ms` / update-tick piggyback. Native has no FS
     // watcher / dedicated timer this cut.
