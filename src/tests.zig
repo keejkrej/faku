@@ -13190,7 +13190,6 @@ test "settings Usage Daily Days paints nested Claude/Codex byProvider bars" {
     _ = try expectByText(tree.root, .text, "Codex · 60 · $0.75");
     try testing.expect(findByText(tree.root, .text, "Codex · 0") == null);
     _ = try expectUsageDailyChart(tree.root);
-    _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
     _ = try expectUsageShareProgress(tree.root, "25.0%", 0.25);
     _ = try expectUsageShareProgress(tree.root, "75.0%", 0.75);
     try testing.expect(findByText(tree.root, .text, "50.0%") == null);

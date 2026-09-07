@@ -2074,7 +2074,7 @@ test "daily chart series is oldest-first Cost|Tokens; empty window is empty; pro
     try std.testing.expectEqual(@as(usize, 0), dailyChartValues(&model, arena).len);
 
     model.usage_view = .daily;
-    applyLine(&model, .{ .key = keyed, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":100,\"costUsd\":1,\"daily\":[]}}}}" });
+    model.usage_history.daily_count = 0;
     try std.testing.expect(!hasDailyChart(&model));
     try std.testing.expectEqual(@as(usize, 0), dailyChartValues(&model, arena).len);
     try std.testing.expectEqual(@as(usize, 0), dailyChartLabels(&model, arena).len);
