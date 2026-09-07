@@ -227,7 +227,7 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         usage_history.applyLine(model, line);
         return;
     }
-    if (model.daemon_plan_usage_key != 0 and line.key == model.daemon_plan_usage_key) {
+    if (usage_meter.isPendingKey(model, line.key)) {
         usage_meter.applyLine(model, line);
         return;
     }
@@ -1252,7 +1252,7 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
         usage_history.handleExit(model, exit);
         return;
     }
-    if (model.daemon_plan_usage_key != 0 and exit.key == model.daemon_plan_usage_key) {
+    if (usage_meter.isPendingKey(model, exit.key)) {
         usage_meter.handleExit(model, exit);
         return;
     }

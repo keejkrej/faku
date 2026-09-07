@@ -435,10 +435,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     // dedicated timer this cut. Skips when a refresh sidecar is
     // already in flight; open-path `refresh` stays immediate.
     background_work.maybeRefresh(model, fx);
-    // First-cut Waku plan-usage cadence (300s idle / 600s Grok /
-    // 30s stale / 90s retry). Same `now_ms` / update-tick piggyback.
-    // Native has no dedicated timer this cut. Skips when a fetch
-    // sidecar is already in flight; open / Refresh stay immediate.
+    // First-cut Waku plan-usage cadence (loop all four providers;
+    // 300s idle / 600s Grok / 30s stale / 90s retry). Same `now_ms`
+    // / update-tick piggyback. Native has no dedicated timer this
+    // cut. Skip a provider that already has an in-flight sidecar;
+    // open / Refresh stay immediate for the selected provider only.
     usage_meter.maybeRefresh(model, fx);
     // First-cut Files preview live reload via size + mtime poll.
     // Same `now_ms` / update-tick piggyback. Native has no FS

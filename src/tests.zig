@@ -20799,7 +20799,7 @@ test "composer usage meter panel shows context and parsed plan lanes" {
 
     main.update(&model, tree.msgForPointer(meter.id, .up).?, &fx);
     try testing.expect(model.usage_meter_open);
-    try testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+    try testing.expectEqual(@as(u64, 0), model.plan_usage.claude.pending_key);
     tree = try buildTree(arena, &model);
     try testing.expect((try expectButtonMsg(tree, "Usage", .toggle_usage_meter)).state.selected);
     _ = try expectByText(tree.root, .text, "Context window");
@@ -20813,11 +20813,11 @@ test "composer usage meter panel shows context and parsed plan lanes" {
     model.setLastDaemonAddress("127.0.0.1:8787");
     model.setSidecarPath("faku");
     main.update(&model, .refresh_plan_usage, &fx);
-    try testing.expect(model.daemon_plan_usage_key != 0);
+    try testing.expect(model.plan_usage.claude.pending_key != 0);
 
     var spawn_i: usize = 0;
     const sidecar = while (fx.pendingSpawnAt(spawn_i)) |spawn| : (spawn_i += 1) {
-        if (spawn.key == model.daemon_plan_usage_key) break spawn;
+        if (spawn.key == model.plan_usage.claude.pending_key) break spawn;
     } else return error.MissingDaemonFetchPlanUsage;
     try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
     try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"fetchPlanUsage\"") != null);
@@ -20831,7 +20831,7 @@ test "composer usage meter panel shows context and parsed plan lanes" {
     } }, &fx);
     main.update(&model, .{ .fx_exit = .{ .key = sidecar.key, .reason = .exited, .code = 0 } }, &fx);
     try testing.expect(model.has_usage_meter_plan());
-    try testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+    try testing.expectEqual(@as(u64, 0), model.plan_usage.claude.pending_key);
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "12.4k / 200k");
