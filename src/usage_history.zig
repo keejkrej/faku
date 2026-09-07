@@ -50,19 +50,27 @@
 //! provider's cost or tokens divided by **that month's** total. Empty /
 //! missing / short `byProvider` stays month-total-only. Empty
 //! `months[]` hides the chart (no fake samples). Projects
-//! first-cut paints the same chip and relative Native `<progress>`
+//! first-cut paints a Native `<chart>` of the **visible** filtered
+//! set (Claude / Codex `kind="area"` series from a shared zero
+//! baseline for the active Cost | Tokens metric, not stacked;
+//! NaN-pad when a project's `byProvider` is missing; `y-max` pins
+//! to the max finite single-provider-project sample among visible
+//! rows when that peak is > 0; x-labels are path basename in painted
+//! row order), the same chip, and relative Native `<progress>`
 //! vs the max Cost / Tokens among **visible** filtered rows (Waku
 //! `usage_project_filter` peak-of-visible; Cost → `costUsd`, Tokens
 //! → `totalTokens`); zero-value rows stay text-only. Nested
 //! Claude/Codex bars from `projects[].byProvider` follow the same
-//! within-row share rule on **visible** filtered rows only. A runtime-only
+//! within-row share rule on **visible** filtered rows only. Empty
+//! visible set / empty `projects[]` hides the chart (no fake
+//! samples). A runtime-only
 //! search filter (empty on boot; not `sessions.json`) case-insensitive
 //! contains-matches project basename **or** full `path` (trim; empty
 //! shows all, cap 16, no virtualization). Chip flip recomputes
 //! Daily (including nested byProvider shares), Monthly (including
 //! nested byProvider shares), and Projects
 //! shares from the cached snapshot without re-fetching and respects
-//! that filter (nested bars only on visible rows). No-match empty
+//! that filter (nested bars and chart samples only on visible rows). No-match empty
 //! ("No matching projects") is distinct from no project usage.
 //! Filter clears when leaving Settings Usage or switching away from
 //! Projects. Daily, Monthly, and Projects paint a first-cut
@@ -76,10 +84,10 @@
 //! plus Cache savings USD) and muted notices when `errors` are
 //! non-empty or `pricing` is `unavailable`. A tiny scan-summary
 //! footer uses `records` / `scannedFiles` / `skippedFiles` /
-//! `scanDuration` when present. First-cut Daily Days and Monthly
-//! layered Native `<chart>` ship (Claude / Codex area series from
-//! zero, not stacked; still not Waku GPUI / T3 canvas polish);
-//! Projects nested byProvider bars stay Native `<progress>`. Daily Model rows
+//! `scanDuration` when present. First-cut Daily Days, Monthly, and
+//! Projects layered Native `<chart>` ship (Claude / Codex area
+//! series from zero, not stacked; still not Waku GPUI / T3 canvas
+//! polish). Projects nested byProvider bars stay Native `<progress>`. Daily Model rows
 //! append a compact per-MTok hint when the Faku-side LiteLLM table
 //! hits (unpriceable names stay unpriced). First-cut LiteLLM
 //! rate-table fetch + 24h disk cache ships in `litellm_rates.zig`.
@@ -307,7 +315,8 @@ pub const CachedProject = struct {
 
     /// Cost → `cost_usd`; Tokens → `total_tokens`. Used for the
     /// first-cut Projects bar (share vs max among visible filtered
-    /// rows).
+    /// rows). The Projects Native chart paints provider series, not
+    /// this combined total.
     pub fn valueFor(self: *const CachedProject, metric: ShareMetric) f64 {
         return switch (metric) {
             .cost => self.cost_usd,
@@ -1292,23 +1301,144 @@ pub fn projectsNoMatch(model: *const Model) bool {
     return true;
 }
 
-pub fn projectRows(model: *const Model, arena: std.mem.Allocator) []const Row {
-    if (!historyPainted(model) or model.usage_view != .projects) return &.{};
+/// Visible filtered project indices in painted-row order (cache
+/// order, not resorted). Empty when Projects is hidden, the cache
+/// has no projects, or the filter matches nothing.
+fn visibleProjectIndices(model: *const Model, dest: []usize) usize {
+    if (!historyPainted(model) or model.usage_view != .projects) return 0;
     const count = model.usage_history.project_count;
-    if (count == 0) return &.{};
+    if (count == 0) return 0;
     const projects = model.usage_history.projects[0..count];
     const query = projectFilter(model);
-    var idx_buf: [max_projects]usize = undefined;
-    var visible_n: usize = 0;
+    var n: usize = 0;
     var i: usize = 0;
-    while (i < count) : (i += 1) {
+    while (i < count and n < dest.len) : (i += 1) {
         if (!cachedProjectMatches(projects[i], query)) continue;
-        idx_buf[visible_n] = i;
-        visible_n += 1;
+        dest[n] = i;
+        n += 1;
     }
+    return n;
+}
+
+/// True when Projects is painted with at least one visible filtered
+/// row. Empty `projects[]` / no-match hide the Native chart (no fake
+/// samples).
+pub fn hasProjectsChart(model: *const Model) bool {
+    var idx_buf: [max_projects]usize = undefined;
+    return visibleProjectIndices(model, &idx_buf) > 0;
+}
+
+/// Active Cost | Tokens project totals in painted-row order. Empty
+/// when the chart is hidden. Not painted (the Projects chart is
+/// layered Claude / Codex area series); kept so tests can contrast
+/// combined totals against the single-provider y-max peak.
+pub fn projectsChartValues(model: *const Model, arena: std.mem.Allocator) []const f32 {
+    var idx_buf: [max_projects]usize = undefined;
+    const n = visibleProjectIndices(model, &idx_buf);
+    if (n == 0) return &.{};
+    const projects = model.usage_history.projects[0..model.usage_history.project_count];
+    const out = arena.alloc(f32, n) catch return &.{};
+    const metric = model.usage_share_metric;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        out[i] = chartSample(projects[idx_buf[i]].valueFor(metric));
+    }
+    return out;
+}
+
+fn projectsChartProviderValues(model: *const Model, arena: std.mem.Allocator, slot: usize) []const f32 {
+    var idx_buf: [max_projects]usize = undefined;
+    const n = visibleProjectIndices(model, &idx_buf);
+    if (n == 0) return &.{};
+    const projects = model.usage_history.projects[0..model.usage_history.project_count];
+    const out = arena.alloc(f32, n) catch return &.{};
+    const metric = model.usage_share_metric;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const project = projects[idx_buf[i]];
+        if (!hasByProviderSamples(project.by_provider)) {
+            out[i] = std.math.nan(f32);
+            continue;
+        }
+        out[i] = chartSample(providerDayValue(project.by_provider[slot], metric));
+    }
+    return out;
+}
+
+/// Claude `byProvider` totals for the active metric. NaN when that
+/// project's `byProvider` is missing / empty.
+pub fn projectsChartClaudeValues(model: *const Model, arena: std.mem.Allocator) []const f32 {
+    return projectsChartProviderValues(model, arena, protocol.usage_day_provider_claude);
+}
+
+/// Codex `byProvider` totals for the active metric. NaN when that
+/// project's `byProvider` is missing / empty.
+pub fn projectsChartCodexValues(model: *const Model, arena: std.mem.Allocator) []const f32 {
+    return projectsChartProviderValues(model, arena, protocol.usage_day_provider_codex);
+}
+
+/// Max finite Claude/Codex provider-project sample for the active
+/// Cost | Tokens metric among **visible** filtered rows
+/// (single-provider peak, not the combined project total). Null when
+/// the chart is hidden, there are no finite samples, or that peak is
+/// 0 — omit Native `y-max` and leave the auto-domain rather than
+/// inventing height.
+pub fn projectsChartYMax(model: *const Model) ?f32 {
+    var idx_buf: [max_projects]usize = undefined;
+    const n = visibleProjectIndices(model, &idx_buf);
+    if (n == 0) return null;
+    const projects = model.usage_history.projects[0..model.usage_history.project_count];
+    const metric = model.usage_share_metric;
+    var peak: f32 = 0;
+    var any_finite = false;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const project = projects[idx_buf[i]];
+        if (!hasByProviderSamples(project.by_provider)) continue;
+        for (project.by_provider) |slot| {
+            const sample = chartSample(providerDayValue(slot, metric));
+            if (!std.math.isFinite(sample)) continue;
+            any_finite = true;
+            if (sample > peak) peak = sample;
+        }
+    }
+    if (!any_finite or !(peak > 0)) return null;
+    return peak;
+}
+
+pub fn hasProjectsChartYMax(model: *const Model) bool {
+    return projectsChartYMax(model) != null;
+}
+
+/// Scalar for Native `y-max="{usage_projects_chart_y_max}"`. 0 when
+/// the pin is omitted (the markup `if` hides this binding).
+pub fn projectsChartYMaxValue(model: *const Model) f32 {
+    return projectsChartYMax(model) orelse 0;
+}
+
+/// Category labels in painted-row order, one per chart sample. Short
+/// path basename via `projectBasename`.
+pub fn projectsChartLabels(model: *const Model, arena: std.mem.Allocator) []const []const u8 {
+    var idx_buf: [max_projects]usize = undefined;
+    const n = visibleProjectIndices(model, &idx_buf);
+    if (n == 0) return &.{};
+    const projects = model.usage_history.projects[0..model.usage_history.project_count];
+    const out = arena.alloc([]const u8, n) catch return &.{};
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const label = projectBasename(projects[idx_buf[i]].path());
+        out[i] = if (label.len > 0) copyArena(arena, label) else "";
+    }
+    return out;
+}
+
+pub fn projectRows(model: *const Model, arena: std.mem.Allocator) []const Row {
+    var idx_buf: [max_projects]usize = undefined;
+    const visible_n = visibleProjectIndices(model, &idx_buf);
     if (visible_n == 0) return &.{};
+    const projects = model.usage_history.projects[0..model.usage_history.project_count];
     var max: f64 = 0;
-    i = 0;
+    var i: usize = 0;
     while (i < visible_n) : (i += 1) {
         const value = projects[idx_buf[i]].valueFor(model.usage_share_metric);
         if (value > max) max = value;
@@ -2664,9 +2794,170 @@ test "project zero window keeps shares at 0; empty projects paint no rows" {
     try std.testing.expectEqual(@as(f32, 0), zero_rows[0].share);
     try std.testing.expectEqualStrings("", zero_rows[0].percent);
     try std.testing.expect(!zero_rows[0].has_by_provider);
+    try std.testing.expect(hasProjectsChart(&model));
+    try std.testing.expectEqual(@as(usize, 1), projectsChartValues(&model, arena).len);
+    try std.testing.expect(std.math.isNan(projectsChartClaudeValues(&model, arena)[0]));
+    try std.testing.expect(projectsChartYMax(&model) == null);
 
     applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":100,\"costUsd\":1,\"projects\":[]}}}}" });
     try std.testing.expectEqual(@as(usize, 0), projectRows(&model, arena).len);
+    try std.testing.expect(!hasProjectsChart(&model));
+    try std.testing.expectEqual(@as(usize, 0), projectsChartValues(&model, arena).len);
+    try std.testing.expectEqual(@as(usize, 0), projectsChartClaudeValues(&model, arena).len);
+    try std.testing.expectEqual(@as(usize, 0), projectsChartLabels(&model, arena).len);
+    try std.testing.expect(projectsChartYMax(&model) == null);
+}
+
+test "projects chart series is visible-filtered Cost|Tokens; empty/no-match hide chart; provider series NaN-pads; y-max is single-provider peak" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.settings_page = .usage;
+    model.usage_view = .projects;
+    try std.testing.expect(!hasProjectsChart(&model));
+    try std.testing.expectEqual(@as(usize, 0), projectsChartValues(&model, arena).len);
+    try std.testing.expect(projectsChartYMax(&model) == null);
+    try std.testing.expect(!hasProjectsChartYMax(&model));
+
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingProjectsChartSpawn;
+    const keyed = sidecar.key;
+    applyLine(&model, .{ .key = keyed, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":500,\"costUsd\":1.5,\"sessions\":6,\"projects\":[{\"path\":\"/tmp/faku\",\"totalTokens\":100,\"costUsd\":1.0,\"sessions\":2,\"byProvider\":[{\"costUsd\":0.25,\"totalTokens\":40},{\"costUsd\":0.75,\"totalTokens\":60}]},{\"path\":\"/tmp/other\",\"totalTokens\":400,\"costUsd\":0.5,\"sessions\":4,\"byProvider\":[]},{\"path\":\"/tmp/empty\",\"totalTokens\":0,\"costUsd\":0,\"sessions\":0}]}}}}" });
+    handleExit(&model, .{ .key = keyed, .reason = .exited, .code = 0 });
+    try std.testing.expect(hasProjectsChart(&model));
+    const cost = projectsChartValues(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), cost.len);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), cost[0], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), cost[1], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), cost[2], 0.0001);
+    const cost_labels = projectsChartLabels(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), cost_labels.len);
+    try std.testing.expectEqualStrings("faku", cost_labels[0]);
+    try std.testing.expectEqualStrings("other", cost_labels[1]);
+    try std.testing.expectEqualStrings("empty", cost_labels[2]);
+    const painted = projectRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), painted.len);
+    try std.testing.expect(std.mem.indexOf(u8, painted[0].line, "faku") != null);
+    try std.testing.expect(std.mem.indexOf(u8, painted[1].line, "other") != null);
+    try std.testing.expect(std.mem.indexOf(u8, painted[2].line, "empty") != null);
+
+    const claude_cost = projectsChartClaudeValues(&model, arena);
+    const codex_cost = projectsChartCodexValues(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), claude_cost.len);
+    try std.testing.expectEqual(@as(usize, 3), codex_cost.len);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), claude_cost[0], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), codex_cost[0], 0.0001);
+    try std.testing.expect(std.math.isNan(claude_cost[1]));
+    try std.testing.expect(std.math.isNan(codex_cost[1]));
+    try std.testing.expect(std.math.isNan(claude_cost[2]));
+    try std.testing.expect(std.math.isNan(codex_cost[2]));
+    // Combined project total is 1.0; y-max is Codex 0.75 (layered, not stacked).
+    const cost_ymax = projectsChartYMax(&model) orelse return error.MissingCostChartYMax;
+    try std.testing.expect(hasProjectsChartYMax(&model));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), cost_ymax, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), projectsChartYMaxValue(&model), 0.0001);
+
+    const saved_claude_cost = model.usage_history.projects[0].by_provider[0].cost_usd;
+    const saved_codex_cost = model.usage_history.projects[0].by_provider[1].cost_usd;
+    model.usage_history.projects[0].by_provider[0].cost_usd = 0;
+    model.usage_history.projects[0].by_provider[1].cost_usd = 0;
+    try std.testing.expect(projectsChartYMax(&model) == null);
+    try std.testing.expect(!hasProjectsChartYMax(&model));
+    try std.testing.expectEqual(@as(f32, 0), projectsChartYMaxValue(&model));
+    model.usage_history.projects[0].by_provider[0].cost_usd = saved_claude_cost;
+    model.usage_history.projects[0].by_provider[1].cost_usd = saved_codex_cost;
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), projectsChartYMaxValue(&model), 0.0001);
+
+    const spawn_count = fx.pendingSpawnCount();
+    setShareMetric(&model, .tokens);
+    try std.testing.expectEqual(ShareMetric.tokens, model.usage_share_metric);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_usage_history_key);
+    try std.testing.expectEqual(spawn_count, fx.pendingSpawnCount());
+
+    const tokens = projectsChartValues(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), tokens.len);
+    try std.testing.expectApproxEqAbs(@as(f32, 100), tokens[0], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 400), tokens[1], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), tokens[2], 0.0001);
+    const claude_tokens = projectsChartClaudeValues(&model, arena);
+    const codex_tokens = projectsChartCodexValues(&model, arena);
+    try std.testing.expectApproxEqAbs(@as(f32, 40), claude_tokens[0], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 60), codex_tokens[0], 0.0001);
+    try std.testing.expect(std.math.isNan(claude_tokens[1]));
+    try std.testing.expect(std.math.isNan(codex_tokens[1]));
+    try std.testing.expect(std.math.isNan(claude_tokens[2]));
+    try std.testing.expect(std.math.isNan(codex_tokens[2]));
+    // Project totals peak at 400 (empty byProvider); y-max is Codex 60.
+    const token_ymax = projectsChartYMax(&model) orelse return error.MissingTokenChartYMax;
+    try std.testing.expectApproxEqAbs(@as(f32, 60), token_ymax, 0.0001);
+
+    setShareMetric(&model, .cost);
+    applyProjectFilter(&model, .{ .insert_text = "other" });
+    try std.testing.expectEqual(spawn_count, fx.pendingSpawnCount());
+    try std.testing.expect(hasProjectsChart(&model));
+    const filtered = projectsChartValues(&model, arena);
+    try std.testing.expectEqual(@as(usize, 1), filtered.len);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), filtered[0], 0.0001);
+    const filtered_labels = projectsChartLabels(&model, arena);
+    try std.testing.expectEqual(@as(usize, 1), filtered_labels.len);
+    try std.testing.expectEqualStrings("other", filtered_labels[0]);
+    try std.testing.expect(std.math.isNan(projectsChartClaudeValues(&model, arena)[0]));
+    try std.testing.expect(std.math.isNan(projectsChartCodexValues(&model, arena)[0]));
+    try std.testing.expect(projectsChartYMax(&model) == null);
+    try std.testing.expect(!hasProjectsChartYMax(&model));
+    const filtered_rows = projectRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 1), filtered_rows.len);
+    try std.testing.expect(std.mem.indexOf(u8, filtered_rows[0].line, "other") != null);
+
+    applyProjectFilter(&model, .clear);
+    applyProjectFilter(&model, .{ .insert_text = "faku" });
+    try std.testing.expectEqual(spawn_count, fx.pendingSpawnCount());
+    const faku_labels = projectsChartLabels(&model, arena);
+    try std.testing.expectEqual(@as(usize, 1), faku_labels.len);
+    try std.testing.expectEqualStrings("faku", faku_labels[0]);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), projectsChartClaudeValues(&model, arena)[0], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), projectsChartCodexValues(&model, arena)[0], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), projectsChartYMaxValue(&model), 0.0001);
+
+    applyProjectFilter(&model, .clear);
+    applyProjectFilter(&model, .{ .insert_text = "zzzz" });
+    try std.testing.expect(projectsNoMatch(&model));
+    try std.testing.expect(!hasProjectsChart(&model));
+    try std.testing.expectEqual(@as(usize, 0), projectsChartValues(&model, arena).len);
+    try std.testing.expectEqual(@as(usize, 0), projectsChartClaudeValues(&model, arena).len);
+    try std.testing.expectEqual(@as(usize, 0), projectsChartLabels(&model, arena).len);
+    try std.testing.expect(projectsChartYMax(&model) == null);
+    try std.testing.expectEqual(@as(f32, 0), projectsChartYMaxValue(&model));
+
+    applyProjectFilter(&model, .clear);
+    model.usage_view = .daily;
+    try std.testing.expect(!hasProjectsChart(&model));
+    try std.testing.expectEqual(@as(usize, 0), projectsChartValues(&model, arena).len);
+    try std.testing.expectEqual(@as(usize, 0), projectsChartClaudeValues(&model, arena).len);
+    try std.testing.expectEqual(@as(usize, 0), projectsChartLabels(&model, arena).len);
+    try std.testing.expect(projectsChartYMax(&model) == null);
+    try std.testing.expect(!hasProjectsChartYMax(&model));
+
+    model.usage_view = .monthly;
+    try std.testing.expect(!hasProjectsChart(&model));
+    try std.testing.expectEqual(@as(usize, 0), projectsChartValues(&model, arena).len);
+    try std.testing.expect(projectsChartYMax(&model) == null);
+
+    model.usage_view = .projects;
+    model.usage_history.project_count = 0;
+    try std.testing.expect(!hasProjectsChart(&model));
+    try std.testing.expectEqual(@as(usize, 0), projectsChartValues(&model, arena).len);
+    try std.testing.expectEqual(@as(usize, 0), projectsChartLabels(&model, arena).len);
+    try std.testing.expect(projectsChartYMax(&model) == null);
+    try std.testing.expectEqual(@as(f32, 0), projectsChartYMaxValue(&model));
 }
 
 test "project byProvider nested shares are within the project; Cost|Tokens chip flip updates without refetch; filter still peaks-of-visible" {
