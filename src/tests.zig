@@ -11258,6 +11258,9 @@ test "cmd-g and cmd-shift-g cycle the current matching turn" {
     _ = try expectByText(tree.root, .text, "1 of 2");
     _ = try expectByText(tree.root, .row, "alpha hello");
     _ = try expectByText(tree.root, .row, "gamma hello again");
+    try testing.expectEqual(@as(usize, 1), countByText(tree.root, .text, "Match"));
+    try testing.expect(findAnyText((try expectByText(tree.root, .row, "alpha hello")), "Match"));
+    try testing.expect(!findAnyText((try expectByText(tree.root, .row, "gamma hello again")), "Match"));
     const find_enter = try expectByText(tree.root, .search_field, "Find in transcript");
     if (dispatchFieldEnter(tree, find_enter)) |msg| {
         try testing.expectEqual(Msg.find_next, msg);
@@ -11278,6 +11281,9 @@ test "cmd-g and cmd-shift-g cycle the current matching turn" {
     _ = try expectByText(tree.root, .text, "2 of 2");
     _ = try expectByText(tree.root, .row, "alpha hello");
     _ = try expectByText(tree.root, .row, "gamma hello again");
+    try testing.expectEqual(@as(usize, 1), countByText(tree.root, .text, "Match"));
+    try testing.expect(!findAnyText((try expectByText(tree.root, .row, "alpha hello")), "Match"));
+    try testing.expect(findAnyText((try expectByText(tree.root, .row, "gamma hello again")), "Match"));
 
     main.update(&model, keys.onKey(cmd_g).?, &fx);
     try testing.expectEqual(@as(u32, 0), model.find_match_index);
@@ -11317,6 +11323,67 @@ test "cmd-g and cmd-shift-g cycle the current matching turn" {
     try testing.expectEqualStrings("", model.find_match_label(arena));
     try expectTurnTexts(model.visible_turns(arena), &.{ "alpha hello", "beta world", "gamma hello again" });
     try testing.expect(!model.visible_turns(arena)[0].is_find_current);
+
+    tree = try buildTree(arena, &model);
+    try testing.expectEqual(@as(usize, 0), countByText(tree.root, .text, "Match"));
+    try testing.expect(findByText(tree.root, .search_field, "Find in transcript") == null);
+}
+
+test "transcript find paints Match chrome on the current turn of every role" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "t.is_find_current") != null);
+
+    var model = Model{};
+    const id = model.addSession("find chrome roles", .fx);
+    model.selected = id;
+    _ = model.appendTurn(id, .user, "user needle");
+    _ = model.appendTurn(id, .tool, "tool needle");
+    _ = model.appendTurn(id, .reasoning, "reasoning needle");
+    _ = model.appendTurn(id, .assistant, "assistant needle");
+
+    main.update(&model, .open_find, &fx);
+    main.update(&model, .{ .find_edit = .{ .insert_text = "needle" } }, &fx);
+    try testing.expectEqualStrings("1 of 4", model.find_match_label(arena));
+    try testing.expect(model.visible_turns(arena)[0].is_find_current);
+
+    const roles = [_]struct { kind: canvas.WidgetKind, label: []const u8 }{
+        .{ .kind = .row, .label = "user needle" },
+        .{ .kind = .column, .label = "tool needle" },
+        .{ .kind = .column, .label = "reasoning needle" },
+        .{ .kind = .column, .label = "assistant needle" },
+    };
+
+    var i: usize = 0;
+    while (i < roles.len) : (i += 1) {
+        var tree = try buildTree(arena, &model);
+        const transcript = try expectByText(tree.root, .scroll_view, "Transcript");
+        try testing.expectEqual(@as(usize, 1), countByText(tree.root, .text, "Match"));
+        for (roles, 0..) |role, role_i| {
+            const turn = try expectByText(transcript, role.kind, role.label);
+            if (role_i == i) {
+                try testing.expect(findAnyText(turn, "Match"));
+            } else {
+                try testing.expect(!findAnyText(turn, "Match"));
+            }
+        }
+        if (i + 1 < roles.len) {
+            main.update(&model, .find_next, &fx);
+            try testing.expectEqual(@as(u32, @intCast(i + 1)), model.find_match_index);
+            try testing.expect(model.visible_turns(arena)[i + 1].is_find_current);
+        }
+    }
+
+    main.update(&model, .close_find, &fx);
+    try testing.expect(!model.find_active);
+    const closed = try buildTree(arena, &model);
+    try testing.expectEqual(@as(usize, 0), countByText(closed.root, .text, "Match"));
 }
 
 test "cmd-l and ctrl-l focus the composer via onKey" {
