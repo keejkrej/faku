@@ -441,6 +441,13 @@
                             </if>
                           </column>
                         </for>
+                        <for each="usage_metric_rows" key="id" as="t">
+                          <column gap="4">
+                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{t.line}</text>
+                            <text wrap="false" overflow="ellipsis">{t.percent}</text>
+                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{t.detail}</text>
+                          </column>
+                        </for>
                       </column>
                     </card>
                   </if>
@@ -480,6 +487,13 @@
                                 </if>
                               </column>
                             </if>
+                          </column>
+                        </for>
+                        <for each="usage_metric_rows" key="id" as="t">
+                          <column gap="4">
+                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{t.line}</text>
+                            <text wrap="false" overflow="ellipsis">{t.percent}</text>
+                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{t.detail}</text>
                           </column>
                         </for>
                       </column>

@@ -30,11 +30,12 @@
 //! share is that provider's cost or tokens divided by **that day's**
 //! total (not vs the window max). Empty / missing / short
 //! `byProvider` stays day-total-only. Empty `models` paints no
-//! model rows. Provider share bars, a first-cut five-tile Native
-//! metric strip (processed tokens / cached input / uncached input /
-//! output / cache savings) when Daily history is painted, Cost
-//! quality, notices, and the
-//! scan footer stay on Daily regardless of the breakdown chip.
+//! model rows. Provider share bars, Cost quality, notices, and the
+//! scan footer stay on Daily regardless of the breakdown chip. A
+//! first-cut five-tile Native metric strip (processed tokens /
+//! cached input / uncached input / output / cache savings) paints
+//! when history is painted on Daily, Monthly, and Projects (zeros
+//! still paint).
 //! Monthly
 //! first-cut paints the same Cost | Tokens chip and relative Native `<progress>`
 //! vs the max month in the painted window (Cost → `costUsd`, Tokens
@@ -59,10 +60,13 @@
 //! that filter (nested bars only on visible rows). No-match empty
 //! ("No matching projects") is distinct from no project usage.
 //! Filter clears when leaving Settings Usage or switching away from
-//! Projects. Daily also paints a first-cut five-tile Native metric
-//! strip from `totalTokens` / `totals` / `quality.cacheSavingsUsd`
-//! (zeros still paint; Monthly / Projects skip it this cut) and a
-//! first-cut Cost quality panel from
+//! Projects. Daily, Monthly, and Projects paint a first-cut
+//! five-tile Native metric strip from `totalTokens` / `totals` /
+//! `quality.cacheSavingsUsd` (zeros still paint; Daily uses
+//! active-day averages from `daily[]`; Monthly prefers active-month
+//! averages from `months[]`; Projects uses history totals with
+//! Daily's active-day wording when the snapshot shares that window)
+//! and Daily paints a first-cut Cost quality panel from
 //! `quality` (Provider reported / Model priced / Unpriced percents
 //! plus Cache savings USD) and muted notices when `errors` are
 //! non-empty or `pricing` is `unavailable`. A tiny scan-summary
@@ -149,11 +153,12 @@ pub const Row = struct {
     share: f32 = 0,
     /// `"80.0%"` for Daily provider / model / day / quality-share bars,
     /// Monthly bars, and Projects bars. Quality Cache savings and the
-    /// Daily metric-strip value reuse this for a USD / compact-token
-    /// label.
+    /// Daily / Monthly / Projects metric-strip value reuse this for a
+    /// USD / compact-token label.
     percent: []const u8 = "",
-    /// Daily metric-strip muted detail (per-day average, cache share,
-    /// writes, reasoning, raw-cost multiple). Empty on other rows.
+    /// Metric-strip muted detail (per-day / per-month average, cache
+    /// share, writes, reasoning, raw-cost multiple). Empty on other
+    /// rows.
     detail: []const u8 = "",
     /// True when Daily, Monthly, Projects, or Cost quality should
     /// paint a share bar (share > 0).
@@ -1033,10 +1038,11 @@ pub fn hasQuality(model: *const Model) bool {
     return historyPainted(model) and model.usage_view == .daily;
 }
 
-/// Daily Native metric strip when history is painted. Always five
-/// tiles, including zeros. Monthly / Projects skip this cut.
+/// Native metric strip when history is painted on Daily, Monthly, or
+/// Projects. Always five tiles, including zeros. Cost quality stays
+/// Daily-only.
 pub fn hasMetricStrip(model: *const Model) bool {
-    return historyPainted(model) and model.usage_view == .daily;
+    return historyPainted(model);
 }
 
 pub fn hasScanFooter(model: *const Model) bool {
@@ -1115,6 +1121,22 @@ fn tokensPerActiveDay(total_tokens: u64, days: []const CachedDay) u64 {
     return total_tokens / n;
 }
 
+/// Months in the painted window with `total_tokens > 0`.
+fn activeMonthCount(months: []const CachedMonth) u64 {
+    var n: u64 = 0;
+    for (months) |month| {
+        if (month.total_tokens > 0) n += 1;
+    }
+    return n;
+}
+
+/// `totalTokens / active_months`, or 0 when no active month.
+fn tokensPerActiveMonth(total_tokens: u64, months: []const CachedMonth) u64 {
+    const n = activeMonthCount(months);
+    if (n == 0) return 0;
+    return total_tokens / n;
+}
+
 /// `cached / (uncached + cached)`, or 0 when observed input is empty.
 fn cachedInputShare(totals: protocol.ParsedTokenTotals) f64 {
     const observed = tokensAsFloat(totals.uncached_input) + tokensAsFloat(totals.cached_input);
@@ -1127,13 +1149,16 @@ fn metricDetail(arena: std.mem.Allocator, buf: []u8, comptime fmt: []const u8, a
     return copyArena(arena, text);
 }
 
-/// Five Daily tiles: processed tokens, cached input, uncached input,
-/// output, cache savings. Empty when history is not painted Daily.
+/// Five tiles: processed tokens, cached input, uncached input,
+/// output, cache savings. Empty when history is not painted.
+/// Daily / Projects use active-day averages from `daily[]`; Monthly
+/// prefers active-month averages from `months[]`.
 pub fn metricRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     if (!hasMetricStrip(model)) return &.{};
     const cache = model.usage_history;
     const totals = cache.totals;
     const days = cache.daily[0..cache.daily_count];
+    const months = cache.months[0..cache.month_count];
     const out = arena.alloc(Row, max_metric_tiles) catch return &.{};
 
     var token_buf: [16]u8 = undefined;
@@ -1142,12 +1167,20 @@ pub fn metricRows(model: *const Model, arena: std.mem.Allocator) []const Row {
     var usd_buf: [24]u8 = undefined;
 
     const processed = compactTokenLabel(&token_buf, cache.total_tokens);
-    const per_day = compactTokenLabel(&percent_buf, tokensPerActiveDay(cache.total_tokens, days));
+    const per_unit_tokens = switch (model.usage_view) {
+        .monthly => tokensPerActiveMonth(cache.total_tokens, months),
+        .daily, .projects => tokensPerActiveDay(cache.total_tokens, days),
+    };
+    const per_unit = compactTokenLabel(&percent_buf, per_unit_tokens);
+    const per_unit_label: []const u8 = switch (model.usage_view) {
+        .monthly => "per active month",
+        .daily, .projects => "per active day",
+    };
     out[0] = .{
         .id = 1,
         .line = "Processed tokens",
         .percent = copyArena(arena, processed),
-        .detail = metricDetail(arena, &detail_buf, "{s} per active day", .{per_day}),
+        .detail = metricDetail(arena, &detail_buf, "{s} {s}", .{ per_unit, per_unit_label }),
     };
 
     const cached = compactTokenLabel(&token_buf, totals.cached_input);
@@ -2393,7 +2426,7 @@ test "quality and pricing adopt from usageHistory; missing fields stay defaults"
     try std.testing.expect(std.mem.indexOf(u8, disk[0].line, rates_unavailable_notice) == null);
 }
 
-test "Daily metric strip paints five tiles from totals; zeros still paint; Monthly skips" {
+test "metric strip paints five tiles on Daily, Monthly, and Projects; zeros still paint; leaving Usage clears" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -2435,11 +2468,16 @@ test "Daily metric strip paints five tiles from totals; zeros still paint; Month
     try std.testing.expectEqualStrings("$2.50", rows[4].percent);
     try std.testing.expectEqualStrings("2.0x raw cost", rows[4].detail);
 
-    model.usage_view = .monthly;
-    try std.testing.expect(!hasMetricStrip(&model));
-    try std.testing.expectEqual(@as(usize, 0), metricRows(&model, arena).len);
     model.usage_view = .projects;
-    try std.testing.expectEqual(@as(usize, 0), metricRows(&model, arena).len);
+    try std.testing.expect(hasMetricStrip(&model));
+    const project_rows = metricRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 5), project_rows.len);
+    try std.testing.expectEqualStrings("Processed tokens", project_rows[0].line);
+    try std.testing.expectEqualStrings("12.3k", project_rows[0].percent);
+    try std.testing.expectEqualStrings("6.1k per active day", project_rows[0].detail);
+    try std.testing.expectEqualStrings("8k", project_rows[1].percent);
+    try std.testing.expectEqualStrings("80.0% of observed input", project_rows[1].detail);
+    try std.testing.expectEqualStrings("$2.50", project_rows[4].percent);
 
     model.usage_view = .daily;
     applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{}}}}" });
@@ -2454,6 +2492,63 @@ test "Daily metric strip paints five tiles from totals; zeros still paint; Month
     try std.testing.expectEqualStrings("includes 0 reasoning", zeros[3].detail);
     try std.testing.expectEqualStrings("$0.00", zeros[4].percent);
     try std.testing.expectEqualStrings("vs full input rates", zeros[4].detail);
+
+    model.usage_view = .monthly;
+    try std.testing.expect(!hasMetricStrip(&model));
+    try std.testing.expectEqual(@as(usize, 0), metricRows(&model, arena).len);
+    try std.testing.expect(!hasQuality(&model));
+
+    refresh(&model, &fx);
+    const monthly_sidecar = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingMonthlyMetricStripSpawn;
+    applyLine(&model, .{ .key = monthly_sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":12300,\"costUsd\":1.25,\"totals\":{\"uncachedInput\":2000,\"cachedInput\":8000,\"cacheCreation\":500,\"output\":1800,\"reasoning\":300},\"months\":[{\"firstDay\":\"2026-08-01\",\"totalTokens\":4100},{\"firstDay\":\"2026-09-01\",\"totalTokens\":8200},{\"firstDay\":\"2026-07-01\",\"totalTokens\":0}],\"quality\":{\"cacheSavingsUsd\":2.5}}}}}" });
+    try std.testing.expect(std.meta.eql(model.usage_history.window, monthly_window));
+    try std.testing.expect(hasMetricStrip(&model));
+    try std.testing.expect(!hasQuality(&model));
+    const month_rows = metricRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 5), month_rows.len);
+    try std.testing.expectEqualStrings("Processed tokens", month_rows[0].line);
+    try std.testing.expectEqualStrings("12.3k", month_rows[0].percent);
+    try std.testing.expectEqualStrings("6.1k per active month", month_rows[0].detail);
+    try std.testing.expectEqualStrings("Cached input", month_rows[1].line);
+    try std.testing.expectEqualStrings("8k", month_rows[1].percent);
+    try std.testing.expectEqualStrings("80.0% of observed input", month_rows[1].detail);
+    try std.testing.expectEqualStrings("Uncached input", month_rows[2].line);
+    try std.testing.expectEqualStrings("2k", month_rows[2].percent);
+    try std.testing.expectEqualStrings("500 cache writes", month_rows[2].detail);
+    try std.testing.expectEqualStrings("Output", month_rows[3].line);
+    try std.testing.expectEqualStrings("1.8k", month_rows[3].percent);
+    try std.testing.expectEqualStrings("includes 300 reasoning", month_rows[3].detail);
+    try std.testing.expectEqualStrings("Cache savings", month_rows[4].line);
+    try std.testing.expectEqualStrings("$2.50", month_rows[4].percent);
+    try std.testing.expectEqualStrings("2.0x raw cost", month_rows[4].detail);
+
+    applyLine(&model, .{ .key = monthly_sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{}}}}" });
+    try std.testing.expectEqual(@as(u64, 0), model.usage_history.totals.cached_input);
+    const month_zeros = metricRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 5), month_zeros.len);
+    try std.testing.expectEqualStrings("0", month_zeros[0].percent);
+    try std.testing.expectEqualStrings("0 per active month", month_zeros[0].detail);
+    try std.testing.expectEqualStrings("0", month_zeros[1].percent);
+    try std.testing.expectEqualStrings("0.0% of observed input", month_zeros[1].detail);
+    try std.testing.expectEqualStrings("0 cache writes", month_zeros[2].detail);
+    try std.testing.expectEqualStrings("includes 0 reasoning", month_zeros[3].detail);
+    try std.testing.expectEqualStrings("$0.00", month_zeros[4].percent);
+    try std.testing.expectEqualStrings("vs full input rates", month_zeros[4].detail);
+
+    model.usage_view = .daily;
+    try std.testing.expect(!hasMetricStrip(&model));
+    try std.testing.expectEqual(@as(usize, 0), metricRows(&model, arena).len);
+
+    model.usage_view = .monthly;
+    model.settings_page = .general;
+    try std.testing.expect(!hasMetricStrip(&model));
+    try std.testing.expectEqual(@as(usize, 0), metricRows(&model, arena).len);
+
+    model.settings_page = .usage;
+    try std.testing.expect(hasMetricStrip(&model));
+    model.usage_history.present = false;
+    try std.testing.expect(!hasMetricStrip(&model));
+    try std.testing.expectEqual(@as(usize, 0), metricRows(&model, arena).len);
 }
 
 

@@ -12353,6 +12353,13 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
     try testing.expect(findByText(tree.root, .text, "50.0%") == null);
     try testing.expect(findByText(tree.root, .progress, "0.0%") == null);
+    _ = try expectByText(tree.root, .text, "Processed tokens");
+    _ = try expectByText(tree.root, .text, "Cached input");
+    _ = try expectByText(tree.root, .text, "Uncached input");
+    _ = try expectByText(tree.root, .text, "Output");
+    _ = try expectByText(tree.root, .text, "250 per active month");
+    try testing.expect(findByText(tree.root, .text, "Cost quality") == null);
+    try testing.expect(findByText(tree.root, .text, "Provider reported") == null);
 
     const spawn_count = fx.pendingSpawnCount();
     const monthly_cost_chip = try expectButtonMsg(tree, "Cost", .set_usage_share_cost);
@@ -12369,6 +12376,8 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     _ = try expectUsageShareProgress(tree.root, "50.0%", 0.5);
     try testing.expect(findByText(tree.root, .text, "25.0%") == null);
     try testing.expect(findByText(tree.root, .progress, "0.0%") == null);
+    _ = try expectByText(tree.root, .text, "250 per active month");
+    try testing.expect(findByText(tree.root, .text, "Cost quality") == null);
 
     main.update(&model, .set_usage_view_projects, &fx);
     try testing.expect(model.usage_view_projects());
@@ -12409,6 +12418,12 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     _ = try expectUsageShareProgress(tree.root, "50.0%", 0.5);
     try testing.expect(findByText(tree.root, .text, "25.0%") == null);
     try testing.expect(findByText(tree.root, .progress, "0.0%") == null);
+    _ = try expectByText(tree.root, .text, "Processed tokens");
+    _ = try expectByText(tree.root, .text, "Cached input");
+    _ = try expectByText(tree.root, .text, "Uncached input");
+    _ = try expectByText(tree.root, .text, "Output");
+    _ = try expectByText(tree.root, .text, "0 per active day");
+    try testing.expect(findByText(tree.root, .text, "Cost quality") == null);
     const projects_filter = findByPlaceholder(tree.root, .search_field, "Filter projects") orelse return error.WidgetNotFound;
     try testing.expect(!projects_filter.autofocus);
     try testing.expectEqualStrings("", model.usage_project_filter());
@@ -12475,6 +12490,8 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect(findByText(tree.root, .text, "faku · 100 · $1.00 · 2 sessions") == null);
     try testing.expect(findByText(tree.root, .text, "100.0%") == null);
     try testing.expect(findByText(tree.root, .text, "25.0%") == null);
+    _ = try expectByText(tree.root, .text, "Processed tokens");
+    _ = try expectByText(tree.root, .text, "0 per active day");
     try testing.expectEqual(@as(u64, 53_000), model.sessionById(id).?.context_used);
 }
 
