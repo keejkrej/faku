@@ -754,19 +754,19 @@ fn seedCadenceModel(provider: ProviderId) Model {
 }
 
 fn finishPlanUsageOk(model: *Model) void {
-    const key = selectedPendingKey(&model);
+    const key = selectedPendingKey(model);
     applyLine(model, .{ .key = key, .line = plan_usage_ok_line });
     handleExit(model, .{ .key = key, .reason = .exited, .code = 0 });
 }
 
 fn finishPlanUsageLine(model: *Model, line: []const u8) void {
-    const key = selectedPendingKey(&model);
+    const key = selectedPendingKey(model);
     applyLine(model, .{ .key = key, .line = line });
     handleExit(model, .{ .key = key, .reason = .exited, .code = 0 });
 }
 
 fn finishPlanUsageErr(model: *Model) void {
-    const key = selectedPendingKey(&model);
+    const key = selectedPendingKey(model);
     applyLine(model, .{ .key = key, .line = plan_usage_ack_line });
     handleExit(model, .{ .key = key, .reason = .exited, .code = 1 });
 }
