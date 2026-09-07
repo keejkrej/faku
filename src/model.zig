@@ -4597,6 +4597,26 @@ pub const Model = struct {
         return usage_history.dailyRows(model, arena);
     }
 
+    pub fn has_usage_daily_chart(model: *const Model) bool {
+        return usage_history.hasDailyChart(model);
+    }
+
+    pub fn usage_daily_chart_values(model: *const Model, arena: std.mem.Allocator) []const f32 {
+        return usage_history.dailyChartValues(model, arena);
+    }
+
+    pub fn usage_daily_chart_claude(model: *const Model, arena: std.mem.Allocator) []const f32 {
+        return usage_history.dailyChartClaudeValues(model, arena);
+    }
+
+    pub fn usage_daily_chart_codex(model: *const Model, arena: std.mem.Allocator) []const f32 {
+        return usage_history.dailyChartCodexValues(model, arena);
+    }
+
+    pub fn usage_daily_chart_labels(model: *const Model, arena: std.mem.Allocator) []const []const u8 {
+        return usage_history.dailyChartLabels(model, arena);
+    }
+
     pub fn usage_month_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {
         return usage_history.monthRows(model, arena);
     }

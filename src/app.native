@@ -361,13 +361,16 @@
                           </for>
                         </if>
                         <if test="{usage_breakdown_days}">
+                          <if test="{has_usage_daily_chart}">
+                            <chart height="140" y-min="0" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_daily_chart_labels}" label="Daily usage">
+                              <series kind="bar" values="{usage_daily_chart_values}" label="total" />
+                              <series kind="line" values="{usage_daily_chart_claude}" color="info" label="Claude" />
+                              <series kind="line" values="{usage_daily_chart_codex}" color="text_muted" label="Codex" />
+                            </chart>
+                          </if>
                           <for each="usage_daily_rows" key="id" as="d">
                             <column gap="4">
                               <text wrap="false" overflow="ellipsis">{d.line}</text>
-                              <if test="{d.has_share}">
-                                <progress value="{d.share}" width="48" height="6" label="{d.percent}" />
-                                <text wrap="false" overflow="ellipsis" foreground="text_muted">{d.percent}</text>
-                              </if>
                               <if test="{d.has_by_provider}">
                                 <column gap="4">
                                   <text wrap="false" overflow="ellipsis">{d.claude_line}</text>

@@ -21,16 +21,14 @@
 //! `breakdown`; default Model), model share bars when Model is
 //! selected (provider label + model name; Cost prefers wire
 //! `costShare`, Tokens always computed from totals), and a first-cut
-//! daily bar chart when Days is selected: each day's Native
-//! `<progress>` is relative to the max day in the painted window for
-//! the active metric (Cost → `costUsd`, Tokens → `totalTokens`).
-//! Days with 0 cost/tokens stay text-only. When a day has any
-//! non-zero `byProvider` slot for that metric, two nested Native
-//! `<progress>` rows (Claude Code / Codex) paint under it; nested
-//! share is that provider's cost or tokens divided by **that day's**
-//! total (not vs the window max). Empty / missing / short
-//! `byProvider` stays day-total-only. Empty `models` paints no
-//! model rows. Provider share bars, Cost quality, notices, and the
+//! Native `<chart>` when Days is selected (oldest-first `[]const f32`
+//! samples for the active Cost | Tokens metric; Claude / Codex line
+//! series NaN-pad when a day's `byProvider` is missing). Nested
+//! Claude/Codex Native `<progress>` rows still paint under each day
+//! when a slot is non-zero for that metric; nested share is that
+//! provider's cost or tokens divided by **that day's** total. Empty /
+//! missing / short `byProvider` stays day-total-only. Empty `models`
+//! paints no model rows. Provider share bars, Cost quality, notices, and the
 //! scan footer stay on Daily regardless of the breakdown chip. A
 //! first-cut five-tile Native metric strip (processed tokens /
 //! cached input / uncached input / output / cache savings) paints
@@ -71,13 +69,14 @@
 //! plus Cache savings USD) and muted notices when `errors` are
 //! non-empty or `pricing` is `unavailable`. A tiny scan-summary
 //! footer uses `records` / `scannedFiles` / `skippedFiles` /
-//! `scanDuration` when present. First-cut Daily Days / Monthly /
-//! Projects nested byProvider bars ship as Native `<progress>` (not
-//! a stacked canvas). Daily Model rows append a compact per-MTok
-//! hint when the Faku-side LiteLLM table hits (unpriceable names stay
-//! unpriced). First-cut LiteLLM rate-table fetch + 24h disk cache
-//! ships in `litellm_rates.zig`. Still not Waku's GPUI / T3 layered
-//! chart, not a local transcript scan. Hello stays v4.
+//! `scanDuration` when present. First-cut Daily Days Native `<chart>`
+//! ships (not a stacked / layered T3 canvas); Monthly / Projects
+//! nested byProvider bars stay Native `<progress>`. Daily Model rows
+//! append a compact per-MTok hint when the Faku-side LiteLLM table
+//! hits (unpriceable names stay unpriced). First-cut LiteLLM
+//! rate-table fetch + 24h disk cache ships in `litellm_rates.zig`.
+//! Still not Waku's GPUI / T3 layered / stacked chart, not a local
+//! transcript scan. Hello stays v4.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -252,7 +251,7 @@ pub const CachedDay = struct {
     }
 
     /// Cost → `cost_usd`; Tokens → `total_tokens`. Used for the
-    /// first-cut Daily bar (share vs max day in the window).
+    /// first-cut Daily Native chart and remaining list shares.
     pub fn valueFor(self: *const CachedDay, metric: ShareMetric) f64 {
         return switch (metric) {
             .cost => self.cost_usd,
@@ -952,6 +951,116 @@ pub fn dailyRows(model: *const Model, arena: std.mem.Allocator) []const Row {
             .has_share = share > 0,
         };
         fillNestedByProvider(&out[i], arena, row.by_provider, row.valueFor(metric), metric);
+    }
+    return out;
+}
+
+/// True when Daily + Days is painted with at least one cached day.
+/// Empty `daily[]` hides the Native chart (no fake samples).
+pub fn hasDailyChart(model: *const Model) bool {
+    return dailyChartDays(model).len > 0;
+}
+
+fn dailyChartDays(model: *const Model) []const CachedDay {
+    if (!historyPainted(model) or model.usage_view != .daily or model.usage_breakdown != .days) return &.{};
+    const count = model.usage_history.daily_count;
+    if (count == 0) return &.{};
+    return model.usage_history.daily[0..count];
+}
+
+/// Oldest-first indices so Native chart samples match `x-labels`
+/// (label i names sample i). Day strings are ISO `YYYY-MM-DD`.
+fn oldestFirstDayOrder(days: []const CachedDay, dest: []usize) usize {
+    const n = @min(days.len, dest.len);
+    var i: usize = 0;
+    while (i < n) : (i += 1) dest[i] = i;
+    i = 1;
+    while (i < n) : (i += 1) {
+        const idx = dest[i];
+        const key = days[idx].day();
+        var j: usize = i;
+        while (j > 0 and std.mem.order(u8, key, days[dest[j - 1]].day()) == .lt) {
+            dest[j] = dest[j - 1];
+            j -= 1;
+        }
+        dest[j] = idx;
+    }
+    return n;
+}
+
+fn chartSample(value: f64) f32 {
+    if (!std.math.isFinite(value) or value < 0) return 0;
+    return @floatCast(value);
+}
+
+/// Any Claude/Codex slot with cost or tokens. Distinct from the
+/// nested-bar gate: missing / empty `byProvider` NaN-pads the
+/// provider series even when the day total is non-zero.
+fn dayHasByProviderSamples(slots: [protocol.max_parsed_usage_day_providers]protocol.ParsedProviderDay) bool {
+    for (slots) |slot| {
+        if (slot.cost_usd > 0 or slot.total_tokens > 0) return true;
+    }
+    return false;
+}
+
+/// Active Cost | Tokens day totals, oldest-first. Empty when the
+/// chart is hidden.
+pub fn dailyChartValues(model: *const Model, arena: std.mem.Allocator) []const f32 {
+    const days = dailyChartDays(model);
+    if (days.len == 0) return &.{};
+    var order: [max_daily]usize = undefined;
+    const n = oldestFirstDayOrder(days, &order);
+    const out = arena.alloc(f32, n) catch return &.{};
+    const metric = model.usage_share_metric;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        out[i] = chartSample(days[order[i]].valueFor(metric));
+    }
+    return out;
+}
+
+fn dailyChartProviderValues(model: *const Model, arena: std.mem.Allocator, slot: usize) []const f32 {
+    const days = dailyChartDays(model);
+    if (days.len == 0) return &.{};
+    var order: [max_daily]usize = undefined;
+    const n = oldestFirstDayOrder(days, &order);
+    const out = arena.alloc(f32, n) catch return &.{};
+    const metric = model.usage_share_metric;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const day = days[order[i]];
+        if (!dayHasByProviderSamples(day.by_provider)) {
+            out[i] = std.math.nan(f32);
+            continue;
+        }
+        out[i] = chartSample(providerDayValue(day.by_provider[slot], metric));
+    }
+    return out;
+}
+
+/// Claude `byProvider` totals for the active metric. NaN when that
+/// day's `byProvider` is missing / empty.
+pub fn dailyChartClaudeValues(model: *const Model, arena: std.mem.Allocator) []const f32 {
+    return dailyChartProviderValues(model, arena, protocol.usage_day_provider_claude);
+}
+
+/// Codex `byProvider` totals for the active metric. NaN when that
+/// day's `byProvider` is missing / empty.
+pub fn dailyChartCodexValues(model: *const Model, arena: std.mem.Allocator) []const f32 {
+    return dailyChartProviderValues(model, arena, protocol.usage_day_provider_codex);
+}
+
+/// Category labels oldest-first, one per chart sample.
+pub fn dailyChartLabels(model: *const Model, arena: std.mem.Allocator) []const []const u8 {
+    const days = dailyChartDays(model);
+    if (days.len == 0) return &.{};
+    var order: [max_daily]usize = undefined;
+    const n = oldestFirstDayOrder(days, &order);
+    const out = arena.alloc([]const u8, n) catch return &.{};
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const label = days[order[i]].day();
+        out[i] = if (label.len > 0) copyArena(arena, label) else "";
     }
     return out;
 }
@@ -1884,6 +1993,91 @@ test "daily byProvider nested shares are within the day; Cost|Tokens chip flip u
 
     model.usage_view = .monthly;
     try std.testing.expectEqual(@as(usize, 0), dailyRows(&model, arena).len);
+}
+
+test "daily chart series is oldest-first Cost|Tokens; empty window is empty; provider series NaN-pads" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.settings_page = .usage;
+    try std.testing.expect(!hasDailyChart(&model));
+    try std.testing.expectEqual(@as(usize, 0), dailyChartValues(&model, arena).len);
+
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingDailyChartSpawn;
+    const keyed = sidecar.key;
+    applyLine(&model, .{ .key = keyed, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":500,\"costUsd\":1.5,\"sessions\":3,\"daily\":[{\"day\":\"2026-09-05\",\"totalTokens\":100,\"costUsd\":1.0,\"byProvider\":[{\"costUsd\":0.25,\"totalTokens\":40},{\"costUsd\":0.75,\"totalTokens\":60}]},{\"day\":\"2026-09-06\",\"totalTokens\":400,\"costUsd\":0.5,\"byProvider\":[]},{\"day\":\"2026-09-04\",\"totalTokens\":0,\"costUsd\":0}]}}}}" });
+    handleExit(&model, .{ .key = keyed, .reason = .exited, .code = 0 });
+    try std.testing.expect(!hasDailyChart(&model));
+    try std.testing.expectEqual(@as(usize, 0), dailyChartValues(&model, arena).len);
+
+    setBreakdown(&model, .days);
+    try std.testing.expect(hasDailyChart(&model));
+    const cost = dailyChartValues(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), cost.len);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), cost[0], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), cost[1], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), cost[2], 0.0001);
+    const cost_labels = dailyChartLabels(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), cost_labels.len);
+    try std.testing.expectEqualStrings("2026-09-04", cost_labels[0]);
+    try std.testing.expectEqualStrings("2026-09-05", cost_labels[1]);
+    try std.testing.expectEqualStrings("2026-09-06", cost_labels[2]);
+
+    const claude_cost = dailyChartClaudeValues(&model, arena);
+    const codex_cost = dailyChartCodexValues(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), claude_cost.len);
+    try std.testing.expectEqual(@as(usize, 3), codex_cost.len);
+    try std.testing.expect(std.math.isNan(claude_cost[0]));
+    try std.testing.expect(std.math.isNan(codex_cost[0]));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), claude_cost[1], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), codex_cost[1], 0.0001);
+    try std.testing.expect(std.math.isNan(claude_cost[2]));
+    try std.testing.expect(std.math.isNan(codex_cost[2]));
+
+    const spawn_count = fx.pendingSpawnCount();
+    setShareMetric(&model, .tokens);
+    try std.testing.expectEqual(ShareMetric.tokens, model.usage_share_metric);
+    try std.testing.expectEqual(@as(u64, 0), model.daemon_usage_history_key);
+    try std.testing.expectEqual(spawn_count, fx.pendingSpawnCount());
+
+    const tokens = dailyChartValues(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), tokens.len);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), tokens[0], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 100), tokens[1], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 400), tokens[2], 0.0001);
+    const claude_tokens = dailyChartClaudeValues(&model, arena);
+    const codex_tokens = dailyChartCodexValues(&model, arena);
+    try std.testing.expect(std.math.isNan(claude_tokens[0]));
+    try std.testing.expectApproxEqAbs(@as(f32, 40), claude_tokens[1], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 60), codex_tokens[1], 0.0001);
+    try std.testing.expect(std.math.isNan(claude_tokens[2]));
+    try std.testing.expect(std.math.isNan(codex_tokens[2]));
+
+    setBreakdown(&model, .model);
+    try std.testing.expect(!hasDailyChart(&model));
+    try std.testing.expectEqual(@as(usize, 0), dailyChartValues(&model, arena).len);
+    try std.testing.expectEqual(@as(usize, 0), dailyChartClaudeValues(&model, arena).len);
+    try std.testing.expectEqual(@as(usize, 0), dailyChartLabels(&model, arena).len);
+
+    setBreakdown(&model, .days);
+    model.usage_view = .monthly;
+    try std.testing.expect(!hasDailyChart(&model));
+    try std.testing.expectEqual(@as(usize, 0), dailyChartValues(&model, arena).len);
+
+    model.usage_view = .daily;
+    model.usage_history.daily_count = 0;
+    try std.testing.expect(!hasDailyChart(&model));
+    try std.testing.expectEqual(@as(usize, 0), dailyChartValues(&model, arena).len);
+    try std.testing.expectEqual(@as(usize, 0), dailyChartLabels(&model, arena).len);
 }
 
 test "monthly shares are relative to the max month; Cost|Tokens chip flip updates without refetch" {
