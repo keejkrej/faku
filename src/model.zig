@@ -408,11 +408,13 @@ pub const Msg = union(enum) {
     /// closes the other (Waku OpenFind parity).
     open_find,
     close_find,
-    /// Cmd/Ctrl-G: next match. File-preview find when that bar is
-    /// active, else transcript turns (wrap). No-op without matches.
+    /// Cmd/Ctrl-G or Enter in the find `search-field` (`on-submit`):
+    /// next match. File-preview find when that bar is active, else
+    /// transcript turns (wrap). No-op without matches.
     find_next,
     /// Cmd/Ctrl-Shift-G: previous match. File-preview find when that
-    /// bar is active, else transcript turns (wrap).
+    /// bar is active, else transcript turns (wrap). Unbound as
+    /// Shift-Enter globally (composer Shift-Enter newline).
     find_prev,
     search_edit: canvas.TextInputEvent,
     find_edit: canvas.TextInputEvent,
@@ -488,6 +490,7 @@ pub const Msg = union(enum) {
     /// Waku secondary-alt-r when Native exposes `alt`/`option`.
     toggle_file_preview_find_regex,
     /// Replace the current Files preview match. No-op when read-only.
+    /// Enter in the Replace `text-field` via `on-submit`.
     file_preview_find_replace_one,
     /// Replace every Files preview match (uncapped). No-op when read-only.
     /// Waku secondary-alt-enter when Native exposes `alt`/`option`.

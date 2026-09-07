@@ -4,7 +4,10 @@
 //! `main.zig`. Behavior is unchanged from the former `main.onKey`.
 //! Files preview find: Waku `secondary-alt-c` / `w` / `r` toggles and
 //! `secondary-alt-enter` ReplaceAllMatches when Native exposes alt/option.
-//! Shift-Enter FindPrevious is unbound (`onKey` has no focus/model).
+//! Enter in a find `search-field` is FindNext via Native `on-submit`
+//! (not a global bind). Shift-Enter FindPrevious stays unbound
+//! (`onKey` has no focus/model; composer Shift-Enter newline).
+//! Prev remains the chevron / Cmd-Shift-G.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -107,9 +110,11 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     }
     if (keyboard.modifiers.hasNavigationModifier() and isEnterKey(keyboard.key)) {
         // Waku secondary-alt-enter ReplaceAllMatches. Cmd/Ctrl-Enter stays
-        // steer when alt is not held. Shift-Enter FindPrevious is unbound:
-        // onKey has no focus/model, so Native cannot scope it to the find
-        // bar without stealing composer Shift-Enter newline.
+        // steer when alt is not held. Enter in the find field is FindNext
+        // via search-field `on-submit` in app.native, not this global bind.
+        // Shift-Enter FindPrevious is unbound: onKey has no focus/model, so
+        // Native cannot scope it to the find bar without stealing composer
+        // Shift-Enter newline. Prev remains the chevron / Cmd-Shift-G.
         if (hasAltModifier(keyboard.modifiers) and !keyboard.modifiers.shift) {
             return .file_preview_find_replace_all;
         }
