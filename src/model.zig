@@ -625,7 +625,9 @@ pub const Msg = union(enum) {
     toggle_git_commit_amend,
     start_project_edit,
     project_path_edit: canvas.TextInputEvent,
-    /// Composer Pick folder: one-shot OS directory-dialog sidecar. Not `fx.pickFile`.
+    /// Cmd/Ctrl-O: set `project_path` on the selected session via Pick folder
+    /// (same as the composer button). Cmd/Ctrl-N stays New Task. Not Waku's
+    /// Project catalog. One-shot OS directory-dialog sidecar, not `fx.pickFile`.
     pick_folder,
     /// First-cut daemon BrowseDirectory in-app browser. Esc / Cancel
     /// closes without changing project.

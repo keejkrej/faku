@@ -11629,6 +11629,76 @@ test "cmd-s and ctrl-s save the Files preview via onKey" {
     try testing.expectEqualStrings("s", model.draft());
 }
 
+test "cmd-o and ctrl-o pick a folder via onKey" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    try testing.expect(!model.pick_folder_live);
+
+    main.update(&model, .{ .draft_edit = .{ .insert_text = "o" } }, &fx);
+    try testing.expectEqualStrings("o", model.draft());
+
+    const plain_o = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "o" };
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_o));
+    try testing.expect(!model.pick_folder_live);
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    try testing.expectEqualStrings("o", model.draft());
+
+    main.update(&model, .start_project_edit, &fx);
+    const tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Pick folder", .pick_folder);
+
+    const cmd_o = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "o",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.pick_folder, keys.onKey(cmd_o).?);
+    try testing.expect(keys.onKey(cmd_o).? != .new_session);
+
+    const spawn_before = fx.pendingSpawnCount();
+    main.update(&model, keys.onKey(cmd_o).?, &fx);
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    try testing.expectEqualStrings("o", model.draft());
+    if (pick_folder.hostArgv(.first) == null) {
+        try testing.expectEqual(spawn_before, fx.pendingSpawnCount());
+        try testing.expect(!model.pick_folder_live);
+        try testing.expect(model.has_window_status());
+        try testing.expectEqualStrings(pick_folder.hostMissingStatus(), model.window_status());
+    } else {
+        try testing.expect(model.pick_folder_live);
+        try testing.expect(fx.pendingSpawnCount() > spawn_before);
+        const spawn = findFolderPickerSpawn(&fx) orelse return error.MissingFolderPickerSpawn;
+        try testing.expectEqual(main.pick_folder_key, spawn.key);
+        try testing.expect(pick_folder.isPickerArgv(spawn.argv));
+    }
+
+    const ctrl_o = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "O",
+        .modifiers = .{ .control = true },
+    };
+    try testing.expectEqual(Msg.pick_folder, keys.onKey(ctrl_o).?);
+    main.update(&model, keys.onKey(ctrl_o).?, &fx);
+    try testing.expectEqual(@as(u32, 2), model.session_count);
+    try testing.expectEqualStrings("o", model.draft());
+
+    const cmd_n = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "n",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.new_session, keys.onKey(cmd_n).?);
+    try testing.expect(keys.onKey(cmd_n).? != .pick_folder);
+}
+
 test "send while busy shows a queued card that dismiss clears" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();

@@ -300,7 +300,8 @@ Do not invent Native APIs. Documented gaps this cut works around:
   slots.
 - No Native git effect. Git is sidecar `fx.spawn` of `git`.
 - No `fx.pickFile` / file-open effect. Folder and image pickers are OS
-  sidecars.
+  sidecars. Cmd/Ctrl-O is selected-session Pick folder (`project_path`),
+  not Waku's Project catalog; Cmd/Ctrl-N stays New Task.
 - No `fx.revealPath`. Reveal folder is `open` / `xdg-open` / Windows
   `explorer.exe PATH`.
 - No `fx.maximizeWindow`. Maximize is an OS zoom sidecar.
@@ -412,11 +413,13 @@ list from `numstat` and selected hunk from `patch`; LastTurn stays
 local; Native 4 KiB stdin overflow / error / unusable parse falls
 back to local name-status + hunk probes; no address keeps today's
 local path). First-cut daemon
-`WorkspaceOperation::BrowseDirectory` ships on Pick folder when a
+`WorkspaceOperation::BrowseDirectory` ships on Pick folder (or Cmd/Ctrl-O;
+Cmd/Ctrl-N stays New Task) when a
 daemon address is set (ok is nested `directory` + camelCase `path` /
 `parent` / `home` / `filesystemRoot` / `WorkingTreeEntry` rows;
 paints a first-cut in-app directory browser from `entries`; Choose
-sets `project_path`; Native 4 KiB stdin overflow / error / unusable
+sets `project_path` on the selected session (not Waku's Project catalog);
+Native 4 KiB stdin overflow / error / unusable
 parse falls back to the local OS folder dialog; no address keeps
 today's OS path). First-cut daemon
 `WorkspaceOperation::ReadTextFile` ships on Files preview load
@@ -956,6 +959,7 @@ live watch.
 | Shell scene / app icons | `src/shell.zig` |
 | Layout chrome widths | `src/layout.zig` |
 | Spawn / stream effect keys | `src/effect_keys.zig` |
+| Keyboard dispatch | `src/keys.zig` |
 | Msg update / initFx | `src/update.zig` |
 | Model / Msg / Turn / Folder | `src/model.zig` |
 | Session type | `src/session.zig` |
@@ -1247,11 +1251,13 @@ Honest gaps this cut does not implement:
   hunk spawns; LastTurn stays local; Native 4 KiB stdin overflow /
   error / unusable parse falls back to local name-status + hunk
   probes; no address keeps today's local path. First-cut
-  `WorkspaceOperation::BrowseDirectory` ships on Pick folder when a
+  `WorkspaceOperation::BrowseDirectory` ships on Pick folder (or Cmd/Ctrl-O;
+  Cmd/Ctrl-N stays New Task) when a
   daemon address is set; ok is nested `directory` + camelCase `path` /
   `parent` / `home` / `filesystemRoot` / `WorkingTreeEntry` rows;
   paints a first-cut in-app directory browser from `entries`; Choose
-  sets `project_path`; Native 4 KiB stdin overflow / error / unusable
+  sets `project_path` on the selected session (not Waku's Project catalog);
+  Native 4 KiB stdin overflow / error / unusable
   parse falls back to the local OS folder dialog; no address keeps
   today's OS path. First-cut
   `WorkspaceOperation::ReadTextFile` ships on Files preview load

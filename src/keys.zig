@@ -23,6 +23,12 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "n")) {
         return .new_session;
     }
+    if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "o")) {
+        // Cmd/Ctrl-O: selected-session pick_folder (Waku cmd-o NewProject
+        // first-cut). Sets project_path via existing Pick folder.
+        // Cmd/Ctrl-N stays New Task.
+        return .pick_folder;
+    }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "k")) {
         return .start_search;
     }
