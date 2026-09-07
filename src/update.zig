@@ -1,9 +1,10 @@
 //! Msg `update` dispatch and boot `initFx`.
 //!
 //! `pub fn update` is the TEA switch over `Msg`. `initFx` is the
-//! matching `.init_fx` boot (catalog hydrate + git probes + fx `--help`).
-//! Re-exported from `main.zig` so `UiApp` and tests keep `main.update` /
-//! `main.initFx`. Behavior is unchanged from the former `main` functions.
+//! matching `.init_fx` boot (catalog hydrate + git probes + fx `--help`
+//! + non-fx PATH `--help` probes). Re-exported from `main.zig` so
+//! `UiApp` and tests keep `main.update` / `main.initFx`. Behavior is
+//! unchanged from the former `main` functions.
 //! `initialModel` / appearance boot live in `boot.zig`.
 //! Shell scene / app icons live in `shell.zig`.
 //! Layout chrome widths live in `layout.zig`.
@@ -448,9 +449,12 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     _ = right_panel.pollFilePreviewDisk(model, fx);
 }
 
-/// Boot probe: `$HOME/.fx/bin/fx --help`, leftover `~/.local/bin/fx`,
-/// then `fx --help` (PATH). Wired
-/// through `.init_fx` so the first paint already has the spawn in flight.
+/// Boot probes: `$HOME/.fx/bin/fx --help`, leftover `~/.local/bin/fx`,
+/// then `fx --help` (PATH), plus every non-fx PATH
+/// `{defaultBinary()} --help` (`cli_probe.startCliProbes`). Wired
+/// through `.init_fx` so the first paint already has those spawns in
+/// flight. Settings → Providers open calls `startProbes` (no-op when
+/// already started) and does not restart fx.
 pub fn initFx(model: *Model, fx: *Effects) void {
     model.now_ms = fx.wallMs();
     store.maybeLoadDaemonCatalog(model, fx);
@@ -469,4 +473,5 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     slash_commands.refresh(model, fx);
     projectless.beginMigrateForSelected(model, fx);
     fx_probe.startFxProbe(model, fx);
+    cli_probe.startCliProbes(model, fx);
 }
