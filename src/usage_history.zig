@@ -73,8 +73,11 @@
 //! footer uses `records` / `scannedFiles` / `skippedFiles` /
 //! `scanDuration` when present. First-cut Daily Days / Monthly /
 //! Projects nested byProvider bars ship as Native `<progress>` (not
-//! a stacked canvas). Still not Waku's GPUI / T3 layered chart, not
-//! LiteLLM rate-table fetch. Hello stays v4.
+//! a stacked canvas). Daily Model rows append a compact per-MTok
+//! hint when the Faku-side LiteLLM table hits (unpriceable names stay
+//! unpriced). First-cut LiteLLM rate-table fetch + 24h disk cache
+//! ships in `litellm_rates.zig`. Still not Waku's GPUI / T3 layered
+//! chart, not a local transcript scan. Hello stays v4.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -84,6 +87,7 @@ const protocol = @import("protocol.zig");
 const store = @import("store.zig");
 const goal = @import("goal.zig");
 const session_mod = @import("session.zig");
+const litellm_rates = @import("litellm_rates.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -812,6 +816,12 @@ fn copyArena(arena: std.mem.Allocator, text: []const u8) []const u8 {
     return out;
 }
 
+fn appendRateHint(arena: std.mem.Allocator, line: []const u8, hint: []const u8) []const u8 {
+    var buf: [max_line]u8 = undefined;
+    const text = std.fmt.bufPrint(&buf, "{s} · {s}", .{ line, hint }) catch return line;
+    return copyArena(arena, text);
+}
+
 pub fn rangeCaption(model: *const Model, arena: std.mem.Allocator) []const u8 {
     const cache = model.usage_history;
     const since_day = cache.sinceDay();
@@ -898,9 +908,16 @@ pub fn modelRows(model: *const Model, arena: std.mem.Allocator) []const Row {
             "";
         var label_buf: [96]u8 = undefined;
         const label = modelRowLabel(&label_buf, row.provider(), row.name());
+        var line = joinLabelDetail(arena, label, row.total_tokens, row.cost_usd, null);
+        if (litellm_rates.lookup(&model.litellm_rates, row.name())) |rate| {
+            var hint_buf: [32]u8 = undefined;
+            if (litellm_rates.formatRateHint(&hint_buf, rate)) |hint| {
+                line = appendRateHint(arena, line, hint);
+            }
+        }
         out[i] = .{
             .id = @intCast(i + 1),
-            .line = joinLabelDetail(arena, label, row.total_tokens, row.cost_usd, null),
+            .line = line,
             .share = @floatCast(share),
             .percent = percent,
             .has_share = share > 0,
@@ -1633,6 +1650,38 @@ test "model rows prefer wire costShare, compute Tokens from totals, and flip wit
 
     model.usage_view = .monthly;
     try std.testing.expectEqual(@as(usize, 0), modelRows(&model, arena).len);
+}
+
+test "model rows append a per-MTok hint on lookup hit and skip unpriceable names" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.settings_page = .usage;
+    defer model.litellm_rates.deinit();
+
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingRateHintSpawn;
+    applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":12345,\"costUsd\":1.25,\"models\":[{\"provider\":\"claude\",\"model\":\"opus\",\"totalTokens\":10000,\"costUsd\":1.0,\"costShare\":0.8},{\"provider\":\"codex\",\"model\":\"gpt-5\",\"totalTokens\":2345,\"costUsd\":0.25}]}}}}" });
+    handleExit(&model, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
+
+    const fixture =
+        \\{"gpt-5":{"input_cost_per_token":1e-6,"output_cost_per_token":2e-6},"opus":{"input_cost_per_token":3e-6,"output_cost_per_token":4e-6}}
+    ;
+    model.litellm_rates = litellm_rates.parseLiteLlmDocument(std.heap.page_allocator, fixture);
+    model.litellm_rates.status = .cached;
+
+    const rows = modelRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 2), rows.len);
+    try std.testing.expectEqualStrings("Claude Code · opus · 10k · $1.00", rows[0].line);
+    try std.testing.expectEqualStrings("Codex · gpt-5 · 2.3k · $0.25 · $1.00/$2.00/MTok", rows[1].line);
 }
 
 test "missing models stay empty; empty models paint no model rows" {

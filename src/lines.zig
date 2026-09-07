@@ -45,6 +45,7 @@ const skills = @import("skills.zig");
 const slash_commands = @import("slash_commands.zig");
 const usage_history = @import("usage_history.zig");
 const usage_meter = @import("usage_meter.zig");
+const litellm_rates = @import("litellm_rates.zig");
 const background_work = @import("background_work.zig");
 const projectless = @import("projectless.zig");
 const environment_summary = @import("environment_summary.zig");
@@ -71,6 +72,7 @@ const reveal_folder_key = main.reveal_folder_key;
 const open_terminal_key = main.open_terminal_key;
 const open_url_key = main.open_url_key;
 const open_editor_key = main.open_editor_key;
+const litellm_rates_key = litellm_rates.litellm_rates_key;
 const writeFixed = main.writeFixed;
 const takeFxAskSessionId = main.takeFxAskSessionId;
 const handleMaximizeWindowExit = maximize_window.handleMaximizeWindowExit;
@@ -1183,6 +1185,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (exit.key == open_editor_key) {
         open_editor.handleOpenEditorExit(model, fx, exit);
+        return;
+    }
+    if (exit.key == litellm_rates_key) {
+        litellm_rates.handleExit(model, exit);
         return;
     }
     if (model.daemon_load_key != 0 and exit.key == model.daemon_load_key) {

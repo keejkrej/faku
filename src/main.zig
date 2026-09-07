@@ -68,6 +68,7 @@ const prompt_spawn = @import("spawn.zig");
 const sidecar_lines = @import("lines.zig");
 const fx_probe = @import("fx_probe.zig");
 const cli_probe = @import("cli_probe.zig");
+const litellm_rates = @import("litellm_rates.zig");
 const palette_run = @import("palette_run.zig");
 const update_mod = @import("update.zig");
 const boot_mod = @import("boot.zig");
@@ -333,6 +334,9 @@ pub const skills_key_first = skills.skills_key_first;
 /// Distinct from skills (530+). Band is 600+ `@intFromEnum(id)`
 /// so claude=601 … kimi=608. fx stays on `fx_probe_key` (3).
 pub const cli_probe_key_first = cli_probe.cli_probe_key_first;
+/// One-shot LiteLLM rate-table curl (`-o` into the Faku data dir).
+/// Distinct from cli_probe (600+). Fixed key 650.
+pub const litellm_rates_key = litellm_rates.litellm_rates_key;
 pub const copy_turn_key = copy_helpers.copy_turn_key;
 /// Empty `fx_session_id` / ACP sessionId: do not writeClipboard.
 pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_status;
@@ -544,6 +548,7 @@ test {
     _ = @import("file_mention.zig");
     _ = @import("slash_commands.zig");
     _ = @import("usage_history.zig");
+    _ = @import("litellm_rates.zig");
     _ = @import("usage_meter.zig");
     _ = @import("background_work.zig");
     _ = @import("projectless.zig");
