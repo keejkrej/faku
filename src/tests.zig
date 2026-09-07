@@ -11770,6 +11770,135 @@ test "cmd-f routes to Files preview find when a preview is open" {
     }
 }
 
+test "cmd-alt-c/w/r/enter map to Files preview find Waku chords" {
+    const cmd_c = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "c",
+        .modifiers = .{ .super = true },
+    };
+    const cmd_w = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "w",
+        .modifiers = .{ .super = true },
+    };
+    const cmd_enter = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "enter",
+        .modifiers = .{ .super = true },
+    };
+    const cmd_r = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "r",
+        .modifiers = .{ .super = true },
+    };
+    const shift_enter = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "enter",
+        .modifiers = .{ .shift = true },
+    };
+    try testing.expectEqual(Msg.copy_last_turn, keys.onKey(cmd_c).?);
+    try testing.expectEqual(Msg.close_window, keys.onKey(cmd_w).?);
+    try testing.expectEqual(Msg.steer, keys.onKey(cmd_enter).?);
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(cmd_r));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(shift_enter));
+
+    if (comptime @hasField(@FieldType(canvas.WidgetKeyboardEvent, "modifiers"), "alt")) {
+        const cmd_alt_c = canvas.WidgetKeyboardEvent{
+            .phase = .key_down,
+            .key = "c",
+            .modifiers = .{ .super = true, .alt = true },
+        };
+        const cmd_alt_w = canvas.WidgetKeyboardEvent{
+            .phase = .key_down,
+            .key = "w",
+            .modifiers = .{ .super = true, .alt = true },
+        };
+        const cmd_alt_r = canvas.WidgetKeyboardEvent{
+            .phase = .key_down,
+            .key = "R",
+            .modifiers = .{ .super = true, .alt = true },
+        };
+        const cmd_alt_enter = canvas.WidgetKeyboardEvent{
+            .phase = .key_down,
+            .key = "enter",
+            .modifiers = .{ .super = true, .alt = true },
+        };
+        const cmd_alt_return = canvas.WidgetKeyboardEvent{
+            .phase = .key_down,
+            .key = "return",
+            .modifiers = .{ .super = true, .alt = true },
+        };
+        const ctrl_alt_c = canvas.WidgetKeyboardEvent{
+            .phase = .key_down,
+            .key = "C",
+            .modifiers = .{ .control = true, .alt = true },
+        };
+        const cmd_alt_shift_c = canvas.WidgetKeyboardEvent{
+            .phase = .key_down,
+            .key = "c",
+            .modifiers = .{ .super = true, .alt = true, .shift = true },
+        };
+        try testing.expectEqual(Msg.toggle_file_preview_find_case, keys.onKey(cmd_alt_c).?);
+        try testing.expectEqual(Msg.toggle_file_preview_find_whole_word, keys.onKey(cmd_alt_w).?);
+        try testing.expectEqual(Msg.toggle_file_preview_find_regex, keys.onKey(cmd_alt_r).?);
+        try testing.expectEqual(Msg.file_preview_find_replace_all, keys.onKey(cmd_alt_enter).?);
+        try testing.expectEqual(Msg.file_preview_find_replace_all, keys.onKey(cmd_alt_return).?);
+        try testing.expectEqual(Msg.toggle_file_preview_find_case, keys.onKey(ctrl_alt_c).?);
+        try testing.expectEqual(Msg.copy_last_turn, keys.onKey(cmd_alt_shift_c).?);
+        try testing.expect(keys.onKey(cmd_alt_c).? != .copy_last_turn);
+        try testing.expect(keys.onKey(cmd_alt_w).? != .close_window);
+        try testing.expect(keys.onKey(cmd_alt_enter).? != .steer);
+
+        var tmp = testing.tmpDir(.{});
+        defer tmp.cleanup();
+        var project_buf: [256]u8 = undefined;
+        const project = try absCopyProjectDir(tmp, "preview-find-alt-keys", &project_buf);
+        var note_buf: [320]u8 = undefined;
+        const note_path = try std.fmt.bufPrint(&note_buf, "{s}/note.txt", .{project});
+        try std.Io.Dir.cwd().writeFile(testing.io, .{
+            .sub_path = note_path,
+            .data = "alpha hello\nbeta hello\n",
+        });
+
+        var fx = Effects.init(testing.allocator);
+        defer fx.deinit();
+        fx.executor = .fake;
+
+        var model = Model{};
+        model.store_io = testing.io;
+        const id = model.addSession("preview find alt keys", .fx);
+        model.selected = id;
+        model.setSelectedProjectPath(project);
+        defer right_panel.clearFilePreview(&model);
+
+        main.update(&model, .show_right_panel, &fx);
+        file_mention.applyStdoutPaths(&model, "note.txt\n");
+        main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
+        try testing.expect(model.right_panel_file_preview_open());
+
+        main.update(&model, .open_find, &fx);
+        try testing.expect(model.file_preview_find_active);
+        try testing.expect(!model.file_preview_find_case_sensitive);
+        try testing.expect(!model.file_preview_find_whole_word);
+        try testing.expect(!model.file_preview_find_use_regex);
+
+        main.update(&model, keys.onKey(cmd_alt_c).?, &fx);
+        try testing.expect(model.file_preview_find_case_sensitive);
+        main.update(&model, keys.onKey(cmd_alt_w).?, &fx);
+        try testing.expect(model.file_preview_find_whole_word);
+        main.update(&model, keys.onKey(cmd_alt_r).?, &fx);
+        try testing.expect(model.file_preview_find_use_regex);
+
+        main.update(&model, .{ .file_preview_find_edit = .{ .insert_text = "hello" } }, &fx);
+        try testing.expectEqual(@as(u32, 2), model.file_preview_find_match_count);
+        try testing.expect(!model.file_preview_editing());
+        main.update(&model, keys.onKey(cmd_alt_enter).?, &fx);
+        try testing.expect(model.file_preview_editing());
+        try testing.expectEqualStrings("alpha \nbeta \n", model.file_preview_draft());
+        try testing.expectEqual(@as(u32, 0), model.file_preview_find_match_count);
+    }
+}
+
 test "cmd-o and ctrl-o pick a folder via onKey" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
