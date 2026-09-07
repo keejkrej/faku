@@ -11656,8 +11656,8 @@ test "cmd-f routes to Files preview find when a preview is open" {
     model.setSelectedProjectPath(project);
     defer right_panel.clearFilePreview(&model);
 
-    file_mention.applyStdoutPaths(&model, "note.txt\n");
     main.update(&model, .show_right_panel, &fx);
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
     main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
     try testing.expect(model.right_panel_file_preview_open());
     try testing.expectEqualStrings("alpha hello\nbeta hello\n", model.file_preview_body());

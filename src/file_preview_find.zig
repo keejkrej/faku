@@ -136,19 +136,21 @@ fn eqlSlice(left: []const u8, right: []const u8, case_sensitive: bool) bool {
 
 test "collect is case-sensitive substring and caps" {
     var starts: [max_matches]u32 = undefined;
-    const hay = "Aaa aa AA aa";
+    // "Aa" / "AA" match insensitive "aa" only. "Aaa aa" would also
+    // match sensitive "aa" at the tail of "Aaa".
+    const hay = "Aa aa AA aa";
     const sensitive = collect(hay, "aa", true, starts[0..]);
     try std.testing.expectEqual(@as(u32, 2), sensitive.count);
     try std.testing.expect(!sensitive.limited);
-    try std.testing.expectEqual(@as(u32, 4), starts[0]);
-    try std.testing.expectEqual(@as(u32, 10), starts[1]);
+    try std.testing.expectEqual(@as(u32, 3), starts[0]);
+    try std.testing.expectEqual(@as(u32, 9), starts[1]);
 
     const insensitive = collect(hay, "aa", false, starts[0..]);
     try std.testing.expectEqual(@as(u32, 4), insensitive.count);
     try std.testing.expectEqual(@as(u32, 0), starts[0]);
-    try std.testing.expectEqual(@as(u32, 4), starts[1]);
-    try std.testing.expectEqual(@as(u32, 7), starts[2]);
-    try std.testing.expectEqual(@as(u32, 10), starts[3]);
+    try std.testing.expectEqual(@as(u32, 3), starts[1]);
+    try std.testing.expectEqual(@as(u32, 6), starts[2]);
+    try std.testing.expectEqual(@as(u32, 9), starts[3]);
 
     const empty = collect(hay, "", true, starts[0..]);
     try std.testing.expectEqual(@as(u32, 0), empty.count);
