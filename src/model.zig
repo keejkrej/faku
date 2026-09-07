@@ -4653,6 +4653,30 @@ pub const Model = struct {
         return usage_history.projectRows(model, arena);
     }
 
+    pub fn has_usage_projects_chart(model: *const Model) bool {
+        return usage_history.hasProjectsChart(model);
+    }
+
+    pub fn has_usage_projects_chart_y_max(model: *const Model) bool {
+        return usage_history.hasProjectsChartYMax(model);
+    }
+
+    pub fn usage_projects_chart_y_max(model: *const Model) f32 {
+        return usage_history.projectsChartYMaxValue(model);
+    }
+
+    pub fn usage_projects_chart_claude(model: *const Model, arena: std.mem.Allocator) []const f32 {
+        return usage_history.projectsChartClaudeValues(model, arena);
+    }
+
+    pub fn usage_projects_chart_codex(model: *const Model, arena: std.mem.Allocator) []const f32 {
+        return usage_history.projectsChartCodexValues(model, arena);
+    }
+
+    pub fn usage_projects_chart_labels(model: *const Model, arena: std.mem.Allocator) []const []const u8 {
+        return usage_history.projectsChartLabels(model, arena);
+    }
+
     pub fn has_usage_notice(model: *const Model) bool {
         return usage_history.hasNotice(model);
     }
