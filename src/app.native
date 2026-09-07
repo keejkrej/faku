@@ -432,6 +432,20 @@
                         <if test="{usage_months_empty}">
                           <text wrap="true" foreground="text_muted">No monthly usage</text>
                         </if>
+                        <if test="{has_usage_monthly_chart}">
+                          <if test="{has_usage_monthly_chart_y_max}">
+                            <chart height="140" y-min="0" y-max="{usage_monthly_chart_y_max}" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_monthly_chart_labels}" label="Monthly usage">
+                              <series kind="area" values="{usage_monthly_chart_claude}" color="info" label="Claude" />
+                              <series kind="area" values="{usage_monthly_chart_codex}" color="text_muted" label="Codex" />
+                            </chart>
+                          </if>
+                          <else>
+                            <chart height="140" y-min="0" grid-lines="3" baseline="true" hover-details="true" y-labels="true" x-labels="{usage_monthly_chart_labels}" label="Monthly usage">
+                              <series kind="area" values="{usage_monthly_chart_claude}" color="info" label="Claude" />
+                              <series kind="area" values="{usage_monthly_chart_codex}" color="text_muted" label="Codex" />
+                            </chart>
+                          </else>
+                        </if>
                         <for each="usage_month_rows" key="id" as="m">
                           <column gap="4">
                             <text wrap="false" overflow="ellipsis">{m.line}</text>
