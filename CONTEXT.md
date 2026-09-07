@@ -43,7 +43,7 @@ send circle.
 | **Settings Appearance** | Settings page for chrome theme and language. Theme: System (follow OS `on_appearance`), Light, or Dark. Default System. Language: System / English / 简体中文 / 日本語. Default System. System language follows process `LC_ALL` / `LC_MESSAGES` / `LANG` (Native has no locale API). Explicit language chips are autonyms in every locale. Persists `theme_preference` and `language_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. Settings chrome strings (title, nav, Appearance Theme / Language), first-cut sidebar date-bucket titles, and the chrome unassign Today list-item follow the resolved locale this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
 | **Settings Usage** | Settings page showing the selected session's local context window (`context_used` / `context_size` from ACP `usage_update`) and thread-goal tokens (`threadGoalUsageLabel`), plus first-cut Daily / Monthly / Projects chrome and a Daily / Projects window selector (7 / 30 / 90 days, this month, last month; default `trailingDays: 30`). Daemon `LoadUsageHistory` is a best-effort one-shot when `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set (Daily / Projects use the selected window; Monthly requests `months: 12` and hides the selector). Daily paints per-provider share bars (`costShare` / `tokenShare`, or computed from totals) with a runtime-only Cost | Tokens metric chip (default Cost) and a Daily-only Model | Days breakdown chip (default Model, matching Waku `breakdown === 'model'`). Model paints model share bars (provider label + model name; Cost prefers wire `costShare`, Tokens always computed from `totalTokens` / history totals — ModelSlice has no `tokenShare`); Days keeps the first-cut daily bar chart (each day's Native `<progress>` is relative to the max day in the window for the active metric; zero days stay text-only) plus first-cut nested Claude/Codex Native `<progress>` rows from `daily[].byProvider` (share within that day's Cost|Tokens total; empty/missing/short `byProvider` stays day-total-only; chip flip recomputes nested shares from the cached snapshot). Empty `models` paints no model rows. Daily, Monthly, and Projects paint a first-cut five-tile Native metric strip (processed tokens / cached input / uncached input / output / cache savings) when history is painted, including zeros (Daily / Projects: active-day averages from `daily[]`; Monthly: active-month averages from `months[]`). Provider bars, Cost quality, notices, and the scan footer stay on Daily regardless of the breakdown chip. Monthly paints first-cut relative bars vs the max month in the window for that same Cost | Tokens chip (chip flip recomputes from the cached months snapshot; zero months stay text-only) plus first-cut nested Claude/Codex Native `<progress>` rows from `months[].byProvider` (share within that month's Cost|Tokens total; empty/missing/short `byProvider` stays month-total-only; chip flip recomputes nested shares from the cached snapshot). Projects paints first-cut relative bars vs the max Cost|Tokens among **visible** filtered rows for that same chip (runtime-only `usage_project_filter`; case-insensitive contains on basename or full path; empty shows all; chip flip recomputes from the cached projects snapshot and respects the filter; zero-value rows stay text-only; no-match is distinct from no project usage; not persisted) plus first-cut nested Claude/Codex Native `<progress>` rows from `projects[].byProvider` on visible rows (share within that project's Cost|Tokens total; empty/missing/short `byProvider` stays project-total-only; chip flip recomputes nested shares from the cached snapshot). Unknown-command / parse / overflow keep the local session cards. Daily paints a first-cut Cost quality panel from daemon `quality` (Provider reported / Model priced / Unpriced percents + Cache savings USD) and muted notices when `errors` are non-empty or `pricing` is `unavailable`. Still not Waku's GPUI / T3 layered / stacked canvas chart, not LiteLLM rate-table fetch. Settings Usage context card still hides until `context_size > 0`. |
-| **Usage meter** | First-cut composer footer meter (Native `<progress>`, not a circular GPUI gauge). Visible whenever a session is selected, including an empty bar when nothing is measured yet. Opens a panel with local context occupancy plus, for Claude / Codex / OpenCode / Grok, plan rate-limit lanes from daemon `FetchPlanUsage` (`fetchPlanUsage` → `planUsage`). One-shot sidecar when a daemon address is set. Runtime-only first-cut per-provider plan_usage map (four slots: Claude / Codex / OpenCode / Grok; not a HashMap). Switching session/provider shows that slot immediately (cached snapshot, unconfigured, or errored) and does not clear the others. `checked_at` / `stale` are per provider. First-cut Waku refresh cadence piggybacks `now_ms` / the update tick (`maybeRefresh` on the selected path: 300s idle, 600s Grok, 30s stale after panel open / turn settle, 90s retry on fetch error; in-flight skips; open / Refresh stay immediate). fx / cursor / amp / pi / kimi stay context-only. Still not a circular GPUI gauge, not LiteLLM. |
+| **Usage meter** | First-cut composer footer meter (Native `<progress>`, not a circular GPUI gauge). Visible whenever a session is selected, including an empty bar when nothing is measured yet. Opens a panel with local context occupancy plus, for Claude / Codex / OpenCode / Grok, plan rate-limit lanes from daemon `FetchPlanUsage` (`fetchPlanUsage` → `planUsage`). One-shot sidecar when a daemon address is set. Runtime-only first-cut per-provider plan_usage map (four slots: Claude / Codex / OpenCode / Grok; not a HashMap). Switching session/provider shows that slot immediately (cached snapshot, unconfigured, or errored) and does not clear the others. `checked_at` / `stale` / `pending_key` are per provider. First-cut Waku refresh cadence piggybacks `now_ms` / the update tick (`maybeRefresh` loops all four: 300s idle, 600s Grok, 30s stale after panel open / turn settle, 90s retry on fetch error; at most one in-flight sidecar per provider; Faku has no `provider_enabled` gate yet so every id is eligible; open / Refresh stay immediate for the selected provider only). fx / cursor / amp / pi / kimi stay context-only. Still not a circular GPUI gauge, not LiteLLM. |
 | **Settings Computer Use** | Settings page for Waku-nav parity. First-cut is Unavailable / Off / empty always-allowed apps. Native has no Screen Recording or Accessibility APIs; no Swift helper, permission probe, or app grants this cut. |
 
 Avoid: calling ACP a live WebSocket; treating the daemon as the catalog
@@ -895,16 +895,22 @@ unix-seconds `resetsAt`). JSON-null `usage` is unconfigured. No daemon
 keeps local context and a muted connect hint. Unknown-command / parse
 miss keep a prior snapshot or a muted error. First-cut Waku cadence
 ships as `maybeRefresh` on the same `now_ms` / update tick as
-`background_work.maybeRefresh` (Native has no dedicated timer): 300s
-idle for Claude / Codex / OpenCode, 600s Grok, 30s when stale (panel
-open or a settled turn), 90s retry after a fetch error; skip when a
-sidecar is already in flight; unset per-provider `checked_at` may fire
+`background_work.maybeRefresh` (Native has no dedicated timer): loop
+all four plan-usage providers (Claude / Codex / OpenCode / Grok);
+300s idle for Claude / Codex / OpenCode, 600s Grok, 30s when that
+slot is stale (panel open or a settled turn), 90s retry after that
+slot's fetch error; skip a provider that already has an in-flight
+sidecar (`pending_key`); unset per-provider `checked_at` may fire
 once when eligible. Settle stamps that provider's `checked_at` and
-clears its stale. Runtime-only first-cut plan_usage map (four slots:
-Claude / Codex / OpenCode / Grok; not a HashMap); switching
-session/provider shows that slot immediately and does not clear the
-others. fx / cursor / amp / pi / kimi stay context-only. Still
-not a circular path-drawn gauge, not LiteLLM.
+clears its stale. Open / Refresh force the **selected** provider
+only (cancel that slot's pending, then spawn) and do not cancel
+other providers' in-flight fetches. Faku has no `provider_enabled`
+gate yet, so cadence always considers all four (Waku would skip
+disabled unless selected). Runtime-only first-cut plan_usage map
+(four slots: Claude / Codex / OpenCode / Grok; not a HashMap);
+switching session/provider shows that slot immediately and does not
+clear the others. fx / cursor / amp / pi / kimi stay context-only.
+Still not a circular path-drawn gauge, not LiteLLM.
 
 ## Settings Computer Use
 
@@ -1031,14 +1037,17 @@ Honest gaps this cut does not implement:
   the composer (always visible with a selected session) plus a panel
   with local context and daemon `FetchPlanUsage` plan lanes for
   Claude / Codex / OpenCode / Grok. First-cut Waku cadence ships
-  (`maybeRefresh` on the `now_ms` / update tick: 300s idle, 600s Grok,
-  30s stale after panel open / turn settle, 90s retry on error;
-  in-flight skips; open / Refresh stay immediate). First-cut
+  (`maybeRefresh` on the `now_ms` / update tick loops all four: 300s
+  idle, 600s Grok, 30s stale after panel open / turn settle, 90s
+  retry on error; at most one in-flight sidecar per provider; open /
+  Refresh stay immediate for the selected provider only). First-cut
   per-provider plan_usage map ships (four runtime slots keyed by
-  Claude / Codex / OpenCode / Grok; `checked_at` / `stale` per slot;
-  adopt / error write the pending provider; view helpers read the
-  selected slot; switching does not clear the others). Still not
-  Waku's circular GPUI gauge, not LiteLLM.
+  Claude / Codex / OpenCode / Grok; `checked_at` / `stale` /
+  `pending_key` per slot; adopt / error write the slot whose
+  pending_key matched; view helpers read the selected slot; switching
+  does not clear the others). No `provider_enabled` gate this cut
+  (always consider all four). Still not Waku's circular GPUI gauge,
+  not LiteLLM, not a T3 layered / stacked canvas chart.
 - Real Computer Use: Native Screen Recording / Accessibility APIs,
   macOS helper, permission probe, always-allowed app picker (Settings
   Computer Use first-cut is nav + Unavailable / Off / empty apps)

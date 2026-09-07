@@ -5785,9 +5785,7 @@ test "daemon address send puts hello attachSession start and prompt on spawn std
     try testing.expect(model.is_streaming());
     try testing.expectEqual(main.ReplyPath.daemon, model.reply_path);
     try testing.expectEqual(@as(usize, 0), fx.pendingTimerCount());
-    try testing.expectEqual(@as(usize, 1), fx.pendingSpawnCount());
-
-    const request = fx.pendingSpawnAt(0).?;
+    const request = findPendingSpawnKey(&fx, model.daemon_spawn_key) orelse return error.MissingDaemonSendSpawn;
     try testing.expectEqual(model.daemon_spawn_key, request.key);
     try testing.expect(argvHas(request.argv, daemon_proxy.SUBCOMMAND));
     try testing.expect(argvHas(request.argv, "127.0.0.1:8787"));
@@ -6142,6 +6140,7 @@ test "daemon textDelta hydrates the turn and turnFinished settles plus drains" {
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (spawn.key == key) continue;
         if (isSaveOnlyStdin(spawn.stdin)) continue;
+        if (std.mem.indexOf(u8, spawn.stdin, "\"type\":\"fetchPlanUsage\"") != null) continue;
         try testing.expect(std.mem.indexOf(u8, spawn.stdin, "queued follow-up") != null);
         try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"attachSession\"") != null);
         try testing.expect(std.mem.indexOf(u8, spawn.stdin, "\"type\":\"prompt\"") != null);
@@ -6862,7 +6861,7 @@ test "missing daemon address does not attach even when last_daemon_address is se
     main.update(&model, .{ .draft_edit = .{ .insert_text = "do not attach" } }, &fx);
     main.update(&model, .send, &fx);
     try testing.expectEqual(main.ReplyPath.fx, model.reply_path);
-    const request = fx.pendingSpawnAt(0).?;
+    const request = findPendingSpawnKey(&fx, main.fx_ask_key) orelse return error.MissingFxAskSpawn;
     try testing.expect(!argvHas(request.argv, daemon_proxy.SUBCOMMAND));
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"attachSession\"") == null);
     try testing.expect(std.mem.indexOf(u8, request.stdin, "\"type\":\"start\"") == null);
@@ -20799,7 +20798,7 @@ test "composer usage meter panel shows context and parsed plan lanes" {
 
     main.update(&model, tree.msgForPointer(meter.id, .up).?, &fx);
     try testing.expect(model.usage_meter_open);
-    try testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+    try testing.expectEqual(@as(u64, 0), model.plan_usage.claude.pending_key);
     tree = try buildTree(arena, &model);
     try testing.expect((try expectButtonMsg(tree, "Usage", .toggle_usage_meter)).state.selected);
     _ = try expectByText(tree.root, .text, "Context window");
@@ -20813,11 +20812,11 @@ test "composer usage meter panel shows context and parsed plan lanes" {
     model.setLastDaemonAddress("127.0.0.1:8787");
     model.setSidecarPath("faku");
     main.update(&model, .refresh_plan_usage, &fx);
-    try testing.expect(model.daemon_plan_usage_key != 0);
+    try testing.expect(model.plan_usage.claude.pending_key != 0);
 
     var spawn_i: usize = 0;
     const sidecar = while (fx.pendingSpawnAt(spawn_i)) |spawn| : (spawn_i += 1) {
-        if (spawn.key == model.daemon_plan_usage_key) break spawn;
+        if (spawn.key == model.plan_usage.claude.pending_key) break spawn;
     } else return error.MissingDaemonFetchPlanUsage;
     try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
     try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"fetchPlanUsage\"") != null);
@@ -20831,7 +20830,7 @@ test "composer usage meter panel shows context and parsed plan lanes" {
     } }, &fx);
     main.update(&model, .{ .fx_exit = .{ .key = sidecar.key, .reason = .exited, .code = 0 } }, &fx);
     try testing.expect(model.has_usage_meter_plan());
-    try testing.expectEqual(@as(u64, 0), model.daemon_plan_usage_key);
+    try testing.expectEqual(@as(u64, 0), model.plan_usage.claude.pending_key);
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "12.4k / 200k");

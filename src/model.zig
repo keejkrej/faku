@@ -975,15 +975,15 @@ pub const Model = struct {
     /// In-flight `loadUsageHistory` sidecar. Distinct from workspace
     /// keys so miss cannot settle a live turn or toast Settings.
     daemon_usage_history_key: u64 = 0,
-    /// In-flight `fetchPlanUsage` sidecar. Distinct from LoadUsageHistory
-    /// / BackgroundWork so miss cannot settle a live turn or toast.
-    daemon_plan_usage_key: u64 = 0,
-    daemon_plan_usage_provider: protocol.ProviderId = .claude,
     /// Runtime-only composer usage-meter panel. Not persisted.
     usage_meter_open: bool = false,
     /// First-cut daemon plan-usage map (four runtime slots: Claude /
     /// Codex / OpenCode / Grok). Not a HashMap. Each slot holds the
-    /// snapshot plus per-provider `checked_at` / `stale`. Runtime only.
+    /// snapshot plus per-provider `checked_at` / `stale` / `pending_key`
+    /// (one in-flight sidecar per provider). Runtime only. The singular
+    /// `daemon_plan_usage_key` / `daemon_plan_usage_provider` pair is
+    /// retired; `applyLine` / `handleExit` resolve the provider from
+    /// the matching slot's `pending_key`.
     plan_usage: usage_meter.Map = .{},
     /// In-flight `refreshBackgroundWork` sidecar. Distinct from the
     /// prompt / usage-history keys so miss cannot settle a live turn.
@@ -1714,8 +1714,6 @@ pub const Model = struct {
         "applyUsageProjectFilter",
         "clearUsageProjectFilter",
         "daemon_usage_history_key",
-        "daemon_plan_usage_key",
-        "daemon_plan_usage_provider",
         "plan_usage",
         "daemon_background_work_key",
         "daemon_background_work_session",
