@@ -77,7 +77,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         // Chromeless titlebar has no OS close. This is the documented
         // window-action effect (`examples/deck`): last-window close
         // follows the host exit path. Esc stays `.stop` so the session
-        // switcher / Environment dropdown / Review card / command palette / settings / transcript-find / project-edit /
+        // switcher / Environment dropdown / Review card / command palette / settings / transcript-find / Files-preview-find / project-edit /
         // daemon BrowseDirectory browser / image-attach / commands / typing-triggered @ / slash card /
         // folder-title-edit / session-title-edit / a live turn keep it.
         .close_window => fx.closeWindow(main_window_label),
@@ -91,13 +91,33 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .palette_cancel => model.closePalette(),
         .palette_pick => |id| palette_run.runPalettePick(model, fx, id),
         .open_find => {
-            model.find_active = true;
-            model.composer_active = false;
-            model.resetFindMatchIndex();
+            if (model.right_panel_file_preview_open()) {
+                right_panel.openFilePreviewFind(model, false);
+            } else {
+                right_panel.closeFilePreviewFind(model);
+                model.find_active = true;
+                model.composer_active = false;
+                model.resetFindMatchIndex();
+            }
         },
-        .close_find => model.exitFind(),
-        .find_next => model.stepFindMatch(false),
-        .find_prev => model.stepFindMatch(true),
+        .close_find => {
+            right_panel.closeFilePreviewFind(model);
+            model.exitFind();
+        },
+        .find_next => {
+            if (right_panel.filePreviewFindActive(model)) {
+                right_panel.stepFilePreviewFind(model, false);
+            } else {
+                model.stepFindMatch(false);
+            }
+        },
+        .find_prev => {
+            if (right_panel.filePreviewFindActive(model)) {
+                right_panel.stepFilePreviewFind(model, true);
+            } else {
+                model.stepFindMatch(true);
+            }
+        },
         .focus_composer => model.composer_active = true,
         .search_edit => |edit| {
             model.search_buffer.apply(edit);
@@ -373,6 +393,14 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             }
         },
         .file_preview_keep_editing => right_panel.cancelPendingDiscard(model),
+        .open_file_preview_find_replace => right_panel.openFilePreviewFind(model, true),
+        .close_file_preview_find => right_panel.closeFilePreviewFind(model),
+        .file_preview_find_edit => |edit| right_panel.applyFilePreviewFindEdit(model, edit),
+        .file_preview_find_replace_edit => |edit| right_panel.applyFilePreviewFindReplaceEdit(model, edit),
+        .toggle_file_preview_find_replace => right_panel.toggleFilePreviewFindReplace(model),
+        .toggle_file_preview_find_case => right_panel.toggleFilePreviewFindCase(model),
+        .file_preview_find_replace_one => right_panel.replaceFilePreviewFindCurrent(model),
+        .file_preview_find_replace_all => right_panel.replaceFilePreviewFindAll(model),
         .toggle_right_panel_dir => |id| right_panel.toggleDir(model, fx, id),
         .set_right_panel_tab_files => {
             right_panel.selectFiles(model, fx);

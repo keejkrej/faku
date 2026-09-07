@@ -36,6 +36,11 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
         return .toggle_model_picker;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "f")) {
+        // Waku cmd-alt-f OpenFindReplace when Native exposes alt/option.
+        // Missing alt field: the find-bar chevron still shows Replace.
+        if (hasAltModifier(keyboard.modifiers) and !keyboard.modifiers.shift) {
+            return .open_file_preview_find_replace;
+        }
         return .open_find;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "g")) {
@@ -93,4 +98,20 @@ fn isEnterKey(key: []const u8) bool {
 
 fn isSlashKey(key: []const u8) bool {
     return std.mem.eql(u8, key, "/") or std.ascii.eqlIgnoreCase(key, "slash");
+}
+
+/// Native `KeyboardModifiers` documents `alt` on some SDK cuts and
+/// `option` on others. Comptime so a missing field is not invented.
+fn hasAltModifier(modifiers: anytype) bool {
+    const Mods = @TypeOf(modifiers);
+    if (comptime @hasField(Mods, "alt")) {
+        if (modifiers.alt) return true;
+    }
+    if (comptime @hasField(Mods, "option")) {
+        if (modifiers.option) return true;
+    }
+    if (comptime @hasField(Mods, "alternate")) {
+        if (modifiers.alternate) return true;
+    }
+    return false;
 }

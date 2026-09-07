@@ -403,12 +403,16 @@ pub const Msg = union(enum) {
     palette_cancel,
     palette_pick: u32,
     focus_composer,
-    /// Cmd/Ctrl-F: open transcript find (keep query if already open).
+    /// Cmd/Ctrl-F: Files preview find when a preview is open, else
+    /// transcript find (keep query if already open). Opening one
+    /// closes the other (Waku OpenFind parity).
     open_find,
     close_find,
-    /// Cmd/Ctrl-G: next matching turn (wrap). No-op without matches.
+    /// Cmd/Ctrl-G: next match. File-preview find when that bar is
+    /// active, else transcript turns (wrap). No-op without matches.
     find_next,
-    /// Cmd/Ctrl-Shift-G: previous matching turn (wrap). No-op without matches.
+    /// Cmd/Ctrl-Shift-G: previous match. File-preview find when that
+    /// bar is active, else transcript turns (wrap).
     find_prev,
     search_edit: canvas.TextInputEvent,
     find_edit: canvas.TextInputEvent,
@@ -462,6 +466,21 @@ pub const Msg = union(enum) {
     file_preview_discard,
     /// Files-pane preview header: cancel a parked discard and keep editing.
     file_preview_keep_editing,
+    /// Cmd/Ctrl-Alt-F when Native keyboard exposes `alt`/`option`; else
+    /// the preview find-bar chevron. Opens Files preview find with the
+    /// replace row visible. No-op without an open preview.
+    open_file_preview_find_replace,
+    /// Files preview find-bar close (Escape when that bar is open, or
+    /// the bar's close button). Does not Stop a live turn.
+    close_file_preview_find,
+    file_preview_find_edit: canvas.TextInputEvent,
+    file_preview_find_replace_edit: canvas.TextInputEvent,
+    toggle_file_preview_find_replace,
+    toggle_file_preview_find_case,
+    /// Replace the current Files preview match. No-op when read-only.
+    file_preview_find_replace_one,
+    /// Replace every Files preview match (uncapped). No-op when read-only.
+    file_preview_find_replace_all,
     /// Files-pane dir click. Payload is `file_mention_dir_id_base + index`.
     toggle_right_panel_dir: u32,
     /// Right-panel Files tab. Default when the panel opens. Persisted.
@@ -709,7 +728,7 @@ pub const Msg = union(enum) {
     fx_probe_exit: native_sdk.EffectExit,
     cli_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "open_find", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel" };
 };
 
 pub const Model = struct {
@@ -961,6 +980,19 @@ pub const Model = struct {
     /// Last Files-preview disk poll (`now_ms`). Null until the first
     /// poll. Throttles to `file_preview_disk_poll_interval_ms`.
     file_preview_disk_poll_ms: ?i64 = null,
+    /// Runtime-only Files preview find/replace. Not sessions.json.
+    /// Query/toggles survive closing the bar (Waku FileSearch); matches
+    /// clear on close, session switch, and file switch (recomputed).
+    file_preview_find_buffer: canvas.TextBuffer(max_search) = .{},
+    file_preview_find_replace_buffer: canvas.TextBuffer(max_search) = .{},
+    file_preview_find_active: bool = false,
+    file_preview_find_replace_visible: bool = false,
+    /// Waku FileSearch default: case-insensitive until toggled.
+    file_preview_find_case_sensitive: bool = false,
+    file_preview_find_match_starts: [right_panel.file_preview_find_max_matches]u32 = [_]u32{0} ** right_panel.file_preview_find_max_matches,
+    file_preview_find_match_count: u32 = 0,
+    file_preview_find_match_index: u32 = 0,
+    file_preview_find_limited: bool = false,
     settings_open: bool = false,
     /// Runtime-only Settings General | Appearance | Providers | Skills |
     /// Usage | Computer Use page. Default General. Not persisted.
@@ -1853,6 +1885,12 @@ pub const Model = struct {
         "right_panel_file_preview_disk_mtime_ns",
         "right_panel_file_preview_disk_valid",
         "file_preview_disk_poll_ms",
+        "file_preview_find_buffer",
+        "file_preview_find_replace_buffer",
+        "file_preview_find_match_starts",
+        "file_preview_find_match_count",
+        "file_preview_find_match_index",
+        "file_preview_find_limited",
         "file_preview_line_rows",
         "rightPanelWidthPixels",
         "applyRightPanelWidth",
@@ -2761,6 +2799,32 @@ pub const Model = struct {
 
     pub fn file_preview_discard_confirm(model: *const Model) bool {
         return right_panel.discardConfirmOpen(model);
+    }
+
+    pub fn file_preview_find_query(model: *const Model) []const u8 {
+        return model.file_preview_find_buffer.text();
+    }
+
+    pub fn file_preview_find_replace(model: *const Model) []const u8 {
+        return model.file_preview_find_replace_buffer.text();
+    }
+
+    pub fn file_preview_find_match_label(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        return right_panel.filePreviewFindMatchLabel(model, arena);
+    }
+
+    pub fn has_file_preview_find_match_label(model: *const Model) bool {
+        return right_panel.hasFilePreviewFindMatchLabel(model);
+    }
+
+    pub fn file_preview_find_can_replace(model: *const Model) bool {
+        return right_panel.canFilePreviewFindReplace(model);
+    }
+
+    /// Textarea autofocus only while the find bar is closed so Cmd-F
+    /// can arm the find field.
+    pub fn file_preview_editor_autofocus(model: *const Model) bool {
+        return model.right_panel_file_preview_editing and !model.file_preview_find_active;
     }
 
     pub fn right_panel_pane_min(model: *const Model) f32 {

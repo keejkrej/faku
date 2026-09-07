@@ -23,6 +23,7 @@ const pick_folder = @import("pick_folder.zig");
 const usage_history = @import("usage_history.zig");
 const usage_meter = @import("usage_meter.zig");
 const litellm_rates = @import("litellm_rates.zig");
+const right_panel = @import("right_panel.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -135,6 +136,10 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
     }
     if (model.find_active or model.find_query().len > 0) {
         model.exitFind();
+        return;
+    }
+    if (right_panel.filePreviewFindActive(model) or model.file_preview_find_active) {
+        right_panel.closeFilePreviewFind(model);
         return;
     }
     if (model.mentions_list_open() or model.skills_list_open() or model.slashPrefixCommandsShowing()) {

@@ -11629,6 +11629,130 @@ test "cmd-s and ctrl-s save the Files preview via onKey" {
     try testing.expectEqualStrings("s", model.draft());
 }
 
+test "cmd-f routes to Files preview find when a preview is open" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try absCopyProjectDir(tmp, "preview-find-keys", &project_buf);
+    var note_buf: [320]u8 = undefined;
+    const note_path = try std.fmt.bufPrint(&note_buf, "{s}/note.txt", .{project});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = note_path,
+        .data = "alpha hello\nbeta hello\n",
+    });
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("preview find keys", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    defer right_panel.clearFilePreview(&model);
+
+    main.update(&model, .show_right_panel, &fx);
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
+    try testing.expect(model.right_panel_file_preview_open());
+    try testing.expectEqualStrings("alpha hello\nbeta hello\n", model.file_preview_body());
+
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Find in file\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"close_file_preview_find\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"file_preview_find_replace_one\"") != null);
+
+    const cmd_f = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "f",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.open_find, keys.onKey(cmd_f).?);
+    main.update(&model, keys.onKey(cmd_f).?, &fx);
+    try testing.expect(model.file_preview_find_active);
+    try testing.expect(!model.find_active);
+    try testing.expect(!model.composer_active);
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .search_field, "Find in file");
+    try testing.expect(findByText(tree.root, .search_field, "Find in transcript") == null);
+    _ = try expectButton(tree.root, "Close file find");
+    _ = try expectButton(tree.root, "Show replace");
+    _ = try expectButton(tree.root, "Aa");
+
+    main.update(&model, .{ .file_preview_find_edit = .{ .insert_text = "hello" } }, &fx);
+    try testing.expectEqualStrings("hello", model.file_preview_find_query());
+    try testing.expectEqual(@as(u32, 2), model.file_preview_find_match_count);
+    try testing.expectEqualStrings("1 of 2 · L1", model.file_preview_find_match_label(arena));
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "1 of 2 · L1");
+    const next_btn = try expectButton(tree.root, "Next file match");
+    try testing.expectEqual(Msg.find_next, tree.msgForPointer(next_btn.id, .up).?);
+
+    const cmd_g = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "g",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.find_next, keys.onKey(cmd_g).?);
+    main.update(&model, keys.onKey(cmd_g).?, &fx);
+    try testing.expectEqual(@as(u32, 1), model.file_preview_find_match_index);
+    try testing.expectEqualStrings("2 of 2 · L2", model.file_preview_find_match_label(arena));
+
+    const show_replace = try expectButton(tree.root, "Show replace");
+    try testing.expectEqual(Msg.toggle_file_preview_find_replace, tree.msgForPointer(show_replace.id, .up).?);
+    main.update(&model, .toggle_file_preview_find_replace, &fx);
+    try testing.expect(model.file_preview_find_replace_visible);
+    tree = try buildTree(arena, &model);
+    _ = try expectButton(tree.root, "Hide replace");
+    _ = try expectButtonMsg(tree, "Replace", .file_preview_find_replace_one);
+    _ = try expectButtonMsg(tree, "Replace all", .file_preview_find_replace_all);
+
+    main.update(&model, .open_find, &fx);
+    try testing.expect(model.file_preview_find_active);
+    try testing.expect(!model.find_active);
+
+    main.update(&model, .stop, &fx);
+    try testing.expect(!model.file_preview_find_active);
+    try testing.expect(!model.find_active);
+    try testing.expectEqualStrings("hello", model.file_preview_find_query());
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+    main.update(&model, .open_find, &fx);
+    try testing.expect(model.file_preview_find_active);
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expect(!model.file_preview_find_active);
+    try testing.expect(!model.find_active);
+
+    main.update(&model, .open_find, &fx);
+    try testing.expect(model.file_preview_find_active);
+    main.update(&model, .close_right_panel_file_preview, &fx);
+    try testing.expect(!model.right_panel_file_preview_open());
+    try testing.expect(!model.file_preview_find_active);
+
+    main.update(&model, keys.onKey(cmd_f).?, &fx);
+    try testing.expect(model.find_active);
+    try testing.expect(!model.file_preview_find_active);
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .search_field, "Find in transcript");
+    try testing.expect(findByText(tree.root, .search_field, "Find in file") == null);
+
+    if (comptime @hasField(@FieldType(canvas.WidgetKeyboardEvent, "modifiers"), "alt")) {
+        const cmd_alt_f = canvas.WidgetKeyboardEvent{
+            .phase = .key_down,
+            .key = "f",
+            .modifiers = .{ .super = true, .alt = true },
+        };
+        try testing.expectEqual(Msg.open_file_preview_find_replace, keys.onKey(cmd_alt_f).?);
+    }
+}
+
 test "cmd-o and ctrl-o pick a folder via onKey" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
