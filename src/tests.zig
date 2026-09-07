@@ -12246,6 +12246,13 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     _ = try expectByText(tree.root, .text, "Model priced");
     _ = try expectByText(tree.root, .text, "Unpriced");
     _ = try expectByText(tree.root, .text, "Cache savings");
+    _ = try expectByText(tree.root, .text, "Processed tokens");
+    _ = try expectByText(tree.root, .text, "Cached input");
+    _ = try expectByText(tree.root, .text, "Uncached input");
+    _ = try expectByText(tree.root, .text, "Output");
+    _ = try expectByText(tree.root, .text, "12k");
+    _ = try expectByText(tree.root, .text, "0.0% of observed input");
+    _ = try expectByText(tree.root, .text, "0.0x raw cost");
     _ = try expectByText(tree.root, .text, "0.0%");
     _ = try expectByText(tree.root, .text, "$0.00");
     try testing.expect(findByText(tree.root, .text, "Rates unavailable") == null);
@@ -12307,6 +12314,8 @@ test "settings Usage history paints daemon usageHistory without clearing local c
     try testing.expect(findByText(tree.root, .text, "25.0%") == null);
     try testing.expect(findByText(tree.root, .text, "Cost quality") == null);
     try testing.expect(findByText(tree.root, .text, "Provider reported") == null);
+    try testing.expect(findByText(tree.root, .text, "Processed tokens") == null);
+    try testing.expect(findByText(tree.root, .text, "Cached input") == null);
 
     spawn_i = 0;
     const monthly_sidecar = while (fx.pendingSpawnAt(spawn_i)) |spawn| : (spawn_i += 1) {
@@ -12748,6 +12757,7 @@ test "settings Usage Daily paints Cost quality and rates-unavailable notice" {
     _ = try expectByText(tree.root, .text, "Model priced");
     _ = try expectByText(tree.root, .text, "Unpriced");
     _ = try expectByText(tree.root, .text, "Cache savings");
+    _ = try expectByText(tree.root, .text, "Processed tokens");
     _ = try expectUsageShareProgress(tree.root, "50.0%", 0.5);
     _ = try expectUsageShareProgress(tree.root, "30.0%", 0.3);
     _ = try expectUsageShareProgress(tree.root, "20.0%", 0.2);
@@ -12777,6 +12787,7 @@ test "settings Usage Daily paints Cost quality and rates-unavailable notice" {
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "Cost quality") == null);
     try testing.expect(findByText(tree.root, .text, "Provider reported") == null);
+    try testing.expect(findByText(tree.root, .text, "Processed tokens") == null);
     try testing.expect(findByText(tree.root, .text, "Rates unavailable") == null);
     _ = try expectByText(tree.root, .text, "53k / 200k");
 }

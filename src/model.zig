@@ -4438,6 +4438,10 @@ pub const Model = struct {
         return usage_history.qualityRows(model, arena);
     }
 
+    pub fn usage_metric_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {
+        return usage_history.metricRows(model, arena);
+    }
+
     pub fn has_usage_scan_footer(model: *const Model) bool {
         return usage_history.hasScanFooter(model);
     }
