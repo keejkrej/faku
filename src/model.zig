@@ -983,6 +983,17 @@ pub const Model = struct {
     usage_meter_open: bool = false,
     /// First-cut daemon plan-usage cache. Runtime only.
     plan_usage: usage_meter.Cache = .{},
+    /// Last settled `fetchPlanUsage` (`now_ms`). Null until the first
+    /// applyLine / handleExit. Runtime-only; not sessions.json.
+    /// Throttles `maybeRefresh` (Waku `plan_usage_checked_at`).
+    /// Piggybacks `now_ms` / the update tick; Native has no dedicated
+    /// timer this cut. Selected-provider path only.
+    last_plan_usage_checked_ms: ?i64 = null,
+    /// Selected plan-usage path is stale (panel open or a settled
+    /// turn moved rate-limit needles). Runtime-only; cleared when a
+    /// fetch settles. Next `maybeRefresh` uses 30s unless a fetch
+    /// error still owns the 90s retry.
+    plan_usage_stale: bool = false,
     /// In-flight `refreshBackgroundWork` sidecar. Distinct from the
     /// prompt / usage-history keys so miss cannot settle a live turn.
     daemon_background_work_key: u64 = 0,
@@ -1715,6 +1726,8 @@ pub const Model = struct {
         "daemon_plan_usage_key",
         "daemon_plan_usage_provider",
         "plan_usage",
+        "last_plan_usage_checked_ms",
+        "plan_usage_stale",
         "daemon_background_work_key",
         "daemon_background_work_session",
         "last_background_work_refresh_ms",

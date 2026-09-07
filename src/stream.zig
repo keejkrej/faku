@@ -23,7 +23,9 @@
 //! Cancel / `stopStream` does not snapshot. Prompt spawn stays in
 //! `spawn.zig`. Line handlers live in `lines.zig`. Behavior is
 //! unchanged from the former `main` stream helpers except the
-//! Background settle hooks.
+//! Background settle hooks and first-cut plan-usage stale marks
+//! (`usage_meter.markStaleForSession` on finish / stop when that
+//! session's provider is Claude / Codex / OpenCode / Grok).
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -38,6 +40,7 @@ const environment_summary = @import("environment_summary.zig");
 const session_workspace = @import("session_workspace.zig");
 const checkpoint = @import("checkpoint.zig");
 const rewind = @import("rewind.zig");
+const usage_meter = @import("usage_meter.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -129,6 +132,7 @@ pub fn finishStream(model: *Model, fx: *Effects, drain: bool) void {
     model.stream_turn_id = 0;
     model.streaming_session = 0;
     fx.cancelTimer(stream_timer_key);
+    usage_meter.markStaleForSession(model, finished_id);
     const settle_status: environment_summary.SettledStatus = if (drain) .completed else .failed;
     environment_summary.clearLiveProcess(model);
     environment_summary.settleLiveBackgroundSignals(model, finished_id, settle_status);
@@ -163,6 +167,7 @@ pub fn stopStream(model: *Model, fx: *Effects) void {
     if (model.daemon_spawn_key != 0) fx.cancel(model.daemon_spawn_key);
     model.fx_spawn_live = false;
     if (was_daemon) maybeCancelDaemonTurn(model, fx, finished_id);
+    usage_meter.markStaleForSession(model, finished_id);
     environment_summary.clearLiveProcess(model);
     environment_summary.settleLiveBackgroundSignals(model, finished_id, .stopped);
     environment_summary.settle(model, finished_id, .stopped);
@@ -403,4 +408,34 @@ test "startPrompt then finishStream with last_daemon_address keeps CaptureTurnSt
     try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"prompt\"") == null);
     try testing.expect(std.mem.indexOf(u8, sidecar.stdin, project) != null);
     try testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"turnCount\":1") != null);
+}
+
+test "finishStream and stopStream mark plan-usage stale; fx stays quiet" {
+    const testing = std.testing;
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    const claude_id = model.addSession("plan stale claude", .claude);
+    model.selected = claude_id;
+    model.phase = .streaming;
+    model.streaming_session = claude_id;
+    finishStream(&model, &fx, true);
+    try testing.expect(model.plan_usage_stale);
+
+    model.plan_usage_stale = false;
+    model.phase = .streaming;
+    model.streaming_session = claude_id;
+    if (model.sessionById(claude_id)) |session| session.busy = true;
+    stopStream(&model, &fx);
+    try testing.expect(model.plan_usage_stale);
+
+    var fx_model = Model{};
+    const fx_id = fx_model.addSession("plan stale fx", .fx);
+    fx_model.selected = fx_id;
+    fx_model.phase = .streaming;
+    fx_model.streaming_session = fx_id;
+    finishStream(&fx_model, &fx, false);
+    try testing.expect(!fx_model.plan_usage_stale);
 }
