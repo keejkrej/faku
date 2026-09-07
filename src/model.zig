@@ -340,8 +340,9 @@ pub const UsageHistoryRow = usage_history.Row;
 pub const UsageMeterRow = usage_meter.Row;
 
 /// Settings Providers row. `id` is 1-based `ProviderId` so Native
-/// `select_provider:{p.id}` never binds 0. Apply sets
-/// `session.provider`; live Send is `spawn.startPrompt`.
+/// `select_provider:{p.id}` / `toggle_provider_enabled:{p.id}` never
+/// bind 0. Apply sets `session.provider`; live Send is
+/// `spawn.startPrompt`. Enable/Disable persists `disabled_providers`.
 pub const ProviderRow = providers.ProviderRow;
 
 /// Composer model picker row. `row_id` is a 1-based Native `for` key.
@@ -522,6 +523,8 @@ pub const Msg = union(enum) {
     skills_filter_edit: canvas.TextInputEvent,
     select_skill: u32,
     select_provider: u32,
+    /// Settings Providers: toggle persisted `disabled_providers` for that row.
+    toggle_provider_enabled: u32,
     apply_session_provider,
     /// Settings Providers: copy verified fx install command. Clipboard only.
     copy_fx_install,
@@ -1432,6 +1435,13 @@ pub const Model = struct {
     fx_path_len: usize = 0,
     fx_probe_started: bool = false,
     fx_probe_index: u32 = 0,
+    /// Persisted user-disabled providers. Index is `@intFromEnum`.
+    /// True means disabled. Default all false (empty list = all
+    /// enabled). `sessions.json` extras `disabled_providers` (wire
+    /// names). First-cut `providerEnabled` is `!disabled`; Waku also
+    /// AND probe-installed — leftover so maybeRefresh still concurrent
+    /// fetches before Settings → Providers is opened.
+    disabled_providers: [protocol.provider_id_count]bool = [_]bool{false} ** protocol.provider_id_count,
     /// Runtime-only non-fx `--help` probe results. Index is
     /// `@intFromEnum(ProviderId)`. Slot 0 (fx) is unused — fx stays
     /// on `fx_available` / `fx_probe`. Not persisted.
@@ -1734,6 +1744,7 @@ pub const Model = struct {
         "system_locale_id_len",
         "setSystemLocaleId",
         "systemLocaleId",
+        "disabled_providers",
         "provider_selected_id",
         "skills_filter_buffer",
         "skill_store",
