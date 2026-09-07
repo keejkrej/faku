@@ -1343,6 +1343,7 @@
                     </else>
                     <search-field grow="1" height="32" placeholder="Find" text="{file_preview_find_query}" on-input="file_preview_find_edit" autofocus="true" label="Find in file" />
                     <button variant="ghost" size="sm" selected="{file_preview_find_case_sensitive}" on-press="toggle_file_preview_find_case">Aa</button>
+                    <button variant="ghost" size="sm" selected="{file_preview_find_whole_word}" on-press="toggle_file_preview_find_whole_word">Ab</button>
                     <if test="{has_file_preview_find_match_label}">
                       <text wrap="false" overflow="ellipsis" foreground="text_muted">{file_preview_find_match_label}</text>
                     </if>

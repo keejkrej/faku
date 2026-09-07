@@ -131,8 +131,9 @@
 //! OS-open workarounds; Native has no PTY / webview), or autosave.
 //! First-cut Files preview find/replace ships (Native bar above the
 //! preview body: query, `n of m` / `0` / `m+` cap note, prev/next,
-//! close, case toggle, Replace row). Plain substring; no regex /
-//! whole-word / GPUI match washes. Cap `file_preview_find_max_matches`
+//! close, case toggle, whole-word toggle, Replace row). Plain substring;
+//! optional ASCII case-sensitivity and whole-word (`[A-Za-z0-9_]`
+//! boundaries). No regex / GPUI match washes. Cap `file_preview_find_max_matches`
 //! (2048; Waku FileSearch is 20k). Runtime-only.
 //!
 //! Default closed: Waku `RightPanelSessionState::take_or_closed` uses
@@ -1138,6 +1139,7 @@ pub fn recomputeFilePreviewFind(model: *Model, refresh: FilePreviewFindRefresh) 
         filePreviewFindHaystack(model),
         query,
         model.file_preview_find_case_sensitive,
+        model.file_preview_find_whole_word,
         model.file_preview_find_match_starts[0..],
     );
     model.file_preview_find_match_count = scan.count;
@@ -1197,6 +1199,12 @@ pub fn toggleFilePreviewFindReplace(model: *Model) void {
 pub fn toggleFilePreviewFindCase(model: *Model) void {
     if (!model.file_preview_find_active) return;
     model.file_preview_find_case_sensitive = !model.file_preview_find_case_sensitive;
+    recomputeFilePreviewFind(model, .query);
+}
+
+pub fn toggleFilePreviewFindWholeWord(model: *Model) void {
+    if (!model.file_preview_find_active) return;
+    model.file_preview_find_whole_word = !model.file_preview_find_whole_word;
     recomputeFilePreviewFind(model, .query);
 }
 
@@ -1296,6 +1304,7 @@ pub fn replaceFilePreviewFindAll(model: *Model) void {
         query,
         replacement,
         model.file_preview_find_case_sensitive,
+        model.file_preview_find_whole_word,
         dest,
     ) orelse return;
     applyReplacedDraft(model, next);
@@ -2314,6 +2323,7 @@ test "Files preview find collect/navigate/replace; read-only replace is a no-op"
     closeFilePreviewFind(&model);
     try std.testing.expect(!model.file_preview_find_active);
     try std.testing.expectEqualStrings("foo", model.file_preview_find_query());
+    try std.testing.expect(model.file_preview_find_case_sensitive);
 
     model.right_panel_file_preview_truncated = true;
     model.right_panel_file_preview_editing = false;
@@ -2326,6 +2336,48 @@ test "Files preview find collect/navigate/replace; read-only replace is a no-op"
     replaceFilePreviewFindAll(&model);
     try std.testing.expectEqualStrings(before, model.file_preview_body());
     try std.testing.expect(!model.file_preview_editing());
+}
+
+test "Files preview find whole-word toggle filters matches and replaceAll" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-find-word-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, abs, "foo foobar foo_bar foo\n");
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview find word", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    defer clearFilePreview(&model);
+
+    pickFile(&model, 1);
+    openFilePreviewFind(&model, true);
+    applyFilePreviewFindEdit(&model, .{ .insert_text = "foo" });
+    try std.testing.expectEqual(@as(u32, 4), model.file_preview_find_match_count);
+    try std.testing.expect(!model.file_preview_find_whole_word);
+
+    toggleFilePreviewFindWholeWord(&model);
+    try std.testing.expect(model.file_preview_find_whole_word);
+    try std.testing.expectEqual(@as(u32, 2), model.file_preview_find_match_count);
+    try std.testing.expectEqual(@as(u32, 0), model.file_preview_find_match_starts[0]);
+    try std.testing.expectEqual(@as(u32, 19), model.file_preview_find_match_starts[1]);
+
+    applyFilePreviewFindReplaceEdit(&model, .{ .insert_text = "bar" });
+    replaceFilePreviewFindAll(&model);
+    try std.testing.expectEqualStrings("bar foobar foo_bar bar\n", model.file_preview_draft());
+    try std.testing.expectEqual(@as(u32, 0), model.file_preview_find_match_count);
+
+    closeFilePreviewFind(&model);
+    try std.testing.expect(!model.file_preview_find_active);
+    try std.testing.expect(model.file_preview_find_whole_word);
+    try std.testing.expectEqualStrings("foo", model.file_preview_find_query());
 }
 
 test "reload discards dirty buffer; truncated and binary refuse save" {
