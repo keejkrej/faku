@@ -27,7 +27,7 @@
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
 //! `last_project_path` / `last_daemon_address` / `theme_preference` /
-//! `language_preference` so the settings gear and
+//! `language_preference` / `disabled_providers` so the settings gear and
 //! composer chips can edit persisted defaults, and `folders` /
 //! `collapsed_folder_ids` so New folder groups persist. A session
 //! `folder_id` of 0 (or omitted) stays in the ungrouped date buckets
@@ -259,6 +259,7 @@ pub fn saveSession(model: *const Model, session_id: u32, allocator: std.mem.Allo
     document.last_daemon_address = lastDaemonAddressForSave(model);
     document.theme_preference = model.theme_preference;
     document.language_preference = model.language_preference;
+    document.disabled_providers = model.disabled_providers;
     applySidebarExtras(&document, model);
     try applyFolderExtras(&document, arena, model);
     try writeDocument(allocator, io, dir, document);
@@ -298,6 +299,7 @@ pub fn removeSession(model: *Model, session_id: u32, allocator: std.mem.Allocato
     document.last_daemon_address = lastDaemonAddressForSave(model);
     document.theme_preference = model.theme_preference;
     document.language_preference = model.language_preference;
+    document.disabled_providers = model.disabled_providers;
     applySidebarExtras(&document, model);
     try applyFolderExtras(&document, arena, model);
     try writeDocument(allocator, io, dir, document);
@@ -354,7 +356,7 @@ pub fn persistLayoutIfPossible(model: *const Model) void {
 
 /// Merge-only write of settings extras (`last_model`, `last_access_mode`,
 /// `last_interaction_mode`, `last_reasoning_effort`, `last_project_path`, `last_daemon_address`,
-/// `theme_preference`, `language_preference`).
+/// `theme_preference`, `language_preference`, `disabled_providers`).
 /// Same first-run rule as sidebar collapse: does not create `sessions.json`
 /// and does not spawn a daemon sidecar. Missing / corrupt catalogs are a no-op.
 pub fn persistSettingsIfPossible(model: *const Model) void {
@@ -411,6 +413,7 @@ fn applySettingsExtras(document: *Document, model: *const Model) void {
     document.last_daemon_address = model.lastDaemonAddress();
     document.theme_preference = model.theme_preference;
     document.language_preference = model.language_preference;
+    document.disabled_providers = model.disabled_providers;
 }
 
 fn applyFolderExtras(document: *Document, arena: std.mem.Allocator, model: *const Model) !void {
@@ -936,6 +939,7 @@ const Document = struct {
     last_daemon_address: []const u8 = "",
     theme_preference: main.ThemePreference = .system,
     language_preference: main.LanguagePreference = .system,
+    disabled_providers: [protocol.provider_id_count]bool = [_]bool{false} ** protocol.provider_id_count,
     sidebar_collapsed: bool = false,
     sidebar_width: u32 = 0,
     right_panel_open: bool = false,
@@ -961,6 +965,7 @@ const Document = struct {
             .last_daemon_address = lastDaemonAddressForSave(model),
             .theme_preference = model.theme_preference,
             .language_preference = model.language_preference,
+            .disabled_providers = model.disabled_providers,
             .sidebar_collapsed = model.sidebar_collapsed,
             .sidebar_width = model.sidebarWidthPixels(),
             .right_panel_open = model.right_panel_open,
@@ -1021,6 +1026,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.setLastDaemonAddress(document.last_daemon_address);
     model.theme_preference = document.theme_preference;
     model.language_preference = document.language_preference;
+    model.disabled_providers = document.disabled_providers;
     model.sidebar_collapsed = document.sidebar_collapsed;
     model.applySidebarWidth(document.sidebar_width);
     right_panel.applyPersisted(model, document.right_panel_open, document.right_panel_tab, document.right_panel_width);
@@ -1322,6 +1328,7 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .last_daemon_address = jsonString(obj.get("last_daemon_address")) orelse "",
         .theme_preference = main.ThemePreference.fromPersist(jsonString(obj.get("theme_preference")) orelse ""),
         .language_preference = main.LanguagePreference.fromPersist(jsonString(obj.get("language_preference")) orelse ""),
+        .disabled_providers = parseDisabledProviders(obj.get("disabled_providers")),
         .sidebar_collapsed = jsonBool(obj.get("sidebar_collapsed")) orelse false,
         .sidebar_width = jsonUint(obj.get("sidebar_width")) orelse 0,
         .right_panel_open = jsonBool(obj.get("right_panel_open")) orelse false,
@@ -1428,6 +1435,22 @@ fn parseFolder(value: std.json.Value) !StoredFolder {
     const id = jsonUint(obj.get("id")) orelse return error.Corrupt;
     const title = jsonString(obj.get("title")) orelse return error.Corrupt;
     return .{ .id = id, .title = title };
+}
+
+/// Missing / empty / non-array → all enabled. Unknown wire names skipped.
+fn parseDisabledProviders(value: ?std.json.Value) [protocol.provider_id_count]bool {
+    var out = [_]bool{false} ** protocol.provider_id_count;
+    const list_val = value orelse return out;
+    const list_arr = switch (list_val) {
+        .array => |a| a,
+        else => return out,
+    };
+    for (list_arr.items) |item| {
+        const name = jsonString(item) orelse continue;
+        const id = protocol.ProviderId.fromWire(name) orelse continue;
+        out[@intFromEnum(id)] = true;
+    }
+    return out;
 }
 
 fn parseUintList(arena: std.mem.Allocator, value: ?std.json.Value) ![]u32 {
@@ -1679,7 +1702,16 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try appendJsonString(&out, allocator, document.theme_preference.persistName());
     try out.appendSlice(allocator, ",\"language_preference\":");
     try appendJsonString(&out, allocator, document.language_preference.persistName());
-    try out.appendSlice(allocator, ",\"sidebar_collapsed\":");
+    try out.appendSlice(allocator, ",\"disabled_providers\":[");
+    var disabled_written = false;
+    for (std.meta.tags(protocol.ProviderId)) |id| {
+        if (document.disabled_providers[@intFromEnum(id)]) {
+            if (disabled_written) try out.append(allocator, ',');
+            try appendJsonString(&out, allocator, id.wireName());
+            disabled_written = true;
+        }
+    }
+    try out.appendSlice(allocator, "],\"sidebar_collapsed\":");
     try out.appendSlice(allocator, if (document.sidebar_collapsed) "true" else "false");
     try out.appendSlice(allocator, ",\"sidebar_width\":");
     try appendUint(&out, allocator, document.sidebar_width);
@@ -2690,6 +2722,78 @@ test "language_preference missing or unknown loads as System; extras roundtrip" 
     ja.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&ja, allocator, io));
     try testing.expectEqual(main.LanguagePreference.japanese, ja.language_preference);
+}
+
+test "disabled_providers persist round-trip; enabling clears; missing/unknown stay enabled" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var missing = Model{};
+    missing.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&missing, allocator, io));
+    try testing.expect(!missing.disabled_providers[@intFromEnum(protocol.ProviderId.claude)]);
+    try testing.expect(!missing.disabled_providers[@intFromEnum(protocol.ProviderId.grok)]);
+    try testing.expect(!missing.disabled_providers[@intFromEnum(protocol.ProviderId.fx)]);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"disabled_providers":["claude","nope","claude","grok"],"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var unknown = Model{};
+    unknown.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&unknown, allocator, io));
+    try testing.expect(unknown.disabled_providers[@intFromEnum(protocol.ProviderId.claude)]);
+    try testing.expect(unknown.disabled_providers[@intFromEnum(protocol.ProviderId.grok)]);
+    try testing.expect(!unknown.disabled_providers[@intFromEnum(protocol.ProviderId.codex)]);
+    try testing.expect(!unknown.disabled_providers[@intFromEnum(protocol.ProviderId.fx)]);
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("disabled later", .fx);
+    _ = source.appendTurn(id, .user, "remember providers");
+    try saveSession(&source, id, allocator, io);
+    source.disabled_providers[@intFromEnum(protocol.ProviderId.claude)] = true;
+    source.disabled_providers[@intFromEnum(protocol.ProviderId.opencode)] = true;
+    persistSettingsIfPossible(&source);
+    try saveSession(&source, id, allocator, io);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expect(loaded.disabled_providers[@intFromEnum(protocol.ProviderId.claude)]);
+    try testing.expect(loaded.disabled_providers[@intFromEnum(protocol.ProviderId.opencode)]);
+    try testing.expect(!loaded.disabled_providers[@intFromEnum(protocol.ProviderId.grok)]);
+    try testing.expect(!loaded.disabled_providers[@intFromEnum(protocol.ProviderId.fx)]);
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64 * 1024));
+    defer allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"disabled_providers\":[") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"claude\"") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"opencode\"") != null);
+
+    loaded.disabled_providers[@intFromEnum(protocol.ProviderId.claude)] = false;
+    loaded.disabled_providers[@intFromEnum(protocol.ProviderId.opencode)] = false;
+    persistSettingsIfPossible(&loaded);
+    var cleared = Model{};
+    cleared.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&cleared, allocator, io));
+    try testing.expect(!cleared.disabled_providers[@intFromEnum(protocol.ProviderId.claude)]);
+    try testing.expect(!cleared.disabled_providers[@intFromEnum(protocol.ProviderId.opencode)]);
+    try testing.expect(!cleared.disabled_providers[@intFromEnum(protocol.ProviderId.grok)]);
+    const cleared_bytes = try std.Io.Dir.cwd().readFileAlloc(io, catalogPath(dir, &path_buf).?, allocator, .limited(64 * 1024));
+    defer allocator.free(cleared_bytes);
+    try testing.expect(std.mem.indexOf(u8, cleared_bytes, "\"disabled_providers\":[]") != null);
 }
 
 test "folder extras persist untitled folders; missing catalog is not created" {

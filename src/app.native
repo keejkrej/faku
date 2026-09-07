@@ -218,6 +218,7 @@
                         <text wrap="false" overflow="ellipsis" foreground="text_muted">{p.binary}</text>
                       </if>
                     </column>
+                    <button variant="ghost" size="sm" selected="{p.enabled}" on-press="toggle_provider_enabled:{p.id}">{p.enable_label}</button>
                   </list-item>
                 </for>
                 <if test="{has_provider_detail}">

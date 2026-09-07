@@ -13068,6 +13068,17 @@ test "settings Providers tab lists catalog; fx Available vs Not found from model
     _ = try expectByText(tree.root, .list_item, "kimi");
     _ = try expectByText(tree.root, .text, "cursor-agent");
     _ = try expectByText(tree.root, .text, "claude");
+    _ = try expectButtonMsg(tree, providers.disable_label, .{ .toggle_provider_enabled = 1 });
+    _ = try expectButtonMsg(tree, providers.disable_label, .{ .toggle_provider_enabled = providers.rowId(.claude) });
+    try testing.expect(providers.providerEnabled(&model, .claude));
+    main.update(&model, .{ .toggle_provider_enabled = providers.rowId(.claude) }, &fx);
+    try testing.expect(!providers.providerEnabled(&model, .claude));
+    try testing.expect(providers.providerEnabled(&model, .fx));
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, providers.enable_label, .{ .toggle_provider_enabled = providers.rowId(.claude) });
+    _ = try expectButtonMsg(tree, providers.disable_label, .{ .toggle_provider_enabled = 1 });
+    main.update(&model, .{ .toggle_provider_enabled = providers.rowId(.claude) }, &fx);
+    try testing.expect(providers.providerEnabled(&model, .claude));
     try testing.expect(findTextContaining(tree.root, providers.catalog_detail_note) == null);
     try testing.expect(findTextContaining(tree.root, providers.fx_transport_note) == null);
     try testing.expect(findByText(tree.root, .text, "Install") == null);

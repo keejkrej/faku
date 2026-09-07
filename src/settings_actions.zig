@@ -405,6 +405,11 @@ pub fn handleSelectProvider(model: *Model, id: u32) void {
     providers.selectProvider(model, id);
 }
 
+pub fn handleToggleProviderEnabled(model: *Model, id: u32) void {
+    if (!providers.toggleProviderEnabled(model, id)) return;
+    store.persistSettingsIfPossible(model);
+}
+
 pub fn handleApplySessionProvider(model: *Model, fx: *Effects) void {
     if (!providers.applyToSession(model)) return;
     store.persistIfPossible(model, model.selected, fx);
