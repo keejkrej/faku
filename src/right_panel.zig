@@ -132,7 +132,13 @@
 //! First-cut Files preview find/replace ships (Native bar above the
 //! preview body: query, `n of m` / `0` / `m+` cap note / `invalid`, prev/next,
 //! close, case toggle, whole-word toggle, regex toggle, Replace row).
-//! Waku secondary-alt-c/w/r and secondary-alt-enter map in `keys.zig`. Plain
+//! Enter in the find `search-field` is FindNext via Native `on-submit`
+//! (same `find_next` as the next chevron / Cmd-G). Enter in Replace is
+//! `file_preview_find_replace_one` via `text-field` `on-submit` (plain tag;
+//! Native documents Enter on single-line text kinds). Shift-Enter
+//! FindPrevious stays unbound globally; prev remains the chevron /
+//! Cmd-Shift-G. Waku secondary-alt-c/w/r and secondary-alt-enter map in
+//! `keys.zig`. Plain
 //! substring until `.*` is on; optional ASCII case-sensitivity and whole-word
 //! (`[A-Za-z0-9_]` boundaries). Regex is a self-contained Zig subset (not
 //! the Rust crate). No GPUI match washes. Cap `file_preview_find_max_matches`

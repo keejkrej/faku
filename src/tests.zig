@@ -159,6 +159,14 @@ fn pressableAppearsBeforeInner(widget: canvas.Widget, first: []const u8, second:
     return false;
 }
 
+fn dispatchFieldEnter(tree: AppUi.Tree, widget: canvas.Widget) ?Msg {
+    if (@hasDecl(@TypeOf(tree), "msgForKeyboard")) {
+        const enter = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "enter" };
+        return tree.msgForKeyboard(widget.id, enter);
+    }
+    return null;
+}
+
 fn expectButtonMsg(tree: AppUi.Tree, text: []const u8, expected: Msg) !canvas.Widget {
     var n: usize = 0;
     while (findNthByText(tree.root, .button, text, n)) |widget| : (n += 1) {
@@ -10950,8 +10958,12 @@ test "cmd-f and ctrl-f open transcript find via onKey" {
     const find_field = try expectByText(tree.root, .search_field, "Find in transcript");
     try testing.expectEqualStrings("Find", find_field.placeholder);
     try testing.expect(find_field.autofocus);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"find_edit\" on-submit=\"find_next\"") != null);
     _ = try expectButton(tree.root, "Close find");
     _ = try expectButton(tree.root, "Search");
+    if (dispatchFieldEnter(tree, find_field)) |msg| {
+        try testing.expectEqual(Msg.find_next, msg);
+    }
 
     main.update(&model, .{ .find_edit = .{ .insert_text = "keep" } }, &fx);
     try testing.expectEqualStrings("keep", model.find_query());
@@ -10998,6 +11010,22 @@ test "cmd-f and ctrl-f open transcript find via onKey" {
     } else return error.WidgetNotFound;
     _ = try expectByText(tree.root, .search_field, "Find in transcript");
     _ = try expectButton(tree.root, "Search");
+}
+
+test "find bars bind Enter via on-submit; Shift-Enter stays unbound globally" {
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"find_edit\" on-submit=\"find_next\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"file_preview_find_edit\" on-submit=\"find_next\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"file_preview_find_replace_edit\" on-submit=\"file_preview_find_replace_one\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-submit=\"composer_enter\"") != null);
+
+    const plain_enter = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "enter" };
+    const shift_enter = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "enter",
+        .modifiers = .{ .shift = true },
+    };
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(plain_enter));
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(shift_enter));
 }
 
 test "transcript find filters the selected session's visible turns" {
@@ -11230,6 +11258,15 @@ test "cmd-g and cmd-shift-g cycle the current matching turn" {
     _ = try expectByText(tree.root, .text, "1 of 2");
     _ = try expectByText(tree.root, .row, "alpha hello");
     _ = try expectByText(tree.root, .row, "gamma hello again");
+    const find_enter = try expectByText(tree.root, .search_field, "Find in transcript");
+    if (dispatchFieldEnter(tree, find_enter)) |msg| {
+        try testing.expectEqual(Msg.find_next, msg);
+        main.update(&model, msg, &fx);
+        try testing.expectEqual(@as(u32, 1), model.find_match_index);
+        try testing.expectEqualStrings("2 of 2", model.find_match_label(arena));
+        main.update(&model, keys.onKey(cmd_shift_g).?, &fx);
+        try testing.expectEqual(@as(u32, 0), model.find_match_index);
+    }
 
     main.update(&model, keys.onKey(cmd_g).?, &fx);
     try testing.expectEqual(@as(u32, 1), model.find_match_index);
@@ -11665,6 +11702,8 @@ test "cmd-f routes to Files preview find when a preview is open" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Find in file\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"close_file_preview_find\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"file_preview_find_replace_one\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"file_preview_find_edit\" on-submit=\"find_next\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-input=\"file_preview_find_replace_edit\" on-submit=\"file_preview_find_replace_one\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"toggle_file_preview_find_regex\"") != null);
 
     const cmd_f = canvas.WidgetKeyboardEvent{
@@ -11706,6 +11745,14 @@ test "cmd-f routes to Files preview find when a preview is open" {
 
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "1 of 2 · L1");
+    const file_find = try expectByText(tree.root, .search_field, "Find in file");
+    if (dispatchFieldEnter(tree, file_find)) |msg| {
+        try testing.expectEqual(Msg.find_next, msg);
+        main.update(&model, msg, &fx);
+        try testing.expectEqual(@as(u32, 1), model.file_preview_find_match_index);
+        main.update(&model, .find_prev, &fx);
+        try testing.expectEqual(@as(u32, 0), model.file_preview_find_match_index);
+    }
     const next_btn = try expectButton(tree.root, "Next file match");
     try testing.expectEqual(Msg.find_next, tree.msgForPointer(next_btn.id, .up).?);
 
@@ -11727,6 +11774,10 @@ test "cmd-f routes to Files preview find when a preview is open" {
     _ = try expectButton(tree.root, "Hide replace");
     _ = try expectButtonMsg(tree, "Replace", .file_preview_find_replace_one);
     _ = try expectButtonMsg(tree, "Replace all", .file_preview_find_replace_all);
+    const replace_field = try expectByText(tree.root, .text_field, "Replace in file");
+    if (dispatchFieldEnter(tree, replace_field)) |msg| {
+        try testing.expectEqual(Msg.file_preview_find_replace_one, msg);
+    }
 
     main.update(&model, .open_find, &fx);
     try testing.expect(model.file_preview_find_active);
