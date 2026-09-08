@@ -29,6 +29,10 @@ pub const window_min_height: f32 = 480;
 
 const shell_views = [_]native_sdk.ShellView{
     .{ .label = canvas_label, .kind = .gpu_surface, .fill = true, .role = "Faku canvas", .accessibility_label = "Faku", .gpu_backend = .metal, .gpu_pixel_format = .bgra8_unorm, .gpu_present_mode = .timer, .gpu_alpha_mode = .@"opaque", .gpu_color_space = .srgb, .gpu_vsync = true },
+    // Embedded Browser tab. `web_panes` snaps this scene webview to the
+    // markup `browser-pane` anchor (workbench pattern). Tiny 1×1 frame
+    // is a placeholder; parking when the tab is hidden is also 1×1.
+    .{ .label = "browser-web", .kind = .webview, .parent = canvas_label, .url = "https://example.com", .x = 0, .y = 0, .width = 1, .height = 1, .layer = 20 },
 };
 const shell_windows = [_]native_sdk.ShellWindow{.{
     .label = main_window_label,
@@ -75,4 +79,9 @@ test "app_icons names and shell window" {
     try std.testing.expectEqualStrings("stop", app_icons[2].name);
     try std.testing.expectEqual(@as(usize, 1), shell_scene.windows.len);
     try std.testing.expectEqualStrings(main_window_label, shell_scene.windows[0].label);
+    try std.testing.expectEqual(@as(usize, 2), shell_scene.windows[0].views.len);
+    try std.testing.expectEqualStrings(canvas_label, shell_scene.windows[0].views[0].label);
+    try std.testing.expectEqualStrings("browser-web", shell_scene.windows[0].views[1].label);
+    try std.testing.expect(shell_scene.windows[0].views[1].kind == .webview);
+    try std.testing.expectEqualStrings(canvas_label, shell_scene.windows[0].views[1].parent.?);
 }

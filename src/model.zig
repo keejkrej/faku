@@ -518,8 +518,8 @@ pub const Msg = union(enum) {
     set_right_panel_tab_files,
     /// Right-panel Diff tab. Opens the pane if closed and starts Compare.
     set_right_panel_tab_diff,
-    /// Right-panel Browser tab. OS-open URL field; not a webview. Tab
-    /// and draft URL persist.
+    /// Right-panel Browser tab. First-cut embedded canvas webview.
+    /// Tab and address draft persist.
     set_right_panel_tab_browser,
     /// Right-panel Terminal tab. First-cut embedded `<terminal>`. Tab persists.
     set_right_panel_tab_terminal,
@@ -708,9 +708,18 @@ pub const Msg = union(enum) {
     term_state: canvas.TerminalState,
     /// Dedicated pty `on_event` (output batches + exactly-one exit).
     term_pty: native_sdk.EffectPtyEvent,
-    /// Right-panel Browser URL field `on-input`. Runtime-only; not sessions.json.
+    /// Right-panel Browser URL field `on-input`. Draft only; not the pane URL.
     browser_url_edit: canvas.TextInputEvent,
-    /// Right-panel Browser: one-shot OS URL-open sidecar. Not a webview.
+    /// Commit the address draft into the embedded webview (Enter / Navigate).
+    browser_navigate,
+    /// Reload the committed pane URL (`reload_token` bump).
+    browser_reload,
+    /// Walk the app-owned Browser history backward.
+    browser_back,
+    /// Walk the app-owned Browser history forward.
+    browser_forward,
+    /// Right-panel Browser: one-shot OS URL-open sidecar. Fallback beside
+    /// the embedded webview.
     open_url,
     /// Composer Open in Editor: one-shot OS editor sidecar. Not a Native effect.
     open_editor,
@@ -1208,8 +1217,16 @@ pub const Model = struct {
     open_url_len: usize = 0,
     /// Browser tab URL draft. Persisted on sessions.json extras
     /// (`browser_url`, raw, cap `open_url.max_url`). Missing / empty →
-    /// empty draft.
+    /// empty draft. Typing does not navigate; Navigate/Enter commits.
     browser_url_buffer: canvas.TextBuffer(open_url.max_url) = .{},
+    /// App-owned Browser history (workbench ring). Runtime-only; the
+    /// pane URL is `history[index]`, never the in-progress draft.
+    /// Cap matches `browser_pane.max_history`.
+    browser_history: [32]canvas.TextBuffer(open_url.max_spawn_url) = [_]canvas.TextBuffer(open_url.max_spawn_url){.{}} ** 32,
+    browser_history_count: usize = 0,
+    browser_history_index: usize = 0,
+    /// Bumped by Reload: the pane re-navigates the same committed URL.
+    browser_reload_token: u64 = 0,
     open_terminal_live: bool = false,
     open_terminal_tried_fallback: bool = false,
     open_terminal_wd_storage: [open_terminal.wd_arg_len]u8 = [_]u8{0} ** open_terminal.wd_arg_len,
@@ -1962,6 +1979,10 @@ pub const Model = struct {
         "open_url_len",
         "browser_url_buffer",
         "applyBrowserUrl",
+        "browser_history",
+        "browser_history_count",
+        "browser_history_index",
+        "browser_reload_token",
         "open_terminal_live",
         "open_terminal_tried_fallback",
         "open_terminal_wd_storage",
@@ -2784,6 +2805,14 @@ pub const Model = struct {
 
     pub fn applyBrowserUrl(model: *Model, edit: canvas.TextInputEvent) void {
         model.browser_url_buffer.apply(edit);
+    }
+
+    pub fn browser_back_disabled(model: *const Model) bool {
+        return model.browser_history_index == 0;
+    }
+
+    pub fn browser_forward_disabled(model: *const Model) bool {
+        return model.browser_history_count == 0 or model.browser_history_index + 1 >= model.browser_history_count;
     }
 
     pub fn open_terminal_no_project_status(model: *const Model) []const u8 {

@@ -9,7 +9,7 @@
   "platforms": ["macos", "linux", "windows"],
   "theme": "house",
   "permissions": ["view", "command"],
-  "capabilities": ["native_views", "gpu_surfaces"],
+  "capabilities": ["native_views", "gpu_surfaces", "webview"],
   "shell": {
     "windows": [
       {
@@ -33,6 +33,17 @@
             "gpu_alpha_mode": "opaque",
             "gpu_color_space": "srgb",
             "gpu_vsync": true
+          },
+          {
+            "label": "browser-web",
+            "kind": "webview",
+            "parent": "main-canvas",
+            "url": "https://example.com",
+            "x": 0,
+            "y": 0,
+            "width": 1,
+            "height": 1,
+            "layer": 20
           }
         ]
       }
@@ -40,7 +51,7 @@
   },
   "security": {
     "navigation": {
-      "allowed_origins": ["zero://app", "zero://inline"],
+      "allowed_origins": ["zero://app", "zero://inline", "*"],
       "external_links": { "action": "deny" }
     }
   },

@@ -1527,11 +1527,15 @@
         </if>
         <if test="{right_panel_showing_browser}">
           <column grow="1" gap="8" padding="10" label="Browser">
-            <text foreground="text_muted">Native has no embedded browser. Open the system browser instead.</text>
-            <row gap="8" cross="center">
-              <text-field grow="1" placeholder="https://example.com" text="{browser_url}" on-input="browser_url_edit" />
+            <row gap="6" cross="center">
+              <button variant="ghost" size="sm" on-press="browser_back" disabled="{browser_back_disabled}">Back</button>
+              <button variant="ghost" size="sm" on-press="browser_forward" disabled="{browser_forward_disabled}">Forward</button>
+              <button variant="ghost" size="sm" on-press="browser_reload">Reload</button>
+              <text-field grow="1" placeholder="https://example.com" text="{browser_url}" on-input="browser_url_edit" on-submit="browser_navigate" label="Address" />
+              <button variant="ghost" size="sm" on-press="browser_navigate">Navigate</button>
               <button variant="ghost" size="sm" on-press="open_url">Open in browser</button>
             </row>
+            <column grow="1" label="browser-pane"></column>
             <if test="{has_window_status}">
               <text wrap="true" foreground="text_muted">{window_status}</text>
             </if>

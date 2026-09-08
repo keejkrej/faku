@@ -62,7 +62,8 @@ pub const PaletteAction = enum(u32) {
     show_right_panel = 15,
     /// Waku `command_palette.hide_right_panel`.
     hide_right_panel = 16,
-    /// Right-panel Browser tab. OS-open URL field; not a webview.
+    /// Right-panel Browser tab. First-cut embedded canvas webview;
+    /// Open in browser stays the OS fallback.
     show_browser_tab = 17,
     /// Right-panel Terminal tab. First-cut Native `<terminal>`;
     /// Open in Terminal stays the OS fallback. Not Waku tabs.

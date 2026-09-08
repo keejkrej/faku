@@ -14,6 +14,7 @@ const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
 const pty_terminal = @import("pty_terminal.zig");
 const open_url = @import("open_url.zig");
+const browser_pane = @import("browser_pane.zig");
 const open_editor = @import("open_editor.zig");
 const maximize_window = @import("maximize_window.zig");
 const git_branch = @import("git_branch.zig");
@@ -9771,6 +9772,8 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     try testing.expect(findByText(tree.root, .text, "Review") == null);
     try testing.expect(findByText(tree.root, .text, "No background work") == null);
     try testing.expect(findByText(tree.root, .text, "Native has no embedded browser. Open the system browser instead.") == null);
+    try testing.expect(findByText(tree.root, .button, "Navigate") == null);
+    try testing.expect(findByText(tree.root, .column, "browser-pane") == null);
     try testing.expect(findByKind(tree.root, .terminal) == null);
     try testing.expect(findByText(tree.root, .text, pty_terminal.ended_status) == null);
 
@@ -9825,8 +9828,17 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     try testing.expect((try expectButtonMsg(tree, "Browser", .set_right_panel_tab_browser)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Files", .set_right_panel_tab_files)).state.selected);
     try testing.expect(!(try expectButtonMsg(tree, "Terminal", .set_right_panel_tab_terminal)).state.selected);
-    _ = try expectByText(tree.root, .text, "Native has no embedded browser. Open the system browser instead.");
+    try testing.expect(findByText(tree.root, .text, "Native has no embedded browser. Open the system browser instead.") == null);
+    _ = try expectButtonMsg(tree, "Navigate", .browser_navigate);
+    _ = try expectButtonMsg(tree, "Reload", .browser_reload);
     _ = try expectButtonMsg(tree, "Open in browser", .open_url);
+    const browser_col = try expectByText(tree.root, .column, "Browser");
+    const back = findByText(browser_col, .button, "Back") orelse return error.WidgetNotFound;
+    const forward = findByText(browser_col, .button, "Forward") orelse return error.WidgetNotFound;
+    try testing.expect(back.state.disabled);
+    try testing.expect(forward.state.disabled);
+    const browser_anchor = try expectByText(tree.root, .column, "browser-pane");
+    try testing.expectEqual(@as(usize, 0), browser_anchor.children.len);
     try testing.expect(findByText(tree.root, .text, "No project open") == null);
     try testing.expect(findByText(tree.root, .text, "Review") == null);
     try testing.expect(findByText(tree.root, .text, "No background work") == null);
@@ -9930,6 +9942,8 @@ test "right panel Browser Open in browser spawns key-25 URL sidecar; empty URL i
     main.update(&model, .{ .browser_url_edit = .{ .insert_text = "  example.com/path  " } }, &fx);
     try testing.expectEqualStrings("  example.com/path  ", model.browser_url());
     var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "Navigate", .browser_navigate);
+    _ = try expectByText(tree.root, .column, "browser-pane");
     const open_browser = try expectButtonMsg(tree, "Open in browser", .open_url);
     main.update(&model, tree.msgForPointer(open_browser.id, .up).?, &fx);
     if (open_url.hostBin() == null) {
@@ -9951,6 +9965,64 @@ test "right panel Browser Open in browser spawns key-25 URL sidecar; empty URL i
     try fx.feedExit(spawn.key, 0);
     drainEffects(&model, &fx);
     try testing.expect(!model.open_url_live);
+}
+
+test "Browser Navigate commits a normalized URL; hidden tab parks the web pane" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    var panes: [1]browser_pane.WebViewPane = undefined;
+
+    try testing.expectEqual(@as(usize, 1), browser_pane.webPanes(&model, &panes));
+    try testing.expect(panes[0].anchor == null);
+    try testing.expectEqual(@as(f32, 1), panes[0].frame.width);
+    try testing.expectEqualStrings(browser_pane.home_url, panes[0].url);
+
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    try testing.expect(model.right_panel_showing_browser());
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expectEqualStrings(browser_pane.web_pane_anchor, panes[0].anchor orelse "");
+    try testing.expectEqualStrings(browser_pane.home_url, panes[0].url);
+
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "example.com/ok" } }, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expectEqualStrings(browser_pane.home_url, panes[0].url);
+    try testing.expectEqualStrings("example.com/ok", model.browser_url());
+
+    var tree = try buildTree(arena, &model);
+    const navigate = try expectButtonMsg(tree, "Navigate", .browser_navigate);
+    main.update(&model, tree.msgForPointer(navigate.id, .up).?, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expectEqualStrings("https://example.com/ok", panes[0].url);
+    try testing.expectEqualStrings("https://example.com/ok", model.browser_url());
+
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://b.example" } }, &fx);
+    main.update(&model, .browser_navigate, &fx);
+    tree = try buildTree(arena, &model);
+    const back = try expectButtonMsg(tree, "Back", .browser_back);
+    try testing.expect(!back.state.disabled);
+    main.update(&model, tree.msgForPointer(back.id, .up).?, &fx);
+    try testing.expectEqualStrings("https://example.com/ok", browser_pane.currentUrl(&model));
+
+    const reload = try expectButtonMsg(tree, "Reload", .browser_reload);
+    const before = panes[0].reload_token;
+    main.update(&model, tree.msgForPointer(reload.id, .up).?, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expect(panes[0].reload_token != before);
+    try testing.expectEqualStrings("https://example.com/ok", panes[0].url);
+
+    main.update(&model, .set_right_panel_tab_files, &fx);
+    try testing.expect(!model.right_panel_showing_browser());
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expect(panes[0].anchor == null);
+    try testing.expectEqual(@as(f32, 1), panes[0].frame.width);
+    try testing.expectEqualStrings("https://example.com/ok", panes[0].url);
 }
 
 fn findOpenUrlSpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
