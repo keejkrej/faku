@@ -590,7 +590,12 @@ inline preview is open. First-cut: the first Files preview open widens the pane 
 max 1000) so the bump does not snap back. Closing the preview keeps the pixel width until the next Files clamp
 (hide / Files tab without a preview / persist load). First-cut: opening Diff / Review widens the pane with Waku
 `REVIEW_INITIAL_WIDTH` 820 (`widenedPanelWidthForReview`: sanitize to RIGHT_PANEL 280–1000, then max with 820;
-measured `460 → 820`, already-wide ≥820 stays). Browser / Terminal / Background bump toward Waku
+measured `460 → 820`, already-wide ≥820 stays). When Diff has a file list and hunk
+text or hunk status, the Review body is a nested horizontal split: hunk/content
+on the left (grow) and the file list on the right at the same fitted FILE_TREE
+width as Files (default 184, clamp 140…min(360, panel−140); runtime-only
+`right_panel_diff_file_list_width`, not persisted). File-list-only or status/empty
+stays a full-height list (no forced empty split). Browser / Terminal / Background bump toward Waku
 `DEFAULT_RIGHT_PANEL_WIDTH` 460 when still file-tree-narrow
 and clamp from Waku `RIGHT_PANEL_MIN_WIDTH` 280 up to Waku `RIGHT_PANEL_MAX_WIDTH` 1000; switching back to Files without a preview reclamps to 360. Files width persists (`right_panel_open` /
 `right_panel_width`). Selected tab persists (`right_panel_tab`: `files` /

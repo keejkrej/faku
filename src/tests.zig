@@ -23386,6 +23386,14 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     _ = try expectButtonMsg(tree, "A new.txt", .{ .select_review_diff_file = 2 });
     try testing.expect(findByText(tree.root, .text, review_diff.comparing_status) == null);
     try testing.expect(findByText(tree.root, .scroll_view, "Review files") != null);
+    try testing.expect(!model.review_diff_nested_split());
+    try testing.expectEqual(@as(f32, 184), model.right_panel_diff_file_list_width);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "value=\"{right_panel_diff_file_list_split}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-resize=\"right_panel_diff_file_list_resized\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "test=\"{review_diff_nested_split}\"") != null);
+
+    main.update(&model, .{ .right_panel_diff_file_list_resized = 0.5 }, &fx);
+    try testing.expectEqual(@as(f32, 184), model.right_panel_diff_file_list_width);
 
     main.update(&model, tree.msgForPointer(file_row.id, .up).?, &fx);
     try testing.expectEqual(@as(u32, 1), model.review_diff_selected_id);
@@ -23403,11 +23411,23 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     drainEffects(&model, &fx);
     try testing.expect(model.has_review_diff_hunk());
     try testing.expect(std.mem.indexOf(u8, model.review_diff_hunk(), "+hello") != null);
+    try testing.expect(model.review_diff_nested_split());
+    try testing.expectEqual(@as(f32, 184), model.right_panel_diff_file_list_width);
+    try testing.expectEqual(@as(f32, (820.0 - 184.0) / 820.0), model.right_panel_diff_file_list_split());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, model.review_diff_hunk());
     try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") != null);
+    try testing.expect(findByText(tree.root, .scroll_view, "Review files") != null);
     const selected_row = try expectButtonMsg(tree, "M src/a.zig", .{ .select_review_diff_file = 1 });
     try testing.expect(selected_row.state.selected);
+    _ = try expectButtonMsg(tree, "Cancel", .close_review_diff);
+    const uncommitted_on_hunk = try expectButtonMsg(tree, "Uncommitted", .set_review_diff_source_uncommitted);
+    try testing.expect(uncommitted_on_hunk.state.selected);
+
+    main.update(&model, .{ .right_panel_diff_file_list_resized = 1 }, &fx);
+    try testing.expectEqual(@as(f32, 140), model.right_panel_diff_file_list_width);
+    main.update(&model, .{ .right_panel_diff_file_list_resized = 0 }, &fx);
+    try testing.expectEqual(@as(f32, 360), model.right_panel_diff_file_list_width);
 
     main.update(&model, .close_review_diff, &fx);
     try testing.expect(!model.review_diff_active);

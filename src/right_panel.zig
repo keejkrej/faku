@@ -167,13 +167,21 @@
 //! persist on `sessions.json` extras (`right_panel_tab` / `browser_url`;
 //! missing / unknown tab → `files`, missing / empty URL → empty draft).
 //! Selected Background row, Files preview, directory expands, nested
-//! file-tree width (`right_panel_file_tree_width`, default 184), and
-//! output stay runtime-only. Default `files` when the panel opens.
+//! file-tree width (`right_panel_file_tree_width`, default 184), nested
+//! Diff file-list width (`right_panel_diff_file_list_width`, default 184;
+//! FILE_TREE clamps, not a Waku REVIEW_* list width), and output stay
+//! runtime-only. Default `files` when the panel opens.
 //!
 //! When a Files preview is open, the Files tab is a nested horizontal
 //! split: preview/editor on the left (grow) and the working tree on
 //! the right at `fittedFileTreeWidth` (140…min(360, panel-140)).
 //! Tree-only Files stays a full-height list (no nested split).
+//!
+//! When Diff has a file list and hunk text or hunk status, the Review
+//! body is the same nested orientation: hunk/content on the left
+//! (grow) and the file list on the right at `fittedDiffFileListWidth`
+//! (reuses FILE_TREE 140 / 184 / 360). File-list-only or status/empty
+//! stays a full-height list (no forced empty split).
 //!
 //! Directory expand/collapse is a runtime-only set of relative dir
 //! paths matching `file_mention.derivedDirParents` (no trailing
@@ -442,6 +450,34 @@ pub fn applyFileTreeResize(model: *Model, fraction: f32) void {
     const dragged = @round(pane * (1.0 - frac));
     const tree = if (dragged > 0) dragged else main.right_panel_min_width;
     model.right_panel_file_tree_width = main.fittedFileTreeWidth(pane, tree);
+}
+
+/// Nested Diff split: file list beside hunk text or hunk status.
+pub fn showsDiffNestedSplit(model: *const Model) bool {
+    return review_diff.hasReviewDiffFiles(model) and
+        (review_diff.hasReviewDiffHunk(model) or review_diff.hasReviewDiffHunkStatus(model));
+}
+
+/// Nested Diff file-list width while hunk content sits beside the list:
+/// same FILE_TREE clamps as Files (`fittedFileTreeWidth`).
+pub fn fittedDiffFileListWidthForModel(model: *const Model) f32 {
+    return main.fittedDiffFileListWidth(model.right_panel_width, model.right_panel_diff_file_list_width);
+}
+
+/// Native nested-split left fraction (hunk pane) for Diff.
+pub fn diffFileListSplit(model: *const Model) f32 {
+    return main.diffFileListSplitFraction(model.right_panel_width, model.right_panel_diff_file_list_width);
+}
+
+/// Nested Diff file-list split `on-resize`. Stores a fitted list width.
+/// No-op when the nested split is not showing. Runtime-only; not persisted.
+pub fn applyDiffFileListResize(model: *Model, fraction: f32) void {
+    if (!showsDiffNestedSplit(model)) return;
+    const pane = @max(1, model.right_panel_width);
+    const frac = @max(0, @min(1, fraction));
+    const dragged = @round(pane * (1.0 - frac));
+    const list = if (dragged > 0) dragged else main.right_panel_min_width;
+    model.right_panel_diff_file_list_width = main.fittedDiffFileListWidth(pane, list);
 }
 
 /// Restore open flag, tab, and width from sessions.json. Sets the tab
@@ -1697,35 +1733,51 @@ test "file-tree widths match Waku DEFAULT_FILE_TREE / FILE_TREE_MIN / MAX" {
     try std.testing.expectEqual(@as(f32, 200), clampWidth(200));
 }
 
-test "fittedFileTreeWidth and nested split follow Waku tree clamps" {
-    try std.testing.expectEqual(@as(f32, 184), main.fittedFileTreeWidth(684, 184));
-    try std.testing.expectEqual(@as(f32, 140), main.fittedFileTreeWidth(280, 184));
-    try std.testing.expectEqual(@as(f32, 360), main.fittedFileTreeWidth(684, 500));
-    try std.testing.expectEqual(@as(f32, 260), main.fittedFileTreeWidth(400, 300));
-    try std.testing.expectEqual(@as(f32, 500.0 / 684.0), main.fileTreeSplitFraction(684, 184));
-    try std.testing.expectEqual(@as(f32, 0.5), main.fileTreeSplitFraction(280, 184));
+test "Diff nested file-list width reuses FILE_TREE clamps and resize floor" {
+    try std.testing.expectEqual(@as(f32, 184), main.fittedDiffFileListWidth(820, 184));
+    try std.testing.expectEqual(@as(f32, 140), main.fittedDiffFileListWidth(280, 184));
+    try std.testing.expectEqual(@as(f32, 360), main.fittedDiffFileListWidth(820, 500));
+    try std.testing.expectEqual(@as(f32, (820.0 - 184.0) / 820.0), main.diffFileListSplitFraction(820, 184));
+    try std.testing.expectEqual(@as(f32, 0.5), main.diffFileListSplitFraction(280, 184));
 
     var model = Model{};
     model.right_panel_open = true;
-    model.right_panel_width = 684;
-    try std.testing.expectEqual(@as(f32, 184), model.right_panel_file_tree_width);
-    try std.testing.expectEqual(@as(f32, 184), fittedFileTreeWidthForModel(&model));
-    try std.testing.expectEqual(@as(f32, 500.0 / 684.0), fileTreeSplit(&model));
-    try std.testing.expectEqual(@as(f32, 500.0 / 684.0), model.right_panel_file_tree_split());
+    model.right_panel_tab = .diff;
+    model.right_panel_width = 820;
+    try std.testing.expectEqual(@as(f32, 184), model.right_panel_diff_file_list_width);
+    try std.testing.expectEqual(@as(f32, 184), fittedDiffFileListWidthForModel(&model));
+    try std.testing.expectEqual(@as(f32, (820.0 - 184.0) / 820.0), diffFileListSplit(&model));
+    try std.testing.expectEqual(@as(f32, (820.0 - 184.0) / 820.0), model.right_panel_diff_file_list_split());
+    try std.testing.expect(!showsDiffNestedSplit(&model));
+    try std.testing.expect(!model.review_diff_nested_split());
 
-    applyFileTreeResize(&model, 0.5);
-    try std.testing.expectEqual(@as(f32, 184), model.right_panel_file_tree_width);
+    applyDiffFileListResize(&model, 0.5);
+    try std.testing.expectEqual(@as(f32, 184), model.right_panel_diff_file_list_width);
 
-    model.right_panel_file_preview_id = 1;
-    applyFileTreeResize(&model, (684.0 - 220.0) / 684.0);
-    try std.testing.expectEqual(@as(f32, 220), model.right_panel_file_tree_width);
-    applyFileTreeResize(&model, 0);
-    try std.testing.expectEqual(@as(f32, 360), model.right_panel_file_tree_width);
-    applyFileTreeResize(&model, 1);
-    try std.testing.expectEqual(@as(f32, 140), model.right_panel_file_tree_width);
+    model.review_diff_file_count = 1;
+    try std.testing.expect(!showsDiffNestedSplit(&model));
+    applyDiffFileListResize(&model, 0);
+    try std.testing.expectEqual(@as(f32, 184), model.right_panel_diff_file_list_width);
+
+    model.review_diff_hunk_len = 4;
+    try std.testing.expect(showsDiffNestedSplit(&model));
+    try std.testing.expect(model.review_diff_nested_split());
+    applyDiffFileListResize(&model, (820.0 - 220.0) / 820.0);
+    try std.testing.expectEqual(@as(f32, 220), model.right_panel_diff_file_list_width);
+    applyDiffFileListResize(&model, 0);
+    try std.testing.expectEqual(@as(f32, 360), model.right_panel_diff_file_list_width);
+    applyDiffFileListResize(&model, 1);
+    try std.testing.expectEqual(@as(f32, 140), model.right_panel_diff_file_list_width);
+
+    model.review_diff_hunk_len = 0;
+    model.review_diff_hunk_status_len = 8;
+    try std.testing.expect(showsDiffNestedSplit(&model));
+    applyDiffFileListResize(&model, (820.0 - 200.0) / 820.0);
+    try std.testing.expectEqual(@as(f32, 200), model.right_panel_diff_file_list_width);
+
     model.right_panel_width = 280;
-    try std.testing.expectEqual(@as(f32, 140), fittedFileTreeWidthForModel(&model));
-    try std.testing.expectEqual(@as(f32, 0.5), fileTreeSplit(&model));
+    try std.testing.expectEqual(@as(f32, 140), fittedDiffFileListWidthForModel(&model));
+    try std.testing.expectEqual(@as(f32, 0.5), diffFileListSplit(&model));
 }
 
 test "Diff tab default 460 / min 280 / max 1000; Browser Terminal Background share Diff clamp; Files clamp stays 360" {

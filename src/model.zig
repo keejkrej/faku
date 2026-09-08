@@ -453,6 +453,9 @@ pub const Msg = union(enum) {
     /// Nested Files-tree split drag while a preview is open. Fraction is
     /// the preview (left) pane of that nested split.
     right_panel_file_tree_resized: f32,
+    /// Nested Diff file-list split drag while hunk content sits beside
+    /// the list. Fraction is the hunk (left) pane of that nested split.
+    right_panel_diff_file_list_resized: f32,
     /// Files-pane file click. Payload is a 1-based file-mention cache id.
     open_right_panel_file: u32,
     /// Files-pane inline preview: close and return to the tree.
@@ -952,6 +955,10 @@ pub const Model = struct {
     /// Waku `DEFAULT_FILE_TREE_WIDTH` 184. Fitted at layout/resize via
     /// `fittedFileTreeWidth`. Not persisted to sessions.json this cut.
     right_panel_file_tree_width: f32 = right_panel_default_width,
+    /// Runtime-only nested Diff file-list width while hunk content sits
+    /// beside the list. Reuses FILE_TREE 184 / `fittedFileTreeWidth`
+    /// (no Waku REVIEW_* list-width constant). Not persisted this cut.
+    right_panel_diff_file_list_width: f32 = right_panel_default_width,
     /// Runtime-only Files-tab inline preview. 1-based file-mention id;
     /// 0 = tree only. Not persisted to sessions.json this cut.
     right_panel_file_preview_id: u32 = 0,
@@ -1939,8 +1946,10 @@ pub const Model = struct {
         "right_panel_expanded_store",
         "right_panel_expanded_count",
         "right_panel_file_tree_width",
+        "right_panel_diff_file_list_width",
         "applyRightPanelResize",
         "applyFileTreeResize",
+        "applyDiffFileListResize",
         "setAttachStatus",
         "clearAttachStatus",
         "window_status_storage",
@@ -2768,6 +2777,16 @@ pub const Model = struct {
         return right_panel.fileTreeSplit(model);
     }
 
+    /// Nested Diff split: file list beside hunk / hunk status.
+    pub fn review_diff_nested_split(model: *const Model) bool {
+        return right_panel.showsDiffNestedSplit(model);
+    }
+
+    /// Native nested Diff split: left fraction for the hunk column.
+    pub fn right_panel_diff_file_list_split(model: *const Model) f32 {
+        return right_panel.diffFileListSplit(model);
+    }
+
     pub fn file_preview_path(model: *const Model) []const u8 {
         return model.right_panel_file_preview_relpath_storage[0..model.right_panel_file_preview_relpath_len];
     }
@@ -3516,6 +3535,10 @@ pub const Model = struct {
 
     pub fn applyFileTreeResize(model: *Model, fraction: f32) void {
         right_panel.applyFileTreeResize(model, fraction);
+    }
+
+    pub fn applyDiffFileListResize(model: *Model, fraction: f32) void {
+        right_panel.applyDiffFileListResize(model, fraction);
     }
 
     pub fn openEditorPath(model: *const Model) []const u8 {

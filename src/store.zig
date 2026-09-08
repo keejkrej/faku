@@ -2405,6 +2405,8 @@ test "Background tab persists; selected row and output are not written to sessio
     environment_summary.appendLiveSubagentOutput(&source, "toolu_agent_persist", "secret subagent log");
     source.environment_summary_open = true;
     environment_summary.openBackgroundWork(&source, &fx, environment_summary.monitor_row_id_first);
+    source.right_panel_file_tree_width = 220;
+    source.right_panel_diff_file_list_width = 220;
     try saveSession(&source, id, allocator, io);
     persistLayoutIfPossible(&source);
     try testing.expect(source.right_panel_open);
@@ -2423,6 +2425,8 @@ test "Background tab persists; selected row and output are not written to sessio
     try testing.expect(std.mem.indexOf(u8, bytes, "right_panel_background") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "file_preview") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "file_preview_find") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "file_tree_width") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "diff_file_list_width") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "background_work") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "Agent turn") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "Running") == null);
@@ -2441,6 +2445,8 @@ test "Background tab persists; selected row and output are not written to sessio
     try testing.expectEqualStrings("", loaded.browser_url());
     try testing.expectEqual(@as(u32, 0), loaded.right_panel_background_row_id);
     try testing.expectEqual(@as(u32, 0), loaded.right_panel_file_preview_id);
+    try testing.expectEqual(@as(f32, 184), loaded.right_panel_file_tree_width);
+    try testing.expectEqual(@as(f32, 184), loaded.right_panel_diff_file_list_width);
     try testing.expect(!loaded.file_preview_find_active);
     try testing.expect(loaded.background_work_empty());
 }
