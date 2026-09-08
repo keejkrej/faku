@@ -206,9 +206,9 @@ pub fn handlePtyEvent(model: *Model, event: native_sdk.EffectPtyEvent) void {
             model.term_pty_live = false;
             model.term_ended = true;
             if (event.reason == .exited) {
-                setTermStatus(ended_status);
+                setTermStatus(model, ended_status);
             } else {
-                setTermStatus(failed_status);
+                setTermStatus(model, failed_status);
             }
         },
         .write => unreachable,
