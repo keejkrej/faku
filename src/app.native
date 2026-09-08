@@ -1340,15 +1340,35 @@
                   <scroll grow="1" label="Review files">
                     <column gap="2">
                       <for each="review_diff_rows" key="id" as="r">
-                        <row gap="6" cross="center">
-                          <button variant="ghost" size="sm" selected="{r.selected}" on-press="select_review_diff_file:{r.id}">{r.label}</button>
-                          <if test="{r.has_additions}">
-                            <text wrap="false" foreground="success">{r.additions_label}</text>
-                          </if>
-                          <if test="{r.has_deletions}">
-                            <text wrap="false" foreground="destructive">{r.deletions_label}</text>
-                          </if>
-                        </row>
+                        <if test="{r.is_directory}">
+                          <row gap="6" cross="center">
+                            <if test="{r.has_indent}">
+                              <spacer width="{r.indent}" />
+                            </if>
+                            <if test="{r.expanded}">
+                              <icon name="chevron-down" />
+                            </if>
+                            <else>
+                              <icon name="chevron-right" />
+                            </else>
+                            <icon name="folder" />
+                            <button variant="ghost" size="sm" on-press="toggle_review_diff_dir:{r.id}">{r.label}</button>
+                          </row>
+                        </if>
+                        <else>
+                          <row gap="6" cross="center">
+                            <if test="{r.has_indent}">
+                              <spacer width="{r.indent}" />
+                            </if>
+                            <button variant="ghost" size="sm" selected="{r.selected}" on-press="select_review_diff_file:{r.id}">{r.label}</button>
+                            <if test="{r.has_additions}">
+                              <text wrap="false" foreground="success">{r.additions_label}</text>
+                            </if>
+                            <if test="{r.has_deletions}">
+                              <text wrap="false" foreground="destructive">{r.deletions_label}</text>
+                            </if>
+                          </row>
+                        </else>
                       </for>
                     </column>
                   </scroll>
@@ -1361,15 +1381,35 @@
                 <scroll grow="1" label="Review files">
                   <column gap="2">
                     <for each="review_diff_rows" key="id" as="r">
-                      <row gap="6" cross="center">
-                        <button variant="ghost" size="sm" selected="{r.selected}" on-press="select_review_diff_file:{r.id}">{r.label}</button>
-                        <if test="{r.has_additions}">
-                          <text wrap="false" foreground="success">{r.additions_label}</text>
-                        </if>
-                        <if test="{r.has_deletions}">
-                          <text wrap="false" foreground="destructive">{r.deletions_label}</text>
-                        </if>
-                      </row>
+                      <if test="{r.is_directory}">
+                        <row gap="6" cross="center">
+                          <if test="{r.has_indent}">
+                            <spacer width="{r.indent}" />
+                          </if>
+                          <if test="{r.expanded}">
+                            <icon name="chevron-down" />
+                          </if>
+                          <else>
+                            <icon name="chevron-right" />
+                          </else>
+                          <icon name="folder" />
+                          <button variant="ghost" size="sm" on-press="toggle_review_diff_dir:{r.id}">{r.label}</button>
+                        </row>
+                      </if>
+                      <else>
+                        <row gap="6" cross="center">
+                          <if test="{r.has_indent}">
+                            <spacer width="{r.indent}" />
+                          </if>
+                          <button variant="ghost" size="sm" selected="{r.selected}" on-press="select_review_diff_file:{r.id}">{r.label}</button>
+                          <if test="{r.has_additions}">
+                            <text wrap="false" foreground="success">{r.additions_label}</text>
+                          </if>
+                          <if test="{r.has_deletions}">
+                            <text wrap="false" foreground="destructive">{r.deletions_label}</text>
+                          </if>
+                        </row>
+                      </else>
                     </for>
                   </column>
                 </scroll>

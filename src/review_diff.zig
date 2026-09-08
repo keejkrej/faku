@@ -85,10 +85,12 @@
 //! `shown_line` gutter (`new_line` else `old_line`); code-row
 //! body matches Waku `Line.content` (unified-diff marker
 //! stripped). Syntax-token highlighting still does not (Native
-//! has no per-span Token). File-list rows paint Waku-style
-//! `+N` / `-M` (success / destructive) from numstat when those
-//! counts are non-zero (daemon CollectReviewDiff and local
-//! `--numstat`; zeros omitted).
+//! has no per-span Token). File-list rows paint a first-cut nested
+//! directory tree matching Waku `review_diff_tree_rows` (Directory +
+//! File, default collapsed, basename leaves, no path filter). Status
+//! stays on the file label; Waku-style `+N` / `-M` (success /
+//! destructive) come from numstat when those counts are non-zero
+//! (daemon CollectReviewDiff and local `--numstat`; zeros omitted).
 //! `completeContext` daemon patches collapse long context into
 //! expandable Gaps; local compact `git diff` inserts count-only
 //! Gaps between hunks (hidden empty — expand is a no-op). Expand
@@ -159,6 +161,8 @@ const rewind = @import("rewind.zig");
 const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const protocol = @import("protocol.zig");
+const composer = @import("composer.zig");
+const file_mention = @import("file_mention.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -219,6 +223,18 @@ pub const CommittedRange = enum {
 };
 
 pub const max_review_diff_files: usize = 64;
+/// Unique parent dirs derived from the 64-file store. Same cap as
+/// files so the tree cannot outgrow the list it is built from.
+pub const max_review_diff_dirs: usize = 64;
+/// Dir-row ids start here so `select_review_diff_file:{r.id}` cannot
+/// collide with 1-based file ids (`1..=max_review_diff_files`).
+pub const review_diff_dir_id_base: u32 = 1000;
+/// Native spacer per tree depth. Waku dirs are `7 + depth*14` and
+/// files `23 + depth*14`; Native padding/gap plus this step
+/// approximate that without GPUI `px()`.
+pub const tree_indent_step: f32 = 14;
+/// Extra file gutter so leaves sit past dir chevron + folder.
+pub const tree_file_indent_extra: f32 = 16;
 pub const max_review_diff_path: usize = 255;
 /// `X ` plus path. Rename/copy uses the destination path only.
 pub const max_review_diff_label: usize = 258;
@@ -377,9 +393,12 @@ pub const no_workspace_status = "No workspace.";
 pub const hunk_empty_status = "No hunks";
 pub const hunk_failed_status = "Could not show diff.";
 
-/// Native `for each="review_diff_rows"` row. `id` is 1-based.
-/// `label` stays `{status} {path}`. Optional `+N` / `-M` live in
-/// `additions_label` / `deletions_label` (empty when the count is 0).
+/// Native `for each="review_diff_rows"` row. File `id` is 1-based
+/// into `review_diff_file_store`. Directory `id` is
+/// `review_diff_dir_id_base + parent_index`. File `label` is
+/// `{status} {basename}`; directory `label` is the path segment.
+/// Optional `+N` / `-M` live in `additions_label` / `deletions_label`
+/// (empty when the count is 0, and empty on directory rows).
 pub const ReviewDiffRow = struct {
     id: u32,
     label: []const u8,
@@ -388,6 +407,11 @@ pub const ReviewDiffRow = struct {
     deletions_label: []const u8 = "",
     has_additions: bool = false,
     has_deletions: bool = false,
+    is_directory: bool = false,
+    expanded: bool = false,
+    depth: u32 = 0,
+    has_indent: bool = false,
+    indent: f32 = 0,
 };
 
 /// Waku `LineKind` without syntax tokens. `gap` holds collapsed
@@ -1166,25 +1190,199 @@ pub fn hasReviewDiffFiles(model: *const Model) bool {
 }
 
 pub fn reviewDiffRows(model: *const Model, arena: std.mem.Allocator) []const ReviewDiffRow {
-    const n = model.review_diff_file_count;
-    if (n == 0) return &.{};
-    const out = arena.alloc(ReviewDiffRow, n) catch return &.{};
-    for (model.review_diff_file_store[0..n], 0..) |*file, i| {
-        out[i] = .{
-            .id = @intCast(i + 1),
-            .label = file.label(),
-            .selected = model.review_diff_selected_id == i + 1,
-            .additions_label = if (file.additions > 0) signedCountLabel(arena, '+', file.additions) else "",
-            .deletions_label = if (file.deletions > 0) signedCountLabel(arena, '-', file.deletions) else "",
-        };
-        out[i].has_additions = out[i].additions_label.len != 0;
-        out[i].has_deletions = out[i].deletions_label.len != 0;
+    const file_n = model.review_diff_file_count;
+    if (file_n == 0) return &.{};
+
+    var path_buf: [max_review_diff_files][]const u8 = undefined;
+    var dir_buf: [max_review_diff_dirs][]const u8 = undefined;
+    const dir_n = collectDirParents(model, &path_buf, &dir_buf);
+
+    var indexes: [max_review_diff_files]usize = undefined;
+    var i: usize = 0;
+    while (i < file_n) : (i += 1) indexes[i] = i;
+    std.mem.sort(usize, indexes[0..file_n], model, fileIndexLessThan);
+
+    var expanded_buf: [max_review_diff_dirs][]const u8 = undefined;
+    const expanded = expandedKeys(model, &expanded_buf);
+
+    const cap = file_n + dir_n;
+    const out = arena.alloc(ReviewDiffRow, cap) catch return &.{};
+    var n: usize = 0;
+    var emitted_n: usize = 0;
+    var emitted: [max_review_diff_dirs][]const u8 = undefined;
+
+    for (indexes[0..file_n]) |file_index| {
+        const file = &model.review_diff_file_store[file_index];
+        const path = file.path();
+        var start: usize = 0;
+        var depth: u32 = 0;
+        var visible = true;
+        while (std.mem.indexOfScalarPos(u8, path, start, '/')) |slash| {
+            const directory = path[0..slash];
+            const dir_expanded = containsKey(expanded, directory);
+            if (visible and !containsKey(emitted[0..emitted_n], directory)) {
+                if (emitted_n < emitted.len) {
+                    emitted[emitted_n] = directory;
+                    emitted_n += 1;
+                }
+                if (dirIdOf(dir_buf[0..dir_n], directory)) |id| {
+                    if (n < out.len) {
+                        out[n] = makeDirRow(directory, id, depth, dir_expanded);
+                        n += 1;
+                    }
+                }
+            }
+            if (!dir_expanded) {
+                visible = false;
+                break;
+            }
+            start = slash + 1;
+            depth += 1;
+        }
+        if (visible and n < out.len) {
+            out[n] = makeFileRow(arena, model, file, @intCast(file_index + 1), depth);
+            n += 1;
+        }
     }
-    return out;
+    return out[0..n];
 }
 
 fn signedCountLabel(arena: std.mem.Allocator, sign: u8, count: u64) []const u8 {
     return std.fmt.allocPrint(arena, "{c}{d}", .{ sign, count }) catch "";
+}
+
+fn fileIndexLessThan(model: *const Model, a: usize, b: usize) bool {
+    const order = pathOrderIgnoreCase(model.review_diff_file_store[a].path(), model.review_diff_file_store[b].path());
+    if (order != .eq) return order == .lt;
+    return a < b;
+}
+
+fn pathOrderIgnoreCase(a: []const u8, b: []const u8) std.math.Order {
+    const n = @min(a.len, b.len);
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const ca = std.ascii.toLower(a[i]);
+        const cb = std.ascii.toLower(b[i]);
+        if (ca < cb) return .lt;
+        if (ca > cb) return .gt;
+    }
+    if (a.len < b.len) return .lt;
+    if (a.len > b.len) return .gt;
+    return .eq;
+}
+
+fn makeDirRow(path: []const u8, id: u32, depth: u32, expanded: bool) ReviewDiffRow {
+    const indent = @as(f32, @floatFromInt(depth)) * tree_indent_step;
+    return .{
+        .id = id,
+        .label = composer.fileMentionBasename(path),
+        .is_directory = true,
+        .expanded = expanded,
+        .depth = depth,
+        .has_indent = indent > 0,
+        .indent = indent,
+    };
+}
+
+fn makeFileRow(arena: std.mem.Allocator, model: *const Model, file: *const ChangedFile, id: u32, depth: u32) ReviewDiffRow {
+    const basename = composer.fileMentionBasename(file.path());
+    const label = std.fmt.allocPrint(arena, "{c} {s}", .{ file.status, basename }) catch file.label();
+    const indent = @as(f32, @floatFromInt(depth)) * tree_indent_step + tree_file_indent_extra;
+    var row: ReviewDiffRow = .{
+        .id = id,
+        .label = label,
+        .selected = model.review_diff_selected_id == id,
+        .additions_label = if (file.additions > 0) signedCountLabel(arena, '+', file.additions) else "",
+        .deletions_label = if (file.deletions > 0) signedCountLabel(arena, '-', file.deletions) else "",
+        .depth = depth,
+        .has_indent = indent > 0,
+        .indent = indent,
+    };
+    row.has_additions = row.additions_label.len != 0;
+    row.has_deletions = row.deletions_label.len != 0;
+    return row;
+}
+
+fn collectDirParents(
+    model: *const Model,
+    path_buf: *[max_review_diff_files][]const u8,
+    dir_buf: *[max_review_diff_dirs][]const u8,
+) usize {
+    const n = @min(model.review_diff_file_count, max_review_diff_files);
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        path_buf[i] = model.review_diff_file_store[i].path();
+    }
+    return file_mention.collectDerivedDirParents(path_buf[0..n], dir_buf);
+}
+
+fn dirIdOf(dirs: []const []const u8, path: []const u8) ?u32 {
+    for (dirs, 0..) |dir, i| {
+        if (std.mem.eql(u8, dir, path)) return review_diff_dir_id_base + @as(u32, @intCast(i));
+    }
+    return null;
+}
+
+pub fn dirId(index: usize) u32 {
+    return review_diff_dir_id_base + @as(u32, @intCast(index));
+}
+
+fn expandedKeys(model: *const Model, buf: [][]const u8) []const []const u8 {
+    const n = @min(model.review_diff_expanded_count, buf.len);
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        buf[i] = model.review_diff_expanded_store[i].text();
+    }
+    return buf[0..n];
+}
+
+fn containsKey(keys: []const []const u8, needle: []const u8) bool {
+    for (keys) |item| {
+        if (std.mem.eql(u8, item, needle)) return true;
+    }
+    return false;
+}
+
+fn indexOfExpanded(model: *const Model, key: []const u8) ?usize {
+    var i: usize = 0;
+    while (i < model.review_diff_expanded_count) : (i += 1) {
+        if (std.mem.eql(u8, model.review_diff_expanded_store[i].text(), key)) return i;
+    }
+    return null;
+}
+
+fn removeExpandedAt(model: *Model, index: usize) void {
+    if (index >= model.review_diff_expanded_count) return;
+    var i = index;
+    while (i + 1 < model.review_diff_expanded_count) : (i += 1) {
+        model.review_diff_expanded_store[i] = model.review_diff_expanded_store[i + 1];
+    }
+    model.review_diff_expanded_count -= 1;
+}
+
+fn clearExpanded(model: *Model) void {
+    model.review_diff_expanded_count = 0;
+}
+
+/// Toggle a Diff directory row. File ids and missing dir ids are
+/// no-ops. Cap is `max_review_diff_dirs`. Paint-only — does not
+/// re-probe CollectReviewDiff / numstat.
+pub fn toggleDir(model: *Model, id: u32) void {
+    if (id < review_diff_dir_id_base) return;
+    const dir_index = id - review_diff_dir_id_base;
+    var path_buf: [max_review_diff_files][]const u8 = undefined;
+    var dir_buf: [max_review_diff_dirs][]const u8 = undefined;
+    const dir_n = collectDirParents(model, &path_buf, &dir_buf);
+    if (dir_index >= dir_n) return;
+    const key = dir_buf[dir_index];
+    if (key.len == 0) return;
+    if (indexOfExpanded(model, key)) |index| {
+        removeExpandedAt(model, index);
+        return;
+    }
+    if (model.review_diff_expanded_count >= max_review_diff_dirs) return;
+    model.review_diff_expanded_store[model.review_diff_expanded_count].set(key);
+    model.review_diff_expanded_count += 1;
 }
 
 pub fn reviewDiffHunk(model: *const Model) []const u8 {
@@ -1858,6 +2056,7 @@ pub fn close(model: *Model, fx: *Effects) void {
     clearFiles(model);
     clearStatus(model);
     clearHunks(model);
+    clearExpanded(model);
     model.review_diff_probe_session = 0;
     model.review_diff_probe_path_len = 0;
     model.review_diff_committed_range = .origin;
@@ -2117,7 +2316,8 @@ fn startHunkProbe(model: *Model, fx: *Effects, file_path: []const u8, no_index: 
 /// Cancels any in-flight hunk and clears the previous body.
 pub fn selectFile(model: *Model, fx: *Effects, id: u32) void {
     if (!model.review_diff_active) return;
-    if (id == 0 or id > model.review_diff_file_count) return;
+    if (id == 0 or id >= review_diff_dir_id_base) return;
+    if (id > model.review_diff_file_count) return;
     const file = &model.review_diff_file_store[id - 1];
     cancelHunkInFlight(model, fx);
     clearHunkBody(model);
@@ -3361,7 +3561,7 @@ test "numstat lines fill capped rows; empty and fail stay honest" {
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
 }
 
-test "reviewDiffRows paints +N / -M from numstat counts and omits zeros" {
+test "reviewDiffRows paints a collapsed directory tree and +N / -M on expanded leaves" {
     var model = Model{};
     model.review_diff_file_store[0].setCounts('A', "src/a.zig", 1, 0);
     model.review_diff_file_store[1].setCounts('M', "src/b.zig", 2, 1);
@@ -3369,20 +3569,150 @@ test "reviewDiffRows paints +N / -M from numstat counts and omits zeros" {
     model.review_diff_file_count = 3;
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    {
+        const rows = reviewDiffRows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 2), rows.len);
+        try std.testing.expectEqualStrings("D gone.txt", rows[0].label);
+        try std.testing.expectEqual(@as(u32, 3), rows[0].id);
+        try std.testing.expect(!rows[0].is_directory);
+        try std.testing.expectEqual(@as(u32, 0), rows[0].depth);
+        try std.testing.expect(!rows[0].has_additions);
+        try std.testing.expectEqualStrings("src", rows[1].label);
+        try std.testing.expect(rows[1].is_directory);
+        try std.testing.expect(!rows[1].expanded);
+        try std.testing.expectEqual(dirId(0), rows[1].id);
+        try std.testing.expectEqual(@as(u32, 0), rows[1].depth);
+        try std.testing.expect(!rows[1].has_additions);
+        try std.testing.expect(!rows[1].has_deletions);
+    }
+
+    toggleDir(&model, dirId(0));
+    {
+        const rows = reviewDiffRows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 4), rows.len);
+        try std.testing.expectEqualStrings("D gone.txt", rows[0].label);
+        try std.testing.expectEqualStrings("src", rows[1].label);
+        try std.testing.expect(rows[1].expanded);
+        try std.testing.expectEqualStrings("A a.zig", rows[2].label);
+        try std.testing.expectEqual(@as(u32, 1), rows[2].id);
+        try std.testing.expectEqual(@as(u32, 1), rows[2].depth);
+        try std.testing.expect(rows[2].has_indent);
+        try std.testing.expectEqual(tree_indent_step + tree_file_indent_extra, rows[2].indent);
+        try std.testing.expectEqualStrings("+1", rows[2].additions_label);
+        try std.testing.expect(rows[2].has_additions);
+        try std.testing.expect(!rows[2].has_deletions);
+        try std.testing.expectEqualStrings("M b.zig", rows[3].label);
+        try std.testing.expectEqual(@as(u32, 2), rows[3].id);
+        try std.testing.expectEqualStrings("+2", rows[3].additions_label);
+        try std.testing.expectEqualStrings("-1", rows[3].deletions_label);
+        try std.testing.expect(rows[3].has_additions);
+        try std.testing.expect(rows[3].has_deletions);
+    }
+
+    toggleDir(&model, 0);
+    toggleDir(&model, 1);
+    toggleDir(&model, dirId(99));
+    try std.testing.expectEqual(@as(u32, 1), model.review_diff_expanded_count);
+    toggleDir(&model, dirId(0));
+    try std.testing.expectEqual(@as(u32, 0), model.review_diff_expanded_count);
+}
+
+test "reviewDiffRows flat root files have no directory rows" {
+    var model = Model{};
+    model.review_diff_file_store[0].setCounts('A', "new.txt", 4, 0);
+    model.review_diff_file_store[1].set('D', "gone.txt");
+    model.review_diff_file_count = 2;
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
     const rows = reviewDiffRows(&model, arena_state.allocator());
-    try std.testing.expectEqual(@as(usize, 3), rows.len);
-    try std.testing.expectEqualStrings("A src/a.zig", rows[0].label);
-    try std.testing.expectEqualStrings("+1", rows[0].additions_label);
-    try std.testing.expect(rows[0].has_additions);
-    try std.testing.expect(!rows[0].has_deletions);
-    try std.testing.expectEqualStrings("M src/b.zig", rows[1].label);
-    try std.testing.expectEqualStrings("+2", rows[1].additions_label);
-    try std.testing.expectEqualStrings("-1", rows[1].deletions_label);
-    try std.testing.expect(rows[1].has_additions);
-    try std.testing.expect(rows[1].has_deletions);
-    try std.testing.expectEqualStrings("D gone.txt", rows[2].label);
-    try std.testing.expect(!rows[2].has_additions);
-    try std.testing.expect(!rows[2].has_deletions);
+    try std.testing.expectEqual(@as(usize, 2), rows.len);
+    try std.testing.expectEqualStrings("D gone.txt", rows[0].label);
+    try std.testing.expect(!rows[0].is_directory);
+    try std.testing.expectEqual(@as(u32, 2), rows[0].id);
+    try std.testing.expectEqualStrings("A new.txt", rows[1].label);
+    try std.testing.expectEqual(@as(u32, 1), rows[1].id);
+    try std.testing.expectEqualStrings("+4", rows[1].additions_label);
+    try std.testing.expect(!rows[0].is_directory and !rows[1].is_directory);
+}
+
+test "reviewDiffRows builds shared directories once and hides collapsed descendants" {
+    var model = Model{};
+    model.review_diff_file_store[0].set('M', "README.md");
+    model.review_diff_file_store[1].set('M', "src/app/runtime.rs");
+    model.review_diff_file_store[2].set('M', "src/app/view.rs");
+    model.review_diff_file_store[3].set('M', "src/lib.rs");
+    model.review_diff_file_store[4].set('M', "tests/review.rs");
+    model.review_diff_file_count = 5;
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    {
+        const rows = reviewDiffRows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 3), rows.len);
+        try std.testing.expectEqualStrings("M README.md", rows[0].label);
+        try std.testing.expectEqual(@as(u32, 1), rows[0].id);
+        try std.testing.expectEqual(@as(u32, 0), rows[0].depth);
+        try std.testing.expectEqualStrings("src", rows[1].label);
+        try std.testing.expect(rows[1].is_directory);
+        try std.testing.expect(!rows[1].expanded);
+        try std.testing.expectEqualStrings("tests", rows[2].label);
+        try std.testing.expect(rows[2].is_directory);
+        try std.testing.expect(!rows[2].expanded);
+    }
+
+    const src_id = dirIdOfPath(&model, "src") orelse return error.MissingSrcDir;
+    const tests_id = dirIdOfPath(&model, "tests") orelse return error.MissingTestsDir;
+    const src_app_id = dirIdOfPath(&model, "src/app") orelse return error.MissingSrcAppDir;
+    toggleDir(&model, src_id);
+    toggleDir(&model, tests_id);
+    {
+        const rows = reviewDiffRows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 6), rows.len);
+        try std.testing.expectEqualStrings("M README.md", rows[0].label);
+        try std.testing.expectEqualStrings("src", rows[1].label);
+        try std.testing.expect(rows[1].expanded);
+        try std.testing.expectEqualStrings("app", rows[2].label);
+        try std.testing.expect(rows[2].is_directory);
+        try std.testing.expect(!rows[2].expanded);
+        try std.testing.expectEqual(@as(u32, 1), rows[2].depth);
+        try std.testing.expectEqual(src_app_id, rows[2].id);
+        try std.testing.expectEqualStrings("M lib.rs", rows[3].label);
+        try std.testing.expectEqual(@as(u32, 4), rows[3].id);
+        try std.testing.expectEqual(@as(u32, 1), rows[3].depth);
+        try std.testing.expectEqualStrings("tests", rows[4].label);
+        try std.testing.expect(rows[4].expanded);
+        try std.testing.expectEqualStrings("M review.rs", rows[5].label);
+        try std.testing.expectEqual(@as(u32, 5), rows[5].id);
+        var i: usize = 0;
+        while (i < rows.len) : (i += 1) {
+            try std.testing.expect(rows[i].id != 2);
+            try std.testing.expect(rows[i].id != 3);
+        }
+    }
+
+    toggleDir(&model, src_app_id);
+    {
+        const rows = reviewDiffRows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 8), rows.len);
+        try std.testing.expectEqualStrings("app", rows[2].label);
+        try std.testing.expect(rows[2].expanded);
+        try std.testing.expectEqualStrings("M runtime.rs", rows[3].label);
+        try std.testing.expectEqual(@as(u32, 2), rows[3].id);
+        try std.testing.expectEqual(@as(u32, 2), rows[3].depth);
+        try std.testing.expectEqualStrings("M view.rs", rows[4].label);
+        try std.testing.expectEqual(@as(u32, 3), rows[4].id);
+        try std.testing.expectEqualStrings("M lib.rs", rows[5].label);
+    }
+}
+
+fn dirIdOfPath(model: *const Model, path: []const u8) ?u32 {
+    var path_buf: [max_review_diff_files][]const u8 = undefined;
+    var dir_buf: [max_review_diff_dirs][]const u8 = undefined;
+    const dir_n = collectDirParents(model, &path_buf, &dir_buf);
+    return dirIdOf(dir_buf[0..dir_n], path);
 }
 
 test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Unstaged Committed" {
