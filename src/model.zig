@@ -923,8 +923,8 @@ pub const Model = struct {
     right_panel_split: f32 = default_right_panel_split,
     /// Last pane width in pixels. Files tab clamps to the file-tree
     /// 184/140/360. Diff, Browser, Terminal, and Background tabs may
-    /// bump toward Waku `DEFAULT_RIGHT_PANEL_WIDTH` 460. Hide reclamps
-    /// to the file-tree max.
+    /// bump toward Waku `DEFAULT_RIGHT_PANEL_WIDTH` 460 and clamp up to
+    /// Waku `RIGHT_PANEL_MAX_WIDTH` 1000. Hide reclamps to the file-tree max.
     right_panel_width: f32 = right_panel_default_width,
     /// Files | Diff | Browser | Terminal | Background surface. Default
     /// `files` when the panel opens. Persisted on sessions.json extras
