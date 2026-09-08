@@ -4270,6 +4270,7 @@ test "clicking a tracked row fills capped patch text; empty and fail stay honest
     var model = Model{};
     defer freeReviewDiffStores(&model);
     model.store_io = std.testing.io;
+    const id = model.addSession("review hunk", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
 
