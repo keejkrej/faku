@@ -1,6 +1,7 @@
 <!-- Faku: Waku-shaped chrome — sidebar, header, transcript, queue, composer. -->
 <template name="review-hunk-rows">
-  <for each="review_diff_hunk_rows" key="id" as="h">
+  <column gap="2">
+    <for each="review_diff_hunk_rows" key="id" as="h">
     <if test="{h.is_gap}">
       <row gap="6" cross="center">
         <text wrap="true" foreground="text_muted">{h.text}</text>
@@ -93,6 +94,7 @@
       </else>
     </else>
   </for>
+  </column>
 </template>
 <column background="background">
   <split grow="1" value="{sidebar_split}" on-resize="sidebar_resized">
@@ -1402,9 +1404,7 @@
                   </if>
                   <if test="{has_review_diff_hunk}">
                     <scroll grow="1" label="Review hunks">
-                      <column gap="2">
-                        <use template="review-hunk-rows" />
-                      </column>
+                      <use template="review-hunk-rows" />
                     </scroll>
                   </if>
                 </column>
@@ -1538,9 +1538,7 @@
               </if>
               <if test="{has_review_diff_hunk}">
                 <scroll grow="1" label="Review hunks">
-                  <column gap="2">
-                    <use template="review-hunk-rows" />
-                  </column>
+                  <use template="review-hunk-rows" />
                 </scroll>
               </if>
               </column>
