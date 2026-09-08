@@ -23414,6 +23414,11 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "toggle_review_diff_dir:{r.id}"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "on-input=\"review_diff_filter_edit\""));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "placeholder=\"Filter files\""));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "has_review_diff_hunk_file_header"));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{review_diff_hunk_file_path}"));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{review_diff_hunk_file_additions_label}"));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{review_diff_hunk_file_deletions_label}"));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "height=\"36\""));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"right-panel-diff-filter\"") != null);
     try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter files") != null);
 
@@ -23432,6 +23437,8 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
 
     main.update(&model, tree.msgForPointer(file_row.id, .up).?, &fx);
     try testing.expectEqual(@as(u32, 1), model.review_diff_selected_id);
+    try testing.expect(!model.has_review_diff_hunk_file_header());
+    try testing.expectEqualStrings("src/a.zig", model.review_diff_hunk_file_path());
     try testing.expect(model.review_diff_hunk_key >= main.review_diff_hunk_key_first);
     const hunk = findGitReviewHunkSpawnKey(&fx, model.review_diff_hunk_key) orelse return error.MissingReviewHunkSpawn;
     try testing.expect(review_diff.isGitReviewHunkArgv(hunk.argv));
@@ -23445,12 +23452,15 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try fx.feedExit(hunk.key, 0);
     drainEffects(&model, &fx);
     try testing.expect(model.has_review_diff_hunk());
+    try testing.expect(model.has_review_diff_hunk_file_header());
+    try testing.expectEqualStrings("src/a.zig", model.review_diff_hunk_file_path());
     try testing.expect(std.mem.indexOf(u8, model.review_diff_hunk(), "+hello") != null);
     try testing.expect(model.review_diff_nested_split());
     try testing.expectEqual(@as(f32, 184), model.right_panel_diff_file_list_width);
     try testing.expectEqual(@as(f32, (820.0 - 184.0) / 820.0), model.right_panel_diff_file_list_split());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "hello");
+    _ = try expectByText(tree.root, .text, "src/a.zig");
     try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") != null);
     try testing.expect(findByText(tree.root, .scroll_view, "Review files") != null);
     const selected_row = try expectButtonMsg(tree, "M a.zig", .{ .select_review_diff_file = 1 });
@@ -23466,8 +23476,11 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
 
     main.update(&model, .close_review_diff, &fx);
     try testing.expect(!model.review_diff_active);
+    try testing.expect(!model.has_review_diff_hunk_file_header());
+    try testing.expectEqualStrings("", model.review_diff_hunk_file_path());
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "Review") == null);
+    try testing.expect(findByText(tree.root, .text, "src/a.zig") == null);
 
     main.update(&model, .environment_compare, &fx);
     try testing.expect(model.review_diff_active);

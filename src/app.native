@@ -1289,6 +1289,18 @@
               <if test="{review_diff_nested_split}">
                 <split grow="1" value="{right_panel_diff_file_list_split}" on-resize="right_panel_diff_file_list_resized">
                 <column grow="1" min-width="140" gap="6">
+                  <if test="{has_review_diff_hunk_file_header}">
+                    <row height="36" gap="6" cross="center">
+                      <text wrap="false" overflow="ellipsis" grow="1" foreground="text_muted">{review_diff_hunk_file_path}</text>
+                      <if test="{has_review_diff_hunk_file_additions}">
+                        <text wrap="false" foreground="success">{review_diff_hunk_file_additions_label}</text>
+                      </if>
+                      <if test="{has_review_diff_hunk_file_deletions}">
+                        <text wrap="false" foreground="destructive">{review_diff_hunk_file_deletions_label}</text>
+                      </if>
+                    </row>
+                    <separator />
+                  </if>
                   <if test="{has_review_diff_hunk_status}">
                     <text wrap="true" foreground="text_muted">{review_diff_hunk_status}</text>
                   </if>
@@ -1419,6 +1431,18 @@
                     </for>
                   </column>
                 </scroll>
+              </if>
+              <if test="{has_review_diff_hunk_file_header}">
+                <row height="36" gap="6" cross="center">
+                  <text wrap="false" overflow="ellipsis" grow="1" foreground="text_muted">{review_diff_hunk_file_path}</text>
+                  <if test="{has_review_diff_hunk_file_additions}">
+                    <text wrap="false" foreground="success">{review_diff_hunk_file_additions_label}</text>
+                  </if>
+                  <if test="{has_review_diff_hunk_file_deletions}">
+                    <text wrap="false" foreground="destructive">{review_diff_hunk_file_deletions_label}</text>
+                  </if>
+                </row>
+                <separator />
               </if>
               <if test="{has_review_diff_hunk_status}">
                 <text wrap="true" foreground="text_muted">{review_diff_hunk_status}</text>

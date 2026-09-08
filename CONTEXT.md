@@ -667,7 +667,12 @@ numstat; zeros omitted; daemon CollectReviewDiff and local
 + ascii-lowercase contains on the full path; a non-empty query
 auto-expands ancestor directories. Empty / whitespace-only is
 today's collapsed tree. Leaving Diff (other tab / panel hide)
-clears the filter. Browser is an
+clears the filter. First-cut selected-file Diff header chrome ships
+above the hunk pane (path + optional `+N` / `-M`, ~36px, outside
+Native `<scroll>`, nested-split and stacked hunk layouts). Waku's
+scroll-driven sticky overlay (`file_headers_around` / item_ix)
+stays Native-blocked (no documented virtualized item index /
+absolute sticky-over-scroll API). Browser is an
 honest empty: Native has no webview; a persisted URL draft plus
 **Open in browser** spawns `open` / `xdg-open` / Windows
 `cmd.exe /c start "" <url>` (effect key 25; empty `start` title so

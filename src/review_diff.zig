@@ -94,6 +94,10 @@
 //! tree. Status stays on the file label; Waku-style `+N` / `-M` (success /
 //! destructive) come from numstat when those counts are non-zero
 //! (daemon CollectReviewDiff and local `--numstat`; zeros omitted).
+//! First-cut selected-file Diff header chrome ships above the hunk
+//! pane (path + optional `+N` / `-M`, ~36px, outside Native
+//! `<scroll>`). Waku's scroll-driven sticky overlay
+//! (`file_headers_around` / item_ix) stays Native-blocked.
 //! `completeContext` daemon patches collapse long context into
 //! expandable Gaps; local compact `git diff` inserts count-only
 //! Gaps between hunks (hidden empty — expand is a no-op). Expand
@@ -119,7 +123,10 @@
 //! syntax-token highlighting (no per-span Token), GPUI match
 //! washes, circular GPUI gauge, file-mention 50k index (Faku cap
 //! 256), chart 12% fill opacity, amend/force over daemon, remote
-//! `--track` over daemon.
+//! `--track` over daemon, Waku scroll-driven sticky Diff file
+//! header (Native has no virtualized item index / absolute
+//! sticky-over-scroll API; first-cut always-visible selected-file
+//! chrome ships).
 //! Not transcript checkpoint +/-.
 //! LastTurn uses stored shas, not the refs, and not a
 //! `refs/waku/` Compare operand.
@@ -1435,6 +1442,54 @@ pub fn hasReviewDiffHunkStatus(model: *const Model) bool {
 
 pub fn hasReviewDiffHunkRows(model: *const Model) bool {
     return model.review_diff_visible_count > 0;
+}
+
+fn selectedReviewDiffFile(model: *const Model) ?*const ChangedFile {
+    const id = model.review_diff_selected_id;
+    if (id == 0 or id > model.review_diff_file_count) return null;
+    return &model.review_diff_file_store[id - 1];
+}
+
+/// Path for the selected-file hunk header. Prefers the hunk-probe
+/// store written in `startHunkProbe`; else the selected
+/// `ChangedFile` path (daemon CollectReviewDiff paints hunks
+/// without that spawn).
+pub fn reviewDiffHunkFilePath(model: *const Model) []const u8 {
+    if (model.review_diff_hunk_path_len > 0) {
+        return model.review_diff_hunk_path_storage[0..model.review_diff_hunk_path_len];
+    }
+    const file = selectedReviewDiffFile(model) orelse return "";
+    return file.path();
+}
+
+/// Always-visible chrome above the hunk pane when a Diff file is
+/// selected and that pane is showing hunk rows and/or hunk status.
+/// Hide when close/clear drops selected-id or the hunk surface.
+pub fn hasReviewDiffHunkFileHeader(model: *const Model) bool {
+    if (model.review_diff_selected_id == 0) return false;
+    return hasReviewDiffHunk(model) or hasReviewDiffHunkStatus(model);
+}
+
+pub fn hasReviewDiffHunkFileAdditions(model: *const Model) bool {
+    const file = selectedReviewDiffFile(model) orelse return false;
+    return file.additions > 0;
+}
+
+pub fn hasReviewDiffHunkFileDeletions(model: *const Model) bool {
+    const file = selectedReviewDiffFile(model) orelse return false;
+    return file.deletions > 0;
+}
+
+pub fn reviewDiffHunkFileAdditionsLabel(model: *const Model, arena: std.mem.Allocator) []const u8 {
+    const file = selectedReviewDiffFile(model) orelse return "";
+    if (file.additions == 0) return "";
+    return signedCountLabel(arena, '+', file.additions);
+}
+
+pub fn reviewDiffHunkFileDeletionsLabel(model: *const Model, arena: std.mem.Allocator) []const u8 {
+    const file = selectedReviewDiffFile(model) orelse return "";
+    if (file.deletions == 0) return "";
+    return signedCountLabel(arena, '-', file.deletions);
 }
 
 fn lineContent(model: *const Model, line: DiffLine) []const u8 {
@@ -5550,4 +5605,59 @@ fn runLastTurnGitCapture(allocator: std.mem.Allocator, io: std.Io, argv: []const
         return error.GitFailed;
     }
     return result.stdout;
+}
+
+test "selected-file hunk header path, +/- omit zeros, and hide until hunk surface" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    try std.testing.expect(!hasReviewDiffHunkFileHeader(&model));
+    try std.testing.expectEqualStrings("", reviewDiffHunkFilePath(&model));
+    try std.testing.expect(!hasReviewDiffHunkFileAdditions(&model));
+    try std.testing.expect(!hasReviewDiffHunkFileDeletions(&model));
+    try std.testing.expectEqualStrings("", reviewDiffHunkFileAdditionsLabel(&model, arena));
+    try std.testing.expectEqualStrings("", reviewDiffHunkFileDeletionsLabel(&model, arena));
+
+    model.review_diff_file_store[0].setCounts('M', "src/a.zig", 2, 0);
+    model.review_diff_file_count = 1;
+    model.review_diff_selected_id = 1;
+    try std.testing.expect(!hasReviewDiffHunkFileHeader(&model));
+    try std.testing.expectEqualStrings("src/a.zig", reviewDiffHunkFilePath(&model));
+    try std.testing.expect(hasReviewDiffHunkFileAdditions(&model));
+    try std.testing.expect(!hasReviewDiffHunkFileDeletions(&model));
+    try std.testing.expectEqualStrings("+2", reviewDiffHunkFileAdditionsLabel(&model, arena));
+    try std.testing.expectEqualStrings("", reviewDiffHunkFileDeletionsLabel(&model, arena));
+
+    writeFixed(&model.review_diff_hunk_path_storage, &model.review_diff_hunk_path_len, "lib/b.zig");
+    try std.testing.expectEqualStrings("lib/b.zig", reviewDiffHunkFilePath(&model));
+
+    writeFixed(&model.review_diff_hunk_status_storage, &model.review_diff_hunk_status_len, hunk_empty_status);
+    try std.testing.expect(hasReviewDiffHunkFileHeader(&model));
+
+    model.review_diff_file_store[0].setCounts('M', "src/a.zig", 0, 3);
+    try std.testing.expect(!hasReviewDiffHunkFileAdditions(&model));
+    try std.testing.expect(hasReviewDiffHunkFileDeletions(&model));
+    try std.testing.expectEqualStrings("", reviewDiffHunkFileAdditionsLabel(&model, arena));
+    try std.testing.expectEqualStrings("-3", reviewDiffHunkFileDeletionsLabel(&model, arena));
+
+    model.review_diff_file_store[0].setCounts('M', "src/a.zig", 0, 0);
+    try std.testing.expect(!hasReviewDiffHunkFileAdditions(&model));
+    try std.testing.expect(!hasReviewDiffHunkFileDeletions(&model));
+    try std.testing.expectEqualStrings("", reviewDiffHunkFileAdditionsLabel(&model, arena));
+    try std.testing.expectEqualStrings("", reviewDiffHunkFileDeletionsLabel(&model, arena));
+
+    model.review_diff_hunk_status_len = 0;
+    model.review_diff_hunk_len = 1;
+    try std.testing.expect(hasReviewDiffHunkFileHeader(&model));
+
+    model.review_diff_selected_id = 0;
+    try std.testing.expect(!hasReviewDiffHunkFileHeader(&model));
+    try std.testing.expectEqualStrings("lib/b.zig", reviewDiffHunkFilePath(&model));
+
+    model.review_diff_hunk_path_len = 0;
+    try std.testing.expectEqualStrings("", reviewDiffHunkFilePath(&model));
+    try std.testing.expect(!hasReviewDiffHunkFileAdditions(&model));
+    try std.testing.expect(!hasReviewDiffHunkFileDeletions(&model));
 }
