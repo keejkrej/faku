@@ -409,7 +409,9 @@ address keeps today's local path). First-cut daemon
 `WorkspaceOperation::CollectReviewDiff` ships on Review / Diff
 open / refresh / source-switch when a daemon address is set (ok is
 nested `reviewDiff` + camelCase `ReviewDiffData`; paints the file
-list from `numstat` and selected hunk from `patch` (Gap rows; LastTurn stays
+list from `numstat` (per-file `+N` / `-M` when those counts are
+non-zero) and selected hunk from `patch` (Gap rows; local name-status
+stays countless; LastTurn stays
 local; Native 4 KiB stdin overflow / error / unusable parse falls
 back to local name-status + hunk probes; no address keeps today's
 local path). First-cut daemon
@@ -655,7 +657,10 @@ memory; no new git spawn. Line retain/render cap matches Waku
 still `daemon_line_bytes`. Native paints a `shown_line` gutter and
 additions `success`, deletions `destructive`, context/gaps `text_muted`.
 Code-row body is Waku `Line.content` (unified-diff marker stripped);
-no syntax-token highlighting (Native has no per-span Token). Browser is an
+no syntax-token highlighting (Native has no per-span Token). File-list
+rows paint Waku-style `+N` / `-M` (success / destructive) from numstat
+when those counts are non-zero (daemon CollectReviewDiff); local
+name-status rows stay countless. Browser is an
 honest empty: Native has no webview; a persisted URL draft plus
 **Open in browser** spawns `open` / `xdg-open` / Windows
 `cmd.exe /c start "" <url>` (effect key 25; empty `start` title so
@@ -1353,10 +1358,11 @@ Honest gaps this cut does not implement:
   open / refresh / source-switch when a daemon address is set; ok is
   nested `reviewDiff` + camelCase `ReviewDiffData` (`source`,
   `numstat`, `patch`, `completeContext`); paints the file list from
-  `numstat` (cap 64) and selected hunk from `patch` without per-file
+  `numstat` (cap 64, with per-file `+N` / `-M` when those counts are
+  non-zero) and selected hunk from `patch` without per-file
   hunk spawns; selected hunk parses into Gap rows (`completeContext`
   collapses expandable context; compact patches insert count-only Gaps);
-  LastTurn stays local; Native 4 KiB stdin overflow /
+  local name-status Diff stays countless; LastTurn stays local; Native 4 KiB stdin overflow /
   error / unusable parse falls back to local name-status + hunk
   probes; no address keeps today's local path. First-cut
   `WorkspaceOperation::BrowseDirectory` ships on Pick folder (or Cmd/Ctrl-O;

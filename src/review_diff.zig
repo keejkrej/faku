@@ -85,7 +85,9 @@
 //! `shown_line` gutter (`new_line` else `old_line`); code-row
 //! body matches Waku `Line.content` (unified-diff marker
 //! stripped). Syntax-token highlighting still does not (Native
-//! has no per-span Token).
+//! has no per-span Token). File-list rows paint Waku-style
+//! `+N` / `-M` (success / destructive) from numstat when those
+//! counts are non-zero; local name-status rows stay countless.
 //! `completeContext` daemon patches collapse long context into
 //! expandable Gaps; local compact `git diff` inserts count-only
 //! Gaps between hunks (hidden empty — expand is a no-op). Expand
@@ -104,12 +106,15 @@
 //! Staged / Unstaged / Committed on open / refresh / source-switch
 //! (same moments as today's name-status probes). Ok nested
 //! `reviewDiff.data` paints the file list from `numstat` (cap 64)
-//! and stores `patch` for selected-file hunk display (no per-file
-//! hunk spawn when that patch is usable). LastTurn stays local.
-//! Overflow / spawn failure / non-ok / unusable parse fall back
-//! to local git. Leftovers: force, background work, daemon
-//! amend/force over daemon / remote `--track` over daemon,
-//! etc.
+//! including per-file addition/deletion counts, and stores `patch`
+//! for selected-file hunk display (no per-file hunk spawn when that
+//! patch is usable). LastTurn stays local. Overflow / spawn failure
+//! / non-ok / unusable parse fall back to local git. This slice is
+//! file-list counts. Leftovers still blocked or deferred:
+//! syntax-token highlighting (no per-span Token), GPUI match
+//! washes, circular GPUI gauge, file-mention 50k index (Faku cap
+//! 256), chart 12% fill opacity, amend/force over daemon, remote
+//! `--track` over daemon.
 //! Not transcript checkpoint +/-.
 //! LastTurn uses stored shas, not the refs, and not a
 //! `refs/waku/` Compare operand.
@@ -373,10 +378,17 @@ pub const hunk_empty_status = "No hunks";
 pub const hunk_failed_status = "Could not show diff.";
 
 /// Native `for each="review_diff_rows"` row. `id` is 1-based.
+/// `label` stays `{status} {path}`. Optional `+N` / `-M` live in
+/// `additions_label` / `deletions_label` (empty when the count is 0
+/// — local name-status rows stay countless).
 pub const ReviewDiffRow = struct {
     id: u32,
     label: []const u8,
     selected: bool = false,
+    additions_label: []const u8 = "",
+    deletions_label: []const u8 = "",
+    has_additions: bool = false,
+    has_deletions: bool = false,
 };
 
 /// Waku `LineKind` without syntax tokens. `gap` holds collapsed
@@ -445,6 +457,8 @@ pub const ReviewDiffHunkRow = struct {
 
 pub const ChangedFile = struct {
     status: u8 = 0,
+    additions: u64 = 0,
+    deletions: u64 = 0,
     path_storage: [max_review_diff_path]u8 = [_]u8{0} ** max_review_diff_path,
     path_len: usize = 0,
     label_storage: [max_review_diff_label]u8 = [_]u8{0} ** max_review_diff_label,
@@ -459,7 +473,13 @@ pub const ChangedFile = struct {
     }
 
     pub fn set(self: *ChangedFile, status: u8, file_path: []const u8) void {
+        self.setCounts(status, file_path, 0, 0);
+    }
+
+    pub fn setCounts(self: *ChangedFile, status: u8, file_path: []const u8, additions: u64, deletions: u64) void {
         self.status = status;
+        self.additions = additions;
+        self.deletions = deletions;
         writeFixed(&self.path_storage, &self.path_len, file_path);
         const written = std.fmt.bufPrint(&self.label_storage, "{c} {s}", .{ status, self.path() }) catch {
             self.label_len = 0;
@@ -1081,9 +1101,10 @@ pub fn parseNameStatusLine(raw: []const u8) ?struct { status: u8, path: []const 
 
 /// One `added\tdeleted\tpath` numstat row from daemon ReviewDiffData.
 /// Rename dest after a third tab. Binary `-` columns still yield a
-/// file (`M`). Untracked synthetic `N\t0\tpath` is `?`. Blank /
-/// malformed lines are omitted.
-pub fn parseNumstatFileLine(raw: []const u8) ?struct { status: u8, path: []const u8 } {
+/// file (`M`) with that column counted as 0. Untracked synthetic
+/// `N\t0\tpath` is `?` with additions 0. Blank / malformed lines are
+/// omitted.
+pub fn parseNumstatFileLine(raw: []const u8) ?struct { status: u8, path: []const u8, additions: u64, deletions: u64 } {
     const line = std.mem.trim(u8, raw, " \t\r\n");
     if (line.len == 0) return null;
     const first_tab = std.mem.indexOfScalar(u8, line, '\t') orelse return null;
@@ -1093,9 +1114,11 @@ pub fn parseNumstatFileLine(raw: []const u8) ?struct { status: u8, path: []const
     const deleted_s = std.mem.trim(u8, rest[0..second_tab], " \t");
     var path = std.mem.trim(u8, rest[second_tab + 1 ..], " \t");
     if (path.len == 0) return null;
+    const additions = parseNumstatCount(added_s);
+    const deletions = parseNumstatCount(deleted_s);
     if (std.mem.indexOfScalar(u8, path, '\t')) |third| {
         const dest = std.mem.trim(u8, path[third + 1 ..], " \t");
-        if (dest.len > 0) return .{ .status = 'R', .path = dest };
+        if (dest.len > 0) return .{ .status = 'R', .path = dest, .additions = additions, .deletions = deletions };
         path = std.mem.trim(u8, path[0..third], " \t");
         if (path.len == 0) return null;
     }
@@ -1113,7 +1136,14 @@ pub fn parseNumstatFileLine(raw: []const u8) ?struct { status: u8, path: []const
         'A'
     else
         'M';
-    return .{ .status = status, .path = path };
+    return .{ .status = status, .path = path, .additions = additions, .deletions = deletions };
+}
+
+/// Binary `-` and untracked `N` columns are 0. Non-decimal stays 0
+/// so today's status-letter mapping is unchanged.
+fn parseNumstatCount(raw: []const u8) u64 {
+    if (std.mem.eql(u8, raw, "-") or std.mem.eql(u8, raw, "N")) return 0;
+    return std.fmt.parseInt(u64, raw, 10) catch 0;
 }
 
 fn statusLetter(code: []const u8) ?u8 {
@@ -1144,9 +1174,17 @@ pub fn reviewDiffRows(model: *const Model, arena: std.mem.Allocator) []const Rev
             .id = @intCast(i + 1),
             .label = file.label(),
             .selected = model.review_diff_selected_id == i + 1,
+            .additions_label = if (file.additions > 0) signedCountLabel(arena, '+', file.additions) else "",
+            .deletions_label = if (file.deletions > 0) signedCountLabel(arena, '-', file.deletions) else "",
         };
+        out[i].has_additions = out[i].additions_label.len != 0;
+        out[i].has_deletions = out[i].deletions_label.len != 0;
     }
     return out;
+}
+
+fn signedCountLabel(arena: std.mem.Allocator, sign: u8, count: u64) []const u8 {
+    return std.fmt.allocPrint(arena, "{c}{d}", .{ sign, count }) catch "";
 }
 
 pub fn reviewDiffHunk(model: *const Model) []const u8 {
@@ -2183,7 +2221,7 @@ fn appendParsedNumstat(model: *Model, raw: []const u8) void {
         if (model.review_diff_file_count >= max_review_diff_files) return;
         const parsed = parseNumstatFileLine(line) orelse continue;
         const slot = &model.review_diff_file_store[model.review_diff_file_count];
-        slot.set(parsed.status, parsed.path);
+        slot.setCounts(parsed.status, parsed.path, parsed.additions, parsed.deletions);
         model.review_diff_file_count += 1;
     }
 }
@@ -2940,13 +2978,24 @@ test "parseNameStatusLine is status letter plus path; rename uses dest" {
 test "parseNumstatFileLine maps added/deleted into ChangedFile status letters" {
     try std.testing.expectEqual(@as(u8, 'A'), parseNumstatFileLine("1\t0\tsrc/a.zig\n").?.status);
     try std.testing.expectEqualStrings("src/a.zig", parseNumstatFileLine("1\t0\tsrc/a.zig\n").?.path);
+    try std.testing.expectEqual(@as(u64, 1), parseNumstatFileLine("1\t0\tsrc/a.zig\n").?.additions);
+    try std.testing.expectEqual(@as(u64, 0), parseNumstatFileLine("1\t0\tsrc/a.zig\n").?.deletions);
     try std.testing.expectEqual(@as(u8, 'D'), parseNumstatFileLine("0\t4\tgone.txt").?.status);
+    try std.testing.expectEqual(@as(u64, 0), parseNumstatFileLine("0\t4\tgone.txt").?.additions);
+    try std.testing.expectEqual(@as(u64, 4), parseNumstatFileLine("0\t4\tgone.txt").?.deletions);
     try std.testing.expectEqual(@as(u8, 'M'), parseNumstatFileLine("2\t1\tsrc/b.zig\r\n").?.status);
+    try std.testing.expectEqual(@as(u64, 2), parseNumstatFileLine("2\t1\tsrc/b.zig\r\n").?.additions);
+    try std.testing.expectEqual(@as(u64, 1), parseNumstatFileLine("2\t1\tsrc/b.zig\r\n").?.deletions);
     try std.testing.expectEqual(@as(u8, 'M'), parseNumstatFileLine("-\t-\tbin.dat").?.status);
     try std.testing.expectEqualStrings("bin.dat", parseNumstatFileLine("-\t-\tbin.dat").?.path);
+    try std.testing.expectEqual(@as(u64, 0), parseNumstatFileLine("-\t-\tbin.dat").?.additions);
+    try std.testing.expectEqual(@as(u64, 0), parseNumstatFileLine("-\t-\tbin.dat").?.deletions);
     try std.testing.expectEqual(@as(u8, '?'), parseNumstatFileLine("N\t0\tuntracked.txt").?.status);
+    try std.testing.expectEqual(@as(u64, 0), parseNumstatFileLine("N\t0\tuntracked.txt").?.additions);
+    try std.testing.expectEqual(@as(u64, 0), parseNumstatFileLine("N\t0\tuntracked.txt").?.deletions);
     try std.testing.expectEqual(@as(u8, 'R'), parseNumstatFileLine("1\t0\told.txt\tnew.txt").?.status);
     try std.testing.expectEqualStrings("new.txt", parseNumstatFileLine("1\t0\told.txt\tnew.txt").?.path);
+    try std.testing.expectEqual(@as(u64, 1), parseNumstatFileLine("1\t0\told.txt\tnew.txt").?.additions);
     try std.testing.expect(parseNumstatFileLine("") == null);
     try std.testing.expect(parseNumstatFileLine("1\t0") == null);
     try std.testing.expect(parseNumstatFileLine("M\tsrc/a.zig") == null);
@@ -3064,7 +3113,25 @@ test "CollectReviewDiff sidecar paints file list from numstat and selected hunk 
     try std.testing.expect(model.review_diff_last_via_daemon);
     try std.testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
     try std.testing.expectEqualStrings("A src/a.zig", model.review_diff_file_store[0].label());
+    try std.testing.expectEqual(@as(u64, 1), model.review_diff_file_store[0].additions);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_file_store[0].deletions);
     try std.testing.expectEqualStrings("D gone.txt", model.review_diff_file_store[1].label());
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_file_store[1].additions);
+    try std.testing.expectEqual(@as(u64, 2), model.review_diff_file_store[1].deletions);
+    {
+        var rows_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer rows_arena.deinit();
+        const rows = reviewDiffRows(&model, rows_arena.allocator());
+        try std.testing.expectEqual(@as(usize, 2), rows.len);
+        try std.testing.expectEqualStrings("A src/a.zig", rows[0].label);
+        try std.testing.expect(rows[0].has_additions);
+        try std.testing.expect(!rows[0].has_deletions);
+        try std.testing.expectEqualStrings("+1", rows[0].additions_label);
+        try std.testing.expectEqualStrings("D gone.txt", rows[1].label);
+        try std.testing.expect(!rows[1].has_additions);
+        try std.testing.expect(rows[1].has_deletions);
+        try std.testing.expectEqualStrings("-2", rows[1].deletions_label);
+    }
     handleExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u64, 0), model.review_diff_key);
     try std.testing.expect(!model.review_diff_via_daemon);
@@ -3249,9 +3316,22 @@ test "name-status lines fill capped rows; empty and fail stay honest" {
     applyLine(&model, .{ .key = key, .line = "D\tgone.txt\nR100\told.txt\trenamed.txt\n" });
     try std.testing.expectEqual(@as(u32, 4), model.review_diff_file_count);
     try std.testing.expectEqualStrings("M src/a.zig", model.review_diff_file_store[0].label());
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_file_store[0].additions);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_file_store[0].deletions);
     try std.testing.expectEqualStrings("A new.txt", model.review_diff_file_store[1].label());
     try std.testing.expectEqualStrings("D gone.txt", model.review_diff_file_store[2].label());
     try std.testing.expectEqualStrings("R renamed.txt", model.review_diff_file_store[3].label());
+    {
+        var rows_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer rows_arena.deinit();
+        const rows = reviewDiffRows(&model, rows_arena.allocator());
+        try std.testing.expectEqual(@as(usize, 4), rows.len);
+        try std.testing.expectEqualStrings("M src/a.zig", rows[0].label);
+        try std.testing.expect(!rows[0].has_additions);
+        try std.testing.expect(!rows[0].has_deletions);
+        try std.testing.expectEqualStrings("", rows[0].additions_label);
+        try std.testing.expectEqualStrings("", rows[0].deletions_label);
+    }
 
     handleExit(&model, &fx, .{ .key = key, .reason = .exited, .code = 0 });
     try std.testing.expect(model.review_diff_active);
@@ -3277,6 +3357,30 @@ test "name-status lines fill capped rows; empty and fail stay honest" {
     try std.testing.expect(!model.review_diff_active);
     try std.testing.expectEqual(Source.branch, model.review_diff_source);
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
+}
+
+test "reviewDiffRows paints +N / -M from numstat counts and omits zeros" {
+    var model = Model{};
+    model.review_diff_file_store[0].setCounts('A', "src/a.zig", 1, 0);
+    model.review_diff_file_store[1].setCounts('M', "src/b.zig", 2, 1);
+    model.review_diff_file_store[2].set('D', "gone.txt");
+    model.review_diff_file_count = 3;
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const rows = reviewDiffRows(&model, arena_state.allocator());
+    try std.testing.expectEqual(@as(usize, 3), rows.len);
+    try std.testing.expectEqualStrings("A src/a.zig", rows[0].label);
+    try std.testing.expectEqualStrings("+1", rows[0].additions_label);
+    try std.testing.expect(rows[0].has_additions);
+    try std.testing.expect(!rows[0].has_deletions);
+    try std.testing.expectEqualStrings("M src/b.zig", rows[1].label);
+    try std.testing.expectEqualStrings("+2", rows[1].additions_label);
+    try std.testing.expectEqualStrings("-1", rows[1].deletions_label);
+    try std.testing.expect(rows[1].has_additions);
+    try std.testing.expect(rows[1].has_deletions);
+    try std.testing.expectEqualStrings("D gone.txt", rows[2].label);
+    try std.testing.expect(!rows[2].has_additions);
+    try std.testing.expect(!rows[2].has_deletions);
 }
 
 test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Unstaged Committed" {

@@ -50,7 +50,8 @@
 //! git ls-files then walk). First-cut daemon `WorkspaceOperation::CollectReviewDiff`
 //! ships in `review_diff` (best-effort sidecar on Review / Diff open /
 //! refresh / source-switch for Branch / Uncommitted / Staged /
-//! Unstaged / Committed when a daemon address is set; LastTurn stays
+//! Unstaged / Committed when a daemon address is set; paints
+//! per-file `+N` / `-M` from numstat; LastTurn stays
 //! local; overflow / error / unusable parse falls back to local
 //! name-status). First-cut daemon `WorkspaceOperation::BrowseDirectory`
 //! ships in `pick_folder` (Pick folder in-app browser when a daemon
