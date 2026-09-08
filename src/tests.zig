@@ -23412,6 +23412,10 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{r.additions_label}"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{r.deletions_label}"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "toggle_review_diff_dir:{r.id}"));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "on-input=\"review_diff_filter_edit\""));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "placeholder=\"Filter files\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"right-panel-diff-filter\"") != null);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter files") != null);
 
     main.update(&model, .{ .right_panel_diff_file_list_resized = 0.5 }, &fx);
     try testing.expectEqual(@as(f32, 184), model.right_panel_diff_file_list_width);
@@ -23589,6 +23593,61 @@ test "Diff file list expands and collapses nested directories" {
     try testing.expect(findByText(tree.root, .button, "A b.zig") == null);
     _ = try expectButtonMsg(tree, "src", .{ .toggle_review_diff_dir = review_diff.dirId(0) });
     _ = try expectButtonMsg(tree, "docs", .{ .toggle_review_diff_dir = review_diff.dirId(1) });
+}
+
+test "Diff file list path filter narrows the nested tree and clears when leaving Diff" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.right_panel_open = true;
+    model.right_panel_tab = .diff;
+    model.review_diff_active = true;
+    model.review_diff_file_store[0].setCounts('M', "src/a.zig", 2, 1);
+    model.review_diff_file_store[1].setCounts('A', "src/b.zig", 1, 0);
+    model.review_diff_file_store[2].setCounts('M', "docs/x.md", 3, 2);
+    model.review_diff_file_count = 3;
+
+    var tree = try buildTree(arena, &model);
+    const filter = findByPlaceholder(tree.root, .search_field, "Filter files") orelse return error.WidgetNotFound;
+    try testing.expect(!filter.autofocus);
+    try testing.expectEqualStrings("", model.review_diff_filter());
+    _ = try expectButtonMsg(tree, "src", .{ .toggle_review_diff_dir = review_diff.dirId(0) });
+    _ = try expectButtonMsg(tree, "docs", .{ .toggle_review_diff_dir = review_diff.dirId(1) });
+    try testing.expect(findByText(tree.root, .button, "M x.md") == null);
+
+    main.update(&model, .{ .review_diff_filter_edit = .{ .insert_text = "x.md" } }, &fx);
+    try testing.expectEqualStrings("x.md", model.review_diff_filter());
+    try testing.expectEqual(@as(u32, 0), model.review_diff_expanded_count);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "src") == null);
+    try testing.expect(findByText(tree.root, .button, "M a.zig") == null);
+    try testing.expect(findByText(tree.root, .button, "A b.zig") == null);
+    _ = try expectButtonMsg(tree, "docs", .{ .toggle_review_diff_dir = review_diff.dirId(1) });
+    const file_row = try expectButtonMsg(tree, "M x.md", .{ .select_review_diff_file = 3 });
+    try testing.expect(!file_row.state.selected);
+    _ = try expectByText(tree.root, .text, "+3");
+    _ = try expectByText(tree.root, .text, "-2");
+    try testing.expect(findByText(tree.root, .text, "+2") == null);
+
+    main.update(&model, .{ .review_diff_filter_edit = .clear }, &fx);
+    try testing.expectEqualStrings("", model.review_diff_filter());
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "src", .{ .toggle_review_diff_dir = review_diff.dirId(0) });
+    _ = try expectButtonMsg(tree, "docs", .{ .toggle_review_diff_dir = review_diff.dirId(1) });
+    try testing.expect(findByText(tree.root, .button, "M x.md") == null);
+    try testing.expect(findByPlaceholder(tree.root, .search_field, "Filter files") != null);
+
+    main.update(&model, .{ .review_diff_filter_edit = .{ .insert_text = "x.md" } }, &fx);
+    try testing.expectEqualStrings("x.md", model.review_diff_filter());
+    main.update(&model, .set_right_panel_tab_files, &fx);
+    try testing.expectEqualStrings("", model.review_diff_filter());
+    try testing.expect(model.right_panel_tab_files());
 }
 
 test "Environment Compare without a workspace shows No workspace and invents no files" {

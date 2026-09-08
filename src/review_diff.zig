@@ -87,8 +87,11 @@
 //! stripped). Syntax-token highlighting still does not (Native
 //! has no per-span Token). File-list rows paint a first-cut nested
 //! directory tree matching Waku `review_diff_tree_rows` (Directory +
-//! File, default collapsed, basename leaves, no path filter). Status
-//! stays on the file label; Waku-style `+N` / `-M` (success /
+//! File, default collapsed, basename leaves). First-cut path filter
+//! matches Waku `right_panel_diff_filter`: trim + ascii-lowercase
+//! contains on the full path; a non-empty query auto-expands ancestor
+//! directories. Empty / whitespace-only query is today's collapsed
+//! tree. Status stays on the file label; Waku-style `+N` / `-M` (success /
 //! destructive) come from numstat when those counts are non-zero
 //! (daemon CollectReviewDiff and local `--numstat`; zeros omitted).
 //! `completeContext` daemon patches collapse long context into
@@ -1204,6 +1207,8 @@ pub fn reviewDiffRows(model: *const Model, arena: std.mem.Allocator) []const Rev
 
     var expanded_buf: [max_review_diff_dirs][]const u8 = undefined;
     const expanded = expandedKeys(model, &expanded_buf);
+    const filter = pathFilter(model);
+    const filtering = filter.len > 0;
 
     const cap = file_n + dir_n;
     const out = arena.alloc(ReviewDiffRow, cap) catch return &.{};
@@ -1214,12 +1219,13 @@ pub fn reviewDiffRows(model: *const Model, arena: std.mem.Allocator) []const Rev
     for (indexes[0..file_n]) |file_index| {
         const file = &model.review_diff_file_store[file_index];
         const path = file.path();
+        if (!pathFilterMatches(path, filter)) continue;
         var start: usize = 0;
         var depth: u32 = 0;
         var visible = true;
         while (std.mem.indexOfScalarPos(u8, path, start, '/')) |slash| {
             const directory = path[0..slash];
-            const dir_expanded = containsKey(expanded, directory);
+            const dir_expanded = filtering or containsKey(expanded, directory);
             if (visible and !containsKey(emitted[0..emitted_n], directory)) {
                 if (emitted_n < emitted.len) {
                     emitted[emitted_n] = directory;
@@ -1383,6 +1389,32 @@ pub fn toggleDir(model: *Model, id: u32) void {
     if (model.review_diff_expanded_count >= max_review_diff_dirs) return;
     model.review_diff_expanded_store[model.review_diff_expanded_count].set(key);
     model.review_diff_expanded_count += 1;
+}
+
+/// Trimmed Waku `right_panel_diff_filter`. Empty / whitespace-only
+/// is no filter (collapsed-by-default tree).
+pub fn pathFilter(model: *const Model) []const u8 {
+    return std.mem.trim(u8, model.review_diff_filter_buffer.text(), " \t\r\n");
+}
+
+fn pathFilterMatches(path: []const u8, query: []const u8) bool {
+    if (query.len == 0) return true;
+    return main.asciiContainsIgnoreCase(path, query);
+}
+
+pub fn applyFilter(model: *Model, edit: native_sdk.canvas.TextInputEvent) void {
+    model.review_diff_filter_buffer.apply(edit);
+}
+
+pub fn clearFilter(model: *Model) void {
+    model.review_diff_filter_buffer.clear();
+}
+
+/// Drop the runtime path filter when leaving the Diff surface
+/// (tab switch / panel hide). Matches Usage Projects
+/// `leaveUsage`.
+pub fn leaveSurface(model: *Model) void {
+    clearFilter(model);
 }
 
 pub fn reviewDiffHunk(model: *const Model) []const u8 {
@@ -2057,6 +2089,7 @@ pub fn close(model: *Model, fx: *Effects) void {
     clearStatus(model);
     clearHunks(model);
     clearExpanded(model);
+    clearFilter(model);
     model.review_diff_probe_session = 0;
     model.review_diff_probe_path_len = 0;
     model.review_diff_committed_range = .origin;
@@ -3738,6 +3771,82 @@ fn dirIdOfPath(model: *const Model, path: []const u8) ?u32 {
     var dir_buf: [max_review_diff_dirs][]const u8 = undefined;
     const dir_n = collectDirParents(model, &path_buf, &dir_buf);
     return dirIdOf(dir_buf[0..dir_n], path);
+}
+
+test "reviewDiffRows path filter contains-match expands ancestors" {
+    var model = Model{};
+    model.review_diff_file_store[0].set('M', "README.md");
+    model.review_diff_file_store[1].set('M', "src/app/runtime.rs");
+    model.review_diff_file_store[2].set('M', "src/app/view.rs");
+    model.review_diff_file_store[3].set('M', "src/lib.rs");
+    model.review_diff_file_store[4].set('M', "tests/review.rs");
+    model.review_diff_file_count = 5;
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    {
+        const rows = reviewDiffRows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 3), rows.len);
+        try std.testing.expectEqualStrings("M README.md", rows[0].label);
+        try std.testing.expectEqual(@as(u32, 1), rows[0].id);
+        try std.testing.expectEqualStrings("src", rows[1].label);
+        try std.testing.expect(rows[1].is_directory);
+        try std.testing.expect(!rows[1].expanded);
+        try std.testing.expectEqual((dirIdOfPath(&model, "src") orelse return error.MissingSrcDir), rows[1].id);
+        try std.testing.expectEqualStrings("tests", rows[2].label);
+        try std.testing.expect(!rows[2].expanded);
+    }
+
+    applyFilter(&model, .{ .insert_text = "  \t" });
+    try std.testing.expectEqualStrings("", pathFilter(&model));
+    {
+        const rows = reviewDiffRows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 3), rows.len);
+        try std.testing.expect(!rows[1].expanded);
+        try std.testing.expect(!rows[2].expanded);
+    }
+
+    clearFilter(&model);
+    applyFilter(&model, .{ .insert_text = "RUNTIME" });
+    try std.testing.expectEqualStrings("RUNTIME", pathFilter(&model));
+    try std.testing.expectEqual(@as(u32, 0), model.review_diff_expanded_count);
+    {
+        const rows = reviewDiffRows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 3), rows.len);
+        try std.testing.expectEqualStrings("src", rows[0].label);
+        try std.testing.expect(rows[0].is_directory);
+        try std.testing.expect(rows[0].expanded);
+        try std.testing.expectEqual((dirIdOfPath(&model, "src") orelse return error.MissingSrcDir), rows[0].id);
+        try std.testing.expectEqualStrings("app", rows[1].label);
+        try std.testing.expect(rows[1].is_directory);
+        try std.testing.expect(rows[1].expanded);
+        try std.testing.expectEqual((dirIdOfPath(&model, "src/app") orelse return error.MissingSrcAppDir), rows[1].id);
+        try std.testing.expectEqualStrings("M runtime.rs", rows[2].label);
+        try std.testing.expect(!rows[2].is_directory);
+        try std.testing.expectEqual(@as(u32, 2), rows[2].id);
+        try std.testing.expectEqual(@as(u32, 2), rows[2].depth);
+    }
+
+    clearFilter(&model);
+    applyFilter(&model, .{ .insert_text = "zzzz" });
+    {
+        const rows = reviewDiffRows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 0), rows.len);
+    }
+
+    leaveSurface(&model);
+    try std.testing.expectEqualStrings("", pathFilter(&model));
+    try std.testing.expectEqualStrings("", model.review_diff_filter_buffer.text());
+    {
+        const rows = reviewDiffRows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 3), rows.len);
+        try std.testing.expectEqualStrings("M README.md", rows[0].label);
+        try std.testing.expectEqualStrings("src", rows[1].label);
+        try std.testing.expect(!rows[1].expanded);
+        try std.testing.expectEqualStrings("tests", rows[2].label);
+        try std.testing.expect(!rows[2].expanded);
+    }
 }
 
 test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Unstaged Committed" {

@@ -278,6 +278,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .set_review_diff_source_last_turn => review_diff.setSource(model, fx, .last_turn),
         .select_review_diff_file => |id| review_diff.selectFile(model, fx, id),
         .toggle_review_diff_dir => |id| review_diff.toggleDir(model, id),
+        .review_diff_filter_edit => |edit| review_diff.applyFilter(model, edit),
         .expand_review_diff_gap_start => |id| review_diff.expandGap(model, id, .start),
         .expand_review_diff_gap_end => |id| review_diff.expandGap(model, id, .end),
         .expand_review_diff_gap_both => |id| review_diff.expandGap(model, id, .both),

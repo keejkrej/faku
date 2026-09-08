@@ -658,6 +658,8 @@ pub const Msg = union(enum) {
     /// Diff file-list directory click. Payload is
     /// `review_diff_dir_id_base + parent_index`.
     toggle_review_diff_dir: u32,
+    /// Diff file-list path filter. Runtime-only; not persisted.
+    review_diff_filter_edit: canvas.TextInputEvent,
     /// Review Gap expand. Payload is the 1-based visible-row id.
     expand_review_diff_gap_start: u32,
     expand_review_diff_gap_end: u32,
@@ -1471,10 +1473,14 @@ pub const Model = struct {
     /// Runtime-only expanded Diff file-list dirs. Keys are
     /// repo-relative directory paths (no trailing slash), matching
     /// Waku `right_panel_diff_expanded_paths`. Empty = collapsed
-    /// (Files-like default; Faku has no Diff path filter). Cap
+    /// (Files-like default). A non-empty runtime path filter
+    /// auto-expands ancestors (Waku `right_panel_diff_filter`). Cap
     /// `max_review_diff_dirs`. Not persisted.
     review_diff_expanded_store: [review_diff.max_review_diff_dirs]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** review_diff.max_review_diff_dirs,
     review_diff_expanded_count: u32 = 0,
+    /// Runtime-only Diff file-list path filter (Waku
+    /// `right_panel_diff_filter`). Empty on boot. Not persisted.
+    review_diff_filter_buffer: canvas.TextBuffer(max_search) = .{},
     review_diff_status_storage: [review_diff.max_review_diff_status]u8 = [_]u8{0} ** review_diff.max_review_diff_status,
     review_diff_status_len: usize = 0,
     review_diff_key: u64 = 0,
@@ -2177,6 +2183,7 @@ pub const Model = struct {
         "review_diff_file_count",
         "review_diff_expanded_store",
         "review_diff_expanded_count",
+        "review_diff_filter_buffer",
         "review_diff_status_storage",
         "review_diff_status_len",
         "review_diff_key",
@@ -3568,6 +3575,7 @@ pub const Model = struct {
 
     pub fn hideRightPanel(model: *Model) void {
         if (!right_panel.beginDiscardOrPark(model, .hide_panel)) return;
+        right_panel.leaveDiffSurfaceOnHide(model);
         model.right_panel_open = false;
         model.right_panel_tab = .files;
         model.clearRightPanelExpanded();
@@ -4465,6 +4473,10 @@ pub const Model = struct {
 
     pub fn has_review_diff_status(model: *const Model) bool {
         return review_diff.hasReviewDiffStatus(model);
+    }
+
+    pub fn review_diff_filter(model: *const Model) []const u8 {
+        return model.review_diff_filter_buffer.text();
     }
 
     pub fn has_review_diff_files(model: *const Model) bool {

@@ -1336,7 +1336,10 @@
                     </scroll>
                   </if>
                 </column>
-                <column grow="1" min-width="140">
+                <column grow="1" min-width="140" gap="6">
+                  <row>
+                    <search-field grow="1" height="24" placeholder="Filter files" text="{review_diff_filter}" on-input="review_diff_filter_edit" label="right-panel-diff-filter" />
+                  </row>
                   <scroll grow="1" label="Review files">
                     <column gap="2">
                       <for each="review_diff_rows" key="id" as="r">
@@ -1378,6 +1381,9 @@
               <else>
               <column grow="1" gap="6">
               <if test="{has_review_diff_files}">
+                <row>
+                  <search-field grow="1" height="24" placeholder="Filter files" text="{review_diff_filter}" on-input="review_diff_filter_edit" label="right-panel-diff-filter" />
+                </row>
                 <scroll grow="1" label="Review files">
                   <column gap="2">
                     <for each="review_diff_rows" key="id" as="r">
