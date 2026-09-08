@@ -1314,17 +1314,22 @@
                             </row>
                           </if>
                           <else>
-                            <if test="{h.is_addition}">
-                              <text wrap="true" foreground="success">{h.text}</text>
-                            </if>
-                            <else>
-                              <if test="{h.is_deletion}">
-                                <text wrap="true" foreground="destructive">{h.text}</text>
+                            <row gap="6" cross="center">
+                              <if test="{h.has_line_number}">
+                                <text wrap="false" foreground="text_muted">{h.line_number}</text>
+                              </if>
+                              <if test="{h.is_addition}">
+                                <text wrap="true" foreground="success">{h.text}</text>
                               </if>
                               <else>
-                                <text wrap="true" foreground="text_muted">{h.text}</text>
+                                <if test="{h.is_deletion}">
+                                  <text wrap="true" foreground="destructive">{h.text}</text>
+                                </if>
+                                <else>
+                                  <text wrap="true" foreground="text_muted">{h.text}</text>
+                                </else>
                               </else>
-                            </else>
+                            </row>
                           </else>
                         </for>
                       </column>
@@ -1378,17 +1383,22 @@
                         </row>
                       </if>
                       <else>
-                        <if test="{h.is_addition}">
-                          <text wrap="true" foreground="success">{h.text}</text>
-                        </if>
-                        <else>
-                          <if test="{h.is_deletion}">
-                            <text wrap="true" foreground="destructive">{h.text}</text>
+                        <row gap="6" cross="center">
+                          <if test="{h.has_line_number}">
+                            <text wrap="false" foreground="text_muted">{h.line_number}</text>
+                          </if>
+                          <if test="{h.is_addition}">
+                            <text wrap="true" foreground="success">{h.text}</text>
                           </if>
                           <else>
-                            <text wrap="true" foreground="text_muted">{h.text}</text>
+                            <if test="{h.is_deletion}">
+                              <text wrap="true" foreground="destructive">{h.text}</text>
+                            </if>
+                            <else>
+                              <text wrap="true" foreground="text_muted">{h.text}</text>
+                            </else>
                           </else>
-                        </else>
+                        </row>
                       </else>
                     </for>
                   </column>

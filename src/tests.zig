@@ -23392,6 +23392,8 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-resize=\"right_panel_diff_file_list_resized\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "each=\"review_diff_hunk_rows\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"expand_review_diff_gap_start:{h.id}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{h.has_line_number}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{h.line_number}") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "foreground=\"success\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "foreground=\"destructive\"") != null);
 
