@@ -41,7 +41,7 @@ const writeFixed = main.writeFixed;
 /// 29 sits in that gap and is unused by those tables.
 pub const pick_folder_key: u64 = 29;
 
-pub const max_dir_entries: usize = protocol.max_parsed_tree_entries;
+pub const max_dir_entries: usize = protocol.max_parsed_dir_entries;
 pub const max_dir_entry_name: usize = 255;
 
 pub const CachedDirEntry = struct {

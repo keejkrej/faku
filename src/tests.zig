@@ -3302,6 +3302,7 @@ test "composer $ card stays closed when slash is active; @ still works; skills s
     fx.executor = .fake;
 
     var model = Model{};
+    defer file_mention.clearCache(&model);
     const id = model.addSession("skill vs slash", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| {
@@ -9277,6 +9278,7 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     model.selected = id;
     model.setSelectedProjectPath(project);
     defer right_panel.clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     main.update(&model, .show_right_panel, &fx);
     try testing.expect(model.right_panel_open);
@@ -9467,6 +9469,7 @@ test "Files preview dirty Close shows discard confirm; Keep editing and Discard"
     model.selected = first;
     model.setSelectedProjectPath(project);
     defer right_panel.clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     main.update(&model, .show_right_panel, &fx);
     file_mention.applyStdoutPaths(&model, "a.txt\nb.txt\n");
@@ -9542,6 +9545,7 @@ test "right panel Files list stays empty without a project" {
     fx.executor = .fake;
 
     var model = Model{};
+    defer file_mention.clearCache(&model);
     model.store_io = testing.io;
     const id = model.addSession("local files pane", .fx);
     model.selected = id;
@@ -11771,6 +11775,7 @@ test "cmd-f routes to Files preview find when a preview is open" {
     model.selected = id;
     model.setSelectedProjectPath(project);
     defer right_panel.clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     main.update(&model, .show_right_panel, &fx);
     file_mention.applyStdoutPaths(&model, "note.txt\n");
@@ -12000,6 +12005,7 @@ test "cmd-alt-c/w/r/enter map to Files preview find Waku chords" {
         model.selected = id;
         model.setSelectedProjectPath(project);
         defer right_panel.clearFilePreview(&model);
+        defer file_mention.clearCache(&model);
 
         main.update(&model, .show_right_panel, &fx);
         file_mention.applyStdoutPaths(&model, "note.txt\n");
@@ -20994,13 +21000,8 @@ test "composer @ mention card filters tracked files; insert replaces last token;
     fx.executor = .fake;
 
     var model = Model{};
+    defer file_mention.clearCache(&model);
     model.task_state_loaded = true;
-    model.setStoreDir(dir);
-    model.store_io = testing.io;
-    model.fx_available = true;
-    model.fx_probe_started = true;
-    model.setFxPath("fx");
-    const id = model.addSession("file mention", .fx);
     _ = model.appendTurn(id, .user, "already started");
     model.selected = id;
     if (model.sessionById(id)) |session| {
@@ -21115,6 +21116,7 @@ test "composer @ mention visible rows cap at 12; empty cache hides the list" {
     const arena = arena_state.allocator();
 
     var model = Model{};
+    defer file_mention.clearCache(&model);
     const id = model.addSession("cap", .fx);
     model.selected = id;
     model.draft_buffer.set("@");
@@ -21154,6 +21156,7 @@ test "composer @ mention rows rank basename prefix above path contains" {
     const arena = arena_state.allocator();
 
     var model = Model{};
+    defer file_mention.clearCache(&model);
     const id = model.addSession("rank", .fx);
     model.selected = id;
     file_mention.applyStdoutPaths(&model,
@@ -21230,6 +21233,7 @@ test "composer Enter confirms first @ mention; Esc dismisses; Send button still 
     try expectComposerEnterMarkup();
 
     var model = Model{};
+    defer file_mention.clearCache(&model);
     model.task_state_loaded = true;
     model.setStoreDir(dir);
     model.store_io = testing.io;
@@ -21356,6 +21360,7 @@ test "git ls-files sidecar argv and first-N stdout; empty missing rejected skip"
     fx.executor = .fake;
 
     var model = Model{};
+    defer file_mention.clearCache(&model);
     model.store_io = testing.io;
     const id = model.addSession("ls files", .fx);
     model.selected = id;
@@ -21419,7 +21424,7 @@ test "git ls-files sidecar argv and first-N stdout; empty missing rejected skip"
     try testing.expectEqualStrings("src/a.zig", file_mention.cachedPath(&model, 0));
     try testing.expectEqualStrings("src/b.zig", file_mention.cachedPath(&model, 1));
     {
-        var parents: [file_mention.max_file_mention_dirs][]const u8 = undefined;
+        var parents: [8][]const u8 = undefined;
         try testing.expectEqual(@as(usize, 1), file_mention.derivedDirParents(&model, &parents));
         try testing.expectEqualStrings("src", parents[0]);
     }
@@ -21453,7 +21458,8 @@ test "git ls-files sidecar argv and first-N stdout; empty missing rejected skip"
 
     file_mention.refresh(&model, &fx);
     mention = findFileMentionSpawnKey(&fx, model.file_mention_key) orelse return error.MissingFileMentionSpawn;
-    var overflow: [file_mention.max_file_mentions * 2 + 16]u8 = undefined;
+    var overflow = try testing.allocator.alloc(u8, file_mention.max_file_mentions * 2 + 16);
+    defer testing.allocator.free(overflow);
     var n: usize = 0;
     var i: usize = 0;
     while (i < file_mention.max_file_mentions + 2) : (i += 1) {

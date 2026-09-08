@@ -612,8 +612,8 @@ PowerShell walk with `-Args`; first-cut daemon
 `WorkspaceOperation::ListProjectFiles` prefers hello +
 ListProjectFiles when a daemon address is set and falls back to
 ListTree then that local path; expand after a daemon fill
-re-prefers ListTree; still not
-Waku's 50k index or a Native FS watcher), with a bounded inline preview on file click
+re-prefers ListTree; Waku-scale ~50k heap last-window, still not
+a Native FS watcher), with a bounded inline preview on file click
 (256KB cap, truncated / binary / unreadable honest states; Native
 `<code>` highlighting with `line-numbers`; language is a documented
 lexer name from the path, unknown / Dockerfile / Makefile /

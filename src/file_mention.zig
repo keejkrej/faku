@@ -25,10 +25,12 @@
 //! cannot use `/bin/sh` or `find`: `git.exe -C <project_path>` (path
 //! is its own argv slot, not interpolated into a script) then a
 //! `powershell.exe -NoProfile -Command {…} -Args <project_path>`
-//! walk (`$args[0]`; same skip names / depth 8 / cap 256). `\` stdout
+//! walk (`$args[0]`; same skip names / depth 8 / cap
+//! `max_file_mentions`). `\` stdout
 //! paths are normalized to `/` so Files / `@` rows match the Unix
-//! cache shape. app.zon already includes windows. Still not Waku's
-//! 50k-file index, not a Native FS watcher, not caret-aware.
+//! cache shape. app.zon already includes windows. File cache is a
+//! heap last-window at Waku's ~50k index. Still not a Native FS
+//! watcher, not caret-aware.
 //!
 //! Visible `@` rows are scored over this bounded file cache (plus
 //! derived parent directories at row time) in
@@ -67,14 +69,23 @@ const writeFixed = main.writeFixed;
 /// a later session.
 pub const file_mention_key_first: u64 = 400;
 
-pub const max_file_mentions: usize = 256;
+/// Waku-scale Files / `@` index (~50k). Heap last-window on Model so
+/// `initialModel()` stays return-by-value safe (inline 50k
+/// `CachedPath` would blow the stack, same class as Diff hunk tables).
+pub const max_file_mentions: usize = protocol.max_list_project_files;
+pub const max_file_mentions_s = std.fmt.comptimePrint("{d}", .{max_file_mentions});
 pub const max_file_mention_path: usize = 255;
 /// Same visible-row cap as the command palette task section.
 pub const file_mention_visible_cap: usize = 12;
 /// 1-based file-cache ids are `1..=max_file_mentions`. Derived dir
 /// ids start here so `insert_mention:{m.id}` cannot collide.
 pub const file_mention_dir_id_base: u32 = 1000;
-pub const max_file_mention_dirs: usize = 256;
+/// Unique derived parent dirs for Files tree / `@` dir rows.
+/// Same bound as the file index so a 50k-file tree is not truncated
+/// at 256 ancestors. Expand-set is a heap last-window (same reason).
+/// Bounded (not an unbounded Vec); leftover would be raising further
+/// only if a verified Waku dir cap exceeds this.
+pub const max_file_mention_dirs: usize = 50_000;
 
 pub const git_bin = "git";
 /// PATH-resolved Windows Git (explicit `.exe` like sibling
@@ -124,9 +135,9 @@ pub const powershell_args_flag = "-Args";
 /// Scriptblock + `$args[0]`: project path is its own argv slot after
 /// `-Args`, not spliced into the `-Command` body. Files only, depth 8,
 /// same skip names / dot dirs as `find_walk_script`, relative paths
-/// with `/`, cap `max_file_mentions` (256). Six argv slots total.
+/// with `/`, cap `max_file_mentions`. Six argv slots total.
 pub const powershell_walk_script =
-    "{ $ErrorActionPreference='Stop'; $script:root=$args[0].TrimEnd('\\','/'); $script:skip=@('node_modules','target','dist','build','out','vendor','__pycache__'); $script:n=0; function Walk($dir,$depth){ if($script:n -ge 256){return}; foreach($item in (Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue)){ if($script:n -ge 256){return}; $d=$depth+1; if($d -gt 8){continue}; $name=$item.Name; if($name.StartsWith('.')){continue}; if($script:skip -contains $name){continue}; if($item.PSIsContainer){ if($d -lt 8){ Walk $item.FullName $d } } else { $rel=$item.FullName.Substring($script:root.Length).TrimStart('\\','/'); Write-Output ($rel -replace '\\\\','/'); $script:n++ } } }; Walk $script:root 0 }";
+    "{ $ErrorActionPreference='Stop'; $script:root=$args[0].TrimEnd('\\','/'); $script:skip=@('node_modules','target','dist','build','out','vendor','__pycache__'); $script:n=0; function Walk($dir,$depth){ if($script:n -ge " ++ max_file_mentions_s ++ "){return}; foreach($item in (Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue)){ if($script:n -ge " ++ max_file_mentions_s ++ "){return}; $d=$depth+1; if($d -gt 8){continue}; $name=$item.Name; if($name.StartsWith('.')){continue}; if($script:skip -contains $name){continue}; if($item.PSIsContainer){ if($d -lt 8){ Walk $item.FullName $d } } else { $rel=$item.FullName.Substring($script:root.Length).TrimStart('\\','/'); Write-Output ($rel -replace '\\\\','/'); $script:n++ } } }; Walk $script:root 0 }";
 
 /// Unix `/bin/sh -c` chdir + git ls-files (10). Windows `git.exe -C`
 /// is 7; this is the spawn buffer (max of the two).
@@ -153,6 +164,56 @@ pub const CachedPath = struct {
         slashNormalizeInPlace(self.storage[0..self.len]);
     }
 };
+
+fn ensureHeapSlice(comptime T: type, slot: *[]T, cap: usize) bool {
+    if (slot.len == cap) return true;
+    if (slot.len != 0) {
+        std.heap.page_allocator.free(slot.*);
+        slot.* = &.{};
+    }
+    const buf = std.heap.page_allocator.alloc(T, cap) catch return false;
+    slot.* = buf;
+    return true;
+}
+
+fn freeHeapSlice(comptime T: type, slot: *[]T) void {
+    if (slot.len != 0) {
+        std.heap.page_allocator.free(slot.*);
+        slot.* = &.{};
+    }
+}
+
+fn ensureFileMentionStore(model: *Model) bool {
+    return ensureHeapSlice(CachedPath, &model.file_mention_store, max_file_mentions);
+}
+
+fn ensureExpandedStore(model: *Model) bool {
+    return ensureHeapSlice(CachedPath, &model.right_panel_expanded_store, max_file_mention_dirs);
+}
+
+/// Drop heap last-windows. Called from clear / session remove so
+/// `Model` copies and tests do not keep 50_000-path tables.
+pub fn freeStores(model: *Model) void {
+    freeHeapSlice(CachedPath, &model.file_mention_store);
+    model.file_mention_count = 0;
+    freeExpandedStore(model);
+}
+
+pub fn freeExpandedStore(model: *Model) void {
+    freeHeapSlice(CachedPath, &model.right_panel_expanded_store);
+    model.right_panel_expanded_count = 0;
+}
+
+fn storePath(model: *Model, path: []const u8) void {
+    if (model.file_mention_count >= max_file_mentions) return;
+    if (!ensureFileMentionStore(model)) return;
+    model.file_mention_store[model.file_mention_count].set(path);
+    model.file_mention_count += 1;
+}
+
+pub fn ensureRightPanelExpandedStore(model: *Model) bool {
+    return ensureExpandedStore(model);
+}
 
 pub fn unixArgvFor(cwd: []const u8, buf: *[git_argv_len][]const u8) []const []const u8 {
     buf.* = .{
@@ -286,7 +347,7 @@ fn isWindowsWalkArgv(argv: []const []const u8) bool {
     if (argv[5].len == 0) return false;
     if (!scriptHas(argv[3], "$args[0]")) return false;
     if (!scriptHas(argv[3], find_maxdepth)) return false;
-    if (!scriptHas(argv[3], "256")) return false;
+    if (!scriptHas(argv[3], max_file_mentions_s)) return false;
     if (!scriptHas(argv[3], "StartsWith('.'")) return false;
     inline for (walk_skip_names) |name| {
         if (!scriptHas(argv[3], name)) return false;
@@ -308,6 +369,7 @@ pub fn cachedCount(model: *const Model) u32 {
 
 pub fn cachedPath(model: *const Model, index: usize) []const u8 {
     if (index >= model.file_mention_count) return "";
+    if (index >= model.file_mention_store.len) return "";
     return model.file_mention_store[index].text();
 }
 
@@ -355,13 +417,20 @@ fn containsPath(haystack: []const []const u8, needle: []const u8) bool {
 }
 
 pub fn derivedDirParents(model: *const Model, out: [][]const u8) usize {
-    var file_paths: [max_file_mentions][]const u8 = undefined;
-    const n = model.file_mention_count;
+    var n: usize = 0;
     var i: usize = 0;
-    while (i < n) : (i += 1) {
-        file_paths[i] = cachedPath(model, i);
+    while (i < model.file_mention_count) : (i += 1) {
+        var path = cachedPath(model, i);
+        while (std.mem.lastIndexOfScalar(u8, path, '/')) |slash| {
+            path = path[0..slash];
+            if (skipDerivedDir(path)) continue;
+            if (containsPath(out[0..n], path)) break;
+            if (n == out.len) return n;
+            out[n] = path;
+            n += 1;
+        }
     }
-    return collectDerivedDirParents(file_paths[0..n], out);
+    return n;
 }
 
 /// Resolve a mention-row id to the insert path. File ids are 1-based
@@ -371,8 +440,10 @@ pub fn mentionRelpath(model: *const Model, id: u32, dir_out: []u8) ?[]const u8 {
     if (id == 0) return null;
     if (id >= file_mention_dir_id_base) {
         const dir_index = id - file_mention_dir_id_base;
-        var parents: [max_file_mention_dirs][]const u8 = undefined;
-        const n = derivedDirParents(model, &parents);
+        const parent_cap = @min(max_file_mention_dirs, @max(model.file_mention_count * 8, 1));
+        const parents = std.heap.page_allocator.alloc([]const u8, parent_cap) catch return null;
+        defer std.heap.page_allocator.free(parents);
+        const n = derivedDirParents(model, parents);
         if (dir_index >= n) return null;
         return std.fmt.bufPrint(dir_out, "{s}/", .{parents[dir_index]}) catch null;
     }
@@ -383,8 +454,7 @@ pub fn mentionRelpath(model: *const Model, id: u32, dir_out: []u8) ?[]const u8 {
 }
 
 pub fn clearCache(model: *Model) void {
-    clearFiles(model);
-    model.clearRightPanelExpanded();
+    freeStores(model);
     model.file_mention_via_daemon = false;
     model.file_mention_via_list_project_files = false;
     model.file_mention_daemon_ok = false;
@@ -392,6 +462,7 @@ pub fn clearCache(model: *Model) void {
 }
 
 fn clearFiles(model: *Model) void {
+    freeHeapSlice(CachedPath, &model.file_mention_store);
     model.file_mention_count = 0;
 }
 
@@ -457,7 +528,7 @@ pub fn refreshAfterExpand(model: *Model, fx: *Effects) void {
 /// `file_mention_key` so `applyLine` / `handleExit` still own the
 /// probe. Missing address or Native 4 KiB stdin overflow returns
 /// false and leaves ListTree then local git ls-files. `cap` is
-/// `max_file_mentions` (256), not a 50k index.
+/// `max_file_mentions` (Waku-scale 50k).
 fn trySpawnDaemonListProjectFiles(model: *Model, fx: *Effects, cwd: []const u8) bool {
     const address = store.resolveDaemonMirrorAddress(model);
     if (address.len == 0) return false;
@@ -497,11 +568,17 @@ fn trySpawnDaemonListTree(model: *Model, fx: *Effects, cwd: []const u8) bool {
     if (address.len == 0) return false;
 
     var abs_blob: [3072]u8 = undefined;
-    var abs_paths: [max_file_mention_dirs][]const u8 = undefined;
+    const need: usize = model.right_panel_expanded_count;
+    const abs_paths = if (need == 0)
+        @as([][]const u8, &.{})
+    else
+        std.heap.page_allocator.alloc([]const u8, need) catch return false;
+    defer if (need != 0) std.heap.page_allocator.free(abs_paths);
     var n: usize = 0;
     var used: usize = 0;
     var i: usize = 0;
     while (i < model.right_panel_expanded_count) : (i += 1) {
+        if (i >= model.right_panel_expanded_store.len) break;
         const rel = model.right_panel_expanded_store[i].text();
         const joined = joinRootRel(cwd, rel, abs_blob[used..]) orelse return false;
         abs_paths[n] = joined;
@@ -609,16 +686,14 @@ fn slashNormalizeInPlace(path: []u8) void {
 }
 
 /// Append trimmed non-empty stdout paths until `max_file_mentions`.
-/// Later lines are dropped — this is not Waku's 50k-file index.
-/// Windows `\` separators become `/` in `CachedPath.set`.
+/// Later lines are dropped. Windows `\` separators become `/` in
+/// `CachedPath.set`.
 pub fn applyStdoutPaths(model: *Model, raw: []const u8) void {
     var it = std.mem.splitScalar(u8, raw, '\n');
     while (it.next()) |line| {
-        if (model.file_mention_count >= max_file_mentions) return;
         const path = normalizeStdoutPath(line);
         if (path.len == 0) continue;
-        model.file_mention_store[model.file_mention_count].set(path);
-        model.file_mention_count += 1;
+        storePath(model, path);
     }
 }
 
@@ -660,19 +735,17 @@ fn applyDaemonWorkingTreeLine(model: *Model, raw: []const u8) void {
 /// `is_dir`). Files (`!is_dir`) use `path` with no trailing slash.
 /// Dirs become trailing-slash sentinels so `derivedDirParents`
 /// still yields collapsed top-level dirs — same handling as
-/// ListTree `isDir` rows. Cap 256 files; leftover slots may hold
-/// dir sentinels. Expand state stays on the runtime set.
+/// ListTree `isDir` rows. Cap `max_file_mentions`; leftover slots may
+/// hold dir sentinels. Expand state stays on the runtime set.
 fn applyProjectFiles(model: *Model, parsed: protocol.ParsedProjectFiles) void {
     clearFiles(model);
     var i: usize = 0;
     while (i < parsed.entry_count) : (i += 1) {
         const entry = parsed.entries[i];
         if (entry.is_dir) continue;
-        if (model.file_mention_count >= max_file_mentions) return;
         const path = normalizeStdoutPath(entry.path);
         if (path.len == 0) continue;
-        model.file_mention_store[model.file_mention_count].set(path);
-        model.file_mention_count += 1;
+        storePath(model, path);
     }
     i = 0;
     while (i < parsed.entry_count) : (i += 1) {
@@ -688,19 +761,17 @@ fn applyProjectFiles(model: *Model, parsed: protocol.ParsedProjectFiles) void {
 /// Paint Files cache from ok `workingTree` file entries (`!isDir`)
 /// using `relativePath`. Dir entries become trailing-slash sentinels
 /// so `derivedDirParents` still yields collapsed top-level dirs.
-/// Cap 256 files; leftover slots may hold dir sentinels. Expand
-/// state stays on the runtime set.
+/// Cap `max_file_mentions`; leftover slots may hold dir sentinels.
+/// Expand state stays on the runtime set.
 fn applyWorkingTree(model: *Model, parsed: protocol.ParsedWorkingTree) void {
     clearFiles(model);
     var i: usize = 0;
     while (i < parsed.entry_count) : (i += 1) {
         const entry = parsed.entries[i];
         if (entry.is_dir) continue;
-        if (model.file_mention_count >= max_file_mentions) return;
         const path = normalizeStdoutPath(entry.relative_path);
         if (path.len == 0) continue;
-        model.file_mention_store[model.file_mention_count].set(path);
-        model.file_mention_count += 1;
+        storePath(model, path);
     }
     i = 0;
     while (i < parsed.entry_count) : (i += 1) {
@@ -732,8 +803,7 @@ fn storeDirSentinel(model: *Model, dir: []const u8) void {
         dir
     else
         (std.fmt.bufPrint(&buf, "{s}/", .{dir}) catch return);
-    model.file_mention_store[model.file_mention_count].set(with_slash);
-    model.file_mention_count += 1;
+    storePath(model, with_slash);
 }
 
 /// Trailing-slash cache keys from daemon `isDir` entries. Files tree
@@ -902,7 +972,7 @@ test "windows walk argv is powershell scriptblock -Args PATH; path not in script
     try std.testing.expect(std.mem.indexOf(u8, argv[3], cwd) == null);
     try std.testing.expect(scriptHas(argv[3], "$args[0]"));
     try std.testing.expect(scriptHas(argv[3], find_maxdepth));
-    try std.testing.expect(scriptHas(argv[3], "256"));
+    try std.testing.expect(scriptHas(argv[3], max_file_mentions_s));
     try std.testing.expect(scriptHas(argv[3], "StartsWith('.'"));
     inline for (walk_skip_names) |name| {
         try std.testing.expect(scriptHas(argv[3], name));
@@ -945,6 +1015,7 @@ test "host argvFor and walkArgvFor match the process OS" {
 
 test "applyStdoutPaths keeps first N; empty lines skipped" {
     var model = Model{};
+    defer clearCache(&model);
     applyStdoutPaths(&model, "src/main.zig\n\n  src/composer.zig  \n");
     try std.testing.expectEqual(@as(u32, 2), cachedCount(&model));
     try std.testing.expectEqualStrings("src/main.zig", cachedPath(&model, 0));
@@ -968,13 +1039,14 @@ test "applyStdoutPaths keeps first N; empty lines skipped" {
     try std.testing.expectEqualStrings("src/lib/a.zig", cachedPath(&model, 0));
     try std.testing.expectEqualStrings("b.zig", cachedPath(&model, 1));
     try std.testing.expectEqualStrings("foo/bar.txt", cachedPath(&model, 2));
-    var slash_parents: [max_file_mention_dirs][]const u8 = undefined;
+    var slash_parents: [8][]const u8 = undefined;
     try std.testing.expectEqual(@as(usize, 3), derivedDirParents(&model, &slash_parents));
     try std.testing.expectEqualStrings("src/lib", slash_parents[0]);
     try std.testing.expectEqualStrings("src", slash_parents[1]);
     try std.testing.expectEqualStrings("foo", slash_parents[2]);
 
-    var overflow: [max_file_mentions * 2 + 16]u8 = undefined;
+    var overflow = try std.testing.allocator.alloc(u8, max_file_mentions * 2 + 16);
+    defer std.testing.allocator.free(overflow);
     var n: usize = 0;
     var i: usize = 0;
     while (i < max_file_mentions + 4) : (i += 1) {
@@ -1012,8 +1084,9 @@ test "collectDerivedDirParents unique ancestors; skip empty and dot" {
     try std.testing.expectEqualStrings("a/b", tiny[0]);
 
     var model = Model{};
+    defer clearCache(&model);
     applyStdoutPaths(&model, "src/lib/util.zig\nsrc/main.zig\nREADME.md\n");
-    var parents: [max_file_mention_dirs][]const u8 = undefined;
+    var parents: [8][]const u8 = undefined;
     try std.testing.expectEqual(@as(usize, 2), derivedDirParents(&model, &parents));
     try std.testing.expectEqualStrings("src/lib", parents[0]);
     try std.testing.expectEqualStrings("src", parents[1]);
@@ -1055,6 +1128,7 @@ test "refresh with a daemon address spawns ListProjectFiles sidecar" {
     try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
 
     var model = Model{};
+    defer clearCache(&model);
     model.store_io = std.testing.io;
     model.setLastDaemonAddress("127.0.0.1:8787");
     model.setSidecarPath("faku");
@@ -1072,7 +1146,7 @@ test "refresh with a daemon address spawns ListProjectFiles sidecar" {
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"hello\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"workspace\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"listProjectFiles\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"cap\":256") != null);
+    try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"cap\":" ++ max_file_mentions_s) != null);
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"listTree\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"prompt\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, sidecar.stdin, "\"type\":\"attachSession\"") == null);
@@ -1098,6 +1172,7 @@ test "refresh without a daemon address still uses local git ls-files" {
     try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
 
     var model = Model{};
+    defer clearCache(&model);
     model.store_io = std.testing.io;
     model.setSidecarPath("faku");
     const id = model.addSession("files local", .fx);
@@ -1126,6 +1201,7 @@ test "ListProjectFiles sidecar paints Files cache from projectFiles files and di
     try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
 
     var model = Model{};
+    defer clearCache(&model);
     model.store_io = std.testing.io;
     model.setLastDaemonAddress("127.0.0.1:8787");
     model.setSidecarPath("faku");
@@ -1147,7 +1223,7 @@ test "ListProjectFiles sidecar paints Files cache from projectFiles files and di
     try std.testing.expectEqualStrings("README.md", cachedPath(&model, 0));
     try std.testing.expectEqualStrings("src/", cachedPath(&model, 1));
     try std.testing.expect(isDirSentinel(cachedPath(&model, 1)));
-    var parents: [max_file_mention_dirs][]const u8 = undefined;
+    var parents: [8][]const u8 = undefined;
     try std.testing.expectEqual(@as(usize, 1), derivedDirParents(&model, &parents));
     try std.testing.expectEqualStrings("src", parents[0]);
     handleExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 0 });
@@ -1170,6 +1246,7 @@ test "ListProjectFiles sidecar non-ok falls back to ListTree then local git ls-f
     try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
 
     var model = Model{};
+    defer clearCache(&model);
     model.store_io = std.testing.io;
     model.setDaemonAddress("10.0.0.2:9");
     model.setSidecarPath("faku");
@@ -1214,6 +1291,7 @@ test "ListTree sidecar after ListProjectFiles miss paints workingTree files and 
     try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
 
     var model = Model{};
+    defer clearCache(&model);
     model.store_io = std.testing.io;
     model.setLastDaemonAddress("127.0.0.1:8787");
     model.setSidecarPath("faku");
@@ -1249,6 +1327,7 @@ test "expand after daemon fill re-prefers ListTree with expanded_paths" {
     try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
 
     var model = Model{};
+    defer clearCache(&model);
     model.store_io = std.testing.io;
     model.setLastDaemonAddress("127.0.0.1:8787");
     model.setSidecarPath("faku");
@@ -1263,7 +1342,7 @@ test "expand after daemon fill re-prefers ListTree with expanded_paths" {
     handleExit(&model, &fx, .{ .key = first.key, .reason = .exited, .code = 0 });
     try std.testing.expect(model.file_mention_last_via_daemon);
 
-    var parents: [max_file_mention_dirs][]const u8 = undefined;
+    var parents: [8][]const u8 = undefined;
     try std.testing.expectEqual(@as(usize, 1), derivedDirParents(&model, &parents));
     const src_id = dirMentionId(0);
     right_panel.toggleDir(&model, &fx, src_id);
@@ -1296,6 +1375,7 @@ test "expand after local fill stays filter-only" {
     try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
 
     var model = Model{};
+    defer clearCache(&model);
     model.store_io = std.testing.io;
     model.setSidecarPath("faku");
     const id = model.addSession("files local expand", .fx);
@@ -1303,10 +1383,55 @@ test "expand after local fill stays filter-only" {
     if (model.sessionById(id)) |session| session.setProjectPath(project);
     applyStdoutPaths(&model, "src/main.zig\nREADME.md\n");
 
-    var parents: [max_file_mention_dirs][]const u8 = undefined;
+    var parents: [8][]const u8 = undefined;
     try std.testing.expectEqual(@as(usize, 1), derivedDirParents(&model, &parents));
     right_panel.toggleDir(&model, &fx, dirMentionId(0));
     try std.testing.expect(right_panel.isDirExpanded(&model, "src"));
     try std.testing.expect(pendingSpawnKey(&fx, model.file_mention_key) == null);
     try std.testing.expect(!model.file_mention_last_via_daemon);
+}
+
+test "file mention store is a 50k heap last-window; clearCache frees" {
+    try std.testing.expectEqual(@as(usize, 50_000), max_file_mentions);
+    try std.testing.expectEqual(@as(usize, 50_000), max_file_mention_dirs);
+    try std.testing.expectEqual(@as(usize, 12), file_mention_visible_cap);
+    try std.testing.expectEqualStrings("50000", max_file_mentions_s);
+    try std.testing.expect(scriptHas(powershell_walk_script, max_file_mentions_s));
+    try std.testing.expect(!scriptHas(powershell_walk_script, "-ge 256"));
+
+    var model = Model{};
+    defer clearCache(&model);
+    try std.testing.expectEqual(@as(usize, 0), model.file_mention_store.len);
+    try std.testing.expectEqual(@as(usize, 0), model.right_panel_expanded_store.len);
+
+    applyStdoutPaths(&model, "src/a.zig\n");
+    try std.testing.expectEqual(@as(usize, max_file_mentions), model.file_mention_store.len);
+    try std.testing.expectEqual(@as(u32, 1), model.file_mention_count);
+    try std.testing.expectEqualStrings("src/a.zig", cachedPath(&model, 0));
+
+    try std.testing.expect(ensureRightPanelExpandedStore(&model));
+    try std.testing.expectEqual(@as(usize, max_file_mention_dirs), model.right_panel_expanded_store.len);
+    model.right_panel_expanded_store[0].set("src");
+    model.right_panel_expanded_count = 1;
+
+    clearCache(&model);
+    try std.testing.expectEqual(@as(usize, 0), model.file_mention_store.len);
+    try std.testing.expectEqual(@as(u32, 0), model.file_mention_count);
+    try std.testing.expectEqual(@as(usize, 0), model.right_panel_expanded_store.len);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_expanded_count);
+}
+
+test "session refresh with empty project frees the file-mention heap" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer clearCache(&model);
+    applyStdoutPaths(&model, "src/a.zig\n");
+    try std.testing.expectEqual(@as(usize, max_file_mentions), model.file_mention_store.len);
+    refresh(&model, &fx);
+    try std.testing.expectEqual(@as(usize, 0), model.file_mention_store.len);
+    try std.testing.expectEqual(@as(u32, 0), model.file_mention_count);
+    try std.testing.expectEqual(@as(u64, 0), model.file_mention_key);
 }

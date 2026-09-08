@@ -957,9 +957,12 @@ pub const Model = struct {
     right_panel_background_row_id: u32 = 0,
     /// Runtime-only expanded Files-tree dirs. Keys match
     /// `file_mention.derivedDirParents` (no trailing slash). Empty =
-    /// collapsed (depth-0 only). Cap `max_file_mention_dirs`. Not
-    /// persisted to sessions.json this cut.
-    right_panel_expanded_store: [file_mention.max_file_mention_dirs]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** file_mention.max_file_mention_dirs,
+    /// Runtime-only expanded Files-tree dirs. Heap last-window
+    /// (cap `max_file_mention_dirs`) so `Model` / `initialModel()` stay
+    /// return-by-value safe. Keys are relative dir paths (no trailing
+    /// slash). Empty set = collapsed (depth-0 only). Not persisted
+    /// to sessions.json this cut.
+    right_panel_expanded_store: []file_mention.CachedPath = &.{},
     right_panel_expanded_count: u32 = 0,
     /// Nested Files-tree width while a preview is open. Waku
     /// `DEFAULT_FILE_TREE_WIDTH` 184. Fitted at layout/resize via
@@ -1435,8 +1438,10 @@ pub const Model = struct {
     git_common_dir_path_len: usize = 0,
     /// Runtime-only file cache for composer `@` mentions.
     /// Git ls-files first; bounded walk only when that spawn fails.
-    /// Not persisted to sessions.json.
-    file_mention_store: [file_mention.max_file_mentions]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** file_mention.max_file_mentions,
+    /// Heap last-window at `max_file_mentions` (Waku ~50k) so
+    /// `Model` / `initialModel()` stay return-by-value safe. Not
+    /// persisted to sessions.json.
+    file_mention_store: []file_mention.CachedPath = &.{},
     file_mention_count: u32 = 0,
     file_mention_key: u64 = 0,
     next_file_mention_key: u64 = file_mention.file_mention_key_first,
@@ -3015,9 +3020,12 @@ pub const Model = struct {
             id: u32,
             path: []const u8,
         };
-        var scored_buf: [file_mention.max_file_mentions + file_mention.max_file_mention_dirs]Scored = undefined;
+        const parent_cap = @min(file_mention.max_file_mention_dirs, model.file_mention_count * 8);
+        const scored_cap = model.file_mention_count + parent_cap;
+        const scored_buf = arena.alloc(Scored, scored_cap) catch return &.{};
         var n: usize = 0;
-        for (model.file_mention_store[0..model.file_mention_count], 0..) |*item, index| {
+        const store_n = @min(model.file_mention_count, model.file_mention_store.len);
+        for (model.file_mention_store[0..store_n], 0..) |*item, index| {
             const path = item.text();
             if (file_mention.isDirSentinel(path)) continue;
             const score = composer.fileMentionScore(path, query);
@@ -3030,12 +3038,13 @@ pub const Model = struct {
             };
             n += 1;
         }
-        var parents: [file_mention.max_file_mention_dirs][]const u8 = undefined;
-        const dir_n = file_mention.derivedDirParents(model, &parents);
+        const parents = arena.alloc([]const u8, parent_cap) catch return &.{};
+        const dir_n = file_mention.derivedDirParents(model, parents);
         for (parents[0..dir_n], 0..) |parent, dir_index| {
             const path = std.fmt.allocPrint(arena, "{s}/", .{parent}) catch continue;
             const score = composer.fileMentionScore(path, query);
             if (score == 0) continue;
+            if (n >= scored_buf.len) break;
             scored_buf[n] = .{
                 .score = score,
                 .depth = composer.fileMentionDepth(path),
@@ -3585,7 +3594,7 @@ pub const Model = struct {
     }
 
     pub fn clearRightPanelExpanded(model: *Model) void {
-        model.right_panel_expanded_count = 0;
+        file_mention.freeExpandedStore(model);
     }
 
     pub fn toggleRightPanel(model: *Model) void {
@@ -5887,7 +5896,8 @@ fn hasCommandNamePrefix(model: *const Model, prefix: []const u8) bool {
 
 fn hasFileMentionMatch(model: *const Model, query: []const u8) bool {
     if (model.file_mention_count == 0) return false;
-    for (model.file_mention_store[0..model.file_mention_count]) |*item| {
+    const n = @min(model.file_mention_count, model.file_mention_store.len);
+    for (model.file_mention_store[0..n]) |*item| {
         if (composer.fileMentionScore(item.text(), query) > 0) return true;
     }
     return false;

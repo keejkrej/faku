@@ -2171,7 +2171,7 @@ test "writeWorkspaceStdin emits hello and workspace listProjectFiles without for
         .operation = .{
             .list_project_files = .{
                 .root = "/tmp/faku",
-                .cap = 256,
+                .cap = protocol.max_list_project_files,
             },
         },
     });
@@ -2181,8 +2181,8 @@ test "writeWorkspaceStdin emits hello and workspace listProjectFiles without for
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"sessionId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"runtimeId\":\"" ++ protocol.NIL_UUID ++ "\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"requestId\":\"" ++ WORKSPACE_REQUEST_ID) != null);
-    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"listProjectFiles\",\"root\":\"/tmp/faku\",\"cap\":256}}") != null);
-    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"cap\":256") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"listProjectFiles\",\"root\":\"/tmp/faku\",\"cap\":" ++ std.fmt.comptimePrint("{d}", .{protocol.max_list_project_files}) ++ "}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stdin, "\"cap\":" ++ std.fmt.comptimePrint("{d}", .{protocol.max_list_project_files})) != null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"listTree\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"sessionTurnRefs\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, stdin, "\"type\":\"discoverSlashCommands\"") == null);

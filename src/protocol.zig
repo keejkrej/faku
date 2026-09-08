@@ -309,7 +309,8 @@
 //! (`path`, `is_dir`), not camelCase `isDir`. Dirs use trailing `/`
 //! and `is_dir: true`; files have no trailing slash and `is_dir:
 //! false`. Empty `entries` is still ok. Faku passes its file-mention
-//! cap (256 / `max_file_mentions`) as `cap`, not a 50k index.
+//! cap (`max_list_project_files` / `max_file_mentions`, Waku-scale
+//! 50k) as `cap`.
 //! `WorkspaceOperation::DiscoverSlashCommands`
 //! `{ "type": "discoverSlashCommands", "provider", "project_root",
 //! "binary_override"? }` (camelCase op tag; snake_case
@@ -1257,7 +1258,7 @@ pub const WorkspaceListTree = struct {
 /// Waku `ListProjectFiles`. Wire keys stay `root` / `cap` (plain
 /// identifiers; WorkspaceOperation serde `rename_all` is the
 /// camelCase `type` tag only — no `rename_all_fields`). `cap` is
-/// Faku's file-mention cap (256), not a 50k index. No force and no
+/// Faku's file-mention cap (Waku-scale 50k). No force and no
 /// amend. Ok is nested `WorkspaceResult::ProjectFiles`.
 pub const WorkspaceListProjectFiles = struct {
     root: []const u8,
@@ -1506,9 +1507,15 @@ pub const ParsedCommitMessage = struct {
 };
 
 /// Files-tree rows from an ok `workingTree` workspace result. Cap
-/// matches `file_mention.max_file_mentions` (256); overflow entries
-/// are ignored. Slices alias the JSON arena used to parse the line.
-pub const max_parsed_tree_entries: usize = 256;
+/// matches `max_list_project_files` (Waku ~50k); overflow entries
+/// are ignored. `entries` is arena-owned so the parse struct stays
+/// return-by-value safe. Slices alias the JSON arena used to parse
+/// the line.
+pub const max_list_project_files: usize = 50_000;
+pub const max_parsed_tree_entries: usize = max_list_project_files;
+/// BrowseDirectory / in-app folder picker. One directory listing,
+/// not the 50k Files index.
+pub const max_parsed_dir_entries: usize = 256;
 
 pub const ParsedWorkingTreeEntry = struct {
     relative_path: []const u8 = "",
@@ -1521,16 +1528,16 @@ pub const ParsedWorkingTreeEntry = struct {
 
 pub const ParsedWorkingTree = struct {
     ok: bool = false,
-    entries: [max_parsed_tree_entries]ParsedWorkingTreeEntry = [_]ParsedWorkingTreeEntry{.{}} ** max_parsed_tree_entries,
+    entries: []ParsedWorkingTreeEntry = &.{},
     entry_count: usize = 0,
 };
 
 /// Flat project-file rows from an ok `projectFiles` workspace result
 /// (ListProjectFiles). Cap matches ListTree (`max_parsed_tree_entries`);
 /// overflow entries are ignored. `FileEntry` fields are serde
-/// defaults (`path`, `is_dir`), not camelCase `isDir`. Slices alias
-/// the JSON arena used to parse the line. Empty `entries` still sets
-/// `ok`.
+/// defaults (`path`, `is_dir`), not camelCase `isDir`. `entries` is
+/// arena-owned. Slices alias the JSON arena used to parse the line.
+/// Empty `entries` still sets `ok`.
 pub const ParsedProjectFileEntry = struct {
     path: []const u8 = "",
     is_dir: bool = false,
@@ -1538,7 +1545,7 @@ pub const ParsedProjectFileEntry = struct {
 
 pub const ParsedProjectFiles = struct {
     ok: bool = false,
-    entries: [max_parsed_tree_entries]ParsedProjectFileEntry = [_]ParsedProjectFileEntry{.{}} ** max_parsed_tree_entries,
+    entries: []ParsedProjectFileEntry = &.{},
     entry_count: usize = 0,
 };
 
@@ -1574,16 +1581,17 @@ pub const ParsedProjectlessWorkspace = struct {
 };
 
 /// Directory listing from an ok `directory` workspace result.
-/// Cap matches ListTree (`max_parsed_tree_entries`); overflow
-/// entries are ignored. Slices alias the JSON arena. `parent`
-/// is empty when the wire value is JSON null (filesystem root).
+/// Cap `max_parsed_dir_entries` (one folder picker page, not the
+/// 50k Files index); overflow entries are ignored. Slices alias
+/// the JSON arena. `parent` is empty when the wire value is JSON
+/// null (filesystem root).
 pub const ParsedDirectory = struct {
     ok: bool = false,
     path: []const u8 = "",
     parent: []const u8 = "",
     home: []const u8 = "",
     filesystem_root: []const u8 = "",
-    entries: [max_parsed_tree_entries]ParsedWorkingTreeEntry = [_]ParsedWorkingTreeEntry{.{}} ** max_parsed_tree_entries,
+    entries: [max_parsed_dir_entries]ParsedWorkingTreeEntry = [_]ParsedWorkingTreeEntry{.{}} ** max_parsed_dir_entries,
     entry_count: usize = 0,
 };
 
@@ -3199,15 +3207,17 @@ pub fn parseCommitMessage(allocator: std.mem.Allocator, line: []const u8) Parsed
 /// with camelCase `WorkingTreeEntry` fields (`relativePath`,
 /// `absolutePath`, `name`, `isDir`, `expanded`, `depth`). Empty
 /// `entries` is still ok. Missing wrapper, ack, snake_case paths, or a
-/// malformed entry inside the 256 cap are rejected. Overflow entries
+/// malformed entry inside the cap are rejected. Overflow entries
 /// are ignored. Slices alias `allocator`.
 pub fn parseWorkingTree(allocator: std.mem.Allocator, line: []const u8) ParsedWorkingTree {
     var parsed = ParsedWorkingTree{};
     const result = workspaceResultObject(allocator, line) orelse return parsed;
     if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "workingTree")) return parsed;
-    const n = parseWorkingTreeEntries(result.get("entries") orelse return parsed, &parsed.entries) orelse return parsed;
+    const entries_val = result.get("entries") orelse return parsed;
+    const dest = allocWorkingTreeEntries(allocator, entries_val, max_parsed_tree_entries) orelse return parsed;
     parsed.ok = true;
-    parsed.entry_count = n;
+    parsed.entries = dest;
+    parsed.entry_count = dest.len;
     return parsed;
 }
 
@@ -3228,7 +3238,7 @@ pub fn parseDirectory(allocator: std.mem.Allocator, line: []const u8) ParsedDire
     const parent = jsonNullOrString(result.get("parent")) orelse return parsed;
     const home = jsonStringValue(result.get("home")) orelse return parsed;
     const filesystem_root = jsonStringValue(result.get("filesystemRoot")) orelse return parsed;
-    const n = parseWorkingTreeEntries(result.get("entries") orelse return parsed, &parsed.entries) orelse return parsed;
+    const n = fillWorkingTreeEntries(result.get("entries") orelse return parsed, parsed.entries[0..]) orelse return parsed;
     parsed.ok = true;
     parsed.path = path;
     parsed.parent = parent;
@@ -3303,26 +3313,40 @@ pub fn parseWorkspaceTurnRefs(allocator: std.mem.Allocator, line: []const u8) Pa
 /// "entries": [ { "path", "is_dir" }, … ] }`. Empty `entries` is
 /// still ok. Missing wrapper, ack, workingTree, bare projectFiles,
 /// camelCase `isDir`, snake_case path renames, or a malformed entry
-/// inside the 256 cap are rejected. Overflow entries are ignored.
+/// inside the cap are rejected. Overflow entries are ignored.
 /// Slices alias `allocator`.
 pub fn parseProjectFiles(allocator: std.mem.Allocator, line: []const u8) ParsedProjectFiles {
     var parsed = ParsedProjectFiles{};
     const result = workspaceResultObject(allocator, line) orelse return parsed;
     if (!std.mem.eql(u8, jsonStringValue(result.get("type")) orelse "", "projectFiles")) return parsed;
-    const n = parseProjectFileEntries(result.get("entries") orelse return parsed, &parsed.entries) orelse return parsed;
+    const dest = allocProjectFileEntries(allocator, result.get("entries") orelse return parsed, max_parsed_tree_entries) orelse return parsed;
     parsed.ok = true;
-    parsed.entry_count = n;
+    parsed.entries = dest;
+    parsed.entry_count = dest.len;
     return parsed;
 }
 
-fn parseProjectFileEntries(
+fn allocProjectFileEntries(
+    allocator: std.mem.Allocator,
     entries_val: std.json.Value,
-    dest: *[max_parsed_tree_entries]ParsedProjectFileEntry,
+    cap: usize,
+) ?[]ParsedProjectFileEntry {
+    const items = jsonArrayItems(entries_val) orelse return null;
+    const take = @min(items.len, cap);
+    if (take == 0) return &.{};
+    const dest = allocator.alloc(ParsedProjectFileEntry, take) catch return null;
+    const n = fillProjectFileEntries(entries_val, dest) orelse return null;
+    return dest[0..n];
+}
+
+fn fillProjectFileEntries(
+    entries_val: std.json.Value,
+    dest: []ParsedProjectFileEntry,
 ) ?usize {
     const items = jsonArrayItems(entries_val) orelse return null;
     var n: usize = 0;
     for (items) |item| {
-        if (n >= max_parsed_tree_entries) break;
+        if (n >= dest.len) break;
         const entry = jsonObject(item) orelse return null;
         dest[n] = parseProjectFileEntry(entry) orelse return null;
         n += 1;
@@ -3412,14 +3436,27 @@ fn isCommandScope(name: []const u8) bool {
         std.mem.eql(u8, name, "Builtin");
 }
 
-fn parseWorkingTreeEntries(
+fn allocWorkingTreeEntries(
+    allocator: std.mem.Allocator,
     entries_val: std.json.Value,
-    dest: *[max_parsed_tree_entries]ParsedWorkingTreeEntry,
+    cap: usize,
+) ?[]ParsedWorkingTreeEntry {
+    const items = jsonArrayItems(entries_val) orelse return null;
+    const take = @min(items.len, cap);
+    if (take == 0) return &.{};
+    const dest = allocator.alloc(ParsedWorkingTreeEntry, take) catch return null;
+    const n = fillWorkingTreeEntries(entries_val, dest) orelse return null;
+    return dest[0..n];
+}
+
+fn fillWorkingTreeEntries(
+    entries_val: std.json.Value,
+    dest: []ParsedWorkingTreeEntry,
 ) ?usize {
     const items = jsonArrayItems(entries_val) orelse return null;
     var n: usize = 0;
     for (items) |item| {
-        if (n >= max_parsed_tree_entries) break;
+        if (n >= dest.len) break;
         const entry = jsonObject(item) orelse return null;
         dest[n] = parseWorkingTreeEntry(entry) orelse return null;
         n += 1;
@@ -5161,15 +5198,15 @@ test "workspace request wraps camelCase listProjectFiles with root and cap and n
         NIL_UUID,
         .{ .list_project_files = .{
             .root = "/tmp/faku",
-            .cap = 256,
+            .cap = max_list_project_files,
         } },
     );
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"request\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"requestId\":\"00000000-0000-0000-0000-000000000014\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"sessionId\":\"" ++ NIL_UUID ++ "\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"runtimeId\":\"" ++ NIL_UUID ++ "\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"listProjectFiles\",\"root\":\"/tmp/faku\",\"cap\":256}}") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json, "\"cap\":256") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"command\":{\"type\":\"workspace\",\"operation\":{\"type\":\"listProjectFiles\",\"root\":\"/tmp/faku\",\"cap\":" ++ std.fmt.comptimePrint("{d}", .{max_list_project_files}) ++ "}}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"cap\":" ++ std.fmt.comptimePrint("{d}", .{max_list_project_files})) != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"listTree\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"sessionTurnRefs\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, json, "\"type\":\"prompt\"") == null);
@@ -5184,7 +5221,7 @@ test "workspace request wraps camelCase listProjectFiles with root and cap and n
         "00000000-0000-0000-0000-000000000014",
         NIL_UUID,
         NIL_UUID,
-        .{ .list_project_files = .{ .root = "/tmp/faku", .cap = 256 } },
+        .{ .list_project_files = .{ .root = "/tmp/faku", .cap = max_list_project_files } },
     ));
 }
 
