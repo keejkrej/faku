@@ -13175,7 +13175,9 @@ test "settings Usage Daily Days paints nested Claude/Codex byProvider bars" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "kind=\"area\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "y-max=\"{usage_daily_chart_y_max}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_daily_chart_claude") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_daily_chart_claude_on_top") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_daily_chart_values") == null);
+    try testing.expectEqual(@as(usize, 12), countNeedle(main.app_markup, "stroke-width=\"2\""));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "kind=\"bar\"") == null);
 
     var spawn_i: usize = 0;
@@ -13202,7 +13204,18 @@ test "settings Usage Daily Days paints nested Claude/Codex byProvider bars" {
     _ = try expectByText(tree.root, .text, "Claude Code · 40 · $0.25");
     _ = try expectByText(tree.root, .text, "Codex · 60 · $0.75");
     try testing.expect(findByText(tree.root, .text, "Codex · 0") == null);
+    try testing.expect(!model.usage_daily_chart_claude_on_top());
     _ = try expectUsageDailyChart(tree.root, 0.75);
+    const saved_claude_cost = model.usage_history.daily[0].by_provider[0].cost_usd;
+    const saved_codex_cost = model.usage_history.daily[0].by_provider[1].cost_usd;
+    model.usage_history.daily[0].by_provider[0].cost_usd = 0.9;
+    model.usage_history.daily[0].by_provider[1].cost_usd = 0.1;
+    try testing.expect(model.usage_daily_chart_claude_on_top());
+    tree = try buildTree(arena, &model);
+    _ = try expectUsagePeriodChart(tree.root, "Daily usage", 0.9, true);
+    model.usage_history.daily[0].by_provider[0].cost_usd = saved_claude_cost;
+    model.usage_history.daily[0].by_provider[1].cost_usd = saved_codex_cost;
+    tree = try buildTree(arena, &model);
     _ = try expectUsageShareProgress(tree.root, "25.0%", 0.25);
     _ = try expectUsageShareProgress(tree.root, "75.0%", 0.75);
     try testing.expect(findByText(tree.root, .text, "50.0%") == null);
@@ -13255,7 +13268,9 @@ test "settings Usage Monthly paints nested Claude/Codex byProvider bars" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "m.has_by_provider") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "y-max=\"{usage_monthly_chart_y_max}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_monthly_chart_claude") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_monthly_chart_claude_on_top") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_monthly_chart_values") == null);
+    try testing.expectEqual(@as(usize, 12), countNeedle(main.app_markup, "stroke-width=\"2\""));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Monthly usage\"") != null);
 
     main.update(&model, .set_usage_view_monthly, &fx);
@@ -13284,7 +13299,18 @@ test "settings Usage Monthly paints nested Claude/Codex byProvider bars" {
     _ = try expectByText(tree.root, .text, "Claude Code · 40 · $0.25");
     _ = try expectByText(tree.root, .text, "Codex · 60 · $0.75");
     try testing.expect(findByText(tree.root, .text, "Codex · 0") == null);
+    try testing.expect(!model.usage_monthly_chart_claude_on_top());
     _ = try expectUsageMonthlyChart(tree.root, 0.75);
+    const saved_claude_cost = model.usage_history.months[0].by_provider[0].cost_usd;
+    const saved_codex_cost = model.usage_history.months[0].by_provider[1].cost_usd;
+    model.usage_history.months[0].by_provider[0].cost_usd = 0.9;
+    model.usage_history.months[0].by_provider[1].cost_usd = 0.1;
+    try testing.expect(model.usage_monthly_chart_claude_on_top());
+    tree = try buildTree(arena, &model);
+    _ = try expectUsagePeriodChart(tree.root, "Monthly usage", 0.9, true);
+    model.usage_history.months[0].by_provider[0].cost_usd = saved_claude_cost;
+    model.usage_history.months[0].by_provider[1].cost_usd = saved_codex_cost;
+    tree = try buildTree(arena, &model);
     _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
     _ = try expectUsageShareProgress(tree.root, "50.0%", 0.5);
     _ = try expectUsageShareProgress(tree.root, "25.0%", 0.25);
@@ -13352,7 +13378,9 @@ test "settings Usage Projects paints nested Claude/Codex byProvider bars" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "pr.has_by_provider") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "y-max=\"{usage_projects_chart_y_max}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_projects_chart_claude") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_projects_chart_claude_on_top") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "usage_projects_chart_values") == null);
+    try testing.expectEqual(@as(usize, 12), countNeedle(main.app_markup, "stroke-width=\"2\""));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"Projects usage\"") != null);
 
     main.update(&model, .set_usage_view_projects, &fx);
@@ -13381,7 +13409,18 @@ test "settings Usage Projects paints nested Claude/Codex byProvider bars" {
     _ = try expectByText(tree.root, .text, "Claude Code · 40 · $0.25");
     _ = try expectByText(tree.root, .text, "Codex · 60 · $0.75");
     try testing.expect(findByText(tree.root, .text, "Codex · 0") == null);
+    try testing.expect(!model.usage_projects_chart_claude_on_top());
     _ = try expectUsageProjectsChart(tree.root, 0.75);
+    const saved_claude_cost = model.usage_history.projects[0].by_provider[0].cost_usd;
+    const saved_codex_cost = model.usage_history.projects[0].by_provider[1].cost_usd;
+    model.usage_history.projects[0].by_provider[0].cost_usd = 0.9;
+    model.usage_history.projects[0].by_provider[1].cost_usd = 0.1;
+    try testing.expect(model.usage_projects_chart_claude_on_top());
+    tree = try buildTree(arena, &model);
+    _ = try expectUsagePeriodChart(tree.root, "Projects usage", 0.9, true);
+    model.usage_history.projects[0].by_provider[0].cost_usd = saved_claude_cost;
+    model.usage_history.projects[0].by_provider[1].cost_usd = saved_codex_cost;
+    tree = try buildTree(arena, &model);
     _ = try expectUsageShareProgress(tree.root, "100.0%", 1.0);
     _ = try expectUsageShareProgress(tree.root, "50.0%", 0.5);
     _ = try expectUsageShareProgress(tree.root, "25.0%", 0.25);
@@ -21443,19 +21482,29 @@ fn expectUsageShareProgress(widget: canvas.Widget, label: []const u8, expected: 
     return progress;
 }
 
+fn countNeedle(haystack: []const u8, needle: []const u8) usize {
+    var n: usize = 0;
+    var i: usize = 0;
+    while (std.mem.indexOfPos(u8, haystack, i, needle)) |pos| {
+        n += 1;
+        i = pos + needle.len;
+    }
+    return n;
+}
+
 fn expectUsageDailyChart(widget: canvas.Widget, y_max: ?f32) !canvas.Widget {
-    return expectUsagePeriodChart(widget, "Daily usage", y_max);
+    return expectUsagePeriodChart(widget, "Daily usage", y_max, false);
 }
 
 fn expectUsageMonthlyChart(widget: canvas.Widget, y_max: ?f32) !canvas.Widget {
-    return expectUsagePeriodChart(widget, "Monthly usage", y_max);
+    return expectUsagePeriodChart(widget, "Monthly usage", y_max, false);
 }
 
 fn expectUsageProjectsChart(widget: canvas.Widget, y_max: ?f32) !canvas.Widget {
-    return expectUsagePeriodChart(widget, "Projects usage", y_max);
+    return expectUsagePeriodChart(widget, "Projects usage", y_max, false);
 }
 
-fn expectUsagePeriodChart(widget: canvas.Widget, label: []const u8, y_max: ?f32) !canvas.Widget {
+fn expectUsagePeriodChart(widget: canvas.Widget, label: []const u8, y_max: ?f32, claude_on_top: bool) !canvas.Widget {
     const chart = findByText(widget, .chart, label) orelse {
         std.debug.print("no {s} chart\n", .{label});
         dumpTexts(widget, 0);
@@ -21466,15 +21515,21 @@ fn expectUsagePeriodChart(widget: canvas.Widget, label: []const u8, y_max: ?f32)
     try testing.expect(chart.chart.y_labels);
     try testing.expect(chart.chart.hover_details);
     try testing.expectEqual(@as(u8, 3), chart.chart.grid_lines);
+    try testing.expectEqual(@as(?f32, 2), chart.style.stroke_width);
     try testing.expectEqual(@as(usize, 2), chart.chart.series.len);
-    const claude = chart.chart.series[0];
-    try testing.expectEqual(canvas.ChartSeriesKind.line, claude.kind);
-    try testing.expect(claude.fill);
-    try testing.expectEqualStrings("Claude", claude.label);
-    const codex = chart.chart.series[1];
-    try testing.expectEqual(canvas.ChartSeriesKind.line, codex.kind);
-    try testing.expect(codex.fill);
-    try testing.expectEqualStrings("Codex", codex.label);
+    const bottom = chart.chart.series[0];
+    const top = chart.chart.series[1];
+    try testing.expectEqual(canvas.ChartSeriesKind.line, bottom.kind);
+    try testing.expect(bottom.fill);
+    try testing.expectEqual(canvas.ChartSeriesKind.line, top.kind);
+    try testing.expect(top.fill);
+    if (claude_on_top) {
+        try testing.expectEqualStrings("Codex", bottom.label);
+        try testing.expectEqualStrings("Claude", top.label);
+    } else {
+        try testing.expectEqualStrings("Claude", bottom.label);
+        try testing.expectEqualStrings("Codex", top.label);
+    }
     if (y_max) |peak| {
         const pinned = chart.chart.y_max orelse {
             std.debug.print("{s} chart missing y-max pin\n", .{label});
