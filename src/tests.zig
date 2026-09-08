@@ -23530,7 +23530,7 @@ test "Diff file list paints numstat +N / -M beside file labels" {
     try testing.expect(!model.review_diff_nested_split());
 
     review_diff.toggleDir(&model, review_diff.dirId(0));
-    var expanded = try buildTree(arena, &model);
+    const expanded = try buildTree(arena, &model);
     _ = try expectButtonMsg(expanded, "M a.zig", .{ .select_review_diff_file = 1 });
     _ = try expectButtonMsg(expanded, "A new.txt", .{ .select_review_diff_file = 2 });
     _ = try expectByText(expanded.root, .text, "+2");

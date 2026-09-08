@@ -2547,7 +2547,6 @@ test "argv is chdir script plus git diff --numstat @{upstream}...HEAD" {
     const git_branch = @import("git_branch.zig");
     const git_dirty = @import("git_dirty.zig");
     const composer_numstat = @import("git_numstat.zig");
-    const file_mention = @import("file_mention.zig");
     var buf: [argv_len][]const u8 = undefined;
     const argv = unixArgvFor("/tmp/faku-review", &buf);
     try std.testing.expectEqual(@as(usize, 9), argv.len);
@@ -2833,7 +2832,6 @@ test "windows git argv is git.exe -C PATH; path is its own slot" {
     const git_branch = @import("git_branch.zig");
     const git_dirty = @import("git_dirty.zig");
     const composer_numstat = @import("git_numstat.zig");
-    const file_mention = @import("file_mention.zig");
     const cwd = "C:\\Users\\me\\proj";
     var buf: [argv_len][]const u8 = undefined;
     const argv = windowsArgvFor(cwd, &buf);
