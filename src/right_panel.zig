@@ -150,8 +150,8 @@
 //! `FILE_TREE_MIN_WIDTH` (140) / `FILE_TREE_MAX_WIDTH` (360). Diff and
 //! Background, Browser, and Terminal bump toward Waku
 //! `DEFAULT_RIGHT_PANEL_WIDTH` (460) when the pane is still
-//! file-tree-narrow; first-cut max is 460 (Waku
-//! `RIGHT_PANEL_MAX_WIDTH` is 1000). Selected tab and Browser draft URL
+//! file-tree-narrow; max is Waku `RIGHT_PANEL_MAX_WIDTH` (1000).
+//! Selected tab and Browser draft URL
 //! persist on `sessions.json` extras (`right_panel_tab` / `browser_url`;
 //! missing / unknown tab → `files`, missing / empty URL → empty draft).
 //! Selected Background row, Files preview, directory expands, and
@@ -1606,27 +1606,34 @@ test "file-tree widths match Waku DEFAULT_FILE_TREE / FILE_TREE_MIN / MAX" {
     try std.testing.expectEqual(@as(f32, 200), clampWidth(200));
 }
 
-test "Diff tab default 460 / max 460; Browser Terminal Background share Diff clamp; Files clamp stays 360" {
+test "Diff tab default 460 / max 1000; Browser Terminal Background share Diff clamp; Files clamp stays 360" {
     try std.testing.expectEqual(@as(f32, 460), main.right_panel_diff_default_width);
-    try std.testing.expectEqual(@as(f32, 460), main.right_panel_diff_max_width);
+    try std.testing.expectEqual(@as(f32, 1000), main.right_panel_diff_max_width);
     try std.testing.expectEqual(@as(f32, 460), clampWidthTab(0, .diff));
     try std.testing.expectEqual(@as(f32, 140), clampWidthTab(100, .diff));
-    try std.testing.expectEqual(@as(f32, 460), clampWidthTab(500, .diff));
+    try std.testing.expectEqual(@as(f32, 500), clampWidthTab(500, .diff));
+    try std.testing.expectEqual(@as(f32, 800), clampWidthTab(800, .diff));
+    try std.testing.expectEqual(@as(f32, 1000), clampWidthTab(1000, .diff));
+    try std.testing.expectEqual(@as(f32, 1000), clampWidthTab(1200, .diff));
     try std.testing.expectEqual(@as(f32, 400), clampWidthTab(400, .diff));
     try std.testing.expectEqual(@as(f32, 460), clampWidthTab(0, .background));
     try std.testing.expectEqual(@as(f32, 140), clampWidthTab(100, .background));
-    try std.testing.expectEqual(@as(f32, 460), clampWidthTab(500, .background));
+    try std.testing.expectEqual(@as(f32, 800), clampWidthTab(800, .background));
+    try std.testing.expectEqual(@as(f32, 1000), clampWidthTab(1200, .background));
     try std.testing.expectEqual(@as(f32, 400), clampWidthTab(400, .background));
     try std.testing.expectEqual(@as(f32, 460), clampWidthTab(0, .browser));
     try std.testing.expectEqual(@as(f32, 140), clampWidthTab(100, .browser));
-    try std.testing.expectEqual(@as(f32, 460), clampWidthTab(500, .browser));
+    try std.testing.expectEqual(@as(f32, 800), clampWidthTab(800, .browser));
+    try std.testing.expectEqual(@as(f32, 1000), clampWidthTab(1200, .browser));
     try std.testing.expectEqual(@as(f32, 400), clampWidthTab(400, .browser));
     try std.testing.expectEqual(@as(f32, 460), clampWidthTab(0, .terminal));
     try std.testing.expectEqual(@as(f32, 140), clampWidthTab(100, .terminal));
-    try std.testing.expectEqual(@as(f32, 460), clampWidthTab(500, .terminal));
+    try std.testing.expectEqual(@as(f32, 800), clampWidthTab(800, .terminal));
+    try std.testing.expectEqual(@as(f32, 1000), clampWidthTab(1200, .terminal));
     try std.testing.expectEqual(@as(f32, 400), clampWidthTab(400, .terminal));
     try std.testing.expectEqual(@as(f32, 360), clampWidthTab(400, .files));
     try std.testing.expectEqual(@as(f32, 360), clampWidthTab(460, .files));
+    try std.testing.expectEqual(@as(f32, 360), clampWidthTab(1000, .files));
 }
 
 test "tab persist names are stable lowercase; missing unknown is files" {
@@ -1645,12 +1652,20 @@ test "tab persist names are stable lowercase; missing unknown is files" {
     try std.testing.expectEqual(Tab.background, Tab.fromPersist("background"));
 }
 
-test "applyPersisted restores wide tabs at Diff max, not Files 360" {
+test "applyPersisted restores wide tabs at stored width up to 1000, not Files 360" {
     var model = Model{};
     applyPersisted(&model, true, .diff, 460);
     try std.testing.expect(model.right_panel_open);
     try std.testing.expectEqual(Tab.diff, model.right_panel_tab);
     try std.testing.expectEqual(@as(f32, 460), model.right_panel_width);
+
+    var wide = Model{};
+    applyPersisted(&wide, true, .diff, 800);
+    try std.testing.expectEqual(@as(f32, 800), wide.right_panel_width);
+    applyPersisted(&wide, true, .diff, 1000);
+    try std.testing.expectEqual(@as(f32, 1000), wide.right_panel_width);
+    applyPersisted(&wide, true, .diff, 1200);
+    try std.testing.expectEqual(@as(f32, 1000), wide.right_panel_width);
 
     var browser = Model{};
     applyPersisted(&browser, true, .browser, 460);
@@ -1670,6 +1685,8 @@ test "applyPersisted restores wide tabs at Diff max, not Files 360" {
     var files = Model{};
     applyPersisted(&files, true, .files, 460);
     try std.testing.expectEqual(Tab.files, files.right_panel_tab);
+    try std.testing.expectEqual(@as(f32, 360), files.right_panel_width);
+    applyPersisted(&files, true, .files, 1000);
     try std.testing.expectEqual(@as(f32, 360), files.right_panel_width);
 }
 
@@ -1699,6 +1716,12 @@ test "tab defaults to files; Diff Background Browser Terminal open the panel; Fi
     try std.testing.expectEqual(@as(f32, 460), model.right_panel_width);
 
     model.right_panel_width = 400;
+    selectFiles(&model, &fx);
+    try std.testing.expectEqual(@as(f32, 360), model.right_panel_width);
+
+    selectDiff(&model, &fx);
+    model.right_panel_width = clampWidthTab(800, .diff);
+    try std.testing.expectEqual(@as(f32, 800), model.right_panel_width);
     selectFiles(&model, &fx);
     try std.testing.expectEqual(@as(f32, 360), model.right_panel_width);
 

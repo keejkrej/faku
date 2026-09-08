@@ -23,9 +23,11 @@ pub const right_panel_max_width: f32 = 360;
 /// Not persisted as a tab: switching back to Files reclamps to
 /// `right_panel_max_width`.
 pub const right_panel_diff_default_width: f32 = 460;
-/// First-cut wide-tab max: Waku `DEFAULT_RIGHT_PANEL_WIDTH` 460
-/// (full Waku `RIGHT_PANEL_MAX_WIDTH` is 1000; `RIGHT_PANEL_MIN_WIDTH` is 280).
-pub const right_panel_diff_max_width: f32 = 460;
+/// Waku `RIGHT_PANEL_MAX_WIDTH`. Diff / Browser / Terminal / Background
+/// resize clamp. Open/target width stays `right_panel_diff_default_width`.
+/// Shared min stays `right_panel_min_width` (140 / Waku `FILE_TREE_MIN_WIDTH`);
+/// Waku `RIGHT_PANEL_MIN_WIDTH` is 280 and is not adopted this cut.
+pub const right_panel_diff_max_width: f32 = 1000;
 
 test "layout chrome widths match Waku-aligned numbers" {
     try std.testing.expectEqual(@as(f32, 252), sidebar_default_width);
@@ -36,5 +38,5 @@ test "layout chrome widths match Waku-aligned numbers" {
     try std.testing.expectEqual(@as(f32, 140), right_panel_min_width);
     try std.testing.expectEqual(@as(f32, 360), right_panel_max_width);
     try std.testing.expectEqual(@as(f32, 460), right_panel_diff_default_width);
-    try std.testing.expectEqual(@as(f32, 460), right_panel_diff_max_width);
+    try std.testing.expectEqual(@as(f32, 1000), right_panel_diff_max_width);
 }
