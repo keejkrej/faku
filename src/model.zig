@@ -3020,7 +3020,7 @@ pub const Model = struct {
             id: u32,
             path: []const u8,
         };
-        const parent_cap = @min(file_mention.max_file_mention_dirs, model.file_mention_count * 8);
+        const parent_cap = @min(file_mention.max_file_mention_dirs, @as(usize, model.file_mention_count) * 8);
         const scored_cap = model.file_mention_count + parent_cap;
         const scored_buf = arena.alloc(Scored, scored_cap) catch return &.{};
         var n: usize = 0;

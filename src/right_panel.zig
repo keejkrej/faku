@@ -586,7 +586,7 @@ pub fn rows(model: *const Model, arena: std.mem.Allocator) []const RightPanelFil
     if (!hasProject(model)) return &.{};
     if (model.file_mention_count == 0) return &.{};
 
-    const parent_cap = @min(file_mention.max_file_mention_dirs, model.file_mention_count * 8);
+    const parent_cap = @min(file_mention.max_file_mention_dirs, @as(usize, model.file_mention_count) * 8);
     const key_n = @min(model.right_panel_expanded_count, file_mention.max_file_mention_dirs);
     const key_buf = arena.alloc([]const u8, key_n) catch return &.{};
     const expanded = expandedKeys(model, key_buf);

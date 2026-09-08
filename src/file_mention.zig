@@ -78,8 +78,9 @@ pub const max_file_mention_path: usize = 255;
 /// Same visible-row cap as the command palette task section.
 pub const file_mention_visible_cap: usize = 12;
 /// 1-based file-cache ids are `1..=max_file_mentions`. Derived dir
-/// ids start here so `insert_mention:{m.id}` cannot collide.
-pub const file_mention_dir_id_base: u32 = 1000;
+/// ids start at `max_file_mentions + 1` so `insert_mention:{m.id}`
+/// cannot collide (a hardcoded 1000 sat above the old 256 cap).
+pub const file_mention_dir_id_base: u32 = @intCast(max_file_mentions + 1);
 /// Unique derived parent dirs for Files tree / `@` dir rows.
 /// Same bound as the file index so a 50k-file tree is not truncated
 /// at 256 ancestors. Expand-set is a heap last-window (same reason).
@@ -440,7 +441,7 @@ pub fn mentionRelpath(model: *const Model, id: u32, dir_out: []u8) ?[]const u8 {
     if (id == 0) return null;
     if (id >= file_mention_dir_id_base) {
         const dir_index = id - file_mention_dir_id_base;
-        const parent_cap = @min(max_file_mention_dirs, @max(model.file_mention_count * 8, 1));
+        const parent_cap = @min(max_file_mention_dirs, @max(@as(usize, model.file_mention_count) * 8, 1));
         const parents = std.heap.page_allocator.alloc([]const u8, parent_cap) catch return null;
         defer std.heap.page_allocator.free(parents);
         const n = derivedDirParents(model, parents);
@@ -1395,6 +1396,9 @@ test "file mention store is a 50k heap last-window; clearCache frees" {
     try std.testing.expectEqual(@as(usize, 50_000), max_file_mentions);
     try std.testing.expectEqual(@as(usize, 50_000), max_file_mention_dirs);
     try std.testing.expectEqual(@as(usize, 12), file_mention_visible_cap);
+    try std.testing.expectEqual(@as(u32, @intCast(max_file_mentions + 1)), file_mention_dir_id_base);
+    try std.testing.expect(fileMentionId(max_file_mentions - 1) < file_mention_dir_id_base);
+    try std.testing.expectEqual(file_mention_dir_id_base, dirMentionId(0));
     try std.testing.expectEqualStrings("50000", max_file_mentions_s);
     try std.testing.expect(scriptHas(powershell_walk_script, max_file_mentions_s));
     try std.testing.expect(!scriptHas(powershell_walk_script, "-ge 256"));

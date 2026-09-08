@@ -21464,25 +21464,26 @@ test "git ls-files sidecar argv and first-N stdout; empty missing rejected skip"
 
     file_mention.refresh(&model, &fx);
     mention = findFileMentionSpawnKey(&fx, model.file_mention_key) orelse return error.MissingFileMentionSpawn;
-    // Native effect lines are 4 KiB. Batch `'p\n'` so the overflow still
-    // reaches the 50k cap (one blob used to be ~516 bytes at cap 256).
-    const batch_paths: usize = 1000;
-    var batch: [batch_paths * 2]u8 = undefined;
+    // Sidecar `feedLine` is 4 KiB and the fake effect queue is 64
+    // entries. Fill the 50k cap through `applyStdoutPaths` (the same
+    // function git/walk `applyLine` uses), then two extra sidecar
+    // lines so overflow still stops at the cap on the effect path.
+    var overflow = try testing.allocator.alloc(u8, file_mention.max_file_mentions * 2);
+    defer testing.allocator.free(overflow);
     {
         var n: usize = 0;
-        while (n < batch.len) {
-            batch[n] = 'p';
+        while (n < overflow.len) {
+            overflow[n] = 'p';
             n += 1;
-            batch[n] = '\n';
+            overflow[n] = '\n';
             n += 1;
         }
     }
-    var remaining: usize = file_mention.max_file_mentions + 2;
-    while (remaining > 0) {
-        const take = @min(remaining, batch_paths);
-        try fx.feedLine(mention.key, batch[0 .. take * 2]);
-        remaining -= take;
-    }
+    file_mention.applyStdoutPaths(&model, overflow);
+    try testing.expectEqual(@as(u32, file_mention.max_file_mentions), model.file_mention_count);
+    try fx.feedLine(mention.key, "extra-a\n");
+    drainEffects(&model, &fx);
+    try fx.feedLine(mention.key, "extra-b\n");
     drainEffects(&model, &fx);
     try testing.expectEqual(@as(u32, file_mention.max_file_mentions), model.file_mention_count);
     try fx.feedExit(mention.key, 0);
