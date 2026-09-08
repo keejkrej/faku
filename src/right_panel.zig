@@ -83,9 +83,9 @@
 //! stays local). Leftovers: amend/force over
 //! daemon, remote `--track` over daemon,
 //! etc.
-//! Not Waku's 50k-file index (cap 256). Windows probes the same
-//! cache (`git.exe -C` then a PowerShell walk; still not Waku's
-//! 50k index or a Native FS watcher).
+//! Files / `@` share a Waku-scale ~50k heap index. Windows probes the
+//! same cache (`git.exe -C` then a PowerShell walk; still not a
+//! Native FS watcher).
 //!
 //! Files tab ships a bounded inline file preview (prefer daemon
 //! `ReadTextFile` when an address is set, else Faku-side
@@ -566,7 +566,7 @@ fn containsKey(keys: []const []const u8, needle: []const u8) bool {
 }
 
 pub fn expandedKeys(model: *const Model, buf: [][]const u8) []const []const u8 {
-    const n = @min(model.right_panel_expanded_count, buf.len);
+    const n = @min(model.right_panel_expanded_count, @min(buf.len, model.right_panel_expanded_store.len));
     var i: usize = 0;
     while (i < n) : (i += 1) {
         buf[i] = model.right_panel_expanded_store[i].text();
@@ -577,8 +577,7 @@ pub fn expandedKeys(model: *const Model, buf: [][]const u8) []const []const u8 {
 pub fn isDirExpanded(model: *const Model, path: []const u8) bool {
     const key = dirKey(path);
     if (key.len == 0) return false;
-    var buf: [file_mention.max_file_mention_dirs][]const u8 = undefined;
-    return containsKey(expandedKeys(model, &buf), key);
+    return indexOfExpanded(model, key) != null;
 }
 
 pub fn rows(model: *const Model, arena: std.mem.Allocator) []const RightPanelFileRow {
@@ -587,11 +586,13 @@ pub fn rows(model: *const Model, arena: std.mem.Allocator) []const RightPanelFil
     if (!hasProject(model)) return &.{};
     if (model.file_mention_count == 0) return &.{};
 
-    var key_buf: [file_mention.max_file_mention_dirs][]const u8 = undefined;
-    const expanded = expandedKeys(model, &key_buf);
+    const parent_cap = @min(file_mention.max_file_mention_dirs, @as(usize, model.file_mention_count) * 8);
+    const key_n = @min(model.right_panel_expanded_count, file_mention.max_file_mention_dirs);
+    const key_buf = arena.alloc([]const u8, key_n) catch return &.{};
+    const expanded = expandedKeys(model, key_buf);
 
-    var parents: [file_mention.max_file_mention_dirs][]const u8 = undefined;
-    const dir_n = file_mention.derivedDirParents(model, &parents);
+    const parents = arena.alloc([]const u8, parent_cap) catch return &.{};
+    const dir_n = file_mention.derivedDirParents(model, parents);
     const file_n = model.file_mention_count;
     const cap = dir_n + file_n;
     const out = arena.alloc(RightPanelFileRow, cap) catch return &.{};
@@ -658,14 +659,16 @@ pub fn toggleDir(model: *Model, fx: *Effects, id: u32) void {
         return;
     }
     if (model.right_panel_expanded_count >= file_mention.max_file_mention_dirs) return;
+    if (!file_mention.ensureRightPanelExpandedStore(model)) return;
     model.right_panel_expanded_store[model.right_panel_expanded_count].set(key);
     model.right_panel_expanded_count += 1;
     file_mention.refreshAfterExpand(model, fx);
 }
 
 fn indexOfExpanded(model: *const Model, key: []const u8) ?usize {
+    const n = @min(model.right_panel_expanded_count, model.right_panel_expanded_store.len);
     var i: usize = 0;
-    while (i < model.right_panel_expanded_count) : (i += 1) {
+    while (i < n) : (i += 1) {
         if (std.mem.eql(u8, model.right_panel_expanded_store[i].text(), key)) return i;
     }
     return null;
@@ -1913,6 +1916,7 @@ test "first Files preview open widens to tree+500; second file does not re-bump"
     model.syncRightPanelSplit();
     file_mention.applyStdoutPaths(&model, "a.txt\nb.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     try std.testing.expectEqual(@as(f32, 184), model.right_panel_width);
     try std.testing.expectEqual(@as(u32, 0), model.right_panel_file_preview_id);
@@ -1962,6 +1966,7 @@ test "first Files preview widen uses runtime nested tree width" {
     model.right_panel_file_tree_width = 200;
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     selectCachedFile(&model, &fx, 1);
     try std.testing.expectEqual(@as(f32, 700), model.right_panel_width);
@@ -1992,6 +1997,7 @@ test "already-wide Files pane stays on first preview open" {
     model.right_panel_width = 720;
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     selectCachedFile(&model, &fx, 1);
     try std.testing.expectEqual(@as(f32, 720), model.right_panel_width);
@@ -2317,6 +2323,7 @@ test "collapsed default, expand shows children, collapse hides descendants" {
     try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
 
     var model = Model{};
+    defer file_mention.clearCache(&model);
     model.store_io = std.testing.io;
     const id = model.addSession("tree", .fx);
     model.selected = id;
@@ -2328,7 +2335,7 @@ test "collapsed default, expand shows children, collapse hides descendants" {
         \\README.md
     );
 
-    var parents: [file_mention.max_file_mention_dirs][]const u8 = undefined;
+    var parents: [8][]const u8 = undefined;
     const dir_n = file_mention.derivedDirParents(&model, &parents);
     try std.testing.expectEqual(@as(usize, 2), dir_n);
     try std.testing.expectEqualStrings("src/lib", parents[0]);
@@ -2466,6 +2473,7 @@ test "inline preview caps at 256KB and labels truncation" {
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "big.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     pickFile(&model, 1);
     try std.testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
@@ -2507,6 +2515,7 @@ test "inline preview rejects NUL and invalid UTF-8" {
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "nul.bin\nbad.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     pickFile(&model, 1);
     try std.testing.expect(model.file_preview_binary());
@@ -2535,6 +2544,7 @@ test "inline preview missing path is a one-line error" {
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "gone.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     pickFile(&model, 1);
     try std.testing.expect(model.file_preview_has_error());
@@ -2559,6 +2569,7 @@ test "inline preview close, hide, and session switch free the heap buffer" {
     fx.executor = .fake;
 
     var model = Model{};
+    defer file_mention.clearCache(&model);
     model.store_io = std.testing.io;
     const first = model.addSession("preview free", .fx);
     const second = model.addSession("other", .fx);
@@ -2741,6 +2752,7 @@ test "edit buffer dirty/save gates; save writes abs path and returns to read-onl
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     pickFile(&model, 1);
     try std.testing.expect(model.file_preview_can_edit());
@@ -2796,6 +2808,7 @@ test "Files preview find collect/navigate/replace; read-only replace is a no-op"
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     openFilePreviewFind(&model, false);
     try std.testing.expect(!model.file_preview_find_active);
@@ -2879,6 +2892,7 @@ test "Files preview find whole-word toggle filters matches and replaceAll" {
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     pickFile(&model, 1);
     openFilePreviewFind(&model, true);
@@ -2921,6 +2935,7 @@ test "Files preview find regex toggle matches, invalid, replace expand, keep-on-
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     pickFile(&model, 1);
     openFilePreviewFind(&model, true);
@@ -2992,6 +3007,7 @@ test "reload discards dirty buffer; truncated and binary refuse save" {
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "note.txt\nnul.bin\nbig.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     pickFile(&model, 1);
     startFilePreviewEdit(&model);
@@ -3065,6 +3081,7 @@ test "dirty preview parks switch / close / hide / keep-editing / discard" {
     model.selected = id;
     try loadTwoPreviewNotes(&model, project);
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     dirtyFirstPreview(&model);
     try std.testing.expect(model.file_preview_dirty());
@@ -3129,6 +3146,7 @@ test "dirty preview discard switches file; save and reload clear pending confirm
     model.selected = id;
     try loadTwoPreviewNotes(&model, project);
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     dirtyFirstPreview(&model);
     pickFile(&model, 2);
@@ -3192,6 +3210,7 @@ test "dirty preview parks session switch until discard" {
     model.selected = first;
     try loadTwoPreviewNotes(&model, project);
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     dirtyFirstPreview(&model);
     const palette_run = @import("palette_run.zig");
@@ -3226,6 +3245,7 @@ test "clean preview still switches and closes without confirm" {
     model.selected = id;
     try loadTwoPreviewNotes(&model, project);
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     pickFile(&model, 1);
     startFilePreviewEdit(&model);
@@ -3262,6 +3282,7 @@ test "clean preview poll reloads when size or mtime changes" {
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     pickFile(&model, 1);
     try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
@@ -3295,6 +3316,7 @@ test "dirty preview poll leaves body and buffer unchanged" {
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     pickFile(&model, 1);
     startFilePreviewEdit(&model);
@@ -3329,6 +3351,7 @@ test "preview disk poll is throttled to the interval" {
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     pickFile(&model, 1);
     try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
@@ -3386,6 +3409,7 @@ test "Files preview with a daemon address spawns ReadTextFile sidecar" {
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     selectCachedFile(&model, &fx, 1);
     const sidecar = pendingSpawnKey(&fx, model.file_preview_key) orelse return error.MissingDaemonReadTextFile;
@@ -3434,6 +3458,7 @@ test "Files preview without a daemon address still reads local disk" {
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
     try std.testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
 
     selectCachedFile(&model, &fx, 1);
@@ -3466,6 +3491,7 @@ test "ReadTextFile sidecar paints Files preview from textFile content" {
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     selectCachedFile(&model, &fx, 1);
     const sidecar = pendingSpawnKey(&fx, model.file_preview_key) orelse return error.MissingDaemonReadTextFileFill;
@@ -3517,6 +3543,7 @@ test "ReadTextFile sidecar non-ok falls back to local readFileAlloc" {
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "note.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     selectCachedFile(&model, &fx, 1);
     const sidecar = pendingSpawnKey(&fx, model.file_preview_key) orelse return error.MissingDaemonReadTextFileFallback;
@@ -3553,6 +3580,7 @@ test "ReadTextFile sidecar content over 256KB is truncated client-side" {
     model.right_panel_open = true;
     file_mention.applyStdoutPaths(&model, "big.txt\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     selectCachedFile(&model, &fx, 1);
     const sidecar = pendingSpawnKey(&fx, model.file_preview_key) orelse return error.MissingDaemonReadTextFileCap;
@@ -3603,6 +3631,7 @@ test "Files preview Save with a daemon address spawns WriteTextFile sidecar" {
     model.selected = id;
     try dirtyLocalPreview(&model, project, "world\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
     try std.testing.expectEqualStrings("hello\nworld\n", model.file_preview_draft());
 
     model.setLastDaemonAddress("127.0.0.1:8787");
@@ -3648,6 +3677,7 @@ test "WriteTextFile sidecar Ack adopts the saved buffer without a local write" {
     model.selected = id;
     try dirtyLocalPreview(&model, project, "world\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     model.setLastDaemonAddress("127.0.0.1:8787");
     saveFilePreview(&model, &fx);
@@ -3693,6 +3723,7 @@ test "WriteTextFile sidecar non-ack falls back to local atomic write" {
     model.selected = id;
     try dirtyLocalPreview(&model, project, "world\n");
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     model.setLastDaemonAddress("127.0.0.1:8787");
     saveFilePreview(&model, &fx);
@@ -3733,6 +3764,7 @@ test "WriteTextFile stdin overflow falls back to local write; truncated stays lo
     @memset(blob, 'a');
     try dirtyLocalPreview(&model, project, blob);
     defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
 
     model.setLastDaemonAddress("127.0.0.1:8787");
     saveFilePreview(&model, &fx);
