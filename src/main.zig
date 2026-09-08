@@ -121,7 +121,10 @@ pub const right_panel_diff_default_width = layout_mod.right_panel_diff_default_w
 pub const right_panel_diff_min_width = layout_mod.right_panel_diff_min_width;
 pub const right_panel_diff_max_width = layout_mod.right_panel_diff_max_width;
 pub const file_editor_initial_width = layout_mod.file_editor_initial_width;
+pub const file_editor_min_width = layout_mod.file_editor_min_width;
 pub const widenedPanelWidthForFileEditor = layout_mod.widenedPanelWidthForFileEditor;
+pub const fittedFileTreeWidth = layout_mod.fittedFileTreeWidth;
+pub const fileTreeSplitFraction = layout_mod.fileTreeSplitFraction;
 pub const max_sessions = model_mod.max_sessions;
 /// Sidebar folder-header keys sit above session ids so `for` keys stay unique.
 pub const folder_row_id_base: u32 = 1_000_000;

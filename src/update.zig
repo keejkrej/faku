@@ -370,6 +370,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.applyRightPanelResize(fraction);
             store.persistLayoutIfPossible(model);
         },
+        .right_panel_file_tree_resized => |fraction| {
+            model.applyFileTreeResize(fraction);
+        },
         .open_right_panel_file => |id| right_panel.selectCachedFile(model, fx, id),
         .close_right_panel_file_preview => right_panel.closeFilePreview(model),
         .open_right_panel_file_editor => right_panel.openPreviewInEditor(model, fx),

@@ -1376,46 +1376,8 @@
           <else>
           <column grow="1">
             <if test="{right_panel_file_preview_open}">
-              <scroll grow="0" height="140">
-                <column>
-                  <for each="right_panel_file_rows" key="id" as="f">
-                    <if test="{f.is_file}">
-                      <list-item height="32" padding="8" gap="4" cross="center" selected="{f.selected}" on-press="open_right_panel_file:{f.id}" label="{f.path}">
-                        <if test="{f.has_indent}">
-                          <spacer width="{f.indent}" />
-                        </if>
-                        <column gap="2">
-                          <text wrap="false" overflow="ellipsis">{f.name}</text>
-                          <if test="{f.has_parent}">
-                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
-                          </if>
-                        </column>
-                      </list-item>
-                    </if>
-                    <else>
-                      <list-item height="32" padding="8" gap="4" cross="center" on-press="toggle_right_panel_dir:{f.id}" label="{f.path}">
-                        <if test="{f.has_indent}">
-                          <spacer width="{f.indent}" />
-                        </if>
-                        <if test="{f.expanded}">
-                          <icon name="chevron-down" />
-                        </if>
-                        <else>
-                          <icon name="chevron-right" />
-                        </else>
-                        <column gap="2">
-                          <text wrap="false" overflow="ellipsis">{f.name}</text>
-                          <if test="{f.has_parent}">
-                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
-                          </if>
-                        </column>
-                      </list-item>
-                    </else>
-                  </for>
-                </column>
-              </scroll>
-              <separator />
-              <column grow="1" gap="6" padding="10" label="File preview">
+              <split grow="1" value="{right_panel_file_tree_split}" on-resize="right_panel_file_tree_resized">
+              <column grow="1" min-width="140" gap="6" padding="10" label="File preview">
                 <row gap="6" cross="center">
                   <text wrap="false" overflow="ellipsis" grow="1">{file_preview_path}</text>
                   <if test="{file_preview_dirty}">
@@ -1551,6 +1513,47 @@
                   </else>
                 </else>
               </column>
+              <column grow="1" min-width="140">
+                <scroll grow="1">
+                  <column>
+                    <for each="right_panel_file_rows" key="id" as="f">
+                      <if test="{f.is_file}">
+                        <list-item height="32" padding="8" gap="4" cross="center" selected="{f.selected}" on-press="open_right_panel_file:{f.id}" label="{f.path}">
+                          <if test="{f.has_indent}">
+                            <spacer width="{f.indent}" />
+                          </if>
+                          <column gap="2">
+                            <text wrap="false" overflow="ellipsis">{f.name}</text>
+                            <if test="{f.has_parent}">
+                              <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
+                            </if>
+                          </column>
+                        </list-item>
+                      </if>
+                      <else>
+                        <list-item height="32" padding="8" gap="4" cross="center" on-press="toggle_right_panel_dir:{f.id}" label="{f.path}">
+                          <if test="{f.has_indent}">
+                            <spacer width="{f.indent}" />
+                          </if>
+                          <if test="{f.expanded}">
+                            <icon name="chevron-down" />
+                          </if>
+                          <else>
+                            <icon name="chevron-right" />
+                          </else>
+                          <column gap="2">
+                            <text wrap="false" overflow="ellipsis">{f.name}</text>
+                            <if test="{f.has_parent}">
+                              <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
+                            </if>
+                          </column>
+                        </list-item>
+                      </else>
+                    </for>
+                  </column>
+                </scroll>
+              </column>
+              </split>
             </if>
             <else>
               <scroll grow="1">

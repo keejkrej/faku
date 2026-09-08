@@ -5,7 +5,8 @@
 //! `main.sidebar_*` / `main.right_panel_*` call sites keep working.
 //! First-cut Files preview widen lives here as `file_editor_initial_width`
 //! and `widenedPanelWidthForFileEditor` (Waku `FILE_EDITOR_INITIAL_WIDTH`
-//! 500).
+//! 500). Nested Files tree + preview uses `file_editor_min_width` 140
+//! and `fittedFileTreeWidth` (Waku `fitted_file_tree_width`).
 
 const std = @import("std");
 
@@ -40,6 +41,9 @@ pub const right_panel_diff_max_width: f32 = 1000;
 /// Waku `FILE_EDITOR_INITIAL_WIDTH`. Extra pixels beyond the file tree
 /// when the first Files preview opens.
 pub const file_editor_initial_width: f32 = 500;
+/// Waku `FILE_EDITOR_MIN_WIDTH`. Preview/editor column floor in the
+/// nested Files split (tree sits on the right).
+pub const file_editor_min_width: f32 = 140;
 
 /// Waku RIGHT_PANEL sanitize: non-positive → default 460, then clamp
 /// 280–1000.
@@ -56,6 +60,24 @@ pub fn widenedPanelWidthForFileEditor(panel_width: f32, file_tree_width: f32) f3
     return sanitizeRightPanelWidth(@max(panel, file_tree_width + file_editor_initial_width));
 }
 
+/// Waku `fitted_file_tree_width`: max is `FILE_TREE_MAX` min
+/// `(panel - FILE_EDITOR_MIN)` then at least `FILE_TREE_MIN`. Sanitize
+/// `file_tree_width` into `[FILE_TREE_MIN, max]`; non-positive uses
+/// `DEFAULT_FILE_TREE_WIDTH` 184 then that clamp.
+pub fn fittedFileTreeWidth(panel_width: f32, file_tree_width: f32) f32 {
+    const max = @max(right_panel_min_width, @min(right_panel_max_width, panel_width - file_editor_min_width));
+    const raw = if (file_tree_width > 0) file_tree_width else right_panel_default_width;
+    return @max(right_panel_min_width, @min(max, raw));
+}
+
+/// Native nested-split left fraction for Files preview | tree: preview
+/// is the left pane, tree the right at `fittedFileTreeWidth`.
+pub fn fileTreeSplitFraction(panel_width: f32, file_tree_width: f32) f32 {
+    const pane = @max(1, panel_width);
+    const tree = fittedFileTreeWidth(pane, file_tree_width);
+    return (pane - tree) / pane;
+}
+
 test "layout chrome widths match Waku-aligned numbers" {
     try std.testing.expectEqual(@as(f32, 252), sidebar_default_width);
     try std.testing.expectEqual(@as(f32, 180), sidebar_min_width);
@@ -68,6 +90,7 @@ test "layout chrome widths match Waku-aligned numbers" {
     try std.testing.expectEqual(@as(f32, 280), right_panel_diff_min_width);
     try std.testing.expectEqual(@as(f32, 1000), right_panel_diff_max_width);
     try std.testing.expectEqual(@as(f32, 500), file_editor_initial_width);
+    try std.testing.expectEqual(@as(f32, 140), file_editor_min_width);
 }
 
 test "widenedPanelWidthForFileEditor matches Waku FILE_EDITOR_INITIAL_WIDTH 500" {
@@ -75,4 +98,24 @@ test "widenedPanelWidthForFileEditor matches Waku FILE_EDITOR_INITIAL_WIDTH 500"
     try std.testing.expectEqual(@as(f32, 720), widenedPanelWidthForFileEditor(720, 184));
     try std.testing.expectEqual(@as(f32, 684), widenedPanelWidthForFileEditor(184, 184));
     try std.testing.expectEqual(@as(f32, 1000), widenedPanelWidthForFileEditor(1200, 184));
+}
+
+test "fittedFileTreeWidth matches Waku FILE_TREE 140…min(360, panel-140)" {
+    try std.testing.expectEqual(@as(f32, 184), fittedFileTreeWidth(684, 184));
+    try std.testing.expectEqual(@as(f32, 184), fittedFileTreeWidth(720, 184));
+    try std.testing.expectEqual(@as(f32, 184), fittedFileTreeWidth(460, 184));
+    try std.testing.expectEqual(@as(f32, 140), fittedFileTreeWidth(280, 184));
+    try std.testing.expectEqual(@as(f32, 140), fittedFileTreeWidth(280, 0));
+    try std.testing.expectEqual(@as(f32, 184), fittedFileTreeWidth(684, 0));
+    try std.testing.expectEqual(@as(f32, 140), fittedFileTreeWidth(684, 100));
+    try std.testing.expectEqual(@as(f32, 360), fittedFileTreeWidth(684, 500));
+    try std.testing.expectEqual(@as(f32, 260), fittedFileTreeWidth(400, 300));
+    try std.testing.expectEqual(@as(f32, 220), fittedFileTreeWidth(400, 220));
+    try std.testing.expectEqual(@as(f32, 140), fittedFileTreeWidth(200, 184));
+}
+
+test "fileTreeSplitFraction is preview-left of fitted tree width" {
+    try std.testing.expectEqual(@as(f32, 500.0 / 684.0), fileTreeSplitFraction(684, 184));
+    try std.testing.expectEqual(@as(f32, 0.5), fileTreeSplitFraction(280, 184));
+    try std.testing.expectEqual(@as(f32, (720.0 - 184.0) / 720.0), fileTreeSplitFraction(720, 184));
 }
