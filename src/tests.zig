@@ -21464,17 +21464,25 @@ test "git ls-files sidecar argv and first-N stdout; empty missing rejected skip"
 
     file_mention.refresh(&model, &fx);
     mention = findFileMentionSpawnKey(&fx, model.file_mention_key) orelse return error.MissingFileMentionSpawn;
-    var overflow = try testing.allocator.alloc(u8, file_mention.max_file_mentions * 2 + 16);
-    defer testing.allocator.free(overflow);
-    var n: usize = 0;
-    var i: usize = 0;
-    while (i < file_mention.max_file_mentions + 2) : (i += 1) {
-        overflow[n] = 'p';
-        n += 1;
-        overflow[n] = '\n';
-        n += 1;
+    // Native effect lines are 4 KiB. Batch `'p\n'` so the overflow still
+    // reaches the 50k cap (one blob used to be ~516 bytes at cap 256).
+    const batch_paths: usize = 1000;
+    var batch: [batch_paths * 2]u8 = undefined;
+    {
+        var n: usize = 0;
+        while (n < batch.len) {
+            batch[n] = 'p';
+            n += 1;
+            batch[n] = '\n';
+            n += 1;
+        }
     }
-    try fx.feedLine(mention.key, overflow[0..n]);
+    var remaining: usize = file_mention.max_file_mentions + 2;
+    while (remaining > 0) {
+        const take = @min(remaining, batch_paths);
+        try fx.feedLine(mention.key, batch[0 .. take * 2]);
+        remaining -= take;
+    }
     drainEffects(&model, &fx);
     try testing.expectEqual(@as(u32, file_mention.max_file_mentions), model.file_mention_count);
     try fx.feedExit(mention.key, 0);
