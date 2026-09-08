@@ -59,7 +59,8 @@
 //! today's local path). First-cut daemon
 //! `WorkspaceOperation::CollectReviewDiff` ships on Review / Diff
 //! open / refresh / source-switch when a daemon address is set (ok
-//! paints the file list from `numstat` and selected hunk from
+//! paints the file list from `numstat` (per-file `+N` / `-M` when
+//! those counts are non-zero) and selected hunk from
 //! `patch`; LastTurn stays local; Native 4 KiB stdin overflow /
 //! error / unusable parse falls back to local name-status + hunk
 //! probes; no address keeps today's local path). First-cut daemon
