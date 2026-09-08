@@ -21002,6 +21002,12 @@ test "composer @ mention card filters tracked files; insert replaces last token;
     var model = Model{};
     defer file_mention.clearCache(&model);
     model.task_state_loaded = true;
+    model.setStoreDir(dir);
+    model.store_io = testing.io;
+    model.fx_available = true;
+    model.fx_probe_started = true;
+    model.setFxPath("fx");
+    const id = model.addSession("file mention", .fx);
     _ = model.appendTurn(id, .user, "already started");
     model.selected = id;
     if (model.sessionById(id)) |session| {

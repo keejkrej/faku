@@ -2325,6 +2325,7 @@ test "collapsed default, expand shows children, collapse hides descendants" {
     var model = Model{};
     defer file_mention.clearCache(&model);
     model.store_io = std.testing.io;
+    const id = model.addSession("tree", .fx);
     model.selected = id;
     model.setSelectedProjectPath(project);
     model.right_panel_open = true;
