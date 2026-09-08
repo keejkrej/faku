@@ -79,9 +79,16 @@
 //! spawn-key band 510+ (after git-common-dir
 //! 500+). Cap 64 rows. Empty / clean is `No changes to compare`.
 //! Failed / no upstream / missing workspace is a short muted
-//! status — no invented files. First-cut hunks only: no
-//! syntax highlighting, no gap expansion. The right-panel Diff
-//! tab hosts this same body (not a second git probe stack).
+//! status — no invented files. First-cut selected-file hunks
+//! parse into HunkHeader / Context / Addition / Deletion / Gap
+//! rows (Waku `review_diff` Gap model; no syntax highlighting).
+//! `completeContext` daemon patches collapse long context into
+//! expandable Gaps; local compact `git diff` inserts count-only
+//! Gaps between hunks (hidden empty — expand is a no-op). Expand
+//! rearranges retained lines in memory (`expand_gap`); no new git
+//! spawn. Render/retain caps are a fixed Zig table (4096 lines /
+//! 128 KiB), not Waku's 50_000. The right-panel Diff tab hosts
+//! this same body (not a second git probe stack).
 //! First-cut daemon `WorkspaceOperation::CollectReviewDiff` ships
 //! when `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address`
 //! is set: hello + CollectReviewDiff for Branch / Uncommitted /
@@ -317,16 +324,34 @@ pub const windows_argv_len_hunk_unstaged: usize = 6;
 pub const argv_len_hunk_untracked: usize = 11;
 pub const unix_argv_len_hunk_untracked: usize = 11;
 pub const windows_argv_len_hunk_untracked: usize = 8;
-/// First-cut body cap. Extra stdout is dropped, not invented.
-pub const max_review_diff_hunk_lines: usize = 160;
-/// Enough for 160 short unified-diff lines. Longer lines still
-/// fill this buffer and stop; the line cap also stops early.
-pub const max_review_diff_hunk: usize = 8192;
+/// Waku `DEFAULT_EXPANSION_LINE_COUNT`. Start/End reveal this many
+/// retained hidden lines; Both reveals up to twice this.
+pub const default_expansion_line_count: usize = 100;
+/// Waku `COLLAPSED_CONTEXT_LINES` kept on each side of a change.
+pub const collapsed_context_lines: usize = 3;
+/// Waku `COLLAPSED_CONTEXT_THRESHOLD`: hide a context run only when
+/// more than this many lines would go into the Gap.
+pub const collapsed_context_threshold: usize = 1;
+/// Visible painted rows after collapse. Waku `MAX_RENDERED_DIFF_LINES`
+/// is 50_000; first-cut Zig keeps a fixed table so Gap expand can
+/// reveal a few thousand retained lines without an unbounded Vec.
+pub const max_rendered_diff_lines: usize = 4096;
+/// Retained source lines (stdout / daemon extract). Same bound as
+/// the visible table so a complete-context patch can fill Gaps.
+pub const max_review_diff_hunk_lines: usize = 4096;
+/// ~32 bytes/line × 4096. Was 8192; Waku has no byte cap. Extra
+/// stdout is dropped, not invented.
+pub const max_review_diff_hunk: usize = 128 * 1024;
+/// Hidden context copied out of collapsed runs. Same bound as
+/// retained source lines.
+pub const max_review_diff_hidden_lines: usize = 4096;
 pub const max_review_diff_hunk_status: usize = 32;
-/// Stored daemon `patch` for selected-file filter. Larger than the
-/// displayed hunk cap so later files in a multi-file patch can still
-/// be extracted. Native daemon stdout is still `daemon_line_bytes`.
-pub const max_review_diff_daemon_patch: usize = 32768;
+/// Stored daemon `patch` for selected-file filter. Match the hunk
+/// retain cap so a `completeContext` body can still extract later
+/// files. Native daemon stdout is still `daemon_line_bytes`.
+pub const max_review_diff_daemon_patch: usize = 128 * 1024;
+/// Gap label buffer (`{n} unmodified lines`).
+pub const max_review_diff_gap_label: usize = 40;
 
 pub const comparing_status = "Comparing…";
 pub const empty_status = "No changes to compare";
@@ -340,6 +365,63 @@ pub const ReviewDiffRow = struct {
     id: u32,
     label: []const u8,
     selected: bool = false,
+};
+
+/// Waku `LineKind` without syntax tokens. `gap` holds collapsed
+/// context between or around changes.
+pub const LineKind = enum(u8) {
+    file_header,
+    hunk_header,
+    context,
+    addition,
+    deletion,
+    meta,
+    gap,
+};
+
+/// Waku `GapPosition`.
+pub const GapPosition = enum(u8) {
+    leading,
+    between,
+    trailing,
+};
+
+/// Waku `ExpansionDirection`.
+pub const ExpansionDirection = enum(u8) {
+    start,
+    end,
+    both,
+    all,
+};
+
+/// One parsed / visible / hidden diff row. `content_off`/`content_len`
+/// index `review_diff_hunk_storage`. `old_line`/`new_line` 0 means none.
+/// Gap rows use `gap_*` / `hidden_*` (hidden indexes the hidden table).
+pub const DiffLine = struct {
+    kind: LineKind = .context,
+    gap_position: GapPosition = .between,
+    content_len: u16 = 0,
+    old_line: u32 = 0,
+    new_line: u32 = 0,
+    content_off: u32 = 0,
+    gap_id: u32 = 0,
+    gap_count: u32 = 0,
+    hidden_off: u32 = 0,
+    hidden_len: u32 = 0,
+};
+
+/// Native `for each="review_diff_hunk_rows"` row. `id` is 1-based
+/// visible-row index (the expand payload).
+pub const ReviewDiffHunkRow = struct {
+    id: u32,
+    text: []const u8,
+    is_addition: bool = false,
+    is_deletion: bool = false,
+    is_gap: bool = false,
+    can_expand_start: bool = false,
+    can_expand_end: bool = false,
+    can_expand_both: bool = false,
+    can_expand_all: bool = false,
 };
 
 pub const ChangedFile = struct {
@@ -1064,6 +1146,493 @@ pub fn hasReviewDiffHunkStatus(model: *const Model) bool {
     return model.review_diff_hunk_status_len > 0;
 }
 
+pub fn hasReviewDiffHunkRows(model: *const Model) bool {
+    return model.review_diff_visible_count > 0;
+}
+
+fn lineContent(model: *const Model, line: DiffLine) []const u8 {
+    const off = @min(@as(usize, line.content_off), model.review_diff_hunk_len);
+    const len = @min(@as(usize, line.content_len), model.review_diff_hunk_len - off);
+    return model.review_diff_hunk_storage[off .. off + len];
+}
+
+fn gapIsExpandable(line: DiffLine) bool {
+    return line.kind == .gap and line.gap_count > 0 and line.hidden_len == line.gap_count;
+}
+
+fn gapLabel(arena: std.mem.Allocator, count: u32) []const u8 {
+    if (count == 1) return "1 unmodified line";
+    var buf: [max_review_diff_gap_label]u8 = undefined;
+    const label = std.fmt.bufPrint(&buf, "{d} unmodified lines", .{count}) catch return "";
+    const out = arena.alloc(u8, label.len) catch return "";
+    @memcpy(out, label);
+    return out;
+}
+
+pub fn reviewDiffHunkRows(model: *const Model, arena: std.mem.Allocator) []const ReviewDiffHunkRow {
+    const n = model.review_diff_visible_count;
+    if (n == 0) return &.{};
+    const out = arena.alloc(ReviewDiffHunkRow, n) catch return &.{};
+    var written: usize = 0;
+    for (model.review_diff_visible_store[0..n], 0..) |line, i| {
+        if (line.kind == .file_header) continue;
+        var row: ReviewDiffHunkRow = .{
+            .id = @intCast(i + 1),
+            .text = lineContent(model, line),
+        };
+        switch (line.kind) {
+            .addition => row.is_addition = true,
+            .deletion => row.is_deletion = true,
+            .gap => {
+                row.is_gap = true;
+                row.text = gapLabel(arena, line.gap_count);
+                if (gapIsExpandable(line)) {
+                    const chunked = line.gap_count > default_expansion_line_count;
+                    row.can_expand_all = true;
+                    switch (line.gap_position) {
+                        .leading => row.can_expand_end = true,
+                        .trailing => row.can_expand_start = true,
+                        .between => {
+                            if (chunked) {
+                                row.can_expand_start = true;
+                                row.can_expand_end = true;
+                            } else {
+                                row.can_expand_both = true;
+                            }
+                        },
+                    }
+                }
+            },
+            else => {},
+        }
+        out[written] = row;
+        written += 1;
+    }
+    return out[0..written];
+}
+
+fn parseHunkStarts(line: []const u8) ?struct { old: u32, new: u32 } {
+    const after = if (std.mem.startsWith(u8, line, "@@ ")) line[3..] else return null;
+    const ranges = if (std.mem.indexOf(u8, after, " @@")) |at| after[0..at] else return null;
+    var it = std.mem.tokenizeScalar(u8, ranges, ' ');
+    const old_part = it.next() orelse return null;
+    const new_part = it.next() orelse return null;
+    const old_body = if (std.mem.startsWith(u8, old_part, "-")) old_part[1..] else return null;
+    const new_body = if (std.mem.startsWith(u8, new_part, "+")) new_part[1..] else return null;
+    const old = parseRangeStart(old_body) orelse return null;
+    const new = parseRangeStart(new_body) orelse return null;
+    return .{ .old = old, .new = new };
+}
+
+fn parseRangeStart(range: []const u8) ?u32 {
+    const start = if (std.mem.indexOfScalar(u8, range, ',')) |comma| range[0..comma] else range;
+    return std.fmt.parseInt(u32, start, 10) catch null;
+}
+
+fn pushParsed(lines: []DiffLine, n: *usize, line: DiffLine) bool {
+    if (n.* >= lines.len) return false;
+    lines[n.*] = line;
+    n.* += 1;
+    return true;
+}
+
+fn parsePatchLines(patch: []const u8, complete_context: bool, lines: []DiffLine, next_gap_id: *u32) usize {
+    var n: usize = 0;
+    var old_line: u32 = 0;
+    var new_line: u32 = 0;
+    var previous_old_next: u32 = 1;
+    var previous_new_next: u32 = 1;
+    var positioned = true;
+    var offset: usize = 0;
+    while (offset < patch.len) {
+        const rest = patch[offset..];
+        const line_end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
+        const raw = rest[0..line_end];
+        const line_off: u32 = @intCast(offset);
+        const next_off = if (line_end == rest.len) patch.len else offset + line_end + 1;
+        defer offset = next_off;
+
+        if (std.mem.startsWith(u8, raw, "diff --git ")) {
+            old_line = 0;
+            new_line = 0;
+            previous_old_next = 1;
+            previous_new_next = 1;
+            positioned = true;
+            _ = pushParsed(lines, &n, .{
+                .kind = .file_header,
+                .content_off = line_off,
+                .content_len = @intCast(@min(raw.len, std.math.maxInt(u16))),
+            });
+            continue;
+        }
+        if (std.mem.startsWith(u8, raw, "new file mode ") or
+            std.mem.startsWith(u8, raw, "deleted file mode ") or
+            std.mem.startsWith(u8, raw, "index ") or
+            std.mem.startsWith(u8, raw, "--- ") or
+            std.mem.startsWith(u8, raw, "+++ ") or
+            std.mem.startsWith(u8, raw, "old mode ") or
+            std.mem.startsWith(u8, raw, "new mode "))
+        {
+            continue;
+        }
+        if (std.mem.startsWith(u8, raw, "Binary files ") or std.mem.eql(u8, raw, "GIT binary patch")) {
+            _ = pushParsed(lines, &n, .{
+                .kind = .meta,
+                .content_off = line_off,
+                .content_len = @intCast(@min(raw.len, std.math.maxInt(u16))),
+            });
+            continue;
+        }
+
+        if (std.mem.startsWith(u8, raw, "@@") and parseHunkStarts(raw) == null) {
+            positioned = false;
+            continue;
+        }
+
+        if (parseHunkStarts(raw)) |starts| {
+            positioned = true;
+            const old_gap = starts.old -| previous_old_next;
+            const new_gap = starts.new -| previous_new_next;
+            const gap = @max(old_gap, new_gap);
+            if (!complete_context and gap > 0) {
+                const first_hunk = previous_old_next == 1 and previous_new_next == 1;
+                _ = pushParsed(lines, &n, .{
+                    .kind = .gap,
+                    .gap_position = if (first_hunk) .leading else .between,
+                    .gap_id = next_gap_id.*,
+                    .gap_count = gap,
+                });
+                next_gap_id.* +%= 1;
+            } else if (!complete_context and (previous_old_next != 1 or previous_new_next != 1)) {
+                _ = pushParsed(lines, &n, .{
+                    .kind = .hunk_header,
+                    .content_off = line_off,
+                    .content_len = @intCast(@min(raw.len, std.math.maxInt(u16))),
+                });
+            }
+            old_line = starts.old;
+            new_line = starts.new;
+            continue;
+        }
+
+        if (raw.len == 0) continue;
+        const marker = raw[0];
+        const content_off: u32 = line_off;
+        const content_len: u16 = @intCast(@min(raw.len, std.math.maxInt(u16)));
+        var kind: LineKind = undefined;
+        var shown_old: u32 = 0;
+        var shown_new: u32 = 0;
+        switch (marker) {
+            ' ' => {
+                kind = .context;
+                if (positioned) {
+                    shown_old = old_line;
+                    shown_new = new_line;
+                }
+                old_line +|= 1;
+                new_line +|= 1;
+            },
+            '-' => {
+                kind = .deletion;
+                if (positioned) shown_old = old_line;
+                old_line +|= 1;
+            },
+            '+' => {
+                kind = .addition;
+                if (positioned) shown_new = new_line;
+                new_line +|= 1;
+            },
+            '\\' => {
+                kind = .meta;
+            },
+            else => continue,
+        }
+        previous_old_next = old_line;
+        previous_new_next = new_line;
+        _ = pushParsed(lines, &n, .{
+            .kind = kind,
+            .old_line = shown_old,
+            .new_line = shown_new,
+            .content_off = content_off,
+            .content_len = content_len,
+        });
+    }
+    return n;
+}
+
+fn isChangeLine(line: DiffLine) bool {
+    return line.kind == .addition or line.kind == .deletion;
+}
+
+fn copyHidden(model: *Model, src: []const DiffLine) ?struct { off: u32, len: u32 } {
+    if (src.len == 0) return null;
+    const off = model.review_diff_hidden_count;
+    if (off + src.len > max_review_diff_hidden_lines) return null;
+    @memcpy(model.review_diff_hidden_store[off .. off + src.len], src);
+    model.review_diff_hidden_count = off + src.len;
+    return .{ .off = @intCast(off), .len = @intCast(src.len) };
+}
+
+fn pushVisible(model: *Model, line: DiffLine) bool {
+    if (model.review_diff_visible_count >= max_rendered_diff_lines) {
+        model.review_diff_truncated = true;
+        return false;
+    }
+    model.review_diff_visible_store[model.review_diff_visible_count] = line;
+    model.review_diff_visible_count += 1;
+    return true;
+}
+
+fn pushVisibleSlice(model: *Model, src: []const DiffLine) bool {
+    for (src) |line| {
+        if (!pushVisible(model, line)) return false;
+    }
+    return true;
+}
+
+fn pushContextGap(model: *Model, hidden: []const DiffLine, position: GapPosition, next_gap_id: *u32) bool {
+    if (hidden.len == 0) return true;
+    const stored = copyHidden(model, hidden) orelse {
+        return pushVisibleSlice(model, hidden);
+    };
+    const count: u32 = @intCast(hidden.len);
+    return pushVisible(model, .{
+        .kind = .gap,
+        .gap_position = position,
+        .gap_id = next_gap_id.*,
+        .gap_count = count,
+        .hidden_off = stored.off,
+        .hidden_len = stored.len,
+    });
+}
+
+fn collapseLeading(model: *Model, run: []const DiffLine, next_gap_id: *u32) bool {
+    const kept = @min(collapsed_context_lines, run.len);
+    const hidden = run[0 .. run.len - kept];
+    if (hidden.len <= collapsed_context_threshold) return pushVisibleSlice(model, run);
+    if (!pushContextGap(model, hidden, .leading, next_gap_id)) return false;
+    next_gap_id.* +%= 1;
+    return pushVisibleSlice(model, run[run.len - kept ..]);
+}
+
+fn collapseTrailing(model: *Model, run: []const DiffLine, next_gap_id: *u32) bool {
+    const kept = @min(collapsed_context_lines, run.len);
+    const hidden = run[kept..];
+    if (hidden.len <= collapsed_context_threshold) return pushVisibleSlice(model, run);
+    if (!pushVisibleSlice(model, run[0..kept])) return false;
+    if (!pushContextGap(model, hidden, .trailing, next_gap_id)) return false;
+    next_gap_id.* +%= 1;
+    return true;
+}
+
+fn collapseBetween(model: *Model, run: []const DiffLine, next_gap_id: *u32) bool {
+    const kept_start = @min(collapsed_context_lines, run.len);
+    const kept_end = @min(collapsed_context_lines, run.len - kept_start);
+    const hidden = run[kept_start .. run.len - kept_end];
+    if (hidden.len <= collapsed_context_threshold) return pushVisibleSlice(model, run);
+    if (!pushVisibleSlice(model, run[0..kept_start])) return false;
+    if (!pushContextGap(model, hidden, .between, next_gap_id)) return false;
+    next_gap_id.* +%= 1;
+    return pushVisibleSlice(model, run[run.len - kept_end ..]);
+}
+
+fn collapseContext(model: *Model, lines: []const DiffLine, next_gap_id: *u32) void {
+    var change_after: [max_review_diff_hunk_lines + 1]bool = undefined;
+    const n = lines.len;
+    change_after[n] = false;
+    var i: usize = n;
+    while (i > 0) {
+        i -= 1;
+        change_after[i] = change_after[i + 1] or isChangeLine(lines[i]);
+    }
+    var saw_change = false;
+    var index: usize = 0;
+    while (index < n) {
+        if (lines[index].kind != .context) {
+            saw_change = saw_change or isChangeLine(lines[index]);
+            if (!pushVisible(model, lines[index])) return;
+            index += 1;
+            continue;
+        }
+        const run_start = index;
+        while (index < n and lines[index].kind == .context) : (index += 1) {}
+        const run = lines[run_start..index];
+        const has_later_change = change_after[index];
+        const ok = switch (saw_change) {
+            false => if (has_later_change)
+                collapseLeading(model, run, next_gap_id)
+            else
+                pushVisibleSlice(model, run),
+            true => if (has_later_change)
+                collapseBetween(model, run, next_gap_id)
+            else
+                collapseTrailing(model, run, next_gap_id),
+        };
+        if (!ok) return;
+    }
+}
+
+fn clearHunkRows(model: *Model) void {
+    model.review_diff_visible_count = 0;
+    model.review_diff_hidden_count = 0;
+    model.review_diff_next_gap_id = 0;
+    model.review_diff_truncated = false;
+}
+
+fn rebuildHunkRows(model: *Model) void {
+    clearHunkRows(model);
+    const patch = reviewDiffHunk(model);
+    if (patch.len == 0) return;
+    var parsed: [max_review_diff_hunk_lines]DiffLine = undefined;
+    var next_gap_id: u32 = 0;
+    const n = parsePatchLines(patch, model.review_diff_complete_context, &parsed, &next_gap_id);
+    if (model.review_diff_complete_context) {
+        collapseContext(model, parsed[0..n], &next_gap_id);
+    } else {
+        _ = pushVisibleSlice(model, parsed[0..n]);
+    }
+    model.review_diff_next_gap_id = next_gap_id;
+}
+
+fn hiddenSlice(model: *Model, line: DiffLine) []DiffLine {
+    const off = @min(@as(usize, line.hidden_off), model.review_diff_hidden_count);
+    const len = @min(@as(usize, line.hidden_len), model.review_diff_hidden_count - off);
+    return model.review_diff_hidden_store[off .. off + len];
+}
+
+fn spliceVisible(model: *Model, at: usize, replacement: []const DiffLine) void {
+    const count = model.review_diff_visible_count;
+    if (at >= count) return;
+    const tail_len = count - at - 1;
+    var new_count = at + replacement.len + tail_len;
+    if (new_count > max_rendered_diff_lines) {
+        model.review_diff_truncated = true;
+        new_count = max_rendered_diff_lines;
+    }
+    var tmp: [max_rendered_diff_lines]DiffLine = undefined;
+    const keep_tail = @min(tail_len, new_count -| (at + replacement.len));
+    const take_repl = @min(replacement.len, new_count - at);
+    @memcpy(tmp[0..take_repl], replacement[0..take_repl]);
+    if (keep_tail > 0) {
+        @memcpy(tmp[take_repl .. take_repl + keep_tail], model.review_diff_visible_store[at + 1 .. at + 1 + keep_tail]);
+    }
+    @memcpy(model.review_diff_visible_store[at .. at + take_repl + keep_tail], tmp[0 .. take_repl + keep_tail]);
+    model.review_diff_visible_count = at + take_repl + keep_tail;
+}
+
+fn remainingGapLine(gap: DiffLine, hidden_off: u32, hidden_len: u32) ?DiffLine {
+    if (hidden_len == 0) return null;
+    var next = gap;
+    next.hidden_off = hidden_off;
+    next.hidden_len = hidden_len;
+    next.gap_count = hidden_len;
+    return next;
+}
+
+/// Reveal retained hidden context. No git spawn. Payload `row_id` is
+/// the 1-based visible-row id from `review_diff_hunk_rows`.
+pub fn expandGap(model: *Model, row_id: u32, direction: ExpansionDirection) void {
+    if (row_id == 0 or row_id > model.review_diff_visible_count) return;
+    const idx = row_id - 1;
+    var gap = model.review_diff_visible_store[idx];
+    if (!gapIsExpandable(gap)) return;
+
+    const visible_without_gap = model.review_diff_visible_count -| 1;
+    const available = max_rendered_diff_lines -| visible_without_gap;
+    if (available == 0) {
+        model.review_diff_truncated = true;
+        return;
+    }
+    const hidden = hiddenSlice(model, gap);
+    const requested: usize = switch (direction) {
+        .start, .end => default_expansion_line_count,
+        .both => default_expansion_line_count * 2,
+        .all => hidden.len,
+    };
+    const reveal_count = @min(@min(requested, hidden.len), available);
+    if (reveal_count == 0) return;
+    if (direction == .all and reveal_count < hidden.len) model.review_diff_truncated = true;
+
+    var replacement: [max_rendered_diff_lines]DiffLine = undefined;
+    var rlen: usize = 0;
+    const push = struct {
+        fn add(dest: []DiffLine, n: *usize, line: DiffLine) void {
+            if (n.* >= dest.len) return;
+            dest[n.*] = line;
+            n.* += 1;
+        }
+    };
+
+    switch (direction) {
+        .start => {
+            for (hidden[0..reveal_count]) |line| push.add(&replacement, &rlen, line);
+            gap.hidden_off += @intCast(reveal_count);
+            gap.hidden_len -= @intCast(reveal_count);
+            gap.gap_count = gap.hidden_len;
+            if (gap.hidden_len > 0) push.add(&replacement, &rlen, gap);
+        },
+        .end => {
+            const split = hidden.len - reveal_count;
+            if (remainingGapLine(gap, gap.hidden_off, @intCast(split))) |remain| {
+                push.add(&replacement, &rlen, remain);
+            }
+            for (hidden[split..]) |line| push.add(&replacement, &rlen, line);
+        },
+        .both => {
+            if (reveal_count == hidden.len) {
+                for (hidden) |line| push.add(&replacement, &rlen, line);
+            } else {
+                const from_start = (reveal_count + 1) / 2;
+                const from_end = reveal_count - from_start;
+                for (hidden[0..from_start]) |line| push.add(&replacement, &rlen, line);
+                const remain_off = gap.hidden_off + @as(u32, @intCast(from_start));
+                const remain_len: u32 = @intCast(hidden.len - from_start - from_end);
+                if (remainingGapLine(gap, remain_off, remain_len)) |remain| {
+                    push.add(&replacement, &rlen, remain);
+                }
+                for (hidden[hidden.len - from_end ..]) |line| push.add(&replacement, &rlen, line);
+            }
+        },
+        .all => {
+            if (reveal_count == hidden.len) {
+                for (hidden) |line| push.add(&replacement, &rlen, line);
+            } else switch (gap.gap_position) {
+                .leading => {
+                    const split = hidden.len - reveal_count;
+                    if (remainingGapLine(gap, gap.hidden_off, @intCast(split))) |remain| {
+                        push.add(&replacement, &rlen, remain);
+                    }
+                    for (hidden[split..]) |line| push.add(&replacement, &rlen, line);
+                },
+                .trailing => {
+                    for (hidden[0..reveal_count]) |line| push.add(&replacement, &rlen, line);
+                    gap.hidden_off += @intCast(reveal_count);
+                    gap.hidden_len -= @intCast(reveal_count);
+                    gap.gap_count = gap.hidden_len;
+                    if (gap.hidden_len > 0) push.add(&replacement, &rlen, gap);
+                },
+                .between => {
+                    const from_start = (reveal_count + 1) / 2;
+                    const from_end = reveal_count - from_start;
+                    for (hidden[0..from_start]) |line| push.add(&replacement, &rlen, line);
+                    const remain_off = gap.hidden_off + @as(u32, @intCast(from_start));
+                    const remain_len: u32 = if (from_end == 0)
+                        @intCast(hidden.len - from_start)
+                    else
+                        @intCast(hidden.len - from_start - from_end);
+                    if (remainingGapLine(gap, remain_off, remain_len)) |remain| {
+                        push.add(&replacement, &rlen, remain);
+                    }
+                    if (from_end > 0) {
+                        for (hidden[hidden.len - from_end ..]) |line| push.add(&replacement, &rlen, line);
+                    }
+                },
+            }
+        },
+    }
+    spliceVisible(model, idx, replacement[0..rlen]);
+}
+
 fn setStatus(model: *Model, text: []const u8) void {
     writeFixed(&model.review_diff_status_storage, &model.review_diff_status_len, text);
 }
@@ -1090,6 +1659,7 @@ fn clearHunkStatus(model: *Model) void {
 fn clearHunkBody(model: *Model) void {
     model.review_diff_hunk_len = 0;
     model.review_diff_hunk_line_count = 0;
+    clearHunkRows(model);
 }
 
 fn clearHunks(model: *Model) void {
@@ -1110,6 +1680,7 @@ fn clearDaemonFlags(model: *Model) void {
     model.review_diff_via_daemon = false;
     model.review_diff_daemon_ok = false;
     model.review_diff_last_via_daemon = false;
+    model.review_diff_complete_context = false;
     clearDaemonPatch(model);
 }
 
@@ -1366,6 +1937,7 @@ fn startHunkProbe(model: *Model, fx: *Effects, file_path: []const u8, no_index: 
     model.review_diff_hunk_probe_path_len = 0;
     model.review_diff_hunk_path_len = 0;
     model.review_diff_hunk_no_index = false;
+    model.review_diff_complete_context = false;
     if (!probeSupported()) {
         setHunkStatus(model, hunk_failed_status);
         return;
@@ -1447,7 +2019,9 @@ fn paintDaemonHunk(model: *Model, file_path: []const u8) void {
     }
     if (model.review_diff_hunk_len == 0) {
         setHunkStatus(model, hunk_empty_status);
+        return;
     }
+    rebuildHunkRows(model);
 }
 
 /// Slice the unified-diff `diff --git` block whose a/ or b/ path
@@ -1499,6 +2073,7 @@ fn applyDaemonReviewDiffLine(model: *Model, raw: []const u8) void {
     clearFiles(model);
     appendParsedNumstat(model, parsed.numstat);
     writeFixed(&model.review_diff_daemon_patch_storage, &model.review_diff_daemon_patch_len, parsed.patch);
+    model.review_diff_complete_context = parsed.complete_context;
     model.review_diff_daemon_ok = true;
     model.review_diff_last_via_daemon = true;
 }
@@ -1620,6 +2195,8 @@ pub fn handleHunkExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) 
         setHunkStatus(model, hunk_empty_status);
         return;
     }
+    model.review_diff_complete_context = false;
+    rebuildHunkRows(model);
     clearHunkStatus(model);
 }
 
@@ -3640,6 +4217,15 @@ test "clicking a tracked row fills capped patch text; empty and fail stay honest
     try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "diff --git a/src/a.zig b/src/a.zig") != null);
     try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "+new") != null);
     try std.testing.expectEqual(@as(u64, 0), model.review_diff_hunk_key);
+    try std.testing.expect(hasReviewDiffHunkRows(&model));
+    var found_add = false;
+    var found_del = false;
+    for (model.review_diff_visible_store[0..model.review_diff_visible_count]) |line| {
+        if (line.kind == .addition) found_add = true;
+        if (line.kind == .deletion) found_del = true;
+    }
+    try std.testing.expect(found_add);
+    try std.testing.expect(found_del);
 
     selectFile(&model, &fx, 2);
     try std.testing.expectEqual(@as(u32, 2), model.review_diff_selected_id);
@@ -3671,7 +4257,179 @@ test "clicking a tracked row fills capped patch text; empty and fail stay honest
     handleHunkExit(&model, &fx, .{ .key = cap_key, .reason = .exited, .code = 0 });
     try std.testing.expect(hasReviewDiffHunk(&model));
     try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "+line-0") != null);
-    try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "+line-160") == null);
+    var absent_buf: [32]u8 = undefined;
+    const absent = try std.fmt.bufPrint(&absent_buf, "+line-{d}", .{max_review_diff_hunk_lines});
+    try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), absent) == null);
+}
+
+fn loadHunkPatch(model: *Model, patch: []const u8, complete_context: bool) void {
+    writeFixed(&model.review_diff_hunk_storage, &model.review_diff_hunk_len, patch);
+    model.review_diff_complete_context = complete_context;
+    rebuildHunkRows(model);
+}
+
+fn firstGapIndex(model: *const Model) ?usize {
+    for (model.review_diff_visible_store[0..model.review_diff_visible_count], 0..) |line, i| {
+        if (line.kind == .gap) return i;
+    }
+    return null;
+}
+
+fn gapAt(model: *const Model, index: usize) DiffLine {
+    return model.review_diff_visible_store[index];
+}
+
+fn fullContextPatch(total_lines: u32, changes: []const u32) ![]u8 {
+    var buf: [64 * 1024]u8 = undefined;
+    var n: usize = 0;
+    const header = "diff --git a/src/lib.rs b/src/lib.rs\nindex 1111111..2222222 100644\n--- a/src/lib.rs\n+++ b/src/lib.rs\n";
+    @memcpy(buf[n .. n + header.len], header);
+    n += header.len;
+    const hunk = try std.fmt.bufPrint(buf[n..], "@@ -1,{d} +1,{d} @@\n", .{ total_lines, total_lines });
+    n += hunk.len;
+    var line_no: u32 = 1;
+    while (line_no <= total_lines) : (line_no += 1) {
+        var is_change = false;
+        for (changes) |c| {
+            if (c == line_no) is_change = true;
+        }
+        const piece = if (is_change)
+            try std.fmt.bufPrint(buf[n..], "-let value_{d} = \"old\";\n+let value_{d} = \"new\";\n", .{ line_no, line_no })
+        else
+            try std.fmt.bufPrint(buf[n..], " line {d}\n", .{line_no});
+        n += piece.len;
+    }
+    const out = std.testing.allocator.dupe(u8, buf[0..n]) catch return error.OutOfMemory;
+    return out;
+}
+
+test "compact hunk parse inserts a non-expandable leading Gap" {
+    var model = Model{};
+    const patch =
+        \\diff --git a/src/lib.rs b/src/lib.rs
+        \\index 1111111..2222222 100644
+        \\--- a/src/lib.rs
+        \\+++ b/src/lib.rs
+        \\@@ -5,2 +5,3 @@
+        \\-let old = 1;
+        \\+let fresh = 2;
+        \\+return fresh;
+        \\ context();
+        \\
+    ;
+    loadHunkPatch(&model, patch, false);
+    const gap_i = firstGapIndex(&model) orelse return error.MissingGap;
+    const gap = gapAt(&model, gap_i);
+    try std.testing.expectEqual(@as(u32, 4), gap.gap_count);
+    try std.testing.expectEqual(GapPosition.leading, gap.gap_position);
+    try std.testing.expect(!gapIsExpandable(gap));
+    try std.testing.expectEqual(@as(u32, 5), model.review_diff_visible_store[gap_i + 1].old_line);
+    try std.testing.expectEqual(LineKind.deletion, model.review_diff_visible_store[gap_i + 1].kind);
+    try std.testing.expectEqual(LineKind.addition, model.review_diff_visible_store[gap_i + 2].kind);
+    expandGap(&model, @intCast(gap_i + 1), .end);
+    try std.testing.expectEqual(@as(u32, 4), gapAt(&model, firstGapIndex(&model).?).gap_count);
+}
+
+test "complete context collapses around changes and All expands the between Gap" {
+    var model = Model{};
+    const patch = try fullContextPatch(30, &.{ 8, 17 });
+    defer std.testing.allocator.free(patch);
+    loadHunkPatch(&model, patch, true);
+
+    var leading: ?u32 = null;
+    var between: ?u32 = null;
+    var trailing: ?u32 = null;
+    var between_index: usize = 0;
+    for (model.review_diff_visible_store[0..model.review_diff_visible_count], 0..) |line, i| {
+        if (line.kind != .gap) continue;
+        switch (line.gap_position) {
+            .leading => leading = line.gap_count,
+            .between => {
+                between = line.gap_count;
+                between_index = i;
+            },
+            .trailing => trailing = line.gap_count,
+        }
+        try std.testing.expect(gapIsExpandable(line));
+    }
+    try std.testing.expectEqual(@as(u32, 4), leading.?);
+    try std.testing.expectEqual(@as(u32, 2), between.?);
+    try std.testing.expectEqual(@as(u32, 10), trailing.?);
+
+    const previous_len = model.review_diff_visible_count;
+    expandGap(&model, @intCast(between_index + 1), .all);
+    try std.testing.expectEqual(previous_len + 1, model.review_diff_visible_count);
+    var saw_12 = false;
+    var saw_13 = false;
+    for (model.review_diff_visible_store[0..model.review_diff_visible_count]) |line| {
+        const text = lineContent(&model, line);
+        if (std.mem.eql(u8, text, " line 12")) saw_12 = true;
+        if (std.mem.eql(u8, text, " line 13")) saw_13 = true;
+    }
+    try std.testing.expect(saw_12);
+    try std.testing.expect(saw_13);
+}
+
+test "End expansion reveals 100 retained lines from the gap edge" {
+    var model = Model{};
+    const patch = try fullContextPatch(230, &.{221});
+    defer std.testing.allocator.free(patch);
+    loadHunkPatch(&model, patch, true);
+    const gap_i = firstGapIndex(&model) orelse return error.MissingLeadingGap;
+    try std.testing.expectEqual(GapPosition.leading, gapAt(&model, gap_i).gap_position);
+    try std.testing.expect(gapIsExpandable(gapAt(&model, gap_i)));
+
+    expandGap(&model, @intCast(gap_i + 1), .end);
+    try std.testing.expectEqual(LineKind.gap, gapAt(&model, gap_i).kind);
+    try std.testing.expectEqual(@as(u32, 117), gapAt(&model, gap_i).gap_count);
+    try std.testing.expectEqual(@as(u32, 118), model.review_diff_visible_store[gap_i + 1].new_line);
+
+    expandGap(&model, @intCast(gap_i + 1), .end);
+    try std.testing.expectEqual(@as(u32, 17), gapAt(&model, gap_i).gap_count);
+    try std.testing.expectEqual(@as(u32, 18), model.review_diff_visible_store[gap_i + 1].new_line);
+
+    expandGap(&model, @intCast(gap_i + 1), .end);
+    try std.testing.expectEqual(LineKind.context, gapAt(&model, gap_i).kind);
+    try std.testing.expectEqual(@as(u32, 1), model.review_diff_visible_store[gap_i].new_line);
+}
+
+test "Both expansion reveals 100 lines from each gap edge" {
+    var model = Model{};
+    const patch = try fullContextPatch(230, &.{221});
+    defer std.testing.allocator.free(patch);
+    loadHunkPatch(&model, patch, true);
+    const gap_i = firstGapIndex(&model) orelse return error.MissingLeadingGap;
+    expandGap(&model, @intCast(gap_i + 1), .both);
+    try std.testing.expectEqual(@as(u32, 1), model.review_diff_visible_store[gap_i].new_line);
+    try std.testing.expectEqual(LineKind.gap, model.review_diff_visible_store[gap_i + 100].kind);
+    try std.testing.expectEqual(@as(u32, 17), model.review_diff_visible_store[gap_i + 100].gap_count);
+    try std.testing.expectEqual(@as(u32, 118), model.review_diff_visible_store[gap_i + 101].new_line);
+}
+
+test "review_diff_hunk_rows expose addition deletion and gap expand controls" {
+    var model = Model{};
+    const patch = try fullContextPatch(30, &.{8});
+    defer std.testing.allocator.free(patch);
+    loadHunkPatch(&model, patch, true);
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const rows = reviewDiffHunkRows(&model, arena_state.allocator());
+    try std.testing.expect(rows.len > 0);
+    var saw_add = false;
+    var saw_del = false;
+    var saw_gap = false;
+    for (rows) |row| {
+        if (row.is_addition) saw_add = true;
+        if (row.is_deletion) saw_del = true;
+        if (row.is_gap) {
+            saw_gap = true;
+            try std.testing.expect(std.mem.indexOf(u8, row.text, "unmodified") != null);
+            try std.testing.expect(row.can_expand_all);
+        }
+    }
+    try std.testing.expect(saw_add);
+    try std.testing.expect(saw_del);
+    try std.testing.expect(saw_gap);
 }
 
 test "clicking a ? untracked row one-shots git diff --no-index" {
