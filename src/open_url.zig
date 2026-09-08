@@ -1,7 +1,8 @@
 //! One-shot OS browser-open sidecar.
 //!
-//! Native has no documented webview effect. The right-panel Browser
-//! tab therefore `fx.spawn`s a documented host URL open:
+//! The right-panel Browser tab embeds a Native canvas webview
+//! (`browser_pane.zig` / `web_panes`). This module is the OS-host
+//! fallback: `fx.spawn`s a documented host URL open:
 //!
 //!   macOS:  `open` + URL
 //!   Linux:  `xdg-open` + URL

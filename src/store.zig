@@ -24,8 +24,9 @@
 //! missing or 0 keep Model 184 then FILE_TREE clamp; Diff open may
 //! persist Waku `REVIEW_INITIAL_WIDTH` 820; tab is
 //! `files` / `diff` / `browser` / `terminal` / `background`, missing or
-//! unknown → `files`; Browser draft URL is raw text capped at
-//! `open_url.max_url`, missing / empty / overflow-refused → empty;
+//! unknown → `files`; Browser address-bar draft URL is raw text capped at
+//! `open_url.max_url`, missing / empty / overflow-refused → empty
+//! (committed pane history / reload_token stay runtime-only);
 //! Background row, Files preview, and directory expands stay
 //! runtime-only),
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
@@ -1645,8 +1646,8 @@ fn persistedBrowserUrl(raw: []const u8) []const u8 {
     return raw;
 }
 
-/// Restore into `browser_url_buffer` the same way composer drafts use
-/// `TextBuffer.set`. Empty clears.
+/// Restore the address-bar draft into `browser_url_buffer`. Empty
+/// clears. Does not commit the embedded pane URL (history is runtime-only).
 fn applyPersistedBrowserUrl(model: *Model, url: []const u8) void {
     if (url.len == 0) {
         model.browser_url_buffer.clear();

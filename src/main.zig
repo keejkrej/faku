@@ -98,6 +98,7 @@ const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
 const pty_terminal = @import("pty_terminal.zig");
 const open_url = @import("open_url.zig");
+const browser_pane = @import("browser_pane.zig");
 const open_editor = @import("open_editor.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
@@ -224,8 +225,8 @@ pub const pick_folder_key = pick_folder.pick_folder_key;
 pub const reveal_folder_key = reveal_folder.reveal_folder_key;
 /// One-shot OS URL-open sidecar (`open` / `xdg-open` / Windows
 /// `cmd.exe /c start`). Distinct from open_editor (26), open_terminal
-/// (27), reveal_folder (28). Native has no documented webview effect
-/// on this cut.
+/// (27), reveal_folder (28). OS-host fallback beside the embedded
+/// Browser `web_panes` webview.
 pub const open_url_key = open_url.open_url_key;
 /// One-shot OS terminal sidecar (`open -a Terminal` / `x-terminal-emulator` /
 /// Windows `wt.exe -d` then `cmd.exe /c start "" /D`). Distinct from
@@ -475,6 +476,7 @@ pub fn main(init: std.process.Init) !void {
         .on_appearance = onAppearance,
         .tokens_fn = designTokens,
         .markup = .{ .source = app_markup, .watch_path = "src/app.native", .io = init.io },
+        .web_panes = browser_pane.webPanes,
     });
     defer app_state.destroy();
     app_state.model = initialModel();
@@ -502,7 +504,7 @@ pub fn main(init: std.process.Init) !void {
         .js_window_api = false,
         .security = .{
             .permissions = &app_permissions,
-            .navigation = .{ .allowed_origins = &.{ "zero://inline", "zero://app" } },
+            .navigation = .{ .allowed_origins = &.{ "zero://inline", "zero://app", "*" } },
         },
     }, init);
 }
@@ -520,6 +522,7 @@ test {
     _ = @import("open_terminal.zig");
     _ = @import("pty_terminal.zig");
     _ = @import("open_url.zig");
+    _ = @import("browser_pane.zig");
     _ = @import("open_editor.zig");
     _ = @import("right_panel.zig");
     _ = @import("file_preview_find.zig");

@@ -47,6 +47,7 @@ const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
 const pty_terminal = @import("pty_terminal.zig");
 const open_url = @import("open_url.zig");
+const browser_pane = @import("browser_pane.zig");
 const open_editor = @import("open_editor.zig");
 const copy_helpers = @import("copy.zig");
 const right_panel = @import("right_panel.zig");
@@ -313,6 +314,19 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .term_pty => |event| pty_terminal.handlePtyEvent(model, event),
         .browser_url_edit => |edit| {
             model.applyBrowserUrl(edit);
+            store.persistLayoutIfPossible(model);
+        },
+        .browser_navigate => {
+            browser_pane.commitNavigation(model);
+            store.persistLayoutIfPossible(model);
+        },
+        .browser_reload => browser_pane.reload(model),
+        .browser_back => {
+            browser_pane.goBack(model);
+            store.persistLayoutIfPossible(model);
+        },
+        .browser_forward => {
+            browser_pane.goForward(model);
             store.persistLayoutIfPossible(model);
         },
         .open_url => open_url.startOpenUrl(model, fx),
