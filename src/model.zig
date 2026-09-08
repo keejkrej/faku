@@ -4535,6 +4535,30 @@ pub const Model = struct {
         return review_diff.hasReviewDiffHunkRows(model);
     }
 
+    pub fn review_diff_hunk_file_path(model: *const Model) []const u8 {
+        return review_diff.reviewDiffHunkFilePath(model);
+    }
+
+    pub fn has_review_diff_hunk_file_header(model: *const Model) bool {
+        return review_diff.hasReviewDiffHunkFileHeader(model);
+    }
+
+    pub fn has_review_diff_hunk_file_additions(model: *const Model) bool {
+        return review_diff.hasReviewDiffHunkFileAdditions(model);
+    }
+
+    pub fn has_review_diff_hunk_file_deletions(model: *const Model) bool {
+        return review_diff.hasReviewDiffHunkFileDeletions(model);
+    }
+
+    pub fn review_diff_hunk_file_additions_label(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        return review_diff.reviewDiffHunkFileAdditionsLabel(model, arena);
+    }
+
+    pub fn review_diff_hunk_file_deletions_label(model: *const Model, arena: std.mem.Allocator) []const u8 {
+        return review_diff.reviewDiffHunkFileDeletionsLabel(model, arena);
+    }
+
     /// Composer usage control. 0 when the live path has not reported usage.
     pub fn context_usage(model: *const Model) f32 {
         const session = model.sessionByIdConst(model.selected) orelse return 0;
