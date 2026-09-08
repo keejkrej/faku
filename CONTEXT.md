@@ -652,9 +652,10 @@ Start / End reveal 100 retained lines, Both up to 200, All the rest
 memory; no new git spawn. Line retain/render cap matches Waku
 `MAX_RENDERED_DIFF_LINES` 50_000. Byte cap is a Faku fixed table
 (~32 B/line × 50_000; Waku has no byte cap). Native daemon stdout is
-still `daemon_line_bytes`. Native paints
+still `daemon_line_bytes`. Native paints a `shown_line` gutter and
 additions `success`, deletions `destructive`, context/gaps `text_muted`.
-No syntax highlighting. Browser is an
+Code-row body is Waku `Line.content` (unified-diff marker stripped);
+no syntax-token highlighting (Native has no per-span Token). Browser is an
 honest empty: Native has no webview; a persisted URL draft plus
 **Open in browser** spawns `open` / `xdg-open` / Windows
 `cmd.exe /c start "" <url>` (effect key 25; empty `start` title so
