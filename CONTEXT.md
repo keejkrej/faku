@@ -279,7 +279,7 @@ Do not invent Native APIs. Documented gaps this cut works around:
   slot (not interpolated into `-Command`). Composer git_branch / git_dirty /
   git_ahead_behind / git_remotes / git_toplevel / git_common_dir / git_commit / git_checkout / review_diff use the same `git.exe -C` pattern (no
   PowerShell except New worktree…, git_numstat untracked, empty-message
-  `fx ask` generate, and Environment Compare Uncommitted name-status). git_commit add / cached-quiet preflight / commit / amend and
+  `fx ask` generate, and Environment Compare Uncommitted numstat). git_commit add / cached-quiet preflight / commit / amend and
   CommitSnapshot (tracked / cached) use `git.exe -C`; empty-message `fx ask`
   generate is `powershell.exe -NoProfile -Command {scriptblock} -Args`
   cwd, fx path, prompt (`$args[0]` / `$args[1]` / `$args[2]`; documented
@@ -287,9 +287,9 @@ Do not invent Native APIs. Documented gaps this cut works around:
   git_numstat on Windows is `powershell.exe
   -NoProfile -Command {scriptblock} -Args <project_path>` (`$args[0]`;
   tracked `git.exe diff --numstat HEAD --` plus untracked synthetic
-  `N\t0\tpath` rows). Review Uncommitted name-status is the same
+  `N\t0\tpath` rows). Review Uncommitted numstat is the same
   PowerShell `-Command` + `-Args` shape with a distinct script body
-  (`git.exe diff --name-status HEAD` plus synthetic `?\tpath`; no
+  (`git.exe diff --numstat HEAD` plus synthetic `N\t0\tpath`; no
   binary / 1MiB / zero-line filters). Untracked `?` hunks are
   `git.exe -C PATH diff --no-index -- NUL <path>`. git_common_dir resolve
   treats Unix `/…` and Windows `X:\…` / `X:/…` as absolute and stores `/`
@@ -410,10 +410,10 @@ address keeps today's local path). First-cut daemon
 open / refresh / source-switch when a daemon address is set (ok is
 nested `reviewDiff` + camelCase `ReviewDiffData`; paints the file
 list from `numstat` (per-file `+N` / `-M` when those counts are
-non-zero) and selected hunk from `patch` (Gap rows; local name-status
-stays countless; LastTurn stays
+non-zero) and selected hunk from `patch` (Gap rows; local numstat
+paints the same counts; LastTurn stays
 local; Native 4 KiB stdin overflow / error / unusable parse falls
-back to local name-status + hunk probes; no address keeps today's
+back to local numstat + hunk probes; no address keeps today's
 local path). First-cut daemon
 `WorkspaceOperation::BrowseDirectory` ships on Pick folder (or Cmd/Ctrl-O;
 Cmd/Ctrl-N stays New Task) when a
@@ -529,10 +529,10 @@ remote `--track` over daemon, etc. Fetch already
 Windows probes, checkout / push / worktree, and commit mutations (add / cached-quiet / commit /
 amend / CommitSnapshot tracked-cached) use `git.exe -C <project_path>`;
 New worktree…, git_numstat untracked rows, empty-message `fx ask` generate, and
-Environment Compare Uncommitted name-status use PowerShell `-Command` + `-Args`.
+Environment Compare Uncommitted numstat use PowerShell `-Command` + `-Args`.
 Environment Compare / Review Branch / Staged / Unstaged / Committed / LastTurn
 stay `git.exe -C`; Uncommitted untracked `?` rows are PowerShell synthetic
-`?\tpath`, and `?` hunks are `git.exe -C … diff --no-index -- NUL <path>`.
+`N\t0\tpath`, and `?` hunks are `git.exe -C … diff --no-index -- NUL <path>`.
 
 Send may snapshot the worktree (`worktree_snapshot_sha` /
 `worktree_turn_end_sha` / `worktree_turn_diff_sha`; refs under
@@ -659,8 +659,8 @@ additions `success`, deletions `destructive`, context/gaps `text_muted`.
 Code-row body is Waku `Line.content` (unified-diff marker stripped);
 no syntax-token highlighting (Native has no per-span Token). File-list
 rows paint Waku-style `+N` / `-M` (success / destructive) from numstat
-when those counts are non-zero (daemon CollectReviewDiff); local
-name-status rows stay countless. Browser is an
+when those counts are non-zero (daemon CollectReviewDiff and local
+`--numstat`; zeros omitted). Browser is an
 honest empty: Native has no webview; a persisted URL draft plus
 **Open in browser** spawns `open` / `xdg-open` / Windows
 `cmd.exe /c start "" <url>` (effect key 25; empty `start` title so
@@ -1362,8 +1362,8 @@ Honest gaps this cut does not implement:
   non-zero) and selected hunk from `patch` without per-file
   hunk spawns; selected hunk parses into Gap rows (`completeContext`
   collapses expandable context; compact patches insert count-only Gaps);
-  local name-status Diff stays countless; LastTurn stays local; Native 4 KiB stdin overflow /
-  error / unusable parse falls back to local name-status + hunk
+  local `--numstat` Diff paints the same counts; LastTurn stays local; Native 4 KiB stdin overflow /
+  error / unusable parse falls back to local numstat + hunk
   probes; no address keeps today's local path. First-cut
   `WorkspaceOperation::BrowseDirectory` ships on Pick folder (or Cmd/Ctrl-O;
   Cmd/Ctrl-N stays New Task) when a

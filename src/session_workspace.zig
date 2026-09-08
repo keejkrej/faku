@@ -53,7 +53,7 @@
 //! Unstaged / Committed when a daemon address is set; paints
 //! per-file `+N` / `-M` from numstat; LastTurn stays
 //! local; overflow / error / unusable parse falls back to local
-//! name-status). First-cut daemon `WorkspaceOperation::BrowseDirectory`
+//! local numstat). First-cut daemon `WorkspaceOperation::BrowseDirectory`
 //! ships in `pick_folder` (Pick folder in-app browser when a daemon
 //! address is set; overflow / error / unusable parse falls back to
 //! the local OS folder dialog). First-cut daemon `WorkspaceOperation::ReadTextFile`

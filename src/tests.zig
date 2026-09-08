@@ -20449,13 +20449,15 @@ fn expectGitReviewUncommittedArgv(argv: []const []const u8) !void {
             try testing.expect(argv[5].len > 0);
             try testing.expect(std.mem.indexOf(u8, argv[3], argv[5]) == null);
             try testing.expect(std.mem.indexOf(u8, argv[3], "$args[0]") != null);
-            try testing.expect(std.mem.indexOf(u8, argv[3], review_diff.git_name_status) != null);
+            try testing.expect(std.mem.indexOf(u8, argv[3], review_diff.git_numstat) != null);
             try testing.expect(std.mem.indexOf(u8, argv[3], review_diff.git_ls_files_others) != null);
-            try testing.expect(std.mem.indexOf(u8, argv[3], "--numstat") == null);
+            try testing.expect(std.mem.indexOf(u8, argv[3], "--name-status") == null);
         },
         else => {
             try testing.expectEqual(review_diff.argv_len_uncommitted, argv.len);
             try testing.expectEqualStrings(review_diff.uncommitted_untracked_script, argv[7]);
+            try testing.expect(std.mem.indexOf(u8, argv[7], review_diff.git_numstat) != null);
+            try testing.expect(std.mem.indexOf(u8, argv[7], "N\\t0\\t") != null);
             try testing.expect(std.mem.indexOf(u8, argv[2], "HEAD") == null);
             try testing.expect(std.mem.indexOf(u8, argv[2], review_diff.uncommitted_untracked_script) == null);
         },
@@ -23374,7 +23376,7 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     const last_turn_btn = try expectButtonMsg(tree, "Last turn", .set_review_diff_source_last_turn);
     try testing.expect(!last_turn_btn.state.selected);
 
-    try fx.feedLine(spawn.key, "M\tsrc/a.zig\nA\tnew.txt\n");
+    try fx.feedLine(spawn.key, "2\t1\tsrc/a.zig\n4\t0\tnew.txt\n");
     drainEffects(&model, &fx);
     try fx.feedExit(spawn.key, 0);
     drainEffects(&model, &fx);
@@ -23384,8 +23386,10 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     tree = try buildTree(arena, &model);
     const file_row = try expectButtonMsg(tree, "M src/a.zig", .{ .select_review_diff_file = 1 });
     _ = try expectButtonMsg(tree, "A new.txt", .{ .select_review_diff_file = 2 });
+    _ = try expectByText(tree.root, .text, "+2");
+    _ = try expectByText(tree.root, .text, "-1");
+    _ = try expectByText(tree.root, .text, "+4");
     try testing.expect(findByText(tree.root, .text, "+1") == null);
-    try testing.expect(findByText(tree.root, .text, "-1") == null);
     try testing.expect(findByText(tree.root, .text, review_diff.comparing_status) == null);
     try testing.expect(findByText(tree.root, .scroll_view, "Review files") != null);
     try testing.expect(!model.review_diff_nested_split());
@@ -23459,7 +23463,7 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
 
     main.update(&model, .environment_compare, &fx);
     const fail = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffFail;
-    try fx.feedLine(fail.key, "M\tshould-not-show.zig\n");
+    try fx.feedLine(fail.key, "1\t0\tshould-not-show.zig\n");
     drainEffects(&model, &fx);
     try fx.feedExit(fail.key, 128);
     drainEffects(&model, &fx);
@@ -23557,7 +23561,7 @@ test "Environment Compare without a workspace shows No workspace and invents no 
     try testing.expect(!last_turn_btn.state.selected);
 }
 
-test "Review source row switches Uncommitted and re-probes name-status plus untracked" {
+test "Review source row switches Uncommitted and re-probes numstat plus untracked" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -23595,7 +23599,7 @@ test "Review source row switches Uncommitted and re-probes name-status plus untr
     const uncommitted_on_open = try expectButtonMsg(tree, "Uncommitted", .set_review_diff_source_uncommitted);
     try testing.expect(uncommitted_on_open.state.selected);
 
-    try fx.feedLine(uncommitted_spawn.key, "M\ttracked.zig\n?\tnew.txt\n");
+    try fx.feedLine(uncommitted_spawn.key, "2\t1\ttracked.zig\nN\t0\tnew.txt\n");
     drainEffects(&model, &fx);
     try fx.feedExit(uncommitted_spawn.key, 0);
     drainEffects(&model, &fx);
@@ -23603,6 +23607,8 @@ test "Review source row switches Uncommitted and re-probes name-status plus untr
     try testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
     tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "M tracked.zig", .{ .select_review_diff_file = 1 });
+    _ = try expectByText(tree.root, .text, "+2");
+    _ = try expectByText(tree.root, .text, "-1");
     const untracked_row = try expectButtonMsg(tree, "? new.txt", .{ .select_review_diff_file = 2 });
     main.update(&model, tree.msgForPointer(untracked_row.id, .up).?, &fx);
     try testing.expectEqual(@as(u32, 2), model.review_diff_selected_id);
@@ -23665,7 +23671,7 @@ test "Review source row switches Uncommitted and re-probes name-status plus untr
     try testing.expect(findByText(tree.root, .button, "Last turn") == null);
 }
 
-test "Review source row switches Staged and re-probes --cached name-status" {
+test "Review source row switches Staged and re-probes --cached numstat" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -23721,7 +23727,7 @@ test "Review source row switches Staged and re-probes --cached name-status" {
     try testing.expect(staged_spawn.key >= main.review_diff_key_first);
     try testing.expect(staged_spawn.key != model.git_numstat_key);
 
-    try fx.feedLine(staged_spawn.key, "A\tstaged.zig\n");
+    try fx.feedLine(staged_spawn.key, "1\t0\tstaged.zig\n");
     drainEffects(&model, &fx);
     try fx.feedExit(staged_spawn.key, 0);
     drainEffects(&model, &fx);
@@ -23776,7 +23782,7 @@ test "Review source row switches Staged and re-probes --cached name-status" {
     try testing.expect(findByText(tree.root, .button, "Last turn") == null);
 }
 
-test "Review source row switches Unstaged and re-probes worktree name-status" {
+test "Review source row switches Unstaged and re-probes worktree numstat" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -23827,14 +23833,14 @@ test "Review source row switches Unstaged and re-probes worktree name-status" {
     const unstaged_spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffUnstaged;
     try testing.expect(review_diff.isGitReviewDiffArgv(unstaged_spawn.argv));
     try testing.expectEqual(review_diff.argv_len_unstaged, unstaged_spawn.argv.len);
-    try testing.expectEqualStrings(review_diff.git_name_status, unstaged_spawn.argv[7]);
-    try testing.expect(std.mem.indexOf(u8, unstaged_spawn.argv[2], review_diff.git_name_status) == null);
+    try testing.expectEqualStrings(review_diff.git_numstat, unstaged_spawn.argv[7]);
+    try testing.expect(std.mem.indexOf(u8, unstaged_spawn.argv[2], review_diff.git_numstat) == null);
     try testing.expect(std.mem.indexOf(u8, unstaged_spawn.argv[2], review_diff.git_head) == null);
     try testing.expect(std.mem.indexOf(u8, unstaged_spawn.argv[2], review_diff.git_cached_flag) == null);
     try testing.expect(unstaged_spawn.key >= main.review_diff_key_first);
     try testing.expect(unstaged_spawn.key != model.git_numstat_key);
 
-    try fx.feedLine(unstaged_spawn.key, "M\tunstaged.zig\n");
+    try fx.feedLine(unstaged_spawn.key, "3\t1\tunstaged.zig\n");
     drainEffects(&model, &fx);
     try fx.feedExit(unstaged_spawn.key, 0);
     drainEffects(&model, &fx);
@@ -23873,7 +23879,7 @@ test "Review source row switches Unstaged and re-probes worktree name-status" {
     main.update(&model, .set_review_diff_source_unstaged, &fx);
     const fail_spawn = findGitReviewDiffSpawnKey(&fx, model.review_diff_key) orelse return error.MissingReviewDiffUnstagedFail;
     try testing.expectEqual(review_diff.argv_len_unstaged, fail_spawn.argv.len);
-    try testing.expectEqualStrings(review_diff.git_name_status, fail_spawn.argv[7]);
+    try testing.expectEqualStrings(review_diff.git_numstat, fail_spawn.argv[7]);
     try fx.feedExit(fail_spawn.key, 128);
     drainEffects(&model, &fx);
     try testing.expectEqualStrings(review_diff.failed_status, model.review_diff_status());
@@ -23889,7 +23895,7 @@ test "Review source row switches Unstaged and re-probes worktree name-status" {
     try testing.expect(findByText(tree.root, .button, "Last turn") == null);
 }
 
-test "Review source row switches Committed and re-probes origin/HEAD...HEAD name-status" {
+test "Review source row switches Committed and re-probes origin/HEAD...HEAD numstat" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -23947,7 +23953,7 @@ test "Review source row switches Committed and re-probes origin/HEAD...HEAD name
     try testing.expect(committed_spawn.key >= main.review_diff_key_first);
     try testing.expect(committed_spawn.key != model.git_numstat_key);
 
-    try fx.feedLine(committed_spawn.key, "M\tcommitted.zig\n");
+    try fx.feedLine(committed_spawn.key, "1\t1\tcommitted.zig\n");
     drainEffects(&model, &fx);
     try fx.feedExit(committed_spawn.key, 0);
     drainEffects(&model, &fx);
@@ -24011,7 +24017,7 @@ test "Review source row switches Committed and re-probes origin/HEAD...HEAD name
     try testing.expect(findByText(tree.root, .button, "Last turn") == null);
 }
 
-test "Review source row switches Last turn and re-probes rewind sha...HEAD name-status" {
+test "Review source row switches Last turn and re-probes rewind sha...HEAD numstat" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -24082,7 +24088,7 @@ test "Review source row switches Last turn and re-probes rewind sha...HEAD name-
     try testing.expect(std.mem.indexOf(u8, last_turn_spawn.argv[2], "HEAD~1") == null);
     try testing.expect(last_turn_spawn.key != model.git_numstat_key);
 
-    try fx.feedLine(last_turn_spawn.key, "M\tlast-turn.zig\n");
+    try fx.feedLine(last_turn_spawn.key, "1\t1\tlast-turn.zig\n");
     drainEffects(&model, &fx);
     try fx.feedExit(last_turn_spawn.key, 0);
     drainEffects(&model, &fx);
@@ -24310,7 +24316,7 @@ test "header Environment +/- opens the same Review card as Compare" {
     _ = try expectByText(env_controls, .button, "+3 −1");
     _ = try expectByText(env_controls, .button, "Environment");
 
-    try fx.feedLine(spawn.key, "M\tsrc/a.zig\n");
+    try fx.feedLine(spawn.key, "2\t1\tsrc/a.zig\n");
     drainEffects(&model, &fx);
     try fx.feedExit(spawn.key, 0);
     drainEffects(&model, &fx);

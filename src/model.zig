@@ -870,7 +870,7 @@ pub const Model = struct {
     last_background_work_tick_ms: ?i64 = null,
     /// Runtime-only Environment Compare Review card. Not persisted.
     review_diff_active: bool = false,
-    /// Runtime-only Review name-status source. Compare / header +/-
+    /// Runtime-only Review numstat source. Compare / header +/-
     /// open Branch. Uncommitted is first-cut tracked HEAD. Staged
     /// is first-cut index vs HEAD (`--cached`). Unstaged is
     /// first-cut worktree vs index (no operand). Committed is
@@ -1460,8 +1460,8 @@ pub const Model = struct {
     /// ListTree while this is set; local fill keeps filter-only
     /// expand. Runtime only.
     file_mention_last_via_daemon: bool = false,
-    /// Runtime-only Branch name-status rows for the Review card.
-    /// One-shot `git diff --name-status @{upstream}...HEAD`. Cap 64.
+    /// Runtime-only Branch numstat rows for the Review card.
+    /// One-shot `git diff --numstat @{upstream}...HEAD`. Cap 64.
     /// Not persisted to sessions.json.
     review_diff_file_store: [review_diff.max_review_diff_files]review_diff.ChangedFile = [_]review_diff.ChangedFile{.{}} ** review_diff.max_review_diff_files,
     review_diff_file_count: u32 = 0,
@@ -1510,10 +1510,10 @@ pub const Model = struct {
     review_diff_hunk_no_index: bool = false,
     /// True while the in-flight `review_diff_key` is a daemon-proxy
     /// CollectReviewDiff sidecar. Line/exit handlers parse `reviewDiff`
-    /// instead of local name-status stdout. Runtime only; not persisted.
+    /// instead of local numstat stdout. Runtime only; not persisted.
     review_diff_via_daemon: bool = false,
     /// True after an in-flight CollectReviewDiff sidecar applied a
-    /// usable `reviewDiff`. Exit falls back to local name-status when
+    /// usable `reviewDiff`. Exit falls back to local numstat when
     /// this is false. Runtime only; not persisted.
     review_diff_daemon_ok: bool = false,
     /// True after the last successful Review fill came from daemon

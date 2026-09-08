@@ -6,22 +6,22 @@
 //! Uncommitted (Waku web `changes` defaults `uncommitted`); if
 //! Compare is already active, that source is kept and refreshed.
 //! `open` still starts Branch for unit tests of the probe stack.
-//! `git diff --name-status @{upstream}...HEAD` (symmetric range,
+//! `git diff --numstat @{upstream}...HEAD` (symmetric range,
 //! same spirit as ahead/behind). Uncommitted is a switchable
-//! first-cut: tracked `git diff --name-status HEAD` plus
+//! first-cut: tracked `git diff --numstat HEAD` plus
 //! untracked, non-ignored paths from
 //! `git ls-files --others --exclude-standard` (synthetic
-//! `?\tpath` rows; no text-only / size filter). Unix packs
+//! `N\t0\tpath` rows; no text-only / size filter). Unix packs
 //! this under Native `max_effect_argv` as chdir + nested
 //! `/bin/sh -c`; Windows Uncommitted uses PowerShell
 //! `-Command` + `-Args`.
 //! Staged is a switchable first-cut: one-shot
-//! `git diff --name-status --cached` (index vs HEAD;
+//! `git diff --numstat --cached` (index vs HEAD;
 //! untracked cannot appear unless already staged). Unstaged is a
-//! switchable first-cut: one-shot `git diff --name-status`
+//! switchable first-cut: one-shot `git diff --numstat`
 //! (worktree vs index, tracked only; no `--cached`, no `HEAD`
 //! range). Committed is a switchable first-cut: one-shot
-//! `git diff --name-status origin/HEAD...HEAD` (merge-base of
+//! `git diff --numstat origin/HEAD...HEAD` (merge-base of
 //! the default remote branch and HEAD → HEAD; distinct from
 //! Branch `@{upstream}...HEAD`). Missing `origin/HEAD` (non-zero
 //! git exit) retries the same argv with last-slot `main...HEAD`,
@@ -29,7 +29,7 @@
 //! `Could not compare.` A successful origin/HEAD probe with
 //! zero files is `No changes to compare` (no main/master
 //! fall-through). LastTurn is a switchable first-cut: one-shot
-//! `git diff --name-status` of the last completed turn.
+//! `git diff --numstat` of the last completed turn.
 //! When both finish-time turn-diff (`worktree_turn_diff_sha`)
 //! and turn-end (`worktree_turn_end_sha`) are valid 40-hex,
 //! the operand is `diff..end` (two-dot). Else when both
@@ -38,7 +38,7 @@
 //! own argv slot; Waku `git diff from to` / `A..B` is the tree
 //! of A vs the tree of B). Else a valid start is a bare 40-hex
 //! two-dot vs the live worktree. Else send-time rewind
-//! `git diff --name-status <sha>...HEAD` (`latestRewindSha`
+//! `git diff --numstat <sha>...HEAD` (`latestRewindSha`
 //! / `rewind_refs`). Isolated index, dangling commits
 //! named `refs/faku/session-{id}-turn-start-{n}` (plus
 //! `turn-{n-1}` when that baseline is missing), finish
@@ -50,7 +50,7 @@
 //! model so hunk clicks reuse it if later snapshots or
 //! `rewind_refs` change.
 //! Tracked files only (no untracked `?`, no `--no-index`).
-//! Clicking a tracked name-status row one-shots `git diff`
+//! Clicking a tracked numstat row one-shots `git diff`
 //! for that path (current source + the Committed range that
 //! already succeeded, or the stored LastTurn range).
 //! `--` and the path are own argv slots.
@@ -65,7 +65,7 @@
 //! `max_effect_argv` 16). A `?` directory that
 //! makes git fail is `Could not show diff.` — no invented
 //! tree listing. Hunk
-//! spawn-key band 520+ is distinct from name-status 510+.
+//! spawn-key band 520+ is distinct from file-list 510+.
 //! Unix uses the `/bin/sh -c` `fx_ask_chdir_script` chdir
 //! workaround. Last-slot operands (`@{upstream}...HEAD` /
 //! `--cached` / `origin/HEAD...HEAD` / `main...HEAD` /
@@ -87,7 +87,8 @@
 //! stripped). Syntax-token highlighting still does not (Native
 //! has no per-span Token). File-list rows paint Waku-style
 //! `+N` / `-M` (success / destructive) from numstat when those
-//! counts are non-zero; local name-status rows stay countless.
+//! counts are non-zero (daemon CollectReviewDiff and local
+//! `--numstat`; zeros omitted).
 //! `completeContext` daemon patches collapse long context into
 //! expandable Gaps; local compact `git diff` inserts count-only
 //! Gaps between hunks (hidden empty — expand is a no-op). Expand
@@ -104,13 +105,12 @@
 //! when `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address`
 //! is set: hello + CollectReviewDiff for Branch / Uncommitted /
 //! Staged / Unstaged / Committed on open / refresh / source-switch
-//! (same moments as today's name-status probes). Ok nested
+//! (same moments as today's local numstat probes). Ok nested
 //! `reviewDiff.data` paints the file list from `numstat` (cap 64)
 //! including per-file addition/deletion counts, and stores `patch`
 //! for selected-file hunk display (no per-file hunk spawn when that
 //! patch is usable). LastTurn stays local. Overflow / spawn failure
-//! / non-ok / unusable parse fall back to local git. This slice is
-//! file-list counts. Leftovers still blocked or deferred:
+//! / non-ok / unusable parse fall back to local `--numstat`. Leftovers still blocked or deferred:
 //! syntax-token highlighting (no per-span Token), GPUI match
 //! washes, circular GPUI gauge, file-mention 50k index (Faku cap
 //! 256), chart 12% fill opacity, amend/force over daemon, remote
@@ -121,31 +121,31 @@
 //!
 //! Windows cannot use `/bin/sh` or the Uncommitted nested
 //! `uncommitted_untracked_script`. Branch / Staged /
-//! Unstaged / Committed / LastTurn name-status and tracked
+//! Unstaged / Committed / LastTurn numstat and tracked
 //! hunks stay `git.exe -C <project_path>` (path is its own
 //! argv slot). Explicit `git.exe` like siblings. Uncommitted
-//! name-status is `powershell.exe -NoProfile -Command
+//! numstat is `powershell.exe -NoProfile -Command
 //! {scriptblock} -Args <project_path>` (`$args[0]`; path is
 //! its own argv slot, not interpolated into `-Command`).
 //! After `Set-Location -LiteralPath $args[0]`, the script
-//! runs `git.exe diff --name-status HEAD` then synthetic
-//! `?\tpath` rows from `git.exe ls-files --others
+//! runs `git.exe diff --numstat HEAD` then synthetic
+//! `N\t0\tpath` rows from `git.exe ls-files --others
 //! --exclude-standard` (every non-empty path; no
 //! git_numstat binary / 1MiB / zero-line filters). Distinct
 //! script body from `git_numstat.windowsArgvFor`. Tracked
 //! hunks are `git.exe -C PATH diff [operand] -- <path>`.
 //! Untracked `?` hunks are `git.exe -C PATH diff --no-index
 //! -- NUL <path>` (`NUL` and the path are own argv slots).
-//! Name-status / hunk stdout is already CRLF-trimmed.
+//! Numstat / hunk stdout is already CRLF-trimmed.
 //! app.zon already includes windows.
 //!
 //! Spawn/line/exit orchestration lives here. Effect keys stay
-//! name-status 510+ and hunk 520+. First-cut daemon
+//! file-list 510+ and hunk 520+. First-cut daemon
 //! `WorkspaceOperation::CollectReviewDiff` reuses `next_daemon_key`
 //! assigned onto `review_diff_key` so `applyLine` / `handleExit`
 //! still own the probe. LastTurn stays local this cut (no invented
 //! turn UUIDs). Native 4 KiB stdin overflow / sidecar failure /
-//! unusable parse fall back to today's local name-status + hunk
+//! unusable parse fall back to today's local numstat + hunk
 //! probes. No address keeps the local path unchanged.
 
 const std = @import("std");
@@ -164,7 +164,7 @@ const Model = main.Model;
 const Effects = main.Effects;
 const writeFixed = main.writeFixed;
 
-/// One-shot Review `git diff --name-status` (Branch,
+/// One-shot Review `git diff --numstat` (Branch,
 /// Uncommitted, Staged, Unstaged, Committed, or LastTurn). Distinct from git_branch
 /// (200+), git_dirty (300+), git_numstat (350+), git_push
 /// (360+), git_worktree_add (370+), git_ahead_behind (380+),
@@ -178,24 +178,24 @@ pub const review_diff_key_first: u64 = 510;
 /// One-shot Review `git diff [operand] -- <path>` hunk probe,
 /// or untracked `git diff --no-index -- /dev/null <path>`
 /// (Unix) / `NUL` (Windows).
-/// Distinct from name-status 510+. Band is 520+. Incremented
+/// Distinct from file-list 510+. Band is 520+. Incremented
 /// per file click so a cancelled spawn cannot paint a later
 /// click or session.
 pub const review_diff_hunk_key_first: u64 = 520;
 
 /// Compare / header +/- open the Diff tab on Uncommitted when no
 /// compare is active. Uncommitted is first-cut
-/// tracked `git diff --name-status HEAD` plus untracked
-/// `git ls-files --others --exclude-standard` (`?` rows;
-/// Unix nested `uncommitted_untracked_script`, Windows
-/// PowerShell `$args[0]`). Staged
-/// is first-cut index vs HEAD `git diff --name-status --cached`.
+/// tracked `git diff --numstat HEAD` plus untracked
+/// `git ls-files --others --exclude-standard` (`N\t0\tpath`
+/// rows parsed as `?`; Unix nested `uncommitted_untracked_script`,
+/// Windows PowerShell `$args[0]`). Staged
+/// is first-cut index vs HEAD `git diff --numstat --cached`.
 /// Unstaged is first-cut worktree vs index `git diff
-/// --name-status` (tracked only). Committed is first-cut
-/// `git diff --name-status origin/HEAD...HEAD`, then local
+/// --numstat` (tracked only). Committed is first-cut
+/// `git diff --numstat origin/HEAD...HEAD`, then local
 /// `main...HEAD` / `master...HEAD` on a still-current non-zero
 /// exit. LastTurn is first-cut last-completed-turn
-/// `git diff --name-status diff..end` when turn-diff and
+/// `git diff --numstat diff..end` when turn-diff and
 /// turn-end exist, else `start..end` when both snapshots
 /// exist, else send-time `<40-hex>` (rewind `<sha>...HEAD`
 /// fallback; not HEAD~1). `open` still starts Branch.
@@ -230,7 +230,7 @@ pub const git_bin = "git";
 pub const windows_git_bin = "git.exe";
 pub const git_c_flag = "-C";
 pub const git_diff_cmd = "diff";
-pub const git_name_status = "--name-status";
+pub const git_numstat = "--numstat";
 pub const git_upstream_range = git_ahead_behind.git_upstream_range;
 pub const git_head = "HEAD";
 pub const git_ls_files_cmd = "ls-files";
@@ -284,36 +284,36 @@ pub const powershell_command = "-Command";
 pub const powershell_args_flag = "-Args";
 
 /// Packed into one `-c` string so Uncommitted stays under Native
-/// `max_effect_argv` (16). Real `git diff --name-status HEAD`
-/// first; then synthetic `?\tpath` rows for every non-empty
+/// `max_effect_argv` (16). Real `git diff --numstat HEAD`
+/// first; then synthetic `N\t0\tpath` rows for every non-empty
 /// `git ls-files --others --exclude-standard` path. Non-zero
 /// from the diff exits without inventing untracked.
 pub const uncommitted_untracked_script =
-    \\git diff --name-status HEAD || exit $?
+    \\git diff --numstat HEAD || exit $?
     \\git ls-files --others --exclude-standard 2>/dev/null | while IFS= read -r f || [ -n "$f" ]; do
     \\[ -z "$f" ] && continue
-    \\printf '?\t%s\n' "$f"
+    \\printf 'N\t0\t%s\n' "$f"
     \\done
 ;
 
 /// Scriptblock + `$args[0]`: project path is its own argv slot after
 /// `-Args`, not spliced into the `-Command` body. `Set-Location` then
-/// `git.exe diff --name-status HEAD` (fail the spawn on non-zero; do
+/// `git.exe diff --numstat HEAD` (fail the spawn on non-zero; do
 /// not invent untracked), then `git.exe ls-files --others
-/// --exclude-standard`. Skip empty; print `?\tpath` with `/`
+/// --exclude-standard`. Skip empty; print `N\t0\tpath` with `/`
 /// separators. No binary / 1MiB / zero-line filters (unlike
 /// `git_numstat.powershell_untracked_script`). Six argv slots total.
 pub const powershell_uncommitted_untracked_script =
-    "{ $ErrorActionPreference='Stop'; Set-Location -LiteralPath $args[0]; git.exe diff --name-status HEAD; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; foreach ($f in @(git.exe ls-files --others --exclude-standard 2>$null)) { if (-not $f) { continue }; $rel=([string]$f -replace '\\\\','/'); if (-not $rel) { continue }; Write-Output ('?'+[char]9+'{0}' -f $rel) } }";
+    "{ $ErrorActionPreference='Stop'; Set-Location -LiteralPath $args[0]; git.exe diff --numstat HEAD; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; foreach ($f in @(git.exe ls-files --others --exclude-standard 2>$null)) { if (-not $f) { continue }; $rel=([string]$f -replace '\\\\','/'); if (-not $rel) { continue }; Write-Output ('N'+[char]9+'0'+[char]9+'{0}' -f $rel) } }";
 
-/// Unix `/bin/sh -c` chdir + `git diff --name-status` + last-slot
+/// Unix `/bin/sh -c` chdir + `git diff --numstat` + last-slot
 /// operand (Branch / Staged / Committed / LastTurn) is 9. Windows
 /// `git.exe -C` is 6; this is the spawn buffer (max of the two).
 pub const argv_len: usize = 9;
 pub const unix_argv_len: usize = 9;
 pub const windows_argv_len: usize = 6;
 /// Unstaged: Unix chdir prefix, no trailing operand (8). Windows
-/// `git.exe -C PATH diff --name-status` is 5.
+/// `git.exe -C PATH diff --numstat` is 5.
 pub const argv_len_unstaged: usize = 8;
 pub const unix_argv_len_unstaged: usize = 8;
 pub const windows_argv_len_unstaged: usize = 5;
@@ -379,8 +379,7 @@ pub const hunk_failed_status = "Could not show diff.";
 
 /// Native `for each="review_diff_rows"` row. `id` is 1-based.
 /// `label` stays `{status} {path}`. Optional `+N` / `-M` live in
-/// `additions_label` / `deletions_label` (empty when the count is 0
-/// — local name-status rows stay countless).
+/// `additions_label` / `deletions_label` (empty when the count is 0).
 pub const ReviewDiffRow = struct {
     id: u32,
     label: []const u8,
@@ -490,7 +489,7 @@ pub const ChangedFile = struct {
 };
 
 /// Last argv slot for sources that have one. Unstaged is `null`
-/// (`git diff --name-status` with no range / `--cached`).
+/// (`git diff --numstat` with no range / `--cached`).
 /// Uncommitted is `null` (Unix packs `HEAD` in the nested
 /// script; Windows last-slot `HEAD` is filled by the argv
 /// builder). Committed reads `committed_range` (default first
@@ -521,8 +520,8 @@ pub fn lastOperandRange(
 }
 
 /// Hunk operand for the current Review source. Uncommitted tracked
-/// uses last-slot `HEAD` (Unix name-status packs `HEAD` in the
-/// nested script; Windows name-status last-slot is `HEAD`).
+/// uses last-slot `HEAD` (Unix numstat packs `HEAD` in the
+/// nested script; Windows numstat last-slot is `HEAD`).
 /// Unstaged omits the operand. Committed reads the range
 /// that already succeeded — no origin/HEAD fall-through on a
 /// hunk click. LastTurn reuses the stored `diff..end` /
@@ -659,7 +658,7 @@ fn scriptHas(script: []const u8, needle: []const u8) bool {
     return std.mem.indexOf(u8, script, needle) != null;
 }
 
-fn isKnownNameStatusOperand(last: []const u8) bool {
+fn isKnownNumstatOperand(last: []const u8) bool {
     return std.mem.eql(u8, last, git_upstream_range) or
         std.mem.eql(u8, last, git_cached_flag) or
         std.mem.eql(u8, last, git_committed_range) or
@@ -691,7 +690,7 @@ pub fn unixArgvForSourceRange(
     return unixArgvForSourceRangeWith(source, committed_range, "", cwd, buf);
 }
 
-/// Unix LastTurn name-status: 9-slot chdir + `git diff --name-status`
+/// Unix LastTurn numstat: 9-slot chdir + `git diff --numstat`
 /// + `diff..end` / `start..end`, snapshot `40-hex`, or rewind
 /// `<sha>...HEAD`. Operand is one own argv slot.
 pub fn unixArgvForLastTurn(cwd: []const u8, last_turn_range: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
@@ -718,7 +717,7 @@ pub fn unixArgvForSourceRangeWith(
     }
     buf[5] = git_bin;
     buf[6] = git_diff_cmd;
-    buf[7] = git_name_status;
+    buf[7] = git_numstat;
     if (lastOperandRange(source, committed_range, last_turn_range)) |operand| {
         buf[8] = operand;
         return buf[0..unix_argv_len];
@@ -727,10 +726,10 @@ pub fn unixArgvForSourceRangeWith(
 }
 
 /// Windows: Branch / Staged / Unstaged / Committed / LastTurn stay
-/// `git.exe -C <project_path> diff --name-status [operand]`.
+/// `git.exe -C <project_path> diff --numstat [operand]`.
 /// Path is its own argv slot. Uncommitted is powershell
-/// `-Command` + `-Args` (`$args[0]`; tracked name-status plus
-/// synthetic `?\tpath`).
+/// `-Command` + `-Args` (`$args[0]`; tracked numstat plus
+/// synthetic `N\t0\tpath`).
 pub fn windowsArgvForSourceRangeWith(
     source: Source,
     committed_range: CommittedRange,
@@ -751,7 +750,7 @@ pub fn windowsArgvForSourceRangeWith(
     buf[1] = git_c_flag;
     buf[2] = cwd;
     buf[3] = git_diff_cmd;
-    buf[4] = git_name_status;
+    buf[4] = git_numstat;
     if (lastOperandRange(source, committed_range, last_turn_range)) |operand| {
         buf[5] = operand;
         return buf[0..windows_argv_len];
@@ -772,7 +771,7 @@ pub fn argvForSourceRange(
     return argvForSourceRangeWith(source, committed_range, "", cwd, buf);
 }
 
-/// LastTurn name-status. Operand is one own argv slot.
+/// LastTurn numstat. Operand is one own argv slot.
 pub fn argvForLastTurn(cwd: []const u8, last_turn_range: []const u8, buf: *[argv_len][]const u8) []const []const u8 {
     return argvForSourceRangeWith(.last_turn, .origin, last_turn_range, cwd, buf);
 }
@@ -987,12 +986,13 @@ fn isWindowsGitReviewUncommittedArgv(argv: []const []const u8) bool {
     if (!scriptHas(argv[3], "$args[0]")) return false;
     if (!scriptHas(argv[3], windows_git_bin)) return false;
     if (!scriptHas(argv[3], git_diff_cmd)) return false;
-    if (!scriptHas(argv[3], git_name_status)) return false;
+    if (!scriptHas(argv[3], git_numstat)) return false;
     if (!scriptHas(argv[3], git_head)) return false;
     if (!scriptHas(argv[3], git_ls_files_cmd)) return false;
     if (!scriptHas(argv[3], git_ls_files_others)) return false;
     if (!scriptHas(argv[3], git_ls_files_exclude_standard)) return false;
-    if (scriptHas(argv[3], "--numstat")) return false;
+    if (scriptHas(argv[3], "--name-status")) return false;
+    if (scriptHas(argv[3], "1048576")) return false;
     return true;
 }
 
@@ -1007,9 +1007,9 @@ fn isUnixGitReviewDiffArgv(argv: []const []const u8) bool {
     if (!std.mem.eql(u8, argv[2], main.fx_ask_chdir_script)) return false;
     if (!std.mem.eql(u8, argv[5], git_bin)) return false;
     if (!std.mem.eql(u8, argv[6], git_diff_cmd)) return false;
-    if (!std.mem.eql(u8, argv[7], git_name_status)) return false;
+    if (!std.mem.eql(u8, argv[7], git_numstat)) return false;
     if (argv.len == unix_argv_len_unstaged) return true;
-    return isKnownNameStatusOperand(argv[8]);
+    return isKnownNumstatOperand(argv[8]);
 }
 
 fn isWindowsGitReviewDiffArgv(argv: []const []const u8) bool {
@@ -1018,9 +1018,9 @@ fn isWindowsGitReviewDiffArgv(argv: []const []const u8) bool {
     if (!std.mem.eql(u8, argv[1], git_c_flag)) return false;
     if (argv[2].len == 0) return false;
     if (!std.mem.eql(u8, argv[3], git_diff_cmd)) return false;
-    if (!std.mem.eql(u8, argv[4], git_name_status)) return false;
+    if (!std.mem.eql(u8, argv[4], git_numstat)) return false;
     if (argv.len == windows_argv_len_unstaged) return true;
-    return isKnownNameStatusOperand(argv[5]);
+    return isKnownNumstatOperand(argv[5]);
 }
 
 pub fn isGitReviewDiffArgv(argv: []const []const u8) bool {
@@ -1071,7 +1071,7 @@ fn isWindowsGitReviewHunkArgv(argv: []const []const u8) bool {
 /// 11-slot untracked `git diff --no-index -- /dev/null <path>`;
 /// Windows `git.exe -C` tracked hunks or 8-slot untracked
 /// `git.exe -C PATH diff --no-index -- NUL <path>`. Rejects
-/// name-status (`--name-status`) and Uncommitted nested `sh -c`
+/// file-list (`--numstat`) and Uncommitted nested `sh -c`
 /// / PowerShell.
 pub fn isGitReviewHunkArgv(argv: []const []const u8) bool {
     return isUnixGitReviewHunkArgv(argv) or isWindowsGitReviewHunkArgv(argv);
@@ -1851,17 +1851,6 @@ fn probeStillCurrent(model: *const Model) bool {
     return std.mem.eql(u8, path, probed);
 }
 
-fn appendParsed(model: *Model, raw: []const u8) void {
-    var it = std.mem.splitScalar(u8, raw, '\n');
-    while (it.next()) |line| {
-        if (model.review_diff_file_count >= max_review_diff_files) return;
-        const parsed = parseNameStatusLine(line) orelse continue;
-        const slot = &model.review_diff_file_store[model.review_diff_file_count];
-        slot.set(parsed.status, parsed.path);
-        model.review_diff_file_count += 1;
-    }
-}
-
 /// Cancel any in-flight probe, drop files / status / hunks, and close the card.
 pub fn close(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
@@ -1951,7 +1940,7 @@ fn daemonSource(source: Source) ?protocol.ReviewDiffSource {
 /// daemon address is set. Own daemon spawn key assigned to
 /// `review_diff_key` so `applyLine` / `handleExit` still own the
 /// probe. Missing address or Native 4 KiB stdin overflow returns
-/// false and leaves local name-status.
+/// false and leaves local numstat.
 fn trySpawnDaemonCollectReviewDiff(model: *Model, fx: *Effects, cwd: []const u8) bool {
     const address = store.resolveDaemonMirrorAddress(model);
     if (address.len == 0) return false;
@@ -2009,7 +1998,7 @@ fn spawnLocalReviewDiff(model: *Model, fx: *Effects, cwd: []const u8) void {
 }
 
 /// Close other composer git cards, open the Review card on Branch,
-/// and one-shot Branch name-status when cwd exists. Missing / Local
+/// and one-shot Branch numstat when cwd exists. Missing / Local
 /// path still opens the card with `No workspace.` Streaming and
 /// in-flight git mutations are a no-op (popover already closed).
 /// Environment Compare / Diff tab use `ensureDiff` instead.
@@ -2038,7 +2027,7 @@ pub fn ensureDiff(model: *Model, fx: *Effects) void {
     startProbe(model, fx);
 }
 
-/// Switch the Review name-status source, cancel any in-flight
+/// Switch the Review numstat source, cancel any in-flight
 /// 510+ spawn, clear rows / status, and re-probe. Committed
 /// always restarts at `origin/HEAD...HEAD` (no leftover
 /// main/master retry). LastTurn captures the selected session's
@@ -2198,7 +2187,7 @@ pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
         applyDaemonReviewDiffLine(model, line.line);
         return;
     }
-    appendParsed(model, line.line);
+    appendParsedNumstat(model, line.line);
 }
 
 fn applyDaemonReviewDiffLine(model: *Model, raw: []const u8) void {
@@ -2354,10 +2343,10 @@ fn startCommittedFallback(model: *Model, fx: *Effects) bool {
     return true;
 }
 
-test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
+test "argv is chdir script plus git diff --numstat @{upstream}...HEAD" {
     const git_branch = @import("git_branch.zig");
     const git_dirty = @import("git_dirty.zig");
-    const git_numstat = @import("git_numstat.zig");
+    const composer_numstat = @import("git_numstat.zig");
     const file_mention = @import("file_mention.zig");
     var buf: [argv_len][]const u8 = undefined;
     const argv = unixArgvFor("/tmp/faku-review", &buf);
@@ -2369,15 +2358,15 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expectEqualStrings("/tmp/faku-review", argv[4]);
     try std.testing.expectEqualStrings(git_bin, argv[5]);
     try std.testing.expectEqualStrings(git_diff_cmd, argv[6]);
-    try std.testing.expectEqualStrings(git_name_status, argv[7]);
+    try std.testing.expectEqualStrings(git_numstat, argv[7]);
     try std.testing.expectEqualStrings(git_upstream_range, argv[8]);
     try std.testing.expectEqualStrings("@{upstream}...HEAD", argv[8]);
     try std.testing.expect(isGitReviewDiffArgv(argv));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_upstream_range) == null);
-    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_name_status) == null);
+    try std.testing.expect(std.mem.indexOf(u8, argv[2], git_numstat) == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_diff_cmd) == null);
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_head) == null);
-    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_upstream_range }));
+    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_numstat, git_upstream_range }));
     var uncommitted_buf: [argv_len][]const u8 = undefined;
     const uncommitted = unixArgvForSource(.uncommitted, "/tmp/faku-review", &uncommitted_buf);
     try std.testing.expectEqual(argv_len_uncommitted, uncommitted.len);
@@ -2393,16 +2382,16 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expect(isGitReviewUncommittedArgv(uncommitted));
     try std.testing.expect(isGitReviewDiffArgv(uncommitted));
     try std.testing.expect(std.mem.indexOf(u8, uncommitted[2], git_head) == null);
-    try std.testing.expect(std.mem.indexOf(u8, uncommitted[2], git_name_status) == null);
+    try std.testing.expect(std.mem.indexOf(u8, uncommitted[2], git_numstat) == null);
     try std.testing.expect(std.mem.indexOf(u8, uncommitted[2], uncommitted_untracked_script) == null);
     try std.testing.expect(scriptHas(uncommitted[7], git_diff_cmd));
-    try std.testing.expect(scriptHas(uncommitted[7], git_name_status));
+    try std.testing.expect(scriptHas(uncommitted[7], git_numstat));
     try std.testing.expect(scriptHas(uncommitted[7], git_head));
     try std.testing.expect(scriptHas(uncommitted[7], git_ls_files_cmd));
     try std.testing.expect(scriptHas(uncommitted[7], git_ls_files_others));
     try std.testing.expect(scriptHas(uncommitted[7], git_ls_files_exclude_standard));
-    try std.testing.expect(scriptHas(uncommitted[7], "?\\t"));
-    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_head }));
+    try std.testing.expect(scriptHas(uncommitted[7], "N\\t0\\t"));
+    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_numstat, git_head }));
     try std.testing.expect(!isGitReviewUncommittedArgv(&.{
         sh_bin,
         "-c",
@@ -2411,7 +2400,7 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
         "/tmp/faku-review",
         git_bin,
         git_diff_cmd,
-        git_name_status,
+        git_numstat,
         git_head,
     }));
     try std.testing.expect(!isGitReviewDiffArgv(&.{
@@ -2422,7 +2411,7 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
         "/tmp/faku-review",
         git_bin,
         git_diff_cmd,
-        git_name_status,
+        git_numstat,
         git_head,
     }));
     var staged_buf: [argv_len][]const u8 = undefined;
@@ -2435,14 +2424,14 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expectEqualStrings("/tmp/faku-review", staged[4]);
     try std.testing.expectEqualStrings(git_bin, staged[5]);
     try std.testing.expectEqualStrings(git_diff_cmd, staged[6]);
-    try std.testing.expectEqualStrings(git_name_status, staged[7]);
+    try std.testing.expectEqualStrings(git_numstat, staged[7]);
     try std.testing.expectEqualStrings(git_cached_flag, staged[8]);
     try std.testing.expectEqualStrings("--cached", staged[8]);
     try std.testing.expectEqualStrings(@import("git_commit.zig").git_cached_flag, staged[8]);
     try std.testing.expect(isGitReviewDiffArgv(staged));
     try std.testing.expect(std.mem.indexOf(u8, staged[2], git_cached_flag) == null);
-    try std.testing.expect(std.mem.indexOf(u8, staged[2], git_name_status) == null);
-    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_cached_flag }));
+    try std.testing.expect(std.mem.indexOf(u8, staged[2], git_numstat) == null);
+    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_numstat, git_cached_flag }));
     var unstaged_buf: [argv_len][]const u8 = undefined;
     const unstaged = unixArgvForSource(.unstaged, "/tmp/faku-review", &unstaged_buf);
     try std.testing.expectEqual(@as(usize, 8), unstaged.len);
@@ -2454,13 +2443,13 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expectEqualStrings("/tmp/faku-review", unstaged[4]);
     try std.testing.expectEqualStrings(git_bin, unstaged[5]);
     try std.testing.expectEqualStrings(git_diff_cmd, unstaged[6]);
-    try std.testing.expectEqualStrings(git_name_status, unstaged[7]);
+    try std.testing.expectEqualStrings(git_numstat, unstaged[7]);
     try std.testing.expect(lastOperand(.unstaged, .origin) == null);
     try std.testing.expect(isGitReviewDiffArgv(unstaged));
-    try std.testing.expect(std.mem.indexOf(u8, unstaged[2], git_name_status) == null);
+    try std.testing.expect(std.mem.indexOf(u8, unstaged[2], git_numstat) == null);
     try std.testing.expect(std.mem.indexOf(u8, unstaged[2], git_diff_cmd) == null);
     try std.testing.expect(std.mem.indexOf(u8, unstaged[2], "/tmp/faku-review") == null);
-    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status }));
+    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_numstat }));
     var committed_buf: [argv_len][]const u8 = undefined;
     const committed = unixArgvForSource(.committed, "/tmp/faku-review", &committed_buf);
     try std.testing.expectEqual(@as(usize, 9), committed.len);
@@ -2472,7 +2461,7 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expectEqualStrings("/tmp/faku-review", committed[4]);
     try std.testing.expectEqualStrings(git_bin, committed[5]);
     try std.testing.expectEqualStrings(git_diff_cmd, committed[6]);
-    try std.testing.expectEqualStrings(git_name_status, committed[7]);
+    try std.testing.expectEqualStrings(git_numstat, committed[7]);
     try std.testing.expectEqualStrings(git_committed_range, committed[8]);
     try std.testing.expectEqualStrings("origin/HEAD...HEAD", committed[8]);
     try std.testing.expect(lastOperand(.committed, .origin) != null);
@@ -2484,24 +2473,24 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expectEqualStrings("master...HEAD", lastOperand(.committed, .master).?);
     try std.testing.expect(isGitReviewDiffArgv(committed));
     try std.testing.expect(std.mem.indexOf(u8, committed[2], git_committed_range) == null);
-    try std.testing.expect(std.mem.indexOf(u8, committed[2], git_name_status) == null);
+    try std.testing.expect(std.mem.indexOf(u8, committed[2], git_numstat) == null);
     try std.testing.expect(std.mem.indexOf(u8, committed[2], git_upstream_range) == null);
-    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_committed_range }));
+    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_numstat, git_committed_range }));
     var committed_main_buf: [argv_len][]const u8 = undefined;
     const committed_main = unixArgvForSourceRange(.committed, .main, "/tmp/faku-review", &committed_main_buf);
     try std.testing.expectEqual(@as(usize, 9), committed_main.len);
     try std.testing.expectEqualStrings(git_committed_range_main, committed_main[8]);
     try std.testing.expect(isGitReviewDiffArgv(committed_main));
     try std.testing.expect(std.mem.indexOf(u8, committed_main[2], git_committed_range_main) == null);
-    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_committed_range_main }));
+    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_numstat, git_committed_range_main }));
     var committed_master_buf: [argv_len][]const u8 = undefined;
     const committed_master = unixArgvForSourceRange(.committed, .master, "/tmp/faku-review", &committed_master_buf);
     try std.testing.expectEqualStrings(git_committed_range_master, committed_master[8]);
     try std.testing.expect(isGitReviewDiffArgv(committed_master));
     try std.testing.expect(std.mem.indexOf(u8, committed_master[2], git_committed_range_master) == null);
-    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, git_committed_range_master }));
+    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_numstat, git_committed_range_master }));
     var interpolated_main = committed_main_buf;
-    interpolated_main[2] = "cd \"$1\" && git diff --name-status main...HEAD";
+    interpolated_main[2] = "cd \"$1\" && git diff --numstat main...HEAD";
     interpolated_main[8] = git_committed_range_main;
     try std.testing.expect(!isGitReviewDiffArgv(interpolated_main[0..argv_len]));
     const last_turn_sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -2558,7 +2547,7 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expectEqualStrings("/tmp/faku-review", last_turn[4]);
     try std.testing.expectEqualStrings(git_bin, last_turn[5]);
     try std.testing.expectEqualStrings(git_diff_cmd, last_turn[6]);
-    try std.testing.expectEqualStrings(git_name_status, last_turn[7]);
+    try std.testing.expectEqualStrings(git_numstat, last_turn[7]);
     try std.testing.expectEqualStrings(last_turn_range, last_turn[8]);
     try std.testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...HEAD", last_turn[8]);
     try std.testing.expect(isGitReviewDiffArgv(last_turn));
@@ -2584,7 +2573,7 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     try std.testing.expect(std.mem.indexOf(u8, last_turn[2], last_turn_range) == null);
     try std.testing.expect(std.mem.indexOf(u8, last_turn[2], git_last_turn_range_suffix) == null);
     try std.testing.expect(std.mem.indexOf(u8, last_turn[2], "HEAD~1") == null);
-    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_name_status, last_turn_range }));
+    try std.testing.expect(!isGitReviewDiffArgv(&.{ git_bin, git_diff_cmd, git_numstat, last_turn_range }));
     const head_tilde = [_][]const u8{
         sh_bin,
         "-c",
@@ -2593,12 +2582,12 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
         "/tmp/faku-review",
         git_bin,
         git_diff_cmd,
-        git_name_status,
+        git_numstat,
         "HEAD~1",
     };
     try std.testing.expect(!isGitReviewDiffArgv(&head_tilde));
     var interpolated_last_turn = last_turn_buf;
-    interpolated_last_turn[2] = "cd \"$1\" && git diff --name-status aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...HEAD";
+    interpolated_last_turn[2] = "cd \"$1\" && git diff --numstat aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...HEAD";
     interpolated_last_turn[8] = last_turn_range;
     try std.testing.expect(!isGitReviewDiffArgv(interpolated_last_turn[0..argv_len]));
     var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;
@@ -2611,12 +2600,12 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
     var dirty_buf: [8][]const u8 = undefined;
     const dirty = git_dirty.argvFor("/tmp/faku-review", &dirty_buf);
     try std.testing.expect(!isGitReviewDiffArgv(dirty));
-    var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
-    const numstat = git_numstat.unixArgvFor("/tmp/faku-review", &numstat_buf);
+    var numstat_buf: [composer_numstat.argv_len][]const u8 = undefined;
+    const numstat = composer_numstat.unixArgvFor("/tmp/faku-review", &numstat_buf);
     try std.testing.expect(!isGitReviewDiffArgv(numstat));
     try std.testing.expect(!isGitReviewUncommittedArgv(numstat));
-    try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
-    try std.testing.expect(!git_numstat.isGitNumstatArgv(uncommitted));
+    try std.testing.expect(!composer_numstat.isGitNumstatArgv(argv));
+    try std.testing.expect(!composer_numstat.isGitNumstatArgv(uncommitted));
     try std.testing.expect(!file_mention.isGitLsFilesArgv(argv));
     try std.testing.expect(!file_mention.isGitLsFilesArgv(uncommitted));
     try std.testing.expect(review_diff_key_first >= 510);
@@ -2643,7 +2632,7 @@ test "argv is chdir script plus git diff --name-status @{upstream}...HEAD" {
 test "windows git argv is git.exe -C PATH; path is its own slot" {
     const git_branch = @import("git_branch.zig");
     const git_dirty = @import("git_dirty.zig");
-    const git_numstat = @import("git_numstat.zig");
+    const composer_numstat = @import("git_numstat.zig");
     const file_mention = @import("file_mention.zig");
     const cwd = "C:\\Users\\me\\proj";
     var buf: [argv_len][]const u8 = undefined;
@@ -2654,7 +2643,7 @@ test "windows git argv is git.exe -C PATH; path is its own slot" {
     try std.testing.expectEqualStrings(git_c_flag, argv[1]);
     try std.testing.expectEqualStrings(cwd, argv[2]);
     try std.testing.expectEqualStrings(git_diff_cmd, argv[3]);
-    try std.testing.expectEqualStrings(git_name_status, argv[4]);
+    try std.testing.expectEqualStrings(git_numstat, argv[4]);
     try std.testing.expectEqualStrings(git_upstream_range, argv[5]);
     try std.testing.expect(isGitReviewDiffArgv(argv));
     try std.testing.expect(!isGitReviewHunkArgv(argv));
@@ -2672,7 +2661,7 @@ test "windows git argv is git.exe -C PATH; path is its own slot" {
     git_only[1] = git_c_flag;
     git_only[2] = cwd;
     git_only[3] = git_diff_cmd;
-    git_only[4] = git_name_status;
+    git_only[4] = git_numstat;
     git_only[5] = git_upstream_range;
     try std.testing.expect(isGitReviewDiffArgv(git_only[0..windows_argv_len]));
 
@@ -2696,13 +2685,13 @@ test "windows git argv is git.exe -C PATH; path is its own slot" {
     try std.testing.expect(scriptHas(uncommitted[3], "Set-Location"));
     try std.testing.expect(scriptHas(uncommitted[3], windows_git_bin));
     try std.testing.expect(scriptHas(uncommitted[3], git_diff_cmd));
-    try std.testing.expect(scriptHas(uncommitted[3], git_name_status));
+    try std.testing.expect(scriptHas(uncommitted[3], git_numstat));
     try std.testing.expect(scriptHas(uncommitted[3], git_head));
     try std.testing.expect(scriptHas(uncommitted[3], git_ls_files_cmd));
     try std.testing.expect(scriptHas(uncommitted[3], git_ls_files_others));
     try std.testing.expect(scriptHas(uncommitted[3], git_ls_files_exclude_standard));
-    try std.testing.expect(scriptHas(uncommitted[3], "'?'+[char]9+'{0}'"));
-    try std.testing.expect(!scriptHas(uncommitted[3], "--numstat"));
+    try std.testing.expect(scriptHas(uncommitted[3], "'N'+[char]9+'0'+[char]9+'{0}'"));
+    try std.testing.expect(!scriptHas(uncommitted[3], "--name-status"));
     try std.testing.expect(!scriptHas(uncommitted[3], "1048576"));
     try std.testing.expect(!isGitReviewUncommittedArgv(&.{ powershell_bin, powershell_noprofile, powershell_command }));
     try std.testing.expect(!isGitReviewUncommittedArgv(&.{
@@ -2725,7 +2714,7 @@ test "windows git argv is git.exe -C PATH; path is its own slot" {
         git_c_flag,
         cwd,
         git_diff_cmd,
-        git_name_status,
+        git_numstat,
         git_head,
     }));
     try std.testing.expect(!isGitReviewUncommittedArgv(&.{
@@ -2733,7 +2722,7 @@ test "windows git argv is git.exe -C PATH; path is its own slot" {
         git_c_flag,
         cwd,
         git_diff_cmd,
-        git_name_status,
+        git_numstat,
         git_head,
     }));
 
@@ -2747,7 +2736,7 @@ test "windows git argv is git.exe -C PATH; path is its own slot" {
     var unstaged_buf: [argv_len][]const u8 = undefined;
     const unstaged = windowsArgvForSourceRangeWith(.unstaged, .origin, "", cwd, &unstaged_buf);
     try std.testing.expectEqual(@as(usize, windows_argv_len_unstaged), unstaged.len);
-    try std.testing.expectEqualStrings(git_name_status, unstaged[4]);
+    try std.testing.expectEqualStrings(git_numstat, unstaged[4]);
     try std.testing.expect(isGitReviewDiffArgv(unstaged));
     try std.testing.expect(!isGitReviewUncommittedArgv(unstaged));
     try std.testing.expect(!isGitReviewHunkArgv(unstaged));
@@ -2848,7 +2837,7 @@ test "windows git argv is git.exe -C PATH; path is its own slot" {
         git_c_flag,
         cwd,
         git_diff_cmd,
-        git_name_status,
+        git_numstat,
         git_head,
     }));
     try std.testing.expect(!isGitReviewHunkArgv(uncommitted));
@@ -2860,12 +2849,12 @@ test "windows git argv is git.exe -C PATH; path is its own slot" {
     var dirty_buf: [git_dirty.argv_len][]const u8 = undefined;
     try std.testing.expect(!isGitReviewDiffArgv(git_dirty.windowsArgvFor(cwd, &dirty_buf)));
     try std.testing.expect(!git_dirty.isGitDirtyArgv(argv));
-    var numstat_buf: [git_numstat.argv_len][]const u8 = undefined;
-    try std.testing.expect(!isGitReviewDiffArgv(git_numstat.windowsArgvFor(cwd, &numstat_buf)));
-    try std.testing.expect(!isGitReviewUncommittedArgv(git_numstat.windowsArgvFor(cwd, &numstat_buf)));
-    try std.testing.expect(!git_numstat.isGitNumstatArgv(argv));
-    try std.testing.expect(!git_numstat.isGitNumstatArgv(uncommitted));
-    try std.testing.expect(!std.mem.eql(u8, uncommitted[3], git_numstat.powershell_untracked_script));
+    var numstat_buf: [composer_numstat.argv_len][]const u8 = undefined;
+    try std.testing.expect(!isGitReviewDiffArgv(composer_numstat.windowsArgvFor(cwd, &numstat_buf)));
+    try std.testing.expect(!isGitReviewUncommittedArgv(composer_numstat.windowsArgvFor(cwd, &numstat_buf)));
+    try std.testing.expect(!composer_numstat.isGitNumstatArgv(argv));
+    try std.testing.expect(!composer_numstat.isGitNumstatArgv(uncommitted));
+    try std.testing.expect(!std.mem.eql(u8, uncommitted[3], composer_numstat.powershell_untracked_script));
     var ahead_buf: [git_ahead_behind.argv_len][]const u8 = undefined;
     try std.testing.expect(!isGitReviewDiffArgv(git_ahead_behind.windowsArgvFor(cwd, &ahead_buf)));
     try std.testing.expect(!git_ahead_behind.isGitAheadBehindArgv(argv));
@@ -2884,12 +2873,12 @@ test "host argvFor matches the process OS" {
             try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
             try std.testing.expectEqualStrings(git_c_flag, argv[1]);
             try std.testing.expectEqualStrings(git_diff_cmd, argv[3]);
-            try std.testing.expectEqualStrings(git_name_status, argv[4]);
+            try std.testing.expectEqualStrings(git_numstat, argv[4]);
             try std.testing.expectEqualStrings(git_upstream_range, argv[5]);
         },
         else => {
             try std.testing.expectEqualStrings(sh_bin, argv[0]);
-            try std.testing.expectEqualStrings(git_name_status, argv[7]);
+            try std.testing.expectEqualStrings(git_numstat, argv[7]);
             try std.testing.expectEqualStrings(git_upstream_range, argv[8]);
         },
     }
@@ -3055,7 +3044,7 @@ test "open with a daemon address spawns CollectReviewDiff sidecar" {
     try std.testing.expect(std.mem.indexOf(u8, committed.stdin, "\"source\":\"committed\"") != null);
 }
 
-test "open without a daemon address still uses local name-status" {
+test "open without a daemon address still uses local numstat" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -3075,8 +3064,9 @@ test "open without a daemon address still uses local name-status" {
     try std.testing.expectEqual(@as(usize, 0), store.resolveDaemonMirrorAddress(&model).len);
 
     open(&model, &fx);
-    const git = pendingSpawnKey(&fx, model.review_diff_key) orelse return error.MissingLocalNameStatus;
+    const git = pendingSpawnKey(&fx, model.review_diff_key) orelse return error.MissingLocalNumstat;
     try std.testing.expect(isGitReviewDiffArgv(git.argv));
+    try expectNumstatOperand(git.argv, git_upstream_range);
     try std.testing.expect(!daemon_proxy.isSidecarArgv(git.argv));
     try std.testing.expectEqualStrings("", git.stdin);
     try std.testing.expect(!model.review_diff_via_daemon);
@@ -3153,7 +3143,7 @@ test "CollectReviewDiff sidecar paints file list from numstat and selected hunk 
     try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "+new") == null);
 }
 
-test "CollectReviewDiff sidecar non-ok falls back to local name-status" {
+test "CollectReviewDiff sidecar non-ok falls back to local numstat" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -3182,8 +3172,9 @@ test "CollectReviewDiff sidecar non-ok falls back to local name-status" {
     handleExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
     try std.testing.expect(!model.review_diff_via_daemon);
     try std.testing.expect(!model.review_diff_last_via_daemon);
-    const git = pendingSpawnKey(&fx, model.review_diff_key) orelse return error.MissingLocalNameStatusFallback;
+    const git = pendingSpawnKey(&fx, model.review_diff_key) orelse return error.MissingLocalNumstatFallback;
     try std.testing.expect(isGitReviewDiffArgv(git.argv));
+    try expectNumstatOperand(git.argv, git_upstream_range);
     try std.testing.expect(!daemon_proxy.isSidecarArgv(git.argv));
     try std.testing.expectEqualStrings("", git.stdin);
     try std.testing.expect(git.key >= review_diff_key_first);
@@ -3227,7 +3218,7 @@ test "Uncommitted argv is nested sh -c; old HEAD-only argv is not Review" {
     try std.testing.expect(isGitReviewUncommittedArgv(argv));
     try std.testing.expect(isGitReviewDiffArgv(argv));
     try std.testing.expect(lastOperand(.uncommitted, .origin) == null);
-    try std.testing.expect(scriptHas(argv[7], "git diff --name-status HEAD"));
+    try std.testing.expect(scriptHas(argv[7], "git diff --numstat HEAD"));
     try std.testing.expect(scriptHas(argv[7], "git ls-files --others --exclude-standard"));
     try std.testing.expect(scriptHas(argv[7], "|| exit $?"));
     try std.testing.expect(std.mem.indexOf(u8, argv[2], git_head) == null);
@@ -3239,7 +3230,7 @@ test "Uncommitted argv is nested sh -c; old HEAD-only argv is not Review" {
         "/tmp/faku-uncommitted",
         git_bin,
         git_diff_cmd,
-        git_name_status,
+        git_numstat,
         git_head,
     };
     try std.testing.expect(!isGitReviewUncommittedArgv(&old_head));
@@ -3288,7 +3279,7 @@ test "open closes nothing extra when gated; missing cwd is No workspace" {
     try std.testing.expect(git_checkout.gitMutationInFlight(&model));
 }
 
-test "name-status lines fill capped rows; empty and fail stay honest" {
+test "numstat lines fill capped rows; empty and fail stay honest" {
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
@@ -3312,25 +3303,36 @@ test "name-status lines fill capped rows; empty and fail stay honest" {
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
 
     const key = model.review_diff_key;
-    applyLine(&model, .{ .key = key, .line = "M\tsrc/a.zig\nA\tnew.txt\n" });
-    applyLine(&model, .{ .key = key, .line = "D\tgone.txt\nR100\told.txt\trenamed.txt\n" });
+    applyLine(&model, .{ .key = key, .line = "2\t1\tsrc/a.zig\n4\t0\tnew.txt\n" });
+    applyLine(&model, .{ .key = key, .line = "0\t3\tgone.txt\n1\t0\told.txt\trenamed.txt\n" });
     try std.testing.expectEqual(@as(u32, 4), model.review_diff_file_count);
     try std.testing.expectEqualStrings("M src/a.zig", model.review_diff_file_store[0].label());
-    try std.testing.expectEqual(@as(u64, 0), model.review_diff_file_store[0].additions);
-    try std.testing.expectEqual(@as(u64, 0), model.review_diff_file_store[0].deletions);
+    try std.testing.expectEqual(@as(u64, 2), model.review_diff_file_store[0].additions);
+    try std.testing.expectEqual(@as(u64, 1), model.review_diff_file_store[0].deletions);
     try std.testing.expectEqualStrings("A new.txt", model.review_diff_file_store[1].label());
+    try std.testing.expectEqual(@as(u64, 4), model.review_diff_file_store[1].additions);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_file_store[1].deletions);
     try std.testing.expectEqualStrings("D gone.txt", model.review_diff_file_store[2].label());
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_file_store[2].additions);
+    try std.testing.expectEqual(@as(u64, 3), model.review_diff_file_store[2].deletions);
     try std.testing.expectEqualStrings("R renamed.txt", model.review_diff_file_store[3].label());
+    try std.testing.expectEqual(@as(u64, 1), model.review_diff_file_store[3].additions);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_file_store[3].deletions);
     {
         var rows_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer rows_arena.deinit();
         const rows = reviewDiffRows(&model, rows_arena.allocator());
         try std.testing.expectEqual(@as(usize, 4), rows.len);
         try std.testing.expectEqualStrings("M src/a.zig", rows[0].label);
-        try std.testing.expect(!rows[0].has_additions);
-        try std.testing.expect(!rows[0].has_deletions);
-        try std.testing.expectEqualStrings("", rows[0].additions_label);
-        try std.testing.expectEqualStrings("", rows[0].deletions_label);
+        try std.testing.expect(rows[0].has_additions);
+        try std.testing.expect(rows[0].has_deletions);
+        try std.testing.expectEqualStrings("+2", rows[0].additions_label);
+        try std.testing.expectEqualStrings("-1", rows[0].deletions_label);
+        try std.testing.expectEqualStrings("+4", rows[1].additions_label);
+        try std.testing.expect(!rows[1].has_deletions);
+        try std.testing.expectEqualStrings("-3", rows[2].deletions_label);
+        try std.testing.expectEqualStrings("+1", rows[3].additions_label);
+        try std.testing.expect(!rows[3].has_deletions);
     }
 
     handleExit(&model, &fx, .{ .key = key, .reason = .exited, .code = 0 });
@@ -3347,7 +3349,7 @@ test "name-status lines fill capped rows; empty and fail stay honest" {
 
     open(&model, &fx);
     const fail_key = model.review_diff_key;
-    applyLine(&model, .{ .key = fail_key, .line = "M\tshould-drop.zig\n" });
+    applyLine(&model, .{ .key = fail_key, .line = "1\t0\tshould-drop.zig\n" });
     handleExit(&model, &fx, .{ .key = fail_key, .reason = .exited, .code = 128 });
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
     try std.testing.expectEqualStrings(failed_status, reviewDiffStatus(&model));
@@ -3409,8 +3411,8 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
         if (spawn.key == branch_key) branch_argv = spawn.argv;
     }
     try std.testing.expect(isGitReviewDiffArgv(branch_argv orelse return error.MissingBranchArgv));
-    try expectNameStatusOperand(branch_argv.?, git_upstream_range);
-    applyLine(&model, .{ .key = branch_key, .line = "M\tbranch-only.zig\n" });
+    try expectNumstatOperand(branch_argv.?, git_upstream_range);
+    applyLine(&model, .{ .key = branch_key, .line = "1\t1\tbranch-only.zig\n" });
     try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
 
     setSource(&model, &fx, .staged);
@@ -3421,7 +3423,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
 
-    applyLine(&model, .{ .key = branch_key, .line = "A\tshould-ignore.txt\n" });
+    applyLine(&model, .{ .key = branch_key, .line = "1\t0\tshould-ignore.txt\n" });
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
     handleExit(&model, &fx, .{ .key = branch_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(Source.staged, model.review_diff_source);
@@ -3433,8 +3435,8 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (spawn.key == staged_key) staged_argv = spawn.argv;
     }
-    try expectNameStatusOperand(staged_argv orelse return error.MissingStagedArgv, git_cached_flag);
-    applyLine(&model, .{ .key = staged_key, .line = "A\tstaged.zig\n" });
+    try expectNumstatOperand(staged_argv orelse return error.MissingStagedArgv, git_cached_flag);
+    applyLine(&model, .{ .key = staged_key, .line = "1\t0\tstaged.zig\n" });
     handleExit(&model, &fx, .{ .key = staged_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
     try std.testing.expectEqualStrings("A staged.zig", model.review_diff_file_store[0].label());
@@ -3447,7 +3449,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
 
-    applyLine(&model, .{ .key = staged_key, .line = "M\tshould-ignore-staged.zig\n" });
+    applyLine(&model, .{ .key = staged_key, .line = "1\t1\tshould-ignore-staged.zig\n" });
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
     handleExit(&model, &fx, .{ .key = staged_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(Source.uncommitted, model.review_diff_source);
@@ -3460,11 +3462,16 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
         if (spawn.key == uncommitted_key) uncommitted_argv = spawn.argv;
     }
     try expectUncommittedArgv(uncommitted_argv orelse return error.MissingUncommittedArgv);
-    applyLine(&model, .{ .key = uncommitted_key, .line = "M\ttracked.zig\n?\tnew.txt\n" });
+    applyLine(&model, .{ .key = uncommitted_key, .line = "2\t1\ttracked.zig\nN\t0\tnew.txt\n" });
     handleExit(&model, &fx, .{ .key = uncommitted_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
     try std.testing.expectEqualStrings("M tracked.zig", model.review_diff_file_store[0].label());
+    try std.testing.expectEqual(@as(u64, 2), model.review_diff_file_store[0].additions);
+    try std.testing.expectEqual(@as(u64, 1), model.review_diff_file_store[0].deletions);
     try std.testing.expectEqualStrings("? new.txt", model.review_diff_file_store[1].label());
+    try std.testing.expectEqual(@as(u8, '?'), model.review_diff_file_store[1].status);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_file_store[1].additions);
+    try std.testing.expectEqual(@as(u64, 0), model.review_diff_file_store[1].deletions);
     try std.testing.expect(!hasReviewDiffStatus(&model));
 
     setSource(&model, &fx, .unstaged);
@@ -3474,7 +3481,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
 
-    applyLine(&model, .{ .key = uncommitted_key, .line = "M\tshould-ignore-uncommitted.zig\n" });
+    applyLine(&model, .{ .key = uncommitted_key, .line = "1\t1\tshould-ignore-uncommitted.zig\n" });
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
     handleExit(&model, &fx, .{ .key = uncommitted_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(Source.unstaged, model.review_diff_source);
@@ -3486,8 +3493,8 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (spawn.key == unstaged_key) unstaged_argv = spawn.argv;
     }
-    try expectUnstagedNameStatusArgv(unstaged_argv orelse return error.MissingUnstagedArgv);
-    applyLine(&model, .{ .key = unstaged_key, .line = "M\tunstaged.zig\n" });
+    try expectUnstagedNumstatArgv(unstaged_argv orelse return error.MissingUnstagedArgv);
+    applyLine(&model, .{ .key = unstaged_key, .line = "3\t1\tunstaged.zig\n" });
     handleExit(&model, &fx, .{ .key = unstaged_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
     try std.testing.expectEqualStrings("M unstaged.zig", model.review_diff_file_store[0].label());
@@ -3500,7 +3507,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
 
-    applyLine(&model, .{ .key = unstaged_key, .line = "M\tshould-ignore-unstaged.zig\n" });
+    applyLine(&model, .{ .key = unstaged_key, .line = "1\t1\tshould-ignore-unstaged.zig\n" });
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
     handleExit(&model, &fx, .{ .key = unstaged_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(Source.committed, model.review_diff_source);
@@ -3512,9 +3519,9 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (spawn.key == committed_key) committed_argv = spawn.argv;
     }
-    try expectNameStatusOperand(committed_argv orelse return error.MissingCommittedArgv, git_committed_range);
+    try expectNumstatOperand(committed_argv orelse return error.MissingCommittedArgv, git_committed_range);
     try std.testing.expectEqualStrings("origin/HEAD...HEAD", git_committed_range);
-    applyLine(&model, .{ .key = committed_key, .line = "M\tcommitted.zig\n" });
+    applyLine(&model, .{ .key = committed_key, .line = "1\t1\tcommitted.zig\n" });
     handleExit(&model, &fx, .{ .key = committed_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
     try std.testing.expectEqualStrings("M committed.zig", model.review_diff_file_store[0].label());
@@ -3532,7 +3539,7 @@ test "source switch cancels in-flight Branch and re-probes Staged Uncommitted Un
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {
         if (spawn.key == back_key) back_argv = spawn.argv;
     }
-    try expectNameStatusOperand(back_argv orelse return error.MissingBranchBackArgv, git_upstream_range);
+    try expectNumstatOperand(back_argv orelse return error.MissingBranchBackArgv, git_upstream_range);
     try std.testing.expectEqualStrings("@{upstream}...HEAD", git_upstream_range);
 
     handleExit(&model, &fx, .{ .key = back_key, .reason = .exited, .code = 0 });
@@ -3573,7 +3580,7 @@ fn pendingSpawnKey(fx: *Effects, key: u64) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     return null;
 }
 
-fn expectNameStatusOperand(argv: []const []const u8, operand: []const u8) !void {
+fn expectNumstatOperand(argv: []const []const u8, operand: []const u8) !void {
     try std.testing.expect(isGitReviewDiffArgv(argv));
     try std.testing.expect(!isGitReviewHunkArgv(argv));
     switch (builtin.os.tag) {
@@ -3582,13 +3589,15 @@ fn expectNameStatusOperand(argv: []const []const u8, operand: []const u8) !void 
             try std.testing.expectEqualStrings(windows_git_bin, argv[0]);
             try std.testing.expectEqualStrings(git_c_flag, argv[1]);
             try std.testing.expectEqualStrings(git_diff_cmd, argv[3]);
-            try std.testing.expectEqualStrings(git_name_status, argv[4]);
+            try std.testing.expectEqualStrings(git_numstat, argv[4]);
             try std.testing.expectEqualStrings(operand, argv[5]);
         },
         else => {
             try std.testing.expectEqual(@as(usize, unix_argv_len), argv.len);
+            try std.testing.expectEqualStrings(git_numstat, argv[7]);
             try std.testing.expectEqualStrings(operand, argv[8]);
             try std.testing.expect(std.mem.indexOf(u8, argv[2], operand) == null);
+            try std.testing.expect(std.mem.indexOf(u8, argv[2], git_numstat) == null);
         },
     }
 }
@@ -3604,28 +3613,32 @@ fn expectUncommittedArgv(argv: []const []const u8) !void {
             try std.testing.expectEqualStrings(powershell_uncommitted_untracked_script, argv[3]);
             try std.testing.expectEqualStrings(powershell_args_flag, argv[4]);
             try std.testing.expect(std.mem.indexOf(u8, argv[3], argv[5]) == null);
+            try std.testing.expect(scriptHas(argv[3], git_numstat));
+            try std.testing.expect(scriptHas(argv[3], "'N'+[char]9+'0'"));
         },
         else => {
             try std.testing.expectEqual(argv_len_uncommitted, argv.len);
             try std.testing.expectEqualStrings(uncommitted_untracked_script, argv[7]);
+            try std.testing.expect(scriptHas(argv[7], git_numstat));
+            try std.testing.expect(scriptHas(argv[7], "N\\t0\\t"));
             try std.testing.expect(std.mem.indexOf(u8, argv[2], git_head) == null);
             try std.testing.expect(std.mem.indexOf(u8, argv[2], uncommitted_untracked_script) == null);
         },
     }
 }
 
-fn expectUnstagedNameStatusArgv(argv: []const []const u8) !void {
+fn expectUnstagedNumstatArgv(argv: []const []const u8) !void {
     try std.testing.expect(isGitReviewDiffArgv(argv));
     try std.testing.expect(!isGitReviewUncommittedArgv(argv));
     switch (builtin.os.tag) {
         .windows => {
             try std.testing.expectEqual(@as(usize, windows_argv_len_unstaged), argv.len);
-            try std.testing.expectEqualStrings(git_name_status, argv[4]);
+            try std.testing.expectEqualStrings(git_numstat, argv[4]);
         },
         else => {
             try std.testing.expectEqual(argv_len_unstaged, argv.len);
-            try std.testing.expectEqualStrings(git_name_status, argv[7]);
-            try std.testing.expect(std.mem.indexOf(u8, argv[2], git_name_status) == null);
+            try std.testing.expectEqualStrings(git_numstat, argv[7]);
+            try std.testing.expect(std.mem.indexOf(u8, argv[2], git_numstat) == null);
         },
     }
 }
@@ -3678,7 +3691,7 @@ test "Committed missing origin/HEAD retries main then master; zero-file origin s
     try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
     const origin_key = model.review_diff_key;
     const origin_argv = findSpawnArgv(&fx, origin_key) orelse return error.MissingOriginArgv;
-    try expectNameStatusOperand(origin_argv, git_committed_range);
+    try expectNumstatOperand(origin_argv, git_committed_range);
     try std.testing.expectEqualStrings("origin/HEAD...HEAD", git_committed_range);
 
     handleExit(&model, &fx, .{ .key = origin_key, .reason = .exited, .code = 128 });
@@ -3691,7 +3704,7 @@ test "Committed missing origin/HEAD retries main then master; zero-file origin s
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_file_count);
     const main_key = model.review_diff_key;
     const main_argv = findSpawnArgv(&fx, main_key) orelse return error.MissingMainArgv;
-    try expectNameStatusOperand(main_argv, git_committed_range_main);
+    try expectNumstatOperand(main_argv, git_committed_range_main);
     try std.testing.expectEqualStrings("main...HEAD", git_committed_range_main);
 
     handleExit(&model, &fx, .{ .key = main_key, .reason = .exited, .code = 128 });
@@ -3701,7 +3714,7 @@ test "Committed missing origin/HEAD retries main then master; zero-file origin s
     try std.testing.expect(model.review_diff_key != main_key);
     const master_key = model.review_diff_key;
     const master_argv = findSpawnArgv(&fx, master_key) orelse return error.MissingMasterArgv;
-    try expectNameStatusOperand(master_argv, git_committed_range_master);
+    try expectNumstatOperand(master_argv, git_committed_range_master);
     try std.testing.expectEqualStrings("master...HEAD", git_committed_range_master);
 
     handleExit(&model, &fx, .{ .key = master_key, .reason = .exited, .code = 128 });
@@ -3716,7 +3729,7 @@ test "Committed missing origin/HEAD retries main then master; zero-file origin s
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
     const empty_origin_key = model.review_diff_key;
     const empty_origin_argv = findSpawnArgv(&fx, empty_origin_key) orelse return error.MissingEmptyOriginArgv;
-    try expectNameStatusOperand(empty_origin_argv, git_committed_range);
+    try expectNumstatOperand(empty_origin_argv, git_committed_range);
     handleExit(&model, &fx, .{ .key = empty_origin_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqualStrings(empty_status, reviewDiffStatus(&model));
     try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
@@ -3749,7 +3762,7 @@ test "Committed fallback does not hang after source switch or close" {
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
     const main_key = model.review_diff_key;
     const main_argv = findSpawnArgv(&fx, main_key) orelse return error.MissingMainBeforeSwitch;
-    try expectNameStatusOperand(main_argv, git_committed_range_main);
+    try expectNumstatOperand(main_argv, git_committed_range_main);
 
     setSource(&model, &fx, .branch);
     try std.testing.expectEqual(Source.branch, model.review_diff_source);
@@ -3758,7 +3771,7 @@ test "Committed fallback does not hang after source switch or close" {
     try std.testing.expect(model.review_diff_key != main_key);
     const branch_key = model.review_diff_key;
     const branch_argv = findSpawnArgv(&fx, branch_key) orelse return error.MissingBranchAfterSwitch;
-    try expectNameStatusOperand(branch_argv, git_upstream_range);
+    try expectNumstatOperand(branch_argv, git_upstream_range);
 
     handleExit(&model, &fx, .{ .key = main_key, .reason = .exited, .code = 128 });
     try std.testing.expectEqual(Source.branch, model.review_diff_source);
@@ -3771,7 +3784,7 @@ test "Committed fallback does not hang after source switch or close" {
     const origin_again = model.review_diff_key;
     const origin_again_argv = findSpawnArgv(&fx, origin_again) orelse return error.MissingOriginReselect;
     try std.testing.expectEqual(CommittedRange.origin, model.review_diff_committed_range);
-    try expectNameStatusOperand(origin_again_argv, git_committed_range);
+    try expectNumstatOperand(origin_again_argv, git_committed_range);
     handleExit(&model, &fx, .{ .key = origin_again, .reason = .exited, .code = 128 });
     const main_again = model.review_diff_key;
     try std.testing.expectEqual(CommittedRange.main, model.review_diff_committed_range);
@@ -3833,11 +3846,11 @@ test "setSource last_turn with rewind sha spawns Comparing; without sha does not
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
     const last_turn_key = model.review_diff_key;
     const last_turn_argv = findSpawnArgv(&fx, last_turn_key) orelse return error.MissingLastTurnArgv;
-    try expectNameStatusOperand(last_turn_argv, range);
+    try expectNumstatOperand(last_turn_argv, range);
     try std.testing.expectEqualStrings("cccccccccccccccccccccccccccccccccccccccc...HEAD", range);
     try std.testing.expectEqualStrings(range, lastTurnRange(&model));
 
-    applyLine(&model, .{ .key = last_turn_key, .line = "M\tlast-turn.zig\n" });
+    applyLine(&model, .{ .key = last_turn_key, .line = "1\t1\tlast-turn.zig\n" });
     handleExit(&model, &fx, .{ .key = last_turn_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
     try std.testing.expectEqualStrings("M last-turn.zig", model.review_diff_file_store[0].label());
@@ -3919,12 +3932,12 @@ test "setSource last_turn with snapshot sha spawns two-dot; prefers snapshot ove
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
     const last_turn_argv = findSpawnArgv(&fx, model.review_diff_key) orelse return error.MissingLastTurnSnapArgv;
     try std.testing.expect(isGitReviewDiffArgv(last_turn_argv));
-    try expectNameStatusOperand(last_turn_argv, snap);
+    try expectNumstatOperand(last_turn_argv, snap);
     try std.testing.expectEqualStrings(snap, snap_range);
     try std.testing.expect(std.mem.indexOf(u8, snap, git_last_turn_range_suffix) == null);
     try std.testing.expectEqualStrings(snap, lastTurnRange(&model));
 
-    applyLine(&model, .{ .key = model.review_diff_key, .line = "M\tsnap.zig\n" });
+    applyLine(&model, .{ .key = model.review_diff_key, .line = "1\t1\tsnap.zig\n" });
     handleExit(&model, &fx, .{ .key = model.review_diff_key, .reason = .exited, .code = 0 });
     if (model.sessionById(id)) |session| {
         session.appendRewindRef("dddddddddddddddddddddddddddddddddddddddd", rewind.recorded_ref, 2);
@@ -3978,13 +3991,13 @@ test "setSource last_turn prefers start..end when both snapshots exist" {
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
     const last_turn_argv = findSpawnArgv(&fx, model.review_diff_key) orelse return error.MissingLastTurnStartEndArgv;
     try std.testing.expect(isGitReviewDiffArgv(last_turn_argv));
-    try expectNameStatusOperand(last_turn_argv, range);
+    try expectNumstatOperand(last_turn_argv, range);
     try std.testing.expectEqualStrings("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", range);
     try std.testing.expectEqual(@as(usize, 82), range.len);
     try std.testing.expect(std.mem.indexOf(u8, range, "...") == null);
     try std.testing.expectEqualStrings(range, lastTurnRange(&model));
 
-    applyLine(&model, .{ .key = model.review_diff_key, .line = "M\tstart-end.zig\n" });
+    applyLine(&model, .{ .key = model.review_diff_key, .line = "1\t1\tstart-end.zig\n" });
     handleExit(&model, &fx, .{ .key = model.review_diff_key, .reason = .exited, .code = 0 });
     if (model.sessionById(id)) |session| {
         session.appendRewindRef("dddddddddddddddddddddddddddddddddddddddd", rewind.recorded_ref, 2);
@@ -4035,11 +4048,11 @@ test "setSource last_turn prefers diff..end when turn-diff and turn-end exist" {
     try std.testing.expectEqualStrings(comparing_status, reviewDiffStatus(&model));
     const last_turn_argv = findSpawnArgv(&fx, model.review_diff_key) orelse return error.MissingLastTurnDiffEndArgv;
     try std.testing.expect(isGitReviewDiffArgv(last_turn_argv));
-    try expectNameStatusOperand(last_turn_argv, range);
+    try expectNumstatOperand(last_turn_argv, range);
     try std.testing.expect(std.mem.indexOf(u8, range, start) == null);
     try std.testing.expectEqualStrings(range, lastTurnRange(&model));
 
-    applyLine(&model, .{ .key = model.review_diff_key, .line = "M\tdiff-end.zig\n" });
+    applyLine(&model, .{ .key = model.review_diff_key, .line = "1\t1\tdiff-end.zig\n" });
     handleExit(&model, &fx, .{ .key = model.review_diff_key, .reason = .exited, .code = 0 });
     if (model.sessionById(id)) |session| {
         session.setWorktreeSnapshotSha("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
@@ -4052,7 +4065,7 @@ test "setSource last_turn prefers diff..end when turn-diff and turn-end exist" {
     try expectHunkArgv(hunk_argv, range, "diff-end.zig");
 }
 
-test "LastTurn start..end two-dot name-status is the edited path only" {
+test "LastTurn start..end two-dot numstat is the edited path only" {
     const checkpoint = @import("checkpoint.zig");
     const testing = std.testing;
     const allocator = testing.allocator;
@@ -4114,7 +4127,7 @@ test "LastTurn start..end two-dot name-status is the edited path only" {
         "-C",
         path,
         "diff",
-        "--name-status",
+        "--numstat",
         range,
     });
     defer allocator.free(name_status);
@@ -4130,7 +4143,7 @@ test "LastTurn start..end two-dot name-status is the edited path only" {
     try testing.expectEqual(@as(usize, 1), rows);
 }
 
-test "cap stays at 64; extra name-status rows are dropped" {
+test "cap stays at 64; extra numstat rows are dropped" {
     var model = Model{};
     model.review_diff_active = true;
     model.review_diff_key = review_diff_key_first;
@@ -4138,8 +4151,8 @@ test "cap stays at 64; extra name-status rows are dropped" {
     var i: usize = 0;
     while (i < max_review_diff_files + 8) : (i += 1) {
         var line_buf: [32]u8 = undefined;
-        const line = try std.fmt.bufPrint(&line_buf, "M\tfile-{d}.txt\n", .{i});
-        appendParsed(&model, line);
+        const line = try std.fmt.bufPrint(&line_buf, "2\t1\tfile-{d}.txt\n", .{i});
+        appendParsedNumstat(&model, line);
     }
     try std.testing.expectEqual(@as(u32, max_review_diff_files), model.review_diff_file_count);
 }
@@ -4289,7 +4302,7 @@ test "hunk argv is chdir plus git diff operand -- path; Unstaged omits operand" 
     try std.testing.expect(std.mem.indexOf(u8, untracked[2], "new file.txt") == null);
 }
 
-test "isGitReviewHunkArgv does not match name-status; name-status detector rejects hunks" {
+test "isGitReviewHunkArgv does not match numstat; numstat detector rejects hunks" {
     var name_buf: [argv_len][]const u8 = undefined;
     const name = unixArgvFor("/tmp/faku-hunk", &name_buf);
     try std.testing.expect(isGitReviewDiffArgv(name));
@@ -4334,7 +4347,7 @@ test "isGitReviewHunkArgv does not match name-status; name-status detector rejec
         "/tmp/faku-hunk",
         git_bin,
         git_diff_cmd,
-        git_name_status,
+        git_numstat,
         git_upstream_range,
     }));
 }
@@ -4400,7 +4413,7 @@ test "clicking a tracked row fills capped patch text; empty and fail stay honest
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
 
-    _ = try openWithFiles(&model, &fx, "M\tsrc/a.zig\nA\tnew.txt\n");
+    _ = try openWithFiles(&model, &fx, "2\t1\tsrc/a.zig\n4\t0\tnew.txt\n");
     try std.testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_selected_id);
     try std.testing.expectEqual(@as(u64, 0), model.review_diff_hunk_key);
@@ -4851,7 +4864,7 @@ test "clicking a ? untracked row one-shots git diff --no-index" {
     open(&model, &fx);
     setSource(&model, &fx, .uncommitted);
     const name_key = model.review_diff_key;
-    applyLine(&model, .{ .key = name_key, .line = "M\ttracked.zig\n?\tnew file.txt\n" });
+    applyLine(&model, .{ .key = name_key, .line = "2\t1\ttracked.zig\nN\t0\tnew file.txt\n" });
     handleExit(&model, &fx, .{ .key = name_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
     try std.testing.expectEqual(@as(u8, '?'), model.review_diff_file_store[1].status);
@@ -4947,7 +4960,7 @@ test "source switch and dismiss cancel in-flight hunk spawn" {
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
 
-    _ = try openWithFiles(&model, &fx, "M\tsrc/a.zig\n");
+    _ = try openWithFiles(&model, &fx, "2\t1\tsrc/a.zig\n");
     selectFile(&model, &fx, 1);
     const hunk_key = model.review_diff_hunk_key;
     try std.testing.expect(hunk_key >= review_diff_hunk_key_first);
@@ -4966,7 +4979,7 @@ test "source switch and dismiss cancel in-flight hunk spawn" {
     try std.testing.expect(!hasReviewDiffHunk(&model));
     try std.testing.expectEqual(Source.staged, model.review_diff_source);
 
-    applyLine(&model, .{ .key = model.review_diff_key, .line = "A\tstaged.zig\n" });
+    applyLine(&model, .{ .key = model.review_diff_key, .line = "1\t0\tstaged.zig\n" });
     handleExit(&model, &fx, .{ .key = model.review_diff_key, .reason = .exited, .code = 0 });
     selectFile(&model, &fx, 1);
     const again = model.review_diff_hunk_key;
@@ -5008,7 +5021,7 @@ test "Committed hunk uses the range that already succeeded" {
     const origin_key = model.review_diff_key;
     handleExit(&model, &fx, .{ .key = origin_key, .reason = .exited, .code = 128 });
     try std.testing.expectEqual(CommittedRange.main, model.review_diff_committed_range);
-    applyLine(&model, .{ .key = model.review_diff_key, .line = "M\tcommitted.zig\n" });
+    applyLine(&model, .{ .key = model.review_diff_key, .line = "1\t1\tcommitted.zig\n" });
     handleExit(&model, &fx, .{ .key = model.review_diff_key, .reason = .exited, .code = 0 });
     try std.testing.expectEqual(CommittedRange.main, model.review_diff_committed_range);
 
