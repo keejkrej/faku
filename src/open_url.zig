@@ -39,6 +39,7 @@ pub const linux_missing_status = "No OS browser (install xdg-open).";
 pub const macos_missing_status = "No OS browser (open missing).";
 pub const windows_missing_status = "No OS browser (cmd.exe missing).";
 pub const empty_url_status = "Enter a URL to open.";
+pub const relative_link_status = "Can't open that link.";
 
 pub const macos_bin = "open";
 pub const linux_bin = "xdg-open";
@@ -117,6 +118,37 @@ pub fn isHttpUrl(text: []const u8) bool {
     return false;
 }
 
+/// Relative, `file:`, fragments, and other non-browser targets. Markdown
+/// Preview must not invent filesystem navigation for these.
+pub fn isRelativeOrFileUrl(raw: []const u8) bool {
+    const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+    if (trimmed.len == 0) return true;
+    if (isHttpUrl(trimmed)) return false;
+    if (std.mem.indexOf(u8, trimmed, "://") != null) return true;
+    if (std.ascii.startsWithIgnoreCase(trimmed, "mailto:")) return true;
+    if (std.ascii.startsWithIgnoreCase(trimmed, "file:")) return true;
+    const first = trimmed[0];
+    if (first == '#' or first == '/' or first == '.' or first == '\\') return true;
+    if (trimmed.len >= 2 and std.ascii.isAlphabetic(trimmed[0]) and trimmed[1] == ':') return true;
+    const sep = std.mem.indexOfAny(u8, trimmed, "/\\") orelse return looksLikeFileName(trimmed);
+    return std.mem.indexOfScalar(u8, trimmed[0..sep], '.') == null;
+}
+
+fn looksLikeFileName(name: []const u8) bool {
+    const dot = std.mem.lastIndexOfScalar(u8, name, '.') orelse return false;
+    if (dot == 0 or dot + 1 >= name.len) return false;
+    const ext = name[dot + 1 ..];
+    const files = [_][]const u8{
+        "md", "markdown", "txt", "png", "jpg", "jpeg", "gif", "webp", "svg",
+        "html", "htm", "zig", "json", "yaml", "yml", "ts", "js", "rs", "go",
+        "css", "c", "h", "py",
+    };
+    for (files) |known| {
+        if (std.ascii.eqlIgnoreCase(ext, known)) return true;
+    }
+    return false;
+}
+
 pub fn isUrlArgv(argv: []const []const u8) bool {
     if (argv.len == 2) {
         const bin_ok = std.mem.eql(u8, argv[0], macos_bin) or std.mem.eql(u8, argv[0], linux_bin);
@@ -146,16 +178,28 @@ pub fn normalizeUrl(raw: []const u8, dest: []u8) ?[]const u8 {
 }
 
 pub fn startOpenUrl(model: *Model, fx: *Effects) void {
-    if (model.open_url_live) return;
-    const written = normalizeUrl(model.browser_url(), &model.open_url_storage) orelse {
-        model.setWindowStatus(empty_url_status);
-        return;
-    };
-    model.open_url_len = written.len;
-    if (hostBin() == null) {
-        model.setWindowStatus(hostMissingStatus());
-        return;
+    switch (startOpenUrlText(model, fx, model.browser_url())) {
+        .spawned, .live => {},
+        .empty, .overflow => model.setWindowStatus(empty_url_status),
+        .missing_bin => model.setWindowStatus(hostMissingStatus()),
     }
+}
+
+pub const OpenUrlOutcome = enum { spawned, empty, live, missing_bin, overflow };
+
+/// One-shot OS browser spawn from an arbitrary URL string. Copies into
+/// `open_url_storage` (Native on-link payloads are drain-scratch).
+pub fn startOpenUrlText(model: *Model, fx: *Effects, raw: []const u8) OpenUrlOutcome {
+    if (model.open_url_live) return .live;
+    const written = normalizeUrl(raw, &model.open_url_storage) orelse {
+        const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+        return if (trimmed.len == 0) .empty else .overflow;
+    };
+    if (hostBin() == null) {
+        model.open_url_len = 0;
+        return .missing_bin;
+    }
+    model.open_url_len = written.len;
     model.open_url_live = true;
     model.clearWindowStatus();
     var argv_buf: [argv_len][]const u8 = undefined;
@@ -164,6 +208,7 @@ pub fn startOpenUrl(model: *Model, fx: *Effects) void {
         .argv = argvFor(model.open_url_storage[0..model.open_url_len], &argv_buf),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
+    return .spawned;
 }
 
 fn isMissingUrlExit(exit: native_sdk.EffectExit) bool {
@@ -241,6 +286,23 @@ test "normalizeUrl rejects empty, keeps http(s), prefixes bare hosts" {
     try std.testing.expectEqualStrings("https://example.com", normalizeUrl("https://example.com", &dest).?);
     try std.testing.expectEqualStrings("HTTP://Example.COM", normalizeUrl("HTTP://Example.COM", &dest).?);
     try std.testing.expectEqualStrings("HTTPS://Example.COM/a", normalizeUrl("HTTPS://Example.COM/a", &dest).?);
+}
+
+test "isRelativeOrFileUrl rejects files and relative paths; keeps http(s) and hosts" {
+    try std.testing.expect(isRelativeOrFileUrl(""));
+    try std.testing.expect(isRelativeOrFileUrl("   "));
+    try std.testing.expect(isRelativeOrFileUrl("./guide.md"));
+    try std.testing.expect(isRelativeOrFileUrl("../LICENSE"));
+    try std.testing.expect(isRelativeOrFileUrl("/tmp/notes.md"));
+    try std.testing.expect(isRelativeOrFileUrl("#anchor"));
+    try std.testing.expect(isRelativeOrFileUrl("file:///tmp/a.md"));
+    try std.testing.expect(isRelativeOrFileUrl("mailto:hi@example.com"));
+    try std.testing.expect(isRelativeOrFileUrl("docs/guide.md"));
+    try std.testing.expect(isRelativeOrFileUrl("README.md"));
+    try std.testing.expect(!isRelativeOrFileUrl("https://example.com"));
+    try std.testing.expect(!isRelativeOrFileUrl("http://localhost:3000"));
+    try std.testing.expect(!isRelativeOrFileUrl("example.com"));
+    try std.testing.expect(!isRelativeOrFileUrl("github.com/owner/repo"));
 }
 
 test "url argv is not reveal terminal or folder-picker argv" {

@@ -501,6 +501,16 @@ pub const Msg = union(enum) {
     /// Replace every Files preview match (uncapped). No-op when read-only.
     /// Waku secondary-alt-enter when Native exposes `alt`/`option`.
     file_preview_find_replace_all,
+    /// Files preview markdown header: render GFM via Native `<markdown>`.
+    /// Runtime-only; no-op when the open preview is not markdown.
+    set_file_preview_markdown_preview,
+    /// Files preview markdown header: highlighted `<code language="markdown">`.
+    /// Runtime-only; no-op when the open preview is not markdown.
+    set_file_preview_markdown_source,
+    /// Native `<markdown on-link>`: payload is the pressed URL (`[]const u8`).
+    /// http(s) / bare hosts reuse `open_url` OS browser spawn; relative /
+    /// file links are a muted preview status, not filesystem navigation.
+    file_preview_open_url: []const u8,
     /// Files-pane dir click. Payload is `file_mention_dir_id_base + index`.
     toggle_right_panel_dir: u32,
     /// Right-panel Files tab. Default when the panel opens. Persisted.
@@ -1016,6 +1026,10 @@ pub const Model = struct {
     /// read window. Cleared on preview close. Not persisted.
     file_preview_edit_buffer: canvas.TextBuffer(right_panel.max_file_preview_bytes) = .{},
     right_panel_file_preview_editing: bool = false,
+    /// Runtime-only markdown Files preview mode. False (default) is
+    /// Preview (`<markdown>`); true is Source (`<code>`). Reset when
+    /// the preview closes / file switches / session clears. Not persisted.
+    right_panel_file_preview_markdown_source: bool = false,
     right_panel_file_preview_status_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
     right_panel_file_preview_status_len: usize = 0,
     /// Runtime-only parked discard for a dirty Files preview. Not persisted.
@@ -1963,6 +1977,7 @@ pub const Model = struct {
         "file_preview_restore_editing",
         "file_preview_edit_buffer",
         "right_panel_file_preview_editing",
+        "right_panel_file_preview_markdown_source",
         "right_panel_file_preview_status_storage",
         "right_panel_file_preview_status_len",
         "file_preview_pending_kind",
@@ -2890,6 +2905,28 @@ pub const Model = struct {
 
     pub fn file_preview_editing(model: *const Model) bool {
         return model.right_panel_file_preview_editing;
+    }
+
+    /// Header Preview|Source chips: markdown language, has a text body,
+    /// and not editing. Non-markdown previews stay code-only.
+    pub fn file_preview_shows_markdown_mode(model: *const Model) bool {
+        return right_panel.showsMarkdownPreviewMode(model);
+    }
+
+    /// Selected Preview chip. Default true (rendered GFM).
+    pub fn file_preview_markdown_preview(model: *const Model) bool {
+        return !model.right_panel_file_preview_markdown_source;
+    }
+
+    /// Selected Source chip. Runtime-only; ignored for non-markdown.
+    pub fn file_preview_markdown_source(model: *const Model) bool {
+        return model.right_panel_file_preview_markdown_source;
+    }
+
+    /// Paint Native `<markdown>`: Preview mode, markdown language, body,
+    /// not editing. Source / Edit keep today's `<code>` / textarea.
+    pub fn file_preview_shows_rendered_markdown(model: *const Model) bool {
+        return right_panel.showsRenderedMarkdown(model);
     }
 
     pub fn file_preview_dirty(model: *const Model) bool {

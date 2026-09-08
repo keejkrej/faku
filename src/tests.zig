@@ -238,6 +238,28 @@ fn findByKind(widget: canvas.Widget, kind: canvas.WidgetKind) ?canvas.Widget {
     return null;
 }
 
+fn pointerMsg(tree: AppUi.Tree, widget: canvas.Widget) ?Msg {
+    if (tree.msgForPointer(widget.id, .up)) |msg| return msg;
+    if (tree.msgForPointer(widget.id, .down)) |msg| return msg;
+    if (@hasDecl(@TypeOf(tree), "msgForPointerClick")) {
+        if (tree.msgForPointerClick(widget.id, .up, 1)) |msg| return msg;
+    }
+    return null;
+}
+
+fn findFilePreviewOpenUrl(tree: AppUi.Tree, widget: canvas.Widget) ?struct { widget: canvas.Widget, url: []const u8 } {
+    if (pointerMsg(tree, widget)) |msg| {
+        switch (msg) {
+            .file_preview_open_url => |url| return .{ .widget = widget, .url = url },
+            else => {},
+        }
+    }
+    for (widget.children) |child| {
+        if (findFilePreviewOpenUrl(tree, child)) |hit| return hit;
+    }
+    return null;
+}
+
 fn findBoldSpanText(widget: canvas.Widget, text: []const u8) ?canvas.Widget {
     if (widget.kind == .text) {
         for (widget.spans) |span| {
@@ -9372,6 +9394,8 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     _ = try expectButtonMsg(tree, "Reload", .file_preview_reload);
     try testing.expect(findByText(tree.root, .button, "Save") == null);
     try testing.expect(findByText(tree.root, .text, "Unsaved") == null);
+    try testing.expect(findByText(tree.root, .button, "Preview") == null);
+    try testing.expect(findByText(tree.root, .button, "Source") == null);
     const preview_source = findTextContaining(tree.root, "pub fn main() void {}") orelse {
         dumpTexts(tree.root, 0);
         return error.WidgetNotFound;
@@ -9390,6 +9414,10 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"file_preview_keep_editing\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "file_preview_discard_confirm") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "text=\"{file_preview_draft}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<markdown source=\"{file_preview_body}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-link=\"file_preview_open_url\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"set_file_preview_markdown_preview\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"set_file_preview_markdown_source\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<scroll grow=\"0\" height=\"140\">") == null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "value=\"{right_panel_file_tree_split}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-resize=\"right_panel_file_tree_resized\"") != null);
@@ -9439,6 +9467,110 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expectEqual(@as(usize, 2), model.right_panel_file_rows(arena).len);
     tree = try buildTree(arena, &model);
     try testing.expect(findByText(tree.root, .text, "main.zig") == null);
+}
+
+test "Files markdown preview defaults to rendered Preview; Source chip flips; http(s) on-link reuses open_url" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try absCopyProjectDir(tmp, "files-md-preview", &project_buf);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("files md preview", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    defer right_panel.clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
+
+    main.update(&model, .show_right_panel, &fx);
+    file_mention.applyStdoutPaths(&model, "README.md\nnote.txt\n");
+    var readme_buf: [320]u8 = undefined;
+    const readme = try std.fmt.bufPrint(&readme_buf, "{s}/README.md", .{project});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = readme,
+        .data = "# Hello\n\nSee [example](https://example.com).\n",
+    });
+    var note_buf: [320]u8 = undefined;
+    const note = try std.fmt.bufPrint(&note_buf, "{s}/note.txt", .{project});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = note,
+        .data = "plain notes\n",
+    });
+
+    main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
+    try testing.expectEqualStrings("README.md", model.file_preview_path());
+    try testing.expectEqualStrings("markdown", model.file_preview_language());
+    try testing.expect(model.file_preview_shows_rendered_markdown());
+    try testing.expect(model.file_preview_markdown_preview());
+    try testing.expect(!model.file_preview_markdown_source());
+
+    var tree = try buildTree(arena, &model);
+    const preview_chip = try expectButtonMsg(tree, "Preview", .set_file_preview_markdown_preview);
+    try testing.expect(preview_chip.state.selected);
+    const source_chip = try expectButtonMsg(tree, "Source", .set_file_preview_markdown_source);
+    try testing.expect(!source_chip.state.selected);
+    _ = try expectByText(tree.root, .text, "Hello");
+    try testing.expect(findTextContaining(tree.root, "# Hello") == null);
+    _ = try expectByText(tree.root, .text, "example");
+    if (findFilePreviewOpenUrl(tree, tree.root)) |link| {
+        try testing.expectEqualStrings("https://example.com", link.url);
+    } else {
+        try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-link=\"file_preview_open_url\"") != null);
+    }
+
+    main.update(&model, .set_file_preview_markdown_source, &fx);
+    try testing.expect(model.file_preview_markdown_source());
+    try testing.expect(!model.file_preview_shows_rendered_markdown());
+    tree = try buildTree(arena, &model);
+    try testing.expect(!(try expectButtonMsg(tree, "Preview", .set_file_preview_markdown_preview)).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "Source", .set_file_preview_markdown_source)).state.selected);
+    const source_view = findTextContaining(tree.root, "# Hello") orelse {
+        dumpTexts(tree.root, 0);
+        return error.WidgetNotFound;
+    };
+    try testing.expect(source_view.codeLineNumberDigits() > 0);
+
+    main.update(&model, .set_file_preview_markdown_preview, &fx);
+    try testing.expect(model.file_preview_shows_rendered_markdown());
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "Preview", .set_file_preview_markdown_preview)).state.selected);
+    try testing.expect(findTextContaining(tree.root, "# Hello") == null);
+    _ = try expectByText(tree.root, .text, "Hello");
+
+    if (findFilePreviewOpenUrl(tree, tree.root)) |link| {
+        try testing.expectEqualStrings("https://example.com", link.url);
+        main.update(&model, pointerMsg(tree, link.widget).?, &fx);
+    } else {
+        main.update(&model, .{ .file_preview_open_url = "https://example.com" }, &fx);
+    }
+    if (open_url.hostBin() == null) {
+        try testing.expectEqualStrings(open_url.hostMissingStatus(), model.file_preview_status());
+    } else {
+        const spawn = findOpenUrlSpawn(&fx) orelse return error.MissingOpenUrlSpawn;
+        try testing.expectEqual(main.open_url_key, spawn.key);
+        try testing.expect(open_url.isUrlArgv(spawn.argv));
+        try testing.expectEqualStrings("https://example.com", spawn.argv[spawn.argv.len - 1]);
+    }
+
+    main.update(&model, .{ .open_right_panel_file = 2 }, &fx);
+    try testing.expectEqualStrings("note.txt", model.file_preview_path());
+    try testing.expectEqualStrings("plain", model.file_preview_language());
+    try testing.expect(model.file_preview_markdown_preview());
+    try testing.expect(!model.file_preview_shows_markdown_mode());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Preview") == null);
+    try testing.expect(findByText(tree.root, .button, "Source") == null);
+    main.update(&model, .set_file_preview_markdown_source, &fx);
+    try testing.expect(!model.file_preview_markdown_source());
 }
 
 test "Files preview dirty Close shows discard confirm; Keep editing and Discard" {
