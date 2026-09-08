@@ -17,8 +17,10 @@ not stock [vercel-labs/fx](https://github.com/vercel-labs/fx) and not
 
 Chrome is a chromeless 48px header, measured sidebar, and 26px send
 circle. Local `sessions.json` is canonical. Sidecars are one-shot
-(Native spawn writes one stdin buffer, then closes stdin). Zero-config
-Native app — no `build.zig`.
+(Native spawn writes one stdin buffer, then closes stdin). Ejected
+Native app (`build.zig` + lazy `ghostty` pin) so the Terminal tab
+can set `terminal_sessions = true`. Packaging is still
+`native build --yes`.
 
 No Vercel Gateway required: `fx login grok`, `fx login codex`, or any
 OpenAI-compatible `/v1/chat/completions` server.
@@ -88,6 +90,7 @@ Build from source: clone https://github.com/keejkrej/fx, Zig 0.16.0,
 - One-shot Send via `fx acp` (acp-proxy) when fx is installed
 - Other probed providers when their CLIs are on PATH
 - Demo fallback if fx is missing
+- First-cut embedded Terminal tab (`fx.ptySpawn` + `<terminal>`)
 
 Protocol dump: [CONTEXT.md](CONTEXT.md).
 
@@ -102,7 +105,8 @@ Agent wayfinding: [AGENTS.md](AGENTS.md).
 
 Host-native packaging uses the same documented verbs CI does
 (`native build` then `native package --target macos|linux|windows`).
-Do not eject.
+The tree is ejected so live `<terminal>` sessions can resolve the
+lazy ghostty pin; do not invent extra package flags.
 
 ### GitHub Releases
 

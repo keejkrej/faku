@@ -35,6 +35,7 @@ const slash_commands = @import("slash_commands.zig");
 const providers = @import("providers.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
+const pty_terminal = @import("pty_terminal.zig");
 const open_url = @import("open_url.zig");
 const copy_helpers = @import("copy.zig");
 const open_editor = @import("open_editor.zig");
@@ -520,7 +521,7 @@ pub const Msg = union(enum) {
     /// Right-panel Browser tab. OS-open URL field; not a webview. Tab
     /// and draft URL persist.
     set_right_panel_tab_browser,
-    /// Right-panel Terminal tab. Open in Terminal; not a PTY. Tab persists.
+    /// Right-panel Terminal tab. First-cut embedded `<terminal>`. Tab persists.
     set_right_panel_tab_terminal,
     /// Right-panel Background tab. Runtime-only; empty state when no
     /// selected Environment Summary row is visible.
@@ -698,8 +699,15 @@ pub const Msg = union(enum) {
     pick_daemon_dir_entry: u32,
     /// Composer Reveal folder: one-shot OS file-manager sidecar. Not `fx.revealPath`.
     reveal_folder,
-    /// Composer Open in Terminal: one-shot OS terminal sidecar. Not a Native effect.
+    /// Composer Open in Terminal: one-shot OS terminal sidecar. Secondary to
+    /// the embedded `<terminal>` pty session.
     open_terminal,
+    /// Terminal tab Restart after the pty exit. Re-spawns the shell.
+    restart_terminal,
+    /// `<terminal on-terminal>` scrollback echo (workbench pattern).
+    term_state: canvas.TerminalState,
+    /// Dedicated pty `on_event` (output batches + exactly-one exit).
+    term_pty: native_sdk.EffectPtyEvent,
     /// Right-panel Browser URL field `on-input`. Runtime-only; not sessions.json.
     browser_url_edit: canvas.TextInputEvent,
     /// Right-panel Browser: one-shot OS URL-open sidecar. Not a webview.
@@ -768,7 +776,7 @@ pub const Msg = union(enum) {
     fx_probe_exit: native_sdk.EffectExit,
     cli_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "term_pty", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel" };
 };
 
 pub const Model = struct {
@@ -1206,6 +1214,15 @@ pub const Model = struct {
     open_terminal_tried_fallback: bool = false,
     open_terminal_wd_storage: [open_terminal.wd_arg_len]u8 = [_]u8{0} ** open_terminal.wd_arg_len,
     open_terminal_wd_len: usize = 0,
+    /// First-cut embedded Terminal tab. Runtime-owned emulator behind
+    /// `pty_shell_key`; these fields are occupancy + scrollback echo.
+    term_pty_live: bool = false,
+    term_ended: bool = false,
+    term_scrollback: u32 = 0,
+    term_status_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
+    term_status_len: usize = 0,
+    term_windows_cd_storage: [pty_terminal.windows_cd_arg_len]u8 = [_]u8{0} ** pty_terminal.windows_cd_arg_len,
+    term_windows_cd_len: usize = 0,
     open_editor_live: bool = false,
     open_editor_stage: open_editor.Stage = .first,
     open_editor_path_storage: [open_editor.max_open_path]u8 = [_]u8{0} ** open_editor.max_open_path,
@@ -1949,6 +1966,12 @@ pub const Model = struct {
         "open_terminal_tried_fallback",
         "open_terminal_wd_storage",
         "open_terminal_wd_len",
+        "term_pty_live",
+        "term_ended",
+        "term_status_storage",
+        "term_status_len",
+        "term_windows_cd_storage",
+        "term_windows_cd_len",
         "open_editor_live",
         "open_editor_stage",
         "open_editor_path_storage",
@@ -2766,6 +2789,34 @@ pub const Model = struct {
     pub fn open_terminal_no_project_status(model: *const Model) []const u8 {
         _ = model;
         return open_terminal.no_project_status;
+    }
+
+    /// Dedicated PTY effect key for the right-panel `<terminal>` binding.
+    /// Model data, never a markup literal.
+    pub fn shell_key(model: *const Model) u64 {
+        return pty_terminal.shell_key(model);
+    }
+
+    pub fn term_session_live(model: *const Model) bool {
+        return pty_terminal.term_session_live(model);
+    }
+
+    pub fn can_restart_terminal(model: *const Model) bool {
+        return pty_terminal.can_restart_terminal(model);
+    }
+
+    pub fn has_term_status(model: *const Model) bool {
+        return pty_terminal.has_term_status(model);
+    }
+
+    pub fn term_status(model: *const Model) []const u8 {
+        return pty_terminal.term_status(model);
+    }
+
+    /// Open in Terminal's "no project" nag. Hidden while the embedded
+    /// session is live so the pane is the `<terminal>`, not empty copy.
+    pub fn show_terminal_no_project(model: *const Model) bool {
+        return !model.can_open_terminal() and !pty_terminal.term_session_live(model);
     }
 
     pub fn background_work_empty(model: *const Model) bool {

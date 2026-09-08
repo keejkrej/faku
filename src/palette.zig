@@ -51,7 +51,8 @@ pub const PaletteAction = enum(u32) {
     copy_fx_session_id = 10,
     /// Selected session workspace in the OS file manager. Not Open-in.
     reveal_folder = 11,
-    /// Selected session workspace in the host terminal. Not Waku PTY.
+    /// Selected session workspace in the host terminal. OS fallback
+    /// beside the embedded `<terminal>`; not Waku terminal chrome.
     open_terminal = 12,
     /// Selected session workspace in Cursor / VS Code. Not an embedded editor.
     open_editor = 13,
@@ -63,7 +64,8 @@ pub const PaletteAction = enum(u32) {
     hide_right_panel = 16,
     /// Right-panel Browser tab. OS-open URL field; not a webview.
     show_browser_tab = 17,
-    /// Right-panel Terminal tab. Open in Terminal; not a PTY.
+    /// Right-panel Terminal tab. First-cut Native `<terminal>`;
+    /// Open in Terminal stays the OS fallback. Not Waku tabs.
     show_terminal_tab = 18,
 };
 

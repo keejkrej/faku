@@ -96,6 +96,7 @@ const util = @import("util.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
+const pty_terminal = @import("pty_terminal.zig");
 const open_url = @import("open_url.zig");
 const open_editor = @import("open_editor.zig");
 
@@ -229,9 +230,13 @@ pub const open_url_key = open_url.open_url_key;
 /// One-shot OS terminal sidecar (`open -a Terminal` / `x-terminal-emulator` /
 /// Windows `wt.exe -d` then `cmd.exe /c start "" /D`). Distinct from
 /// reveal_folder (28), pick_folder (29), maximize (30), pick_image (31),
-/// copy_turn (32). Native has no typed open-terminal effect on this
+/// copy_turn (32). OS-host fallback beside the embedded `<terminal>`
+/// (`pty_shell_key`). Native has no typed open-terminal effect on this
 /// Effects revision.
 pub const open_terminal_key = open_terminal.open_terminal_key;
+/// Dedicated pty occupancy for the right-panel `<terminal>` binding.
+/// Distinct from Open in Terminal (27) and litellm (650). Fixed key 700.
+pub const pty_shell_key = pty_terminal.pty_shell_key;
 /// One-shot OS editor sidecar (`cursor` / `code`, macOS `open -a`, Windows `cursor.cmd` / `code.cmd`).
 /// Distinct from open_terminal (27), reveal_folder (28), pick_folder (29),
 /// maximize (30), pick_image (31), copy_turn (32). Native has no typed
@@ -513,6 +518,7 @@ test {
     _ = @import("pick_folder.zig");
     _ = @import("reveal_folder.zig");
     _ = @import("open_terminal.zig");
+    _ = @import("pty_terminal.zig");
     _ = @import("open_url.zig");
     _ = @import("open_editor.zig");
     _ = @import("right_panel.zig");

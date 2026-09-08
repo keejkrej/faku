@@ -17,9 +17,11 @@
 //! live daemon-sourced row with canStop + controlId; Dismiss when the
 //! selected row is a settled Monitor, Subagent, or daemon row). Tab
 //! click with no selected row, or a selected row that is gone, shows
-//! "No background work". Browser and Terminal are honest OS-open
-//! first-cuts this cut (system browser via `open_url`, host terminal
-//! via `open_terminal`) — not an embedded webview or PTY.
+//! "No background work". Browser is an honest OS-open first-cut
+//! (system browser via `open_url`; Native has no webview). Terminal
+//! is a first-cut Native `<terminal>` (`fx.ptySpawn` + bound emulator)
+//! with Open in Terminal as the OS-host fallback — not Waku terminal
+//! chrome (tabs, multiple sessions, persist).
 //! Claude CLI TaskStop (Faku-side Monitor and
 //! Subagent Stop on one-shot `claude -p` ships; live Stop dismisses
 //! that live row and does not invoke TaskStop mid-turn; settled
@@ -139,8 +141,9 @@
 //! TEA `update` tick (same `now_ms` piggyback as Background's 100ms
 //! render cache; Native has no FS watcher / dedicated timer). Dirty
 //! buffers are never auto-reloaded. Not a real FS watcher / Native
-//! watch API, not an embedded Browser / Terminal (those tabs are
-//! OS-open workarounds; Native has no PTY / webview), or autosave.
+//! watch API, not an embedded Browser webview (that tab stays OS-open;
+//! Native has no webview), or autosave. Terminal is a first-cut
+//! Native `<terminal>`, not Waku terminal chrome.
 //! First-cut Files preview find/replace ships (Native bar above the
 //! preview body: query, `n of m` / `0` / `m+` cap note / `invalid`, prev/next,
 //! close, case toggle, whole-word toggle, regex toggle, Replace row).
@@ -217,6 +220,7 @@ const file_mention = @import("file_mention.zig");
 const composer = @import("composer.zig");
 const open_editor = @import("open_editor.zig");
 const open_url = @import("open_url.zig");
+const pty_terminal = @import("pty_terminal.zig");
 const review_diff = @import("review_diff.zig");
 const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
@@ -763,8 +767,10 @@ pub fn selectBrowser(model: *Model, fx: *Effects) void {
 /// Terminal tab. Opens the pane if closed, selects Terminal, and bumps
 /// width toward 460 when still file-tree-narrow (same 280–1000 clamp
 /// as Diff; open bump stays 460, not `REVIEW_INITIAL_WIDTH`).
-/// Native has no PTY; the body is Open in Terminal. Tab persists via
-/// layout extras.
+/// Spawns the interactive login shell when no session is live
+/// (`pty_terminal.spawnShell`; no-op while occupying key 700).
+/// Open in Terminal stays the OS-host fallback. Tab persists via
+/// layout extras. Not Waku tabs / multiple sessions / persist.
 pub fn selectTerminal(model: *Model, fx: *Effects) void {
     leaveDiffSurfaceIfNeeded(model);
     const was_open = model.right_panel_open;
@@ -773,6 +779,7 @@ pub fn selectTerminal(model: *Model, fx: *Effects) void {
     model.right_panel_tab = .terminal;
     model.right_panel_width = clampWidthTab(model.right_panel_width, .terminal);
     model.syncRightPanelSplit();
+    pty_terminal.spawnShell(model, fx);
     if (!was_open) file_mention.refresh(model, fx);
 }
 

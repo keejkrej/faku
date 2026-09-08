@@ -12,10 +12,11 @@
 //!            title so `start` does not eat `/D` or the path; each
 //!            token is its own argv slot)
 //!
-//! This is the second honest cut of Waku 0.1.11 "Open in.." — Terminal
-//! only, not a full app picker, not a persisted `open_in_app`, and not
-//! Waku's embedded right-panel terminal. Spawn stdin is unused
-//! (write-once then close).
+//! Native PTY exists (`fx.ptySpawn` + `<terminal>` in the Terminal tab).
+//! This sidecar is the OS-host fallback: it opens at `project_path`
+//! when the embedded session cannot (or when the user wants a real
+//! Terminal.app / x-terminal-emulator / wt window). Not Waku terminal
+//! chrome. Spawn stdin is unused (write-once then close).
 
 const std = @import("std");
 const builtin = @import("builtin");
