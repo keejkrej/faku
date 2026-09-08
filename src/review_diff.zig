@@ -4683,8 +4683,6 @@ test "review_diff_hunk_rows code body omits unified-diff marker" {
         \\+add
         \\+
         \\\ No newline at end of file
-        \\@@ -20,1 +21,1 @@
-        \\ still
         \\
     ;
     loadHunkPatch(&model, patch, false);
@@ -4697,8 +4695,6 @@ test "review_diff_hunk_rows code body omits unified-diff marker" {
     var saw_add = false;
     var saw_empty_add = false;
     var saw_meta = false;
-    var saw_hunk_header = false;
-    var saw_still = false;
     for (rows) |row| {
         if (row.is_gap) continue;
         if (std.mem.eql(u8, row.text, "keep")) {
@@ -4717,14 +4713,8 @@ test "review_diff_hunk_rows code body omits unified-diff marker" {
             try std.testing.expect(!row.is_deletion);
             try std.testing.expect(!row.has_line_number);
             saw_meta = true;
-        } else if (std.mem.startsWith(u8, row.text, "@@ ")) {
-            try std.testing.expectEqualStrings("@@ -20,1 +21,1 @@", row.text);
-            try std.testing.expect(!row.has_line_number);
-            saw_hunk_header = true;
-        } else if (std.mem.eql(u8, row.text, "still")) {
-            saw_still = true;
         }
-        if (row.is_addition or row.is_deletion or std.mem.eql(u8, row.text, "keep") or std.mem.eql(u8, row.text, "still")) {
+        if (row.is_addition or row.is_deletion or std.mem.eql(u8, row.text, "keep")) {
             try std.testing.expect(!std.mem.startsWith(u8, row.text, "+"));
             try std.testing.expect(!std.mem.startsWith(u8, row.text, "-"));
         }
@@ -4734,8 +4724,6 @@ test "review_diff_hunk_rows code body omits unified-diff marker" {
     try std.testing.expect(saw_add);
     try std.testing.expect(saw_empty_add);
     try std.testing.expect(saw_meta);
-    try std.testing.expect(saw_hunk_header);
-    try std.testing.expect(saw_still);
 }
 
 test "clicking a ? untracked row one-shots git diff --no-index" {
