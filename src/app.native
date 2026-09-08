@@ -1602,6 +1602,10 @@
                   <if test="{file_preview_dirty}">
                     <text wrap="false" foreground="text_muted">Unsaved</text>
                   </if>
+                  <if test="{file_preview_shows_markdown_mode}">
+                    <button variant="ghost" size="sm" selected="{file_preview_markdown_preview}" on-press="set_file_preview_markdown_preview">Preview</button>
+                    <button variant="ghost" size="sm" selected="{file_preview_markdown_source}" on-press="set_file_preview_markdown_source">Source</button>
+                  </if>
                   <if test="{file_preview_can_edit}">
                     <button variant="ghost" size="sm" on-press="open_right_panel_file_edit">Edit</button>
                   </if>
@@ -1720,7 +1724,12 @@
                             <code source="{file_preview_body}" language="sql" line-numbers wrap="false" grow="1" label="File preview source" />
                           </if>
                           <if test="{file_preview_language == 'markdown'}">
-                            <code source="{file_preview_body}" language="markdown" line-numbers wrap="false" grow="1" label="File preview source" />
+                            <if test="{file_preview_shows_rendered_markdown}">
+                              <markdown source="{file_preview_body}" on-link="file_preview_open_url" />
+                            </if>
+                            <else>
+                              <code source="{file_preview_body}" language="markdown" line-numbers wrap="false" grow="1" label="File preview source" />
+                            </else>
                           </if>
                           <if test="{file_preview_language == 'plain'}">
                             <code source="{file_preview_body}" language="plain" line-numbers wrap="false" grow="1" label="File preview source" />

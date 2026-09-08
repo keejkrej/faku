@@ -417,6 +417,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .toggle_file_preview_find_regex => right_panel.toggleFilePreviewFindRegex(model),
         .file_preview_find_replace_one => right_panel.replaceFilePreviewFindCurrent(model),
         .file_preview_find_replace_all => right_panel.replaceFilePreviewFindAll(model),
+        .set_file_preview_markdown_preview => right_panel.setFilePreviewMarkdownPreview(model),
+        .set_file_preview_markdown_source => right_panel.setFilePreviewMarkdownSource(model),
+        .file_preview_open_url => |url| right_panel.openFilePreviewMarkdownUrl(model, fx, url),
         .toggle_right_panel_dir => |id| right_panel.toggleDir(model, fx, id),
         .set_right_panel_tab_files => {
             right_panel.selectFiles(model, fx);

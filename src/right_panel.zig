@@ -96,7 +96,17 @@
 //! documented Native lexer name from the path (unknown / Dockerfile /
 //! Makefile / Cargo.toml → `plain`). Native numbered mode omits the
 //! gutter above 128 logical lines but keeps the source.
-//! `previewLineRows` remains for tests.
+//! Markdown (`.md` / `.markdown`) adds a runtime-only Preview | Source
+//! header chip (ghost sm, like Settings Usage Cost | Tokens). Default
+//! Preview paints Native `<markdown source="{file_preview_body}"
+//! on-link="file_preview_open_url" />` (GFM subset; no `images=` this
+//! cut — alt-text fallback; no details-expanded). Source keeps today's
+//! highlighted `<code language="markdown">`. http(s) / bare-host links
+//! reuse `open_url` OS browser spawn; relative / file links are a short
+//! muted preview status, not filesystem navigation or a webview. Mode
+//! resets to Preview when the preview closes / file switches / session
+//! clears. Edit keeps the textarea (chips hide; rendered preview is
+//! read-only). `previewLineRows` remains for tests.
 //!
 //! First-cut edit + save ships: Edit switches a text body to a Native
 //! `<textarea>` (same widget as the composer; highlighting drops while
@@ -206,6 +216,7 @@ const main = @import("main.zig");
 const file_mention = @import("file_mention.zig");
 const composer = @import("composer.zig");
 const open_editor = @import("open_editor.zig");
+const open_url = @import("open_url.zig");
 const review_diff = @import("review_diff.zig");
 const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
@@ -788,6 +799,7 @@ pub fn clearFilePreview(model: *Model) void {
     model.right_panel_file_preview_relpath_len = 0;
     model.right_panel_file_preview_abs_len = 0;
     model.right_panel_file_preview_editing = false;
+    model.right_panel_file_preview_markdown_source = false;
     model.file_preview_edit_buffer.clear();
     model.right_panel_file_preview_status_len = 0;
     model.file_preview_key = 0;
@@ -936,6 +948,48 @@ pub fn canSavePreview(model: *const Model) bool {
 
 pub fn canReloadPreview(model: *const Model) bool {
     return model.right_panel_file_preview_id != 0 and model.right_panel_file_preview_abs_len > 0;
+}
+
+pub fn isMarkdownPreviewLanguage(model: *const Model) bool {
+    return std.mem.eql(u8, model.file_preview_language(), "markdown");
+}
+
+/// Preview|Source chips: markdown language with a text body, not editing.
+pub fn showsMarkdownPreviewMode(model: *const Model) bool {
+    return isMarkdownPreviewLanguage(model) and !model.right_panel_file_preview_editing;
+}
+
+/// Read-only rendered `<markdown>` path.
+pub fn showsRenderedMarkdown(model: *const Model) bool {
+    return showsMarkdownPreviewMode(model) and !model.right_panel_file_preview_markdown_source;
+}
+
+pub fn setFilePreviewMarkdownPreview(model: *Model) void {
+    if (!isMarkdownPreviewLanguage(model)) return;
+    model.right_panel_file_preview_markdown_source = false;
+}
+
+pub fn setFilePreviewMarkdownSource(model: *Model) void {
+    if (!isMarkdownPreviewLanguage(model)) return;
+    model.right_panel_file_preview_markdown_source = true;
+}
+
+/// Native `<markdown on-link>`: http(s) / bare hosts go through `open_url`
+/// OS browser spawn. Relative / file links are a muted status.
+pub fn openFilePreviewMarkdownUrl(model: *Model, fx: *Effects, url: []const u8) void {
+    if (!isMarkdownPreviewLanguage(model)) return;
+    if (open_url.isRelativeOrFileUrl(url)) {
+        setPreviewStatus(model, open_url.relative_link_status);
+        return;
+    }
+    switch (open_url.startOpenUrlText(model, fx, url)) {
+        .spawned => {
+            model.right_panel_file_preview_status_len = 0;
+        },
+        .live => {},
+        .empty, .overflow => setPreviewStatus(model, open_url.relative_link_status),
+        .missing_bin => setPreviewStatus(model, open_url.hostMissingStatus()),
+    }
 }
 
 fn setPreviewError(model: *Model, message: []const u8) void {
@@ -2722,6 +2776,7 @@ test "preview language maps documented extensions; unknown and well-known names 
     try std.testing.expectEqualStrings("css", previewLanguage("theme.css"));
     try std.testing.expectEqualStrings("sql", previewLanguage("schema.sql"));
     try std.testing.expectEqualStrings("markdown", previewLanguage("README.md"));
+    try std.testing.expectEqualStrings("markdown", previewLanguage("notes.markdown"));
     try std.testing.expectEqualStrings("plain", previewLanguage("Dockerfile"));
     try std.testing.expectEqualStrings("plain", previewLanguage("Makefile"));
     try std.testing.expectEqualStrings("plain", previewLanguage("Cargo.toml"));
@@ -2732,6 +2787,129 @@ test "preview language maps documented extensions; unknown and well-known names 
     try std.testing.expectEqual(code.Language.plain, code.languageFromName(previewLanguage("Cargo.toml")));
     try std.testing.expectEqual(code.Language.javascript, code.languageFromName(previewLanguage("app.js")));
     try std.testing.expectEqual(code.Language.c_like, code.languageFromName(previewLanguage("foo.c")));
+}
+
+test "markdown Files preview defaults to Preview; Source chip flips; non-markdown ignores mode" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-md-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var md_buf: [300]u8 = undefined;
+    const md_abs = try std.fmt.bufPrint(&md_buf, "{s}/README.md", .{project});
+    try writePreviewFile(std.testing.io, md_abs, "# Hello\n\nSee [docs](https://example.com).\n");
+    var zig_buf: [300]u8 = undefined;
+    const zig_abs = try std.fmt.bufPrint(&zig_buf, "{s}/main.zig", .{project});
+    try writePreviewFile(std.testing.io, zig_abs, "pub fn main() void {}\n");
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview md", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "README.md\nmain.zig\n");
+    defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
+
+    try std.testing.expect(model.file_preview_markdown_preview());
+    try std.testing.expect(!model.file_preview_markdown_source());
+    try std.testing.expect(!model.file_preview_shows_markdown_mode());
+    try std.testing.expect(!model.file_preview_shows_rendered_markdown());
+
+    selectCachedFile(&model, &fx, 1);
+    try std.testing.expectEqualStrings("markdown", model.file_preview_language());
+    try std.testing.expect(model.file_preview_markdown_preview());
+    try std.testing.expect(!model.file_preview_markdown_source());
+    try std.testing.expect(model.file_preview_shows_markdown_mode());
+    try std.testing.expect(model.file_preview_shows_rendered_markdown());
+    try std.testing.expect(model.file_preview_can_edit());
+
+    setFilePreviewMarkdownSource(&model);
+    try std.testing.expect(model.file_preview_markdown_source());
+    try std.testing.expect(!model.file_preview_markdown_preview());
+    try std.testing.expect(!model.file_preview_shows_rendered_markdown());
+    try std.testing.expect(model.file_preview_shows_markdown_mode());
+
+    setFilePreviewMarkdownPreview(&model);
+    try std.testing.expect(model.file_preview_shows_rendered_markdown());
+
+    startFilePreviewEdit(&model);
+    try std.testing.expect(model.file_preview_editing());
+    try std.testing.expect(!model.file_preview_shows_markdown_mode());
+    try std.testing.expect(!model.file_preview_shows_rendered_markdown());
+    model.right_panel_file_preview_editing = false;
+    model.file_preview_edit_buffer.clear();
+    try std.testing.expect(model.file_preview_shows_rendered_markdown());
+
+    selectCachedFile(&model, &fx, 2);
+    try std.testing.expectEqualStrings("zig", model.file_preview_language());
+    try std.testing.expect(model.file_preview_markdown_preview());
+    try std.testing.expect(!model.file_preview_markdown_source());
+    try std.testing.expect(!model.file_preview_shows_markdown_mode());
+    try std.testing.expect(!model.file_preview_shows_rendered_markdown());
+    model.right_panel_file_preview_markdown_source = true;
+    setFilePreviewMarkdownSource(&model);
+    try std.testing.expect(model.right_panel_file_preview_markdown_source);
+    try std.testing.expect(!model.file_preview_shows_markdown_mode());
+    try std.testing.expect(!model.file_preview_shows_rendered_markdown());
+    setFilePreviewMarkdownPreview(&model);
+    try std.testing.expect(model.right_panel_file_preview_markdown_source);
+    try std.testing.expect(!model.file_preview_shows_rendered_markdown());
+
+    selectCachedFile(&model, &fx, 1);
+    setFilePreviewMarkdownSource(&model);
+    try std.testing.expect(model.file_preview_markdown_source());
+    clearFilePreview(&model);
+    try std.testing.expect(model.file_preview_markdown_preview());
+    try std.testing.expect(!model.file_preview_markdown_source());
+}
+
+test "markdown Preview http(s) link reuses open_url spawn; relative is muted status" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-md-link-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var md_buf: [300]u8 = undefined;
+    const md_abs = try std.fmt.bufPrint(&md_buf, "{s}/NOTES.md", .{project});
+    try writePreviewFile(std.testing.io, md_abs, "[ex](https://example.com)\n");
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview md link", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model, "NOTES.md\n");
+    defer clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
+
+    selectCachedFile(&model, &fx, 1);
+    openFilePreviewMarkdownUrl(&model, &fx, "./other.md");
+    try std.testing.expectEqualStrings(open_url.relative_link_status, model.file_preview_status());
+    try std.testing.expect(pendingSpawnKey(&fx, open_url.open_url_key) == null);
+    try std.testing.expect(!model.open_url_live);
+
+    openFilePreviewMarkdownUrl(&model, &fx, "https://example.com");
+    if (open_url.hostBin() == null) {
+        try std.testing.expectEqualStrings(open_url.hostMissingStatus(), model.file_preview_status());
+        try std.testing.expect(!model.open_url_live);
+    } else {
+        try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_status_len);
+        try std.testing.expect(model.open_url_live);
+        const spawn = pendingSpawnKey(&fx, open_url.open_url_key) orelse return error.MissingOpenUrlSpawn;
+        try std.testing.expect(open_url.isUrlArgv(spawn.argv));
+        try std.testing.expectEqualStrings("https://example.com", spawn.argv[spawn.argv.len - 1]);
+    }
 }
 
 test "edit buffer dirty/save gates; save writes abs path and returns to read-only" {

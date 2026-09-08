@@ -618,7 +618,12 @@ a Native FS watcher), with a bounded inline preview on file click
 `<code>` highlighting with `line-numbers`; language is a documented
 lexer name from the path, unknown / Dockerfile / Makefile /
 Cargo.toml → `plain`; Native numbered mode omits the gutter above 128
-logical lines but keeps the source; first-cut Edit switches a full
+logical lines but keeps the source; markdown `.md` / `.markdown` adds
+a runtime-only Preview | Source chip (default Preview paints Native
+`<markdown source>` GFM, Source keeps highlighted `<code>`; http(s)
+links reuse `open_url` OS browser spawn; relative / file links are a
+muted status; no `images=` this cut; mode resets when the preview
+closes / file switches / session clears); first-cut Edit switches a full
 text window to `<textarea>`, Save (or Cmd/Ctrl-S when dirty-editing) prefers hello + daemon
 `WorkspaceOperation::WriteTextFile` when a daemon address is set
 (ok Ack adopts the saved buffer; Native 4 KiB stdin overflow /
@@ -1288,7 +1293,11 @@ Honest gaps this cut does not implement:
   Files ships a
   256KB inline preview with Native `<code>` highlighting and
   `line-numbers`; language from a documented lexer name, unknown →
-  plain. First-cut: opening the first Files preview widens the pane
+  plain. Markdown `.md` / `.markdown` first-cut: runtime-only Preview |
+  Source chips (default Preview is Native `<markdown>`; Source is
+  highlighted `<code language="markdown">`; http(s) on-link reuses
+  `open_url` OS browser spawn; relative / file links muted; no
+  `images=` this cut). First-cut: opening the first Files preview widens the pane
   with Waku `FILE_EDITOR_INITIAL_WIDTH` 500 (wide clamp 280–1000 while
   that preview is open). First-cut: opening Diff / Review widens the pane
   with Waku `REVIEW_INITIAL_WIDTH` 820 (wide clamp 280–1000; Browser /
