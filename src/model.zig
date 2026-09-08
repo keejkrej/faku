@@ -922,10 +922,13 @@ pub const Model = struct {
     right_panel_open: bool = false,
     right_panel_split: f32 = default_right_panel_split,
     /// Last pane width in pixels. Files tab clamps to the file-tree
-    /// 184/140/360. Diff, Browser, Terminal, and Background tabs may
-    /// bump toward Waku `DEFAULT_RIGHT_PANEL_WIDTH` 460 and clamp from
-    /// Waku `RIGHT_PANEL_MIN_WIDTH` 280 up to Waku `RIGHT_PANEL_MAX_WIDTH`
-    /// 1000. Hide reclamps to the file-tree max.
+    /// 184/140/360 when no inline preview is open. First-cut: opening
+    /// the first Files preview widens with Waku `FILE_EDITOR_INITIAL_WIDTH`
+    /// 500 and while that preview is open Files uses the wide panel
+    /// clamp (min 280 / max 1000). Diff, Browser, Terminal, and
+    /// Background tabs may bump toward Waku `DEFAULT_RIGHT_PANEL_WIDTH`
+    /// 460 and clamp from Waku `RIGHT_PANEL_MIN_WIDTH` 280 up to Waku
+    /// `RIGHT_PANEL_MAX_WIDTH` 1000. Hide reclamps to the file-tree max.
     right_panel_width: f32 = right_panel_default_width,
     /// Files | Diff | Browser | Terminal | Background surface. Default
     /// `files` when the panel opens. Persisted on sessions.json extras
@@ -2853,7 +2856,7 @@ pub const Model = struct {
     }
 
     pub fn right_panel_pane_min(model: *const Model) f32 {
-        return if (model.right_panel_open) right_panel.minWidth(model.right_panel_tab) else 0;
+        return if (model.right_panel_open) right_panel.minWidthForModel(model) else 0;
     }
 
     pub fn right_panel_toggle_label(model: *const Model) []const u8 {
@@ -3438,12 +3441,12 @@ pub const Model = struct {
     }
 
     pub fn rightPanelWidthPixels(model: *const Model) u32 {
-        return @intFromFloat(@round(right_panel.clampWidthTab(model.right_panel_width, model.right_panel_tab)));
+        return @intFromFloat(@round(right_panel.clampWidthForModel(model, model.right_panel_width)));
     }
 
     pub fn applyRightPanelWidth(model: *Model, width: u32) void {
         if (width == 0) return;
-        model.right_panel_width = right_panel.clampWidthTab(@floatFromInt(width), model.right_panel_tab);
+        model.right_panel_width = right_panel.clampWidthForModel(model, @floatFromInt(width));
     }
 
     pub fn syncRightPanelSplit(model: *Model) void {
@@ -3457,7 +3460,7 @@ pub const Model = struct {
     pub fn showRightPanel(model: *Model) void {
         model.right_panel_open = true;
         if (model.right_panel_tab == .files) {
-            model.right_panel_width = right_panel.clampWidthTab(model.right_panel_width, .files);
+            model.right_panel_width = right_panel.clampWidthForModel(model, model.right_panel_width);
         }
         model.syncRightPanelSplit();
     }
@@ -3491,7 +3494,7 @@ pub const Model = struct {
             if (files < right_panel_min_width) return;
             model.right_panel_open = true;
         }
-        model.right_panel_width = right_panel.clampWidthTab(files, model.right_panel_tab);
+        model.right_panel_width = right_panel.clampWidthForModel(model, files);
         model.syncRightPanelSplit();
     }
 

@@ -583,9 +583,14 @@ it does not spawn a second worktree.
 ## Right panel: Files / Diff / Browser / Terminal / Background
 
 Command palette Show / Hide right panel (or Cmd/Ctrl-Shift-B; Cmd/Ctrl-B stays the sidebar) toggles a first-cut Files +
-Diff + Browser + Terminal + Background pane. Default closed. Files tab clamps to Waku file-tree 184 / 140 / 360.
-Diff / Browser / Terminal / Background bump toward Waku `DEFAULT_RIGHT_PANEL_WIDTH` 460 when still file-tree-narrow
-and clamp from Waku `RIGHT_PANEL_MIN_WIDTH` 280 up to Waku `RIGHT_PANEL_MAX_WIDTH` 1000; switching back to Files reclamps to 360. Files width persists (`right_panel_open` /
+Diff + Browser + Terminal + Background pane. Default closed. Files tab clamps to Waku file-tree 184 / 140 / 360 when no
+inline preview is open. First-cut: the first Files preview open widens the pane with Waku `FILE_EDITOR_INITIAL_WIDTH`
+500 (`widenedPanelWidthForFileEditor`: sanitize to RIGHT_PANEL 280–1000, then max with tree+500; measured
+`(460, 184) → 684`, already-wide stays) and while that preview is open Files uses the wide panel clamp (min 280 /
+max 1000) so the bump does not snap back. Closing the preview keeps the pixel width until the next Files clamp
+(hide / Files tab without a preview / persist load). Diff / Browser / Terminal / Background bump toward Waku
+`DEFAULT_RIGHT_PANEL_WIDTH` 460 when still file-tree-narrow
+and clamp from Waku `RIGHT_PANEL_MIN_WIDTH` 280 up to Waku `RIGHT_PANEL_MAX_WIDTH` 1000; switching back to Files without a preview reclamps to 360. Files width persists (`right_panel_open` /
 `right_panel_width`). Selected tab persists (`right_panel_tab`: `files` /
 `diff` / `browser` / `terminal` / `background`; missing / unknown → Files).
 Browser draft URL persists (`browser_url`, raw, cap 2048; missing / empty /
@@ -1244,7 +1249,9 @@ Honest gaps this cut does not implement:
   Files ships a
   256KB inline preview with Native `<code>` highlighting and
   `line-numbers`; language from a documented lexer name, unknown →
-  plain. First-cut Edit / Save / Reload ships: textarea while dirty,
+  plain. First-cut: opening the first Files preview widens the pane
+  with Waku `FILE_EDITOR_INITIAL_WIDTH` 500 (wide clamp 280–1000 while
+  that preview is open; not a nested file-tree split). First-cut Edit / Save / Reload ships: textarea while dirty,
   Save prefers hello + daemon `WriteTextFile` when a daemon address
   is set (ok Ack; Native 4 KiB stdin overflow falls back to Zig
   `std.fs` atomic write), Reload discards unsaved edits. First-cut

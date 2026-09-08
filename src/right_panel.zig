@@ -147,7 +147,14 @@
 //! Default closed: Waku `RightPanelSessionState::take_or_closed` uses
 //! `empty(false)` and persistence `default_right_panel_visibility` is
 //! false. Files tab widths are Waku `DEFAULT_FILE_TREE_WIDTH` (184) /
-//! `FILE_TREE_MIN_WIDTH` (140) / `FILE_TREE_MAX_WIDTH` (360). Diff and
+//! `FILE_TREE_MIN_WIDTH` (140) / `FILE_TREE_MAX_WIDTH` (360) when no
+//! inline preview is open. First-cut: the first Files preview open
+//! widens the pane with Waku `FILE_EDITOR_INITIAL_WIDTH` (500) via
+//! `widenedPanelWidthForFileEditor` (sanitize to RIGHT_PANEL 280–1000,
+//! then max with tree+500; measured `(460, 184) → 684`, already-wide
+//! stays). While that preview is open, Files uses the wide panel clamp
+//! (min 280 / max 1000) so the bump does not snap back. Closing the
+//! preview keeps the pixel width until the next Files clamp. Diff and
 //! Background, Browser, and Terminal bump toward Waku
 //! `DEFAULT_RIGHT_PANEL_WIDTH` (460) when the pane is still
 //! file-tree-narrow; min is Waku `RIGHT_PANEL_MIN_WIDTH` (280); max is
@@ -371,6 +378,23 @@ pub fn clampWidthTab(width: f32, tab: Tab) f32 {
     return @max(minWidth(tab), @min(maxWidth(tab), raw));
 }
 
+/// Files with an open inline preview uses the same wide RIGHT_PANEL
+/// clamp as Diff (280–1000, default 460). Otherwise tab clamps apply:
+/// Files stays file-tree 140/184/360.
+pub fn clampWidthForModel(model: *const Model, width: f32) f32 {
+    if (model.right_panel_tab == .files and model.right_panel_file_preview_id != 0) {
+        return clampWidthTab(width, .diff);
+    }
+    return clampWidthTab(width, model.right_panel_tab);
+}
+
+pub fn minWidthForModel(model: *const Model) f32 {
+    if (model.right_panel_tab == .files and model.right_panel_file_preview_id != 0) {
+        return minWidth(.diff);
+    }
+    return minWidth(model.right_panel_tab);
+}
+
 pub fn restWidth(model: *const Model) f32 {
     const sidebar = if (model.sidebar_collapsed)
         main.sidebar_rail_width
@@ -383,7 +407,7 @@ pub fn restWidth(model: *const Model) f32 {
 
 pub fn splitForWidth(model: *const Model, width: f32) f32 {
     const rest = restWidth(model);
-    const pane = clampWidthTab(width, model.right_panel_tab);
+    const pane = clampWidthForModel(model, width);
     const conversation = @max(0, rest - pane);
     return conversation / rest;
 }
@@ -567,12 +591,13 @@ fn removeExpandedAt(model: *Model, index: usize) void {
     model.right_panel_expanded_count -= 1;
 }
 
-/// Files tab. Opens the pane if closed. Clamps width to the file-tree max.
+/// Files tab. Opens the pane if closed. Clamps width to the file-tree
+/// max unless an inline Files preview is open (wide 280–1000).
 pub fn selectFiles(model: *Model, fx: *Effects) void {
     const was_open = model.right_panel_open;
     model.right_panel_open = true;
     model.right_panel_tab = .files;
-    model.right_panel_width = clampWidthTab(model.right_panel_width, .files);
+    model.right_panel_width = clampWidthForModel(model, model.right_panel_width);
     model.syncRightPanelSplit();
     if (!was_open) file_mention.refresh(model, fx);
 }
@@ -1060,9 +1085,25 @@ pub fn previewLinesFromBody(body: []const u8, arena: std.mem.Allocator) []const 
     return out[0..n];
 }
 
+/// First Files preview open: bump `right_panel_width` with Waku
+/// `widened_panel_width_for_file_editor`. Uses the current pane width
+/// as the tree width while it is still in the file-tree band
+/// (≤ `FILE_TREE_MAX_WIDTH` 360), else `DEFAULT_FILE_TREE_WIDTH` 184.
+/// Preview id must already be set so the wide Files clamp applies.
+fn ensureInitialRightPanelFileEditorWidth(model: *Model) void {
+    const tree = if (model.right_panel_width <= main.right_panel_max_width)
+        model.right_panel_width
+    else
+        main.right_panel_default_width;
+    model.right_panel_width = main.widenedPanelWidthForFileEditor(model.right_panel_width, tree);
+    model.syncRightPanelSplit();
+}
+
 /// Files-pane file click: select the row and load a bounded read-only
 /// inline preview. Prefers hello + daemon ReadTextFile when a daemon
-/// address is set. Does not open an external editor.
+/// address is set. Does not open an external editor. The first open
+/// (no preview was showing) widens the pane; a later file switch does
+/// not re-widen.
 pub fn selectCachedFile(model: *Model, fx: *Effects, id: u32) void {
     if (id == 0 or id >= file_mention.file_mention_dir_id_base) return;
     var rel_buf: [file_mention.max_file_mention_path + 1]u8 = undefined;
@@ -1073,11 +1114,13 @@ pub fn selectCachedFile(model: *Model, fx: *Effects, id: u32) void {
 
     if (!beginDiscardOrPark(model, .{ .switch_file = id })) return;
 
+    const first_preview = model.right_panel_file_preview_id == 0;
     const keep_find = model.file_preview_find_active;
     cancelDaemonRead(model, fx);
     cancelDaemonSave(model, fx);
     clearFilePreview(model);
     model.right_panel_file_preview_id = id;
+    if (first_preview) ensureInitialRightPanelFileEditorWidth(model);
     main.writeFixed(
         &model.right_panel_file_preview_relpath_storage,
         &model.right_panel_file_preview_relpath_len,
@@ -1650,7 +1693,7 @@ test "Diff tab default 460 / min 280 / max 1000; Browser Terminal Background sha
     try std.testing.expectEqual(@as(f32, 360), clampWidthTab(1000, .files));
 }
 
-test "right_panel_pane_min is 140 for Files and 280 for wide tabs" {
+test "right_panel_pane_min is 140 for Files, 280 for wide tabs and Files preview" {
     var model = Model{};
     try std.testing.expectEqual(@as(f32, 0), model.right_panel_pane_min());
     model.right_panel_open = true;
@@ -1665,6 +1708,98 @@ test "right_panel_pane_min is 140 for Files and 280 for wide tabs" {
     try std.testing.expectEqual(@as(f32, 280), model.right_panel_pane_min());
     model.right_panel_tab = .files;
     try std.testing.expectEqual(@as(f32, 140), model.right_panel_pane_min());
+    model.right_panel_file_preview_id = 1;
+    try std.testing.expectEqual(@as(f32, 280), model.right_panel_pane_min());
+    try std.testing.expectEqual(@as(f32, 684), clampWidthForModel(&model, 684));
+    try std.testing.expectEqual(@as(f32, 800), clampWidthForModel(&model, 800));
+    try std.testing.expectEqual(@as(f32, 1000), clampWidthForModel(&model, 1200));
+    try std.testing.expectEqual(@as(f32, 280), clampWidthForModel(&model, 200));
+    model.right_panel_file_preview_id = 0;
+    try std.testing.expectEqual(@as(f32, 140), model.right_panel_pane_min());
+    try std.testing.expectEqual(@as(f32, 360), clampWidthForModel(&model, 684));
+}
+
+test "first Files preview open widens to tree+500; second file does not re-bump" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-widen-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var a_buf: [300]u8 = undefined;
+    const a_abs = try std.fmt.bufPrint(&a_buf, "{s}/a.txt", .{project});
+    try writePreviewFile(std.testing.io, a_abs, "aaa\n");
+    var b_buf: [300]u8 = undefined;
+    const b_abs = try std.fmt.bufPrint(&b_buf, "{s}/b.txt", .{project});
+    try writePreviewFile(std.testing.io, b_abs, "bbb\n");
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview widen", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    model.syncRightPanelSplit();
+    file_mention.applyStdoutPaths(&model, "a.txt\nb.txt\n");
+    defer clearFilePreview(&model);
+
+    try std.testing.expectEqual(@as(f32, 184), model.right_panel_width);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_file_preview_id);
+
+    selectCachedFile(&model, &fx, 1);
+    try std.testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
+    try std.testing.expectEqual(@as(f32, 684), model.right_panel_width);
+    try std.testing.expectEqual(@as(u32, 684), model.rightPanelWidthPixels());
+    try std.testing.expectEqual(@as(f32, 280), model.right_panel_pane_min());
+
+    model.applyRightPanelWidth(800);
+    try std.testing.expectEqual(@as(f32, 800), model.right_panel_width);
+    selectCachedFile(&model, &fx, 2);
+    try std.testing.expectEqual(@as(u32, 2), model.right_panel_file_preview_id);
+    try std.testing.expectEqual(@as(f32, 800), model.right_panel_width);
+
+    closeFilePreview(&model);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_file_preview_id);
+    try std.testing.expectEqual(@as(f32, 800), model.right_panel_width);
+    try std.testing.expectEqual(@as(u32, 360), model.rightPanelWidthPixels());
+
+    selectFiles(&model, &fx);
+    try std.testing.expectEqual(@as(f32, 360), model.right_panel_width);
+}
+
+test "already-wide Files pane stays on first preview open" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-wide-stay-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, abs, "note\n");
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview wide stay", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    model.right_panel_width = 720;
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    defer clearFilePreview(&model);
+
+    selectCachedFile(&model, &fx, 1);
+    try std.testing.expectEqual(@as(f32, 720), model.right_panel_width);
+    try std.testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
+
+    selectFiles(&model, &fx);
+    try std.testing.expectEqual(@as(f32, 720), model.right_panel_width);
 }
 
 test "tab persist names are stable lowercase; missing unknown is files" {

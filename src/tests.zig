@@ -9343,6 +9343,8 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
     try testing.expect(findOpenEditorSpawn(&fx) == null);
     try testing.expect(model.right_panel_file_preview_open());
+    try testing.expectEqual(@as(u32, 684), model.rightPanelWidthPixels());
+    try testing.expectEqual(@as(f32, 280), model.right_panel_pane_min());
     try testing.expectEqualStrings("src/main.zig", model.file_preview_path());
     try testing.expectEqualStrings("pub fn main() void {}\n", model.file_preview_body());
     try testing.expectEqualStrings("zig", model.file_preview_language());
