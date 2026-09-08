@@ -435,7 +435,7 @@ pub fn applyFileTreeResize(model: *Model, fraction: f32) void {
     if (model.right_panel_file_preview_id == 0) return;
     const pane = @max(1, model.right_panel_width);
     const frac = @max(0, @min(1, fraction));
-    const tree = pane * (1.0 - frac);
+    const tree = @round(pane * (1.0 - frac));
     model.right_panel_file_tree_width = main.fittedFileTreeWidth(pane, tree);
 }
 
