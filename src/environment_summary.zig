@@ -89,7 +89,7 @@
 //! finish-time (`worktree_turn_diff_sha` and
 //! `worktree_turn_end_sha`) 40-hex exist; else start…end
 //! when send-time (`worktree_snapshot_sha`) and finish-time
-//! end exist; else send-time `git diff --name-status
+//! end exist; else send-time `git diff --numstat
 //! <40-hex>` (isolated index, dangling commit named
 //! `refs/faku/session-{id}-turn-start-{n}`, plus
 //! `turn-{n-1}` when that baseline is missing; successful

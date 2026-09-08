@@ -62,7 +62,7 @@
 //! paints the file list from `numstat` (per-file `+N` / `-M` when
 //! those counts are non-zero) and selected hunk from
 //! `patch`; LastTurn stays local; Native 4 KiB stdin overflow /
-//! error / unusable parse falls back to local name-status + hunk
+//! error / unusable parse falls back to local numstat + hunk
 //! probes; no address keeps today's local path). First-cut daemon
 //! `WorkspaceOperation::BrowseDirectory` ships in `pick_folder`
 //! (Pick folder in-app browser when a daemon address is set;

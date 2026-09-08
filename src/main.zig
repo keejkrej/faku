@@ -327,13 +327,13 @@ pub const git_toplevel_key_first = git_toplevel.git_toplevel_key_first;
 /// toplevel (490+). Band is 500+. Incremented per refresh from
 /// `git_common_dir_key_first`.
 pub const git_common_dir_key_first = git_common_dir.git_common_dir_key_first;
-/// One-shot Branch `git diff --name-status @{upstream}...HEAD` for
+/// One-shot Branch `git diff --numstat @{upstream}...HEAD` for
 /// the Environment Compare Review card. Distinct from common-dir
 /// (500+). Band is 510+. Incremented per open from
 /// `review_diff_key_first`.
 pub const review_diff_key_first = review_diff.review_diff_key_first;
 /// One-shot Review `git diff [operand] -- <path>` hunk probe.
-/// Distinct from name-status 510+. Band is 520+. Incremented
+/// Distinct from file-list 510+. Band is 520+. Incremented
 /// per file click from `review_diff_hunk_key_first`.
 pub const review_diff_hunk_key_first = review_diff.review_diff_hunk_key_first;
 /// One-shot Settings Skills `find` for `SKILL.md`. Distinct from
