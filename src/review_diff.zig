@@ -86,9 +86,14 @@
 //! expandable Gaps; local compact `git diff` inserts count-only
 //! Gaps between hunks (hidden empty — expand is a no-op). Expand
 //! rearranges retained lines in memory (`expand_gap`); no new git
-//! spawn. Render/retain caps are a fixed Zig table (4096 lines /
-//! 128 KiB), not Waku's 50_000. The right-panel Diff tab hosts
-//! this same body (not a second git probe stack).
+//! spawn. Line retain/render caps match Waku `MAX_RENDERED_DIFF_LINES`
+//! 50_000. Byte caps are a Faku fixed table (~32 B/line × that cap);
+//! Waku has no byte cap. Parse/expand scratch and the hunk / Gap
+//! stores are heap last-windows so `Model` / `initialModel()` stay
+//! return-by-value safe (inline 50_000-row tables would blow the
+//! stack). Native daemon stdout is still `daemon_line_bytes`. The
+//! right-panel Diff tab hosts this same body (not a second git
+//! probe stack).
 //! First-cut daemon `WorkspaceOperation::CollectReviewDiff` ships
 //! when `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address`
 //! is set: hello + CollectReviewDiff for Branch / Uncommitted /
@@ -332,24 +337,27 @@ pub const collapsed_context_lines: usize = 3;
 /// Waku `COLLAPSED_CONTEXT_THRESHOLD`: hide a context run only when
 /// more than this many lines would go into the Gap.
 pub const collapsed_context_threshold: usize = 1;
-/// Visible painted rows after collapse. Waku `MAX_RENDERED_DIFF_LINES`
-/// is 50_000; first-cut Zig keeps a fixed table so Gap expand can
-/// reveal a few thousand retained lines without an unbounded Vec.
-pub const max_rendered_diff_lines: usize = 4096;
+/// Visible painted rows after collapse. Matches Waku
+/// `MAX_RENDERED_DIFF_LINES` 50_000. Heap last-window on Model, not
+/// an unbounded Vec and not a 50k-row stack table.
+pub const max_rendered_diff_lines: usize = 50_000;
 /// Retained source lines (stdout / daemon extract). Same bound as
 /// the visible table so a complete-context patch can fill Gaps.
-pub const max_review_diff_hunk_lines: usize = 4096;
-/// ~32 bytes/line × 4096. Was 8192; Waku has no byte cap. Extra
-/// stdout is dropped, not invented.
-pub const max_review_diff_hunk: usize = 128 * 1024;
+pub const max_review_diff_hunk_lines: usize = 50_000;
+/// ~32 bytes/line × `max_review_diff_hunk_lines`. Waku has no byte
+/// cap; Faku keeps this fixed table so the line cap is not secretly
+/// defeated by a 128 KiB clip. Extra stdout is dropped, not invented.
+pub const max_review_diff_hunk: usize = max_review_diff_hunk_lines * 32;
 /// Hidden context copied out of collapsed runs. Same bound as
 /// retained source lines.
-pub const max_review_diff_hidden_lines: usize = 4096;
+pub const max_review_diff_hidden_lines: usize = 50_000;
 pub const max_review_diff_hunk_status: usize = 32;
 /// Stored daemon `patch` for selected-file filter. Match the hunk
 /// retain cap so a `completeContext` body can still extract later
-/// files. Native daemon stdout is still `daemon_line_bytes`.
-pub const max_review_diff_daemon_patch: usize = 128 * 1024;
+/// files. Native daemon stdout is still `daemon_line_bytes` (64 KiB
+/// JSON lines), so a CollectReviewDiff payload larger than that is
+/// still clipped before this table.
+pub const max_review_diff_daemon_patch: usize = max_review_diff_hunk;
 /// Gap label buffer (`{n} unmodified lines`).
 pub const max_review_diff_gap_label: usize = 40;
 
@@ -1364,6 +1372,51 @@ fn isChangeLine(line: DiffLine) bool {
     return line.kind == .addition or line.kind == .deletion;
 }
 
+fn ensureHeapSlice(comptime T: type, slot: *[]T, cap: usize) bool {
+    if (slot.len == cap) return true;
+    if (slot.len != 0) {
+        std.heap.page_allocator.free(slot.*);
+        slot.* = &.{};
+    }
+    const buf = std.heap.page_allocator.alloc(T, cap) catch return false;
+    slot.* = buf;
+    return true;
+}
+
+fn freeHeapSlice(comptime T: type, slot: *[]T) void {
+    if (slot.len != 0) {
+        std.heap.page_allocator.free(slot.*);
+        slot.* = &.{};
+    }
+}
+
+fn ensureHunkBodyStore(model: *Model) bool {
+    return ensureHeapSlice(u8, &model.review_diff_hunk_storage, max_review_diff_hunk);
+}
+
+fn ensureHunkRowStores(model: *Model) bool {
+    return ensureHeapSlice(DiffLine, &model.review_diff_visible_store, max_rendered_diff_lines) and
+        ensureHeapSlice(DiffLine, &model.review_diff_hidden_store, max_review_diff_hidden_lines);
+}
+
+fn ensureDaemonPatchStore(model: *Model) bool {
+    return ensureHeapSlice(u8, &model.review_diff_daemon_patch_storage, max_review_diff_daemon_patch);
+}
+
+/// Drop heap last-windows. Called from close so `Model` copies and
+/// tests do not keep 50_000-row tables after the Review card goes away.
+fn freeReviewDiffStores(model: *Model) void {
+    freeHeapSlice(u8, &model.review_diff_hunk_storage);
+    model.review_diff_hunk_len = 0;
+    model.review_diff_hunk_line_count = 0;
+    freeHeapSlice(DiffLine, &model.review_diff_visible_store);
+    model.review_diff_visible_count = 0;
+    freeHeapSlice(DiffLine, &model.review_diff_hidden_store);
+    model.review_diff_hidden_count = 0;
+    freeHeapSlice(u8, &model.review_diff_daemon_patch_storage);
+    model.review_diff_daemon_patch_len = 0;
+}
+
 fn copyHidden(model: *Model, src: []const DiffLine) ?struct { off: u32, len: u32 } {
     if (src.len == 0) return null;
     const off = model.review_diff_hidden_count;
@@ -1437,8 +1490,12 @@ fn collapseBetween(model: *Model, run: []const DiffLine, next_gap_id: *u32) bool
 }
 
 fn collapseContext(model: *Model, lines: []const DiffLine, next_gap_id: *u32) void {
-    var change_after: [max_review_diff_hunk_lines + 1]bool = undefined;
     const n = lines.len;
+    const change_after = std.heap.page_allocator.alloc(bool, n + 1) catch {
+        _ = pushVisibleSlice(model, lines);
+        return;
+    };
+    defer std.heap.page_allocator.free(change_after);
     change_after[n] = false;
     var i: usize = n;
     while (i > 0) {
@@ -1483,9 +1540,11 @@ fn rebuildHunkRows(model: *Model) void {
     clearHunkRows(model);
     const patch = reviewDiffHunk(model);
     if (patch.len == 0) return;
-    var parsed: [max_review_diff_hunk_lines]DiffLine = undefined;
+    if (!ensureHunkRowStores(model)) return;
+    const parsed = std.heap.page_allocator.alloc(DiffLine, max_review_diff_hunk_lines) catch return;
+    defer std.heap.page_allocator.free(parsed);
     var next_gap_id: u32 = 0;
-    const n = parsePatchLines(patch, model.review_diff_complete_context, &parsed, &next_gap_id);
+    const n = parsePatchLines(patch, model.review_diff_complete_context, parsed, &next_gap_id);
     if (model.review_diff_complete_context) {
         collapseContext(model, parsed[0..n], &next_gap_id);
     } else {
@@ -1500,23 +1559,55 @@ fn hiddenSlice(model: *Model, line: DiffLine) []DiffLine {
     return model.review_diff_hidden_store[off .. off + len];
 }
 
-fn spliceVisible(model: *Model, at: usize, replacement: []const DiffLine) void {
+fn spliceVisibleParts(
+    model: *Model,
+    at: usize,
+    prefix: []const DiffLine,
+    maybe_gap: ?DiffLine,
+    suffix: []const DiffLine,
+) void {
+    const dest = model.review_diff_visible_store;
     const count = model.review_diff_visible_count;
-    if (at >= count) return;
+    if (at >= count or dest.len < max_rendered_diff_lines) return;
     const tail_len = count - at - 1;
-    var new_count = at + replacement.len + tail_len;
+    const gap_n: usize = if (maybe_gap != null) 1 else 0;
+    const repl_len = prefix.len + gap_n + suffix.len;
+    var new_count = at + repl_len + tail_len;
     if (new_count > max_rendered_diff_lines) {
         model.review_diff_truncated = true;
         new_count = max_rendered_diff_lines;
     }
-    var tmp: [max_rendered_diff_lines]DiffLine = undefined;
-    const keep_tail = @min(tail_len, new_count -| (at + replacement.len));
-    const take_repl = @min(replacement.len, new_count - at);
-    @memcpy(tmp[0..take_repl], replacement[0..take_repl]);
-    if (keep_tail > 0) {
-        @memcpy(tmp[take_repl .. take_repl + keep_tail], model.review_diff_visible_store[at + 1 .. at + 1 + keep_tail]);
+    const take_repl = @min(repl_len, new_count - at);
+    const keep_tail = @min(tail_len, new_count -| (at + repl_len));
+
+    var remain = take_repl;
+    const take_prefix = @min(prefix.len, remain);
+    remain -= take_prefix;
+    const take_gap: usize = if (gap_n == 1 and remain > 0) 1 else 0;
+    remain -= take_gap;
+    const take_suffix = @min(suffix.len, remain);
+
+    const tail_src = at + 1;
+    const tail_dest = at + take_repl;
+    if (keep_tail > 0 and tail_dest != tail_src) {
+        const src = dest[tail_src .. tail_src + keep_tail];
+        const dst = dest[tail_dest .. tail_dest + keep_tail];
+        if (tail_dest > tail_src) {
+            std.mem.copyBackwards(DiffLine, dst, src);
+        } else {
+            std.mem.copyForwards(DiffLine, dst, src);
+        }
     }
-    @memcpy(model.review_diff_visible_store[at .. at + take_repl + keep_tail], tmp[0 .. take_repl + keep_tail]);
+    if (take_prefix > 0) {
+        @memcpy(dest[at .. at + take_prefix], prefix[0..take_prefix]);
+    }
+    if (take_gap == 1) {
+        dest[at + take_prefix] = maybe_gap.?;
+    }
+    if (take_suffix > 0) {
+        const off = at + take_prefix + take_gap;
+        @memcpy(dest[off .. off + take_suffix], suffix[0..take_suffix]);
+    }
     model.review_diff_visible_count = at + take_repl + keep_tail;
 }
 
@@ -1553,84 +1644,68 @@ pub fn expandGap(model: *Model, row_id: u32, direction: ExpansionDirection) void
     if (reveal_count == 0) return;
     if (direction == .all and reveal_count < hidden.len) model.review_diff_truncated = true;
 
-    var replacement: [max_rendered_diff_lines]DiffLine = undefined;
-    var rlen: usize = 0;
-    const push = struct {
-        fn add(dest: []DiffLine, n: *usize, line: DiffLine) void {
-            if (n.* >= dest.len) return;
-            dest[n.*] = line;
-            n.* += 1;
-        }
-    };
+    var prefix: []const DiffLine = &.{};
+    var suffix: []const DiffLine = &.{};
+    var remain_gap: ?DiffLine = null;
 
     switch (direction) {
         .start => {
-            for (hidden[0..reveal_count]) |line| push.add(&replacement, &rlen, line);
+            prefix = hidden[0..reveal_count];
             gap.hidden_off += @intCast(reveal_count);
             gap.hidden_len -= @intCast(reveal_count);
             gap.gap_count = gap.hidden_len;
-            if (gap.hidden_len > 0) push.add(&replacement, &rlen, gap);
+            if (gap.hidden_len > 0) remain_gap = gap;
         },
         .end => {
             const split = hidden.len - reveal_count;
-            if (remainingGapLine(gap, gap.hidden_off, @intCast(split))) |remain| {
-                push.add(&replacement, &rlen, remain);
-            }
-            for (hidden[split..]) |line| push.add(&replacement, &rlen, line);
+            remain_gap = remainingGapLine(gap, gap.hidden_off, @intCast(split));
+            suffix = hidden[split..];
         },
         .both => {
             if (reveal_count == hidden.len) {
-                for (hidden) |line| push.add(&replacement, &rlen, line);
+                prefix = hidden;
             } else {
                 const from_start = (reveal_count + 1) / 2;
                 const from_end = reveal_count - from_start;
-                for (hidden[0..from_start]) |line| push.add(&replacement, &rlen, line);
+                prefix = hidden[0..from_start];
                 const remain_off = gap.hidden_off + @as(u32, @intCast(from_start));
                 const remain_len: u32 = @intCast(hidden.len - from_start - from_end);
-                if (remainingGapLine(gap, remain_off, remain_len)) |remain| {
-                    push.add(&replacement, &rlen, remain);
-                }
-                for (hidden[hidden.len - from_end ..]) |line| push.add(&replacement, &rlen, line);
+                remain_gap = remainingGapLine(gap, remain_off, remain_len);
+                suffix = hidden[hidden.len - from_end ..];
             }
         },
         .all => {
             if (reveal_count == hidden.len) {
-                for (hidden) |line| push.add(&replacement, &rlen, line);
+                prefix = hidden;
             } else switch (gap.gap_position) {
                 .leading => {
                     const split = hidden.len - reveal_count;
-                    if (remainingGapLine(gap, gap.hidden_off, @intCast(split))) |remain| {
-                        push.add(&replacement, &rlen, remain);
-                    }
-                    for (hidden[split..]) |line| push.add(&replacement, &rlen, line);
+                    remain_gap = remainingGapLine(gap, gap.hidden_off, @intCast(split));
+                    suffix = hidden[split..];
                 },
                 .trailing => {
-                    for (hidden[0..reveal_count]) |line| push.add(&replacement, &rlen, line);
+                    prefix = hidden[0..reveal_count];
                     gap.hidden_off += @intCast(reveal_count);
                     gap.hidden_len -= @intCast(reveal_count);
                     gap.gap_count = gap.hidden_len;
-                    if (gap.hidden_len > 0) push.add(&replacement, &rlen, gap);
+                    if (gap.hidden_len > 0) remain_gap = gap;
                 },
                 .between => {
                     const from_start = (reveal_count + 1) / 2;
                     const from_end = reveal_count - from_start;
-                    for (hidden[0..from_start]) |line| push.add(&replacement, &rlen, line);
+                    prefix = hidden[0..from_start];
                     const remain_off = gap.hidden_off + @as(u32, @intCast(from_start));
                     const remain_len: u32 = if (from_end == 0)
                         @intCast(hidden.len - from_start)
                     else
                         @intCast(hidden.len - from_start - from_end);
-                    if (remainingGapLine(gap, remain_off, remain_len)) |remain| {
-                        push.add(&replacement, &rlen, remain);
-                    }
-                    if (from_end > 0) {
-                        for (hidden[hidden.len - from_end ..]) |line| push.add(&replacement, &rlen, line);
-                    }
+                    remain_gap = remainingGapLine(gap, remain_off, remain_len);
+                    if (from_end > 0) suffix = hidden[hidden.len - from_end ..];
                 },
             }
         },
     }
-    spliceVisible(model, idx, replacement[0..rlen]);
+    spliceVisibleParts(model, idx, prefix, remain_gap, suffix);
 }
 
 fn setStatus(model: *Model, text: []const u8) void {
@@ -1741,6 +1816,7 @@ pub fn close(model: *Model, fx: *Effects) void {
     clearDaemonFlags(model);
     model.review_diff_source = .branch;
     model.review_diff_active = false;
+    freeReviewDiffStores(model);
 }
 
 /// Esc / Cancel: same as close. Does not invent a fail status.
@@ -2070,9 +2146,10 @@ fn applyDaemonReviewDiffLine(model: *Model, raw: []const u8) void {
     defer arena_state.deinit();
     const parsed = protocol.parseReviewDiff(arena_state.allocator(), raw);
     if (!parsed.ok) return;
+    if (!ensureDaemonPatchStore(model)) return;
     clearFiles(model);
     appendParsedNumstat(model, parsed.numstat);
-    writeFixed(&model.review_diff_daemon_patch_storage, &model.review_diff_daemon_patch_len, parsed.patch);
+    writeFixed(model.review_diff_daemon_patch_storage, &model.review_diff_daemon_patch_len, parsed.patch);
     model.review_diff_complete_context = parsed.complete_context;
     model.review_diff_daemon_ok = true;
     model.review_diff_last_via_daemon = true;
@@ -2152,9 +2229,10 @@ pub fn applyHunkLine(model: *Model, line: native_sdk.EffectLine) void {
 
 fn appendHunkLine(model: *Model, raw: []const u8) void {
     if (model.review_diff_hunk_line_count >= max_review_diff_hunk_lines) return;
+    if (!ensureHunkBodyStore(model)) return;
     const line = std.mem.trimEnd(u8, raw, "\r\n");
     var used = model.review_diff_hunk_len;
-    const dest = model.review_diff_hunk_storage[0..];
+    const dest = model.review_diff_hunk_storage;
     if (used > 0) {
         if (used >= dest.len) return;
         dest[used] = '\n';
@@ -2946,6 +3024,7 @@ test "CollectReviewDiff sidecar paints file list from numstat and selected hunk 
     try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
 
     var model = Model{};
+    defer freeReviewDiffStores(&model);
     model.store_io = std.testing.io;
     model.setLastDaemonAddress("127.0.0.1:8787");
     model.setSidecarPath("faku");
@@ -4189,8 +4268,8 @@ test "clicking a tracked row fills capped patch text; empty and fail stay honest
     try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
 
     var model = Model{};
+    defer freeReviewDiffStores(&model);
     model.store_io = std.testing.io;
-    const id = model.addSession("review hunk", .fx);
     model.selected = id;
     if (model.sessionById(id)) |session| session.setProjectPath(project);
 
@@ -4263,7 +4342,8 @@ test "clicking a tracked row fills capped patch text; empty and fail stay honest
 }
 
 fn loadHunkPatch(model: *Model, patch: []const u8, complete_context: bool) void {
-    writeFixed(&model.review_diff_hunk_storage, &model.review_diff_hunk_len, patch);
+    if (!ensureHunkBodyStore(model)) return;
+    writeFixed(model.review_diff_hunk_storage, &model.review_diff_hunk_len, patch);
     model.review_diff_complete_context = complete_context;
     rebuildHunkRows(model);
 }
@@ -4280,13 +4360,13 @@ fn gapAt(model: *const Model, index: usize) DiffLine {
 }
 
 fn fullContextPatch(total_lines: u32, changes: []const u32) ![]u8 {
-    var buf: [64 * 1024]u8 = undefined;
-    var n: usize = 0;
-    const header = "diff --git a/src/lib.rs b/src/lib.rs\nindex 1111111..2222222 100644\n--- a/src/lib.rs\n+++ b/src/lib.rs\n";
-    @memcpy(buf[n .. n + header.len], header);
-    n += header.len;
-    const hunk = try std.fmt.bufPrint(buf[n..], "@@ -1,{d} +1,{d} @@\n", .{ total_lines, total_lines });
-    n += hunk.len;
+    var buf: std.ArrayList(u8) = .empty;
+    errdefer buf.deinit(std.testing.allocator);
+    try buf.appendSlice(std.testing.allocator, "diff --git a/src/lib.rs b/src/lib.rs\nindex 1111111..2222222 100644\n--- a/src/lib.rs\n+++ b/src/lib.rs\n");
+    var hunk_buf: [64]u8 = undefined;
+    const hunk = try std.fmt.bufPrint(&hunk_buf, "@@ -1,{d} +1,{d} @@\n", .{ total_lines, total_lines });
+    try buf.appendSlice(std.testing.allocator, hunk);
+    var line_buf: [64]u8 = undefined;
     var line_no: u32 = 1;
     while (line_no <= total_lines) : (line_no += 1) {
         var is_change = false;
@@ -4294,17 +4374,17 @@ fn fullContextPatch(total_lines: u32, changes: []const u32) ![]u8 {
             if (c == line_no) is_change = true;
         }
         const piece = if (is_change)
-            try std.fmt.bufPrint(buf[n..], "-let value_{d} = \"old\";\n+let value_{d} = \"new\";\n", .{ line_no, line_no })
+            try std.fmt.bufPrint(&line_buf, "-let value_{d} = \"old\";\n+let value_{d} = \"new\";\n", .{ line_no, line_no })
         else
-            try std.fmt.bufPrint(buf[n..], " line {d}\n", .{line_no});
-        n += piece.len;
+            try std.fmt.bufPrint(&line_buf, " line {d}\n", .{line_no});
+        try buf.appendSlice(std.testing.allocator, piece);
     }
-    const out = std.testing.allocator.dupe(u8, buf[0..n]) catch return error.OutOfMemory;
-    return out;
+    return buf.toOwnedSlice(std.testing.allocator);
 }
 
 test "compact hunk parse inserts a non-expandable leading Gap" {
     var model = Model{};
+    defer freeReviewDiffStores(&model);
     const patch =
         \\diff --git a/src/lib.rs b/src/lib.rs
         \\index 1111111..2222222 100644
@@ -4332,6 +4412,7 @@ test "compact hunk parse inserts a non-expandable leading Gap" {
 
 test "complete context collapses around changes and All expands the between Gap" {
     var model = Model{};
+    defer freeReviewDiffStores(&model);
     const patch = try fullContextPatch(30, &.{ 8, 17 });
     defer std.testing.allocator.free(patch);
     loadHunkPatch(&model, patch, true);
@@ -4372,6 +4453,7 @@ test "complete context collapses around changes and All expands the between Gap"
 
 test "End expansion reveals 100 retained lines from the gap edge" {
     var model = Model{};
+    defer freeReviewDiffStores(&model);
     const patch = try fullContextPatch(230, &.{221});
     defer std.testing.allocator.free(patch);
     loadHunkPatch(&model, patch, true);
@@ -4395,6 +4477,7 @@ test "End expansion reveals 100 retained lines from the gap edge" {
 
 test "Both expansion reveals 100 lines from each gap edge" {
     var model = Model{};
+    defer freeReviewDiffStores(&model);
     const patch = try fullContextPatch(230, &.{221});
     defer std.testing.allocator.free(patch);
     loadHunkPatch(&model, patch, true);
@@ -4406,8 +4489,32 @@ test "Both expansion reveals 100 lines from each gap edge" {
     try std.testing.expectEqual(@as(u32, 118), model.review_diff_visible_store[gap_i + 101].new_line);
 }
 
+test "review diff line caps match Waku 50000 with proportional byte caps" {
+    try std.testing.expectEqual(@as(usize, 50_000), max_rendered_diff_lines);
+    try std.testing.expectEqual(@as(usize, 50_000), max_review_diff_hunk_lines);
+    try std.testing.expectEqual(@as(usize, 50_000), max_review_diff_hidden_lines);
+    try std.testing.expectEqual(max_review_diff_hunk_lines * 32, max_review_diff_hunk);
+    try std.testing.expectEqual(max_review_diff_hunk, max_review_diff_daemon_patch);
+}
+
+test "complete-context Gap retain exceeds the old 4096-line cap" {
+    var model = Model{};
+    defer freeReviewDiffStores(&model);
+    const patch = try fullContextPatch(5000, &.{4200});
+    defer std.testing.allocator.free(patch);
+    loadHunkPatch(&model, patch, true);
+    const gap_i = firstGapIndex(&model) orelse return error.MissingLeadingGap;
+    try std.testing.expectEqual(GapPosition.leading, gapAt(&model, gap_i).gap_position);
+    try std.testing.expect(gapAt(&model, gap_i).gap_count > 4096);
+    try std.testing.expect(gapIsExpandable(gapAt(&model, gap_i)));
+
+    expandGap(&model, @intCast(gap_i + 1), .all);
+    try std.testing.expect(model.review_diff_visible_count > 4096);
+}
+
 test "review_diff_hunk_rows expose addition deletion and gap expand controls" {
     var model = Model{};
+    defer freeReviewDiffStores(&model);
     const patch = try fullContextPatch(30, &.{8});
     defer std.testing.allocator.free(patch);
     loadHunkPatch(&model, patch, true);
@@ -4444,6 +4551,7 @@ test "clicking a ? untracked row one-shots git diff --no-index" {
     try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
 
     var model = Model{};
+    defer freeReviewDiffStores(&model);
     model.store_io = std.testing.io;
     const id = model.addSession("review hunk untracked", .fx);
     model.selected = id;
@@ -4542,6 +4650,7 @@ test "source switch and dismiss cancel in-flight hunk spawn" {
     try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
 
     var model = Model{};
+    defer freeReviewDiffStores(&model);
     model.store_io = std.testing.io;
     const id = model.addSession("review hunk cancel", .fx);
     model.selected = id;

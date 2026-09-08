@@ -649,8 +649,10 @@ threshold 1). Daemon `completeContext` collapses long context into expandable
 Gaps; local compact `git diff` inserts count-only Gaps between hunks.
 Start / End reveal 100 retained lines, Both up to 200, All the rest
 (subject to the Faku render cap). Expand rearranges retained lines in
-memory; no new git spawn. First-cut retain/render cap is 4096 lines /
-128 KiB (Waku `MAX_RENDERED_DIFF_LINES` is 50_000). Native paints
+memory; no new git spawn. Line retain/render cap matches Waku
+`MAX_RENDERED_DIFF_LINES` 50_000. Byte cap is a Faku fixed table
+(~32 B/line × 50_000; Waku has no byte cap). Native daemon stdout is
+still `daemon_line_bytes`. Native paints
 additions `success`, deletions `destructive`, context/gaps `text_muted`.
 No syntax highlighting. Browser is an
 honest empty: Native has no webview; a persisted URL draft plus
