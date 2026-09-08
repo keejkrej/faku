@@ -1477,16 +1477,18 @@ pub const Model = struct {
     review_diff_selected_id: u32 = 0,
     /// Runtime-only first-cut unified-diff body for the selected file.
     /// Cap `max_review_diff_hunk_lines` / `max_review_diff_hunk`.
-    /// Not persisted to sessions.json.
-    review_diff_hunk_storage: [review_diff.max_review_diff_hunk]u8 = [_]u8{0} ** review_diff.max_review_diff_hunk,
+    /// Heap last-window so `Model` / `initialModel()` stay
+    /// return-by-value safe (inline 50_000-line tables would blow the
+    /// stack). Not persisted to sessions.json.
+    review_diff_hunk_storage: []u8 = &.{},
     review_diff_hunk_len: usize = 0,
     review_diff_hunk_line_count: u32 = 0,
     /// Structured Gap rows derived from `review_diff_hunk_storage`.
     /// Rebuilt when hunk text arrives; expand rearranges in place.
-    /// Not persisted.
-    review_diff_visible_store: [review_diff.max_rendered_diff_lines]review_diff.DiffLine = [_]review_diff.DiffLine{.{}} ** review_diff.max_rendered_diff_lines,
+    /// Heap last-windows (same reason as hunk storage). Not persisted.
+    review_diff_visible_store: []review_diff.DiffLine = &.{},
     review_diff_visible_count: usize = 0,
-    review_diff_hidden_store: [review_diff.max_review_diff_hidden_lines]review_diff.DiffLine = [_]review_diff.DiffLine{.{}} ** review_diff.max_review_diff_hidden_lines,
+    review_diff_hidden_store: []review_diff.DiffLine = &.{},
     review_diff_hidden_count: usize = 0,
     review_diff_next_gap_id: u32 = 0,
     review_diff_truncated: bool = false,
@@ -1519,8 +1521,8 @@ pub const Model = struct {
     /// of per-file hunk spawns. Runtime only; not persisted.
     review_diff_last_via_daemon: bool = false,
     /// Runtime-only daemon unified-diff body for selected-file filter.
-    /// Cap `max_review_diff_daemon_patch`. Not persisted.
-    review_diff_daemon_patch_storage: [review_diff.max_review_diff_daemon_patch]u8 = [_]u8{0} ** review_diff.max_review_diff_daemon_patch,
+    /// Cap `max_review_diff_daemon_patch`. Heap last-window. Not persisted.
+    review_diff_daemon_patch_storage: []u8 = &.{},
     review_diff_daemon_patch_len: usize = 0,
     /// Runtime ImageId bound by the composer `<image>`. 0 until
     /// `fx.loadImage` reports `.loaded`. Same draft `image_path` as
