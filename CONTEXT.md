@@ -409,7 +409,7 @@ address keeps today's local path). First-cut daemon
 `WorkspaceOperation::CollectReviewDiff` ships on Review / Diff
 open / refresh / source-switch when a daemon address is set (ok is
 nested `reviewDiff` + camelCase `ReviewDiffData`; paints the file
-list from `numstat` and selected hunk from `patch`; LastTurn stays
+list from `numstat` and selected hunk from `patch` (Gap rows; LastTurn stays
 local; Native 4 KiB stdin overflow / error / unusable parse falls
 back to local name-status + hunk probes; no address keeps today's
 local path). First-cut daemon
@@ -642,7 +642,17 @@ an honest `invalid` count, not a crash or silent fallback). Cap 20000
 (Waku FileSearch is 20k). No GPUI match washes. Runtime-only). Diff hosts Environment Compare / Review (Branch,
 Uncommitted, Staged, Unstaged, Committed, LastTurn; first-cut daemon
 `WorkspaceOperation::CollectReviewDiff` prefers hello + CollectReviewDiff
-for those sources except LastTurn when a daemon address is set). Browser is an
+for those sources except LastTurn when a daemon address is set). Selected-file hunks
+parse into HunkHeader / Context / Addition / Deletion / Gap rows (Waku
+`review_diff` Gap model: `DEFAULT_EXPANSION_LINE_COUNT` 100, collapse 3 /
+threshold 1). Daemon `completeContext` collapses long context into expandable
+Gaps; local compact `git diff` inserts count-only Gaps between hunks.
+Start / End reveal 100 retained lines, Both up to 200, All the rest
+(subject to the Faku render cap). Expand rearranges retained lines in
+memory; no new git spawn. First-cut retain/render cap is 4096 lines /
+128 KiB (Waku `MAX_RENDERED_DIFF_LINES` is 50_000). Native paints
+additions `success`, deletions `destructive`, context/gaps `text_muted`.
+No syntax highlighting. Browser is an
 honest empty: Native has no webview; a persisted URL draft plus
 **Open in browser** spawns `open` / `xdg-open` / Windows
 `cmd.exe /c start "" <url>` (effect key 25; empty `start` title so
@@ -1341,7 +1351,9 @@ Honest gaps this cut does not implement:
   nested `reviewDiff` + camelCase `ReviewDiffData` (`source`,
   `numstat`, `patch`, `completeContext`); paints the file list from
   `numstat` (cap 64) and selected hunk from `patch` without per-file
-  hunk spawns; LastTurn stays local; Native 4 KiB stdin overflow /
+  hunk spawns; selected hunk parses into Gap rows (`completeContext`
+  collapses expandable context; compact patches insert count-only Gaps);
+  LastTurn stays local; Native 4 KiB stdin overflow /
   error / unusable parse falls back to local name-status + hunk
   probes; no address keeps today's local path. First-cut
   `WorkspaceOperation::BrowseDirectory` ships on Pick folder (or Cmd/Ctrl-O;

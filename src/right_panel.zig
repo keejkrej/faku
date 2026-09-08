@@ -6,7 +6,7 @@
 //! --exclude-standard`, then the bounded walk) plus derived
 //! parent directories collected there. Diff shows the existing
 //! Environment Compare / Review body inline (source chips + status +
-//! file list + hunk text) via `review_diff` — not a second git probe
+//! file list + structured hunk rows) via `review_diff` — not a second git probe
 //! stack. Background is a runtime-only surface for the Environment
 //! Summary Process / Monitor / Subagent row that was clicked (kind,
 //! title, live-or-settled status, Monitor / Subagent 512KB last-window log

@@ -1294,7 +1294,40 @@
                   </if>
                   <if test="{has_review_diff_hunk}">
                     <scroll grow="1" label="Review hunks">
-                      <text wrap="true" foreground="text_muted">{review_diff_hunk}</text>
+                      <column gap="2">
+                        <for each="review_diff_hunk_rows" key="id" as="h">
+                          <if test="{h.is_gap}">
+                            <row gap="6" cross="center">
+                              <text wrap="true" foreground="text_muted">{h.text}</text>
+                              <if test="{h.can_expand_start}">
+                                <button variant="ghost" size="sm" on-press="expand_review_diff_gap_start:{h.id}">Start</button>
+                              </if>
+                              <if test="{h.can_expand_end}">
+                                <button variant="ghost" size="sm" on-press="expand_review_diff_gap_end:{h.id}">End</button>
+                              </if>
+                              <if test="{h.can_expand_both}">
+                                <button variant="ghost" size="sm" on-press="expand_review_diff_gap_both:{h.id}">Both</button>
+                              </if>
+                              <if test="{h.can_expand_all}">
+                                <button variant="ghost" size="sm" on-press="expand_review_diff_gap_all:{h.id}">All</button>
+                              </if>
+                            </row>
+                          </if>
+                          <else>
+                            <if test="{h.is_addition}">
+                              <text wrap="true" foreground="success">{h.text}</text>
+                            </if>
+                            <else>
+                              <if test="{h.is_deletion}">
+                                <text wrap="true" foreground="destructive">{h.text}</text>
+                              </if>
+                              <else>
+                                <text wrap="true" foreground="text_muted">{h.text}</text>
+                              </else>
+                            </else>
+                          </else>
+                        </for>
+                      </column>
                     </scroll>
                   </if>
                 </column>
@@ -1325,7 +1358,40 @@
               </if>
               <if test="{has_review_diff_hunk}">
                 <scroll grow="1" label="Review hunks">
-                  <text wrap="true" foreground="text_muted">{review_diff_hunk}</text>
+                  <column gap="2">
+                    <for each="review_diff_hunk_rows" key="id" as="h">
+                      <if test="{h.is_gap}">
+                        <row gap="6" cross="center">
+                          <text wrap="true" foreground="text_muted">{h.text}</text>
+                          <if test="{h.can_expand_start}">
+                            <button variant="ghost" size="sm" on-press="expand_review_diff_gap_start:{h.id}">Start</button>
+                          </if>
+                          <if test="{h.can_expand_end}">
+                            <button variant="ghost" size="sm" on-press="expand_review_diff_gap_end:{h.id}">End</button>
+                          </if>
+                          <if test="{h.can_expand_both}">
+                            <button variant="ghost" size="sm" on-press="expand_review_diff_gap_both:{h.id}">Both</button>
+                          </if>
+                          <if test="{h.can_expand_all}">
+                            <button variant="ghost" size="sm" on-press="expand_review_diff_gap_all:{h.id}">All</button>
+                          </if>
+                        </row>
+                      </if>
+                      <else>
+                        <if test="{h.is_addition}">
+                          <text wrap="true" foreground="success">{h.text}</text>
+                        </if>
+                        <else>
+                          <if test="{h.is_deletion}">
+                            <text wrap="true" foreground="destructive">{h.text}</text>
+                          </if>
+                          <else>
+                            <text wrap="true" foreground="text_muted">{h.text}</text>
+                          </else>
+                        </else>
+                      </else>
+                    </for>
+                  </column>
                 </scroll>
               </if>
               </column>

@@ -655,6 +655,11 @@ pub const Msg = union(enum) {
     set_review_diff_source_last_turn,
     /// Review file-row click. Payload is the 1-based `ReviewDiffRow.id`.
     select_review_diff_file: u32,
+    /// Review Gap expand. Payload is the 1-based visible-row id.
+    expand_review_diff_gap_start: u32,
+    expand_review_diff_gap_end: u32,
+    expand_review_diff_gap_both: u32,
+    expand_review_diff_gap_all: u32,
     git_commit_edit: canvas.TextInputEvent,
     confirm_git_commit,
     confirm_git_commit_and_push,
@@ -1476,6 +1481,18 @@ pub const Model = struct {
     review_diff_hunk_storage: [review_diff.max_review_diff_hunk]u8 = [_]u8{0} ** review_diff.max_review_diff_hunk,
     review_diff_hunk_len: usize = 0,
     review_diff_hunk_line_count: u32 = 0,
+    /// Structured Gap rows derived from `review_diff_hunk_storage`.
+    /// Rebuilt when hunk text arrives; expand rearranges in place.
+    /// Not persisted.
+    review_diff_visible_store: [review_diff.max_rendered_diff_lines]review_diff.DiffLine = [_]review_diff.DiffLine{.{}} ** review_diff.max_rendered_diff_lines,
+    review_diff_visible_count: usize = 0,
+    review_diff_hidden_store: [review_diff.max_review_diff_hidden_lines]review_diff.DiffLine = [_]review_diff.DiffLine{.{}} ** review_diff.max_review_diff_hidden_lines,
+    review_diff_hidden_count: usize = 0,
+    review_diff_next_gap_id: u32 = 0,
+    review_diff_truncated: bool = false,
+    /// Daemon `completeContext`. Local compact hunks stay false.
+    /// Not persisted.
+    review_diff_complete_context: bool = false,
     review_diff_hunk_status_storage: [review_diff.max_review_diff_hunk_status]u8 = [_]u8{0} ** review_diff.max_review_diff_hunk_status,
     review_diff_hunk_status_len: usize = 0,
     review_diff_hunk_key: u64 = 0,
@@ -2157,6 +2174,15 @@ pub const Model = struct {
         "review_diff_hunk_storage",
         "review_diff_hunk_len",
         "review_diff_hunk_line_count",
+        "review_diff_hunk",
+        "has_review_diff_hunk_rows",
+        "review_diff_visible_store",
+        "review_diff_visible_count",
+        "review_diff_hidden_store",
+        "review_diff_hidden_count",
+        "review_diff_next_gap_id",
+        "review_diff_truncated",
+        "review_diff_complete_context",
         "review_diff_hunk_status_storage",
         "review_diff_hunk_status_len",
         "review_diff_hunk_key",
@@ -4473,6 +4499,14 @@ pub const Model = struct {
 
     pub fn has_review_diff_hunk_status(model: *const Model) bool {
         return review_diff.hasReviewDiffHunkStatus(model);
+    }
+
+    pub fn review_diff_hunk_rows(model: *const Model, arena: std.mem.Allocator) []const review_diff.ReviewDiffHunkRow {
+        return review_diff.reviewDiffHunkRows(model, arena);
+    }
+
+    pub fn has_review_diff_hunk_rows(model: *const Model) bool {
+        return review_diff.hasReviewDiffHunkRows(model);
     }
 
     /// Composer usage control. 0 when the live path has not reported usage.
