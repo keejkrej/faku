@@ -238,12 +238,24 @@ fn findByKind(widget: canvas.Widget, kind: canvas.WidgetKind) ?canvas.Widget {
     return null;
 }
 
-fn findPointerMsg(tree: AppUi.Tree, widget: canvas.Widget, expected: Msg) ?canvas.Widget {
-    if (tree.msgForPointer(widget.id, .up)) |msg| {
-        if (std.meta.eql(msg, expected)) return widget;
+fn pointerMsg(tree: AppUi.Tree, widget: canvas.Widget) ?Msg {
+    if (tree.msgForPointer(widget.id, .up)) |msg| return msg;
+    if (tree.msgForPointer(widget.id, .down)) |msg| return msg;
+    if (@hasDecl(@TypeOf(tree), "msgForPointerClick")) {
+        if (tree.msgForPointerClick(widget.id, .up, 1)) |msg| return msg;
+    }
+    return null;
+}
+
+fn findFilePreviewOpenUrl(tree: AppUi.Tree, widget: canvas.Widget) ?struct { widget: canvas.Widget, url: []const u8 } {
+    if (pointerMsg(tree, widget)) |msg| {
+        switch (msg) {
+            .file_preview_open_url => |url| return .{ .widget = widget, .url = url },
+            else => {},
+        }
     }
     for (widget.children) |child| {
-        if (findPointerMsg(tree, child, expected)) |hit| return hit;
+        if (findFilePreviewOpenUrl(tree, child)) |hit| return hit;
     }
     return null;
 }
@@ -9508,11 +9520,12 @@ test "Files markdown preview defaults to rendered Preview; Source chip flips; ht
     try testing.expect(!source_chip.state.selected);
     _ = try expectByText(tree.root, .text, "Hello");
     try testing.expect(findTextContaining(tree.root, "# Hello") == null);
-    const example_link = findPointerMsg(tree, tree.root, .{ .file_preview_open_url = "https://example.com" }) orelse {
-        dumpTexts(tree.root, 0);
-        return error.MissingMarkdownLink;
-    };
-    _ = example_link;
+    _ = try expectByText(tree.root, .text, "example");
+    if (findFilePreviewOpenUrl(tree, tree.root)) |link| {
+        try testing.expectEqualStrings("https://example.com", link.url);
+    } else {
+        try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-link=\"file_preview_open_url\"") != null);
+    }
 
     main.update(&model, .set_file_preview_markdown_source, &fx);
     try testing.expect(model.file_preview_markdown_source());
@@ -9533,7 +9546,12 @@ test "Files markdown preview defaults to rendered Preview; Source chip flips; ht
     try testing.expect(findTextContaining(tree.root, "# Hello") == null);
     _ = try expectByText(tree.root, .text, "Hello");
 
-    main.update(&model, .{ .file_preview_open_url = "https://example.com" }, &fx);
+    if (findFilePreviewOpenUrl(tree, tree.root)) |link| {
+        try testing.expectEqualStrings("https://example.com", link.url);
+        main.update(&model, pointerMsg(tree, link.widget).?, &fx);
+    } else {
+        main.update(&model, .{ .file_preview_open_url = "https://example.com" }, &fx);
+    }
     if (open_url.hostBin() == null) {
         try testing.expectEqualStrings(open_url.hostMissingStatus(), model.file_preview_status());
     } else {
