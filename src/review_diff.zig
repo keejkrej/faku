@@ -91,11 +91,18 @@
 //! matches Waku `right_panel_diff_filter`: trim + ascii-lowercase
 //! contains on the full path; a non-empty query auto-expands ancestor
 //! directories. Empty / whitespace-only query is today's collapsed
-//! tree. Status stays on the file label; Waku-style `+N` / `-M` (success /
-//! destructive) come from numstat when those counts are non-zero
+//! tree. File rows paint Native `file-text` + basename (no status
+//! prefix) + a separate colored status letter (`A` success, `D`
+//! destructive, `B`/`M` warning) and Waku-style `+N` / `-M` (success /
+//! destructive) from numstat when those counts are non-zero
 //! (daemon CollectReviewDiff and local `--numstat`; zeros omitted).
+//! Numstat `-` columns are Waku `FileStatus::Binary` (`B`), not `M`.
+//! Untracked synthetic `?` stays `?` (Waku's enum is A/M/D/Binary)
+//! and uses the same warning color as `M`. Binary patch lines
+//! (`Binary files ` / `GIT binary patch`) paint meta
+//! `Binary file changed` and mark that file `B`.
 //! First-cut selected-file Diff header chrome ships above the hunk
-//! pane (path + optional `+N` / `-M`, ~36px, outside Native
+//! pane (`file-text` + path + optional `+N` / `-M`, ~36px, outside Native
 //! `<scroll>`). Waku's scroll-driven sticky overlay
 //! (`file_headers_around` / item_ix) stays Native-blocked.
 //! `completeContext` daemon patches collapse long context into
@@ -402,17 +409,25 @@ pub const failed_status = "Could not compare.";
 pub const no_workspace_status = "No workspace.";
 pub const hunk_empty_status = "No hunks";
 pub const hunk_failed_status = "Could not show diff.";
+/// Waku `LineKind::Meta` body for binary patches (not the raw git line).
+pub const binary_file_changed = "Binary file changed";
 
 /// Native `for each="review_diff_rows"` row. File `id` is 1-based
 /// into `review_diff_file_store`. Directory `id` is
-/// `review_diff_dir_id_base + parent_index`. File `label` is
-/// `{status} {basename}`; directory `label` is the path segment.
-/// Optional `+N` / `-M` live in `additions_label` / `deletions_label`
-/// (empty when the count is 0, and empty on directory rows).
+/// `review_diff_dir_id_base + parent_index`. File `label` is the
+/// basename; `status_label` is the separate colored letter (`A` /
+/// `D` / `B` / `M` / `?`). Directory `label` is the path segment
+/// (`has_status` false). Optional `+N` / `-M` live in
+/// `additions_label` / `deletions_label` (empty when the count is 0,
+/// and empty on directory rows).
 pub const ReviewDiffRow = struct {
     id: u32,
     label: []const u8,
     selected: bool = false,
+    status_label: []const u8 = "",
+    has_status: bool = false,
+    status_success: bool = false,
+    status_danger: bool = false,
     additions_label: []const u8 = "",
     deletions_label: []const u8 = "",
     has_additions: bool = false,
@@ -1134,10 +1149,10 @@ pub fn parseNameStatusLine(raw: []const u8) ?struct { status: u8, path: []const 
 }
 
 /// One `added\tdeleted\tpath` numstat row from daemon ReviewDiffData.
-/// Rename dest after a third tab. Binary `-` columns still yield a
-/// file (`M`) with that column counted as 0. Untracked synthetic
-/// `N\t0\tpath` is `?` with additions 0. Blank / malformed lines are
-/// omitted.
+/// Rename dest after a third tab. Binary `-` columns are Waku
+/// `FileStatus::Binary` (`B`) with that column counted as 0.
+/// Untracked synthetic `N\t0\tpath` is `?` with additions 0. Blank /
+/// malformed lines are omitted.
 pub fn parseNumstatFileLine(raw: []const u8) ?struct { status: u8, path: []const u8, additions: u64, deletions: u64 } {
     const line = std.mem.trim(u8, raw, " \t\r\n");
     if (line.len == 0) return null;
@@ -1163,7 +1178,7 @@ pub fn parseNumstatFileLine(raw: []const u8) ?struct { status: u8, path: []const
     const status: u8 = if (untracked)
         '?'
     else if (binary)
-        'M'
+        'B'
     else if (added_zero and !deleted_zero)
         'D'
     else if (deleted_zero and !added_zero)
@@ -1299,12 +1314,16 @@ fn makeDirRow(path: []const u8, id: u32, depth: u32, expanded: bool) ReviewDiffR
 
 fn makeFileRow(arena: std.mem.Allocator, model: *const Model, file: *const ChangedFile, id: u32, depth: u32) ReviewDiffRow {
     const basename = composer.fileMentionBasename(file.path());
-    const label = std.fmt.allocPrint(arena, "{c} {s}", .{ file.status, basename }) catch file.label();
+    const status_label = statusLetterSlice(file.status);
     const indent = @as(f32, @floatFromInt(depth)) * tree_indent_step + tree_file_indent_extra;
     var row: ReviewDiffRow = .{
         .id = id,
-        .label = label,
+        .label = basename,
         .selected = model.review_diff_selected_id == id,
+        .status_label = status_label,
+        .has_status = status_label.len != 0,
+        .status_success = file.status == 'A',
+        .status_danger = file.status == 'D',
         .additions_label = if (file.additions > 0) signedCountLabel(arena, '+', file.additions) else "",
         .deletions_label = if (file.deletions > 0) signedCountLabel(arena, '-', file.deletions) else "",
         .depth = depth,
@@ -1314,6 +1333,20 @@ fn makeFileRow(arena: std.mem.Allocator, model: *const Model, file: *const Chang
     row.has_additions = row.additions_label.len != 0;
     row.has_deletions = row.deletions_label.len != 0;
     return row;
+}
+
+fn statusLetterSlice(status: u8) []const u8 {
+    return switch (status) {
+        'A' => "A",
+        'B' => "B",
+        'C' => "C",
+        'D' => "D",
+        'M' => "M",
+        'R' => "R",
+        'T' => "T",
+        '?' => "?",
+        else => "",
+    };
 }
 
 fn collectDirParents(
@@ -1522,6 +1555,9 @@ pub fn reviewDiffHunkRows(model: *const Model, arena: std.mem.Allocator) []const
             .id = @intCast(i + 1),
             .text = lineContent(model, line),
         };
+        if (line.kind == .meta and isBinaryPatchLine(row.text)) {
+            row.text = binary_file_changed;
+        }
         switch (line.kind) {
             .addition => row.is_addition = true,
             .deletion => row.is_deletion = true,
@@ -1624,7 +1660,7 @@ fn parsePatchLines(patch: []const u8, complete_context: bool, lines: []DiffLine,
         {
             continue;
         }
-        if (std.mem.startsWith(u8, raw, "Binary files ") or std.mem.eql(u8, raw, "GIT binary patch")) {
+        if (isBinaryPatchLine(raw)) {
             _ = pushParsed(lines, &n, .{
                 .kind = .meta,
                 .content_off = line_off,
@@ -1890,6 +1926,7 @@ fn rebuildHunkRows(model: *Model) void {
     defer std.heap.page_allocator.free(parsed);
     var next_gap_id: u32 = 0;
     const n = parsePatchLines(patch, model.review_diff_complete_context, parsed, &next_gap_id);
+    markBinaryStatusFromPatch(model, patch);
     if (model.review_diff_complete_context) {
         collapseContext(model, parsed[0..n], &next_gap_id);
     } else {
@@ -2467,6 +2504,46 @@ fn diffGitMentionsPath(header: []const u8, file_path: []const u8) bool {
     return std.mem.indexOf(u8, header, a_path) != null;
 }
 
+fn isBinaryPatchLine(raw: []const u8) bool {
+    const line = std.mem.trimEnd(u8, raw, "\r");
+    return std.mem.startsWith(u8, line, "Binary files ") or std.mem.eql(u8, line, "GIT binary patch");
+}
+
+/// Waku `parse`: `Binary files ` / `GIT binary patch` set that file's
+/// status to Binary. Walks `diff --git` headers and marks matching
+/// `ChangedFile` rows `B` without cloning the rest of the snapshot parse.
+fn markBinaryStatusFromPatch(model: *Model, patch: []const u8) void {
+    var header: []const u8 = "";
+    var offset: usize = 0;
+    while (offset < patch.len) {
+        const rest = patch[offset..];
+        const line_end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
+        const raw = rest[0..line_end];
+        if (std.mem.startsWith(u8, raw, "diff --git ")) {
+            header = std.mem.trimEnd(u8, raw, "\r");
+        } else if (header.len != 0 and isBinaryPatchLine(raw)) {
+            markMatchingFileBinary(model, header);
+        }
+        if (line_end == rest.len) break;
+        offset += line_end + 1;
+    }
+}
+
+fn markMatchingFileBinary(model: *Model, header: []const u8) void {
+    const n = model.review_diff_file_count;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const file = &model.review_diff_file_store[i];
+        if (!diffGitMentionsPath(header, file.path())) continue;
+        if (file.status == 'B') return;
+        var path_buf: [max_review_diff_path]u8 = undefined;
+        const path_len = @min(file.path_len, path_buf.len);
+        @memcpy(path_buf[0..path_len], file.path_storage[0..path_len]);
+        file.setCounts('B', path_buf[0..path_len], file.additions, file.deletions);
+        return;
+    }
+}
+
 pub fn applyLine(model: *Model, line: native_sdk.EffectLine) void {
     if (line.key != model.review_diff_key or model.review_diff_key == 0) return;
     if (!probeStillCurrent(model)) return;
@@ -2487,6 +2564,7 @@ fn applyDaemonReviewDiffLine(model: *Model, raw: []const u8) void {
     clearFiles(model);
     appendParsedNumstat(model, parsed.numstat);
     writeFixed(model.review_diff_daemon_patch_storage, &model.review_diff_daemon_patch_len, parsed.patch);
+    markBinaryStatusFromPatch(model, model.review_diff_daemon_patch_storage[0..model.review_diff_daemon_patch_len]);
     model.review_diff_complete_context = parsed.complete_context;
     model.review_diff_daemon_ok = true;
     model.review_diff_last_via_daemon = true;
@@ -3261,10 +3339,12 @@ test "parseNumstatFileLine maps added/deleted into ChangedFile status letters" {
     try std.testing.expectEqual(@as(u8, 'M'), parseNumstatFileLine("2\t1\tsrc/b.zig\r\n").?.status);
     try std.testing.expectEqual(@as(u64, 2), parseNumstatFileLine("2\t1\tsrc/b.zig\r\n").?.additions);
     try std.testing.expectEqual(@as(u64, 1), parseNumstatFileLine("2\t1\tsrc/b.zig\r\n").?.deletions);
-    try std.testing.expectEqual(@as(u8, 'M'), parseNumstatFileLine("-\t-\tbin.dat").?.status);
+    try std.testing.expectEqual(@as(u8, 'B'), parseNumstatFileLine("-\t-\tbin.dat").?.status);
     try std.testing.expectEqualStrings("bin.dat", parseNumstatFileLine("-\t-\tbin.dat").?.path);
     try std.testing.expectEqual(@as(u64, 0), parseNumstatFileLine("-\t-\tbin.dat").?.additions);
     try std.testing.expectEqual(@as(u64, 0), parseNumstatFileLine("-\t-\tbin.dat").?.deletions);
+    try std.testing.expectEqual(@as(u8, 'B'), parseNumstatFileLine("-\t0\tpartial.bin").?.status);
+    try std.testing.expectEqual(@as(u8, 'B'), parseNumstatFileLine("3\t-\tother.bin").?.status);
     try std.testing.expectEqual(@as(u8, '?'), parseNumstatFileLine("N\t0\tuntracked.txt").?.status);
     try std.testing.expectEqual(@as(u64, 0), parseNumstatFileLine("N\t0\tuntracked.txt").?.additions);
     try std.testing.expectEqual(@as(u64, 0), parseNumstatFileLine("N\t0\tuntracked.txt").?.deletions);
@@ -3399,7 +3479,7 @@ test "CollectReviewDiff sidecar paints file list from numstat and selected hunk 
         defer rows_arena.deinit();
         const rows = reviewDiffRows(&model, rows_arena.allocator());
         try std.testing.expectEqual(@as(usize, 2), rows.len);
-        try std.testing.expectEqualStrings("D gone.txt", rows[0].label);
+        try expectFileRow(rows[0], "D", "gone.txt");
         try std.testing.expectEqual(@as(u32, 2), rows[0].id);
         try std.testing.expect(!rows[0].has_additions);
         try std.testing.expect(rows[0].has_deletions);
@@ -3412,7 +3492,7 @@ test "CollectReviewDiff sidecar paints file list from numstat and selected hunk 
         try std.testing.expectEqual(@as(usize, 3), expanded.len);
         try std.testing.expectEqualStrings("src", expanded[1].label);
         try std.testing.expect(expanded[1].expanded);
-        try std.testing.expectEqualStrings("A a.zig", expanded[2].label);
+        try expectFileRow(expanded[2], "A", "a.zig");
         try std.testing.expectEqual(@as(u32, 1), expanded[2].id);
         try std.testing.expect(expanded[2].has_additions);
         try std.testing.expect(!expanded[2].has_deletions);
@@ -3439,6 +3519,54 @@ test "CollectReviewDiff sidecar paints file list from numstat and selected hunk 
     try std.testing.expectEqual(@as(u64, 0), model.review_diff_hunk_key);
     try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "diff --git a/gone.txt b/gone.txt") != null);
     try std.testing.expect(std.mem.indexOf(u8, reviewDiffHunk(&model), "+new") == null);
+}
+
+test "CollectReviewDiff binary patch marks file B before hunk select" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, ".zig-cache/tmp/{s}/review-binary", .{tmp.sub_path[0..]});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    defer freeReviewDiffStores(&model);
+    model.store_io = std.testing.io;
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    const id = model.addSession("review binary", .fx);
+    model.selected = id;
+    if (model.sessionById(id)) |session| session.setProjectPath(project);
+
+    open(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.review_diff_key) orelse return error.MissingDaemonBinaryCollect;
+    applyLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"hello\"}" });
+    const ok_line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000014\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"workspace\",\"result\":{\"type\":\"reviewDiff\",\"data\":{\"source\":\"branch\",\"numstat\":\"0\\t0\\tbin.dat\\n\",\"patch\":\"diff --git a/bin.dat b/bin.dat\\nBinary files a/bin.dat and b/bin.dat differ\\n\",\"completeContext\":false}}}}}";
+    applyLine(&model, .{ .key = sidecar.key, .line = ok_line });
+    try std.testing.expectEqual(@as(u32, 1), model.review_diff_file_count);
+    try std.testing.expectEqual(@as(u8, 'B'), model.review_diff_file_store[0].status);
+    try std.testing.expectEqualStrings("B bin.dat", model.review_diff_file_store[0].label());
+    {
+        var rows_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer rows_arena.deinit();
+        const rows = reviewDiffRows(&model, rows_arena.allocator());
+        try std.testing.expectEqual(@as(usize, 1), rows.len);
+        try expectFileRow(rows[0], "B", "bin.dat");
+    }
+
+    selectFile(&model, &fx, 1);
+    var hunk_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer hunk_arena.deinit();
+    const hunk_rows = reviewDiffHunkRows(&model, hunk_arena.allocator());
+    var saw_binary = false;
+    for (hunk_rows) |row| {
+        try std.testing.expect(std.mem.indexOf(u8, row.text, "Binary files ") == null);
+        if (std.mem.eql(u8, row.text, binary_file_changed)) saw_binary = true;
+    }
+    try std.testing.expect(saw_binary);
 }
 
 test "CollectReviewDiff sidecar non-ok falls back to local numstat" {
@@ -3621,14 +3749,14 @@ test "numstat lines fill capped rows; empty and fail stay honest" {
         defer rows_arena.deinit();
         const rows = reviewDiffRows(&model, rows_arena.allocator());
         try std.testing.expectEqual(@as(usize, 4), rows.len);
-        try std.testing.expectEqualStrings("D gone.txt", rows[0].label);
+        try expectFileRow(rows[0], "D", "gone.txt");
         try std.testing.expectEqual(@as(u32, 3), rows[0].id);
         try std.testing.expectEqualStrings("-3", rows[0].deletions_label);
-        try std.testing.expectEqualStrings("A new.txt", rows[1].label);
+        try expectFileRow(rows[1], "A", "new.txt");
         try std.testing.expectEqual(@as(u32, 2), rows[1].id);
         try std.testing.expectEqualStrings("+4", rows[1].additions_label);
         try std.testing.expect(!rows[1].has_deletions);
-        try std.testing.expectEqualStrings("R renamed.txt", rows[2].label);
+        try expectFileRow(rows[2], "R", "renamed.txt");
         try std.testing.expectEqual(@as(u32, 4), rows[2].id);
         try std.testing.expectEqualStrings("+1", rows[2].additions_label);
         try std.testing.expect(!rows[2].has_deletions);
@@ -3640,7 +3768,7 @@ test "numstat lines fill capped rows; empty and fail stay honest" {
         try std.testing.expectEqual(@as(usize, 5), expanded.len);
         try std.testing.expectEqualStrings("src", expanded[3].label);
         try std.testing.expect(expanded[3].expanded);
-        try std.testing.expectEqualStrings("M a.zig", expanded[4].label);
+        try expectFileRow(expanded[4], "M", "a.zig");
         try std.testing.expectEqual(@as(u32, 1), expanded[4].id);
         try std.testing.expect(expanded[4].has_additions);
         try std.testing.expect(expanded[4].has_deletions);
@@ -3687,7 +3815,7 @@ test "reviewDiffRows paints a collapsed directory tree and +N / -M on expanded l
     {
         const rows = reviewDiffRows(&model, arena);
         try std.testing.expectEqual(@as(usize, 2), rows.len);
-        try std.testing.expectEqualStrings("D gone.txt", rows[0].label);
+        try expectFileRow(rows[0], "D", "gone.txt");
         try std.testing.expectEqual(@as(u32, 3), rows[0].id);
         try std.testing.expect(!rows[0].is_directory);
         try std.testing.expectEqual(@as(u32, 0), rows[0].depth);
@@ -3699,16 +3827,17 @@ test "reviewDiffRows paints a collapsed directory tree and +N / -M on expanded l
         try std.testing.expectEqual(@as(u32, 0), rows[1].depth);
         try std.testing.expect(!rows[1].has_additions);
         try std.testing.expect(!rows[1].has_deletions);
+        try std.testing.expect(!rows[1].has_status);
     }
 
     toggleDir(&model, dirId(0));
     {
         const rows = reviewDiffRows(&model, arena);
         try std.testing.expectEqual(@as(usize, 4), rows.len);
-        try std.testing.expectEqualStrings("D gone.txt", rows[0].label);
+        try expectFileRow(rows[0], "D", "gone.txt");
         try std.testing.expectEqualStrings("src", rows[1].label);
         try std.testing.expect(rows[1].expanded);
-        try std.testing.expectEqualStrings("A a.zig", rows[2].label);
+        try expectFileRow(rows[2], "A", "a.zig");
         try std.testing.expectEqual(@as(u32, 1), rows[2].id);
         try std.testing.expectEqual(@as(u32, 1), rows[2].depth);
         try std.testing.expect(rows[2].has_indent);
@@ -3716,7 +3845,7 @@ test "reviewDiffRows paints a collapsed directory tree and +N / -M on expanded l
         try std.testing.expectEqualStrings("+1", rows[2].additions_label);
         try std.testing.expect(rows[2].has_additions);
         try std.testing.expect(!rows[2].has_deletions);
-        try std.testing.expectEqualStrings("M b.zig", rows[3].label);
+        try expectFileRow(rows[3], "M", "b.zig");
         try std.testing.expectEqual(@as(u32, 2), rows[3].id);
         try std.testing.expectEqualStrings("+2", rows[3].additions_label);
         try std.testing.expectEqualStrings("-1", rows[3].deletions_label);
@@ -3741,10 +3870,10 @@ test "reviewDiffRows flat root files have no directory rows" {
     defer arena_state.deinit();
     const rows = reviewDiffRows(&model, arena_state.allocator());
     try std.testing.expectEqual(@as(usize, 2), rows.len);
-    try std.testing.expectEqualStrings("D gone.txt", rows[0].label);
+    try expectFileRow(rows[0], "D", "gone.txt");
     try std.testing.expect(!rows[0].is_directory);
     try std.testing.expectEqual(@as(u32, 2), rows[0].id);
-    try std.testing.expectEqualStrings("A new.txt", rows[1].label);
+    try expectFileRow(rows[1], "A", "new.txt");
     try std.testing.expectEqual(@as(u32, 1), rows[1].id);
     try std.testing.expectEqualStrings("+4", rows[1].additions_label);
     try std.testing.expect(!rows[0].is_directory and !rows[1].is_directory);
@@ -3765,7 +3894,7 @@ test "reviewDiffRows builds shared directories once and hides collapsed descenda
     {
         const rows = reviewDiffRows(&model, arena);
         try std.testing.expectEqual(@as(usize, 3), rows.len);
-        try std.testing.expectEqualStrings("M README.md", rows[0].label);
+        try expectFileRow(rows[0], "M", "README.md");
         try std.testing.expectEqual(@as(u32, 1), rows[0].id);
         try std.testing.expectEqual(@as(u32, 0), rows[0].depth);
         try std.testing.expectEqualStrings("src", rows[1].label);
@@ -3784,7 +3913,7 @@ test "reviewDiffRows builds shared directories once and hides collapsed descenda
     {
         const rows = reviewDiffRows(&model, arena);
         try std.testing.expectEqual(@as(usize, 6), rows.len);
-        try std.testing.expectEqualStrings("M README.md", rows[0].label);
+        try expectFileRow(rows[0], "M", "README.md");
         try std.testing.expectEqualStrings("src", rows[1].label);
         try std.testing.expect(rows[1].expanded);
         try std.testing.expectEqualStrings("app", rows[2].label);
@@ -3792,12 +3921,12 @@ test "reviewDiffRows builds shared directories once and hides collapsed descenda
         try std.testing.expect(!rows[2].expanded);
         try std.testing.expectEqual(@as(u32, 1), rows[2].depth);
         try std.testing.expectEqual(src_app_id, rows[2].id);
-        try std.testing.expectEqualStrings("M lib.rs", rows[3].label);
+        try expectFileRow(rows[3], "M", "lib.rs");
         try std.testing.expectEqual(@as(u32, 4), rows[3].id);
         try std.testing.expectEqual(@as(u32, 1), rows[3].depth);
         try std.testing.expectEqualStrings("tests", rows[4].label);
         try std.testing.expect(rows[4].expanded);
-        try std.testing.expectEqualStrings("M review.rs", rows[5].label);
+        try expectFileRow(rows[5], "M", "review.rs");
         try std.testing.expectEqual(@as(u32, 5), rows[5].id);
         var i: usize = 0;
         while (i < rows.len) : (i += 1) {
@@ -3812,12 +3941,12 @@ test "reviewDiffRows builds shared directories once and hides collapsed descenda
         try std.testing.expectEqual(@as(usize, 8), rows.len);
         try std.testing.expectEqualStrings("app", rows[2].label);
         try std.testing.expect(rows[2].expanded);
-        try std.testing.expectEqualStrings("M runtime.rs", rows[3].label);
+        try expectFileRow(rows[3], "M", "runtime.rs");
         try std.testing.expectEqual(@as(u32, 2), rows[3].id);
         try std.testing.expectEqual(@as(u32, 2), rows[3].depth);
-        try std.testing.expectEqualStrings("M view.rs", rows[4].label);
+        try expectFileRow(rows[4], "M", "view.rs");
         try std.testing.expectEqual(@as(u32, 3), rows[4].id);
-        try std.testing.expectEqualStrings("M lib.rs", rows[5].label);
+        try expectFileRow(rows[5], "M", "lib.rs");
     }
 }
 
@@ -3826,6 +3955,44 @@ fn dirIdOfPath(model: *const Model, path: []const u8) ?u32 {
     var dir_buf: [max_review_diff_dirs][]const u8 = undefined;
     const dir_n = collectDirParents(model, &path_buf, &dir_buf);
     return dirIdOf(dir_buf[0..dir_n], path);
+}
+
+fn expectFileRow(row: ReviewDiffRow, status: []const u8, basename: []const u8) !void {
+    try std.testing.expect(!row.is_directory);
+    try std.testing.expectEqualStrings(basename, row.label);
+    try std.testing.expectEqualStrings(status, row.status_label);
+    try std.testing.expect(row.has_status);
+    try std.testing.expectEqual(std.mem.eql(u8, status, "A"), row.status_success);
+    try std.testing.expectEqual(std.mem.eql(u8, status, "D"), row.status_danger);
+}
+
+test "reviewDiffRows expose status letter separate from basename" {
+    var model = Model{};
+    model.review_diff_file_store[0].setCounts('A', "src/a.zig", 1, 0);
+    model.review_diff_file_store[1].setCounts('B', "bin.dat", 0, 0);
+    model.review_diff_file_store[2].set('D', "gone.txt");
+    model.review_diff_file_store[3].set('?', "new.txt");
+    model.review_diff_file_store[4].setCounts('M', "src/b.zig", 2, 1);
+    model.review_diff_file_count = 5;
+    toggleDir(&model, dirId(0));
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const rows = reviewDiffRows(&model, arena_state.allocator());
+    try std.testing.expectEqual(@as(usize, 6), rows.len);
+    try expectFileRow(rows[0], "B", "bin.dat");
+    try std.testing.expect(!rows[0].status_success);
+    try std.testing.expect(!rows[0].status_danger);
+    try expectFileRow(rows[1], "D", "gone.txt");
+    try expectFileRow(rows[2], "?", "new.txt");
+    try std.testing.expect(!rows[2].status_success);
+    try std.testing.expect(!rows[2].status_danger);
+    try std.testing.expectEqualStrings("src", rows[3].label);
+    try std.testing.expect(rows[3].is_directory);
+    try std.testing.expect(!rows[3].has_status);
+    try expectFileRow(rows[4], "A", "a.zig");
+    try expectFileRow(rows[5], "M", "b.zig");
+    try std.testing.expect(!rows[5].status_success);
+    try std.testing.expect(!rows[5].status_danger);
 }
 
 test "reviewDiffRows path filter contains-match expands ancestors" {
@@ -3843,7 +4010,7 @@ test "reviewDiffRows path filter contains-match expands ancestors" {
     {
         const rows = reviewDiffRows(&model, arena);
         try std.testing.expectEqual(@as(usize, 3), rows.len);
-        try std.testing.expectEqualStrings("M README.md", rows[0].label);
+        try expectFileRow(rows[0], "M", "README.md");
         try std.testing.expectEqual(@as(u32, 1), rows[0].id);
         try std.testing.expectEqualStrings("src", rows[1].label);
         try std.testing.expect(rows[1].is_directory);
@@ -3877,7 +4044,7 @@ test "reviewDiffRows path filter contains-match expands ancestors" {
         try std.testing.expect(rows[1].is_directory);
         try std.testing.expect(rows[1].expanded);
         try std.testing.expectEqual((dirIdOfPath(&model, "src/app") orelse return error.MissingSrcAppDir), rows[1].id);
-        try std.testing.expectEqualStrings("M runtime.rs", rows[2].label);
+        try expectFileRow(rows[2], "M", "runtime.rs");
         try std.testing.expect(!rows[2].is_directory);
         try std.testing.expectEqual(@as(u32, 2), rows[2].id);
         try std.testing.expectEqual(@as(u32, 2), rows[2].depth);
@@ -3896,7 +4063,7 @@ test "reviewDiffRows path filter contains-match expands ancestors" {
     {
         const rows = reviewDiffRows(&model, arena);
         try std.testing.expectEqual(@as(usize, 3), rows.len);
-        try std.testing.expectEqualStrings("M README.md", rows[0].label);
+        try expectFileRow(rows[0], "M", "README.md");
         try std.testing.expectEqualStrings("src", rows[1].label);
         try std.testing.expect(!rows[1].expanded);
         try std.testing.expectEqualStrings("tests", rows[2].label);
@@ -5360,6 +5527,66 @@ test "review_diff_hunk_rows code body omits unified-diff marker" {
     try std.testing.expect(saw_add);
     try std.testing.expect(saw_empty_add);
     try std.testing.expect(saw_meta);
+}
+
+test "binary patch meta is Binary file changed and marks status B" {
+    var model = Model{};
+    defer freeReviewDiffStores(&model);
+    model.review_diff_file_store[0].setCounts('M', "bin.dat", 0, 0);
+    model.review_diff_file_count = 1;
+    model.review_diff_selected_id = 1;
+    const patch =
+        \\diff --git a/bin.dat b/bin.dat
+        \\index 1111111..2222222
+        \\Binary files a/bin.dat and b/bin.dat differ
+        \\
+    ;
+    loadHunkPatch(&model, patch, false);
+    try std.testing.expectEqual(@as(u8, 'B'), model.review_diff_file_store[0].status);
+    try std.testing.expectEqualStrings("B bin.dat", model.review_diff_file_store[0].label());
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const rows = reviewDiffHunkRows(&model, arena_state.allocator());
+    var saw_binary = false;
+    for (rows) |row| {
+        try std.testing.expect(std.mem.indexOf(u8, row.text, "Binary files ") == null);
+        try std.testing.expect(!std.mem.eql(u8, row.text, "GIT binary patch"));
+        if (std.mem.eql(u8, row.text, binary_file_changed)) saw_binary = true;
+    }
+    try std.testing.expect(saw_binary);
+
+    var tree_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer tree_arena.deinit();
+    const tree = reviewDiffRows(&model, tree_arena.allocator());
+    try std.testing.expectEqual(@as(usize, 1), tree.len);
+    try expectFileRow(tree[0], "B", "bin.dat");
+}
+
+test "GIT binary patch meta is Binary file changed and marks status B" {
+    var model = Model{};
+    defer freeReviewDiffStores(&model);
+    model.review_diff_file_store[0].setCounts('A', "icon.png", 0, 0);
+    model.review_diff_file_count = 1;
+    model.review_diff_selected_id = 1;
+    const patch =
+        \\diff --git a/icon.png b/icon.png
+        \\new file mode 100644
+        \\GIT binary patch
+        \\literal 12
+        \\
+    ;
+    loadHunkPatch(&model, patch, false);
+    try std.testing.expectEqual(@as(u8, 'B'), model.review_diff_file_store[0].status);
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const rows = reviewDiffHunkRows(&model, arena_state.allocator());
+    var saw_binary = false;
+    for (rows) |row| {
+        try std.testing.expect(!std.mem.eql(u8, row.text, "GIT binary patch"));
+        try std.testing.expect(!std.mem.eql(u8, row.text, "literal 12"));
+        if (std.mem.eql(u8, row.text, binary_file_changed)) saw_binary = true;
+    }
+    try std.testing.expect(saw_binary);
 }
 
 test "clicking a ? untracked row one-shots git diff --no-index" {

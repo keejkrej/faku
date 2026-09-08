@@ -660,15 +660,16 @@ Code-row body is Waku `Line.content` (unified-diff marker stripped);
 no syntax-token highlighting (Native has no per-span Token). File-list
 rows paint a first-cut nested directory tree matching Waku
 `review_diff_tree_rows` (collapsible Directory + File, default
-collapsed, basename leaves, status + optional `+N` / `-M` from
-numstat; zeros omitted; daemon CollectReviewDiff and local
+collapsed, basename leaves, Native `file-text` icon, colored status
+letter `A`/`D`/`B`/`M`/`?` separate from the basename, optional `+N` / `-M` from
+numstat; zeros omitted; numstat `-` is Binary `B`; daemon CollectReviewDiff and local
 `--numstat`). A Native search-field above that tree is Waku
 `right_panel_diff_filter`: runtime-only (not `sessions.json`); trim
 + ascii-lowercase contains on the full path; a non-empty query
 auto-expands ancestor directories. Empty / whitespace-only is
 today's collapsed tree. Leaving Diff (other tab / panel hide)
 clears the filter. First-cut selected-file Diff header chrome ships
-above the hunk pane (path + optional `+N` / `-M`, ~36px, outside
+above the hunk pane (`file-text` + path + optional `+N` / `-M`, ~36px, outside
 Native `<scroll>`, nested-split and stacked hunk layouts). Waku's
 scroll-driven sticky overlay (`file_headers_around` / item_ix)
 stays Native-blocked (no documented virtualized item index /
