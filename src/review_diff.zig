@@ -2535,7 +2535,11 @@ fn markMatchingFileBinary(model: *Model, header: []const u8) void {
     while (i < n) : (i += 1) {
         const file = &model.review_diff_file_store[i];
         if (!diffGitMentionsPath(header, file.path())) continue;
-        file.setCounts('B', file.path(), file.additions, file.deletions);
+        if (file.status == 'B') return;
+        var path_buf: [max_review_diff_path]u8 = undefined;
+        const path_len = @min(file.path_len, path_buf.len);
+        @memcpy(path_buf[0..path_len], file.path_storage[0..path_len]);
+        file.setCounts('B', path_buf[0..path_len], file.additions, file.deletions);
         return;
     }
 }
