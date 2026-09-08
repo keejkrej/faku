@@ -655,6 +655,9 @@ pub const Msg = union(enum) {
     set_review_diff_source_last_turn,
     /// Review file-row click. Payload is the 1-based `ReviewDiffRow.id`.
     select_review_diff_file: u32,
+    /// Diff file-list directory click. Payload is
+    /// `review_diff_dir_id_base + parent_index`.
+    toggle_review_diff_dir: u32,
     /// Review Gap expand. Payload is the 1-based visible-row id.
     expand_review_diff_gap_start: u32,
     expand_review_diff_gap_end: u32,
@@ -1465,6 +1468,13 @@ pub const Model = struct {
     /// Not persisted to sessions.json.
     review_diff_file_store: [review_diff.max_review_diff_files]review_diff.ChangedFile = [_]review_diff.ChangedFile{.{}} ** review_diff.max_review_diff_files,
     review_diff_file_count: u32 = 0,
+    /// Runtime-only expanded Diff file-list dirs. Keys are
+    /// repo-relative directory paths (no trailing slash), matching
+    /// Waku `right_panel_diff_expanded_paths`. Empty = collapsed
+    /// (Files-like default; Faku has no Diff path filter). Cap
+    /// `max_review_diff_dirs`. Not persisted.
+    review_diff_expanded_store: [review_diff.max_review_diff_dirs]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** review_diff.max_review_diff_dirs,
+    review_diff_expanded_count: u32 = 0,
     review_diff_status_storage: [review_diff.max_review_diff_status]u8 = [_]u8{0} ** review_diff.max_review_diff_status,
     review_diff_status_len: usize = 0,
     review_diff_key: u64 = 0,
@@ -2165,6 +2175,8 @@ pub const Model = struct {
         "review_diff_last_turn_range_len",
         "review_diff_file_store",
         "review_diff_file_count",
+        "review_diff_expanded_store",
+        "review_diff_expanded_count",
         "review_diff_status_storage",
         "review_diff_status_len",
         "review_diff_key",

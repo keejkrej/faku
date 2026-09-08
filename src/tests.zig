@@ -23384,12 +23384,13 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expect(model.has_review_diff_files());
     try testing.expectEqual(@as(u32, 2), model.review_diff_file_count);
     tree = try buildTree(arena, &model);
-    const file_row = try expectButtonMsg(tree, "M src/a.zig", .{ .select_review_diff_file = 1 });
     _ = try expectButtonMsg(tree, "A new.txt", .{ .select_review_diff_file = 2 });
-    _ = try expectByText(tree.root, .text, "+2");
-    _ = try expectByText(tree.root, .text, "-1");
+    const src_dir = try expectButtonMsg(tree, "src", .{ .toggle_review_diff_dir = review_diff.dirId(0) });
+    try testing.expect(findByText(tree.root, .button, "M a.zig") == null);
+    try testing.expect(findByText(tree.root, .button, "M src/a.zig") == null);
     _ = try expectByText(tree.root, .text, "+4");
-    try testing.expect(findByText(tree.root, .text, "+1") == null);
+    try testing.expect(findByText(tree.root, .text, "+2") == null);
+    try testing.expect(findByText(tree.root, .text, "-1") == null);
     try testing.expect(findByText(tree.root, .text, review_diff.comparing_status) == null);
     try testing.expect(findByText(tree.root, .scroll_view, "Review files") != null);
     try testing.expect(!model.review_diff_nested_split());
@@ -23406,11 +23407,24 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{r.additions_label}") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{r.has_deletions}") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{r.deletions_label}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{r.is_directory}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"toggle_review_diff_dir:{r.id}\"") != null);
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{r.additions_label}"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{r.deletions_label}"));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "toggle_review_diff_dir:{r.id}"));
 
     main.update(&model, .{ .right_panel_diff_file_list_resized = 0.5 }, &fx);
     try testing.expectEqual(@as(f32, 184), model.right_panel_diff_file_list_width);
+
+    main.update(&model, tree.msgForPointer(src_dir.id, .up).?, &fx);
+    try testing.expectEqual(@as(u32, 1), model.review_diff_expanded_count);
+    tree = try buildTree(arena, &model);
+    const file_row = try expectButtonMsg(tree, "M a.zig", .{ .select_review_diff_file = 1 });
+    _ = try expectButtonMsg(tree, "A new.txt", .{ .select_review_diff_file = 2 });
+    _ = try expectByText(tree.root, .text, "+2");
+    _ = try expectByText(tree.root, .text, "-1");
+    _ = try expectByText(tree.root, .text, "+4");
+    try testing.expect(findByText(tree.root, .text, "+1") == null);
 
     main.update(&model, tree.msgForPointer(file_row.id, .up).?, &fx);
     try testing.expectEqual(@as(u32, 1), model.review_diff_selected_id);
@@ -23435,7 +23449,7 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     _ = try expectByText(tree.root, .text, "hello");
     try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") != null);
     try testing.expect(findByText(tree.root, .scroll_view, "Review files") != null);
-    const selected_row = try expectButtonMsg(tree, "M src/a.zig", .{ .select_review_diff_file = 1 });
+    const selected_row = try expectButtonMsg(tree, "M a.zig", .{ .select_review_diff_file = 1 });
     try testing.expect(selected_row.state.selected);
     _ = try expectButtonMsg(tree, "Cancel", .close_review_diff);
     const uncommitted_on_hunk = try expectButtonMsg(tree, "Uncommitted", .set_review_diff_source_uncommitted);
@@ -23507,21 +23521,74 @@ test "Diff file list paints numstat +N / -M beside file labels" {
     model.review_diff_file_store[1].setCounts('A', "new.txt", 4, 0);
     model.review_diff_file_count = 2;
     const tree = try buildTree(arena, &model);
-    _ = try expectButtonMsg(tree, "M src/a.zig", .{ .select_review_diff_file = 1 });
     _ = try expectButtonMsg(tree, "A new.txt", .{ .select_review_diff_file = 2 });
-    _ = try expectByText(tree.root, .text, "+2");
-    _ = try expectByText(tree.root, .text, "-1");
+    _ = try expectButtonMsg(tree, "src", .{ .toggle_review_diff_dir = review_diff.dirId(0) });
+    try testing.expect(findByText(tree.root, .button, "M a.zig") == null);
     _ = try expectByText(tree.root, .text, "+4");
+    try testing.expect(findByText(tree.root, .text, "+2") == null);
     try testing.expect(findByText(tree.root, .scroll_view, "Review files") != null);
     try testing.expect(!model.review_diff_nested_split());
+
+    review_diff.toggleDir(&model, review_diff.dirId(0));
+    const expanded = try buildTree(arena, &model);
+    _ = try expectButtonMsg(expanded, "M a.zig", .{ .select_review_diff_file = 1 });
+    _ = try expectButtonMsg(expanded, "A new.txt", .{ .select_review_diff_file = 2 });
+    _ = try expectByText(expanded.root, .text, "+2");
+    _ = try expectByText(expanded.root, .text, "-1");
+    _ = try expectByText(expanded.root, .text, "+4");
 
     model.review_diff_hunk_status_storage[0] = 'x';
     model.review_diff_hunk_status_len = 1;
     try testing.expect(model.review_diff_nested_split());
     const nested = try buildTree(arena, &model);
-    _ = try expectButtonMsg(nested, "M src/a.zig", .{ .select_review_diff_file = 1 });
+    _ = try expectButtonMsg(nested, "M a.zig", .{ .select_review_diff_file = 1 });
     _ = try expectByText(nested.root, .text, "+2");
     _ = try expectByText(nested.root, .text, "-1");
+}
+
+test "Diff file list expands and collapses nested directories" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.right_panel_open = true;
+    model.right_panel_tab = .diff;
+    model.review_diff_active = true;
+    model.review_diff_file_store[0].setCounts('M', "src/a.zig", 2, 1);
+    model.review_diff_file_store[1].setCounts('A', "src/b.zig", 1, 0);
+    model.review_diff_file_store[2].setCounts('M', "docs/x.md", 3, 2);
+    model.review_diff_file_count = 3;
+
+    var tree = try buildTree(arena, &model);
+    const src_dir = try expectButtonMsg(tree, "src", .{ .toggle_review_diff_dir = review_diff.dirId(0) });
+    _ = try expectButtonMsg(tree, "docs", .{ .toggle_review_diff_dir = review_diff.dirId(1) });
+    try testing.expect(findByText(tree.root, .button, "M a.zig") == null);
+    try testing.expect(findByText(tree.root, .button, "A b.zig") == null);
+    try testing.expect(findByText(tree.root, .button, "M x.md") == null);
+    try testing.expect(findByText(tree.root, .text, "+2") == null);
+    try testing.expect(findByText(tree.root, .text, "+3") == null);
+
+    main.update(&model, tree.msgForPointer(src_dir.id, .up).?, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "M a.zig", .{ .select_review_diff_file = 1 });
+    _ = try expectButtonMsg(tree, "A b.zig", .{ .select_review_diff_file = 2 });
+    _ = try expectByText(tree.root, .text, "+2");
+    _ = try expectByText(tree.root, .text, "-1");
+    _ = try expectByText(tree.root, .text, "+1");
+    try testing.expect(findByText(tree.root, .button, "M x.md") == null);
+    try testing.expect(findByText(tree.root, .text, "+3") == null);
+
+    main.update(&model, .{ .toggle_review_diff_dir = review_diff.dirId(0) }, &fx);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "M a.zig") == null);
+    try testing.expect(findByText(tree.root, .button, "A b.zig") == null);
+    _ = try expectButtonMsg(tree, "src", .{ .toggle_review_diff_dir = review_diff.dirId(0) });
+    _ = try expectButtonMsg(tree, "docs", .{ .toggle_review_diff_dir = review_diff.dirId(1) });
 }
 
 test "Environment Compare without a workspace shows No workspace and invents no files" {
@@ -24322,7 +24389,10 @@ test "header Environment +/- opens the same Review card as Compare" {
     drainEffects(&model, &fx);
     try testing.expect(model.has_review_diff_files());
     tree = try buildTree(arena, &model);
-    _ = try expectButtonMsg(tree, "M src/a.zig", .{ .select_review_diff_file = 1 });
+    const src_dir = try expectButtonMsg(tree, "src", .{ .toggle_review_diff_dir = review_diff.dirId(0) });
+    main.update(&model, tree.msgForPointer(src_dir.id, .up).?, &fx);
+    tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "M a.zig", .{ .select_review_diff_file = 1 });
 
     main.update(&model, .close_review_diff, &fx);
     try testing.expect(!model.review_diff_active);

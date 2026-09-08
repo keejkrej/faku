@@ -658,9 +658,11 @@ still `daemon_line_bytes`. Native paints a `shown_line` gutter and
 additions `success`, deletions `destructive`, context/gaps `text_muted`.
 Code-row body is Waku `Line.content` (unified-diff marker stripped);
 no syntax-token highlighting (Native has no per-span Token). File-list
-rows paint Waku-style `+N` / `-M` (success / destructive) from numstat
-when those counts are non-zero (daemon CollectReviewDiff and local
-`--numstat`; zeros omitted). Browser is an
+rows paint a first-cut nested directory tree matching Waku
+`review_diff_tree_rows` (collapsible Directory + File, default
+collapsed, basename leaves, status + optional `+N` / `-M` from
+numstat; zeros omitted; daemon CollectReviewDiff and local
+`--numstat`). Browser is an
 honest empty: Native has no webview; a persisted URL draft plus
 **Open in browser** spawns `open` / `xdg-open` / Windows
 `cmd.exe /c start "" <url>` (effect key 25; empty `start` title so
