@@ -1841,7 +1841,8 @@ pub fn copyAgentCliThreadId(model: *Model, fx: *Effects) void {
 }
 
 /// Close the popover and any Commit… card, then open the right-panel
-/// Diff tab. Uncommitted is the Diff-tab default when no compare is
+/// Diff tab (first-cut: widen with Waku `REVIEW_INITIAL_WIDTH` 820).
+/// Uncommitted is the Diff-tab default when no compare is
 /// active; an already-active source is kept and refreshed.
 pub fn compare(model: *Model, fx: *Effects) void {
     close(model);

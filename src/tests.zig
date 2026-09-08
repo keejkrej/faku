@@ -9639,7 +9639,7 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     main.update(&model, .set_right_panel_tab_diff, &fx);
     try testing.expect(model.right_panel_open);
     try testing.expect(model.right_panel_tab_diff());
-    try testing.expectEqual(@as(u32, 460), model.rightPanelWidthPixels());
+    try testing.expectEqual(@as(u32, 820), model.rightPanelWidthPixels());
     try testing.expect(model.review_diff_active);
     try testing.expectEqual(review_diff.Source.uncommitted, model.review_diff_source);
 
@@ -9712,7 +9712,7 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     main.update(&model, .set_right_panel_tab_diff, &fx);
     try testing.expect(model.right_panel_open);
     try testing.expect(model.right_panel_tab_diff());
-    try testing.expectEqual(@as(u32, 460), model.rightPanelWidthPixels());
+    try testing.expectEqual(@as(u32, 820), model.rightPanelWidthPixels());
 }
 
 test "right panel Browser Open in browser spawns key-25 URL sidecar; empty URL is a status" {
@@ -23334,6 +23334,7 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expect(model.review_diff_active);
     try testing.expect(model.right_panel_open);
     try testing.expect(model.right_panel_tab_diff());
+    try testing.expectEqual(@as(u32, 820), model.rightPanelWidthPixels());
     try testing.expectEqual(review_diff.Source.uncommitted, model.review_diff_source);
     try testing.expect(model.review_diff_source_uncommitted());
     try testing.expect(!model.review_diff_source_branch());
@@ -24227,6 +24228,7 @@ test "header Environment +/- opens the same Review card as Compare" {
     try testing.expect(model.review_diff_active);
     try testing.expect(model.right_panel_open);
     try testing.expect(model.right_panel_tab_diff());
+    try testing.expectEqual(@as(u32, 820), model.rightPanelWidthPixels());
     try testing.expectEqual(review_diff.Source.uncommitted, model.review_diff_source);
     try testing.expect(model.review_diff_key >= main.review_diff_key_first);
     try testing.expectEqualStrings(review_diff.comparing_status, model.review_diff_status());

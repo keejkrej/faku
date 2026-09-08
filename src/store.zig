@@ -18,7 +18,8 @@
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
 //! plus `right_panel_open` / `right_panel_width` / `right_panel_tab` /
 //! `browser_url` for the first-cut Files + Diff + Browser + Terminal +
-//! Background pane (default closed; Waku file-tree 184px; tab is
+//! Background pane (default closed; Waku file-tree 184px; Diff open
+//! may persist Waku `REVIEW_INITIAL_WIDTH` 820; tab is
 //! `files` / `diff` / `browser` / `terminal` / `background`, missing or
 //! unknown → `files`; Browser draft URL is raw text capped at
 //! `open_url.max_url`, missing / empty / overflow-refused → empty;
@@ -2505,6 +2506,100 @@ test "right_panel_tab round-trips each value; missing or unknown loads as files"
         } else {
             try testing.expectEqual(@as(u32, 460), loaded.rightPanelWidthPixels());
         }
+    }
+}
+
+test "selecting Diff from a narrow Files width persists REVIEW_INITIAL_WIDTH 820" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("diff widen later", .fx);
+    _ = source.appendTurn(id, .user, "remember the diff pane");
+    try saveSession(&source, id, allocator, io);
+
+    var fx = main.Effects.init(allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    source.right_panel_open = true;
+    source.right_panel_width = 220;
+    source.syncRightPanelSplit();
+    right_panel.selectDiff(&source, &fx);
+    persistLayoutIfPossible(&source);
+    try testing.expectEqual(@as(u32, 820), source.rightPanelWidthPixels());
+    try testing.expectEqual(right_panel.Tab.diff, source.right_panel_tab);
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = catalogPath(dir, &path_buf).?;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_document_bytes));
+    defer allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_width\":820") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_tab\":\"diff\"") != null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expect(loaded.right_panel_open);
+    try testing.expectEqual(right_panel.Tab.diff, loaded.right_panel_tab);
+    try testing.expectEqual(@as(u32, 820), loaded.rightPanelWidthPixels());
+
+    var wide = Model{};
+    wide.task_state_loaded = true;
+    wide.setStoreDir(dir);
+    wide.store_io = io;
+    const wide_id = wide.addSession("diff stay wide", .fx);
+    _ = wide.appendTurn(wide_id, .user, "keep 920");
+    try saveSession(&wide, wide_id, allocator, io);
+    wide.right_panel_open = true;
+    wide.right_panel_tab = .browser;
+    wide.right_panel_width = 920;
+    right_panel.selectDiff(&wide, &fx);
+    persistLayoutIfPossible(&wide);
+    try testing.expectEqual(@as(u32, 920), wide.rightPanelWidthPixels());
+
+    var stay = Model{};
+    stay.setStoreDir(dir);
+    stay.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&stay, allocator, io));
+    try testing.expectEqual(right_panel.Tab.diff, stay.right_panel_tab);
+    try testing.expectEqual(@as(u32, 920), stay.rightPanelWidthPixels());
+
+    const other_tabs = [_]right_panel.Tab{ .browser, .terminal, .background };
+    for (other_tabs) |tab| {
+        var other = Model{};
+        other.task_state_loaded = true;
+        other.setStoreDir(dir);
+        other.store_io = io;
+        const other_id = other.addSession("wide tab later", .fx);
+        _ = other.appendTurn(other_id, .user, "narrow bump");
+        try saveSession(&other, other_id, allocator, io);
+        other.right_panel_open = true;
+        other.right_panel_width = 220;
+        switch (tab) {
+            .browser => right_panel.selectBrowser(&other, &fx),
+            .terminal => right_panel.selectTerminal(&other, &fx),
+            .background => right_panel.selectBackground(&other, &fx, 0),
+            else => unreachable,
+        }
+        persistLayoutIfPossible(&other);
+        try testing.expectEqual(@as(u32, 460), other.rightPanelWidthPixels());
+
+        var other_loaded = Model{};
+        other_loaded.setStoreDir(dir);
+        other_loaded.store_io = io;
+        try testing.expectEqual(LoadKind.loaded, loadCatalog(&other_loaded, allocator, io));
+        try testing.expectEqual(tab, other_loaded.right_panel_tab);
+        try testing.expectEqual(@as(u32, 460), other_loaded.rightPanelWidthPixels());
     }
 }
 
