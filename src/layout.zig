@@ -6,8 +6,10 @@
 //! First-cut Files preview widen lives here as `file_editor_initial_width`
 //! and `widenedPanelWidthForFileEditor` (Waku `FILE_EDITOR_INITIAL_WIDTH`
 //! 500). Nested Files tree + preview uses `file_editor_min_width` 140
-//! and `fittedFileTreeWidth` (Waku `fitted_file_tree_width`). First-cut
-//! Diff / Review open widen lives here as `review_initial_width` and
+//! and `fittedFileTreeWidth` (Waku `fitted_file_tree_width`). Nested
+//! Diff hunk + file list reuses those FILE_TREE clamps (no Waku
+//! REVIEW_* list-width constant this cut). First-cut Diff / Review
+//! open widen lives here as `review_initial_width` and
 //! `widenedPanelWidthForReview` (Waku `REVIEW_INITIAL_WIDTH` 820).
 
 const std = @import("std");
@@ -93,6 +95,15 @@ pub fn fileTreeSplitFraction(panel_width: f32, file_tree_width: f32) f32 {
     return (pane - tree) / pane;
 }
 
+/// Nested Diff file-list width. Reuses FILE_TREE clamps (140 / 184 / 360
+/// via `fittedFileTreeWidth`); there is no Waku REVIEW_* list-width
+/// constant this cut.
+pub const fittedDiffFileListWidth = fittedFileTreeWidth;
+
+/// Native nested-split left fraction for Diff hunk | file list: hunk is
+/// the left pane, file list the right at `fittedDiffFileListWidth`.
+pub const diffFileListSplitFraction = fileTreeSplitFraction;
+
 test "layout chrome widths match Waku-aligned numbers" {
     try std.testing.expectEqual(@as(f32, 252), sidebar_default_width);
     try std.testing.expectEqual(@as(f32, 180), sidebar_min_width);
@@ -142,4 +153,17 @@ test "fileTreeSplitFraction is preview-left of fitted tree width" {
     try std.testing.expectEqual(@as(f32, 500.0 / 684.0), fileTreeSplitFraction(684, 184));
     try std.testing.expectEqual(@as(f32, 0.5), fileTreeSplitFraction(280, 184));
     try std.testing.expectEqual(@as(f32, (720.0 - 184.0) / 720.0), fileTreeSplitFraction(720, 184));
+}
+
+test "Diff file-list width reuses FILE_TREE fitted clamps and split fraction" {
+    try std.testing.expectEqual(@as(f32, 184), fittedDiffFileListWidth(820, 184));
+    try std.testing.expectEqual(@as(f32, 184), fittedDiffFileListWidth(820, 0));
+    try std.testing.expectEqual(@as(f32, 140), fittedDiffFileListWidth(820, 100));
+    try std.testing.expectEqual(@as(f32, 360), fittedDiffFileListWidth(820, 500));
+    try std.testing.expectEqual(@as(f32, 140), fittedDiffFileListWidth(280, 184));
+    try std.testing.expectEqual(@as(f32, 260), fittedDiffFileListWidth(400, 300));
+    try std.testing.expectEqual(fittedFileTreeWidth(820, 220), fittedDiffFileListWidth(820, 220));
+    try std.testing.expectEqual(@as(f32, (820.0 - 184.0) / 820.0), diffFileListSplitFraction(820, 184));
+    try std.testing.expectEqual(fileTreeSplitFraction(820, 220), diffFileListSplitFraction(820, 220));
+    try std.testing.expectEqual(@as(f32, 0.5), diffFileListSplitFraction(280, 184));
 }

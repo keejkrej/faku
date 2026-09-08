@@ -127,6 +127,8 @@ pub const widenedPanelWidthForFileEditor = layout_mod.widenedPanelWidthForFileEd
 pub const widenedPanelWidthForReview = layout_mod.widenedPanelWidthForReview;
 pub const fittedFileTreeWidth = layout_mod.fittedFileTreeWidth;
 pub const fileTreeSplitFraction = layout_mod.fileTreeSplitFraction;
+pub const fittedDiffFileListWidth = layout_mod.fittedDiffFileListWidth;
+pub const diffFileListSplitFraction = layout_mod.diffFileListSplitFraction;
 pub const max_sessions = model_mod.max_sessions;
 /// Sidebar folder-header keys sit above session ids so `for` keys stay unique.
 pub const folder_row_id_base: u32 = 1_000_000;
