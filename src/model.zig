@@ -951,13 +951,17 @@ pub const Model = struct {
     /// persisted to sessions.json this cut.
     right_panel_expanded_store: [file_mention.max_file_mention_dirs]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** file_mention.max_file_mention_dirs,
     right_panel_expanded_count: u32 = 0,
-    /// Runtime-only nested Files-tree width while a preview is open.
-    /// Waku `DEFAULT_FILE_TREE_WIDTH` 184. Fitted at layout/resize via
-    /// `fittedFileTreeWidth`. Not persisted to sessions.json this cut.
+    /// Nested Files-tree width while a preview is open. Waku
+    /// `DEFAULT_FILE_TREE_WIDTH` 184. Fitted at layout/resize via
+    /// `fittedFileTreeWidth`. Persisted on sessions.json extras
+    /// (`right_panel_file_tree_width`); missing / 0 keep 184 then
+    /// FILE_TREE clamp.
     right_panel_file_tree_width: f32 = right_panel_default_width,
-    /// Runtime-only nested Diff file-list width while hunk content sits
-    /// beside the list. Reuses FILE_TREE 184 / `fittedFileTreeWidth`
-    /// (no Waku REVIEW_* list-width constant). Not persisted this cut.
+    /// Nested Diff file-list width while hunk content sits beside the
+    /// list. Reuses FILE_TREE 184 / `fittedFileTreeWidth` (no Waku
+    /// REVIEW_* list-width constant). Persisted on sessions.json extras
+    /// (`right_panel_diff_file_list_width`); missing / 0 keep 184 then
+    /// FILE_TREE clamp.
     right_panel_diff_file_list_width: f32 = right_panel_default_width,
     /// Runtime-only Files-tab inline preview. 1-based file-mention id;
     /// 0 = tree only. Not persisted to sessions.json this cut.
@@ -1938,6 +1942,10 @@ pub const Model = struct {
         "file_preview_line_rows",
         "rightPanelWidthPixels",
         "applyRightPanelWidth",
+        "rightPanelFileTreeWidthPixels",
+        "rightPanelDiffFileListWidthPixels",
+        "applyRightPanelFileTreeWidth",
+        "applyRightPanelDiffFileListWidth",
         "syncRightPanelSplit",
         "toggleRightPanel",
         "showRightPanel",
@@ -3482,6 +3490,24 @@ pub const Model = struct {
     pub fn applyRightPanelWidth(model: *Model, width: u32) void {
         if (width == 0) return;
         model.right_panel_width = right_panel.clampWidthForModel(model, @floatFromInt(width));
+    }
+
+    pub fn rightPanelFileTreeWidthPixels(model: *const Model) u32 {
+        return @intFromFloat(@round(right_panel.clampNestedListWidthForPersist(model.right_panel_width, model.right_panel_file_tree_width)));
+    }
+
+    pub fn applyRightPanelFileTreeWidth(model: *Model, width: u32) void {
+        if (width == 0) return;
+        model.right_panel_file_tree_width = right_panel.clampNestedListWidthForPersist(model.right_panel_width, @floatFromInt(width));
+    }
+
+    pub fn rightPanelDiffFileListWidthPixels(model: *const Model) u32 {
+        return @intFromFloat(@round(right_panel.clampNestedListWidthForPersist(model.right_panel_width, model.right_panel_diff_file_list_width)));
+    }
+
+    pub fn applyRightPanelDiffFileListWidth(model: *Model, width: u32) void {
+        if (width == 0) return;
+        model.right_panel_diff_file_list_width = right_panel.clampNestedListWidthForPersist(model.right_panel_width, @floatFromInt(width));
     }
 
     pub fn syncRightPanelSplit(model: *Model) void {

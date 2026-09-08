@@ -372,9 +372,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .right_panel_file_tree_resized => |fraction| {
             model.applyFileTreeResize(fraction);
+            store.persistLayoutIfPossible(model);
         },
         .right_panel_diff_file_list_resized => |fraction| {
             model.applyDiffFileListResize(fraction);
+            store.persistLayoutIfPossible(model);
         },
         .open_right_panel_file => |id| right_panel.selectCachedFile(model, fx, id),
         .close_right_panel_file_preview => right_panel.closeFilePreview(model),

@@ -16,10 +16,13 @@
 //! a session hydrates its turns,
 //! `queued_messages`, `rewind_refs`, `worktree_snapshot_sha`, `worktree_turn_end_sha`, `worktree_turn_diff_sha`, and last-known context usage. Document extras also keep
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
-//! plus `right_panel_open` / `right_panel_width` / `right_panel_tab` /
-//! `browser_url` for the first-cut Files + Diff + Browser + Terminal +
-//! Background pane (default closed; Waku file-tree 184px; Diff open
-//! may persist Waku `REVIEW_INITIAL_WIDTH` 820; tab is
+//! plus `right_panel_open` / `right_panel_width` /
+//! `right_panel_file_tree_width` / `right_panel_diff_file_list_width` /
+//! `right_panel_tab` / `browser_url` for the first-cut Files + Diff +
+//! Browser + Terminal + Background pane (default closed; Waku file-tree
+//! 184px; nested Files-tree and Diff file-list widths are u32 pixels,
+//! missing or 0 keep Model 184 then FILE_TREE clamp; Diff open may
+//! persist Waku `REVIEW_INITIAL_WIDTH` 820; tab is
 //! `files` / `diff` / `browser` / `terminal` / `background`, missing or
 //! unknown → `files`; Browser draft URL is raw text capped at
 //! `open_url.max_url`, missing / empty / overflow-refused → empty;
@@ -347,6 +350,7 @@ pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void
 
 /// Merge-only write of layout extras (`sidebar_collapsed`,
 /// `sidebar_width`, `right_panel_open`, `right_panel_width`,
+/// `right_panel_file_tree_width`, `right_panel_diff_file_list_width`,
 /// `right_panel_tab`, `browser_url`). Does not
 /// create `sessions.json` and does not spawn a daemon sidecar. Missing
 /// / corrupt catalogs are a no-op.
@@ -401,6 +405,8 @@ fn applySidebarExtras(document: *Document, model: *const Model) void {
     document.sidebar_width = model.sidebarWidthPixels();
     document.right_panel_open = model.right_panel_open;
     document.right_panel_width = model.rightPanelWidthPixels();
+    document.right_panel_file_tree_width = model.rightPanelFileTreeWidthPixels();
+    document.right_panel_diff_file_list_width = model.rightPanelDiffFileListWidthPixels();
     document.right_panel_tab = model.right_panel_tab;
     document.browser_url = model.browser_url();
 }
@@ -945,6 +951,8 @@ const Document = struct {
     sidebar_width: u32 = 0,
     right_panel_open: bool = false,
     right_panel_width: u32 = 0,
+    right_panel_file_tree_width: u32 = 0,
+    right_panel_diff_file_list_width: u32 = 0,
     right_panel_tab: right_panel.Tab = .files,
     browser_url: []const u8 = "",
     folders: []StoredFolder = &.{},
@@ -971,6 +979,8 @@ const Document = struct {
             .sidebar_width = model.sidebarWidthPixels(),
             .right_panel_open = model.right_panel_open,
             .right_panel_width = model.rightPanelWidthPixels(),
+            .right_panel_file_tree_width = model.rightPanelFileTreeWidthPixels(),
+            .right_panel_diff_file_list_width = model.rightPanelDiffFileListWidthPixels(),
             .right_panel_tab = model.right_panel_tab,
             .browser_url = model.browser_url(),
             .sessions = &.{},
@@ -1031,6 +1041,8 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.sidebar_collapsed = document.sidebar_collapsed;
     model.applySidebarWidth(document.sidebar_width);
     right_panel.applyPersisted(model, document.right_panel_open, document.right_panel_tab, document.right_panel_width);
+    model.applyRightPanelFileTreeWidth(document.right_panel_file_tree_width);
+    model.applyRightPanelDiffFileListWidth(document.right_panel_diff_file_list_width);
     applyPersistedBrowserUrl(model, document.browser_url);
     model.syncSidebarSplit();
     for (document.folders) |folder| {
@@ -1334,6 +1346,8 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .sidebar_width = jsonUint(obj.get("sidebar_width")) orelse 0,
         .right_panel_open = jsonBool(obj.get("right_panel_open")) orelse false,
         .right_panel_width = jsonUint(obj.get("right_panel_width")) orelse 0,
+        .right_panel_file_tree_width = jsonUint(obj.get("right_panel_file_tree_width")) orelse 0,
+        .right_panel_diff_file_list_width = jsonUint(obj.get("right_panel_diff_file_list_width")) orelse 0,
         .right_panel_tab = right_panel.Tab.fromPersist(jsonString(obj.get("right_panel_tab")) orelse ""),
         .browser_url = persistedBrowserUrl(jsonString(obj.get("browser_url")) orelse ""),
         .next_folder_id = jsonUint(obj.get("next_folder_id")) orelse 1,
@@ -1720,6 +1734,10 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try out.appendSlice(allocator, if (document.right_panel_open) "true" else "false");
     try out.appendSlice(allocator, ",\"right_panel_width\":");
     try appendUint(&out, allocator, document.right_panel_width);
+    try out.appendSlice(allocator, ",\"right_panel_file_tree_width\":");
+    try appendUint(&out, allocator, document.right_panel_file_tree_width);
+    try out.appendSlice(allocator, ",\"right_panel_diff_file_list_width\":");
+    try appendUint(&out, allocator, document.right_panel_diff_file_list_width);
     try out.appendSlice(allocator, ",\"right_panel_tab\":");
     try appendJsonString(&out, allocator, document.right_panel_tab.persistName());
     try out.appendSlice(allocator, ",\"browser_url\":");
@@ -2405,8 +2423,6 @@ test "Background tab persists; selected row and output are not written to sessio
     environment_summary.appendLiveSubagentOutput(&source, "toolu_agent_persist", "secret subagent log");
     source.environment_summary_open = true;
     environment_summary.openBackgroundWork(&source, &fx, environment_summary.monitor_row_id_first);
-    source.right_panel_file_tree_width = 220;
-    source.right_panel_diff_file_list_width = 220;
     try saveSession(&source, id, allocator, io);
     persistLayoutIfPossible(&source);
     try testing.expect(source.right_panel_open);
@@ -2425,8 +2441,8 @@ test "Background tab persists; selected row and output are not written to sessio
     try testing.expect(std.mem.indexOf(u8, bytes, "right_panel_background") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "file_preview") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "file_preview_find") == null);
-    try testing.expect(std.mem.indexOf(u8, bytes, "file_tree_width") == null);
-    try testing.expect(std.mem.indexOf(u8, bytes, "diff_file_list_width") == null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_file_tree_width\":184") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_diff_file_list_width\":184") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "background_work") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "Agent turn") == null);
     try testing.expect(std.mem.indexOf(u8, bytes, "Running") == null);
@@ -2451,6 +2467,68 @@ test "Background tab persists; selected row and output are not written to sessio
     try testing.expect(loaded.background_work_empty());
 }
 
+test "nested Files tree and Diff file-list widths reload from document extras" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("nested list widths later", .fx);
+    _ = source.appendTurn(id, .user, "remember nested list widths");
+    try saveSession(&source, id, allocator, io);
+
+    try testing.expectEqual(@as(u32, 184), source.rightPanelFileTreeWidthPixels());
+    try testing.expectEqual(@as(u32, 184), source.rightPanelDiffFileListWidthPixels());
+    source.right_panel_open = true;
+    source.right_panel_width = 184;
+    source.right_panel_file_tree_width = 220;
+    source.right_panel_diff_file_list_width = 240;
+    persistLayoutIfPossible(&source);
+    try testing.expectEqual(@as(u32, 220), source.rightPanelFileTreeWidthPixels());
+    try testing.expectEqual(@as(u32, 240), source.rightPanelDiffFileListWidthPixels());
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = catalogPath(dir, &path_buf).?;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_document_bytes));
+    defer allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_file_tree_width\":220") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"right_panel_diff_file_list_width\":240") != null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqual(@as(f32, 220), loaded.right_panel_file_tree_width);
+    try testing.expectEqual(@as(f32, 240), loaded.right_panel_diff_file_list_width);
+    try testing.expectEqual(@as(u32, 220), loaded.rightPanelFileTreeWidthPixels());
+    try testing.expectEqual(@as(u32, 240), loaded.rightPanelDiffFileListWidthPixels());
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"right_panel_open":true,"right_panel_width":184,"right_panel_file_tree_width":0,"right_panel_diff_file_list_width":0,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var zeroed = Model{};
+    zeroed.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&zeroed, allocator, io));
+    try testing.expectEqual(@as(f32, 184), zeroed.right_panel_file_tree_width);
+    try testing.expectEqual(@as(f32, 184), zeroed.right_panel_diff_file_list_width);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"right_panel_open":true,"right_panel_width":184,"right_panel_file_tree_width":500,"right_panel_diff_file_list_width":100,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var clamped = Model{};
+    clamped.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&clamped, allocator, io));
+    try testing.expectEqual(@as(f32, 360), clamped.right_panel_file_tree_width);
+    try testing.expectEqual(@as(f32, 140), clamped.right_panel_diff_file_list_width);
+}
+
 test "right_panel_tab round-trips each value; missing or unknown loads as files" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
@@ -2469,6 +2547,8 @@ test "right_panel_tab round-trips each value; missing or unknown loads as files"
     try testing.expect(missing.right_panel_open);
     try testing.expect(missing.right_panel_tab_files());
     try testing.expectEqualStrings("", missing.browser_url());
+    try testing.expectEqual(@as(f32, 184), missing.right_panel_file_tree_width);
+    try testing.expectEqual(@as(f32, 184), missing.right_panel_diff_file_list_width);
 
     try writeRaw(io, dir,
         \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"right_panel_open":true,"right_panel_width":460,"right_panel_tab":"nope","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
