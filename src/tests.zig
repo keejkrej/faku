@@ -23683,6 +23683,13 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"expand_review_diff_gap_start:{h.id}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{h.has_line_number}") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{h.line_number}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{h.is_code}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "source=\"{h.source}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "added-lines=\"{h.added_lines}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "removed-lines=\"{h.removed_lines}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "template=\"review-hunk-rows\"") != null);
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "template=\"review-hunk-rows\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{review_diff_hunk_language == 'zig'}") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "foreground=\"success\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "foreground=\"destructive\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "foreground=\"warning\"") != null);
@@ -23749,7 +23756,11 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expectEqual(@as(f32, 184), model.right_panel_diff_file_list_width);
     try testing.expectEqual(@as(f32, (820.0 - 184.0) / 820.0), model.right_panel_diff_file_list_split());
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "hello");
+    const hunk_source = findTextContaining(tree.root, "hello") orelse {
+        dumpTexts(tree.root, 0);
+        return error.WidgetNotFound;
+    };
+    try testing.expect(hunk_source.codeLineNumberDigits() > 0);
     _ = try expectByText(tree.root, .text, "src/a.zig");
     try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") != null);
     try testing.expect(findByText(tree.root, .scroll_view, "Review files") != null);

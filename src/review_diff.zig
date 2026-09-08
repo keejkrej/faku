@@ -82,10 +82,16 @@
 //! status — no invented files. First-cut selected-file hunks
 //! parse into HunkHeader / Context / Addition / Deletion / Gap
 //! rows (Waku `review_diff` Gap model). Native paints a
-//! `shown_line` gutter (`new_line` else `old_line`); code-row
-//! body matches Waku `Line.content` (unified-diff marker
-//! stripped). Syntax-token highlighting still does not (Native
-//! has no per-span Token). File-list rows paint a first-cut nested
+//! `shown_line` gutter (`new_line` else `old_line`) on the text
+//! fallback path. Code-row body matches Waku `Line.content`
+//! (unified-diff marker stripped). First-cut Native `<code>`
+//! diff presentation ships when the selected file's lexer is
+//! not `plain` and a contiguous Context/Addition/Deletion
+//! segment is ≤128 lines (`language`, `added-lines` /
+//! `removed-lines`, `line-numbers`). Native omits numbers and
+//! diff washes above 128 lines, so those segments keep today's
+//! per-row `<text>` coloring. Not Waku per-token GPUI. File-list
+//! rows paint a first-cut nested
 //! directory tree matching Waku `review_diff_tree_rows` (Directory +
 //! File, default collapsed, basename leaves). First-cut path filter
 //! matches Waku `right_panel_diff_filter`: trim + ascii-lowercase
@@ -127,7 +133,7 @@
 //! for selected-file hunk display (no per-file hunk spawn when that
 //! patch is usable). LastTurn stays local. Overflow / spawn failure
 //! / non-ok / unusable parse fall back to local `--numstat`. Leftovers still blocked or deferred:
-//! syntax-token highlighting (no per-span Token), GPUI match
+//! Waku per-token GPUI highlighting, GPUI match
 //! washes, circular GPUI gauge, file-mention 50k index (Faku cap
 //! 256), chart 12% fill opacity, amend/force over daemon, remote
 //! `--track` over daemon, Waku scroll-driven sticky Diff file
@@ -180,6 +186,7 @@ const daemon_proxy = @import("daemon_proxy.zig");
 const protocol = @import("protocol.zig");
 const composer = @import("composer.zig");
 const file_mention = @import("file_mention.zig");
+const code_language = @import("code_language.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -439,7 +446,8 @@ pub const ReviewDiffRow = struct {
     indent: f32 = 0,
 };
 
-/// Waku `LineKind` without syntax tokens. `gap` holds collapsed
+/// Waku `LineKind`. Highlighting is Native `<code>` on paint, not
+/// per-span tokens on these rows. `gap` holds collapsed
 /// context between or around changes.
 pub const LineKind = enum(u8) {
     file_header,
@@ -486,9 +494,14 @@ pub const DiffLine = struct {
 };
 
 /// Native `for each="review_diff_hunk_rows"` row. `id` is 1-based
-/// visible-row index (the expand payload). `text` is Waku-style
-/// code-row body (marker stripped) or `gapLabel`. `line_number` is
-/// Waku `shown_line` (`new_line` else `old_line`) as an arena decimal.
+/// visible-row index (the expand payload). Gap / header / meta / text
+/// fallback rows use `text` (Waku-style code-row body with marker
+/// stripped, or `gapLabel`). `line_number` is Waku `shown_line`
+/// (`new_line` else `old_line`) as an arena decimal on the text
+/// fallback path. `is_code` rows are one Native `<code>` segment:
+/// `source` is clean joined body; `added_lines` / `removed_lines`
+/// are 1-based Native specs in that source. Code-diff uses Native
+/// `line-numbers` (decorative) and does not set `has_line_number`.
 pub const ReviewDiffHunkRow = struct {
     id: u32,
     text: []const u8,
@@ -496,12 +509,106 @@ pub const ReviewDiffHunkRow = struct {
     is_addition: bool = false,
     is_deletion: bool = false,
     is_gap: bool = false,
+    is_code: bool = false,
+    source: []const u8 = "",
+    added_lines: []const u8 = "",
+    removed_lines: []const u8 = "",
     has_line_number: bool = false,
     can_expand_start: bool = false,
     can_expand_end: bool = false,
     can_expand_both: bool = false,
     can_expand_all: bool = false,
 };
+
+/// Documented Native code-diff / numbered-mode bound. Longer
+/// contiguous segments keep all bytes on the text fallback path
+/// rather than sending a `<code>` that would drop washes.
+pub const native_code_diff_max_lines: usize = 128;
+
+/// One Context / Addition / Deletion line for `buildHunkCodeDiff`.
+/// `text` is already marker-stripped (Waku `Line.content`).
+pub const HunkCodeLineKind = enum { context, addition, deletion };
+
+pub const HunkCodeLine = struct {
+    kind: HunkCodeLineKind,
+    text: []const u8,
+};
+
+/// Clean source plus Native `added-lines` / `removed-lines` specs for
+/// one contiguous paint segment. `null` means text fallback (plain
+/// language, empty, or more than 128 lines).
+pub const HunkCodeDiff = struct {
+    source: []const u8,
+    added_lines: []const u8,
+    removed_lines: []const u8,
+};
+
+/// Join Context / Addition / Deletion rows into Native `<code>`
+/// source. `added-lines` / `removed-lines` are 1-based comma lists
+/// and inclusive ranges in that clean source (`5, 9-11`). Gaps and
+/// headers are not valid inputs — callers must split on those rows.
+pub fn buildHunkCodeDiff(
+    lines: []const HunkCodeLine,
+    language: []const u8,
+    arena: std.mem.Allocator,
+) ?HunkCodeDiff {
+    if (lines.len == 0) return null;
+    if (lines.len > native_code_diff_max_lines) return null;
+    if (language.len == 0 or std.mem.eql(u8, language, "plain")) return null;
+
+    var added_buf: [native_code_diff_max_lines]u32 = undefined;
+    var removed_buf: [native_code_diff_max_lines]u32 = undefined;
+    var added_n: usize = 0;
+    var removed_n: usize = 0;
+    const texts = arena.alloc([]const u8, lines.len) catch return null;
+    for (lines, 0..) |line, i| {
+        texts[i] = line.text;
+        const n: u32 = @intCast(i + 1);
+        switch (line.kind) {
+            .addition => {
+                added_buf[added_n] = n;
+                added_n += 1;
+            },
+            .deletion => {
+                removed_buf[removed_n] = n;
+                removed_n += 1;
+            },
+            .context => {},
+        }
+    }
+    const source = std.mem.join(arena, "\n", texts) catch return null;
+    return .{
+        .source = source,
+        .added_lines = formatLineSpec(arena, added_buf[0..added_n]),
+        .removed_lines = formatLineSpec(arena, removed_buf[0..removed_n]),
+    };
+}
+
+fn formatLineSpec(arena: std.mem.Allocator, numbers: []const u32) []const u8 {
+    if (numbers.len == 0) return "";
+    var buf: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    while (i < numbers.len) {
+        const start = numbers[i];
+        var end = start;
+        while (i + 1 < numbers.len and numbers[i + 1] == end + 1) {
+            i += 1;
+            end = numbers[i];
+        }
+        if (buf.items.len > 0) buf.appendSlice(arena, ", ") catch return "";
+        if (start == end) {
+            var nbuf: [16]u8 = undefined;
+            const piece = std.fmt.bufPrint(&nbuf, "{d}", .{start}) catch return "";
+            buf.appendSlice(arena, piece) catch return "";
+        } else {
+            var nbuf: [32]u8 = undefined;
+            const piece = std.fmt.bufPrint(&nbuf, "{d}-{d}", .{ start, end }) catch return "";
+            buf.appendSlice(arena, piece) catch return "";
+        }
+        i += 1;
+    }
+    return buf.toOwnedSlice(arena) catch "";
+}
 
 pub const ChangedFile = struct {
     status: u8 = 0,
@@ -1544,56 +1651,120 @@ fn gapLabel(arena: std.mem.Allocator, count: u32) []const u8 {
     return out;
 }
 
+fn isHunkCodeKind(kind: LineKind) bool {
+    return kind == .context or kind == .addition or kind == .deletion;
+}
+
+fn hunkCodeKind(kind: LineKind) ?HunkCodeLineKind {
+    return switch (kind) {
+        .context => .context,
+        .addition => .addition,
+        .deletion => .deletion,
+        else => null,
+    };
+}
+
+fn paintVisibleRow(model: *const Model, arena: std.mem.Allocator, line: DiffLine, visible_index: usize) ReviewDiffHunkRow {
+    var row: ReviewDiffHunkRow = .{
+        .id = @intCast(visible_index + 1),
+        .text = lineContent(model, line),
+    };
+    if (line.kind == .meta and isBinaryPatchLine(row.text)) {
+        row.text = binary_file_changed;
+    }
+    switch (line.kind) {
+        .addition => row.is_addition = true,
+        .deletion => row.is_deletion = true,
+        .gap => {
+            row.is_gap = true;
+            row.text = gapLabel(arena, line.gap_count);
+            if (gapIsExpandable(line)) {
+                const chunked = line.gap_count > default_expansion_line_count;
+                row.can_expand_all = true;
+                switch (line.gap_position) {
+                    .leading => row.can_expand_end = true,
+                    .trailing => row.can_expand_start = true,
+                    .between => {
+                        if (chunked) {
+                            row.can_expand_start = true;
+                            row.can_expand_end = true;
+                        } else {
+                            row.can_expand_both = true;
+                        }
+                    },
+                }
+            }
+        },
+        else => {},
+    }
+    if (line.kind == .context or line.kind == .addition or line.kind == .deletion) {
+        const shown = if (line.new_line != 0) line.new_line else line.old_line;
+        if (shown != 0) {
+            row.line_number = std.fmt.allocPrint(arena, "{d}", .{shown}) catch "";
+            row.has_line_number = row.line_number.len != 0;
+        }
+    }
+    return row;
+}
+
 pub fn reviewDiffHunkRows(model: *const Model, arena: std.mem.Allocator) []const ReviewDiffHunkRow {
     const n = model.review_diff_visible_count;
     if (n == 0) return &.{};
+    const language = code_language.previewLanguage(reviewDiffHunkFilePath(model));
     const out = arena.alloc(ReviewDiffHunkRow, n) catch return &.{};
     var written: usize = 0;
-    for (model.review_diff_visible_store[0..n], 0..) |line, i| {
-        if (line.kind == .file_header) continue;
-        var row: ReviewDiffHunkRow = .{
-            .id = @intCast(i + 1),
-            .text = lineContent(model, line),
-        };
-        if (line.kind == .meta and isBinaryPatchLine(row.text)) {
-            row.text = binary_file_changed;
+    var i: usize = 0;
+    while (i < n) {
+        const line = model.review_diff_visible_store[i];
+        if (line.kind == .file_header) {
+            i += 1;
+            continue;
         }
-        switch (line.kind) {
-            .addition => row.is_addition = true,
-            .deletion => row.is_deletion = true,
-            .gap => {
-                row.is_gap = true;
-                row.text = gapLabel(arena, line.gap_count);
-                if (gapIsExpandable(line)) {
-                    const chunked = line.gap_count > default_expansion_line_count;
-                    row.can_expand_all = true;
-                    switch (line.gap_position) {
-                        .leading => row.can_expand_end = true,
-                        .trailing => row.can_expand_start = true,
-                        .between => {
-                            if (chunked) {
-                                row.can_expand_start = true;
-                                row.can_expand_end = true;
-                            } else {
-                                row.can_expand_both = true;
-                            }
-                        },
-                    }
-                }
-            },
-            else => {},
-        }
-        if (line.kind == .context or line.kind == .addition or line.kind == .deletion) {
-            const shown = if (line.new_line != 0) line.new_line else line.old_line;
-            if (shown != 0) {
-                row.line_number = std.fmt.allocPrint(arena, "{d}", .{shown}) catch "";
-                row.has_line_number = row.line_number.len != 0;
+        if (isHunkCodeKind(line.kind)) {
+            const start = i;
+            while (i < n and isHunkCodeKind(model.review_diff_visible_store[i].kind)) : (i += 1) {}
+            const segment = model.review_diff_visible_store[start..i];
+            if (paintCodeSegment(model, arena, language, segment, start)) |code_row| {
+                out[written] = code_row;
+                written += 1;
+                continue;
             }
+            for (segment, start..) |code_line, vis_i| {
+                out[written] = paintVisibleRow(model, arena, code_line, vis_i);
+                written += 1;
+            }
+            continue;
         }
-        out[written] = row;
+        out[written] = paintVisibleRow(model, arena, line, i);
         written += 1;
+        i += 1;
     }
     return out[0..written];
+}
+
+fn paintCodeSegment(
+    model: *const Model,
+    arena: std.mem.Allocator,
+    language: []const u8,
+    segment: []const DiffLine,
+    start: usize,
+) ?ReviewDiffHunkRow {
+    const inputs = arena.alloc(HunkCodeLine, segment.len) catch return null;
+    for (segment, 0..) |line, idx| {
+        inputs[idx] = .{
+            .kind = hunkCodeKind(line.kind) orelse return null,
+            .text = lineContent(model, line),
+        };
+    }
+    const block = buildHunkCodeDiff(inputs, language, arena) orelse return null;
+    return .{
+        .id = @intCast(start + 1),
+        .text = "",
+        .is_code = true,
+        .source = block.source,
+        .added_lines = block.added_lines,
+        .removed_lines = block.removed_lines,
+    };
 }
 
 fn parseHunkStarts(line: []const u8) ?struct { old: u32, new: u32 } {
@@ -5527,6 +5698,115 @@ test "review_diff_hunk_rows code body omits unified-diff marker" {
     try std.testing.expect(saw_add);
     try std.testing.expect(saw_empty_add);
     try std.testing.expect(saw_meta);
+}
+
+test "buildHunkCodeDiff joins clean source and compact added/removed specs" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const lines = [_]HunkCodeLine{
+        .{ .kind = .context, .text = "fn main() void {" },
+        .{ .kind = .deletion, .text = "    old();" },
+        .{ .kind = .addition, .text = "    new();" },
+        .{ .kind = .addition, .text = "    extra();" },
+        .{ .kind = .context, .text = "}" },
+    };
+    const diff = buildHunkCodeDiff(&lines, "zig", arena) orelse return error.ExpectedCodeDiff;
+    try std.testing.expectEqualStrings("fn main() void {\n    old();\n    new();\n    extra();\n}", diff.source);
+    try std.testing.expectEqualStrings("3-4", diff.added_lines);
+    try std.testing.expectEqualStrings("2", diff.removed_lines);
+
+    const noncontig = [_]HunkCodeLine{
+        .{ .kind = .addition, .text = "a" },
+        .{ .kind = .context, .text = "b" },
+        .{ .kind = .deletion, .text = "c" },
+        .{ .kind = .deletion, .text = "d" },
+        .{ .kind = .context, .text = "e" },
+        .{ .kind = .addition, .text = "f" },
+    };
+    const spec = buildHunkCodeDiff(&noncontig, "javascript", arena) orelse return error.ExpectedNoncontig;
+    try std.testing.expectEqualStrings("a\nb\nc\nd\ne\nf", spec.source);
+    try std.testing.expectEqualStrings("1, 6", spec.added_lines);
+    try std.testing.expectEqualStrings("3-4", spec.removed_lines);
+}
+
+test "buildHunkCodeDiff falls back for plain language and over Native 128-line bound" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const one = [_]HunkCodeLine{.{ .kind = .addition, .text = "hello" }};
+    try std.testing.expect(buildHunkCodeDiff(&one, "plain", arena) == null);
+    try std.testing.expect(buildHunkCodeDiff(&one, "", arena) == null);
+    try std.testing.expect(buildHunkCodeDiff(&.{}, "zig", arena) == null);
+
+    const many = try arena.alloc(HunkCodeLine, native_code_diff_max_lines + 1);
+    for (many) |*line| line.* = .{ .kind = .context, .text = "x" };
+    try std.testing.expect(buildHunkCodeDiff(many, "zig", arena) == null);
+
+    const at_bound = try arena.alloc(HunkCodeLine, native_code_diff_max_lines);
+    for (at_bound) |*line| line.* = .{ .kind = .context, .text = "x" };
+    const bound = buildHunkCodeDiff(at_bound, "zig", arena) orelse return error.ExpectedBound;
+    try std.testing.expectEqual(native_code_diff_max_lines, std.mem.count(u8, bound.source, "\n") + 1);
+    try std.testing.expectEqualStrings("", bound.added_lines);
+    try std.testing.expectEqualStrings("", bound.removed_lines);
+}
+
+test "reviewDiffHunkRows code-diff omits gaps and keeps text fallback for plain" {
+    var model = Model{};
+    defer freeReviewDiffStores(&model);
+    const patch = try fullContextPatch(30, &.{8});
+    defer std.testing.allocator.free(patch);
+    loadHunkPatch(&model, patch, true);
+
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const plain_rows = reviewDiffHunkRows(&model, arena_state.allocator());
+    var plain_gap = false;
+    var plain_code = false;
+    var plain_add = false;
+    for (plain_rows) |row| {
+        if (row.is_gap) plain_gap = true;
+        if (row.is_code) plain_code = true;
+        if (row.is_addition) plain_add = true;
+    }
+    try std.testing.expect(plain_gap);
+    try std.testing.expect(!plain_code);
+    try std.testing.expect(plain_add);
+
+    writeFixed(&model.review_diff_hunk_path_storage, &model.review_diff_hunk_path_len, "src/lib.rs");
+    const rust_rows = reviewDiffHunkRows(&model, arena_state.allocator());
+    var saw_gap = false;
+    var saw_code = false;
+    var gap_id: u32 = 0;
+    for (rust_rows) |row| {
+        if (row.is_gap) {
+            saw_gap = true;
+            gap_id = row.id;
+            try std.testing.expect(std.mem.indexOf(u8, row.text, "unmodified") != null);
+            try std.testing.expect(row.can_expand_all);
+            continue;
+        }
+        if (row.is_code) {
+            saw_code = true;
+            try std.testing.expect(std.mem.indexOf(u8, row.source, "unmodified") == null);
+            try std.testing.expect(std.mem.indexOf(u8, row.source, "let value_8") != null);
+            try std.testing.expect(row.added_lines.len > 0);
+            try std.testing.expect(row.removed_lines.len > 0);
+            try std.testing.expect(!row.has_line_number);
+            try std.testing.expect(!row.is_addition);
+            try std.testing.expect(!row.is_deletion);
+        }
+    }
+    try std.testing.expect(saw_gap);
+    try std.testing.expect(saw_code);
+    try std.testing.expect(gap_id != 0);
+    expandGap(&model, gap_id, .all);
+    const expanded = reviewDiffHunkRows(&model, arena_state.allocator());
+    var still_code = false;
+    for (expanded) |row| {
+        if (row.is_code) still_code = true;
+    }
+    try std.testing.expect(still_code);
 }
 
 test "binary patch meta is Binary file changed and marks status B" {

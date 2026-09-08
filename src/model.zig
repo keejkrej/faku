@@ -4657,6 +4657,12 @@ pub const Model = struct {
         return review_diff.reviewDiffHunkRows(model, arena);
     }
 
+    /// Documented Native `<code language>` lexer for the selected Diff file.
+    /// Same map as Files preview (`right_panel.previewLanguage`).
+    pub fn review_diff_hunk_language(model: *const Model) []const u8 {
+        return right_panel.previewLanguage(review_diff.reviewDiffHunkFilePath(model));
+    }
+
     pub fn has_review_diff_hunk_rows(model: *const Model) bool {
         return review_diff.hasReviewDiffHunkRows(model);
     }

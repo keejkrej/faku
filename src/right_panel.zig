@@ -6,7 +6,8 @@
 //! --exclude-standard`, then the bounded walk) plus derived
 //! parent directories collected there. Diff shows the existing
 //! Environment Compare / Review body inline (source chips + status +
-//! nested file-list tree + runtime path filter + structured hunk rows)
+//! nested file-list tree + runtime path filter + structured hunk rows,
+//! including first-cut Native `<code>` diff highlighting)
 //! via `review_diff` — not a second git probe
 //! stack. Background is a runtime-only surface for the Environment
 //! Summary Process / Monitor / Subagent row that was clicked (kind,
@@ -102,7 +103,10 @@
 //! cleared on session switch / remove / panel hide). Language is a
 //! documented Native lexer name from the path (unknown / Dockerfile /
 //! Makefile / Cargo.toml → `plain`). Native numbered mode omits the
-//! gutter above 128 logical lines but keeps the source.
+//! gutter above 128 logical lines but keeps the source. Diff selected-file
+//! hunks reuse this same lexer map for first-cut Native `<code>`
+//! diff (`added-lines` / `removed-lines`; 128-line wash bound; not
+//! Waku per-token GPUI).
 //! Markdown (`.md` / `.markdown`) adds a runtime-only Preview | Source
 //! header chip (ghost sm, like Settings Usage Cost | Tokens). Default
 //! Preview paints Native `<markdown source="{file_preview_body}"
@@ -224,6 +228,7 @@ const native_sdk = @import("native_sdk");
 const main = @import("main.zig");
 const file_mention = @import("file_mention.zig");
 const composer = @import("composer.zig");
+const code_language = @import("code_language.zig");
 const open_editor = @import("open_editor.zig");
 const open_url = @import("open_url.zig");
 const pty_terminal = @import("pty_terminal.zig");
@@ -334,55 +339,8 @@ pub const cannot_save_label = "Cannot save file";
 /// extensions and well-known names Native has no lexer for
 /// (Dockerfile, Makefile, Cargo.toml) are `"plain"`. Never invents a
 /// lexer id; names match `native_sdk.canvas.code.languageFromName`.
-pub fn previewLanguage(path: []const u8) []const u8 {
-    const base = composer.fileMentionBasename(path);
-    if (std.ascii.eqlIgnoreCase(base, "Dockerfile") or
-        std.ascii.eqlIgnoreCase(base, "Containerfile") or
-        std.ascii.eqlIgnoreCase(base, "Makefile") or
-        std.ascii.eqlIgnoreCase(base, "GNUmakefile") or
-        std.ascii.eqlIgnoreCase(base, "Cargo.toml"))
-    {
-        return "plain";
-    }
-    const ext = extensionOf(base);
-    if (std.ascii.eqlIgnoreCase(ext, "zig")) return "zig";
-    if (std.ascii.eqlIgnoreCase(ext, "js") or
-        std.ascii.eqlIgnoreCase(ext, "mjs") or
-        std.ascii.eqlIgnoreCase(ext, "cjs")) return "javascript";
-    if (std.ascii.eqlIgnoreCase(ext, "tsx")) return "tsx";
-    if (std.ascii.eqlIgnoreCase(ext, "jsx")) return "jsx";
-    if (std.ascii.eqlIgnoreCase(ext, "ts")) return "typescript";
-    if (std.ascii.eqlIgnoreCase(ext, "json") or std.ascii.eqlIgnoreCase(ext, "jsonc")) return "json";
-    if (std.ascii.eqlIgnoreCase(ext, "yaml") or std.ascii.eqlIgnoreCase(ext, "yml")) return "yaml";
-    if (std.ascii.eqlIgnoreCase(ext, "sh") or
-        std.ascii.eqlIgnoreCase(ext, "bash") or
-        std.ascii.eqlIgnoreCase(ext, "zsh")) return "shell";
-    if (std.ascii.eqlIgnoreCase(ext, "py") or std.ascii.eqlIgnoreCase(ext, "pyi")) return "python";
-    if (std.ascii.eqlIgnoreCase(ext, "rs")) return "rust";
-    if (std.ascii.eqlIgnoreCase(ext, "c") or std.ascii.eqlIgnoreCase(ext, "h") or
-        std.ascii.eqlIgnoreCase(ext, "cc") or std.ascii.eqlIgnoreCase(ext, "cpp") or
-        std.ascii.eqlIgnoreCase(ext, "cxx") or std.ascii.eqlIgnoreCase(ext, "hpp") or
-        std.ascii.eqlIgnoreCase(ext, "hh") or std.ascii.eqlIgnoreCase(ext, "cs") or
-        std.ascii.eqlIgnoreCase(ext, "java") or std.ascii.eqlIgnoreCase(ext, "kt") or
-        std.ascii.eqlIgnoreCase(ext, "kts") or std.ascii.eqlIgnoreCase(ext, "swift")) return "c";
-    if (std.ascii.eqlIgnoreCase(ext, "go")) return "go";
-    if (std.ascii.eqlIgnoreCase(ext, "html") or std.ascii.eqlIgnoreCase(ext, "htm") or
-        std.ascii.eqlIgnoreCase(ext, "xml") or std.ascii.eqlIgnoreCase(ext, "svg")) return "html";
-    if (std.ascii.eqlIgnoreCase(ext, "css") or
-        std.ascii.eqlIgnoreCase(ext, "scss") or
-        std.ascii.eqlIgnoreCase(ext, "less")) return "css";
-    if (std.ascii.eqlIgnoreCase(ext, "sql")) return "sql";
-    if (std.ascii.eqlIgnoreCase(ext, "md") or std.ascii.eqlIgnoreCase(ext, "markdown")) return "markdown";
-    return "plain";
-}
-
-fn extensionOf(name: []const u8) []const u8 {
-    if (std.mem.lastIndexOfScalar(u8, name, '.')) |dot| {
-        if (dot == 0 or dot + 1 >= name.len) return "";
-        return name[dot + 1 ..];
-    }
-    return "";
-}
+/// Shared with Diff hunk code-diff via `code_language.previewLanguage`.
+pub const previewLanguage = code_language.previewLanguage;
 
 /// Native `for each="file_preview_line_rows"` row. `id` is the 1-based
 /// line number (never 0). `text` is a slice into the preview buffer
