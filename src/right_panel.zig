@@ -166,11 +166,13 @@
 //! Selected tab and Browser draft URL
 //! persist on `sessions.json` extras (`right_panel_tab` / `browser_url`;
 //! missing / unknown tab → `files`, missing / empty URL → empty draft).
-//! Selected Background row, Files preview, directory expands, nested
-//! file-tree width (`right_panel_file_tree_width`, default 184), nested
-//! Diff file-list width (`right_panel_diff_file_list_width`, default 184;
-//! FILE_TREE clamps, not a Waku REVIEW_* list width), and output stay
-//! runtime-only. Default `files` when the panel opens.
+//! Nested Files-tree width (`right_panel_file_tree_width`, default 184)
+//! and nested Diff file-list width (`right_panel_diff_file_list_width`,
+//! default 184; FILE_TREE clamps, not a Waku REVIEW_* list width) persist
+//! on the same extras bag (u32 pixels; missing / 0 keep 184 then
+//! FILE_TREE clamp). Selected Background row, Files preview, directory
+//! expands, and output stay runtime-only. Default `files` when the
+//! panel opens.
 //!
 //! When a Files preview is open, the Files tab is a nested horizontal
 //! split: preview/editor on the left (grow) and the working tree on
@@ -442,7 +444,7 @@ pub fn fileTreeSplit(model: *const Model) f32 {
 }
 
 /// Nested Files-tree split `on-resize`. Stores a fitted tree width.
-/// No-op when no preview is open. Runtime-only; not persisted.
+/// No-op when no preview is open. Layout extras persist the fitted width.
 pub fn applyFileTreeResize(model: *Model, fraction: f32) void {
     if (model.right_panel_file_preview_id == 0) return;
     const pane = @max(1, model.right_panel_width);
@@ -470,7 +472,8 @@ pub fn diffFileListSplit(model: *const Model) f32 {
 }
 
 /// Nested Diff file-list split `on-resize`. Stores a fitted list width.
-/// No-op when the nested split is not showing. Runtime-only; not persisted.
+/// No-op when the nested split is not showing. Layout extras persist the
+/// fitted width.
 pub fn applyDiffFileListResize(model: *Model, fraction: f32) void {
     if (!showsDiffNestedSplit(model)) return;
     const pane = @max(1, model.right_panel_width);
@@ -478,6 +481,16 @@ pub fn applyDiffFileListResize(model: *Model, fraction: f32) void {
     const dragged = @round(pane * (1.0 - frac));
     const list = if (dragged > 0) dragged else main.right_panel_min_width;
     model.right_panel_diff_file_list_width = main.fittedDiffFileListWidth(pane, list);
+}
+
+/// FILE_TREE clamp for persist/restore of nested list widths. Uses
+/// `fittedFileTreeWidth` against a pane that can hold `FILE_TREE_MAX`
+/// so a Files-tree-only 184px panel does not squash a stored 220.
+/// Missing / 0 is a no-op at the Model apply helpers (keep 184).
+pub fn clampNestedListWidthForPersist(panel_width: f32, stored: f32) f32 {
+    const floor = main.right_panel_max_width + main.file_editor_min_width;
+    const pane = @max(@max(1, panel_width), floor);
+    return main.fittedFileTreeWidth(pane, stored);
 }
 
 /// Restore open flag, tab, and width from sessions.json. Sets the tab
@@ -1778,6 +1791,16 @@ test "Diff nested file-list width reuses FILE_TREE clamps and resize floor" {
     model.right_panel_width = 280;
     try std.testing.expectEqual(@as(f32, 140), fittedDiffFileListWidthForModel(&model));
     try std.testing.expectEqual(@as(f32, 0.5), diffFileListSplit(&model));
+}
+
+test "persist nested list widths keep FILE_TREE clamps without a narrow Files pane squash" {
+    try std.testing.expectEqual(@as(f32, 184), clampNestedListWidthForPersist(184, 0));
+    try std.testing.expectEqual(@as(f32, 184), clampNestedListWidthForPersist(184, 184));
+    try std.testing.expectEqual(@as(f32, 220), clampNestedListWidthForPersist(184, 220));
+    try std.testing.expectEqual(@as(f32, 140), clampNestedListWidthForPersist(184, 100));
+    try std.testing.expectEqual(@as(f32, 360), clampNestedListWidthForPersist(184, 500));
+    try std.testing.expectEqual(@as(f32, 300), clampNestedListWidthForPersist(400, 300));
+    try std.testing.expectEqual(@as(f32, 220), clampNestedListWidthForPersist(820, 220));
 }
 
 test "Diff tab default 460 / min 280 / max 1000; Browser Terminal Background share Diff clamp; Files clamp stays 360" {

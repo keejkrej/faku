@@ -593,12 +593,13 @@ max 1000) so the bump does not snap back. Closing the preview keeps the pixel wi
 measured `460 → 820`, already-wide ≥820 stays). When Diff has a file list and hunk
 text or hunk status, the Review body is a nested horizontal split: hunk/content
 on the left (grow) and the file list on the right at the same fitted FILE_TREE
-width as Files (default 184, clamp 140…min(360, panel−140); runtime-only
-`right_panel_diff_file_list_width`, not persisted). File-list-only or status/empty
+width as Files (default 184, clamp 140…min(360, panel−140);
+`right_panel_diff_file_list_width` persists on `sessions.json` extras). File-list-only or status/empty
 stays a full-height list (no forced empty split). Browser / Terminal / Background bump toward Waku
 `DEFAULT_RIGHT_PANEL_WIDTH` 460 when still file-tree-narrow
 and clamp from Waku `RIGHT_PANEL_MIN_WIDTH` 280 up to Waku `RIGHT_PANEL_MAX_WIDTH` 1000; switching back to Files without a preview reclamps to 360. Files width persists (`right_panel_open` /
-`right_panel_width`). Selected tab persists (`right_panel_tab`: `files` /
+`right_panel_width`). Nested Files-tree width and Diff file-list width persist (`right_panel_file_tree_width` /
+`right_panel_diff_file_list_width`, u32 pixels; missing / 0 keep 184 then FILE_TREE clamp). Selected tab persists (`right_panel_tab`: `files` /
 `diff` / `browser` / `terminal` / `background`; missing / unknown → Files).
 Browser draft URL persists (`browser_url`, raw, cap 2048; missing / empty /
 overflow → empty draft). Background row selection, Files preview content,
