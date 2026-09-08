@@ -662,7 +662,12 @@ rows paint a first-cut nested directory tree matching Waku
 `review_diff_tree_rows` (collapsible Directory + File, default
 collapsed, basename leaves, status + optional `+N` / `-M` from
 numstat; zeros omitted; daemon CollectReviewDiff and local
-`--numstat`). Browser is an
+`--numstat`). A Native search-field above that tree is Waku
+`right_panel_diff_filter`: runtime-only (not `sessions.json`); trim
++ ascii-lowercase contains on the full path; a non-empty query
+auto-expands ancestor directories. Empty / whitespace-only is
+today's collapsed tree. Leaving Diff (other tab / panel hide)
+clears the filter. Browser is an
 honest empty: Native has no webview; a persisted URL draft plus
 **Open in browser** spawns `open` / `xdg-open` / Windows
 `cmd.exe /c start "" <url>` (effect key 25; empty `start` title so

@@ -6,7 +6,8 @@
 //! --exclude-standard`, then the bounded walk) plus derived
 //! parent directories collected there. Diff shows the existing
 //! Environment Compare / Review body inline (source chips + status +
-//! file list + structured hunk rows) via `review_diff` — not a second git probe
+//! nested file-list tree + runtime path filter + structured hunk rows)
+//! via `review_diff` — not a second git probe
 //! stack. Background is a runtime-only surface for the Environment
 //! Summary Process / Monitor / Subagent row that was clicked (kind,
 //! title, live-or-settled status, Monitor / Subagent 512KB last-window log
@@ -184,7 +185,12 @@
 //! body is the same nested orientation: hunk/content on the left
 //! (grow) and the file list on the right at `fittedDiffFileListWidth`
 //! (reuses FILE_TREE 140 / 184 / 360). File-list-only or status/empty
-//! stays a full-height list (no forced empty split).
+//! stays a full-height list (no forced empty split). A Native
+//! search-field above the nested tree is Waku `right_panel_diff_filter`
+//! (runtime-only; trim + ascii-lowercase contains on the full path;
+//! non-empty query auto-expands ancestors). Empty / whitespace-only
+//! is today's collapsed tree. Leaving Diff (other tab / panel hide)
+//! clears the filter, matching Usage Projects `leaveUsage`.
 //!
 //! Directory expand/collapse is a runtime-only set of relative dir
 //! paths matching `file_mention.derivedDirParents` (no trailing
@@ -677,6 +683,7 @@ fn removeExpandedAt(model: *Model, index: usize) void {
 /// Files tab. Opens the pane if closed. Clamps width to the file-tree
 /// max unless an inline Files preview is open (wide 280–1000).
 pub fn selectFiles(model: *Model, fx: *Effects) void {
+    leaveDiffSurfaceIfNeeded(model);
     const was_open = model.right_panel_open;
     model.right_panel_open = true;
     model.right_panel_tab = .files;
@@ -712,6 +719,7 @@ pub fn selectDiff(model: *Model, fx: *Effects) void {
 /// state when none / gone). Tab persists via layout extras; the
 /// selected row does not.
 pub fn selectBackground(model: *Model, fx: *Effects, row_id: u32) void {
+    leaveDiffSurfaceIfNeeded(model);
     const was_open = model.right_panel_open;
     model.right_panel_open = true;
     if (row_id != 0) model.right_panel_background_row_id = row_id;
@@ -728,6 +736,7 @@ pub fn selectBackground(model: *Model, fx: *Effects, row_id: u32) void {
 /// Native has no webview; the body is an OS-open URL field. Tab and
 /// draft URL persist via layout extras.
 pub fn selectBrowser(model: *Model, fx: *Effects) void {
+    leaveDiffSurfaceIfNeeded(model);
     const was_open = model.right_panel_open;
     model.right_panel_open = true;
     bumpWideTabWidth(model);
@@ -743,6 +752,7 @@ pub fn selectBrowser(model: *Model, fx: *Effects) void {
 /// Native has no PTY; the body is Open in Terminal. Tab persists via
 /// layout extras.
 pub fn selectTerminal(model: *Model, fx: *Effects) void {
+    leaveDiffSurfaceIfNeeded(model);
     const was_open = model.right_panel_open;
     model.right_panel_open = true;
     bumpWideTabWidth(model);
@@ -750,6 +760,17 @@ pub fn selectTerminal(model: *Model, fx: *Effects) void {
     model.right_panel_width = clampWidthTab(model.right_panel_width, .terminal);
     model.syncRightPanelSplit();
     if (!was_open) file_mention.refresh(model, fx);
+}
+
+/// Drop the runtime Diff path filter when leaving the Diff tab.
+/// Matches Usage Projects `leaveUsage`. No-op when Diff is not the
+/// current tab (including Diff re-select).
+fn leaveDiffSurfaceIfNeeded(model: *Model) void {
+    if (model.right_panel_tab == .diff) review_diff.leaveSurface(model);
+}
+
+pub fn leaveDiffSurfaceOnHide(model: *Model) void {
+    leaveDiffSurfaceIfNeeded(model);
 }
 
 fn bumpWideTabWidth(model: *Model) void {
@@ -2105,6 +2126,42 @@ test "tab defaults to files; Diff Background Browser Terminal open the panel; Fi
     try std.testing.expect(!model.right_panel_open);
     try std.testing.expectEqual(Tab.files, model.right_panel_tab);
     try std.testing.expectEqual(@as(f32, 360), model.right_panel_width);
+}
+
+test "leaving Diff tab or hiding the panel clears the path filter" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    selectDiff(&model, &fx);
+    review_diff.applyFilter(&model, .{ .insert_text = "src" });
+    try std.testing.expectEqualStrings("src", model.review_diff_filter());
+    selectDiff(&model, &fx);
+    try std.testing.expectEqualStrings("src", model.review_diff_filter());
+
+    selectFiles(&model, &fx);
+    try std.testing.expectEqualStrings("", model.review_diff_filter());
+
+    selectDiff(&model, &fx);
+    review_diff.applyFilter(&model, .{ .insert_text = "docs" });
+    selectBrowser(&model, &fx);
+    try std.testing.expectEqualStrings("", model.review_diff_filter());
+
+    selectDiff(&model, &fx);
+    review_diff.applyFilter(&model, .{ .insert_text = "lib" });
+    selectTerminal(&model, &fx);
+    try std.testing.expectEqualStrings("", model.review_diff_filter());
+
+    selectDiff(&model, &fx);
+    review_diff.applyFilter(&model, .{ .insert_text = "app" });
+    selectBackground(&model, &fx, 0);
+    try std.testing.expectEqualStrings("", model.review_diff_filter());
+
+    selectDiff(&model, &fx);
+    review_diff.applyFilter(&model, .{ .insert_text = "rs" });
+    model.hideRightPanel();
+    try std.testing.expectEqualStrings("", model.review_diff_filter());
 }
 
 test "selecting Diff from a file-tree-narrow pane widens to REVIEW_INITIAL_WIDTH 820" {
