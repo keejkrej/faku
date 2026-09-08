@@ -25,7 +25,8 @@
 //! `kind="area"` series from a shared zero baseline for the active
 //! Cost | Tokens metric, not stacked; NaN-pad when a day's
 //! `byProvider` is missing; `y-max` pins to the max finite
-//! single-provider-day sample when that peak is > 0). Nested
+//! single-provider-day sample when that peak is > 0; documented
+//! `stroke-width` 2; paint-order by period total). Nested
 //! Claude/Codex Native `<progress>` rows still paint under each day
 //! when a slot is non-zero for that metric; nested share is that
 //! provider's cost or tokens divided by **that day's** total. Empty /
@@ -41,7 +42,8 @@
 //! `kind="area"` series from a shared zero baseline for the active
 //! Cost | Tokens metric (not stacked; NaN-pad when a month's
 //! `byProvider` is missing; `y-max` pins to the max finite
-//! single-provider-month sample when that peak is > 0), the same Cost
+//! single-provider-month sample when that peak is > 0; documented
+//! `stroke-width` 2; paint-order by period total), the same Cost
 //! | Tokens chip, and relative Native `<progress>` vs the max month in
 //! the painted window (Cost → `costUsd`, Tokens → `totalTokens`);
 //! zero-value months stay text-only. When a month has any non-zero
@@ -55,8 +57,9 @@
 //! baseline for the active Cost | Tokens metric, not stacked;
 //! NaN-pad when a project's `byProvider` is missing; `y-max` pins
 //! to the max finite single-provider-project sample among visible
-//! rows when that peak is > 0; x-labels are path basename in painted
-//! row order), the same chip, and relative Native `<progress>`
+//! rows when that peak is > 0; documented `stroke-width` 2;
+//! paint-order by period total over the visible set; x-labels are
+//! path basename in painted row order), the same chip, and relative Native `<progress>`
 //! vs the max Cost / Tokens among **visible** filtered rows (Waku
 //! `usage_project_filter` peak-of-visible; Cost → `costUsd`, Tokens
 //! → `totalTokens`); zero-value rows stay text-only. Nested
@@ -86,13 +89,13 @@
 //! footer uses `records` / `scannedFiles` / `skippedFiles` /
 //! `scanDuration` when present. First-cut Daily Days, Monthly, and
 //! Projects layered Native `<chart>` ship (Claude / Codex area
-//! series from zero, not stacked; still not Waku GPUI / T3 canvas
-//! polish). Projects nested byProvider bars stay Native `<progress>`. Daily Model rows
+//! series from zero, not stacked; documented `stroke-width` 2 and
+//! paint-order by period total). Projects nested byProvider bars stay Native `<progress>`. Daily Model rows
 //! append a compact per-MTok hint when the Faku-side LiteLLM table
 //! hits (unpriceable names stay unpriced). First-cut LiteLLM
 //! rate-table fetch + 24h disk cache ships in `litellm_rates.zig`.
-//! Still not Waku's GPUI / T3 canvas (smoothing, 12% fill opacity,
-//! stroke width, paint-order by period total), not a local
+//! Still not Waku's GPUI / T3 canvas (no curve smoothing, no 12% fill
+//! opacity, not a circular GPUI gauge), not a local
 //! transcript scan. Hello stays v4.
 
 const std = @import("std");
@@ -1013,6 +1016,40 @@ fn chartSample(value: f64) f32 {
     return @floatCast(value);
 }
 
+/// Finite Claude/Codex chart-sample sums for the active Cost | Tokens
+/// metric over the painted window. NaN-padded missing `byProvider`
+/// does not contribute (same samples the area series paint). Ties
+/// keep Claude then Codex: `claudeOnTop` is only true when Claude's
+/// total is strictly greater.
+pub const ChartProviderTotals = struct {
+    claude: f32 = 0,
+    codex: f32 = 0,
+
+    pub fn claudeOnTop(self: ChartProviderTotals) bool {
+        return self.claude > self.codex;
+    }
+};
+
+fn addFiniteChartSample(total: *f32, sample: f32) void {
+    if (std.math.isFinite(sample)) total.* += sample;
+}
+
+fn addProviderChartTotals(
+    totals: *ChartProviderTotals,
+    slots: [protocol.max_parsed_usage_day_providers]protocol.ParsedProviderDay,
+    metric: ShareMetric,
+) void {
+    if (!hasByProviderSamples(slots)) return;
+    addFiniteChartSample(
+        &totals.claude,
+        chartSample(providerDayValue(slots[protocol.usage_day_provider_claude], metric)),
+    );
+    addFiniteChartSample(
+        &totals.codex,
+        chartSample(providerDayValue(slots[protocol.usage_day_provider_codex], metric)),
+    );
+}
+
 /// Any Claude/Codex slot with cost or tokens. Distinct from the
 /// nested-bar gate: missing / empty `byProvider` NaN-pads the
 /// provider series even when the period total is non-zero.
@@ -1104,6 +1141,26 @@ pub fn hasDailyChartYMax(model: *const Model) bool {
 /// pin is omitted (the markup `if` hides this binding).
 pub fn dailyChartYMaxValue(model: *const Model) f32 {
     return dailyChartYMax(model) orelse 0;
+}
+
+/// Finite Claude/Codex Cost | Tokens samples summed over the painted
+/// Daily Days window (same values as the area series; NaN-padded
+/// missing `byProvider` skipped).
+pub fn dailyChartProviderTotals(model: *const Model) ChartProviderTotals {
+    const days = dailyChartDays(model);
+    const metric = model.usage_share_metric;
+    var totals = ChartProviderTotals{};
+    for (days) |day| {
+        addProviderChartTotals(&totals, day.by_provider, metric);
+    }
+    return totals;
+}
+
+/// True when Claude's period total is strictly greater than Codex's
+/// so markup paints Claude last (on top). Ties and Codex-larger keep
+/// Claude then Codex.
+pub fn dailyChartClaudeOnTop(model: *const Model) bool {
+    return dailyChartProviderTotals(model).claudeOnTop();
 }
 
 /// Category labels oldest-first, one per chart sample.
@@ -1236,6 +1293,26 @@ pub fn hasMonthlyChartYMax(model: *const Model) bool {
 /// pin is omitted (the markup `if` hides this binding).
 pub fn monthlyChartYMaxValue(model: *const Model) f32 {
     return monthlyChartYMax(model) orelse 0;
+}
+
+/// Finite Claude/Codex Cost | Tokens samples summed over the painted
+/// Monthly window (same values as the area series; NaN-padded
+/// missing `byProvider` skipped).
+pub fn monthlyChartProviderTotals(model: *const Model) ChartProviderTotals {
+    const months = monthlyChartMonths(model);
+    const metric = model.usage_share_metric;
+    var totals = ChartProviderTotals{};
+    for (months) |month| {
+        addProviderChartTotals(&totals, month.by_provider, metric);
+    }
+    return totals;
+}
+
+/// True when Claude's period total is strictly greater than Codex's
+/// so markup paints Claude last (on top). Ties and Codex-larger keep
+/// Claude then Codex.
+pub fn monthlyChartClaudeOnTop(model: *const Model) bool {
+    return monthlyChartProviderTotals(model).claudeOnTop();
 }
 
 /// Category labels oldest-first, one per chart sample. Opaque
@@ -1414,6 +1491,30 @@ pub fn hasProjectsChartYMax(model: *const Model) bool {
 /// the pin is omitted (the markup `if` hides this binding).
 pub fn projectsChartYMaxValue(model: *const Model) f32 {
     return projectsChartYMax(model) orelse 0;
+}
+
+/// Finite Claude/Codex Cost | Tokens samples summed over the
+/// **visible** filtered Projects set (same values as the area series;
+/// NaN-padded missing `byProvider` skipped).
+pub fn projectsChartProviderTotals(model: *const Model) ChartProviderTotals {
+    var idx_buf: [max_projects]usize = undefined;
+    const n = visibleProjectIndices(model, &idx_buf);
+    if (n == 0) return .{};
+    const projects = model.usage_history.projects[0..model.usage_history.project_count];
+    const metric = model.usage_share_metric;
+    var totals = ChartProviderTotals{};
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        addProviderChartTotals(&totals, projects[idx_buf[i]].by_provider, metric);
+    }
+    return totals;
+}
+
+/// True when Claude's visible-set total is strictly greater than
+/// Codex's so markup paints Claude last (on top). Ties and
+/// Codex-larger keep Claude then Codex.
+pub fn projectsChartClaudeOnTop(model: *const Model) bool {
+    return projectsChartProviderTotals(model).claudeOnTop();
 }
 
 /// Category labels in painted-row order, one per chart sample. Short
@@ -2371,6 +2472,10 @@ test "daily chart series is oldest-first Cost|Tokens; empty window is empty; pro
     model.usage_history.daily[0].by_provider[0].cost_usd = saved_claude_cost;
     model.usage_history.daily[0].by_provider[1].cost_usd = saved_codex_cost;
     try std.testing.expectApproxEqAbs(@as(f32, 0.75), dailyChartYMaxValue(&model), 0.0001);
+    const cost_totals = dailyChartProviderTotals(&model);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), cost_totals.claude, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), cost_totals.codex, 0.0001);
+    try std.testing.expect(!dailyChartClaudeOnTop(&model));
 
     const spawn_count = fx.pendingSpawnCount();
     setShareMetric(&model, .tokens);
@@ -2393,6 +2498,10 @@ test "daily chart series is oldest-first Cost|Tokens; empty window is empty; pro
     // Day totals peak at 400 (empty byProvider); y-max is Codex 60.
     const token_ymax = dailyChartYMax(&model) orelse return error.MissingTokenChartYMax;
     try std.testing.expectApproxEqAbs(@as(f32, 60), token_ymax, 0.0001);
+    const token_totals = dailyChartProviderTotals(&model);
+    try std.testing.expectApproxEqAbs(@as(f32, 40), token_totals.claude, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 60), token_totals.codex, 0.0001);
+    try std.testing.expect(!dailyChartClaudeOnTop(&model));
 
     setBreakdown(&model, .model);
     try std.testing.expect(!hasDailyChart(&model));
@@ -2415,6 +2524,91 @@ test "daily chart series is oldest-first Cost|Tokens; empty window is empty; pro
     try std.testing.expectEqual(@as(usize, 0), dailyChartLabels(&model, arena).len);
     try std.testing.expect(dailyChartYMax(&model) == null);
     try std.testing.expectEqual(@as(f32, 0), dailyChartYMaxValue(&model));
+}
+
+test "usage chart paint-order sums Cost|Tokens samples; larger series on top; ties keep Claude then Codex" {
+    try std.testing.expect(!(ChartProviderTotals{}).claudeOnTop());
+    try std.testing.expect(!(ChartProviderTotals{ .claude = 1, .codex = 1 }).claudeOnTop());
+    try std.testing.expect((ChartProviderTotals{ .claude = 1.1, .codex = 1 }).claudeOnTop());
+    try std.testing.expect(!(ChartProviderTotals{ .claude = 1, .codex = 1.1 }).claudeOnTop());
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.setLastDaemonAddress("127.0.0.1:8787");
+    model.setSidecarPath("faku");
+    model.settings_page = .usage;
+    refresh(&model, &fx);
+    const sidecar = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingPaintOrderSpawn;
+    const keyed = sidecar.key;
+    applyLine(&model, .{ .key = keyed, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"totalTokens\":200,\"costUsd\":3.0,\"sessions\":4,\"daily\":[{\"day\":\"2026-09-05\",\"totalTokens\":100,\"costUsd\":1.0,\"byProvider\":[{\"costUsd\":0.9,\"totalTokens\":10},{\"costUsd\":0.1,\"totalTokens\":90}]}],\"months\":[{\"firstDay\":\"2026-09-01\",\"totalTokens\":100,\"costUsd\":1.0,\"sessions\":2,\"byProvider\":[{\"costUsd\":0.9,\"totalTokens\":10},{\"costUsd\":0.1,\"totalTokens\":90}]}],\"projects\":[{\"path\":\"/tmp/faku\",\"totalTokens\":100,\"costUsd\":1.0,\"sessions\":2,\"byProvider\":[{\"costUsd\":0.9,\"totalTokens\":10},{\"costUsd\":0.1,\"totalTokens\":90}]},{\"path\":\"/tmp/other\",\"totalTokens\":200,\"costUsd\":2.0,\"sessions\":2,\"byProvider\":[{\"costUsd\":0.1,\"totalTokens\":80},{\"costUsd\":1.9,\"totalTokens\":20}]}]}}}}" });
+    handleExit(&model, .{ .key = keyed, .reason = .exited, .code = 0 });
+
+    setBreakdown(&model, .days);
+    const daily_cost = dailyChartProviderTotals(&model);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.9), daily_cost.claude, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), daily_cost.codex, 0.0001);
+    try std.testing.expect(dailyChartClaudeOnTop(&model));
+    setShareMetric(&model, .tokens);
+    const daily_tokens = dailyChartProviderTotals(&model);
+    try std.testing.expectApproxEqAbs(@as(f32, 10), daily_tokens.claude, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 90), daily_tokens.codex, 0.0001);
+    try std.testing.expect(!dailyChartClaudeOnTop(&model));
+    setShareMetric(&model, .cost);
+    model.usage_history.daily[0].by_provider[0].cost_usd = 0.5;
+    model.usage_history.daily[0].by_provider[1].cost_usd = 0.5;
+    const daily_tie = dailyChartProviderTotals(&model);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), daily_tie.claude, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), daily_tie.codex, 0.0001);
+    try std.testing.expect(!dailyChartClaudeOnTop(&model));
+
+    model.usage_view = .projects;
+    const projects_cost = projectsChartProviderTotals(&model);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), projects_cost.claude, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 2.0), projects_cost.codex, 0.0001);
+    try std.testing.expect(!projectsChartClaudeOnTop(&model));
+    applyProjectFilter(&model, .{ .insert_text = "faku" });
+    const faku_cost = projectsChartProviderTotals(&model);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.9), faku_cost.claude, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), faku_cost.codex, 0.0001);
+    try std.testing.expect(projectsChartClaudeOnTop(&model));
+    applyProjectFilter(&model, .clear);
+    applyProjectFilter(&model, .{ .insert_text = "other" });
+    const other_cost = projectsChartProviderTotals(&model);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), other_cost.claude, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.9), other_cost.codex, 0.0001);
+    try std.testing.expect(!projectsChartClaudeOnTop(&model));
+    applyProjectFilter(&model, .clear);
+    setShareMetric(&model, .tokens);
+    const projects_tokens = projectsChartProviderTotals(&model);
+    try std.testing.expectApproxEqAbs(@as(f32, 90), projects_tokens.claude, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 110), projects_tokens.codex, 0.0001);
+    try std.testing.expect(!projectsChartClaudeOnTop(&model));
+    applyProjectFilter(&model, .{ .insert_text = "other" });
+    const other_tokens = projectsChartProviderTotals(&model);
+    try std.testing.expectApproxEqAbs(@as(f32, 80), other_tokens.claude, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 20), other_tokens.codex, 0.0001);
+    try std.testing.expect(projectsChartClaudeOnTop(&model));
+
+    applyProjectFilter(&model, .clear);
+    model.usage_view = .monthly;
+    setShareMetric(&model, .cost);
+    refresh(&model, &fx);
+    const monthly_sidecar = pendingSpawnKey(&fx, model.daemon_usage_history_key) orelse return error.MissingMonthlyPaintOrderSpawn;
+    applyLine(&model, .{ .key = monthly_sidecar.key, .line = "{\"type\":\"response\",\"requestId\":\"00000000-0000-0000-0000-000000000015\",\"outcome\":{\"status\":\"ok\",\"payload\":{\"type\":\"usageHistory\",\"history\":{\"window\":{\"months\":12},\"totalTokens\":100,\"costUsd\":1.0,\"sessions\":2,\"months\":[{\"firstDay\":\"2026-09-01\",\"totalTokens\":100,\"costUsd\":1.0,\"sessions\":2,\"byProvider\":[{\"costUsd\":0.9,\"totalTokens\":10},{\"costUsd\":0.1,\"totalTokens\":90}]}]}}}}" });
+    handleExit(&model, .{ .key = monthly_sidecar.key, .reason = .exited, .code = 0 });
+    const monthly_cost = monthlyChartProviderTotals(&model);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.9), monthly_cost.claude, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), monthly_cost.codex, 0.0001);
+    try std.testing.expect(monthlyChartClaudeOnTop(&model));
+    setShareMetric(&model, .tokens);
+    try std.testing.expect(!monthlyChartClaudeOnTop(&model));
+    setShareMetric(&model, .cost);
+    model.usage_history.months[0].by_provider[0].cost_usd = 0.5;
+    model.usage_history.months[0].by_provider[1].cost_usd = 0.5;
+    try std.testing.expect(!monthlyChartClaudeOnTop(&model));
 }
 
 test "monthly chart series is oldest-first Cost|Tokens; empty window is empty; provider series NaN-pads; y-max is single-provider peak" {
@@ -2479,6 +2673,10 @@ test "monthly chart series is oldest-first Cost|Tokens; empty window is empty; p
     model.usage_history.months[0].by_provider[0].cost_usd = saved_claude_cost;
     model.usage_history.months[0].by_provider[1].cost_usd = saved_codex_cost;
     try std.testing.expectApproxEqAbs(@as(f32, 0.75), monthlyChartYMaxValue(&model), 0.0001);
+    const cost_totals = monthlyChartProviderTotals(&model);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), cost_totals.claude, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), cost_totals.codex, 0.0001);
+    try std.testing.expect(!monthlyChartClaudeOnTop(&model));
 
     const spawn_count = fx.pendingSpawnCount();
     setShareMetric(&model, .tokens);
@@ -2501,6 +2699,10 @@ test "monthly chart series is oldest-first Cost|Tokens; empty window is empty; p
     // Month totals peak at 400 (empty byProvider); y-max is Codex 60.
     const token_ymax = monthlyChartYMax(&model) orelse return error.MissingTokenChartYMax;
     try std.testing.expectApproxEqAbs(@as(f32, 60), token_ymax, 0.0001);
+    const token_totals = monthlyChartProviderTotals(&model);
+    try std.testing.expectApproxEqAbs(@as(f32, 40), token_totals.claude, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 60), token_totals.codex, 0.0001);
+    try std.testing.expect(!monthlyChartClaudeOnTop(&model));
 
     model.usage_view = .daily;
     try std.testing.expect(!hasMonthlyChart(&model));
@@ -2875,6 +3077,10 @@ test "projects chart series is visible-filtered Cost|Tokens; empty/no-match hide
     model.usage_history.projects[0].by_provider[0].cost_usd = saved_claude_cost;
     model.usage_history.projects[0].by_provider[1].cost_usd = saved_codex_cost;
     try std.testing.expectApproxEqAbs(@as(f32, 0.75), projectsChartYMaxValue(&model), 0.0001);
+    const cost_totals = projectsChartProviderTotals(&model);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), cost_totals.claude, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), cost_totals.codex, 0.0001);
+    try std.testing.expect(!projectsChartClaudeOnTop(&model));
 
     const spawn_count = fx.pendingSpawnCount();
     setShareMetric(&model, .tokens);
@@ -2898,6 +3104,10 @@ test "projects chart series is visible-filtered Cost|Tokens; empty/no-match hide
     // Project totals peak at 400 (empty byProvider); y-max is Codex 60.
     const token_ymax = projectsChartYMax(&model) orelse return error.MissingTokenChartYMax;
     try std.testing.expectApproxEqAbs(@as(f32, 60), token_ymax, 0.0001);
+    const token_totals = projectsChartProviderTotals(&model);
+    try std.testing.expectApproxEqAbs(@as(f32, 40), token_totals.claude, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 60), token_totals.codex, 0.0001);
+    try std.testing.expect(!projectsChartClaudeOnTop(&model));
 
     setShareMetric(&model, .cost);
     applyProjectFilter(&model, .{ .insert_text = "other" });

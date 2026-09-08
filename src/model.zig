@@ -4621,6 +4621,10 @@ pub const Model = struct {
         return usage_history.dailyChartLabels(model, arena);
     }
 
+    pub fn usage_daily_chart_claude_on_top(model: *const Model) bool {
+        return usage_history.dailyChartClaudeOnTop(model);
+    }
+
     pub fn usage_month_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {
         return usage_history.monthRows(model, arena);
     }
@@ -4649,6 +4653,10 @@ pub const Model = struct {
         return usage_history.monthlyChartLabels(model, arena);
     }
 
+    pub fn usage_monthly_chart_claude_on_top(model: *const Model) bool {
+        return usage_history.monthlyChartClaudeOnTop(model);
+    }
+
     pub fn usage_project_rows(model: *const Model, arena: std.mem.Allocator) []const UsageHistoryRow {
         return usage_history.projectRows(model, arena);
     }
@@ -4675,6 +4683,10 @@ pub const Model = struct {
 
     pub fn usage_projects_chart_labels(model: *const Model, arena: std.mem.Allocator) []const []const u8 {
         return usage_history.projectsChartLabels(model, arena);
+    }
+
+    pub fn usage_projects_chart_claude_on_top(model: *const Model) bool {
+        return usage_history.projectsChartClaudeOnTop(model);
     }
 
     pub fn has_usage_notice(model: *const Model) bool {
