@@ -663,9 +663,15 @@ memory; no new git spawn. Line retain/render cap matches Waku
 `MAX_RENDERED_DIFF_LINES` 50_000. Byte cap is a Faku fixed table
 (~32 B/line × 50_000; Waku has no byte cap). Native daemon stdout is
 still `daemon_line_bytes`. Native paints a `shown_line` gutter and
-additions `success`, deletions `destructive`, context/gaps `text_muted`.
-Code-row body is Waku `Line.content` (unified-diff marker stripped);
-no syntax-token highlighting (Native has no per-span Token). File-list
+additions `success`, deletions `destructive`, context/gaps `text_muted`
+on the text fallback path. Code-diff uses Native `<code line-numbers>`
+instead of that gutter (no double gutter).
+Code-row body is Waku `Line.content` (unified-diff marker stripped).
+First-cut Native `<code>` diff presentation ships when the selected
+file's lexer is not `plain` and a contiguous code segment is ≤128
+lines (`added-lines` / `removed-lines` plus `line-numbers`; Native
+omits numbers/washes above 128, so those segments keep today's
+per-row `<text>` coloring). Not Waku per-token GPUI. File-list
 rows paint a first-cut nested directory tree matching Waku
 `review_diff_tree_rows` (collapsible Directory + File, default
 collapsed, basename leaves, Native `file-text` icon, colored status

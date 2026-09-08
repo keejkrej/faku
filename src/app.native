@@ -1,4 +1,101 @@
 <!-- Faku: Waku-shaped chrome — sidebar, header, transcript, queue, composer. -->
+<template name="review-hunk-rows">
+  <column gap="2">
+    <for each="review_diff_hunk_rows" key="id" as="h">
+    <if test="{h.is_gap}">
+      <row gap="6" cross="center">
+        <text wrap="true" foreground="text_muted">{h.text}</text>
+        <if test="{h.can_expand_start}">
+          <button variant="ghost" size="sm" on-press="expand_review_diff_gap_start:{h.id}">Start</button>
+        </if>
+        <if test="{h.can_expand_end}">
+          <button variant="ghost" size="sm" on-press="expand_review_diff_gap_end:{h.id}">End</button>
+        </if>
+        <if test="{h.can_expand_both}">
+          <button variant="ghost" size="sm" on-press="expand_review_diff_gap_both:{h.id}">Both</button>
+        </if>
+        <if test="{h.can_expand_all}">
+          <button variant="ghost" size="sm" on-press="expand_review_diff_gap_all:{h.id}">All</button>
+        </if>
+      </row>
+    </if>
+    <else>
+      <if test="{h.is_code}">
+        <!-- Code-diff path: Native <code line-numbers> is the decorative
+             gutter. Text fallback below keeps Faku's shown_line gutter.
+             Do not paint both. Native omits numbers/washes above 128
+             lines, so those segments stay text. -->
+        <if test="{review_diff_hunk_language == 'zig'}">
+          <code source="{h.source}" language="zig" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+        </if>
+        <if test="{review_diff_hunk_language == 'javascript'}">
+          <code source="{h.source}" language="javascript" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+        </if>
+        <if test="{review_diff_hunk_language == 'typescript'}">
+          <code source="{h.source}" language="typescript" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+        </if>
+        <if test="{review_diff_hunk_language == 'jsx'}">
+          <code source="{h.source}" language="jsx" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+        </if>
+        <if test="{review_diff_hunk_language == 'tsx'}">
+          <code source="{h.source}" language="tsx" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+        </if>
+        <if test="{review_diff_hunk_language == 'json'}">
+          <code source="{h.source}" language="json" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+        </if>
+        <if test="{review_diff_hunk_language == 'yaml'}">
+          <code source="{h.source}" language="yaml" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+        </if>
+        <if test="{review_diff_hunk_language == 'shell'}">
+          <code source="{h.source}" language="shell" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+        </if>
+        <if test="{review_diff_hunk_language == 'python'}">
+          <code source="{h.source}" language="python" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+        </if>
+        <if test="{review_diff_hunk_language == 'rust'}">
+          <code source="{h.source}" language="rust" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+        </if>
+        <if test="{review_diff_hunk_language == 'c'}">
+          <code source="{h.source}" language="c" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+        </if>
+        <if test="{review_diff_hunk_language == 'go'}">
+          <code source="{h.source}" language="go" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+        </if>
+        <if test="{review_diff_hunk_language == 'html'}">
+          <code source="{h.source}" language="html" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+        </if>
+        <if test="{review_diff_hunk_language == 'css'}">
+          <code source="{h.source}" language="css" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+        </if>
+        <if test="{review_diff_hunk_language == 'sql'}">
+          <code source="{h.source}" language="sql" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+        </if>
+        <if test="{review_diff_hunk_language == 'markdown'}">
+          <code source="{h.source}" language="markdown" line-numbers added-lines="{h.added_lines}" removed-lines="{h.removed_lines}" wrap="false" label="Review hunk" />
+        </if>
+      </if>
+      <else>
+        <row gap="6" cross="center">
+          <if test="{h.has_line_number}">
+            <text wrap="false" foreground="text_muted">{h.line_number}</text>
+          </if>
+          <if test="{h.is_addition}">
+            <text wrap="true" foreground="success">{h.text}</text>
+          </if>
+          <else>
+            <if test="{h.is_deletion}">
+              <text wrap="true" foreground="destructive">{h.text}</text>
+            </if>
+            <else>
+              <text wrap="true" foreground="text_muted">{h.text}</text>
+            </else>
+          </else>
+        </row>
+      </else>
+    </else>
+  </for>
+  </column>
+</template>
 <column background="background">
   <split grow="1" value="{sidebar_split}" on-resize="sidebar_resized">
     <column min-width="{sidebar_pane_min}" background="surface_subtle">
@@ -1307,45 +1404,7 @@
                   </if>
                   <if test="{has_review_diff_hunk}">
                     <scroll grow="1" label="Review hunks">
-                      <column gap="2">
-                        <for each="review_diff_hunk_rows" key="id" as="h">
-                          <if test="{h.is_gap}">
-                            <row gap="6" cross="center">
-                              <text wrap="true" foreground="text_muted">{h.text}</text>
-                              <if test="{h.can_expand_start}">
-                                <button variant="ghost" size="sm" on-press="expand_review_diff_gap_start:{h.id}">Start</button>
-                              </if>
-                              <if test="{h.can_expand_end}">
-                                <button variant="ghost" size="sm" on-press="expand_review_diff_gap_end:{h.id}">End</button>
-                              </if>
-                              <if test="{h.can_expand_both}">
-                                <button variant="ghost" size="sm" on-press="expand_review_diff_gap_both:{h.id}">Both</button>
-                              </if>
-                              <if test="{h.can_expand_all}">
-                                <button variant="ghost" size="sm" on-press="expand_review_diff_gap_all:{h.id}">All</button>
-                              </if>
-                            </row>
-                          </if>
-                          <else>
-                            <row gap="6" cross="center">
-                              <if test="{h.has_line_number}">
-                                <text wrap="false" foreground="text_muted">{h.line_number}</text>
-                              </if>
-                              <if test="{h.is_addition}">
-                                <text wrap="true" foreground="success">{h.text}</text>
-                              </if>
-                              <else>
-                                <if test="{h.is_deletion}">
-                                  <text wrap="true" foreground="destructive">{h.text}</text>
-                                </if>
-                                <else>
-                                  <text wrap="true" foreground="text_muted">{h.text}</text>
-                                </else>
-                              </else>
-                            </row>
-                          </else>
-                        </for>
-                      </column>
+                      <use template="review-hunk-rows" />
                     </scroll>
                   </if>
                 </column>
@@ -1479,45 +1538,7 @@
               </if>
               <if test="{has_review_diff_hunk}">
                 <scroll grow="1" label="Review hunks">
-                  <column gap="2">
-                    <for each="review_diff_hunk_rows" key="id" as="h">
-                      <if test="{h.is_gap}">
-                        <row gap="6" cross="center">
-                          <text wrap="true" foreground="text_muted">{h.text}</text>
-                          <if test="{h.can_expand_start}">
-                            <button variant="ghost" size="sm" on-press="expand_review_diff_gap_start:{h.id}">Start</button>
-                          </if>
-                          <if test="{h.can_expand_end}">
-                            <button variant="ghost" size="sm" on-press="expand_review_diff_gap_end:{h.id}">End</button>
-                          </if>
-                          <if test="{h.can_expand_both}">
-                            <button variant="ghost" size="sm" on-press="expand_review_diff_gap_both:{h.id}">Both</button>
-                          </if>
-                          <if test="{h.can_expand_all}">
-                            <button variant="ghost" size="sm" on-press="expand_review_diff_gap_all:{h.id}">All</button>
-                          </if>
-                        </row>
-                      </if>
-                      <else>
-                        <row gap="6" cross="center">
-                          <if test="{h.has_line_number}">
-                            <text wrap="false" foreground="text_muted">{h.line_number}</text>
-                          </if>
-                          <if test="{h.is_addition}">
-                            <text wrap="true" foreground="success">{h.text}</text>
-                          </if>
-                          <else>
-                            <if test="{h.is_deletion}">
-                              <text wrap="true" foreground="destructive">{h.text}</text>
-                            </if>
-                            <else>
-                              <text wrap="true" foreground="text_muted">{h.text}</text>
-                            </else>
-                          </else>
-                        </row>
-                      </else>
-                    </for>
-                  </column>
+                  <use template="review-hunk-rows" />
                 </scroll>
               </if>
               </column>
