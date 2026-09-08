@@ -154,8 +154,12 @@
 //! then max with tree+500; measured `(460, 184) → 684`, already-wide
 //! stays). While that preview is open, Files uses the wide panel clamp
 //! (min 280 / max 1000) so the bump does not snap back. Closing the
-//! preview keeps the pixel width until the next Files clamp. Diff and
-//! Background, Browser, and Terminal bump toward Waku
+//! preview keeps the pixel width until the next Files clamp. First-cut:
+//! opening Diff / Review (when Diff is not already the active tab)
+//! widens the pane with Waku `REVIEW_INITIAL_WIDTH` (820) via
+//! `widenedPanelWidthForReview` (sanitize to RIGHT_PANEL 280–1000,
+//! then max with 820; measured `460 → 820`, already-wide ≥820 stays).
+//! Browser, Terminal, and Background bump toward Waku
 //! `DEFAULT_RIGHT_PANEL_WIDTH` (460) when the pane is still
 //! file-tree-narrow; min is Waku `RIGHT_PANEL_MIN_WIDTH` (280); max is
 //! Waku `RIGHT_PANEL_MAX_WIDTH` (1000).
@@ -443,10 +447,11 @@ pub fn applyFileTreeResize(model: *Model, fraction: f32) void {
 /// Restore open flag, tab, and width from sessions.json. Sets the tab
 /// before clamping so Diff / Browser / Terminal / Background use the
 /// wide max (not Files 360). When the panel is open on a wide tab,
-/// bump toward 460 the same way `selectDiff` / `selectBrowser` /
-/// `selectTerminal` / `selectBackground` would if the stored width is
-/// still file-tree-narrow. Does not start Compare, refresh mentions,
-/// or persist.
+/// bump toward 460 the same way `selectBrowser` / `selectTerminal` /
+/// `selectBackground` would if the stored width is still
+/// file-tree-narrow. Diff *open* uses `widenedPanelWidthForReview`
+/// (820); persist restore keeps the stored pixel width. Does not start
+/// Compare, refresh mentions, or persist.
 pub fn applyPersisted(model: *Model, open: bool, tab: Tab, width_px: u32) void {
     model.right_panel_open = open;
     model.right_panel_tab = tab;
@@ -630,13 +635,18 @@ pub fn selectFiles(model: *Model, fx: *Effects) void {
     if (!was_open) file_mention.refresh(model, fx);
 }
 
-/// Diff tab. Opens the pane if closed, selects Diff, bumps width toward
-/// 460 when still file-tree-narrow, and starts/refreshes Compare
-/// (Uncommitted when none is active; keeps the current source otherwise).
+/// Diff tab. Opens the pane if closed, selects Diff, and starts/refreshes
+/// Compare (Uncommitted when none is active; keeps the current source
+/// otherwise). First-cut: when Diff becomes the active tab, widen with
+/// Waku `REVIEW_INITIAL_WIDTH` 820 via `widenedPanelWidthForReview`.
+/// No-op re-select (already open on Diff) does not re-bump.
 pub fn selectDiff(model: *Model, fx: *Effects) void {
     const was_open = model.right_panel_open;
+    const already_diff = was_open and model.right_panel_tab == .diff;
     model.right_panel_open = true;
-    bumpWideTabWidth(model);
+    if (!already_diff) {
+        model.right_panel_width = main.widenedPanelWidthForReview(model.right_panel_width);
+    }
     model.right_panel_tab = .diff;
     model.right_panel_width = clampWidthTab(model.right_panel_width, .diff);
     model.syncRightPanelSplit();
@@ -645,8 +655,9 @@ pub fn selectDiff(model: *Model, fx: *Effects) void {
 }
 
 /// Background tab. Opens the pane if closed, selects Background, and
-/// bumps width toward 460 when still file-tree-narrow (same clamp as
-/// Diff). Non-zero `row_id` stores the selected Environment Summary
+/// bumps width toward 460 when still file-tree-narrow (same 280–1000
+/// clamp as Diff; open bump stays 460, not `REVIEW_INITIAL_WIDTH`).
+/// Non-zero `row_id` stores the selected Environment Summary
 /// row; `0` is the tab click (keep the current selection, empty
 /// state when none / gone). Tab persists via layout extras; the
 /// selected row does not.
@@ -662,7 +673,8 @@ pub fn selectBackground(model: *Model, fx: *Effects, row_id: u32) void {
 }
 
 /// Browser tab. Opens the pane if closed, selects Browser, and bumps
-/// width toward 460 when still file-tree-narrow (same clamp as Diff).
+/// width toward 460 when still file-tree-narrow (same 280–1000 clamp
+/// as Diff; open bump stays 460, not `REVIEW_INITIAL_WIDTH`).
 /// Native has no webview; the body is an OS-open URL field. Tab and
 /// draft URL persist via layout extras.
 pub fn selectBrowser(model: *Model, fx: *Effects) void {
@@ -676,7 +688,8 @@ pub fn selectBrowser(model: *Model, fx: *Effects) void {
 }
 
 /// Terminal tab. Opens the pane if closed, selects Terminal, and bumps
-/// width toward 460 when still file-tree-narrow (same clamp as Diff).
+/// width toward 460 when still file-tree-narrow (same 280–1000 clamp
+/// as Diff; open bump stays 460, not `REVIEW_INITIAL_WIDTH`).
 /// Native has no PTY; the body is Open in Terminal. Tab persists via
 /// layout extras.
 pub fn selectTerminal(model: *Model, fx: *Effects) void {
@@ -1958,7 +1971,7 @@ test "tab defaults to files; Diff Background Browser Terminal open the panel; Fi
     selectDiff(&model, &fx);
     try std.testing.expect(model.right_panel_open);
     try std.testing.expectEqual(Tab.diff, model.right_panel_tab);
-    try std.testing.expectEqual(@as(f32, 460), model.right_panel_width);
+    try std.testing.expectEqual(@as(f32, 820), model.right_panel_width);
     try std.testing.expect(model.right_panel_split < 1.0);
 
     selectFiles(&model, &fx);
@@ -1968,7 +1981,7 @@ test "tab defaults to files; Diff Background Browser Terminal open the panel; Fi
 
     selectDiff(&model, &fx);
     try std.testing.expectEqual(Tab.diff, model.right_panel_tab);
-    try std.testing.expectEqual(@as(f32, 460), model.right_panel_width);
+    try std.testing.expectEqual(@as(f32, 820), model.right_panel_width);
 
     model.right_panel_width = 400;
     selectFiles(&model, &fx);
@@ -2016,6 +2029,67 @@ test "tab defaults to files; Diff Background Browser Terminal open the panel; Fi
     try std.testing.expect(!model.right_panel_open);
     try std.testing.expectEqual(Tab.files, model.right_panel_tab);
     try std.testing.expectEqual(@as(f32, 360), model.right_panel_width);
+}
+
+test "selecting Diff from a file-tree-narrow pane widens to REVIEW_INITIAL_WIDTH 820" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var from_default = Model{};
+    try std.testing.expectEqual(@as(f32, 184), from_default.right_panel_width);
+    selectDiff(&from_default, &fx);
+    try std.testing.expectEqual(Tab.diff, from_default.right_panel_tab);
+    try std.testing.expectEqual(@as(f32, 820), from_default.right_panel_width);
+    try std.testing.expectEqual(@as(u32, 820), from_default.rightPanelWidthPixels());
+
+    var from_narrow = Model{};
+    from_narrow.right_panel_open = true;
+    from_narrow.right_panel_width = 220;
+    selectDiff(&from_narrow, &fx);
+    try std.testing.expectEqual(@as(f32, 820), from_narrow.right_panel_width);
+
+    var already_wide = Model{};
+    already_wide.right_panel_open = true;
+    already_wide.right_panel_tab = .browser;
+    already_wide.right_panel_width = 920;
+    selectDiff(&already_wide, &fx);
+    try std.testing.expectEqual(Tab.diff, already_wide.right_panel_tab);
+    try std.testing.expectEqual(@as(f32, 920), already_wide.right_panel_width);
+
+    var reselect = Model{};
+    selectDiff(&reselect, &fx);
+    try std.testing.expectEqual(@as(f32, 820), reselect.right_panel_width);
+    reselect.right_panel_width = 500;
+    reselect.syncRightPanelSplit();
+    selectDiff(&reselect, &fx);
+    try std.testing.expectEqual(@as(f32, 500), reselect.right_panel_width);
+
+    var browser = Model{};
+    selectBrowser(&browser, &fx);
+    try std.testing.expectEqual(@as(f32, 460), browser.right_panel_width);
+    var terminal = Model{};
+    selectTerminal(&terminal, &fx);
+    try std.testing.expectEqual(@as(f32, 460), terminal.right_panel_width);
+    var background = Model{};
+    selectBackground(&background, &fx, 0);
+    try std.testing.expectEqual(@as(f32, 460), background.right_panel_width);
+
+    var from_files_220 = Model{};
+    from_files_220.right_panel_open = true;
+    from_files_220.right_panel_width = 220;
+    selectBrowser(&from_files_220, &fx);
+    try std.testing.expectEqual(@as(f32, 460), from_files_220.right_panel_width);
+    var terminal_220 = Model{};
+    terminal_220.right_panel_open = true;
+    terminal_220.right_panel_width = 220;
+    selectTerminal(&terminal_220, &fx);
+    try std.testing.expectEqual(@as(f32, 460), terminal_220.right_panel_width);
+    var background_220 = Model{};
+    background_220.right_panel_open = true;
+    background_220.right_panel_width = 220;
+    selectBackground(&background_220, &fx, 0);
+    try std.testing.expectEqual(@as(f32, 460), background_220.right_panel_width);
 }
 
 test "Diff keeps an active Compare source; Uncommitted is the empty default" {

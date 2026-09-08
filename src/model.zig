@@ -928,10 +928,12 @@ pub const Model = struct {
     /// 184/140/360 when no inline preview is open. First-cut: opening
     /// the first Files preview widens with Waku `FILE_EDITOR_INITIAL_WIDTH`
     /// 500 and while that preview is open Files uses the wide panel
-    /// clamp (min 280 / max 1000). Diff, Browser, Terminal, and
-    /// Background tabs may bump toward Waku `DEFAULT_RIGHT_PANEL_WIDTH`
-    /// 460 and clamp from Waku `RIGHT_PANEL_MIN_WIDTH` 280 up to Waku
-    /// `RIGHT_PANEL_MAX_WIDTH` 1000. Hide reclamps to the file-tree max.
+    /// clamp (min 280 / max 1000). First-cut: opening Diff / Review
+    /// widens with Waku `REVIEW_INITIAL_WIDTH` 820. Browser, Terminal,
+    /// and Background tabs may bump toward Waku
+    /// `DEFAULT_RIGHT_PANEL_WIDTH` 460. Wide tabs clamp from Waku
+    /// `RIGHT_PANEL_MIN_WIDTH` 280 up to Waku `RIGHT_PANEL_MAX_WIDTH`
+    /// 1000. Hide reclamps to the file-tree max.
     right_panel_width: f32 = right_panel_default_width,
     /// Files | Diff | Browser | Terminal | Background surface. Default
     /// `files` when the panel opens. Persisted on sessions.json extras

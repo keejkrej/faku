@@ -588,7 +588,9 @@ inline preview is open. First-cut: the first Files preview open widens the pane 
 500 (`widenedPanelWidthForFileEditor`: sanitize to RIGHT_PANEL 280–1000, then max with tree+500; measured
 `(460, 184) → 684`, already-wide stays) and while that preview is open Files uses the wide panel clamp (min 280 /
 max 1000) so the bump does not snap back. Closing the preview keeps the pixel width until the next Files clamp
-(hide / Files tab without a preview / persist load). Diff / Browser / Terminal / Background bump toward Waku
+(hide / Files tab without a preview / persist load). First-cut: opening Diff / Review widens the pane with Waku
+`REVIEW_INITIAL_WIDTH` 820 (`widenedPanelWidthForReview`: sanitize to RIGHT_PANEL 280–1000, then max with 820;
+measured `460 → 820`, already-wide ≥820 stays). Browser / Terminal / Background bump toward Waku
 `DEFAULT_RIGHT_PANEL_WIDTH` 460 when still file-tree-narrow
 and clamp from Waku `RIGHT_PANEL_MIN_WIDTH` 280 up to Waku `RIGHT_PANEL_MAX_WIDTH` 1000; switching back to Files without a preview reclamps to 360. Files width persists (`right_panel_open` /
 `right_panel_width`). Selected tab persists (`right_panel_tab`: `files` /
@@ -1251,7 +1253,9 @@ Honest gaps this cut does not implement:
   `line-numbers`; language from a documented lexer name, unknown →
   plain. First-cut: opening the first Files preview widens the pane
   with Waku `FILE_EDITOR_INITIAL_WIDTH` 500 (wide clamp 280–1000 while
-  that preview is open; not a nested file-tree split). First-cut Edit / Save / Reload ships: textarea while dirty,
+  that preview is open). First-cut: opening Diff / Review widens the pane
+  with Waku `REVIEW_INITIAL_WIDTH` 820 (wide clamp 280–1000; Browser /
+  Terminal / Background stay the 460 bump). First-cut Edit / Save / Reload ships: textarea while dirty,
   Save prefers hello + daemon `WriteTextFile` when a daemon address
   is set (ok Ack; Native 4 KiB stdin overflow falls back to Zig
   `std.fs` atomic write), Reload discards unsaved edits. First-cut
