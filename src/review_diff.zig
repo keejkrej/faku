@@ -82,9 +82,10 @@
 //! status — no invented files. First-cut selected-file hunks
 //! parse into HunkHeader / Context / Addition / Deletion / Gap
 //! rows (Waku `review_diff` Gap model). Native paints a
-//! `shown_line` gutter (`new_line` else `old_line`); syntax-token
-//! highlighting still does not (Native has no per-span tokens like
-//! Waku `Token`).
+//! `shown_line` gutter (`new_line` else `old_line`); code-row
+//! body matches Waku `Line.content` (unified-diff marker
+//! stripped). Syntax-token highlighting still does not (Native
+//! has no per-span Token).
 //! `completeContext` daemon patches collapse long context into
 //! expandable Gaps; local compact `git diff` inserts count-only
 //! Gaps between hunks (hidden empty — expand is a no-op). Expand
@@ -406,8 +407,11 @@ pub const ExpansionDirection = enum(u8) {
 };
 
 /// One parsed / visible / hidden diff row. `content_off`/`content_len`
-/// index `review_diff_hunk_storage`. `old_line`/`new_line` 0 means none.
-/// Gap rows use `gap_*` / `hidden_*` (hidden indexes the hidden table).
+/// index `review_diff_hunk_storage`. Context / addition / deletion
+/// skip the first unified-diff marker byte (Waku `Line.content`).
+/// Meta and headers keep the full raw line. `old_line`/`new_line` 0
+/// means none. Gap rows use `gap_*` / `hidden_*` (hidden indexes the
+/// hidden table).
 pub const DiffLine = struct {
     kind: LineKind = .context,
     gap_position: GapPosition = .between,
@@ -422,8 +426,9 @@ pub const DiffLine = struct {
 };
 
 /// Native `for each="review_diff_hunk_rows"` row. `id` is 1-based
-/// visible-row index (the expand payload). `line_number` is Waku
-/// `shown_line` (`new_line` else `old_line`) as an arena decimal.
+/// visible-row index (the expand payload). `text` is Waku-style
+/// code-row body (marker stripped) or `gapLabel`. `line_number` is
+/// Waku `shown_line` (`new_line` else `old_line`) as an arena decimal.
 pub const ReviewDiffHunkRow = struct {
     id: u32,
     text: []const u8,
@@ -1338,8 +1343,6 @@ fn parsePatchLines(patch: []const u8, complete_context: bool, lines: []DiffLine,
 
         if (raw.len == 0) continue;
         const marker = raw[0];
-        const content_off: u32 = line_off;
-        const content_len: u16 = @intCast(@min(raw.len, std.math.maxInt(u16)));
         var kind: LineKind = undefined;
         var shown_old: u32 = 0;
         var shown_new: u32 = 0;
@@ -1370,6 +1373,12 @@ fn parsePatchLines(patch: []const u8, complete_context: bool, lines: []DiffLine,
         }
         previous_old_next = old_line;
         previous_new_next = new_line;
+        // Waku `Line.content = raw.get(1..)` for code rows; Meta keeps
+        // the full raw line (Waku Meta has empty tokens; not a code row).
+        const skip_marker = kind == .context or kind == .addition or kind == .deletion;
+        const body = if (skip_marker) raw[1..] else raw;
+        const content_off: u32 = if (skip_marker) line_off + 1 else line_off;
+        const content_len: u16 = @intCast(@min(body.len, std.math.maxInt(u16)));
         _ = pushParsed(lines, &n, .{
             .kind = kind,
             .old_line = shown_old,
@@ -4458,8 +4467,8 @@ test "complete context collapses around changes and All expands the between Gap"
     var saw_13 = false;
     for (model.review_diff_visible_store[0..model.review_diff_visible_count]) |line| {
         const text = lineContent(&model, line);
-        if (std.mem.eql(u8, text, " line 12")) saw_12 = true;
-        if (std.mem.eql(u8, text, " line 13")) saw_13 = true;
+        if (std.mem.eql(u8, text, "line 12")) saw_12 = true;
+        if (std.mem.eql(u8, text, "line 13")) saw_13 = true;
     }
     try std.testing.expect(saw_12);
     try std.testing.expect(saw_13);
@@ -4586,24 +4595,24 @@ test "review_diff_hunk_rows expose Waku shown_line gutter numbers" {
             saw_gap = true;
             continue;
         }
-        if (std.mem.eql(u8, row.text, " keep")) {
+        if (std.mem.eql(u8, row.text, "keep")) {
             try std.testing.expect(row.has_line_number);
             try std.testing.expectEqualStrings("10", row.line_number);
             saw_keep = true;
         } else if (row.is_deletion) {
             try std.testing.expect(row.has_line_number);
             try std.testing.expectEqualStrings("11", row.line_number);
-            try std.testing.expectEqualStrings("-drop", row.text);
+            try std.testing.expectEqualStrings("drop", row.text);
             saw_drop = true;
-        } else if (row.is_addition and std.mem.eql(u8, row.text, "+add")) {
+        } else if (row.is_addition and std.mem.eql(u8, row.text, "add")) {
             try std.testing.expect(row.has_line_number);
             try std.testing.expectEqualStrings("11", row.line_number);
             saw_add = true;
-        } else if (row.is_addition and std.mem.eql(u8, row.text, "+extra")) {
+        } else if (row.is_addition and std.mem.eql(u8, row.text, "extra")) {
             try std.testing.expect(row.has_line_number);
             try std.testing.expectEqualStrings("12", row.line_number);
             saw_extra = true;
-        } else if (std.mem.eql(u8, row.text, " still")) {
+        } else if (std.mem.eql(u8, row.text, "still")) {
             try std.testing.expect(row.has_line_number);
             try std.testing.expectEqualStrings("13", row.line_number);
             saw_still = true;
@@ -4639,7 +4648,7 @@ test "review_diff_hunk_rows omit gutter when unpositioned or zero" {
     for (rows) |row| {
         try std.testing.expect(!row.has_line_number);
         try std.testing.expectEqualStrings("", row.line_number);
-        if (std.mem.eql(u8, row.text, " keep")) saw_ctx = true;
+        if (std.mem.eql(u8, row.text, "keep")) saw_ctx = true;
         if (row.is_deletion) saw_del = true;
         if (row.is_addition) saw_add = true;
     }
@@ -4658,7 +4667,63 @@ test "review_diff_hunk_rows omit gutter when unpositioned or zero" {
     try std.testing.expect(zero_rows[0].is_addition);
     try std.testing.expect(!zero_rows[0].has_line_number);
     try std.testing.expectEqualStrings("", zero_rows[0].line_number);
-    try std.testing.expectEqualStrings("+hello", zero_rows[0].text);
+    try std.testing.expectEqualStrings("hello", zero_rows[0].text);
+}
+
+test "review_diff_hunk_rows code body omits unified-diff marker" {
+    var model = Model{};
+    defer freeReviewDiffStores(&model);
+    const patch =
+        \\diff --git a/src/a.zig b/src/a.zig
+        \\--- a/src/a.zig
+        \\+++ b/src/a.zig
+        \\@@ -1,2 +1,3 @@
+        \\ keep
+        \\-drop
+        \\+add
+        \\+
+        \\\ No newline at end of file
+        \\
+    ;
+    loadHunkPatch(&model, patch, false);
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const rows = reviewDiffHunkRows(&model, arena_state.allocator());
+
+    var saw_keep = false;
+    var saw_drop = false;
+    var saw_add = false;
+    var saw_empty_add = false;
+    var saw_meta = false;
+    for (rows) |row| {
+        if (row.is_gap) continue;
+        if (std.mem.eql(u8, row.text, "keep")) {
+            try std.testing.expect(!row.is_addition);
+            try std.testing.expect(!row.is_deletion);
+            saw_keep = true;
+        } else if (row.is_deletion) {
+            try std.testing.expectEqualStrings("drop", row.text);
+            saw_drop = true;
+        } else if (row.is_addition and std.mem.eql(u8, row.text, "add")) {
+            saw_add = true;
+        } else if (row.is_addition and row.text.len == 0) {
+            saw_empty_add = true;
+        } else if (std.mem.eql(u8, row.text, "\\ No newline at end of file")) {
+            try std.testing.expect(!row.is_addition);
+            try std.testing.expect(!row.is_deletion);
+            try std.testing.expect(!row.has_line_number);
+            saw_meta = true;
+        }
+        if (row.is_addition or row.is_deletion or std.mem.eql(u8, row.text, "keep")) {
+            try std.testing.expect(!std.mem.startsWith(u8, row.text, "+"));
+            try std.testing.expect(!std.mem.startsWith(u8, row.text, "-"));
+        }
+    }
+    try std.testing.expect(saw_keep);
+    try std.testing.expect(saw_drop);
+    try std.testing.expect(saw_add);
+    try std.testing.expect(saw_empty_add);
+    try std.testing.expect(saw_meta);
 }
 
 test "clicking a ? untracked row one-shots git diff --no-index" {

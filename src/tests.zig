@@ -23420,7 +23420,7 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expectEqual(@as(f32, 184), model.right_panel_diff_file_list_width);
     try testing.expectEqual(@as(f32, (820.0 - 184.0) / 820.0), model.right_panel_diff_file_list_split());
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "+hello");
+    _ = try expectByText(tree.root, .text, "hello");
     try testing.expect(findByText(tree.root, .scroll_view, "Review hunks") != null);
     try testing.expect(findByText(tree.root, .scroll_view, "Review files") != null);
     const selected_row = try expectButtonMsg(tree, "M src/a.zig", .{ .select_review_diff_file = 1 });
@@ -23578,7 +23578,7 @@ test "Review source row switches Uncommitted and re-probes name-status plus untr
     try testing.expect(model.has_review_diff_hunk());
     try testing.expect(!model.has_review_diff_hunk_status());
     tree = try buildTree(arena, &model);
-    _ = try expectByText(tree.root, .text, "+hello");
+    _ = try expectByText(tree.root, .text, "hello");
     const uncommitted_on = try expectButtonMsg(tree, "Uncommitted", .set_review_diff_source_uncommitted);
     try testing.expect(uncommitted_on.state.selected);
     const branch_off = try expectButtonMsg(tree, "Branch", .set_review_diff_source_branch);
