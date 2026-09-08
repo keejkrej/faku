@@ -9831,9 +9831,12 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     try testing.expect(findByText(tree.root, .text, "Native has no embedded browser. Open the system browser instead.") == null);
     _ = try expectButtonMsg(tree, "Navigate", .browser_navigate);
     _ = try expectButtonMsg(tree, "Reload", .browser_reload);
-    _ = try expectButtonMsg(tree, "Back", .browser_back);
-    _ = try expectButtonMsg(tree, "Forward", .browser_forward);
     _ = try expectButtonMsg(tree, "Open in browser", .open_url);
+    const browser_col = try expectByText(tree.root, .column, "Browser");
+    const back = findByText(browser_col, .button, "Back") orelse return error.WidgetNotFound;
+    const forward = findByText(browser_col, .button, "Forward") orelse return error.WidgetNotFound;
+    try testing.expect(back.state.disabled);
+    try testing.expect(forward.state.disabled);
     const browser_anchor = try expectByText(tree.root, .column, "browser-pane");
     try testing.expectEqual(@as(usize, 0), browser_anchor.children.len);
     try testing.expect(findByText(tree.root, .text, "No project open") == null);
@@ -9998,6 +10001,14 @@ test "Browser Navigate commits a normalized URL; hidden tab parks the web pane" 
     _ = browser_pane.webPanes(&model, &panes);
     try testing.expectEqualStrings("https://example.com/ok", panes[0].url);
     try testing.expectEqualStrings("https://example.com/ok", model.browser_url());
+
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://b.example" } }, &fx);
+    main.update(&model, .browser_navigate, &fx);
+    tree = try buildTree(arena, &model);
+    const back = try expectButtonMsg(tree, "Back", .browser_back);
+    try testing.expect(!back.state.disabled);
+    main.update(&model, tree.msgForPointer(back.id, .up).?, &fx);
+    try testing.expectEqualStrings("https://example.com/ok", browser_pane.currentUrl(&model));
 
     const reload = try expectButtonMsg(tree, "Reload", .browser_reload);
     const before = panes[0].reload_token;
