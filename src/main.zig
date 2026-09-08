@@ -118,6 +118,7 @@ pub const right_panel_default_width = layout_mod.right_panel_default_width;
 pub const right_panel_min_width = layout_mod.right_panel_min_width;
 pub const right_panel_max_width = layout_mod.right_panel_max_width;
 pub const right_panel_diff_default_width = layout_mod.right_panel_diff_default_width;
+pub const right_panel_diff_min_width = layout_mod.right_panel_diff_min_width;
 pub const right_panel_diff_max_width = layout_mod.right_panel_diff_max_width;
 pub const max_sessions = model_mod.max_sessions;
 /// Sidebar folder-header keys sit above session ids so `for` keys stay unique.

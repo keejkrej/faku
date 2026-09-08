@@ -150,7 +150,8 @@
 //! `FILE_TREE_MIN_WIDTH` (140) / `FILE_TREE_MAX_WIDTH` (360). Diff and
 //! Background, Browser, and Terminal bump toward Waku
 //! `DEFAULT_RIGHT_PANEL_WIDTH` (460) when the pane is still
-//! file-tree-narrow; max is Waku `RIGHT_PANEL_MAX_WIDTH` (1000).
+//! file-tree-narrow; min is Waku `RIGHT_PANEL_MIN_WIDTH` (280); max is
+//! Waku `RIGHT_PANEL_MAX_WIDTH` (1000).
 //! Selected tab and Browser draft URL
 //! persist on `sessions.json` extras (`right_panel_tab` / `browser_url`;
 //! missing / unknown tab → `files`, missing / empty URL → empty draft).
@@ -351,6 +352,13 @@ pub fn defaultWidth(tab: Tab) f32 {
     };
 }
 
+pub fn minWidth(tab: Tab) f32 {
+    return switch (tab) {
+        .files => main.right_panel_min_width,
+        .diff, .browser, .terminal, .background => main.right_panel_diff_min_width,
+    };
+}
+
 pub fn maxWidth(tab: Tab) f32 {
     return switch (tab) {
         .files => main.right_panel_max_width,
@@ -360,7 +368,7 @@ pub fn maxWidth(tab: Tab) f32 {
 
 pub fn clampWidthTab(width: f32, tab: Tab) f32 {
     const raw = if (width > 0) width else defaultWidth(tab);
-    return @max(main.right_panel_min_width, @min(maxWidth(tab), raw));
+    return @max(minWidth(tab), @min(maxWidth(tab), raw));
 }
 
 pub fn restWidth(model: *const Model) f32 {
@@ -1606,34 +1614,57 @@ test "file-tree widths match Waku DEFAULT_FILE_TREE / FILE_TREE_MIN / MAX" {
     try std.testing.expectEqual(@as(f32, 200), clampWidth(200));
 }
 
-test "Diff tab default 460 / max 1000; Browser Terminal Background share Diff clamp; Files clamp stays 360" {
+test "Diff tab default 460 / min 280 / max 1000; Browser Terminal Background share Diff clamp; Files clamp stays 360" {
     try std.testing.expectEqual(@as(f32, 460), main.right_panel_diff_default_width);
+    try std.testing.expectEqual(@as(f32, 280), main.right_panel_diff_min_width);
     try std.testing.expectEqual(@as(f32, 1000), main.right_panel_diff_max_width);
+    try std.testing.expectEqual(@as(f32, 140), minWidth(.files));
+    try std.testing.expectEqual(@as(f32, 280), minWidth(.diff));
+    try std.testing.expectEqual(@as(f32, 280), minWidth(.background));
+    try std.testing.expectEqual(@as(f32, 280), minWidth(.browser));
+    try std.testing.expectEqual(@as(f32, 280), minWidth(.terminal));
     try std.testing.expectEqual(@as(f32, 460), clampWidthTab(0, .diff));
-    try std.testing.expectEqual(@as(f32, 140), clampWidthTab(100, .diff));
+    try std.testing.expectEqual(@as(f32, 280), clampWidthTab(100, .diff));
     try std.testing.expectEqual(@as(f32, 500), clampWidthTab(500, .diff));
     try std.testing.expectEqual(@as(f32, 800), clampWidthTab(800, .diff));
     try std.testing.expectEqual(@as(f32, 1000), clampWidthTab(1000, .diff));
     try std.testing.expectEqual(@as(f32, 1000), clampWidthTab(1200, .diff));
     try std.testing.expectEqual(@as(f32, 400), clampWidthTab(400, .diff));
     try std.testing.expectEqual(@as(f32, 460), clampWidthTab(0, .background));
-    try std.testing.expectEqual(@as(f32, 140), clampWidthTab(100, .background));
+    try std.testing.expectEqual(@as(f32, 280), clampWidthTab(100, .background));
     try std.testing.expectEqual(@as(f32, 800), clampWidthTab(800, .background));
     try std.testing.expectEqual(@as(f32, 1000), clampWidthTab(1200, .background));
     try std.testing.expectEqual(@as(f32, 400), clampWidthTab(400, .background));
     try std.testing.expectEqual(@as(f32, 460), clampWidthTab(0, .browser));
-    try std.testing.expectEqual(@as(f32, 140), clampWidthTab(100, .browser));
+    try std.testing.expectEqual(@as(f32, 280), clampWidthTab(100, .browser));
     try std.testing.expectEqual(@as(f32, 800), clampWidthTab(800, .browser));
     try std.testing.expectEqual(@as(f32, 1000), clampWidthTab(1200, .browser));
     try std.testing.expectEqual(@as(f32, 400), clampWidthTab(400, .browser));
     try std.testing.expectEqual(@as(f32, 460), clampWidthTab(0, .terminal));
-    try std.testing.expectEqual(@as(f32, 140), clampWidthTab(100, .terminal));
+    try std.testing.expectEqual(@as(f32, 280), clampWidthTab(100, .terminal));
     try std.testing.expectEqual(@as(f32, 800), clampWidthTab(800, .terminal));
     try std.testing.expectEqual(@as(f32, 1000), clampWidthTab(1200, .terminal));
     try std.testing.expectEqual(@as(f32, 400), clampWidthTab(400, .terminal));
     try std.testing.expectEqual(@as(f32, 360), clampWidthTab(400, .files));
     try std.testing.expectEqual(@as(f32, 360), clampWidthTab(460, .files));
     try std.testing.expectEqual(@as(f32, 360), clampWidthTab(1000, .files));
+}
+
+test "right_panel_pane_min is 140 for Files and 280 for wide tabs" {
+    var model = Model{};
+    try std.testing.expectEqual(@as(f32, 0), model.right_panel_pane_min());
+    model.right_panel_open = true;
+    try std.testing.expectEqual(@as(f32, 140), model.right_panel_pane_min());
+    model.right_panel_tab = .diff;
+    try std.testing.expectEqual(@as(f32, 280), model.right_panel_pane_min());
+    model.right_panel_tab = .browser;
+    try std.testing.expectEqual(@as(f32, 280), model.right_panel_pane_min());
+    model.right_panel_tab = .terminal;
+    try std.testing.expectEqual(@as(f32, 280), model.right_panel_pane_min());
+    model.right_panel_tab = .background;
+    try std.testing.expectEqual(@as(f32, 280), model.right_panel_pane_min());
+    model.right_panel_tab = .files;
+    try std.testing.expectEqual(@as(f32, 140), model.right_panel_pane_min());
 }
 
 test "tab persist names are stable lowercase; missing unknown is files" {

@@ -13,7 +13,8 @@ pub const sidebar_max_width: f32 = 420;
 pub const sidebar_rail_width: f32 = 48;
 /// Waku `DEFAULT_FILE_TREE_WIDTH`. Files tab default (not the 460px panel).
 pub const right_panel_default_width: f32 = 184;
-/// Waku `FILE_TREE_MIN_WIDTH`. Shared min for Files and the wide tabs.
+/// Waku `FILE_TREE_MIN_WIDTH`. Files / file-tree min. Diff / Browser /
+/// Terminal / Background use `right_panel_diff_min_width`.
 pub const right_panel_min_width: f32 = 140;
 /// Waku `FILE_TREE_MAX_WIDTH`. Files tab clamp. Diff / Browser / Terminal /
 /// Background use `right_panel_diff_max_width`.
@@ -23,10 +24,12 @@ pub const right_panel_max_width: f32 = 360;
 /// Not persisted as a tab: switching back to Files reclamps to
 /// `right_panel_max_width`.
 pub const right_panel_diff_default_width: f32 = 460;
+/// Waku `RIGHT_PANEL_MIN_WIDTH`. Diff / Browser / Terminal / Background
+/// resize floor. Files keeps `right_panel_min_width`.
+pub const right_panel_diff_min_width: f32 = 280;
 /// Waku `RIGHT_PANEL_MAX_WIDTH`. Diff / Browser / Terminal / Background
 /// resize clamp. Open/target width stays `right_panel_diff_default_width`.
-/// Shared min stays `right_panel_min_width` (140 / Waku `FILE_TREE_MIN_WIDTH`);
-/// Waku `RIGHT_PANEL_MIN_WIDTH` is 280 and is not adopted this cut.
+/// Min is `right_panel_diff_min_width`.
 pub const right_panel_diff_max_width: f32 = 1000;
 
 test "layout chrome widths match Waku-aligned numbers" {
@@ -38,5 +41,6 @@ test "layout chrome widths match Waku-aligned numbers" {
     try std.testing.expectEqual(@as(f32, 140), right_panel_min_width);
     try std.testing.expectEqual(@as(f32, 360), right_panel_max_width);
     try std.testing.expectEqual(@as(f32, 460), right_panel_diff_default_width);
+    try std.testing.expectEqual(@as(f32, 280), right_panel_diff_min_width);
     try std.testing.expectEqual(@as(f32, 1000), right_panel_diff_max_width);
 }

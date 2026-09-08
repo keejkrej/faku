@@ -585,7 +585,7 @@ it does not spawn a second worktree.
 Command palette Show / Hide right panel (or Cmd/Ctrl-Shift-B; Cmd/Ctrl-B stays the sidebar) toggles a first-cut Files +
 Diff + Browser + Terminal + Background pane. Default closed. Files tab clamps to Waku file-tree 184 / 140 / 360.
 Diff / Browser / Terminal / Background bump toward Waku `DEFAULT_RIGHT_PANEL_WIDTH` 460 when still file-tree-narrow
-and clamp up to Waku `RIGHT_PANEL_MAX_WIDTH` 1000; switching back to Files reclamps to 360. Files width persists (`right_panel_open` /
+and clamp from Waku `RIGHT_PANEL_MIN_WIDTH` 280 up to Waku `RIGHT_PANEL_MAX_WIDTH` 1000; switching back to Files reclamps to 360. Files width persists (`right_panel_open` /
 `right_panel_width`). Selected tab persists (`right_panel_tab`: `files` /
 `diff` / `browser` / `terminal` / `background`; missing / unknown → Files).
 Browser draft URL persists (`browser_url`, raw, cap 2048; missing / empty /
