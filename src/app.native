@@ -1538,13 +1538,27 @@
           </column>
         </if>
         <if test="{right_panel_showing_terminal}">
-          <column grow="1" gap="8" padding="10" label="Terminal">
-            <text foreground="text_muted">Native has no embedded terminal (no PTY). Open the host terminal instead.</text>
-            <if test="{can_open_terminal}">
-              <button variant="ghost" size="sm" on-press="open_terminal">Open in Terminal</button>
+          <column grow="1" gap="6" padding="8" label="Terminal">
+            <row gap="8" cross="center">
+              <if test="{can_restart_terminal}">
+                <button variant="ghost" size="sm" on-press="restart_terminal">Restart</button>
+              </if>
+              <if test="{can_open_terminal}">
+                <button variant="ghost" size="sm" on-press="open_terminal">Open in Terminal</button>
+              </if>
+              <else>
+                <if test="{show_terminal_no_project}">
+                  <text wrap="true" foreground="text_muted">{open_terminal_no_project_status}</text>
+                </if>
+              </else>
+            </row>
+            <if test="{term_session_live}">
+              <terminal pty="{shell_key}" scrollback="{term_scrollback}" on-terminal="term_state" grow="1" label="Embedded terminal" />
             </if>
             <else>
-              <text wrap="true" foreground="text_muted">{open_terminal_no_project_status}</text>
+              <if test="{has_term_status}">
+                <text wrap="true" foreground="text_muted">{term_status}</text>
+              </if>
             </else>
             <if test="{has_window_status}">
               <text wrap="true" foreground="text_muted">{window_status}</text>

@@ -45,6 +45,7 @@ const projectless = @import("projectless.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
+const pty_terminal = @import("pty_terminal.zig");
 const open_url = @import("open_url.zig");
 const open_editor = @import("open_editor.zig");
 const copy_helpers = @import("copy.zig");
@@ -307,6 +308,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .pick_daemon_dir_entry => |id| pick_folder.navigateDaemonBrowserEntry(model, fx, id),
         .reveal_folder => reveal_folder.startRevealFolder(model, fx),
         .open_terminal => open_terminal.startOpenTerminal(model, fx),
+        .restart_terminal => pty_terminal.restartShell(model, fx),
+        .term_state => |state| pty_terminal.applyTermState(model, state),
+        .term_pty => |event| pty_terminal.handlePtyEvent(model, event),
         .browser_url_edit => |edit| {
             model.applyBrowserUrl(edit);
             store.persistLayoutIfPossible(model);
@@ -521,4 +525,5 @@ pub fn initFx(model: *Model, fx: *Effects) void {
     projectless.beginMigrateForSelected(model, fx);
     fx_probe.startFxProbe(model, fx);
     cli_probe.startCliProbes(model, fx);
+    pty_terminal.spawnShell(model, fx);
 }

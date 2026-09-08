@@ -12,6 +12,7 @@ const pick_image = @import("pick_image.zig");
 const pick_folder = @import("pick_folder.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
+const pty_terminal = @import("pty_terminal.zig");
 const open_url = @import("open_url.zig");
 const open_editor = @import("open_editor.zig");
 const maximize_window = @import("maximize_window.zig");
@@ -9770,7 +9771,8 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     try testing.expect(findByText(tree.root, .text, "Review") == null);
     try testing.expect(findByText(tree.root, .text, "No background work") == null);
     try testing.expect(findByText(tree.root, .text, "Native has no embedded browser. Open the system browser instead.") == null);
-    try testing.expect(findByText(tree.root, .text, "Native has no embedded terminal (no PTY). Open the host terminal instead.") == null);
+    try testing.expect(findByKind(tree.root, .terminal) == null);
+    try testing.expect(findByText(tree.root, .text, pty_terminal.ended_status) == null);
 
     main.update(&model, .set_right_panel_tab_diff, &fx);
     try testing.expect(model.right_panel_open);
@@ -9835,9 +9837,14 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     try testing.expectEqual(@as(u32, 460), model.rightPanelWidthPixels());
     tree = try buildTree(arena, &model);
     try testing.expect((try expectButtonMsg(tree, "Terminal", .set_right_panel_tab_terminal)).state.selected);
-    _ = try expectByText(tree.root, .text, "Native has no embedded terminal (no PTY). Open the host terminal instead.");
-    _ = try expectByText(tree.root, .text, open_terminal.no_project_status);
+    try testing.expect(model.term_session_live());
+    try testing.expectEqual(@as(usize, 1), fx.pendingPtyCount());
+    const term = findByKind(tree.root, .terminal) orelse return error.WidgetNotFound;
+    try testing.expectEqual(pty_terminal.pty_shell_key, term.terminal.pty);
+    try testing.expectEqual(@as(u32, 0), term.terminal.scrollback);
+    try testing.expect(findByText(tree.root, .button, "Restart") == null);
     try testing.expect(findByText(tree.root, .button, "Open in Terminal") == null);
+    try testing.expect(findByText(tree.root, .text, open_terminal.no_project_status) == null);
     try testing.expect(findByText(tree.root, .text, "No project open") == null);
 
     main.update(&model, .hide_right_panel, &fx);
@@ -9849,6 +9856,56 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     try testing.expect(model.right_panel_open);
     try testing.expect(model.right_panel_tab_diff());
     try testing.expectEqual(@as(u32, 820), model.rightPanelWidthPixels());
+}
+
+test "Terminal tab binds <terminal> to pty 700; exit shows Restart and re-spawns" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .set_right_panel_tab_terminal, &fx);
+    try testing.expect(model.right_panel_showing_terminal());
+    try testing.expect(model.term_session_live());
+    try testing.expectEqual(main.pty_shell_key, model.shell_key());
+    try testing.expectEqual(@as(usize, 1), fx.pendingPtyCount());
+    const request = fx.pendingPtyAt(0) orelse return error.MissingPtySpawn;
+    try testing.expectEqual(pty_terminal.pty_shell_key, request.key);
+    try testing.expect(pty_terminal.isPtyShellArgv(request.argv));
+
+    var tree = try buildTree(arena, &model);
+    const term = findByKind(tree.root, .terminal) orelse return error.WidgetNotFound;
+    try testing.expectEqual(pty_terminal.pty_shell_key, term.terminal.pty);
+    try testing.expectEqual(@as(u32, 0), term.terminal.scrollback);
+    try testing.expect(findByText(tree.root, .button, "Restart") == null);
+
+    main.update(&model, .{ .term_state = .{ .scrollback = 12, .history = 400, .cols = 80, .rows = 24 } }, &fx);
+    try testing.expectEqual(@as(u32, 12), model.term_scrollback);
+
+    try fx.feedPtyExit(pty_terminal.pty_shell_key, 0, 0, .exited, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.term_session_live());
+    try testing.expect(model.can_restart_terminal());
+    try testing.expectEqualStrings(pty_terminal.ended_status, model.term_status());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .terminal) == null);
+    _ = try expectByText(tree.root, .text, pty_terminal.ended_status);
+    _ = try expectButtonMsg(tree, "Restart", .restart_terminal);
+    _ = try expectByText(tree.root, .text, open_terminal.no_project_status);
+
+    main.update(&model, .restart_terminal, &fx);
+    try testing.expect(model.term_session_live());
+    try testing.expect(!model.can_restart_terminal());
+    try testing.expectEqual(@as(usize, 1), fx.pendingPtyCount());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByKind(tree.root, .terminal) != null);
+    try testing.expect(findByText(tree.root, .button, "Restart") == null);
+    try testing.expect(findByText(tree.root, .text, pty_terminal.ended_status) == null);
 }
 
 test "right panel Browser Open in browser spawns key-25 URL sidecar; empty URL is a status" {
@@ -9904,7 +9961,7 @@ fn findOpenUrlSpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     return null;
 }
 
-test "palette Show Browser tab and Show Terminal tab open the wide OS-open surfaces" {
+test "palette Show Browser tab and Show Terminal tab open the wide surfaces" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();

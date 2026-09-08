@@ -1,5 +1,7 @@
 # GitHub Releases for Faku: user-facing installers wrapping documented
-# Native package trees. No eject, no invented Native flags, no zip.
+# Native package trees. Ejected for live `<terminal>` sessions
+# (`terminal_sessions = true` + lazy ghostty). Still
+# `native build --yes` / `native package`; no invented Native flags, no zip.
 # macOS: unsigned DMG. Linux: amd64 .deb. Windows: silent NSIS .exe.
 #
 # Flags come from https://native-sdk.dev/docs/cli and
