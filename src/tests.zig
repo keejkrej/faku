@@ -9388,6 +9388,12 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"file_preview_keep_editing\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "file_preview_discard_confirm") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "text=\"{file_preview_draft}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "<scroll grow=\"0\" height=\"140\">") == null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "value=\"{right_panel_file_tree_split}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-resize=\"right_panel_file_tree_resized\"") != null);
+    try testing.expectEqual(@as(f32, 684), model.right_panel_width);
+    try testing.expectEqual(@as(f32, 184), model.right_panel_file_tree_width);
+    try testing.expectEqual(@as(f32, 500.0 / 684.0), model.right_panel_file_tree_split());
 
     main.update(&model, .open_right_panel_file_edit, &fx);
     try testing.expect(model.file_preview_editing());
@@ -9422,6 +9428,10 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expect(!model.right_panel_file_preview_open());
     try testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_storage.len);
     try testing.expectEqual(@as(usize, 0), model.file_preview_line_rows(arena).len);
+    try testing.expectEqual(@as(f32, 184), model.right_panel_file_tree_width);
+
+    main.update(&model, .{ .right_panel_file_tree_resized = 0.5 }, &fx);
+    try testing.expectEqual(@as(f32, 184), model.right_panel_file_tree_width);
 
     main.update(&model, .{ .toggle_right_panel_dir = file_mention.file_mention_dir_id_base }, &fx);
     try testing.expectEqual(@as(usize, 2), model.right_panel_file_rows(arena).len);

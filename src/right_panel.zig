@@ -162,8 +162,14 @@
 //! Selected tab and Browser draft URL
 //! persist on `sessions.json` extras (`right_panel_tab` / `browser_url`;
 //! missing / unknown tab → `files`, missing / empty URL → empty draft).
-//! Selected Background row, Files preview, directory expands, and
+//! Selected Background row, Files preview, directory expands, nested
+//! file-tree width (`right_panel_file_tree_width`, default 184), and
 //! output stay runtime-only. Default `files` when the panel opens.
+//!
+//! When a Files preview is open, the Files tab is a nested horizontal
+//! split: preview/editor on the left (grow) and the working tree on
+//! the right at `fittedFileTreeWidth` (140…min(360, panel-140)).
+//! Tree-only Files stays a full-height list (no nested split).
 //!
 //! Directory expand/collapse is a runtime-only set of relative dir
 //! paths matching `file_mention.derivedDirParents` (no trailing
@@ -410,6 +416,28 @@ pub fn splitForWidth(model: *const Model, width: f32) f32 {
     const pane = clampWidthForModel(model, width);
     const conversation = @max(0, rest - pane);
     return conversation / rest;
+}
+
+/// Nested Files-tree width while a preview is open: Waku
+/// `fitted_file_tree_width` against the current pane and stored tree.
+pub fn fittedFileTreeWidthForModel(model: *const Model) f32 {
+    return main.fittedFileTreeWidth(model.right_panel_width, model.right_panel_file_tree_width);
+}
+
+/// Native nested-split left fraction (preview pane) for Files.
+pub fn fileTreeSplit(model: *const Model) f32 {
+    return main.fileTreeSplitFraction(model.right_panel_width, model.right_panel_file_tree_width);
+}
+
+/// Nested Files-tree split `on-resize`. Stores a fitted tree width.
+/// No-op when no preview is open. Runtime-only; not persisted.
+pub fn applyFileTreeResize(model: *Model, fraction: f32) void {
+    if (model.right_panel_file_preview_id == 0) return;
+    const pane = @max(1, model.right_panel_width);
+    const frac = @max(0, @min(1, fraction));
+    const dragged = @round(pane * (1.0 - frac));
+    const tree = if (dragged > 0) dragged else main.right_panel_min_width;
+    model.right_panel_file_tree_width = main.fittedFileTreeWidth(pane, tree);
 }
 
 /// Restore open flag, tab, and width from sessions.json. Sets the tab
@@ -1086,16 +1114,14 @@ pub fn previewLinesFromBody(body: []const u8, arena: std.mem.Allocator) []const 
 }
 
 /// First Files preview open: bump `right_panel_width` with Waku
-/// `widened_panel_width_for_file_editor`. Uses the current pane width
-/// as the tree width while it is still in the file-tree band
-/// (≤ `FILE_TREE_MAX_WIDTH` 360), else `DEFAULT_FILE_TREE_WIDTH` 184.
-/// Preview id must already be set so the wide Files clamp applies.
+/// `widened_panel_width_for_file_editor`. Tree width is the runtime
+/// `right_panel_file_tree_width` (default 184). Preview id must
+/// already be set so the wide Files clamp applies.
 fn ensureInitialRightPanelFileEditorWidth(model: *Model) void {
-    const tree = if (model.right_panel_width <= main.right_panel_max_width)
-        model.right_panel_width
-    else
-        main.right_panel_default_width;
-    model.right_panel_width = main.widenedPanelWidthForFileEditor(model.right_panel_width, tree);
+    model.right_panel_width = main.widenedPanelWidthForFileEditor(
+        model.right_panel_width,
+        model.right_panel_file_tree_width,
+    );
     model.syncRightPanelSplit();
 }
 
@@ -1651,10 +1677,42 @@ test "file-tree widths match Waku DEFAULT_FILE_TREE / FILE_TREE_MIN / MAX" {
     try std.testing.expectEqual(@as(f32, 184), main.right_panel_default_width);
     try std.testing.expectEqual(@as(f32, 140), main.right_panel_min_width);
     try std.testing.expectEqual(@as(f32, 360), main.right_panel_max_width);
+    try std.testing.expectEqual(@as(f32, 140), main.file_editor_min_width);
     try std.testing.expectEqual(@as(f32, 184), clampWidth(0));
     try std.testing.expectEqual(@as(f32, 140), clampWidth(100));
     try std.testing.expectEqual(@as(f32, 360), clampWidth(500));
     try std.testing.expectEqual(@as(f32, 200), clampWidth(200));
+}
+
+test "fittedFileTreeWidth and nested split follow Waku tree clamps" {
+    try std.testing.expectEqual(@as(f32, 184), main.fittedFileTreeWidth(684, 184));
+    try std.testing.expectEqual(@as(f32, 140), main.fittedFileTreeWidth(280, 184));
+    try std.testing.expectEqual(@as(f32, 360), main.fittedFileTreeWidth(684, 500));
+    try std.testing.expectEqual(@as(f32, 260), main.fittedFileTreeWidth(400, 300));
+    try std.testing.expectEqual(@as(f32, 500.0 / 684.0), main.fileTreeSplitFraction(684, 184));
+    try std.testing.expectEqual(@as(f32, 0.5), main.fileTreeSplitFraction(280, 184));
+
+    var model = Model{};
+    model.right_panel_open = true;
+    model.right_panel_width = 684;
+    try std.testing.expectEqual(@as(f32, 184), model.right_panel_file_tree_width);
+    try std.testing.expectEqual(@as(f32, 184), fittedFileTreeWidthForModel(&model));
+    try std.testing.expectEqual(@as(f32, 500.0 / 684.0), fileTreeSplit(&model));
+    try std.testing.expectEqual(@as(f32, 500.0 / 684.0), model.right_panel_file_tree_split());
+
+    applyFileTreeResize(&model, 0.5);
+    try std.testing.expectEqual(@as(f32, 184), model.right_panel_file_tree_width);
+
+    model.right_panel_file_preview_id = 1;
+    applyFileTreeResize(&model, (684.0 - 220.0) / 684.0);
+    try std.testing.expectEqual(@as(f32, 220), model.right_panel_file_tree_width);
+    applyFileTreeResize(&model, 0);
+    try std.testing.expectEqual(@as(f32, 360), model.right_panel_file_tree_width);
+    applyFileTreeResize(&model, 1);
+    try std.testing.expectEqual(@as(f32, 140), model.right_panel_file_tree_width);
+    model.right_panel_width = 280;
+    try std.testing.expectEqual(@as(f32, 140), fittedFileTreeWidthForModel(&model));
+    try std.testing.expectEqual(@as(f32, 0.5), fileTreeSplit(&model));
 }
 
 test "Diff tab default 460 / min 280 / max 1000; Browser Terminal Background share Diff clamp; Files clamp stays 360" {
@@ -1765,9 +1823,40 @@ test "first Files preview open widens to tree+500; second file does not re-bump"
     try std.testing.expectEqual(@as(u32, 0), model.right_panel_file_preview_id);
     try std.testing.expectEqual(@as(f32, 800), model.right_panel_width);
     try std.testing.expectEqual(@as(u32, 360), model.rightPanelWidthPixels());
+    try std.testing.expectEqual(@as(f32, 184), model.right_panel_file_tree_width);
 
     selectFiles(&model, &fx);
     try std.testing.expectEqual(@as(f32, 360), model.right_panel_width);
+}
+
+test "first Files preview widen uses runtime nested tree width" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-tree-width-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var path_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&path_buf, "{s}/note.txt", .{project});
+    try writePreviewFile(std.testing.io, abs, "note\n");
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("preview tree width", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    model.right_panel_file_tree_width = 200;
+    file_mention.applyStdoutPaths(&model, "note.txt\n");
+    defer clearFilePreview(&model);
+
+    selectCachedFile(&model, &fx, 1);
+    try std.testing.expectEqual(@as(f32, 700), model.right_panel_width);
+    try std.testing.expectEqual(@as(f32, 200), model.right_panel_file_tree_width);
+    try std.testing.expectEqual(@as(f32, 200), fittedFileTreeWidthForModel(&model));
 }
 
 test "already-wide Files pane stays on first preview open" {

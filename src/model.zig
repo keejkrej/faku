@@ -450,6 +450,9 @@ pub const Msg = union(enum) {
     toggle_right_panel,
     /// Nested split drag. Fraction is the conversation pane of the inner split.
     right_panel_resized: f32,
+    /// Nested Files-tree split drag while a preview is open. Fraction is
+    /// the preview (left) pane of that nested split.
+    right_panel_file_tree_resized: f32,
     /// Files-pane file click. Payload is a 1-based file-mention cache id.
     open_right_panel_file: u32,
     /// Files-pane inline preview: close and return to the tree.
@@ -943,6 +946,10 @@ pub const Model = struct {
     /// persisted to sessions.json this cut.
     right_panel_expanded_store: [file_mention.max_file_mention_dirs]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** file_mention.max_file_mention_dirs,
     right_panel_expanded_count: u32 = 0,
+    /// Runtime-only nested Files-tree width while a preview is open.
+    /// Waku `DEFAULT_FILE_TREE_WIDTH` 184. Fitted at layout/resize via
+    /// `fittedFileTreeWidth`. Not persisted to sessions.json this cut.
+    right_panel_file_tree_width: f32 = right_panel_default_width,
     /// Runtime-only Files-tab inline preview. 1-based file-mention id;
     /// 0 = tree only. Not persisted to sessions.json this cut.
     right_panel_file_preview_id: u32 = 0,
@@ -1929,7 +1936,9 @@ pub const Model = struct {
         "clearRightPanelExpanded",
         "right_panel_expanded_store",
         "right_panel_expanded_count",
+        "right_panel_file_tree_width",
         "applyRightPanelResize",
+        "applyFileTreeResize",
         "setAttachStatus",
         "clearAttachStatus",
         "window_status_storage",
@@ -2752,6 +2761,11 @@ pub const Model = struct {
         return model.right_panel_file_preview_id != 0;
     }
 
+    /// Native nested Files split: left fraction for the preview column.
+    pub fn right_panel_file_tree_split(model: *const Model) f32 {
+        return right_panel.fileTreeSplit(model);
+    }
+
     pub fn file_preview_path(model: *const Model) []const u8 {
         return model.right_panel_file_preview_relpath_storage[0..model.right_panel_file_preview_relpath_len];
     }
@@ -3496,6 +3510,10 @@ pub const Model = struct {
         }
         model.right_panel_width = right_panel.clampWidthForModel(model, files);
         model.syncRightPanelSplit();
+    }
+
+    pub fn applyFileTreeResize(model: *Model, fraction: f32) void {
+        right_panel.applyFileTreeResize(model, fraction);
     }
 
     pub fn openEditorPath(model: *const Model) []const u8 {
