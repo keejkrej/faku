@@ -32,8 +32,8 @@ const shell_views = [_]native_sdk.ShellView{
     // Embedded Browser tab. `web_panes` snaps the **active** scene
     // webview to the markup `browser-pane` anchor (workbench pattern).
     // Four static views match Native `max_web_panes` (064ca989). Tiny
-    // 1×1 frames are placeholders; unused / inactive / hidden slots
-    // park at 1×1 with no anchor.
+    // 1×1 frames are placeholders; unused / inactive / hidden / empty-history
+    // slots park at 1×1 with no anchor.
     .{ .label = "browser-web-0", .kind = .webview, .parent = canvas_label, .url = "https://example.com", .x = 0, .y = 0, .width = 1, .height = 1, .layer = 20 },
     .{ .label = "browser-web-1", .kind = .webview, .parent = canvas_label, .url = "https://example.com", .x = 0, .y = 0, .width = 1, .height = 1, .layer = 20 },
     .{ .label = "browser-web-2", .kind = .webview, .parent = canvas_label, .url = "https://example.com", .x = 0, .y = 0, .width = 1, .height = 1, .layer = 20 },
