@@ -11993,6 +11993,8 @@ test "cmd-r / cmd-l / cmd-[ / cmd-] route by Browser-tab keyboard gate" {
     try testing.expectEqual(Msg.focus_browser_or_composer, keys.onKey(cmd_l).?);
     try testing.expectEqual(Msg.navigate_back, keys.onKey(cmd_back).?);
     try testing.expectEqual(Msg.navigate_forward, keys.onKey(cmd_forward).?);
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
 
     var model = main.initialModel();
     var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
@@ -12031,6 +12033,8 @@ test "cmd-r / cmd-l / cmd-[ / cmd-] route by Browser-tab keyboard gate" {
     try testing.expect(model.browser_keyboard_active());
     try testing.expect(model.right_panel_showing_browser());
     main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://a.example" } }, &fx);
+    try testing.expect(model.browser_address_active);
+    try testing.expect(!model.composer_active);
     main.update(&model, .browser_navigate, &fx);
     model.setBrowserUrlDraft("https://b.example");
     main.update(&model, .browser_navigate, &fx);
@@ -12084,6 +12088,95 @@ test "cmd-r / cmd-l / cmd-[ / cmd-] route by Browser-tab keyboard gate" {
     main.update(&model, keys.onKey(cmd_back).?, &fx);
     try testing.expectEqualStrings(port_title, model.selected_title());
     try testing.expectEqualStrings("https://b.example", browser_pane.currentUrl(&model));
+}
+
+test "escape restores Browser address draft without stopping a live turn" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+
+    var empty = main.initialModel();
+    main.update(&empty, .set_right_panel_tab_browser, &fx);
+    main.update(&empty, .{ .browser_url_edit = .{ .insert_text = "half-typed" } }, &fx);
+    try testing.expect(empty.browser_address_active);
+    try testing.expectEqualStrings("half-typed", empty.browser_url());
+    _ = beginLiveTurn(&empty, "empty history address cancel", "partial");
+    try testing.expect(empty.is_streaming());
+    main.update(&empty, keys.onKey(escape).?, &fx);
+    try testing.expect(empty.is_streaming());
+    try testing.expectEqualStrings("", empty.browser_url());
+    try testing.expect(!empty.browser_address_active);
+
+    var model = main.initialModel();
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    try testing.expect(model.browser_keyboard_active());
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://a.example" } }, &fx);
+    try testing.expect(model.browser_address_active);
+    try testing.expect(!model.composer_active);
+    main.update(&model, .browser_navigate, &fx);
+    try testing.expectEqualStrings("a.example", model.browser_url());
+    try testing.expectEqualStrings("https://a.example", browser_pane.currentUrl(&model));
+
+    model.setBrowserUrlDraft("dirty-draft");
+    try testing.expectEqualStrings("dirty-draft", model.browser_url());
+    try testing.expect(model.browser_address_active);
+
+    _ = beginLiveTurn(&model, "live address cancel", "partial");
+    try testing.expect(model.is_streaming());
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expect(model.is_streaming());
+    try testing.expectEqualStrings("a.example", model.browser_url());
+    try testing.expectEqualStrings("https://a.example", browser_pane.currentUrl(&model));
+    try testing.expect(!model.browser_address_active);
+    try testing.expect(!model.browser_address_autofocus());
+
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expect(!model.is_streaming());
+}
+
+test "escape still stops a live turn when Browser address is not active" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    const escape = canvas.WidgetKeyboardEvent{ .phase = .key_down, .key = "escape" };
+    try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
+
+    var model = main.initialModel();
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    try testing.expect(model.browser_keyboard_active());
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://a.example" } }, &fx);
+    main.update(&model, .browser_navigate, &fx);
+    model.setBrowserUrlDraft("dirty-draft");
+    main.update(&model, .focus_composer, &fx);
+    try testing.expect(!model.browser_address_active);
+    try testing.expect(model.composer_active);
+    try testing.expectEqualStrings("dirty-draft", model.browser_url());
+
+    _ = beginLiveTurn(&model, "live stop cascade", "partial");
+    try testing.expect(model.is_streaming());
+    main.update(&model, keys.onKey(escape).?, &fx);
+    try testing.expect(!model.is_streaming());
+    try testing.expectEqualStrings("dirty-draft", model.browser_url());
+
+    var files = main.initialModel();
+    main.update(&files, .set_right_panel_tab_browser, &fx);
+    main.update(&files, .{ .browser_url_edit = .{ .insert_text = "https://b.example" } }, &fx);
+    main.update(&files, .browser_navigate, &fx);
+    files.setBrowserUrlDraft("files-dirty");
+    try testing.expect(files.browser_address_active);
+    main.update(&files, .set_right_panel_tab_files, &fx);
+    try testing.expect(!files.browser_keyboard_active());
+    try testing.expect(files.browser_address_active);
+    _ = beginLiveTurn(&files, "files tab still stops", "partial");
+    try testing.expect(files.is_streaming());
+    main.update(&files, keys.onKey(escape).?, &fx);
+    try testing.expect(!files.is_streaming());
+    try testing.expectEqualStrings("files-dirty", files.browser_url());
+    try testing.expect(files.browser_address_active);
 }
 
 test "cmd-comma and ctrl-comma open settings via onKey" {

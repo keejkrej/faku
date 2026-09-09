@@ -24,6 +24,7 @@ const usage_history = @import("usage_history.zig");
 const usage_meter = @import("usage_meter.zig");
 const litellm_rates = @import("litellm_rates.zig");
 const right_panel = @import("right_panel.zig");
+const browser_pane = @import("browser_pane.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -132,6 +133,15 @@ pub fn handleStop(model: *Model, fx: *Effects) void {
     }
     if (model.editing_session_id != 0) {
         model.closeSessionTitleEdit();
+        return;
+    }
+    // Waku BrowserAddressCancel: Escape restores the address draft
+    // when that field is active. Stay on `.stop` in keys.zig; gate
+    // here like other Browser-tab chords. Loading Stop stays out.
+    if (model.browser_address_active and model.browser_keyboard_active()) {
+        browser_pane.restoreAddressFromCommitted(model);
+        model.browser_address_active = false;
+        store.persistLayoutIfPossible(model);
         return;
     }
     if (model.find_active or model.find_query().len > 0) {
