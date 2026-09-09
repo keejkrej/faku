@@ -90,7 +90,7 @@ Build from source: clone https://github.com/keejkrej/fx, Zig 0.16.0,
 - One-shot Send via `fx acp` (acp-proxy) when fx is installed
 - Other probed providers when their CLIs are on PATH
 - Demo fallback if fx is missing
-- First-cut embedded Terminal tab (`fx.ptySpawn` + `<terminal>`, up to 4 runtime-only sessions)
+- First-cut embedded Terminal tab (`fx.ptySpawn` + `<terminal>`, up to 4 sessions; occupied slots persist)
 - First-cut embedded Browser tab (Native canvas `web_panes` webview,
   up to 4 sessions; occupied URLs persist; lock/globe from committed https;
   **Open in browser** stays the OS fallback)

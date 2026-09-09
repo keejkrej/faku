@@ -5,10 +5,13 @@
 //! runtime owns the emulator behind each pty key; this module picks
 //! argv, names the dedicated effect-key band, and accounts for spawn /
 //! exit / Restart / New / Close. First-cut multi-session: up to four
-//! runtime-only shells on keys `700..703` inside the existing Terminal
-//! tab (chips + New + Close). Not Waku right-panel surface UUID tabs,
-//! and sessions do not persist across restart. Open in Terminal
-//! (`open_terminal.zig`, key 27) stays the OS-host fallback.
+//! shells on keys `700..703` inside the existing Terminal tab (chips +
+//! New + Close). Occupied slots and the active index persist on
+//! `sessions.json` extras (`terminal_slots` / `terminal_active`);
+//! scrollback, status, and live PTY process state stay runtime-only
+//! (restore re-spawns fresh shells). Not Waku right-panel surface UUID
+//! tabs. Open in Terminal (`open_terminal.zig`, key 27) stays the
+//! OS-host fallback.
 //!
 //! `ptySpawn` has no documented cwd field; the child inherits the host
 //! environment plus `TERM`. When the selected session's `project_path`
@@ -71,7 +74,9 @@ pub const ArgvScratch = struct {
 /// Per-slot occupancy. Live PTYs keep running when another slot is
 /// bound; Close `ptyKill`s a live slot and waits for the cancelled
 /// exit before the key may be reused. Ended slots stay until Close or
-/// Restart. Runtime-only — not `sessions.json`.
+/// Restart. Occupied (`live` or `ended`, not `closing`-only empty) plus
+/// the active index persist; scrollback / status / the child process
+/// do not.
 pub const Slot = struct {
     live: bool = false,
     ended: bool = false,
@@ -352,11 +357,88 @@ fn selectNeighbor(model: *Model, closed_index: usize) void {
     model.term_active = 0;
 }
 
-/// Lazy spawn for Terminal tab open: no-op while any slot is live;
-/// otherwise Restart the active ended slot (today's re-select) or
-/// allocate slot 0 when nothing is occupied.
+/// Occupied-slot persist row. Index-aligned booleans, cap 4.
+/// `true` when that slot was visible (`live` or `ended`, not
+/// `closing`-only empty).
+pub fn capturePersisted(model: *const Model, out: *[max_sessions]bool) void {
+    for (0..max_sessions) |i| {
+        out[i] = if (model.term_restore_pending)
+            model.term_restore_slots[i]
+        else
+            isVisible(slotConst(model, i));
+    }
+}
+
+/// Remember wanted occupancy + active index. Does not spawn (no
+/// Effects during JSON apply). Missing callers skip this so
+/// `spawnShell` keeps today's lazy single spawn. Empty / all-false
+/// occupancy does not arm restore.
+pub fn restoreFromPersist(model: *Model, slots: []const bool, active: u8) void {
+    model.term_restore_slots = [_]bool{false} ** max_sessions;
+    model.term_restore_pending = false;
+    model.term_restore_active = 0;
+    const n = @min(slots.len, max_sessions);
+    var any = false;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        if (!slots[i]) continue;
+        model.term_restore_slots[i] = true;
+        any = true;
+    }
+    if (!any) return;
+    model.term_restore_pending = true;
+    model.term_restore_active = clampPersistedActive(&model.term_restore_slots, active);
+    model.term_active = model.term_restore_active;
+}
+
+fn clampPersistedActive(slots: *const [max_sessions]bool, active: u8) u8 {
+    if (active < max_sessions and slots[active]) return active;
+    var i: u8 = 0;
+    while (i < max_sessions) : (i += 1) {
+        if (slots[i]) return i;
+    }
+    return 0;
+}
+
+fn snapActiveToOccupied(model: *Model, wanted: u8) void {
+    if (wanted < max_sessions and isVisible(slotConst(model, wanted))) {
+        model.term_active = wanted;
+        return;
+    }
+    model.term_active = 0;
+    for (model.term_slots, 0..) |slot, idx| {
+        if (!isVisible(&slot)) continue;
+        model.term_active = @intCast(idx);
+        return;
+    }
+}
+
+fn applyPendingRestore(model: *Model, fx: *Effects) bool {
+    if (!model.term_restore_pending) return false;
+    const wanted_active = model.term_restore_active;
+    const wanted = model.term_restore_slots;
+    model.term_restore_pending = false;
+    model.term_restore_slots = [_]bool{false} ** max_sessions;
+    var any = false;
+    for (wanted, 0..) |occupy, i| {
+        if (!occupy) continue;
+        spawnAt(model, fx, i);
+        any = true;
+    }
+    if (!any) return false;
+    snapActiveToOccupied(model, wanted_active);
+    return true;
+}
+
+/// Lazy spawn for Terminal tab open: no-op while any slot is live.
+/// When a persist restore is pending and nothing is live yet, spawn
+/// one fresh shell per persisted occupied slot (stable indices) and
+/// select `terminal_active` (or the nearest occupied). Otherwise
+/// Restart the active ended slot (today's re-select) or allocate
+/// slot 0 when nothing is occupied.
 pub fn spawnShell(model: *Model, fx: *Effects) void {
     if (anyLive(model)) return;
+    if (applyPendingRestore(model, fx)) return;
     const active = activeIndex(model);
     const slot = slotConst(model, active);
     if (slot.ended and !slot.closing) {
@@ -706,4 +788,108 @@ test "close of the last slot leaves an empty pane until New" {
     newShell(&model, &fx);
     try std.testing.expect(model.term_slots[0].live);
     try std.testing.expectEqual(pty_shell_key, shell_key(&model));
+}
+
+test "capturePersisted / restoreFromPersist round-trip occupancy and active" {
+    var model = Model{};
+    model.term_slots[0].live = true;
+    model.term_slots[2].ended = true;
+    model.term_slots[3].closing = true;
+    model.term_active = 2;
+    var persisted: [max_sessions]bool = undefined;
+    capturePersisted(&model, &persisted);
+    try std.testing.expect(persisted[0]);
+    try std.testing.expect(!persisted[1]);
+    try std.testing.expect(persisted[2]);
+    try std.testing.expect(!persisted[3]);
+
+    var restored = Model{};
+    restoreFromPersist(&restored, &persisted, 2);
+    try std.testing.expect(restored.term_restore_pending);
+    try std.testing.expect(restored.term_restore_slots[0]);
+    try std.testing.expect(!restored.term_restore_slots[1]);
+    try std.testing.expect(restored.term_restore_slots[2]);
+    try std.testing.expect(!restored.term_restore_slots[3]);
+    try std.testing.expectEqual(@as(u8, 2), restored.term_restore_active);
+    try std.testing.expectEqual(@as(u8, 2), restored.term_active);
+    try std.testing.expect(!restored.term_slots[0].live);
+    try std.testing.expectEqual(@as(usize, 0), visibleCount(&restored));
+
+    var again: [max_sessions]bool = undefined;
+    capturePersisted(&restored, &again);
+    try std.testing.expectEqualSlices(bool, &persisted, &again);
+}
+
+test "missing terminal_slots restore leaves spawnShell as today's lazy single" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    restoreFromPersist(&model, &.{}, 3);
+    try std.testing.expect(!model.term_restore_pending);
+    spawnShell(&model, &fx);
+    try std.testing.expect(model.term_slots[0].live);
+    try std.testing.expect(!model.term_slots[1].live);
+    try std.testing.expect(!model.term_slots[2].live);
+    try std.testing.expect(!model.term_slots[3].live);
+    try std.testing.expectEqual(@as(u8, 0), model.term_active);
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingPtyCount());
+}
+
+test "spawnShell restores three occupied persist slots at stable indices" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    const slots = [_]bool{ true, true, true, false };
+    restoreFromPersist(&model, &slots, 1);
+    spawnShell(&model, &fx);
+    try std.testing.expect(!model.term_restore_pending);
+    try std.testing.expect(model.term_slots[0].live);
+    try std.testing.expect(model.term_slots[1].live);
+    try std.testing.expect(model.term_slots[2].live);
+    try std.testing.expect(!model.term_slots[3].live);
+    try std.testing.expectEqual(@as(u8, 1), model.term_active);
+    try std.testing.expectEqual(@as(usize, 3), fx.pendingPtyCount());
+    try std.testing.expectEqual(pty_shell_key, fx.pendingPtyAt(0).?.key);
+    try std.testing.expectEqual(pty_shell_key + 1, fx.pendingPtyAt(1).?.key);
+    try std.testing.expectEqual(pty_shell_key + 2, fx.pendingPtyAt(2).?.key);
+    spawnShell(&model, &fx);
+    try std.testing.expectEqual(@as(usize, 3), fx.pendingPtyCount());
+}
+
+test "restoreFromPersist clamps active when persisted index is empty" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    const slots = [_]bool{ true, false, true, false };
+    restoreFromPersist(&model, &slots, 1);
+    try std.testing.expectEqual(@as(u8, 0), model.term_restore_active);
+    spawnShell(&model, &fx);
+    try std.testing.expect(model.term_slots[0].live);
+    try std.testing.expect(!model.term_slots[1].live);
+    try std.testing.expect(model.term_slots[2].live);
+    try std.testing.expectEqual(@as(u8, 0), model.term_active);
+
+    var other = Model{};
+    restoreFromPersist(&other, &slots, 3);
+    spawnShell(&other, &fx);
+    try std.testing.expectEqual(@as(u8, 0), other.term_active);
+
+    var third = Model{};
+    restoreFromPersist(&third, &slots, 2);
+    spawnShell(&third, &fx);
+    try std.testing.expectEqual(@as(u8, 2), third.term_active);
+}
+
+test "CONTEXT describes occupied Terminal slots persist, not Waku UUID tabs" {
+    const context = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, "CONTEXT.md", std.testing.allocator, .limited(512 * 1024));
+    defer std.testing.allocator.free(context);
+    try std.testing.expect(std.mem.indexOf(u8, context, "First-cut multi-session inside the Terminal tab") != null or
+        std.mem.indexOf(u8, context, "first-cut multi-session inside that tab") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "occupied slots and the active index persist") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "scrollback/status/live process state stay runtime-only") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "sessions do not persist across") == null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "runtime-only chips + New + Close; not Waku surface UUID tabs / persist") == null);
 }

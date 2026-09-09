@@ -18,7 +18,8 @@
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
 //! plus `right_panel_open` / `right_panel_width` /
 //! `right_panel_file_tree_width` / `right_panel_diff_file_list_width` /
-//! `right_panel_tab` / `browser_url` / `browser_slots` / `browser_active`
+//! `right_panel_tab` / `browser_url` / `browser_slots` / `browser_active` /
+//! `terminal_slots` / `terminal_active`
 //! for the first-cut Files + Diff +
 //! Browser + Terminal + Background pane (default closed; Waku file-tree
 //! 184px; nested Files-tree and Diff file-list widths are u32 pixels,
@@ -31,7 +32,11 @@
 //! `browser_slots` (index-aligned string-or-null array, cap 4) plus
 //! `browser_active` (missing / empty `browser_slots` keeps today's one
 //! occupied slot 0 + `browser_url` draft); full history rings /
-//! reload_token stay runtime-only);
+//! reload_token stay runtime-only; occupied Terminal slots persist as
+//! `terminal_slots` (index-aligned boolean array, cap 4) plus
+//! `terminal_active` (missing / empty `terminal_slots` keeps today's
+//! lazy single spawn on Terminal tab open); scrollback / status / live
+//! PTY process state stay runtime-only);
 //! Background row, Files preview, and directory expands stay
 //! runtime-only),
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
@@ -82,6 +87,7 @@ const rewind = @import("rewind.zig");
 const right_panel = @import("right_panel.zig");
 const open_url = @import("open_url.zig");
 const browser_pane = @import("browser_pane.zig");
+const pty_terminal = @import("pty_terminal.zig");
 
 const Model = main.Model;
 const Role = main.Role;
@@ -358,7 +364,8 @@ pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void
 /// Merge-only write of layout extras (`sidebar_collapsed`,
 /// `sidebar_width`, `right_panel_open`, `right_panel_width`,
 /// `right_panel_file_tree_width`, `right_panel_diff_file_list_width`,
-/// `right_panel_tab`, `browser_url`, `browser_slots`, `browser_active`).
+/// `right_panel_tab`, `browser_url`, `browser_slots`, `browser_active`,
+/// `terminal_slots`, `terminal_active`).
 /// Does not create `sessions.json` and does not spawn a daemon sidecar.
 /// Missing / corrupt catalogs are a no-op.
 pub fn persistLayoutIfPossible(model: *const Model) void {
@@ -419,11 +426,20 @@ fn applySidebarExtras(document: *Document, model: *const Model) void {
     document.browser_slots = persistedSlotsFromModel(model);
     document.browser_slots_present = true;
     document.browser_active = @intCast(browser_pane.activeIndex(model));
+    document.terminal_slots = persistedTerminalSlotsFromModel(model);
+    document.terminal_slots_present = true;
+    document.terminal_active = @intCast(pty_terminal.activeIndex(model));
 }
 
 fn persistedSlotsFromModel(model: *const Model) [browser_pane.max_sessions]browser_pane.PersistedSlot {
     var slots = [_]browser_pane.PersistedSlot{.{}} ** browser_pane.max_sessions;
     browser_pane.capturePersisted(model, &slots);
+    return slots;
+}
+
+fn persistedTerminalSlotsFromModel(model: *const Model) [pty_terminal.max_sessions]bool {
+    var slots = [_]bool{false} ** pty_terminal.max_sessions;
+    pty_terminal.capturePersisted(model, &slots);
     return slots;
 }
 
@@ -974,6 +990,9 @@ const Document = struct {
     browser_slots: [browser_pane.max_sessions]browser_pane.PersistedSlot = [_]browser_pane.PersistedSlot{.{}} ** browser_pane.max_sessions,
     browser_slots_present: bool = false,
     browser_active: u8 = 0,
+    terminal_slots: [pty_terminal.max_sessions]bool = [_]bool{false} ** pty_terminal.max_sessions,
+    terminal_slots_present: bool = false,
+    terminal_active: u8 = 0,
     folders: []StoredFolder = &.{},
     collapsed_folder_ids: []u32 = &.{},
     sessions: []StoredSession = &.{},
@@ -1005,6 +1024,9 @@ const Document = struct {
             .browser_slots = persistedSlotsFromModel(model),
             .browser_slots_present = true,
             .browser_active = @intCast(browser_pane.activeIndex(model)),
+            .terminal_slots = persistedTerminalSlotsFromModel(model),
+            .terminal_slots_present = true,
+            .terminal_active = @intCast(pty_terminal.activeIndex(model)),
             .sessions = &.{},
         };
     }
@@ -1066,6 +1088,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     model.applyRightPanelFileTreeWidth(document.right_panel_file_tree_width);
     model.applyRightPanelDiffFileListWidth(document.right_panel_diff_file_list_width);
     applyPersistedBrowser(model, document);
+    applyPersistedTerminal(model, document);
     model.syncSidebarSplit();
     for (document.folders) |folder| {
         const collapsed = folderIdCollapsed(document.collapsed_folder_ids, folder.id);
@@ -1351,6 +1374,8 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
 
     const parsed_slots = parseBrowserSlots(obj.get("browser_slots"));
     const parsed_active = persistedBrowserActive(jsonUint(obj.get("browser_active")));
+    const parsed_term_slots = parseTerminalSlots(obj.get("terminal_slots"));
+    const parsed_term_active = persistedTerminalActive(jsonUint(obj.get("terminal_active")));
 
     return .{
         .version = version,
@@ -1378,6 +1403,9 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .browser_slots = parsed_slots.slots,
         .browser_slots_present = parsed_slots.present,
         .browser_active = parsed_active,
+        .terminal_slots = parsed_term_slots.slots,
+        .terminal_slots_present = parsed_term_slots.present,
+        .terminal_active = parsed_term_active,
         .next_folder_id = jsonUint(obj.get("next_folder_id")) orelse 1,
         .folders = try parseFolders(arena, obj.get("folders")),
         .collapsed_folder_ids = try parseUintList(arena, obj.get("collapsed_folder_ids")),
@@ -1734,6 +1762,44 @@ fn applyPersistedBrowserUrl(model: *Model, url: []const u8) void {
     model.setBrowserUrlDraft(url);
 }
 
+fn persistedTerminalActive(raw: ?u32) u8 {
+    const n = raw orelse return 0;
+    if (n >= pty_terminal.max_sessions) return 0;
+    return @intCast(n);
+}
+
+const ParsedTerminalSlots = struct {
+    slots: [pty_terminal.max_sessions]bool,
+    present: bool,
+};
+
+/// Index-aligned boolean array. Missing / non-array / empty
+/// → not present (legacy lazy single spawn). `true` = occupied.
+fn parseTerminalSlots(value: ?std.json.Value) ParsedTerminalSlots {
+    var slots = [_]bool{false} ** pty_terminal.max_sessions;
+    const list_val = value orelse return .{ .slots = slots, .present = false };
+    const list_arr = switch (list_val) {
+        .array => |a| a,
+        else => return .{ .slots = slots, .present = false },
+    };
+    if (list_arr.items.len == 0) return .{ .slots = slots, .present = false };
+    for (list_arr.items, 0..) |item, i| {
+        if (i >= pty_terminal.max_sessions) break;
+        slots[i] = switch (item) {
+            .bool => |b| b,
+            else => false,
+        };
+    }
+    return .{ .slots = slots, .present = true };
+}
+
+/// Remember occupancy + active when `terminal_slots` is present.
+/// Does not spawn. Missing / empty keeps today's lazy single spawn.
+fn applyPersistedTerminal(model: *Model, document: Document) void {
+    if (!document.terminal_slots_present) return;
+    pty_terminal.restoreFromPersist(model, &document.terminal_slots, document.terminal_active);
+}
+
 fn jsonBool(value: ?std.json.Value) ?bool {
     const item = value orelse return null;
     return switch (item) {
@@ -1832,6 +1898,13 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     }
     try out.appendSlice(allocator, "],\"browser_active\":");
     try appendUint(&out, allocator, @as(u32, document.browser_active));
+    try out.appendSlice(allocator, ",\"terminal_slots\":[");
+    for (document.terminal_slots, 0..) |occupied, i| {
+        if (i != 0) try out.append(allocator, ',');
+        try out.appendSlice(allocator, if (occupied) "true" else "false");
+    }
+    try out.appendSlice(allocator, "],\"terminal_active\":");
+    try appendUint(&out, allocator, @as(u32, document.terminal_active));
     try out.appendSlice(allocator, ",\"next_folder_id\":");
     try appendUint(&out, allocator, document.next_folder_id);
     try out.appendSlice(allocator, ",\"folders\":[");
@@ -2945,6 +3018,109 @@ test "browser_slots round-trips occupied URLs and active; legacy empty keeps slo
     try testing.expectEqualStrings("", blank_loaded.browser_url());
     try testing.expectEqualStrings(browser_pane.home_url, browser_pane.currentUrl(&blank_loaded));
     try testing.expectEqual(@as(u8, 0), blank_loaded.browser_active);
+}
+
+test "terminal_slots round-trips occupancy and active; missing/empty keeps lazy spawn" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("term later", .fx);
+    _ = source.appendTurn(id, .user, "remember the shells");
+    try saveSession(&source, id, allocator, io);
+    source.right_panel_open = true;
+    source.right_panel_tab = .terminal;
+    source.right_panel_width = 460;
+    source.syncRightPanelSplit();
+    source.term_slots[0].live = true;
+    source.term_slots[2].ended = true;
+    source.term_active = 2;
+    persistLayoutIfPossible(&source);
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = catalogPath(dir, &path_buf).?;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_document_bytes));
+    defer allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"terminal_slots\":[true,false,true,false]") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"terminal_active\":2") != null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expect(loaded.term_restore_pending);
+    try testing.expect(loaded.term_restore_slots[0]);
+    try testing.expect(!loaded.term_restore_slots[1]);
+    try testing.expect(loaded.term_restore_slots[2]);
+    try testing.expect(!loaded.term_restore_slots[3]);
+    try testing.expectEqual(@as(u8, 2), loaded.term_restore_active);
+    try testing.expect(!loaded.term_slots[0].live);
+    try testing.expectEqual(@as(usize, 0), pty_terminal.visibleCount(&loaded));
+
+    var fx = main.Effects.init(allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    pty_terminal.spawnShell(&loaded, &fx);
+    try testing.expect(!loaded.term_restore_pending);
+    try testing.expect(loaded.term_slots[0].live);
+    try testing.expect(!loaded.term_slots[1].live);
+    try testing.expect(loaded.term_slots[2].live);
+    try testing.expectEqual(@as(u8, 2), loaded.term_active);
+    try testing.expectEqual(@as(usize, 2), fx.pendingPtyCount());
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"right_panel_tab":"terminal","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var missing = Model{};
+    missing.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&missing, allocator, io));
+    try testing.expect(!missing.term_restore_pending);
+    var missing_fx = main.Effects.init(allocator);
+    defer missing_fx.deinit();
+    missing_fx.executor = .fake;
+    pty_terminal.spawnShell(&missing, &missing_fx);
+    try testing.expect(missing.term_slots[0].live);
+    try testing.expect(!missing.term_slots[1].live);
+    try testing.expectEqual(@as(usize, 1), missing_fx.pendingPtyCount());
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"terminal_slots":[],"terminal_active":3,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var empty_arr = Model{};
+    empty_arr.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&empty_arr, allocator, io));
+    try testing.expect(!empty_arr.term_restore_pending);
+    var empty_fx = main.Effects.init(allocator);
+    defer empty_fx.deinit();
+    empty_fx.executor = .fake;
+    pty_terminal.spawnShell(&empty_arr, &empty_fx);
+    try testing.expect(empty_arr.term_slots[0].live);
+    try testing.expectEqual(@as(usize, 1), empty_fx.pendingPtyCount());
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"terminal_slots":[true,false,true,false],"terminal_active":1,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var clamped = Model{};
+    clamped.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&clamped, allocator, io));
+    try testing.expect(clamped.term_restore_pending);
+    try testing.expectEqual(@as(u8, 0), clamped.term_restore_active);
+    var clamped_fx = main.Effects.init(allocator);
+    defer clamped_fx.deinit();
+    clamped_fx.executor = .fake;
+    pty_terminal.spawnShell(&clamped, &clamped_fx);
+    try testing.expect(clamped.term_slots[0].live);
+    try testing.expect(clamped.term_slots[2].live);
+    try testing.expectEqual(@as(u8, 0), clamped.term_active);
+    try testing.expectEqual(@as(usize, 2), clamped_fx.pendingPtyCount());
 }
 
 test "settings extras persist last_model access path and daemon; missing catalog is not created" {
