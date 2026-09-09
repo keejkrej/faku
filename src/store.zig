@@ -18,7 +18,8 @@
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
 //! plus `right_panel_open` / `right_panel_width` /
 //! `right_panel_file_tree_width` / `right_panel_diff_file_list_width` /
-//! `right_panel_tab` / `browser_url` for the first-cut Files + Diff +
+//! `right_panel_tab` / `browser_url` / `browser_slots` / `browser_active`
+//! for the first-cut Files + Diff +
 //! Browser + Terminal + Background pane (default closed; Waku file-tree
 //! 184px; nested Files-tree and Diff file-list widths are u32 pixels,
 //! missing or 0 keep Model 184 then FILE_TREE clamp; Diff open may
@@ -26,8 +27,11 @@
 //! `files` / `diff` / `browser` / `terminal` / `background`, missing or
 //! unknown → `files`; Browser address-bar draft URL is the **active**
 //! slot's raw text capped at `open_url.max_url`, missing / empty /
-//! overflow-refused → empty (first-cut multi-session occupancy /
-//! committed pane history / reload_token stay runtime-only);
+//! overflow-refused → empty; occupied slot committed URLs persist as
+//! `browser_slots` (index-aligned string-or-null array, cap 4) plus
+//! `browser_active` (missing / empty `browser_slots` keeps today's one
+//! occupied slot 0 + `browser_url` draft); full history rings /
+//! reload_token stay runtime-only);
 //! Background row, Files preview, and directory expands stay
 //! runtime-only),
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
@@ -77,6 +81,7 @@ const daemon_proxy = @import("daemon_proxy.zig");
 const rewind = @import("rewind.zig");
 const right_panel = @import("right_panel.zig");
 const open_url = @import("open_url.zig");
+const browser_pane = @import("browser_pane.zig");
 
 const Model = main.Model;
 const Role = main.Role;
@@ -353,9 +358,9 @@ pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void
 /// Merge-only write of layout extras (`sidebar_collapsed`,
 /// `sidebar_width`, `right_panel_open`, `right_panel_width`,
 /// `right_panel_file_tree_width`, `right_panel_diff_file_list_width`,
-/// `right_panel_tab`, `browser_url`). Does not
-/// create `sessions.json` and does not spawn a daemon sidecar. Missing
-/// / corrupt catalogs are a no-op.
+/// `right_panel_tab`, `browser_url`, `browser_slots`, `browser_active`).
+/// Does not create `sessions.json` and does not spawn a daemon sidecar.
+/// Missing / corrupt catalogs are a no-op.
 pub fn persistLayoutIfPossible(model: *const Model) void {
     const io = model.store_io orelse return;
     saveExtras(model, std.heap.page_allocator, io, .layout) catch {};
@@ -411,6 +416,15 @@ fn applySidebarExtras(document: *Document, model: *const Model) void {
     document.right_panel_diff_file_list_width = model.rightPanelDiffFileListWidthPixels();
     document.right_panel_tab = model.right_panel_tab;
     document.browser_url = model.browser_url();
+    document.browser_slots = persistedSlotsFromModel(model);
+    document.browser_slots_present = true;
+    document.browser_active = @intCast(browser_pane.activeIndex(model));
+}
+
+fn persistedSlotsFromModel(model: *const Model) [browser_pane.max_sessions]browser_pane.PersistedSlot {
+    var slots = [_]browser_pane.PersistedSlot{.{}} ** browser_pane.max_sessions;
+    browser_pane.capturePersisted(model, &slots);
+    return slots;
 }
 
 fn applySettingsExtras(document: *Document, model: *const Model) void {
@@ -957,6 +971,9 @@ const Document = struct {
     right_panel_diff_file_list_width: u32 = 0,
     right_panel_tab: right_panel.Tab = .files,
     browser_url: []const u8 = "",
+    browser_slots: [browser_pane.max_sessions]browser_pane.PersistedSlot = [_]browser_pane.PersistedSlot{.{}} ** browser_pane.max_sessions,
+    browser_slots_present: bool = false,
+    browser_active: u8 = 0,
     folders: []StoredFolder = &.{},
     collapsed_folder_ids: []u32 = &.{},
     sessions: []StoredSession = &.{},
@@ -985,6 +1002,9 @@ const Document = struct {
             .right_panel_diff_file_list_width = model.rightPanelDiffFileListWidthPixels(),
             .right_panel_tab = model.right_panel_tab,
             .browser_url = model.browser_url(),
+            .browser_slots = persistedSlotsFromModel(model),
+            .browser_slots_present = true,
+            .browser_active = @intCast(browser_pane.activeIndex(model)),
             .sessions = &.{},
         };
     }
@@ -1045,7 +1065,7 @@ fn applyCatalog(model: *Model, allocator: std.mem.Allocator, bytes: []const u8) 
     right_panel.applyPersisted(model, document.right_panel_open, document.right_panel_tab, document.right_panel_width);
     model.applyRightPanelFileTreeWidth(document.right_panel_file_tree_width);
     model.applyRightPanelDiffFileListWidth(document.right_panel_diff_file_list_width);
-    applyPersistedBrowserUrl(model, document.browser_url);
+    applyPersistedBrowser(model, document);
     model.syncSidebarSplit();
     for (document.folders) |folder| {
         const collapsed = folderIdCollapsed(document.collapsed_folder_ids, folder.id);
@@ -1329,6 +1349,9 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         try sessions.append(arena, try parseSession(arena, item));
     }
 
+    const parsed_slots = parseBrowserSlots(obj.get("browser_slots"));
+    const parsed_active = persistedBrowserActive(jsonUint(obj.get("browser_active")));
+
     return .{
         .version = version,
         .selected = jsonUint(obj.get("selected")) orelse 0,
@@ -1352,6 +1375,9 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         .right_panel_diff_file_list_width = jsonUint(obj.get("right_panel_diff_file_list_width")) orelse 0,
         .right_panel_tab = right_panel.Tab.fromPersist(jsonString(obj.get("right_panel_tab")) orelse ""),
         .browser_url = persistedBrowserUrl(jsonString(obj.get("browser_url")) orelse ""),
+        .browser_slots = parsed_slots.slots,
+        .browser_slots_present = parsed_slots.present,
+        .browser_active = parsed_active,
         .next_folder_id = jsonUint(obj.get("next_folder_id")) orelse 1,
         .folders = try parseFolders(arena, obj.get("folders")),
         .collapsed_folder_ids = try parseUintList(arena, obj.get("collapsed_folder_ids")),
@@ -1647,9 +1673,63 @@ fn persistedBrowserUrl(raw: []const u8) []const u8 {
     return raw;
 }
 
+/// Committed pane URL. Cap matches the history buffer (`max_spawn_url`).
+/// Overflow is refused (empty), not truncated mid-URL.
+fn persistedBrowserSlotUrl(raw: []const u8) []const u8 {
+    if (raw.len == 0 or raw.len > open_url.max_spawn_url) return "";
+    return raw;
+}
+
+fn persistedBrowserActive(raw: ?u32) u8 {
+    const n = raw orelse return 0;
+    if (n >= browser_pane.max_sessions) return 0;
+    return @intCast(n);
+}
+
+const ParsedBrowserSlots = struct {
+    slots: [browser_pane.max_sessions]browser_pane.PersistedSlot,
+    present: bool,
+};
+
+/// Index-aligned string-or-null array. Missing / non-array / empty
+/// → not present (legacy one occupied slot 0). `null` = unoccupied;
+/// string (including empty) = occupied.
+fn parseBrowserSlots(value: ?std.json.Value) ParsedBrowserSlots {
+    var slots = [_]browser_pane.PersistedSlot{.{}} ** browser_pane.max_sessions;
+    const list_val = value orelse return .{ .slots = slots, .present = false };
+    const list_arr = switch (list_val) {
+        .array => |a| a,
+        else => return .{ .slots = slots, .present = false },
+    };
+    if (list_arr.items.len == 0) return .{ .slots = slots, .present = false };
+    for (list_arr.items, 0..) |item, i| {
+        if (i >= browser_pane.max_sessions) break;
+        switch (item) {
+            .null => {},
+            .string => |s| {
+                slots[i] = .{
+                    .occupied = true,
+                    .url = persistedBrowserSlotUrl(s),
+                };
+            },
+            else => {},
+        }
+    }
+    return .{ .slots = slots, .present = true };
+}
+
+/// Restore occupancy + committed URLs when `browser_slots` is present,
+/// then the active address-bar draft (`browser_url`). Missing / empty
+/// `browser_slots` keeps today's one occupied slot 0 + draft-only load.
+fn applyPersistedBrowser(model: *Model, document: Document) void {
+    if (document.browser_slots_present) {
+        browser_pane.restoreFromPersist(model, &document.browser_slots, document.browser_active);
+    }
+    applyPersistedBrowserUrl(model, document.browser_url);
+}
+
 /// Restore the address-bar draft into the **active** Browser slot.
-/// Empty clears. Does not commit the embedded pane URL (history is
-/// runtime-only). Does not restore occupancy / other slots.
+/// Empty clears. Does not commit the embedded pane URL.
 fn applyPersistedBrowserUrl(model: *Model, url: []const u8) void {
     model.setBrowserUrlDraft(url);
 }
@@ -1741,6 +1821,17 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
     try appendJsonString(&out, allocator, document.right_panel_tab.persistName());
     try out.appendSlice(allocator, ",\"browser_url\":");
     try appendJsonString(&out, allocator, document.browser_url);
+    try out.appendSlice(allocator, ",\"browser_slots\":[");
+    for (document.browser_slots, 0..) |slot, i| {
+        if (i != 0) try out.append(allocator, ',');
+        if (slot.occupied) {
+            try appendJsonString(&out, allocator, slot.url);
+        } else {
+            try out.appendSlice(allocator, "null");
+        }
+    }
+    try out.appendSlice(allocator, "],\"browser_active\":");
+    try appendUint(&out, allocator, @as(u32, document.browser_active));
     try out.appendSlice(allocator, ",\"next_folder_id\":");
     try appendUint(&out, allocator, document.next_folder_id);
     try out.appendSlice(allocator, ",\"folders\":[");
@@ -2726,6 +2817,8 @@ test "browser_url round-trips raw draft including bare host; overflow is refused
     try testing.expect(loaded.right_panel_tab_browser());
     try testing.expectEqualStrings("  example.com/path  ", loaded.browser_url());
     try testing.expectEqual(@as(u32, 460), loaded.rightPanelWidthPixels());
+    try testing.expectEqual(@as(usize, 1), browser_pane.occupiedCount(&loaded));
+    try testing.expectEqualStrings(browser_pane.home_url, browser_pane.currentUrl(&loaded));
 
     try writeRaw(io, dir,
         \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"right_panel_open":true,"right_panel_width":460,"right_panel_tab":"browser","browser_url":"example.com","sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
@@ -2734,6 +2827,10 @@ test "browser_url round-trips raw draft including bare host; overflow is refused
     bare.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&bare, allocator, io));
     try testing.expectEqualStrings("example.com", bare.browser_url());
+    try testing.expectEqual(@as(usize, 1), browser_pane.occupiedCount(&bare));
+    try testing.expect(bare.browser_slots[0].occupied);
+    try testing.expectEqual(@as(u8, 0), bare.browser_active);
+    try testing.expectEqualStrings(browser_pane.home_url, browser_pane.currentUrl(&bare));
 
     var overflow_json = std.ArrayList(u8).empty;
     defer overflow_json.deinit(allocator);
@@ -2745,6 +2842,104 @@ test "browser_url round-trips raw draft including bare host; overflow is refused
     overflow.setStoreDir(dir);
     try testing.expectEqual(LoadKind.loaded, loadCatalog(&overflow, allocator, io));
     try testing.expectEqualStrings("", overflow.browser_url());
+    try testing.expectEqual(@as(usize, 1), browser_pane.occupiedCount(&overflow));
+}
+
+test "browser_slots round-trips occupied URLs and active; legacy empty keeps slot 0" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("slots later", .fx);
+    _ = source.appendTurn(id, .user, "remember the slots");
+    try saveSession(&source, id, allocator, io);
+    source.right_panel_open = true;
+    source.right_panel_tab = .browser;
+    source.right_panel_width = 460;
+    source.syncRightPanelSplit();
+
+    source.setBrowserUrlDraft("https://a.example");
+    browser_pane.commitNavigation(&source);
+    browser_pane.newSession(&source);
+    source.setBrowserUrlDraft("https://b.example");
+    browser_pane.commitNavigation(&source);
+    browser_pane.newSession(&source);
+    source.setBrowserUrlDraft("https://c.example");
+    browser_pane.commitNavigation(&source);
+    browser_pane.selectSession(&source, 2);
+    browser_pane.closeActive(&source);
+    browser_pane.selectSession(&source, 3);
+    source.setBrowserUrlDraft("half-typed");
+    persistLayoutIfPossible(&source);
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = catalogPath(dir, &path_buf).?;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_document_bytes));
+    defer allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"browser_url\":\"half-typed\"") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"browser_slots\":[\"https://a.example\",null,\"https://c.example\",null]") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"browser_active\":2") != null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqual(@as(usize, 2), browser_pane.occupiedCount(&loaded));
+    try testing.expect(loaded.browser_slots[0].occupied);
+    try testing.expect(!loaded.browser_slots[1].occupied);
+    try testing.expect(loaded.browser_slots[2].occupied);
+    try testing.expect(!loaded.browser_slots[3].occupied);
+    try testing.expectEqual(@as(u8, 2), loaded.browser_active);
+    try testing.expectEqualStrings("https://a.example", browser_pane.committedUrlAt(&loaded, 0));
+    try testing.expectEqualStrings("https://c.example", browser_pane.currentUrl(&loaded));
+    try testing.expectEqualStrings("half-typed", loaded.browser_url());
+    try testing.expect(browser_pane.backDisabled(&loaded));
+    try testing.expectEqual(@as(u64, 0), loaded.browser_slots[0].reload_token);
+    try testing.expectEqual(@as(u64, 0), loaded.browser_slots[2].reload_token);
+
+    var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
+    try testing.expect(loaded.right_panel_showing_browser());
+    try testing.expectEqual(@as(usize, 4), browser_pane.webPanes(&loaded, &panes));
+    try testing.expect(panes[0].anchor == null);
+    try testing.expectEqualStrings("https://a.example", panes[0].url);
+    try testing.expectEqualStrings(browser_pane.web_pane_anchor, panes[2].anchor orelse "");
+    try testing.expectEqualStrings("https://c.example", panes[2].url);
+    try testing.expect(panes[1].anchor == null);
+    try testing.expect(panes[3].anchor == null);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"browser_url":"legacy.com","browser_slots":[],"browser_active":3,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var empty_arr = Model{};
+    empty_arr.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&empty_arr, allocator, io));
+    try testing.expectEqual(@as(usize, 1), browser_pane.occupiedCount(&empty_arr));
+    try testing.expect(empty_arr.browser_slots[0].occupied);
+    try testing.expectEqual(@as(u8, 0), empty_arr.browser_active);
+    try testing.expectEqualStrings("legacy.com", empty_arr.browser_url());
+    try testing.expectEqualStrings(browser_pane.home_url, browser_pane.currentUrl(&empty_arr));
+
+    var blank = Model{};
+    blank.task_state_loaded = true;
+    blank.setStoreDir(dir);
+    blank.store_io = io;
+    persistLayoutIfPossible(&blank);
+    var blank_loaded = Model{};
+    blank_loaded.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&blank_loaded, allocator, io));
+    try testing.expectEqual(@as(usize, 1), browser_pane.occupiedCount(&blank_loaded));
+    try testing.expect(blank_loaded.browser_slots[0].occupied);
+    try testing.expectEqualStrings("", blank_loaded.browser_url());
+    try testing.expectEqualStrings(browser_pane.home_url, browser_pane.currentUrl(&blank_loaded));
+    try testing.expectEqual(@as(u8, 0), blank_loaded.browser_active);
 }
 
 test "settings extras persist last_model access path and daemon; missing catalog is not created" {

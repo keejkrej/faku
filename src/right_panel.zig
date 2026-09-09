@@ -22,8 +22,8 @@
 //! (`web_panes` snapped to a markup `browser-pane` anchor; workbench
 //! seam) plus **Open in browser** as the OS-host fallback via
 //! `open_url`. First-cut multi-session inside that tab (cap 4, scene
-//! `browser-web-0`..`browser-web-3`, runtime-only chips + New + Close;
-//! not Waku surface UUID tabs / persist / DevTools). When the Browser
+//! `browser-web-0`..`browser-web-3`, chips + New + Close; occupied
+//! slot URLs persist; not Waku surface UUID tabs / DevTools). When the Browser
 //! tab is hidden every pane parks at 1×1 with no anchor so Native does
 //! not keep the last webview frame over Files/Diff/Terminal. Inactive
 //! occupied slots park the same way. Terminal
@@ -191,10 +191,12 @@
 //! `DEFAULT_RIGHT_PANEL_WIDTH` (460) when the pane is still
 //! file-tree-narrow; min is Waku `RIGHT_PANEL_MIN_WIDTH` (280); max is
 //! Waku `RIGHT_PANEL_MAX_WIDTH` (1000).
-//! Selected tab and Browser draft URL
-//! persist on `sessions.json` extras (`right_panel_tab` / `browser_url`;
-//! missing / unknown tab → `files`, missing / empty URL → empty draft).
-//! Committed pane history / back / forward / reload_token are runtime-only.
+//! Selected tab, occupied Browser slot URLs, and the active draft URL
+//! persist on `sessions.json` extras (`right_panel_tab` / `browser_url` /
+//! `browser_slots` / `browser_active`; missing / unknown tab → `files`,
+//! missing / empty URL → empty draft; missing / empty `browser_slots`
+//! keeps today's one occupied slot 0). Full history rings / back /
+//! forward / reload_token stay runtime-only.
 //! Nested Files-tree width (`right_panel_file_tree_width`, default 184)
 //! and nested Diff file-list width (`right_panel_diff_file_list_width`,
 //! default 184; FILE_TREE clamps, not a Waku REVIEW_* list width) persist
@@ -720,9 +722,9 @@ pub fn selectBackground(model: *Model, fx: *Effects, row_id: u32) void {
 /// width toward 460 when still file-tree-narrow (same 280–1000 clamp
 /// as Diff; open bump stays 460, not `REVIEW_INITIAL_WIDTH`).
 /// First-cut embedded canvas webview (`web_panes`); Open in browser
-/// stays the OS-host fallback. Tab and the **active** slot's draft URL
-/// persist via layout extras. First-cut multi-session (cap 4,
-/// runtime-only chips + New + Close); occupancy / history /
+/// stays the OS-host fallback. Tab, occupied slot URLs, and the
+/// **active** slot's draft URL persist via layout extras. First-cut
+/// multi-session (cap 4, chips + New + Close); full history rings /
 /// reload_token do not persist. Not Waku surface UUID tabs.
 pub fn selectBrowser(model: *Model, fx: *Effects) void {
     leaveDiffSurfaceIfNeeded(model);

@@ -9,18 +9,19 @@
 //! surfaces, DevTools, UA spoof).
 //!
 //! First-cut multi-session lives **inside** the existing Browser tab:
-//! up to four runtime-only slots (chips + New + Close; Close keeps at
-//! least one). Each occupied slot keeps its own address-bar draft,
-//! committed history ring, history index, and `reload_token`. Inactive
-//! occupied slots park at 1×1 with `anchor = null` so they do not overlay
+//! up to four slots (chips + New + Close; Close keeps at least one).
+//! Each occupied slot keeps its own address-bar draft, committed
+//! history ring, history index, and `reload_token`. Inactive occupied
+//! slots park at 1×1 with `anchor = null` so they do not overlay
 //! Files/Diff/Terminal but keep the webview process/state. Unopened
 //! slots stay parked at the home placeholder. Hidden Browser parks
 //! **all** panes the same way.
 //!
 //! Pane URL is the committed history entry, never the address-bar draft.
-//! `sessions.json` extras still persist that draft (`browser_url`) for
-//! the **active** slot only; history, occupancy, back/forward, and
-//! `reload_token` are runtime-only. Empty history uses the scene
+//! `sessions.json` extras persist the **active** slot's address draft
+//! (`browser_url`) plus occupied slot committed URLs (`browser_slots`)
+//! and `browser_active`. Full history rings, back/forward index, and
+//! `reload_token` stay runtime-only. Empty history uses the scene
 //! placeholder `https://example.com` until Navigate/Enter.
 //! Enter/Navigate uses Safari/Waku omnibox resolve (explicit schemes,
 //! localhost/IPv4 → `http`, host-like → `https`, else Google search).
@@ -70,8 +71,10 @@ pub const max_history = 32;
 pub const parked_frame = geometry.RectF.init(0, 0, 1, 1);
 
 /// Per-slot Browser state. Occupied slots keep a live scene webview.
-/// Runtime-only except the active slot's address draft, which still
-/// persists as `browser_url` on `sessions.json` extras.
+/// Occupancy, the committed pane URL, and the active index persist on
+/// `sessions.json` extras (`browser_slots` / `browser_active`); the
+/// active address draft still persists as `browser_url`. History rings
+/// and `reload_token` stay runtime-only.
 pub const Slot = struct {
     occupied: bool = false,
     url_buffer: canvas.TextBuffer(open_url.max_url) = .{},
@@ -85,6 +88,14 @@ pub const BrowserSessionRow = struct {
     id: u32,
     label: []const u8,
     selected: bool,
+};
+
+/// Occupied slot persist row. `url` is the committed history entry
+/// (empty when the slot has never navigated). Unoccupied slots are
+/// `occupied = false` and encode as JSON `null`.
+pub const PersistedSlot = struct {
+    occupied: bool = false,
+    url: []const u8 = "",
 };
 
 /// Slot 0 starts occupied so the first-cut Browser tab still has a
@@ -193,6 +204,59 @@ fn currentUrlAt(model: *const Model, index: usize) []const u8 {
     const slot = slotConst(model, index);
     if (!slot.occupied or slot.history_count == 0) return home_url;
     return slot.history[slot.history_index].text();
+}
+
+/// Committed pane URL for persist. Empty when the slot is unoccupied
+/// or has never navigated (the live pane still shows `home_url`).
+pub fn committedUrlAt(model: *const Model, index: usize) []const u8 {
+    const slot = slotConst(model, index);
+    if (!slot.occupied or slot.history_count == 0) return "";
+    return slot.history[slot.history_index].text();
+}
+
+pub fn capturePersisted(model: *const Model, out: *[max_sessions]PersistedSlot) void {
+    for (0..max_sessions) |i| {
+        const occupied = slotConst(model, i).occupied;
+        out[i] = .{
+            .occupied = occupied,
+            .url = if (occupied) committedUrlAt(model, i) else "",
+        };
+    }
+}
+
+/// Rebuild occupancy, a single-entry history for each committed URL,
+/// and the active index. Does not restore back/forward rings or
+/// `reload_token`. Zero occupied slots keep today's slot-0 session.
+pub fn restoreFromPersist(model: *Model, slots: []const PersistedSlot, active: u8) void {
+    model.browser_slots = [_]Slot{.{}} ** max_sessions;
+    const n = @min(slots.len, max_sessions);
+    var any = false;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        if (!slots[i].occupied) continue;
+        any = true;
+        restoreOccupied(&model.browser_slots[i], slots[i].url);
+    }
+    if (!any) model.browser_slots[0].occupied = true;
+    if (active < max_sessions and model.browser_slots[active].occupied) {
+        model.browser_active = active;
+        return;
+    }
+    model.browser_active = 0;
+    for (model.browser_slots, 0..) |slot, idx| {
+        if (!slot.occupied) continue;
+        model.browser_active = @intCast(idx);
+        return;
+    }
+}
+
+fn restoreOccupied(slot: *Slot, url: []const u8) void {
+    slot.* = .{ .occupied = true };
+    if (url.len == 0) return;
+    slot.history[0].set(url);
+    slot.history_count = 1;
+    slot.history_index = 0;
+    slot.url_buffer.set(url);
 }
 
 pub fn currentUrl(model: *const Model) []const u8 {
@@ -671,7 +735,7 @@ test "search overflow is a no-op" {
     try std.testing.expectEqualStrings(home_url, currentUrl(&model));
 }
 
-test "New / switch / Close host four runtime-only Browser slots; toolbar targets the active slot" {
+test "New / switch / Close host four Browser slots; toolbar targets the active slot" {
     var model: Model = .{};
     var panes: [max_sessions]WebViewPane = undefined;
     model.right_panel_open = true;
@@ -749,6 +813,45 @@ test "New / switch / Close host four runtime-only Browser slots; toolbar targets
     try expectParked(panes[1]);
 }
 
+test "restoreFromPersist rebuilds occupancy, committed URLs, and active snap" {
+    var model: Model = .{};
+    var panes: [max_sessions]WebViewPane = undefined;
+    const slots = [_]PersistedSlot{
+        .{ .occupied = true, .url = "https://a.example" },
+        .{},
+        .{ .occupied = true, .url = "https://c.example" },
+        .{ .occupied = true, .url = "" },
+    };
+    restoreFromPersist(&model, &slots, 2);
+    try std.testing.expectEqual(@as(usize, 3), occupiedCount(&model));
+    try std.testing.expect(model.browser_slots[0].occupied);
+    try std.testing.expect(!model.browser_slots[1].occupied);
+    try std.testing.expect(model.browser_slots[2].occupied);
+    try std.testing.expect(model.browser_slots[3].occupied);
+    try std.testing.expectEqual(@as(u8, 2), model.browser_active);
+    try std.testing.expectEqualStrings("https://a.example", committedUrlAt(&model, 0));
+    try std.testing.expectEqualStrings("https://c.example", currentUrl(&model));
+    try std.testing.expectEqualStrings("", committedUrlAt(&model, 3));
+    try std.testing.expect(backDisabled(&model));
+    try std.testing.expectEqual(@as(u64, 0), model.browser_slots[0].reload_token);
+
+    model.right_panel_open = true;
+    model.right_panel_tab = .browser;
+    _ = webPanes(&model, &panes);
+    try expectParked(panes[0]);
+    try std.testing.expectEqualStrings("https://a.example", panes[0].url);
+    try expectParked(panes[1]);
+    try std.testing.expectEqualStrings(web_pane_anchor, panes[2].anchor orelse "");
+    try std.testing.expectEqualStrings("https://c.example", panes[2].url);
+    try expectParked(panes[3]);
+    try std.testing.expectEqualStrings(home_url, panes[3].url);
+
+    restoreFromPersist(&model, &[_]PersistedSlot{}, 3);
+    try std.testing.expectEqual(@as(usize, 1), occupiedCount(&model));
+    try std.testing.expect(model.browser_slots[0].occupied);
+    try std.testing.expectEqual(@as(u8, 0), model.browser_active);
+}
+
 test "CONTEXT and README describe first-cut Browser multi-session inside the tab" {
     const context = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, "CONTEXT.md", std.testing.allocator, .limited(512 * 1024));
     defer std.testing.allocator.free(context);
@@ -757,9 +860,11 @@ test "CONTEXT and README describe first-cut Browser multi-session inside the tab
     try std.testing.expect(std.mem.indexOf(u8, context, "First-cut multi-session inside the Browser tab") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "browser-web-0") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "not Waku surface UUID tabs") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "occupied slot URLs") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "Not Waku tabs / DevTools / multi-session.") == null);
     const browser_cut = std.mem.indexOf(u8, readme, "First-cut embedded Browser tab") orelse return error.MissingBrowserReadme;
     const window = readme[browser_cut..@min(readme.len, browser_cut + 240)];
-    try std.testing.expect(std.mem.indexOf(u8, window, "up to 4 runtime-only sessions") != null);
+    try std.testing.expect(std.mem.indexOf(u8, window, "up to 4 sessions") != null);
+    try std.testing.expect(std.mem.indexOf(u8, window, "occupied URLs persist") != null);
     try std.testing.expect(std.mem.indexOf(u8, readme, "not … multi-session") == null);
 }
