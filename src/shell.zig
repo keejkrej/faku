@@ -2,9 +2,9 @@
 //!
 //! `shell_scene` is the single-window chromeless shell (`hidden_inset_tall`)
 //! that `UiApp.create` receives. `registerIcons` installs the minimize /
-//! maximize / stop SVG table so markup `icon="app:minimize"` (and siblings)
-//! resolve. Re-exported from `main.zig` so `UiApp` and tests keep
-//! `main.shell_scene` / `main.registerIcons` / `main.app_icons` /
+//! maximize / stop / lock / globe SVG table so markup `icon="app:minimize"`
+//! (and siblings) resolve. Re-exported from `main.zig` so `UiApp` and tests
+//! keep `main.shell_scene` / `main.registerIcons` / `main.app_icons` /
 //! `main.main_window_label` / `main.window_width`. Behavior is unchanged
 //! from the former `main` scene and icons.
 
@@ -63,13 +63,25 @@ const maximize_icon = canvas.svg_icon.parseComptime(@embedFile("icons/maximize.s
 /// (https://native-sdk.dev/components/icon).
 const stop_icon = canvas.svg_icon.parseComptime(@embedFile("icons/stop.svg"));
 
+/// Browser address lock. Native's curated set has no `lock`
+/// (https://native-sdk.dev/docs/components/icon); `native check`
+/// rejects a bare `icon name="lock"`.
+const lock_icon = canvas.svg_icon.parseComptime(@embedFile("icons/lock.svg"));
+
+/// Browser address globe (insecure / non-https). Same registry gap
+/// as lock.
+const globe_icon = canvas.svg_icon.parseComptime(@embedFile("icons/globe.svg"));
+
 /// One table feeds boot registration and the model contract so
-/// `icon="app:minimize"` / `icon="app:maximize"` / `icon="app:stop"`
-/// are verified against what `registerIcons` installs.
+/// `icon="app:minimize"` / `icon="app:maximize"` / `icon="app:stop"` /
+/// `icon="app:lock"` / `icon="app:globe"` are verified against what
+/// `registerIcons` installs.
 pub const app_icons = [_]canvas.icons.Entry{
     .{ .name = "minimize", .icon = &minimize_icon },
     .{ .name = "maximize", .icon = &maximize_icon },
     .{ .name = "stop", .icon = &stop_icon },
+    .{ .name = "lock", .icon = &lock_icon },
+    .{ .name = "globe", .icon = &globe_icon },
 };
 
 /// Install the app icon table once, before views build.
@@ -78,10 +90,12 @@ pub fn registerIcons() void {
 }
 
 test "app_icons names and shell window" {
-    try std.testing.expectEqual(@as(usize, 3), app_icons.len);
+    try std.testing.expectEqual(@as(usize, 5), app_icons.len);
     try std.testing.expectEqualStrings("minimize", app_icons[0].name);
     try std.testing.expectEqualStrings("maximize", app_icons[1].name);
     try std.testing.expectEqualStrings("stop", app_icons[2].name);
+    try std.testing.expectEqualStrings("lock", app_icons[3].name);
+    try std.testing.expectEqualStrings("globe", app_icons[4].name);
     try std.testing.expectEqual(@as(usize, 1), shell_scene.windows.len);
     try std.testing.expectEqualStrings(main_window_label, shell_scene.windows[0].label);
     try std.testing.expectEqual(@as(usize, 5), shell_scene.windows[0].views.len);

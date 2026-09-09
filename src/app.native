@@ -1563,6 +1563,12 @@
               <button variant="ghost" size="icon" icon="chevron-left" label="Back" on-press="browser_back" disabled="{browser_back_disabled}"></button>
               <button variant="ghost" size="icon" icon="chevron-right" label="Forward" on-press="browser_forward" disabled="{browser_forward_disabled}"></button>
               <button variant="ghost" size="icon" icon="refresh-cw" label="Reload" on-press="browser_reload"></button>
+              <if test="{browser_url_secure}">
+                <icon name="app:lock" width="11" height="11" foreground="text_muted" label="Secure" />
+              </if>
+              <else>
+                <icon name="app:globe" width="11" height="11" foreground="text_muted" label="Not secure" />
+              </else>
               <text-field grow="1" placeholder="https://example.com" text="{browser_url}" on-input="browser_url_edit" on-submit="browser_navigate" label="Address" />
               <button variant="ghost" size="sm" on-press="browser_navigate">Navigate</button>
               <button variant="ghost" size="sm" on-press="open_url">Open in browser</button>

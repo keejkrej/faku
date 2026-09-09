@@ -2802,6 +2802,12 @@ pub const Model = struct {
         return browser_pane.draft(model);
     }
 
+    /// Committed pane URL security for the address-bar lock/globe.
+    /// Same source as `currentUrl` / history tip, not the draft.
+    pub fn browser_url_secure(model: *const Model) bool {
+        return browser_pane.urlSecure(model);
+    }
+
     pub fn applyBrowserUrl(model: *Model, edit: canvas.TextInputEvent) void {
         browser_pane.applyDraft(model, edit);
     }

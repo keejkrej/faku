@@ -27,7 +27,9 @@
 //! localhost/IPv4 → `http`, host-like → `https`, else Google search).
 //! The address field hides a leading `https://` (Waku `display_url`);
 //! `http://` and other schemes stay visible. History, pane URLs, and
-//! `browser_slots` persist stay full.
+//! `browser_slots` persist stay full. A muted lock/globe beside the
+//! field follows the committed pane URL (Waku `is_secure_url`), not
+//! the in-progress draft. Native has no text-field icon helper.
 //!
 //! Native `applyWebPane` keeps the last frame when the anchor is missing
 //! or width/height < 1 (`ui_app.zig`). Public `WebViewPane` has no
@@ -206,11 +208,18 @@ pub fn draft(model: *const Model) []const u8 {
 /// Safari/Waku address display (egoist/waku `src/browser.rs`
 /// `display_url`). Hide a leading `https://` the way Safari does;
 /// leave `http://` and every other scheme/path visible. Empty stays
-/// empty. Lock-icon `is_secure_url` is out of scope this cut.
+/// empty. Companion lock chrome is `isSecureUrl` on the committed URL.
 pub fn displayUrl(url: []const u8) []const u8 {
     const https_prefix = "https://";
     if (std.mem.startsWith(u8, url, https_prefix)) return url[https_prefix.len..];
     return url;
+}
+
+/// Safari/Waku lock chrome (egoist/waku `src/browser.rs`
+/// `is_secure_url`). True iff the URL starts with `https://`. Empty /
+/// `http` / other schemes are false. Case-sensitive, like Waku.
+pub fn isSecureUrl(url: []const u8) bool {
+    return std.mem.startsWith(u8, url, "https://");
 }
 
 fn committedText(slot: *const Slot) []const u8 {
@@ -283,6 +292,13 @@ fn restoreOccupied(slot: *Slot, url: []const u8) void {
 
 pub fn currentUrl(model: *const Model) []const u8 {
     return currentUrlAt(model, activeIndex(model));
+}
+
+/// Active slot's committed pane URL (same source as `currentUrl` /
+/// history tip). Empty history uses `home_url` (`https://example.com`
+/// → secure). Not the in-progress address draft.
+pub fn urlSecure(model: *const Model) bool {
+    return isSecureUrl(currentUrl(model));
 }
 
 pub fn backDisabled(model: *const Model) bool {
@@ -719,6 +735,34 @@ test "displayUrl hides a leading https:// only" {
     try std.testing.expectEqualStrings("HTTPS://EXAMPLE.COM", displayUrl("HTTPS://EXAMPLE.COM"));
 }
 
+test "isSecureUrl matches Waku starts_with https://" {
+    try std.testing.expect(isSecureUrl("https://example.com"));
+    try std.testing.expect(isSecureUrl("https://example.com/x"));
+    try std.testing.expect(!isSecureUrl("http://localhost"));
+    try std.testing.expect(!isSecureUrl("http://localhost:3000"));
+    try std.testing.expect(!isSecureUrl(""));
+    try std.testing.expect(!isSecureUrl("about:blank"));
+    try std.testing.expect(!isSecureUrl("HTTPS://EXAMPLE.COM"));
+}
+
+test "urlSecure follows committed currentUrl, not the address draft" {
+    var model: Model = .{};
+    try std.testing.expectEqualStrings(home_url, currentUrl(&model));
+    try std.testing.expect(urlSecure(&model));
+    setDraft(&model, "http://localhost:3000");
+    try std.testing.expectEqualStrings("http://localhost:3000", draft(&model));
+    try std.testing.expect(urlSecure(&model));
+    commitNavigation(&model);
+    try std.testing.expectEqualStrings("http://localhost:3000", currentUrl(&model));
+    try std.testing.expect(!urlSecure(&model));
+    setDraft(&model, "https://example.com");
+    try std.testing.expectEqualStrings("https://example.com", draft(&model));
+    try std.testing.expect(!urlSecure(&model));
+    commitNavigation(&model);
+    try std.testing.expect(urlSecure(&model));
+    try std.testing.expectEqualStrings("example.com", draft(&model));
+}
+
 test "commitNavigation draft is display form while history stays full" {
     var model: Model = .{};
     setDraft(&model, "https://example.com/x");
@@ -726,11 +770,13 @@ test "commitNavigation draft is display form while history stays full" {
     try std.testing.expectEqualStrings("https://example.com/x", currentUrl(&model));
     try std.testing.expectEqualStrings("https://example.com/x", activeSlotConst(&model).history[0].text());
     try std.testing.expectEqualStrings("example.com/x", draft(&model));
+    try std.testing.expect(urlSecure(&model));
 
     setDraft(&model, "http://localhost:3000");
     commitNavigation(&model);
     try std.testing.expectEqualStrings("http://localhost:3000", currentUrl(&model));
     try std.testing.expectEqualStrings("http://localhost:3000", draft(&model));
+    try std.testing.expect(!urlSecure(&model));
 }
 
 test "resolveAddress matches Waku omnibox cases" {
@@ -916,10 +962,14 @@ test "CONTEXT and README describe first-cut Browser multi-session inside the tab
     try std.testing.expect(std.mem.indexOf(u8, context, "browser-web-0") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "not Waku surface UUID tabs") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "occupied slot URLs") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "is_secure_url") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "lock/globe") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "Lock-icon") == null);
     try std.testing.expect(std.mem.indexOf(u8, context, "Not Waku tabs / DevTools / multi-session.") == null);
     const browser_cut = std.mem.indexOf(u8, readme, "First-cut embedded Browser tab") orelse return error.MissingBrowserReadme;
     const window = readme[browser_cut..@min(readme.len, browser_cut + 240)];
     try std.testing.expect(std.mem.indexOf(u8, window, "up to 4 sessions") != null);
     try std.testing.expect(std.mem.indexOf(u8, window, "occupied URLs persist") != null);
+    try std.testing.expect(std.mem.indexOf(u8, window, "lock/globe") != null);
     try std.testing.expect(std.mem.indexOf(u8, readme, "not … multi-session") == null);
 }
