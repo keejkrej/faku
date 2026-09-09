@@ -1,17 +1,19 @@
-//! Native shell window scene and chromeless app icon registration.
+//! Native shell window scene and chromeless + file-type app icon
+//! registration.
 //!
 //! `shell_scene` is the single-window chromeless shell (`hidden_inset_tall`)
-//! that `UiApp.create` receives. `registerIcons` installs the minimize /
-//! maximize / stop / lock / globe SVG table so markup `icon="app:minimize"`
-//! (and siblings) resolve. Re-exported from `main.zig` so `UiApp` and tests
-//! keep `main.shell_scene` / `main.registerIcons` / `main.app_icons` /
-//! `main.main_window_label` / `main.window_width`. Behavior is unchanged
-//! from the former `main` scene and icons.
+//! that `UiApp.create` receives. `registerIcons` installs one table:
+//! minimize / maximize / stop / lock / globe plus the first-cut
+//! Material file-type subset so markup `icon="app:minimize"` and bound
+//! `app:zig` / `app:rust` / … resolve. Re-exported from `main.zig` so
+//! `UiApp` and tests keep `main.shell_scene` / `main.registerIcons` /
+//! `main.app_icons` / `main.main_window_label` / `main.window_width`.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
 
 const canvas = native_sdk.canvas;
+const file_type_icons = @import("file_type_icons.zig");
 
 /// Canvas view label for `UiApp.create`. Same spelling as `app.zon`
 /// and `shell_views`. Not re-exported from `main`.
@@ -72,30 +74,44 @@ const lock_icon = canvas.svg_icon.parseComptime(@embedFile("icons/lock.svg"));
 /// as lock.
 const globe_icon = canvas.svg_icon.parseComptime(@embedFile("icons/globe.svg"));
 
-/// One table feeds boot registration and the model contract so
-/// `icon="app:minimize"` / `icon="app:maximize"` / `icon="app:stop"` /
-/// `icon="app:lock"` / `icon="app:globe"` are verified against what
-/// `registerIcons` installs.
-pub const app_icons = [_]canvas.icons.Entry{
+/// One table feeds boot registration and the model contract so chrome
+/// `icon="app:minimize"` / `app:maximize` / `app:stop` / `app:lock` /
+/// `app:globe` and Files/Diff/`@` `app:zig` / `app:rust` / … are
+/// verified against what `registerIcons` installs.
+const chrome_icons = [_]canvas.icons.Entry{
     .{ .name = "minimize", .icon = &minimize_icon },
     .{ .name = "maximize", .icon = &maximize_icon },
     .{ .name = "stop", .icon = &stop_icon },
     .{ .name = "lock", .icon = &lock_icon },
     .{ .name = "globe", .icon = &globe_icon },
 };
+pub const app_icons = chrome_icons ++ file_type_icons.app_icons;
 
 /// Install the app icon table once, before views build.
 pub fn registerIcons() void {
     canvas.icons.registerAppIcons(&app_icons);
 }
 
+test "registerIcons resolves chrome and file-type app names" {
+    registerIcons();
+    try std.testing.expect(canvas.icons.resolve("app:minimize") != null);
+    try std.testing.expect(canvas.icons.resolve("app:zig") != null);
+    try std.testing.expect(canvas.icons.resolve("app:rust") != null);
+    try std.testing.expect(canvas.icons.resolve("app:react") != null);
+    try std.testing.expect(canvas.icons.resolve("app:git") != null);
+    try std.testing.expect(canvas.icons.find("app:zig") == null);
+}
+
 test "app_icons names and shell window" {
-    try std.testing.expectEqual(@as(usize, 5), app_icons.len);
+    try std.testing.expectEqual(@as(usize, chrome_icons.len + file_type_icons.app_icons.len), app_icons.len);
+    try std.testing.expectEqual(@as(usize, 5), chrome_icons.len);
     try std.testing.expectEqualStrings("minimize", app_icons[0].name);
     try std.testing.expectEqualStrings("maximize", app_icons[1].name);
     try std.testing.expectEqualStrings("stop", app_icons[2].name);
     try std.testing.expectEqualStrings("lock", app_icons[3].name);
     try std.testing.expectEqualStrings("globe", app_icons[4].name);
+    try std.testing.expectEqualStrings("zig", app_icons[5].name);
+    try std.testing.expectEqualStrings("git", app_icons[app_icons.len - 1].name);
     try std.testing.expectEqual(@as(usize, 1), shell_scene.windows.len);
     try std.testing.expectEqualStrings(main_window_label, shell_scene.windows[0].label);
     try std.testing.expectEqual(@as(usize, 5), shell_scene.windows[0].views.len);

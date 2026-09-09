@@ -108,9 +108,10 @@
   </column>
 </template>
 <template name="files-tree-rows">
-  <!-- First-cut Native built-in from `f.icon` (`file_icon.filesTreeIcon`):
-       dirs `folder` / `folder-open`, files terminal/settings/archive/music/
-       git-branch else file-text. Not Waku's SVG pack. Chevrons stay. -->
+  <!-- First-cut Material app icon from `f.icon` (`file_icon.filesTreeIcon`):
+       dirs `folder` / `folder-open`, files `app:zig` / `app:rust` / … (MIT)
+       plus built-in terminal/settings/archive/music else file-text.
+       Chevrons stay. -->
   <column>
     <for each="right_panel_file_rows" key="id" as="f">
       <if test="{f.is_file}">
@@ -1166,9 +1167,9 @@
             <if test="{mentions_list_open}">
               <card size="sm" padding="10">
                 <column gap="2">
-                  <!-- First-cut Native built-in from `m.icon` (`file_icon.filesTreeIcon`):
-                       dirs folder (collapsed; no chevron), files terminal/settings/…
-                       else file-text. Not Waku's SVG pack. -->
+                  <!-- First-cut Material app icon from `m.icon` (`file_icon.filesTreeIcon`):
+                       dirs folder (collapsed; no chevron), files `app:zig` / …
+                       plus built-in terminal/settings/archive/music else file-text. -->
                   <for each="mention_rows" key="id" as="m">
                     <list-item height="44" gap="4" cross="center" selected="{m.selected}" on-press="insert_mention:{m.id}" label="{m.path}">
                       <icon name="{m.icon}" />
@@ -1473,8 +1474,9 @@
                   <scroll grow="1" label="Review files">
                     <column gap="2">
                       <!-- Diff tree reuses Files `file_icon` (`r.icon`): dirs
-                           folder / folder-open, files terminal/settings/…
-                           else file-text. Not Waku's SVG pack. Chevrons stay. -->
+                           folder / folder-open, files first-cut Material `app:`
+                           names plus built-in terminal/settings/archive/music
+                           else file-text. Chevrons stay. -->
                       <for each="review_diff_rows" key="id" as="r">
                         <if test="{r.is_directory}">
                           <row gap="6" cross="center">

@@ -106,10 +106,10 @@
 //! ~42px header: Native `folder` icon + truncated `project_path`
 //! basename (`right_panel_files_project_name`). Directory rows paint
 //! Native `folder-open` when expanded and `folder` when collapsed
-//! (chevrons stay). File rows pick a first-cut Native built-in from
-//! `file_icon` (basename/extension → `terminal` / `settings` /
-//! `archive` / `music` / `git-branch`, else `file-text`) — not Waku's
-//! SVG file-type pack. Diff tree rows, the selected-file Diff
+//! (chevrons stay). File rows pick a first-cut Material app icon
+//! (`app:zig`, `app:rust`, … MIT subset) or a Native built-in
+//! (`terminal` / `settings` / `archive` / `music`, else `file-text`).
+//! Diff tree rows, the selected-file Diff
 //! header, and composer `@` mention rows reuse this same map
 //! (mention dirs stay `folder`; Browser / Terminal do not).
 //! Files tab ships a bounded inline file preview (prefer daemon
@@ -2406,7 +2406,7 @@ test "collapsed default, expand shows children, collapse hides descendants" {
         try std.testing.expectEqual(@as(usize, 2), visible.len);
         try std.testing.expectEqualStrings("README.md", visible[0].path);
         try std.testing.expect(visible[0].is_file);
-        try std.testing.expectEqualStrings("file-text", visible[0].icon);
+        try std.testing.expectEqualStrings("app:readme", visible[0].icon);
         try std.testing.expectEqual(@as(u32, 0), visible[0].depth);
         try std.testing.expectEqualStrings("src/", visible[1].path);
         try std.testing.expect(!visible[1].is_file);
@@ -2435,7 +2435,7 @@ test "collapsed default, expand shows children, collapse hides descendants" {
         try std.testing.expectEqualStrings("src/main.zig", visible[3].path);
         try std.testing.expect(visible[3].is_file);
         try std.testing.expect(!visible[3].expanded);
-        try std.testing.expectEqualStrings("file-text", visible[3].icon);
+        try std.testing.expectEqualStrings("app:zig", visible[3].icon);
     }
 
     toggleDir(&model, &fx, src_lib_id);
@@ -2518,15 +2518,15 @@ test "Files tree rows bind first-cut Native file-type icons" {
         const visible = rows(&model, arena);
         try std.testing.expectEqual(@as(usize, 8), visible.len);
         try std.testing.expectEqualStrings(".gitignore", visible[0].path);
-        try std.testing.expectEqualStrings("git-branch", visible[0].icon);
+        try std.testing.expectEqualStrings("app:git", visible[0].icon);
         try std.testing.expectEqualStrings("Makefile", visible[1].path);
-        try std.testing.expectEqualStrings("settings", visible[1].icon);
+        try std.testing.expectEqualStrings("app:makefile", visible[1].icon);
         try std.testing.expectEqualStrings("README.md", visible[2].path);
-        try std.testing.expectEqualStrings("file-text", visible[2].icon);
+        try std.testing.expectEqualStrings("app:readme", visible[2].icon);
         try std.testing.expectEqualStrings("archive.zip", visible[3].path);
         try std.testing.expectEqualStrings("archive", visible[3].icon);
         try std.testing.expectEqualStrings("package.json", visible[4].path);
-        try std.testing.expectEqualStrings("settings", visible[4].icon);
+        try std.testing.expectEqualStrings("app:nodejs", visible[4].icon);
         try std.testing.expectEqualStrings("run.sh", visible[5].path);
         try std.testing.expectEqualStrings("terminal", visible[5].icon);
         try std.testing.expectEqualStrings("src/", visible[6].path);
@@ -2546,7 +2546,7 @@ test "Files tree rows bind first-cut Native file-type icons" {
         try std.testing.expect(visible[6].expanded);
         try std.testing.expectEqualStrings("folder-open", visible[6].icon);
         try std.testing.expectEqualStrings("src/main.zig", visible[7].path);
-        try std.testing.expectEqualStrings("file-text", visible[7].icon);
+        try std.testing.expectEqualStrings("app:zig", visible[7].icon);
         try std.testing.expectEqualStrings("track.mp3", visible[8].path);
         try std.testing.expectEqualStrings("music", visible[8].icon);
     }

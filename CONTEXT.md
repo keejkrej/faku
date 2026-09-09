@@ -623,12 +623,13 @@ scheme as the sidebar subtitle / Settings Usage `projectBasename`) above
 the loaded tree — both the full-height list and the nested tree pane when
 a preview is open; not the no-project empty state and not Loading.
 Directory rows paint Native `folder-open` when expanded and `folder` when
-collapsed (chevrons stay). File rows pick a first-cut Native built-in from
-the basename/extension (`terminal` / `settings` / `archive` / `music` /
-`git-branch`, else `file-text`) — not Waku's SVG file-type pack. Diff tree
-rows and the selected-file Diff header reuse this same `file_icon` map.
-Composer `@` mention rows reuse it too (dirs `folder`, collapsed; no
-expand chevron). Browser / Terminal stay unchanged. Files
+collapsed (chevrons stay). File rows pick a first-cut Material app icon
+(`app:zig`, `app:rust`, … MIT subset under `src/icons/file-types/`) or a
+Native built-in (`terminal` / `settings` / `archive` / `music`, else
+`file-text`). Diff tree rows, the selected-file Diff header, and composer
+`@` mention rows reuse this same `file_icon` map (mention dirs stay
+`folder`, collapsed; no expand chevron). Browser / Terminal stay
+unchanged. Files
 lists the same bounded `file_mention` cache used by composer `@`
 mentions (git ls-files, then a bounded walk; Windows `git.exe -C` /
 PowerShell walk with `-Args`; first-cut daemon
@@ -694,10 +695,10 @@ omits numbers/washes above 128, so those segments keep today's
 per-row `<text>` coloring). Not Waku per-token GPUI. File-list
 rows paint a first-cut nested directory tree matching Waku
 `review_diff_tree_rows` (collapsible Directory + File, default
-collapsed, basename leaves, Native built-in from the same Files
-`file_icon` map — dirs `folder` / `folder-open`, files `terminal` /
-`settings` / `archive` / `music` / `git-branch` else `file-text`; not
-Waku's SVG pack — colored status letter `A`/`D`/`B`/`M`/`?` separate from
+collapsed, basename leaves, first-cut Material app icon from the same
+Files `file_icon` map — dirs `folder` / `folder-open`, files `app:zig` /
+`app:rust` / … plus built-in `terminal` / `settings` / `archive` /
+`music` else `file-text` — colored status letter `A`/`D`/`B`/`M`/`?` separate from
 the basename, optional `+N` / `-M` from
 numstat; zeros omitted; numstat `-` is Binary `B`; daemon CollectReviewDiff and local
 `--numstat`). A Native search-field above that tree is Waku
@@ -1158,7 +1159,7 @@ live watch.
 | Daemon sidecar | `src/daemon_proxy.zig`, `src/protocol.zig` |
 | Send / stream | `src/spawn.zig`, `src/stream.zig`, `src/lines.zig` |
 | Environment Summary | `src/environment_summary.zig` |
-| Right panel | `src/right_panel.zig`, `src/review_diff.zig`, `src/open_url.zig`, `src/file_icon.zig` |
+| Right panel | `src/right_panel.zig`, `src/review_diff.zig`, `src/open_url.zig`, `src/file_icon.zig`, `src/file_type_icons.zig` |
 | Skills scan | `src/skills.zig` |
 | Providers catalog | `src/providers.zig`, `src/cli_probe.zig` |
 | Composer / attach | `src/composer.zig`, `src/attach.zig`, `src/slash_commands.zig` |
@@ -1171,6 +1172,8 @@ live watch.
 
 Honest gaps this cut does not implement:
 
+- Remaining Material / Waku file-type SVGs (bun, npm, console, …) stay
+  later PRs; this cut vendors a curated coding-agent subset
 - Full onboarding / OAuth / auto-install (fx install/login copy
   ships; other CLIs get a PATH hint only)
 - Native Pi ACP / `--mode rpc` (json-mode one-shot

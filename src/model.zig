@@ -292,9 +292,9 @@ pub const CommandRow = struct {
 /// filtered click still inserts that path, not a neighbor.
 /// `name` / `parent` are slices of `path` for scanable labels. Dir
 /// paths keep a trailing slash (`src/`).
-/// `icon` is a Native built-in name for `icon name="{m.icon}"`
-/// (`file_icon.filesTreeIcon`; dirs stay `folder` — the list has
-/// no expand chevron; not Waku's SVG pack).
+/// `icon` is a Native built-in or `app:` Material name for
+/// `icon name="{m.icon}"` (`file_icon.filesTreeIcon`; dirs stay
+/// `folder` — the list has no expand chevron).
 pub const MentionRow = struct {
     id: u32,
     path: []const u8,
@@ -309,8 +309,8 @@ pub const MentionRow = struct {
 /// `file_mention_dir_id_base + dir_index` so Native
 /// `open_right_panel_file:{f.id}` never binds 0. Dir rows toggle
 /// `toggle_right_panel_dir:{f.id}`; `expanded` is false for files.
-/// `icon` is a Native built-in name for `icon name="{f.icon}"`
-/// (`file_icon.filesTreeIcon`; not Waku's SVG pack).
+/// `icon` is a Native built-in or `app:` Material name for
+/// `icon name="{f.icon}"` (`file_icon.filesTreeIcon`).
 pub const RightPanelFileRow = struct {
     id: u32,
     path: []const u8,

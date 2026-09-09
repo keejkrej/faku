@@ -1,19 +1,26 @@
-//! First-cut Native built-in icon names for Files, Diff, and composer
-//! `@` mention rows.
+//! First-cut file-type icon names for Files, Diff, and composer `@`
+//! mention rows.
 //!
 //! Behavior follows Waku `file_icon_for_path` / `file_icon_for_name`
-//! (basename specials, then extension) but maps onto Native's
-//! documented `canvas.icons.known_icon_names` set — not Waku's SVG
-//! file-type pack. Directories paint `folder-open` when expanded and
-//! `folder` when collapsed. Unknown files stay `file-text`. Diff
-//! tree rows and the selected-file Diff header reuse this same map.
-//! Composer `@` mention rows reuse it too (dirs stay `folder`; the
-//! list has no expand chevron). Browser and Terminal do not.
+//! (basename specials, then extension) and maps onto a curated MIT
+//! Material app-icon subset (`app:zig`, `app:rust`, … from
+//! `src/icons/file-types/`) plus Native built-ins for directories
+//! (`folder` / `folder-open`), shells (`terminal`), archives
+//! (`archive`), audio (`music`), leftover config (`settings`), and
+//! unknown files (`file-text`). Diff tree rows, the selected-file
+//! Diff header, and composer `@` mention rows reuse this same map
+//! (dirs stay `folder` in `@`; the list has no expand chevron).
+//! Browser and Terminal do not.
 
 const std = @import("std");
 const composer = @import("composer.zig");
+const file_type_icons = @import("file_type_icons.zig");
 
-/// Native built-in `icon name=` for a Files, Diff, or composer `@` row.
+fn app(comptime name: []const u8) []const u8 {
+    return "app:" ++ name;
+}
+
+/// Native `icon name=` for a Files, Diff, or composer `@` row.
 pub fn filesTreeIcon(path: []const u8, is_file: bool, expanded: bool) []const u8 {
     if (!is_file) {
         return if (expanded) "folder-open" else "folder";
@@ -21,22 +28,60 @@ pub fn filesTreeIcon(path: []const u8, is_file: bool, expanded: bool) []const u8
     return fileIconForPath(path);
 }
 
-/// Native built-in for a file path (basename of a repo-relative path).
+/// Native built-in or `app:` name for a file path (basename of a
+/// repo-relative path).
 pub fn fileIconForPath(path: []const u8) []const u8 {
     return fileIconForName(composer.fileMentionBasename(path));
 }
 
-/// Native built-in for a file basename. Case-insensitive, like Waku.
+/// Native built-in or `app:` name for a file basename.
+/// Case-insensitive, like Waku.
 pub fn fileIconForName(name: []const u8) []const u8 {
-    if (startsWithIgnoreCase(name, ".git")) return "git-branch";
-    if (isMakefileName(name) or isDockerfileName(name) or isSettingsName(name)) return "settings";
+    if (basenameSpecial(name)) |icon| return icon;
 
     const ext = extensionOf(name);
     if (extensionIs(ext, &.{ "sh", "bash", "zsh", "fish", "ps1", "psm1" })) return "terminal";
-    if (extensionIs(ext, &.{ "json", "jsonc", "toml", "yaml", "yml", "ini", "cfg", "conf", "config" })) return "settings";
     if (extensionIs(ext, &.{ "zip", "tar", "gz", "tgz", "7z", "rar" })) return "archive";
     if (extensionIs(ext, &.{ "mp3", "wav", "ogg", "flac", "m4a" })) return "music";
+    if (extensionIs(ext, &.{ "zig" })) return app("zig");
+    if (extensionIs(ext, &.{ "rs" })) return app("rust");
+    if (extensionIs(ext, &.{ "go" })) return app("go");
+    if (extensionIs(ext, &.{ "py", "pyi", "pyw" })) return app("python");
+    if (extensionIs(ext, &.{ "js", "mjs", "cjs" })) return app("javascript");
+    if (extensionIs(ext, &.{ "ts", "mts", "cts" })) return app("typescript");
+    if (extensionIs(ext, &.{ "jsx", "tsx" })) return app("react");
+    if (extensionIs(ext, &.{ "vue" })) return app("vue");
+    if (extensionIs(ext, &.{ "svelte" })) return app("svelte");
+    if (extensionIs(ext, &.{ "html", "htm" })) return app("html");
+    if (extensionIs(ext, &.{ "css" })) return app("css");
+    if (extensionIs(ext, &.{ "md", "mdx", "markdown" })) return app("markdown");
+    if (extensionIs(ext, &.{ "json", "jsonc", "jsonl" })) return app("json");
+    if (extensionIs(ext, &.{ "yaml", "yml" })) return app("yaml");
+    if (extensionIs(ext, &.{ "xml", "xsl", "plist" })) return app("xml");
+    if (extensionIs(ext, &.{ "png", "jpg", "jpeg", "gif", "webp", "avif", "ico", "tiff" })) return app("image");
+    if (extensionIs(ext, &.{ "c", "h" })) return app("c");
+    if (extensionIs(ext, &.{ "cc", "cpp", "cxx", "hh", "hpp", "hxx" })) return app("cpp");
+    if (extensionIs(ext, &.{ "java" })) return app("java");
+    if (extensionIs(ext, &.{ "ini", "cfg", "conf", "config", "toml" })) return "settings";
     return "file-text";
+}
+
+fn basenameSpecial(name: []const u8) ?[]const u8 {
+    if (startsWithIgnoreCase(name, "readme")) return app("readme");
+    if (isDockerfileName(name)) return app("docker");
+    if (isMakefileName(name)) return app("makefile");
+    if (std.ascii.eqlIgnoreCase(name, "Cargo.toml") or
+        std.ascii.eqlIgnoreCase(name, "Cargo.lock") or
+        std.ascii.eqlIgnoreCase(name, "rust-toolchain.toml")) return app("rust");
+    if (std.ascii.eqlIgnoreCase(name, "go.mod") or
+        std.ascii.eqlIgnoreCase(name, "go.sum") or
+        std.ascii.eqlIgnoreCase(name, "go.work")) return app("go");
+    if (std.ascii.eqlIgnoreCase(name, "package.json")) return app("nodejs");
+    if (startsWithIgnoreCase(name, "tsconfig.") or std.ascii.eqlIgnoreCase(name, "tsconfig.json"))
+        return app("typescript");
+    if (startsWithIgnoreCase(name, ".git")) return app("git");
+    if (isSettingsName(name)) return "settings";
+    return null;
 }
 
 fn isMakefileName(name: []const u8) bool {
@@ -77,6 +122,13 @@ fn startsWithIgnoreCase(haystack: []const u8, prefix: []const u8) bool {
     return std.ascii.eqlIgnoreCase(haystack[0..prefix.len], prefix);
 }
 
+fn iconIsResolvable(name: []const u8) bool {
+    const canvas = @import("native_sdk").canvas;
+    if (canvas.icons.find(name) != null) return true;
+    const bare = canvas.icons.appIconName(name) orelse return false;
+    return file_type_icons.contains(bare);
+}
+
 test "filesTreeIcon uses folder-open when expanded and folder when collapsed" {
     try std.testing.expectEqualStrings("folder", filesTreeIcon("src/", false, false));
     try std.testing.expectEqualStrings("folder-open", filesTreeIcon("src/", false, true));
@@ -84,7 +136,7 @@ test "filesTreeIcon uses folder-open when expanded and folder when collapsed" {
     try std.testing.expectEqualStrings("folder-open", filesTreeIcon(".git/", false, true));
 }
 
-test "fileIconForName maps shells, config, archives, audio, git, and specials" {
+test "fileIconForName maps shells, archives, audio, leftover config" {
     try std.testing.expectEqualStrings("terminal", fileIconForName("run.sh"));
     try std.testing.expectEqualStrings("terminal", fileIconForName("setup.BASH"));
     try std.testing.expectEqualStrings("terminal", fileIconForName("rc.zsh"));
@@ -92,20 +144,10 @@ test "fileIconForName maps shells, config, archives, audio, git, and specials" {
     try std.testing.expectEqualStrings("terminal", fileIconForName("build.ps1"));
     try std.testing.expectEqualStrings("terminal", fileIconForName("Tools.psm1"));
 
-    try std.testing.expectEqualStrings("settings", fileIconForName("package.json"));
-    try std.testing.expectEqualStrings("settings", fileIconForName("tsconfig.jsonc"));
-    try std.testing.expectEqualStrings("settings", fileIconForName("Cargo.toml"));
-    try std.testing.expectEqualStrings("settings", fileIconForName("compose.yaml"));
-    try std.testing.expectEqualStrings("settings", fileIconForName("app.yml"));
     try std.testing.expectEqualStrings("settings", fileIconForName("php.ini"));
     try std.testing.expectEqualStrings("settings", fileIconForName("app.cfg"));
     try std.testing.expectEqualStrings("settings", fileIconForName("nginx.conf"));
     try std.testing.expectEqualStrings("settings", fileIconForName("app.config"));
-    try std.testing.expectEqualStrings("settings", fileIconForName("Makefile"));
-    try std.testing.expectEqualStrings("settings", fileIconForName("makefile.inc"));
-    try std.testing.expectEqualStrings("settings", fileIconForName("justfile"));
-    try std.testing.expectEqualStrings("settings", fileIconForName("Dockerfile"));
-    try std.testing.expectEqualStrings("settings", fileIconForName("Dockerfile.dev"));
     try std.testing.expectEqualStrings("settings", fileIconForName(".env"));
     try std.testing.expectEqualStrings("settings", fileIconForName(".env.local"));
     try std.testing.expectEqualStrings("settings", fileIconForName(".editorconfig"));
@@ -122,35 +164,72 @@ test "fileIconForName maps shells, config, archives, audio, git, and specials" {
     try std.testing.expectEqualStrings("music", fileIconForName("clip.ogg"));
     try std.testing.expectEqualStrings("music", fileIconForName("song.flac"));
     try std.testing.expectEqualStrings("music", fileIconForName("voice.m4a"));
+}
 
-    try std.testing.expectEqualStrings("git-branch", fileIconForName(".gitignore"));
-    try std.testing.expectEqualStrings("git-branch", fileIconForName(".gitattributes"));
-    try std.testing.expectEqualStrings("git-branch", fileIconForName(".gitmodules"));
-    try std.testing.expectEqualStrings("git-branch", fileIconForName(".gitconfig"));
-    try std.testing.expectEqualStrings("git-branch", fileIconForName(".gitkeep"));
+test "fileIconForName maps Material app icons for common extensions" {
+    try std.testing.expectEqualStrings("app:zig", fileIconForName("main.zig"));
+    try std.testing.expectEqualStrings("app:rust", fileIconForName("lib.rs"));
+    try std.testing.expectEqualStrings("app:go", fileIconForName("main.go"));
+    try std.testing.expectEqualStrings("app:python", fileIconForName("app.py"));
+    try std.testing.expectEqualStrings("app:javascript", fileIconForName("index.js"));
+    try std.testing.expectEqualStrings("app:typescript", fileIconForName("index.ts"));
+    try std.testing.expectEqualStrings("app:react", fileIconForName("Panel.tsx"));
+    try std.testing.expectEqualStrings("app:react", fileIconForName("Widget.jsx"));
+    try std.testing.expectEqualStrings("app:vue", fileIconForName("App.vue"));
+    try std.testing.expectEqualStrings("app:svelte", fileIconForName("App.svelte"));
+    try std.testing.expectEqualStrings("app:html", fileIconForName("index.html"));
+    try std.testing.expectEqualStrings("app:css", fileIconForName("app.css"));
+    try std.testing.expectEqualStrings("app:markdown", fileIconForName("notes.md"));
+    try std.testing.expectEqualStrings("app:json", fileIconForName("data.jsonc"));
+    try std.testing.expectEqualStrings("app:yaml", fileIconForName("app.yml"));
+    try std.testing.expectEqualStrings("app:xml", fileIconForName("pom.xml"));
+    try std.testing.expectEqualStrings("app:image", fileIconForName("photo.png"));
+    try std.testing.expectEqualStrings("app:c", fileIconForName("main.c"));
+    try std.testing.expectEqualStrings("app:cpp", fileIconForName("main.cpp"));
+    try std.testing.expectEqualStrings("app:java", fileIconForName("Main.java"));
+}
 
-    try std.testing.expectEqualStrings("file-text", fileIconForName("README.md"));
-    try std.testing.expectEqualStrings("file-text", fileIconForName("README"));
-    try std.testing.expectEqualStrings("file-text", fileIconForName("main.zig"));
+test "fileIconForName maps high-value basename specials" {
+    try std.testing.expectEqualStrings("app:docker", fileIconForName("Dockerfile"));
+    try std.testing.expectEqualStrings("app:docker", fileIconForName("Dockerfile.dev"));
+    try std.testing.expectEqualStrings("app:docker", fileIconForName("compose.yaml"));
+    try std.testing.expectEqualStrings("app:makefile", fileIconForName("Makefile"));
+    try std.testing.expectEqualStrings("app:makefile", fileIconForName("makefile.inc"));
+    try std.testing.expectEqualStrings("app:makefile", fileIconForName("justfile"));
+    try std.testing.expectEqualStrings("app:readme", fileIconForName("README.md"));
+    try std.testing.expectEqualStrings("app:readme", fileIconForName("README"));
+    try std.testing.expectEqualStrings("app:nodejs", fileIconForName("package.json"));
+    try std.testing.expectEqualStrings("app:rust", fileIconForName("Cargo.toml"));
+    try std.testing.expectEqualStrings("app:go", fileIconForName("go.mod"));
+    try std.testing.expectEqualStrings("app:typescript", fileIconForName("tsconfig.json"));
+    try std.testing.expectEqualStrings("app:typescript", fileIconForName("tsconfig.app.json"));
+    try std.testing.expectEqualStrings("app:typescript", fileIconForName("tsconfig.jsonc"));
+    try std.testing.expectEqualStrings("app:git", fileIconForName(".gitignore"));
+    try std.testing.expectEqualStrings("app:git", fileIconForName(".gitattributes"));
+    try std.testing.expectEqualStrings("app:git", fileIconForName(".gitmodules"));
+    try std.testing.expectEqualStrings("app:git", fileIconForName(".gitconfig"));
+    try std.testing.expectEqualStrings("app:git", fileIconForName(".gitkeep"));
+}
+
+test "fileIconForName unknown files stay file-text" {
     try std.testing.expectEqualStrings("file-text", fileIconForName("unknown.data"));
     try std.testing.expectEqualStrings("file-text", fileIconForName("notes.txt"));
 }
 
 test "fileIconForPath uses the basename of a repo-relative path" {
     try std.testing.expectEqualStrings("terminal", fileIconForPath("scripts/setup.sh"));
-    try std.testing.expectEqualStrings("settings", fileIconForPath("src/package.json"));
-    try std.testing.expectEqualStrings("git-branch", fileIconForPath(".gitignore"));
-    try std.testing.expectEqualStrings("file-text", fileIconForPath("src/main.zig"));
+    try std.testing.expectEqualStrings("app:nodejs", fileIconForPath("src/package.json"));
+    try std.testing.expectEqualStrings("app:git", fileIconForPath(".gitignore"));
+    try std.testing.expectEqualStrings("app:zig", fileIconForPath("src/main.zig"));
 }
 
 test "filesTreeIcon file rows ignore expand state" {
     try std.testing.expectEqualStrings("terminal", filesTreeIcon("run.sh", true, true));
     try std.testing.expectEqualStrings("terminal", filesTreeIcon("run.sh", true, false));
-    try std.testing.expectEqualStrings("file-text", filesTreeIcon("README.md", true, true));
+    try std.testing.expectEqualStrings("app:readme", filesTreeIcon("README.md", true, true));
 }
 
-test "files tree icons stay in Native known built-in names" {
-    const canvas = @import("native_sdk").canvas;
+test "files tree icons stay in Native built-ins or registered app: names" {
     const samples = [_][]const u8{
         filesTreeIcon("src/", false, false),
         filesTreeIcon("src/", false, true),
@@ -162,8 +241,12 @@ test "files tree icons stay in Native known built-in names" {
         fileIconForName("README.md"),
         fileIconForName("Makefile"),
         fileIconForName("Dockerfile"),
+        fileIconForName("main.zig"),
+        fileIconForName("lib.rs"),
+        fileIconForName("Panel.tsx"),
+        fileIconForName("unknown.data"),
     };
     for (samples) |name| {
-        try std.testing.expect(canvas.icons.find(name) != null);
+        try std.testing.expect(iconIsResolvable(name));
     }
 }
