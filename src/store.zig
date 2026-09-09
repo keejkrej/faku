@@ -18,8 +18,8 @@
 //! `sidebar_collapsed` and `sidebar_width` so reboot restores the rail,
 //! plus `right_panel_open` / `right_panel_width` /
 //! `right_panel_file_tree_width` / `right_panel_diff_file_list_width` /
-//! `right_panel_tab` / `browser_url` / `browser_slots` / `browser_active` /
-//! `terminal_slots` / `terminal_active`
+//! `right_panel_tab` / `browser_url` / `browser_slots` / `browser_histories` /
+//! `browser_active` / `terminal_slots` / `terminal_active`
 //! for the first-cut Files + Diff +
 //! Browser + Terminal + Background pane (default closed; Waku file-tree
 //! 184px; nested Files-tree and Diff file-list widths are u32 pixels,
@@ -31,8 +31,11 @@
 //! overflow-refused → empty; occupied slot committed URLs persist as
 //! `browser_slots` (index-aligned string-or-null array, cap 4) plus
 //! `browser_active` (missing / empty `browser_slots` keeps today's one
-//! occupied slot 0 + `browser_url` draft); full history rings /
-//! reload_token stay runtime-only; occupied Terminal slots persist as
+//! occupied slot 0 + `browser_url` draft); occupied history rings persist
+//! as `browser_histories` (parallel 4-slot array: null when unoccupied;
+//! occupied `{ "urls": [...], "index": n }`, urls cap 32, index clamped;
+//! missing / legacy tip-only `browser_slots` keeps today's single-entry
+//! restore); `reload_token` stays runtime-only; occupied Terminal slots persist as
 //! `terminal_slots` (index-aligned boolean array, cap 4) plus
 //! `terminal_active` (missing / empty `terminal_slots` keeps today's
 //! lazy single spawn on Terminal tab open); scrollback / status / live
@@ -364,8 +367,8 @@ pub fn persistIfPossible(model: *Model, session_id: u32, fx: *main.Effects) void
 /// Merge-only write of layout extras (`sidebar_collapsed`,
 /// `sidebar_width`, `right_panel_open`, `right_panel_width`,
 /// `right_panel_file_tree_width`, `right_panel_diff_file_list_width`,
-/// `right_panel_tab`, `browser_url`, `browser_slots`, `browser_active`,
-/// `terminal_slots`, `terminal_active`).
+/// `right_panel_tab`, `browser_url`, `browser_slots`, `browser_histories`,
+/// `browser_active`, `terminal_slots`, `terminal_active`).
 /// Does not create `sessions.json` and does not spawn a daemon sidecar.
 /// Missing / corrupt catalogs are a no-op.
 pub fn persistLayoutIfPossible(model: *const Model) void {
@@ -1372,7 +1375,8 @@ fn parseDocument(arena: std.mem.Allocator, bytes: []const u8) !Document {
         try sessions.append(arena, try parseSession(arena, item));
     }
 
-    const parsed_slots = parseBrowserSlots(obj.get("browser_slots"));
+    var parsed_slots = parseBrowserSlots(obj.get("browser_slots"));
+    parseBrowserHistories(obj.get("browser_histories"), &parsed_slots.slots);
     const parsed_active = persistedBrowserActive(jsonUint(obj.get("browser_active")));
     const parsed_term_slots = parseTerminalSlots(obj.get("terminal_slots"));
     const parsed_term_active = persistedTerminalActive(jsonUint(obj.get("terminal_active")));
@@ -1746,9 +1750,54 @@ fn parseBrowserSlots(value: ?std.json.Value) ParsedBrowserSlots {
     return .{ .slots = slots, .present = true };
 }
 
-/// Restore occupancy + committed URLs when `browser_slots` is present,
-/// then the active address-bar draft (`browser_url`). Missing / empty
-/// `browser_slots` keeps today's one occupied slot 0 + draft-only load.
+/// Overlay occupied history rings. Missing / non-array / empty / null
+/// entries leave the slot as tip-only. Occupancy still comes from
+/// `browser_slots`; unoccupied slots ignore a history object.
+fn parseBrowserHistories(value: ?std.json.Value, slots: *[browser_pane.max_sessions]browser_pane.PersistedSlot) void {
+    const list_val = value orelse return;
+    const list_arr = switch (list_val) {
+        .array => |a| a,
+        else => return,
+    };
+    if (list_arr.items.len == 0) return;
+    for (list_arr.items, 0..) |item, i| {
+        if (i >= browser_pane.max_sessions) break;
+        if (!slots[i].occupied) continue;
+        switch (item) {
+            .object => |obj| parseBrowserHistoryObject(obj, &slots[i]),
+            else => {},
+        }
+    }
+}
+
+fn parseBrowserHistoryObject(obj: std.json.ObjectMap, slot: *browser_pane.PersistedSlot) void {
+    const urls_val = obj.get("urls") orelse return;
+    const urls_arr = switch (urls_val) {
+        .array => |a| a,
+        else => return,
+    };
+    var n: usize = 0;
+    for (urls_arr.items) |item| {
+        if (n >= browser_pane.max_history) break;
+        const raw = switch (item) {
+            .string => |s| s,
+            else => continue,
+        };
+        const url = persistedBrowserSlotUrl(raw);
+        if (url.len == 0) continue;
+        slot.history_urls[n] = url;
+        n += 1;
+    }
+    slot.history_count = n;
+    slot.history_present = true;
+    const idx = jsonUint(obj.get("index")) orelse 0;
+    slot.history_index = if (n == 0) 0 else @min(@as(usize, idx), n - 1);
+}
+
+/// Restore occupancy + committed URLs / history rings when `browser_slots`
+/// is present, then the active address-bar draft (`browser_url`). Missing
+/// / empty `browser_slots` keeps today's one occupied slot 0 + draft-only
+/// load. Missing `browser_histories` keeps today's single-entry restore.
 fn applyPersistedBrowser(model: *Model, document: Document) void {
     if (document.browser_slots_present) {
         browser_pane.restoreFromPersist(model, &document.browser_slots, document.browser_active);
@@ -1895,6 +1944,25 @@ fn encodeDocument(allocator: std.mem.Allocator, document: Document) ![]u8 {
         } else {
             try out.appendSlice(allocator, "null");
         }
+    }
+    try out.appendSlice(allocator, "],\"browser_histories\":[");
+    for (document.browser_slots, 0..) |slot, i| {
+        if (i != 0) try out.append(allocator, ',');
+        if (!slot.occupied) {
+            try out.appendSlice(allocator, "null");
+            continue;
+        }
+        try out.appendSlice(allocator, "{\"urls\":[");
+        const count = @min(slot.history_count, browser_pane.max_history);
+        var j: usize = 0;
+        while (j < count) : (j += 1) {
+            if (j != 0) try out.append(allocator, ',');
+            try appendJsonString(&out, allocator, slot.history_urls[j]);
+        }
+        try out.appendSlice(allocator, "],\"index\":");
+        const index: u32 = @intCast(if (count == 0) 0 else @min(slot.history_index, count - 1));
+        try appendUint(&out, allocator, index);
+        try out.append(allocator, '}');
     }
     try out.appendSlice(allocator, "],\"browser_active\":");
     try appendUint(&out, allocator, @as(u32, document.browser_active));
@@ -2959,6 +3027,7 @@ test "browser_slots round-trips occupied URLs and active; legacy empty keeps slo
     defer allocator.free(bytes);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"browser_url\":\"half-typed\"") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"browser_slots\":[\"https://a.example\",null,\"https://c.example\",null]") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"browser_histories\":[{\"urls\":[\"https://a.example\"],\"index\":0},null,{\"urls\":[\"https://c.example\"],\"index\":0},null]") != null);
     try testing.expect(std.mem.indexOf(u8, bytes, "\"browser_active\":2") != null);
 
     var loaded = Model{};
@@ -3018,6 +3087,115 @@ test "browser_slots round-trips occupied URLs and active; legacy empty keeps slo
     try testing.expectEqualStrings("", blank_loaded.browser_url());
     try testing.expectEqualStrings(browser_pane.home_url, browser_pane.currentUrl(&blank_loaded));
     try testing.expectEqual(@as(u8, 0), blank_loaded.browser_active);
+}
+
+test "browser_histories round-trips rings and index; legacy tip-only stays single-entry" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var dir_buf: [256]u8 = undefined;
+    const dir = try testStoreDir(&tmp, &dir_buf);
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var source = Model{};
+    source.task_state_loaded = true;
+    source.setStoreDir(dir);
+    source.store_io = io;
+    const id = source.addSession("history later", .fx);
+    _ = source.appendTurn(id, .user, "remember the rings");
+    try saveSession(&source, id, allocator, io);
+    source.right_panel_open = true;
+    source.right_panel_tab = .browser;
+    source.right_panel_width = 460;
+    source.syncRightPanelSplit();
+
+    source.setBrowserUrlDraft("https://a1.example");
+    browser_pane.commitNavigation(&source);
+    source.setBrowserUrlDraft("https://a2.example");
+    browser_pane.commitNavigation(&source);
+    source.setBrowserUrlDraft("https://a3.example");
+    browser_pane.commitNavigation(&source);
+    browser_pane.goBack(&source);
+    browser_pane.reload(&source);
+    try testing.expect(source.browser_slots[0].reload_token != 0);
+
+    browser_pane.newSession(&source);
+    source.setBrowserUrlDraft("https://b1.example");
+    browser_pane.commitNavigation(&source);
+    source.setBrowserUrlDraft("https://b2.example");
+    browser_pane.commitNavigation(&source);
+    persistLayoutIfPossible(&source);
+
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path = catalogPath(dir, &path_buf).?;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_document_bytes));
+    defer allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"browser_slots\":[\"https://a2.example\",\"https://b2.example\",null,null]") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"browser_histories\":[{\"urls\":[\"https://a1.example\",\"https://a2.example\",\"https://a3.example\"],\"index\":1},{\"urls\":[\"https://b1.example\",\"https://b2.example\"],\"index\":1},null,null]") != null);
+    try testing.expect(std.mem.indexOf(u8, bytes, "\"reload_token\"") == null);
+
+    var loaded = Model{};
+    loaded.setStoreDir(dir);
+    loaded.store_io = io;
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&loaded, allocator, io));
+    try testing.expectEqual(@as(usize, 2), browser_pane.occupiedCount(&loaded));
+    try testing.expectEqual(@as(u8, 1), loaded.browser_active);
+    try testing.expectEqual(@as(usize, 3), loaded.browser_slots[0].history_count);
+    try testing.expectEqual(@as(usize, 1), loaded.browser_slots[0].history_index);
+    try testing.expectEqualStrings("https://a2.example", browser_pane.committedUrlAt(&loaded, 0));
+    try testing.expectEqualStrings("https://b2.example", browser_pane.currentUrl(&loaded));
+    try testing.expect(!browser_pane.backDisabled(&loaded));
+    try testing.expect(browser_pane.forwardDisabled(&loaded));
+    try testing.expectEqual(@as(u64, 0), loaded.browser_slots[0].reload_token);
+    try testing.expectEqual(@as(u64, 0), loaded.browser_slots[1].reload_token);
+    browser_pane.goBack(&loaded);
+    try testing.expectEqualStrings("https://b1.example", browser_pane.currentUrl(&loaded));
+    try testing.expect(browser_pane.backDisabled(&loaded));
+    browser_pane.goForward(&loaded);
+    try testing.expectEqualStrings("https://b2.example", browser_pane.currentUrl(&loaded));
+
+    browser_pane.selectSession(&loaded, 1);
+    try testing.expectEqualStrings("https://a2.example", browser_pane.currentUrl(&loaded));
+    try testing.expect(!browser_pane.backDisabled(&loaded));
+    try testing.expect(!browser_pane.forwardDisabled(&loaded));
+    browser_pane.goBack(&loaded);
+    try testing.expectEqualStrings("https://a1.example", browser_pane.currentUrl(&loaded));
+    browser_pane.goForward(&loaded);
+    browser_pane.goForward(&loaded);
+    try testing.expectEqualStrings("https://a3.example", browser_pane.currentUrl(&loaded));
+    try testing.expect(browser_pane.forwardDisabled(&loaded));
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"browser_url":"legacy.com","browser_slots":["https://a.example",null,"https://c.example",null],"browser_active":2,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var legacy = Model{};
+    legacy.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&legacy, allocator, io));
+    try testing.expectEqual(@as(usize, 2), browser_pane.occupiedCount(&legacy));
+    try testing.expectEqual(@as(u8, 2), legacy.browser_active);
+    try testing.expectEqual(@as(usize, 1), legacy.browser_slots[0].history_count);
+    try testing.expectEqual(@as(usize, 0), legacy.browser_slots[0].history_index);
+    try testing.expectEqualStrings("https://a.example", browser_pane.committedUrlAt(&legacy, 0));
+    try testing.expectEqualStrings("https://c.example", browser_pane.currentUrl(&legacy));
+    try testing.expect(browser_pane.backDisabled(&legacy));
+    try testing.expect(browser_pane.forwardDisabled(&legacy));
+    try testing.expectEqual(@as(u64, 0), legacy.browser_slots[0].reload_token);
+    try testing.expectEqual(@as(u64, 0), legacy.browser_slots[2].reload_token);
+
+    try writeRaw(io, dir,
+        \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"browser_slots":["https://a.example","https://b.example",null,null],"browser_histories":[{"urls":["https://a1.example","https://a2.example"],"index":99},{"urls":[],"index":0},null,null],"browser_active":0,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
+    );
+    var clamped = Model{};
+    clamped.setStoreDir(dir);
+    try testing.expectEqual(LoadKind.loaded, loadCatalog(&clamped, allocator, io));
+    try testing.expectEqual(@as(usize, 1), clamped.browser_slots[0].history_index);
+    try testing.expectEqualStrings("https://a2.example", browser_pane.currentUrl(&clamped));
+    try testing.expect(!browser_pane.backDisabled(&clamped));
+    try testing.expect(browser_pane.forwardDisabled(&clamped));
+    try testing.expectEqual(@as(usize, 0), clamped.browser_slots[1].history_count);
+    try testing.expect(clamped.browser_slots[1].occupied);
+    try testing.expectEqualStrings("", browser_pane.committedUrlAt(&clamped, 1));
 }
 
 test "terminal_slots round-trips occupancy and active; missing/empty keeps lazy spawn" {
