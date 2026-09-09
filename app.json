@@ -35,7 +35,40 @@
             "gpu_vsync": true
           },
           {
-            "label": "browser-web",
+            "label": "browser-web-0",
+            "kind": "webview",
+            "parent": "main-canvas",
+            "url": "https://example.com",
+            "x": 0,
+            "y": 0,
+            "width": 1,
+            "height": 1,
+            "layer": 20
+          },
+          {
+            "label": "browser-web-1",
+            "kind": "webview",
+            "parent": "main-canvas",
+            "url": "https://example.com",
+            "x": 0,
+            "y": 0,
+            "width": 1,
+            "height": 1,
+            "layer": 20
+          },
+          {
+            "label": "browser-web-2",
+            "kind": "webview",
+            "parent": "main-canvas",
+            "url": "https://example.com",
+            "x": 0,
+            "y": 0,
+            "width": 1,
+            "height": 1,
+            "layer": 20
+          },
+          {
+            "label": "browser-web-3",
             "kind": "webview",
             "parent": "main-canvas",
             "url": "https://example.com",

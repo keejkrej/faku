@@ -9832,6 +9832,9 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     _ = try expectButtonMsg(tree, "Navigate", .browser_navigate);
     _ = try expectButtonMsg(tree, "Reload", .browser_reload);
     _ = try expectButtonMsg(tree, "Open in browser", .open_url);
+    _ = try expectButtonMsg(tree, "New", .new_browser);
+    try testing.expect(findByText(tree.root, .button, "Close") == null);
+    try testing.expect((try expectButtonMsg(tree, "1", .{ .select_browser_session = 1 })).state.selected);
     const browser_col = try expectByText(tree.root, .column, "Browser");
     const back = findByText(browser_col, .button, "Back") orelse return error.WidgetNotFound;
     const forward = findByText(browser_col, .button, "Forward") orelse return error.WidgetNotFound;
@@ -10045,9 +10048,9 @@ test "Browser Navigate commits a normalized URL; hidden tab parks the web pane" 
     fx.executor = .fake;
 
     var model = main.initialModel();
-    var panes: [1]browser_pane.WebViewPane = undefined;
+    var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
 
-    try testing.expectEqual(@as(usize, 1), browser_pane.webPanes(&model, &panes));
+    try testing.expectEqual(@as(usize, 4), browser_pane.webPanes(&model, &panes));
     try testing.expect(panes[0].anchor == null);
     try testing.expectEqual(@as(f32, 1), panes[0].frame.width);
     try testing.expectEqualStrings(browser_pane.home_url, panes[0].url);
@@ -10057,6 +10060,8 @@ test "Browser Navigate commits a normalized URL; hidden tab parks the web pane" 
     _ = browser_pane.webPanes(&model, &panes);
     try testing.expectEqualStrings(browser_pane.web_pane_anchor, panes[0].anchor orelse "");
     try testing.expectEqualStrings(browser_pane.home_url, panes[0].url);
+    try testing.expect(panes[1].anchor == null);
+    try testing.expectEqual(@as(f32, 1), panes[1].frame.width);
 
     main.update(&model, .{ .browser_url_edit = .{ .insert_text = "example.com/ok" } }, &fx);
     _ = browser_pane.webPanes(&model, &panes);
@@ -10093,13 +10098,103 @@ test "Browser Navigate commits a normalized URL; hidden tab parks the web pane" 
     try testing.expectEqualStrings("https://example.com/ok", panes[0].url);
 }
 
+test "Browser New / switch / Close host four runtime-only sessions; toolbar targets the active slot" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://a.example" } }, &fx);
+    main.update(&model, .browser_navigate, &fx);
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectButtonMsg(tree, "New", .new_browser);
+    try testing.expect(findByText(tree.root, .button, "Close") == null);
+    try testing.expect((try expectButtonMsg(tree, "1", .{ .select_browser_session = 1 })).state.selected);
+
+    main.update(&model, .new_browser, &fx);
+    try testing.expectEqual(@as(u8, 1), model.browser_active);
+    try testing.expectEqualStrings("", model.browser_url());
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expectEqualStrings(browser_pane.web_view_labels[1], panes[1].label);
+    try testing.expectEqualStrings(browser_pane.web_pane_anchor, panes[1].anchor orelse "");
+    try testing.expect(panes[0].anchor == null);
+    try testing.expectEqualStrings("https://a.example", panes[0].url);
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(!(try expectButtonMsg(tree, "1", .{ .select_browser_session = 1 })).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "2", .{ .select_browser_session = 2 })).state.selected);
+    _ = try expectButtonMsg(tree, "Close", .close_browser);
+
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://b.example" } }, &fx);
+    main.update(&model, .browser_navigate, &fx);
+    main.update(&model, .browser_reload, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expectEqualStrings("https://b.example", panes[1].url);
+    try testing.expect(panes[1].reload_token != 0);
+    try testing.expectEqual(@as(u64, 0), panes[0].reload_token);
+
+    main.update(&model, .{ .select_browser_session = 1 }, &fx);
+    try testing.expectEqualStrings("https://a.example", model.browser_url());
+    try testing.expectEqualStrings("https://a.example", browser_pane.currentUrl(&model));
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expectEqualStrings(browser_pane.web_pane_anchor, panes[0].anchor orelse "");
+    try testing.expect(panes[1].anchor == null);
+    try testing.expectEqualStrings("https://b.example", panes[1].url);
+
+    tree = try buildTree(arena, &model);
+    const browser_col = try expectByText(tree.root, .column, "Browser");
+    const back = findByText(browser_col, .button, "Back") orelse return error.WidgetNotFound;
+    try testing.expect(back.state.disabled);
+
+    main.update(&model, .close_browser, &fx);
+    try testing.expectEqual(@as(u8, 1), model.browser_active);
+    try testing.expectEqualStrings("https://b.example", browser_pane.currentUrl(&model));
+    try testing.expect(!model.browser_slots[0].occupied);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expect(panes[0].anchor == null);
+    try testing.expectEqualStrings(browser_pane.home_url, panes[0].url);
+    try testing.expectEqualStrings(browser_pane.web_pane_anchor, panes[1].anchor orelse "");
+
+    tree = try buildTree(arena, &model);
+    try testing.expect((try expectButtonMsg(tree, "1", .{ .select_browser_session = 2 })).state.selected);
+    try testing.expect(findByText(tree.root, .button, "2") == null);
+    try testing.expect(findByText(tree.root, .button, "Close") == null);
+
+    main.update(&model, .new_browser, &fx);
+    main.update(&model, .new_browser, &fx);
+    main.update(&model, .new_browser, &fx);
+    try testing.expectEqual(@as(usize, 4), browser_pane.occupiedCount(&model));
+    try testing.expect(!model.can_new_browser());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "New") == null);
+    _ = try expectButtonMsg(tree, "4", .{ .select_browser_session = 4 });
+    main.update(&model, .new_browser, &fx);
+    try testing.expectEqual(@as(u8, 3), model.browser_active);
+
+    main.update(&model, .set_right_panel_tab_files, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expect(panes[0].anchor == null);
+    try testing.expect(panes[1].anchor == null);
+    try testing.expect(panes[2].anchor == null);
+    try testing.expect(panes[3].anchor == null);
+    try testing.expectEqual(@as(f32, 1), panes[3].frame.width);
+}
+
 test "Browser Navigate resolves localhost to http and search text to Google" {
     var fx = Effects.init(testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
 
     var model = main.initialModel();
-    var panes: [1]browser_pane.WebViewPane = undefined;
+    var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
     main.update(&model, .set_right_panel_tab_browser, &fx);
 
     main.update(&model, .{ .browser_url_edit = .{ .insert_text = "localhost:3000" } }, &fx);

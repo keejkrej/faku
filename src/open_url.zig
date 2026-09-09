@@ -9,7 +9,7 @@
 //!   Windows: `cmd.exe /c start "" <url>` (empty title so `start`
 //!            does not eat the URL; each token is its own argv slot)
 //!
-//! This is not Waku's embedded `RightPanelSurface::Browser` / BrowserView.
+//! This is not Waku's embedded `RightPanelSurface::Browser` UUID tabs.
 //! Spawn stdin is unused (write-once then close).
 //!
 //! URL gate (light): trim whitespace; reject empty. Accept `http://` or

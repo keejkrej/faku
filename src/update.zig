@@ -332,6 +332,18 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             browser_pane.goForward(model);
             store.persistLayoutIfPossible(model);
         },
+        .new_browser => {
+            browser_pane.newSession(model);
+            store.persistLayoutIfPossible(model);
+        },
+        .close_browser => {
+            browser_pane.closeActive(model);
+            store.persistLayoutIfPossible(model);
+        },
+        .select_browser_session => |id| {
+            browser_pane.selectSession(model, id);
+            store.persistLayoutIfPossible(model);
+        },
         .open_url => open_url.startOpenUrl(model, fx),
         .open_editor => open_editor.startOpenEditor(model, fx),
         .copy_project_path => copy_helpers.copyProjectPath(model, fx),
