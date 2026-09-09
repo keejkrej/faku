@@ -105,6 +105,8 @@ test "registerIcons resolves chrome and file-type app names" {
     try std.testing.expect(canvas.icons.resolve("app:bun") != null);
     try std.testing.expect(canvas.icons.resolve("app:console") != null);
     try std.testing.expect(canvas.icons.resolve("app:webpack") != null);
+    try std.testing.expect(canvas.icons.resolve("app:next") != null);
+    try std.testing.expect(canvas.icons.resolve("app:stylelint") != null);
     try std.testing.expect(canvas.icons.find("app:zig") == null);
 }
 
@@ -117,7 +119,7 @@ test "app_icons names and shell window" {
     try std.testing.expectEqualStrings("lock", app_icons[3].name);
     try std.testing.expectEqualStrings("globe", app_icons[4].name);
     try std.testing.expectEqualStrings("zig", app_icons[5].name);
-    try std.testing.expectEqualStrings("webpack", app_icons[app_icons.len - 1].name);
+    try std.testing.expectEqualStrings("stylelint", app_icons[app_icons.len - 1].name);
     try std.testing.expectEqual(@as(usize, 1), shell_scene.windows.len);
     try std.testing.expectEqualStrings(main_window_label, shell_scene.windows[0].label);
     try std.testing.expectEqual(@as(usize, 5), shell_scene.windows[0].views.len);

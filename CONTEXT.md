@@ -1173,10 +1173,9 @@ live watch.
 
 Honest gaps this cut does not implement:
 
-- Remaining Material / Waku file-type SVGs (frameworks like
-  next/nuxt/nest, zip/audio/video/settings Material swaps,
-  kotlin/graphql/prettier Native-dialect skips, …) stay later
-  PRs; this cut vendors a third-cut tooling subset
+- Remaining Material / Waku file-type SVGs (zip/audio/video/settings
+  Material swaps, nest/kotlin/graphql/prettier Native-dialect skips, …)
+  stay later PRs; this cut vendors a fourth-cut frameworks subset
 - Full onboarding / OAuth / auto-install (fx install/login copy
   ships; other CLIs get a PATH hint only)
 - Native Pi ACP / `--mode rpc` (json-mode one-shot

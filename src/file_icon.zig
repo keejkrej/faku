@@ -80,6 +80,7 @@ pub fn fileIconForName(name: []const u8) []const u8 {
     if (extensionIs(ext, &.{ "astro" })) return app("astro");
     if (extensionIs(ext, &.{ "scss", "sass" })) return app("sass");
     if (extensionIs(ext, &.{ "proto" })) return app("proto");
+    if (extensionIs(ext, &.{ "prisma" })) return app("prisma");
     if (extensionIs(ext, &.{ "sql" })) return app("database");
     if (extensionIs(ext, &.{ "pdf" })) return app("pdf");
     if (extensionIs(ext, &.{ "svg" })) return app("svg");
@@ -125,6 +126,25 @@ fn basenameSpecial(name: []const u8) ?[]const u8 {
     if (startsWithIgnoreCase(name, "vitest.config.") or startsWithIgnoreCase(name, "vitest.workspace."))
         return app("vitest");
     if (startsWithIgnoreCase(name, "webpack.")) return app("webpack");
+    if (startsWithIgnoreCase(name, "rollup.config.")) return app("rollup");
+    if (startsWithIgnoreCase(name, ".stylelint") or startsWithIgnoreCase(name, "stylelint.config."))
+        return app("stylelint");
+    if (startsWithIgnoreCase(name, "next.config.") or std.ascii.eqlIgnoreCase(name, "next-env.d.ts"))
+        return app("next");
+    if (startsWithIgnoreCase(name, "nuxt.config.") or std.ascii.eqlIgnoreCase(name, ".nuxtrc"))
+        return app("nuxt");
+    if (std.ascii.eqlIgnoreCase(name, "angular.json") or endsWithIgnoreCase(name, ".component.ts"))
+        return app("angular");
+    if (startsWithIgnoreCase(name, "tailwind.config.")) return app("tailwindcss");
+    if (startsWithIgnoreCase(name, "svelte.config.")) return app("svelte");
+    if (startsWithIgnoreCase(name, "vue.config.")) return app("vue");
+    if (std.ascii.eqlIgnoreCase(name, "firebase.json") or std.ascii.eqlIgnoreCase(name, ".firebaserc"))
+        return app("firebase");
+    if (std.ascii.eqlIgnoreCase(name, "supabase.toml")) return app("supabase");
+    if (startsWithIgnoreCase(name, "prisma.config.")) return app("prisma");
+    if (std.ascii.eqlIgnoreCase(name, "turbo.json")) return app("turborepo");
+    if (containsIgnoreCase(name, ".stories.") or containsIgnoreCase(name, ".story."))
+        return app("storybook");
     if (startsWithIgnoreCase(name, "deno.json") or std.ascii.eqlIgnoreCase(name, "deno.lock"))
         return app("deno");
     if (isSettingsName(name)) return "settings";
@@ -167,6 +187,21 @@ fn extensionIs(ext: []const u8, comptime options: []const []const u8) bool {
 fn startsWithIgnoreCase(haystack: []const u8, prefix: []const u8) bool {
     if (haystack.len < prefix.len) return false;
     return std.ascii.eqlIgnoreCase(haystack[0..prefix.len], prefix);
+}
+
+fn endsWithIgnoreCase(haystack: []const u8, suffix: []const u8) bool {
+    if (haystack.len < suffix.len) return false;
+    return std.ascii.eqlIgnoreCase(haystack[haystack.len - suffix.len ..], suffix);
+}
+
+fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len == 0) return true;
+    if (haystack.len < needle.len) return false;
+    var i: usize = 0;
+    while (i + needle.len <= haystack.len) : (i += 1) {
+        if (std.ascii.eqlIgnoreCase(haystack[i .. i + needle.len], needle)) return true;
+    }
+    return false;
 }
 
 fn iconIsResolvable(name: []const u8) bool {
@@ -254,6 +289,7 @@ test "fileIconForName maps Material app icons for common extensions" {
     try std.testing.expectEqualStrings("app:sass", fileIconForName("app.scss"));
     try std.testing.expectEqualStrings("app:sass", fileIconForName("app.sass"));
     try std.testing.expectEqualStrings("app:proto", fileIconForName("api.proto"));
+    try std.testing.expectEqualStrings("app:prisma", fileIconForName("schema.prisma"));
     try std.testing.expectEqualStrings("app:database", fileIconForName("schema.sql"));
     try std.testing.expectEqualStrings("app:pdf", fileIconForName("spec.pdf"));
     try std.testing.expectEqualStrings("app:svg", fileIconForName("logo.svg"));
@@ -311,6 +347,54 @@ test "fileIconForName maps high-value basename specials" {
     try std.testing.expectEqualStrings("app:babel", fileIconForName(".babelrc"));
     try std.testing.expectEqualStrings("app:babel", fileIconForName("babel.config.js"));
     try std.testing.expectEqualStrings("app:webpack", fileIconForName("webpack.config.js"));
+    try std.testing.expectEqualStrings("app:rollup", fileIconForName("rollup.config.js"));
+    try std.testing.expectEqualStrings("app:rollup", fileIconForName("rollup.config.mjs"));
+    try std.testing.expectEqualStrings("app:stylelint", fileIconForName(".stylelintrc"));
+    try std.testing.expectEqualStrings("app:stylelint", fileIconForName(".stylelintrc.json"));
+    try std.testing.expectEqualStrings("app:stylelint", fileIconForName("stylelint.config.js"));
+    try std.testing.expectEqualStrings("app:stylelint", fileIconForName("stylelint.config.mjs"));
+    try std.testing.expectEqualStrings("app:next", fileIconForName("next.config.js"));
+    try std.testing.expectEqualStrings("app:next", fileIconForName("next.config.mjs"));
+    try std.testing.expectEqualStrings("app:next", fileIconForName("next.config.ts"));
+    try std.testing.expectEqualStrings("app:next", fileIconForName("next-env.d.ts"));
+    try std.testing.expectEqualStrings("app:nuxt", fileIconForName("nuxt.config.ts"));
+    try std.testing.expectEqualStrings("app:nuxt", fileIconForName(".nuxtrc"));
+    try std.testing.expectEqualStrings("app:angular", fileIconForName("angular.json"));
+    try std.testing.expectEqualStrings("app:angular", fileIconForName("app.component.ts"));
+    try std.testing.expectEqualStrings("app:tailwindcss", fileIconForName("tailwind.config.js"));
+    try std.testing.expectEqualStrings("app:tailwindcss", fileIconForName("tailwind.config.ts"));
+    try std.testing.expectEqualStrings("app:svelte", fileIconForName("svelte.config.js"));
+    try std.testing.expectEqualStrings("app:svelte", fileIconForName("svelte.config.ts"));
+    try std.testing.expectEqualStrings("app:vue", fileIconForName("vue.config.js"));
+    try std.testing.expectEqualStrings("app:firebase", fileIconForName("firebase.json"));
+    try std.testing.expectEqualStrings("app:firebase", fileIconForName(".firebaserc"));
+    try std.testing.expectEqualStrings("app:supabase", fileIconForName("supabase.toml"));
+    try std.testing.expectEqualStrings("app:prisma", fileIconForName("prisma.config.ts"));
+    try std.testing.expectEqualStrings("app:turborepo", fileIconForName("turbo.json"));
+    try std.testing.expectEqualStrings("app:storybook", fileIconForName("Button.stories.tsx"));
+    try std.testing.expectEqualStrings("app:storybook", fileIconForName("foo.story.js"));
+}
+
+test "fileIconForName framework mappings are case-insensitive" {
+    try std.testing.expectEqualStrings("app:next", fileIconForName("NEXT.CONFIG.MJS"));
+    try std.testing.expectEqualStrings("app:next", fileIconForName("Next-Env.d.ts"));
+    try std.testing.expectEqualStrings("app:nuxt", fileIconForName("NUXT.CONFIG.TS"));
+    try std.testing.expectEqualStrings("app:nuxt", fileIconForName(".NUXTRC"));
+    try std.testing.expectEqualStrings("app:angular", fileIconForName("ANGULAR.JSON"));
+    try std.testing.expectEqualStrings("app:angular", fileIconForName("Hero.COMPONENT.TS"));
+    try std.testing.expectEqualStrings("app:prisma", fileIconForName("SCHEMA.PRISMA"));
+    try std.testing.expectEqualStrings("app:prisma", fileIconForName("PRISMA.CONFIG.TS"));
+    try std.testing.expectEqualStrings("app:turborepo", fileIconForName("TURBO.JSON"));
+    try std.testing.expectEqualStrings("app:storybook", fileIconForName("Button.STORIES.tsx"));
+    try std.testing.expectEqualStrings("app:storybook", fileIconForName("Foo.STORY.js"));
+    try std.testing.expectEqualStrings("app:tailwindcss", fileIconForName("TAILWIND.CONFIG.JS"));
+    try std.testing.expectEqualStrings("app:firebase", fileIconForName("FIREBASE.JSON"));
+    try std.testing.expectEqualStrings("app:firebase", fileIconForName(".FIREBASERC"));
+    try std.testing.expectEqualStrings("app:supabase", fileIconForName("SUPABASE.TOML"));
+    try std.testing.expectEqualStrings("app:rollup", fileIconForName("ROLLUP.CONFIG.JS"));
+    try std.testing.expectEqualStrings("app:stylelint", fileIconForName(".STYLELINTRC"));
+    try std.testing.expectEqualStrings("app:svelte", fileIconForName("SVELTE.CONFIG.JS"));
+    try std.testing.expectEqualStrings("app:vue", fileIconForName("VUE.CONFIG.JS"));
 }
 
 test "fileIconForName unknown files stay file-text" {
@@ -322,6 +406,13 @@ test "fileIconForName unknown files stay file-text" {
     try std.testing.expectEqualStrings("file-text", fileIconForName("query.gql"));
 }
 
+test "fileIconForName skipped nest and unmatched stories stay generic" {
+    try std.testing.expectEqualStrings("app:json", fileIconForName("nest-cli.json"));
+    try std.testing.expectEqualStrings("app:typescript", fileIconForName("index.ts"));
+    try std.testing.expectEqualStrings("app:javascript", fileIconForName("stories.js"));
+    try std.testing.expectEqualStrings("settings", fileIconForName("other.toml"));
+}
+
 test "fileIconForPath uses the basename of a repo-relative path" {
     try std.testing.expectEqualStrings("app:console", fileIconForPath("scripts/setup.sh"));
     try std.testing.expectEqualStrings("app:nodejs", fileIconForPath("src/package.json"));
@@ -329,6 +420,9 @@ test "fileIconForPath uses the basename of a repo-relative path" {
     try std.testing.expectEqualStrings("app:zig", fileIconForPath("src/main.zig"));
     try std.testing.expectEqualStrings("app:ruby", fileIconForPath("lib/app.rb"));
     try std.testing.expectEqualStrings("app:svg", fileIconForPath("assets/logo.svg"));
+    try std.testing.expectEqualStrings("app:next", fileIconForPath("apps/web/next.config.ts"));
+    try std.testing.expectEqualStrings("app:prisma", fileIconForPath("prisma/schema.prisma"));
+    try std.testing.expectEqualStrings("app:storybook", fileIconForPath("src/Button.stories.tsx"));
 }
 
 test "filesTreeIcon file rows ignore expand state" {
@@ -363,6 +457,18 @@ test "files tree icons stay in Native built-ins or registered app: names" {
         fileIconForName("logo.svg"),
         fileIconForName("schema.sql"),
         fileIconForName("app.wasm"),
+        fileIconForName("next.config.ts"),
+        fileIconForName("app.component.ts"),
+        fileIconForName("schema.prisma"),
+        fileIconForName("turbo.json"),
+        fileIconForName("Button.stories.tsx"),
+        fileIconForName("tailwind.config.js"),
+        fileIconForName("firebase.json"),
+        fileIconForName("supabase.toml"),
+        fileIconForName("rollup.config.mjs"),
+        fileIconForName(".stylelintrc"),
+        fileIconForName("svelte.config.js"),
+        fileIconForName("vue.config.js"),
         fileIconForName("unknown.data"),
     };
     for (samples) |name| {
