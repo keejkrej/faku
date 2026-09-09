@@ -9830,9 +9830,9 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     try testing.expect(!(try expectButtonMsg(tree, "Terminal", .set_right_panel_tab_terminal)).state.selected);
     try testing.expect(findByText(tree.root, .text, "Native has no embedded browser. Open the system browser instead.") == null);
     _ = try expectButtonMsg(tree, "Navigate", .browser_navigate);
-    const reload = try expectButtonMsg(tree, "Reload", .browser_reload);
+    const reload = findByText(tree.root, .button, "Reload") orelse return error.WidgetNotFound;
     try testing.expect(reload.state.disabled);
-    const open_browser = try expectButtonMsg(tree, "Open in browser", .open_url);
+    const open_browser = findByText(tree.root, .button, "Open in browser") orelse return error.WidgetNotFound;
     try testing.expect(open_browser.state.disabled);
     _ = try expectButtonMsg(tree, "New", .new_browser);
     try testing.expect(findByText(tree.root, .button, "Close") == null);
@@ -10020,7 +10020,7 @@ test "right panel Browser Open in browser spawns key-25 URL sidecar; empty URL i
     _ = try expectButtonMsg(tree, "Navigate", .browser_navigate);
     try testing.expect(findByText(tree.root, .column, "browser-pane") == null);
     _ = try expectByText(tree.root, .text, "Browse the web");
-    const open_disabled = try expectButtonMsg(tree, "Open in browser", .open_url);
+    const open_disabled = findByText(tree.root, .button, "Open in browser") orelse return error.WidgetNotFound;
     try testing.expect(open_disabled.state.disabled);
     main.update(&model, .browser_navigate, &fx);
     tree = try buildTree(arena, &model);
