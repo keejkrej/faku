@@ -97,10 +97,10 @@
 //! matches Waku `right_panel_diff_filter`: trim + ascii-lowercase
 //! contains on the full path; a non-empty query auto-expands ancestor
 //! directories. Empty / whitespace-only query is today's collapsed
-//! tree. File rows paint a first-cut Material app icon from `file_icon`
-//! (same Files map: basename/extension → `app:zig` / `app:rust` / …
-//! plus built-in `terminal` / `settings` / `archive` / `music`, else
-//! `file-text`) + basename (no status prefix) + a separate colored
+//! tree. File rows paint a Material app icon from `file_icon`
+//! (same Files map: basename/extension → `app:zig` / `app:rust` /
+//! `app:ruby` / … plus built-in `terminal` / `settings` / `archive` /
+//! `music`, else `file-text`) + basename (no status prefix) + a separate colored
 //! status letter (`A` success, `D` destructive, `B`/`M` warning) and
 //! Waku-style `+N` / `-M` (success / destructive) from numstat when
 //! those counts are non-zero (daemon CollectReviewDiff and local

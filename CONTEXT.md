@@ -623,8 +623,8 @@ scheme as the sidebar subtitle / Settings Usage `projectBasename`) above
 the loaded tree — both the full-height list and the nested tree pane when
 a preview is open; not the no-project empty state and not Loading.
 Directory rows paint Native `folder-open` when expanded and `folder` when
-collapsed (chevrons stay). File rows pick a first-cut Material app icon
-(`app:zig`, `app:rust`, … MIT subset under `src/icons/file-types/`) or a
+collapsed (chevrons stay). File rows pick a Material app icon
+(`app:zig`, `app:rust`, `app:ruby`, … MIT subset under `src/icons/file-types/`) or a
 Native built-in (`terminal` / `settings` / `archive` / `music`, else
 `file-text`). Diff tree rows, the selected-file Diff header, and composer
 `@` mention rows reuse this same `file_icon` map (mention dirs stay
@@ -695,9 +695,9 @@ omits numbers/washes above 128, so those segments keep today's
 per-row `<text>` coloring). Not Waku per-token GPUI. File-list
 rows paint a first-cut nested directory tree matching Waku
 `review_diff_tree_rows` (collapsible Directory + File, default
-collapsed, basename leaves, first-cut Material app icon from the same
+collapsed, basename leaves, Material app icon from the same
 Files `file_icon` map — dirs `folder` / `folder-open`, files `app:zig` /
-`app:rust` / … plus built-in `terminal` / `settings` / `archive` /
+`app:rust` / `app:ruby` / … plus built-in `terminal` / `settings` / `archive` /
 `music` else `file-text` — colored status letter `A`/`D`/`B`/`M`/`?` separate from
 the basename, optional `+N` / `-M` from
 numstat; zeros omitted; numstat `-` is Binary `B`; daemon CollectReviewDiff and local
@@ -1172,8 +1172,9 @@ live watch.
 
 Honest gaps this cut does not implement:
 
-- Remaining Material / Waku file-type SVGs (bun, npm, console, …) stay
-  later PRs; this cut vendors a curated coding-agent subset
+- Remaining Material / Waku file-type SVGs (bun, npm, console,
+  kotlin/graphql Native-dialect skips, tooling frameworks, …) stay
+  later PRs; this cut vendors a second-cut language/data subset
 - Full onboarding / OAuth / auto-install (fx install/login copy
   ships; other CLIs get a PATH hint only)
 - Native Pi ACP / `--mode rpc` (json-mode one-shot

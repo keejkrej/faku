@@ -1,4 +1,4 @@
-//! First-cut Material file-type app icons (MIT SVGs under
+//! Material file-type app icons (MIT SVGs under
 //! `src/icons/file-types/`). Registry names are the bare `zig` /
 //! `rust` / … strings; markup and `file_icon` return `app:<name>`.
 //! Combined with shell chrome icons in `shell.app_icons` so the
@@ -37,6 +37,27 @@ const makefile_icon = parse("makefile");
 const nodejs_icon = parse("nodejs");
 const readme_icon = parse("readme");
 const git_icon = parse("git");
+const ruby_icon = parse("ruby");
+const php_icon = parse("php");
+const swift_icon = parse("swift");
+const scala_icon = parse("scala");
+const dart_icon = parse("dart");
+const lua_icon = parse("lua");
+const haskell_icon = parse("haskell");
+const elixir_icon = parse("elixir");
+const csharp_icon = parse("csharp");
+const perl_icon = parse("perl");
+const ocaml_icon = parse("ocaml");
+const solidity_icon = parse("solidity");
+const nix_icon = parse("nix");
+const astro_icon = parse("astro");
+const sass_icon = parse("sass");
+const proto_icon = parse("proto");
+const database_icon = parse("database");
+const pdf_icon = parse("pdf");
+const svg_icon = parse("svg");
+const terraform_icon = parse("terraform");
+const webassembly_icon = parse("webassembly");
 
 /// Bare names (no `app:` prefix). `file_icon` returns `app:` + these.
 pub const app_icons = [_]canvas.icons.Entry{
@@ -64,6 +85,27 @@ pub const app_icons = [_]canvas.icons.Entry{
     .{ .name = "nodejs", .icon = &nodejs_icon },
     .{ .name = "readme", .icon = &readme_icon },
     .{ .name = "git", .icon = &git_icon },
+    .{ .name = "ruby", .icon = &ruby_icon },
+    .{ .name = "php", .icon = &php_icon },
+    .{ .name = "swift", .icon = &swift_icon },
+    .{ .name = "scala", .icon = &scala_icon },
+    .{ .name = "dart", .icon = &dart_icon },
+    .{ .name = "lua", .icon = &lua_icon },
+    .{ .name = "haskell", .icon = &haskell_icon },
+    .{ .name = "elixir", .icon = &elixir_icon },
+    .{ .name = "csharp", .icon = &csharp_icon },
+    .{ .name = "perl", .icon = &perl_icon },
+    .{ .name = "ocaml", .icon = &ocaml_icon },
+    .{ .name = "solidity", .icon = &solidity_icon },
+    .{ .name = "nix", .icon = &nix_icon },
+    .{ .name = "astro", .icon = &astro_icon },
+    .{ .name = "sass", .icon = &sass_icon },
+    .{ .name = "proto", .icon = &proto_icon },
+    .{ .name = "database", .icon = &database_icon },
+    .{ .name = "pdf", .icon = &pdf_icon },
+    .{ .name = "svg", .icon = &svg_icon },
+    .{ .name = "terraform", .icon = &terraform_icon },
+    .{ .name = "webassembly", .icon = &webassembly_icon },
 };
 
 pub fn contains(name: []const u8) bool {
@@ -74,7 +116,7 @@ pub fn contains(name: []const u8) bool {
 }
 
 test "file-type app_icons names are unique and parse to shapes" {
-    try std.testing.expectEqual(@as(usize, 24), app_icons.len);
+    try std.testing.expectEqual(@as(usize, 45), app_icons.len);
     var i: usize = 0;
     while (i < app_icons.len) : (i += 1) {
         try std.testing.expect(app_icons[i].icon.shapes.len > 0);
@@ -85,6 +127,11 @@ test "file-type app_icons names are unique and parse to shapes" {
     }
     try std.testing.expect(contains("zig"));
     try std.testing.expect(contains("git"));
+    try std.testing.expect(contains("ruby"));
+    try std.testing.expect(contains("webassembly"));
+    try std.testing.expect(contains("svg"));
+    try std.testing.expect(!contains("kotlin"));
+    try std.testing.expect(!contains("graphql"));
     try std.testing.expect(!contains("app:zig"));
     try std.testing.expect(!contains("file-text"));
 }

@@ -108,8 +108,8 @@
   </column>
 </template>
 <template name="files-tree-rows">
-  <!-- First-cut Material app icon from `f.icon` (`file_icon.filesTreeIcon`):
-       dirs `folder` / `folder-open`, files `app:zig` / `app:rust` / … (MIT)
+  <!-- Material app icon from `f.icon` (`file_icon.filesTreeIcon`):
+       dirs `folder` / `folder-open`, files `app:zig` / `app:rust` / `app:ruby` / … (MIT)
        plus built-in terminal/settings/archive/music else file-text.
        Chevrons stay. -->
   <column>
@@ -1167,8 +1167,8 @@
             <if test="{mentions_list_open}">
               <card size="sm" padding="10">
                 <column gap="2">
-                  <!-- First-cut Material app icon from `m.icon` (`file_icon.filesTreeIcon`):
-                       dirs folder (collapsed; no chevron), files `app:zig` / …
+                  <!-- Material app icon from `m.icon` (`file_icon.filesTreeIcon`):
+                       dirs folder (collapsed; no chevron), files `app:zig` / `app:ruby` / …
                        plus built-in terminal/settings/archive/music else file-text. -->
                   <for each="mention_rows" key="id" as="m">
                     <list-item height="44" gap="4" cross="center" selected="{m.selected}" on-press="insert_mention:{m.id}" label="{m.path}">
@@ -1474,7 +1474,7 @@
                   <scroll grow="1" label="Review files">
                     <column gap="2">
                       <!-- Diff tree reuses Files `file_icon` (`r.icon`): dirs
-                           folder / folder-open, files first-cut Material `app:`
+                           folder / folder-open, files Material `app:`
                            names plus built-in terminal/settings/archive/music
                            else file-text. Chevrons stay. -->
                       <for each="review_diff_rows" key="id" as="r">

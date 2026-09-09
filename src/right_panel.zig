@@ -106,8 +106,8 @@
 //! ~42px header: Native `folder` icon + truncated `project_path`
 //! basename (`right_panel_files_project_name`). Directory rows paint
 //! Native `folder-open` when expanded and `folder` when collapsed
-//! (chevrons stay). File rows pick a first-cut Material app icon
-//! (`app:zig`, `app:rust`, … MIT subset) or a Native built-in
+//! (chevrons stay). File rows pick a Material app icon
+//! (`app:zig`, `app:rust`, `app:ruby`, … MIT subset) or a Native built-in
 //! (`terminal` / `settings` / `archive` / `music`, else `file-text`).
 //! Diff tree rows, the selected-file Diff
 //! header, and composer `@` mention rows reuse this same map

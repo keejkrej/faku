@@ -1,9 +1,9 @@
-//! First-cut file-type icon names for Files, Diff, and composer `@`
-//! mention rows.
+//! File-type icon names for Files, Diff, and composer `@` mention
+//! rows.
 //!
 //! Behavior follows Waku `file_icon_for_path` / `file_icon_for_name`
 //! (basename specials, then extension) and maps onto a curated MIT
-//! Material app-icon subset (`app:zig`, `app:rust`, … from
+//! Material app-icon subset (`app:zig`, `app:rust`, `app:ruby`, … from
 //! `src/icons/file-types/`) plus Native built-ins for directories
 //! (`folder` / `folder-open`), shells (`terminal`), archives
 //! (`archive`), audio (`music`), leftover config (`settings`), and
@@ -62,6 +62,27 @@ pub fn fileIconForName(name: []const u8) []const u8 {
     if (extensionIs(ext, &.{ "c", "h" })) return app("c");
     if (extensionIs(ext, &.{ "cc", "cpp", "cxx", "hh", "hpp", "hxx" })) return app("cpp");
     if (extensionIs(ext, &.{ "java" })) return app("java");
+    if (extensionIs(ext, &.{ "rb" })) return app("ruby");
+    if (extensionIs(ext, &.{ "php" })) return app("php");
+    if (extensionIs(ext, &.{ "swift" })) return app("swift");
+    if (extensionIs(ext, &.{ "scala" })) return app("scala");
+    if (extensionIs(ext, &.{ "dart" })) return app("dart");
+    if (extensionIs(ext, &.{ "lua" })) return app("lua");
+    if (extensionIs(ext, &.{ "hs" })) return app("haskell");
+    if (extensionIs(ext, &.{ "ex", "exs" })) return app("elixir");
+    if (extensionIs(ext, &.{ "cs" })) return app("csharp");
+    if (extensionIs(ext, &.{ "pl", "pm" })) return app("perl");
+    if (extensionIs(ext, &.{ "ml", "mli" })) return app("ocaml");
+    if (extensionIs(ext, &.{ "sol" })) return app("solidity");
+    if (extensionIs(ext, &.{ "nix" })) return app("nix");
+    if (extensionIs(ext, &.{ "astro" })) return app("astro");
+    if (extensionIs(ext, &.{ "scss", "sass" })) return app("sass");
+    if (extensionIs(ext, &.{ "proto" })) return app("proto");
+    if (extensionIs(ext, &.{ "sql" })) return app("database");
+    if (extensionIs(ext, &.{ "pdf" })) return app("pdf");
+    if (extensionIs(ext, &.{ "svg" })) return app("svg");
+    if (extensionIs(ext, &.{ "tf", "tfvars" })) return app("terraform");
+    if (extensionIs(ext, &.{ "wasm" })) return app("webassembly");
     if (extensionIs(ext, &.{ "ini", "cfg", "conf", "config", "toml" })) return "settings";
     return "file-text";
 }
@@ -80,6 +101,11 @@ fn basenameSpecial(name: []const u8) ?[]const u8 {
     if (startsWithIgnoreCase(name, "tsconfig.") or std.ascii.eqlIgnoreCase(name, "tsconfig.json"))
         return app("typescript");
     if (startsWithIgnoreCase(name, ".git")) return app("git");
+    if (std.ascii.eqlIgnoreCase(name, "Gemfile") or
+        std.ascii.eqlIgnoreCase(name, "Gemfile.lock")) return app("ruby");
+    if (std.ascii.eqlIgnoreCase(name, "composer.json") or
+        std.ascii.eqlIgnoreCase(name, "composer.lock")) return app("php");
+    if (startsWithIgnoreCase(name, "astro.config.")) return app("astro");
     if (isSettingsName(name)) return "settings";
     return null;
 }
@@ -187,6 +213,32 @@ test "fileIconForName maps Material app icons for common extensions" {
     try std.testing.expectEqualStrings("app:c", fileIconForName("main.c"));
     try std.testing.expectEqualStrings("app:cpp", fileIconForName("main.cpp"));
     try std.testing.expectEqualStrings("app:java", fileIconForName("Main.java"));
+    try std.testing.expectEqualStrings("app:ruby", fileIconForName("app.rb"));
+    try std.testing.expectEqualStrings("app:php", fileIconForName("index.php"));
+    try std.testing.expectEqualStrings("app:swift", fileIconForName("App.swift"));
+    try std.testing.expectEqualStrings("app:scala", fileIconForName("Main.scala"));
+    try std.testing.expectEqualStrings("app:dart", fileIconForName("main.dart"));
+    try std.testing.expectEqualStrings("app:lua", fileIconForName("init.lua"));
+    try std.testing.expectEqualStrings("app:haskell", fileIconForName("Main.hs"));
+    try std.testing.expectEqualStrings("app:elixir", fileIconForName("mix.exs"));
+    try std.testing.expectEqualStrings("app:elixir", fileIconForName("lib.ex"));
+    try std.testing.expectEqualStrings("app:csharp", fileIconForName("Program.cs"));
+    try std.testing.expectEqualStrings("app:perl", fileIconForName("script.pl"));
+    try std.testing.expectEqualStrings("app:perl", fileIconForName("Foo.pm"));
+    try std.testing.expectEqualStrings("app:ocaml", fileIconForName("main.ml"));
+    try std.testing.expectEqualStrings("app:ocaml", fileIconForName("main.mli"));
+    try std.testing.expectEqualStrings("app:solidity", fileIconForName("Token.sol"));
+    try std.testing.expectEqualStrings("app:nix", fileIconForName("flake.nix"));
+    try std.testing.expectEqualStrings("app:astro", fileIconForName("index.astro"));
+    try std.testing.expectEqualStrings("app:sass", fileIconForName("app.scss"));
+    try std.testing.expectEqualStrings("app:sass", fileIconForName("app.sass"));
+    try std.testing.expectEqualStrings("app:proto", fileIconForName("api.proto"));
+    try std.testing.expectEqualStrings("app:database", fileIconForName("schema.sql"));
+    try std.testing.expectEqualStrings("app:pdf", fileIconForName("spec.pdf"));
+    try std.testing.expectEqualStrings("app:svg", fileIconForName("logo.svg"));
+    try std.testing.expectEqualStrings("app:terraform", fileIconForName("main.tf"));
+    try std.testing.expectEqualStrings("app:terraform", fileIconForName("prod.tfvars"));
+    try std.testing.expectEqualStrings("app:webassembly", fileIconForName("app.wasm"));
 }
 
 test "fileIconForName maps high-value basename specials" {
@@ -209,11 +261,20 @@ test "fileIconForName maps high-value basename specials" {
     try std.testing.expectEqualStrings("app:git", fileIconForName(".gitmodules"));
     try std.testing.expectEqualStrings("app:git", fileIconForName(".gitconfig"));
     try std.testing.expectEqualStrings("app:git", fileIconForName(".gitkeep"));
+    try std.testing.expectEqualStrings("app:ruby", fileIconForName("Gemfile"));
+    try std.testing.expectEqualStrings("app:ruby", fileIconForName("Gemfile.lock"));
+    try std.testing.expectEqualStrings("app:php", fileIconForName("composer.json"));
+    try std.testing.expectEqualStrings("app:php", fileIconForName("composer.lock"));
+    try std.testing.expectEqualStrings("app:astro", fileIconForName("astro.config.mjs"));
 }
 
 test "fileIconForName unknown files stay file-text" {
     try std.testing.expectEqualStrings("file-text", fileIconForName("unknown.data"));
     try std.testing.expectEqualStrings("file-text", fileIconForName("notes.txt"));
+    try std.testing.expectEqualStrings("file-text", fileIconForName("Main.kt"));
+    try std.testing.expectEqualStrings("file-text", fileIconForName("build.kts"));
+    try std.testing.expectEqualStrings("file-text", fileIconForName("schema.graphql"));
+    try std.testing.expectEqualStrings("file-text", fileIconForName("query.gql"));
 }
 
 test "fileIconForPath uses the basename of a repo-relative path" {
@@ -221,6 +282,8 @@ test "fileIconForPath uses the basename of a repo-relative path" {
     try std.testing.expectEqualStrings("app:nodejs", fileIconForPath("src/package.json"));
     try std.testing.expectEqualStrings("app:git", fileIconForPath(".gitignore"));
     try std.testing.expectEqualStrings("app:zig", fileIconForPath("src/main.zig"));
+    try std.testing.expectEqualStrings("app:ruby", fileIconForPath("lib/app.rb"));
+    try std.testing.expectEqualStrings("app:svg", fileIconForPath("assets/logo.svg"));
 }
 
 test "filesTreeIcon file rows ignore expand state" {
@@ -244,6 +307,13 @@ test "files tree icons stay in Native built-ins or registered app: names" {
         fileIconForName("main.zig"),
         fileIconForName("lib.rs"),
         fileIconForName("Panel.tsx"),
+        fileIconForName("app.rb"),
+        fileIconForName("index.php"),
+        fileIconForName("Gemfile"),
+        fileIconForName("composer.json"),
+        fileIconForName("logo.svg"),
+        fileIconForName("schema.sql"),
+        fileIconForName("app.wasm"),
         fileIconForName("unknown.data"),
     };
     for (samples) |name| {

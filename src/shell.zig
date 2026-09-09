@@ -3,9 +3,9 @@
 //!
 //! `shell_scene` is the single-window chromeless shell (`hidden_inset_tall`)
 //! that `UiApp.create` receives. `registerIcons` installs one table:
-//! minimize / maximize / stop / lock / globe plus the first-cut
-//! Material file-type subset so markup `icon="app:minimize"` and bound
-//! `app:zig` / `app:rust` / … resolve. Re-exported from `main.zig` so
+//! minimize / maximize / stop / lock / globe plus the Material
+//! file-type subset so markup `icon="app:minimize"` and bound
+//! `app:zig` / `app:rust` / `app:ruby` / … resolve. Re-exported from `main.zig` so
 //! `UiApp` and tests keep `main.shell_scene` / `main.registerIcons` /
 //! `main.app_icons` / `main.main_window_label` / `main.window_width`.
 
@@ -99,6 +99,9 @@ test "registerIcons resolves chrome and file-type app names" {
     try std.testing.expect(canvas.icons.resolve("app:rust") != null);
     try std.testing.expect(canvas.icons.resolve("app:react") != null);
     try std.testing.expect(canvas.icons.resolve("app:git") != null);
+    try std.testing.expect(canvas.icons.resolve("app:ruby") != null);
+    try std.testing.expect(canvas.icons.resolve("app:svg") != null);
+    try std.testing.expect(canvas.icons.resolve("app:webassembly") != null);
     try std.testing.expect(canvas.icons.find("app:zig") == null);
 }
 
@@ -111,7 +114,7 @@ test "app_icons names and shell window" {
     try std.testing.expectEqualStrings("lock", app_icons[3].name);
     try std.testing.expectEqualStrings("globe", app_icons[4].name);
     try std.testing.expectEqualStrings("zig", app_icons[5].name);
-    try std.testing.expectEqualStrings("git", app_icons[app_icons.len - 1].name);
+    try std.testing.expectEqualStrings("webassembly", app_icons[app_icons.len - 1].name);
     try std.testing.expectEqual(@as(usize, 1), shell_scene.windows.len);
     try std.testing.expectEqualStrings(main_window_label, shell_scene.windows[0].label);
     try std.testing.expectEqual(@as(usize, 5), shell_scene.windows[0].views.len);
