@@ -10067,6 +10067,7 @@ test "Browser Navigate commits a normalized URL; hidden tab parks the web pane" 
     _ = browser_pane.webPanes(&model, &panes);
     try testing.expectEqualStrings(browser_pane.home_url, panes[0].url);
     try testing.expectEqualStrings("example.com/ok", model.browser_url());
+    try testing.expect(model.browser_url_secure());
 
     var tree = try buildTree(arena, &model);
     const navigate = try expectButtonMsg(tree, "Navigate", .browser_navigate);
@@ -10074,6 +10075,7 @@ test "Browser Navigate commits a normalized URL; hidden tab parks the web pane" 
     _ = browser_pane.webPanes(&model, &panes);
     try testing.expectEqualStrings("https://example.com/ok", panes[0].url);
     try testing.expectEqualStrings("example.com/ok", model.browser_url());
+    try testing.expect(model.browser_url_secure());
 
     main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://b.example" } }, &fx);
     main.update(&model, .browser_navigate, &fx);
@@ -10202,6 +10204,7 @@ test "Browser Navigate resolves localhost to http and search text to Google" {
     main.update(&model, .browser_navigate, &fx);
     _ = browser_pane.webPanes(&model, &panes);
     try testing.expectEqualStrings("http://localhost:3000", panes[0].url);
+    try testing.expect(!model.browser_url_secure());
 
     var search_model = main.initialModel();
     main.update(&search_model, .set_right_panel_tab_browser, &fx);
@@ -10210,6 +10213,7 @@ test "Browser Navigate resolves localhost to http and search text to Google" {
     _ = browser_pane.webPanes(&search_model, &panes);
     try testing.expectEqualStrings("https://www.google.com/search?q=what+is+wry", panes[0].url);
     try testing.expectEqualStrings("www.google.com/search?q=what+is+wry", search_model.browser_url());
+    try testing.expect(search_model.browser_url_secure());
 }
 
 fn findOpenUrlSpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
