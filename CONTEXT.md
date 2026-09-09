@@ -625,8 +625,9 @@ a preview is open; not the no-project empty state and not Loading.
 Directory rows paint Native `folder-open` when expanded and `folder` when
 collapsed (chevrons stay). File rows pick a first-cut Native built-in from
 the basename/extension (`terminal` / `settings` / `archive` / `music` /
-`git-branch`, else `file-text`) — not Waku's SVG file-type pack, not Diff
-(Diff stays `folder` / `file-text`). Files
+`git-branch`, else `file-text`) — not Waku's SVG file-type pack. Diff tree
+rows and the selected-file Diff header reuse this same `file_icon` map
+(Browser / Terminal / composer `@` stay unchanged). Files
 lists the same bounded `file_mention` cache used by composer `@`
 mentions (git ls-files, then a bounded walk; Windows `git.exe -C` /
 PowerShell walk with `-Args`; first-cut daemon
@@ -692,8 +693,11 @@ omits numbers/washes above 128, so those segments keep today's
 per-row `<text>` coloring). Not Waku per-token GPUI. File-list
 rows paint a first-cut nested directory tree matching Waku
 `review_diff_tree_rows` (collapsible Directory + File, default
-collapsed, basename leaves, Native `file-text` icon, colored status
-letter `A`/`D`/`B`/`M`/`?` separate from the basename, optional `+N` / `-M` from
+collapsed, basename leaves, Native built-in from the same Files
+`file_icon` map — dirs `folder` / `folder-open`, files `terminal` /
+`settings` / `archive` / `music` / `git-branch` else `file-text`; not
+Waku's SVG pack — colored status letter `A`/`D`/`B`/`M`/`?` separate from
+the basename, optional `+N` / `-M` from
 numstat; zeros omitted; numstat `-` is Binary `B`; daemon CollectReviewDiff and local
 `--numstat`). A Native search-field above that tree is Waku
 `right_panel_diff_filter`: runtime-only (not `sessions.json`); trim
@@ -701,7 +705,7 @@ numstat; zeros omitted; numstat `-` is Binary `B`; daemon CollectReviewDiff and 
 auto-expands ancestor directories. Empty / whitespace-only is
 today's collapsed tree. Leaving Diff (other tab / panel hide)
 clears the filter. First-cut selected-file Diff header chrome ships
-above the hunk pane (`file-text` + path + optional `+N` / `-M`, ~36px, outside
+above the hunk pane (same `file_icon` as the tree + path + optional `+N` / `-M`, ~36px, outside
 Native `<scroll>`, nested-split and stacked hunk layouts). Waku's
 scroll-driven sticky overlay (`file_headers_around` / item_ix)
 stays Native-blocked (no documented virtualized item index /

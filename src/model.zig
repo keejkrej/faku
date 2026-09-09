@@ -4787,6 +4787,10 @@ pub const Model = struct {
         return review_diff.reviewDiffHunkFilePath(model);
     }
 
+    pub fn review_diff_hunk_file_icon(model: *const Model) []const u8 {
+        return review_diff.reviewDiffHunkFileIcon(model);
+    }
+
     pub fn has_review_diff_hunk_file_header(model: *const Model) bool {
         return review_diff.hasReviewDiffHunkFileHeader(model);
     }

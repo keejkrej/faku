@@ -24239,6 +24239,7 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{r.status_success}") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{r.status_danger}") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "{r.is_directory}") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{r.icon}") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"toggle_review_diff_dir:{r.id}\"") != null);
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{r.additions_label}"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{r.deletions_label}"));
@@ -24250,7 +24251,9 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{review_diff_hunk_file_additions_label}"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{review_diff_hunk_file_deletions_label}"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "height=\"36\""));
-    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "<icon name=\"file-text\""));
+    try testing.expectEqual(@as(usize, 0), std.mem.count(u8, main.app_markup, "<icon name=\"file-text\""));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "<icon name=\"{r.icon}\""));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "<icon name=\"{review_diff_hunk_file_icon}\""));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{r.has_status}"));
     try testing.expectEqual(@as(usize, 6), std.mem.count(u8, main.app_markup, "{r.status_label}"));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"right-panel-diff-filter\"") != null);

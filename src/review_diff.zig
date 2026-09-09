@@ -97,19 +97,23 @@
 //! matches Waku `right_panel_diff_filter`: trim + ascii-lowercase
 //! contains on the full path; a non-empty query auto-expands ancestor
 //! directories. Empty / whitespace-only query is today's collapsed
-//! tree. File rows paint Native `file-text` + basename (no status
-//! prefix) + a separate colored status letter (`A` success, `D`
-//! destructive, `B`/`M` warning) and Waku-style `+N` / `-M` (success /
-//! destructive) from numstat when those counts are non-zero
-//! (daemon CollectReviewDiff and local `--numstat`; zeros omitted).
+//! tree. File rows paint a Native built-in from `file_icon`
+//! (same Files map: basename/extension → `terminal` / `settings` /
+//! `archive` / `music` / `git-branch`, else `file-text`; not Waku's
+//! SVG pack) + basename (no status prefix) + a separate colored
+//! status letter (`A` success, `D` destructive, `B`/`M` warning) and
+//! Waku-style `+N` / `-M` (success / destructive) from numstat when
+//! those counts are non-zero (daemon CollectReviewDiff and local
+//! `--numstat`; zeros omitted). Directory rows paint `folder-open`
+//! when expanded and `folder` when collapsed (chevrons stay).
 //! Numstat `-` columns are Waku `FileStatus::Binary` (`B`), not `M`.
 //! Untracked synthetic `?` stays `?` (Waku's enum is A/M/D/Binary)
 //! and uses the same warning color as `M`. Binary patch lines
 //! (`Binary files ` / `GIT binary patch`) paint meta
 //! `Binary file changed` and mark that file `B`.
 //! First-cut selected-file Diff header chrome ships above the hunk
-//! pane (`file-text` + path + optional `+N` / `-M`, ~36px, outside Native
-//! `<scroll>`). Waku's scroll-driven sticky overlay
+//! pane (same `file_icon` as the tree + path + optional `+N` / `-M`,
+//! ~36px, outside Native `<scroll>`). Waku's scroll-driven sticky overlay
 //! (`file_headers_around` / item_ix) stays Native-blocked.
 //! `completeContext` daemon patches collapse long context into
 //! expandable Gaps; local compact `git diff` inserts count-only
@@ -187,6 +191,7 @@ const protocol = @import("protocol.zig");
 const composer = @import("composer.zig");
 const file_mention = @import("file_mention.zig");
 const code_language = @import("code_language.zig");
+const file_icon = @import("file_icon.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -426,7 +431,9 @@ pub const binary_file_changed = "Binary file changed";
 /// `D` / `B` / `M` / `?`). Directory `label` is the path segment
 /// (`has_status` false). Optional `+N` / `-M` live in
 /// `additions_label` / `deletions_label` (empty when the count is 0,
-/// and empty on directory rows).
+/// and empty on directory rows). `icon` is a Native built-in name
+/// for `icon name="{r.icon}"` (`file_icon.filesTreeIcon` /
+/// `fileIconForPath`; not Waku's SVG pack).
 pub const ReviewDiffRow = struct {
     id: u32,
     label: []const u8,
@@ -444,6 +451,7 @@ pub const ReviewDiffRow = struct {
     depth: u32 = 0,
     has_indent: bool = false,
     indent: f32 = 0,
+    icon: []const u8 = "file-text",
 };
 
 /// Waku `LineKind`. Highlighting is Native `<code>` on paint, not
@@ -1416,6 +1424,7 @@ fn makeDirRow(path: []const u8, id: u32, depth: u32, expanded: bool) ReviewDiffR
         .depth = depth,
         .has_indent = indent > 0,
         .indent = indent,
+        .icon = file_icon.filesTreeIcon(path, false, expanded),
     };
 }
 
@@ -1436,6 +1445,7 @@ fn makeFileRow(arena: std.mem.Allocator, model: *const Model, file: *const Chang
         .depth = depth,
         .has_indent = indent > 0,
         .indent = indent,
+        .icon = file_icon.fileIconForPath(file.path()),
     };
     row.has_additions = row.additions_label.len != 0;
     row.has_deletions = row.deletions_label.len != 0;
@@ -1600,6 +1610,12 @@ pub fn reviewDiffHunkFilePath(model: *const Model) []const u8 {
     }
     const file = selectedReviewDiffFile(model) orelse return "";
     return file.path();
+}
+
+/// Native built-in for the selected-file Diff header. Same
+/// `file_icon` map as tree file rows (not Waku's SVG pack).
+pub fn reviewDiffHunkFileIcon(model: *const Model) []const u8 {
+    return file_icon.fileIconForPath(reviewDiffHunkFilePath(model));
 }
 
 /// Always-visible chrome above the hunk pane when a Diff file is
@@ -4050,6 +4066,46 @@ test "reviewDiffRows flat root files have no directory rows" {
     try std.testing.expect(!rows[0].is_directory and !rows[1].is_directory);
 }
 
+test "reviewDiffRows bind first-cut Native file-type icons" {
+    var model = Model{};
+    model.review_diff_file_store[0].set('M', "scripts/setup.sh");
+    model.review_diff_file_store[1].set('M', "package.json");
+    model.review_diff_file_store[2].set('M', ".gitignore");
+    model.review_diff_file_store[3].set('M', "README.md");
+    model.review_diff_file_count = 4;
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    {
+        const rows = reviewDiffRows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 4), rows.len);
+        try expectFileRow(rows[0], "M", ".gitignore");
+        try std.testing.expectEqualStrings("git-branch", rows[0].icon);
+        try expectFileRow(rows[1], "M", "package.json");
+        try std.testing.expectEqualStrings("settings", rows[1].icon);
+        try expectFileRow(rows[2], "M", "README.md");
+        try std.testing.expectEqualStrings("file-text", rows[2].icon);
+        try std.testing.expectEqualStrings("scripts", rows[3].label);
+        try std.testing.expect(rows[3].is_directory);
+        try std.testing.expect(!rows[3].expanded);
+        try std.testing.expectEqualStrings("folder", rows[3].icon);
+    }
+
+    const scripts_id = dirIdOfPath(&model, "scripts") orelse return error.MissingScriptsDir;
+    toggleDir(&model, scripts_id);
+    {
+        const rows = reviewDiffRows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 5), rows.len);
+        try std.testing.expectEqualStrings("scripts", rows[3].label);
+        try std.testing.expect(rows[3].is_directory);
+        try std.testing.expect(rows[3].expanded);
+        try std.testing.expectEqualStrings("folder-open", rows[3].icon);
+        try expectFileRow(rows[4], "M", "setup.sh");
+        try std.testing.expectEqualStrings("terminal", rows[4].icon);
+    }
+}
+
 test "reviewDiffRows builds shared directories once and hides collapsed descendants" {
     var model = Model{};
     model.review_diff_file_store[0].set('M', "README.md");
@@ -6167,4 +6223,23 @@ test "selected-file hunk header path, +/- omit zeros, and hide until hunk surfac
     try std.testing.expectEqualStrings("", reviewDiffHunkFilePath(&model));
     try std.testing.expect(!hasReviewDiffHunkFileAdditions(&model));
     try std.testing.expect(!hasReviewDiffHunkFileDeletions(&model));
+}
+
+test "selected-file hunk header binds file_icon from the path" {
+    var model = Model{};
+    try std.testing.expectEqualStrings("file-text", reviewDiffHunkFileIcon(&model));
+
+    model.review_diff_file_store[0].setCounts('M', "src/a.zig", 1, 0);
+    model.review_diff_file_count = 1;
+    model.review_diff_selected_id = 1;
+    try std.testing.expectEqualStrings("file-text", reviewDiffHunkFileIcon(&model));
+
+    writeFixed(&model.review_diff_hunk_path_storage, &model.review_diff_hunk_path_len, "scripts/setup.sh");
+    try std.testing.expectEqualStrings("terminal", reviewDiffHunkFileIcon(&model));
+
+    writeFixed(&model.review_diff_hunk_path_storage, &model.review_diff_hunk_path_len, "package.json");
+    try std.testing.expectEqualStrings("settings", reviewDiffHunkFileIcon(&model));
+
+    writeFixed(&model.review_diff_hunk_path_storage, &model.review_diff_hunk_path_len, ".gitignore");
+    try std.testing.expectEqualStrings("git-branch", reviewDiffHunkFileIcon(&model));
 }
