@@ -10098,7 +10098,7 @@ test "Browser Navigate commits a normalized URL; hidden tab parks the web pane" 
     try testing.expectEqualStrings("https://example.com/ok", panes[0].url);
 }
 
-test "Browser New / switch / Close host four runtime-only sessions; toolbar targets the active slot" {
+test "Browser New / switch / Close host four sessions; toolbar targets the active slot" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();

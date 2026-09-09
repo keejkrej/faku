@@ -520,8 +520,8 @@ pub const Msg = union(enum) {
     /// Right-panel Diff tab. Opens the pane if closed and starts Compare.
     set_right_panel_tab_diff,
     /// Right-panel Browser tab. First-cut embedded canvas webview
-    /// with runtime-only multi-session inside the tab. Tab and the
-    /// active slot's address draft persist.
+    /// with multi-session inside the tab. Tab, occupied slot URLs, and
+    /// the active slot's address draft persist.
     set_right_panel_tab_browser,
     /// Right-panel Terminal tab. First-cut embedded `<terminal>`. Tab persists.
     set_right_panel_tab_terminal,
@@ -1230,9 +1230,10 @@ pub const Model = struct {
     open_url_storage: [open_url.max_spawn_url]u8 = [_]u8{0} ** open_url.max_spawn_url,
     open_url_len: usize = 0,
     /// First-cut Browser multi-session (cap 4, scene `browser-web-0`..`3`).
-    /// Runtime-only occupancy / history / reload_token; the **active**
-    /// slot's address draft still persists as `browser_url`. Slot 0
-    /// starts occupied. `browser_active` is the snapped `web_panes` slot.
+    /// Occupancy, committed pane URLs, and `browser_active` persist;
+    /// the **active** slot's address draft still persists as `browser_url`.
+    /// History rings / `reload_token` stay runtime-only. Slot 0 starts
+    /// occupied. `browser_active` is the snapped `web_panes` slot.
     browser_slots: [browser_pane.max_sessions]browser_pane.Slot = browser_pane.default_slots,
     browser_active: u8 = 0,
     open_terminal_live: bool = false,
