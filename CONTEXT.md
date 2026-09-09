@@ -698,7 +698,9 @@ address draft persists (`browser_url`, raw, cap 2048) alongside occupied
 slot committed URLs (`browser_slots`) and `browser_active`. Full history
 rings / back / forward / `reload_token` stay runtime-only
 (typing does not navigate; Enter or Navigate commits via Safari/Waku-style
-omnibox resolve and always targets the active slot). First-cut
+omnibox resolve and always targets the active slot). The address field
+hides a leading `https://` (Waku `display_url`); history and pane URLs stay full.
+First-cut
 multi-session inside the Browser tab (cap 4, chips + **New** + **Close**;
 Close keeps at least one session; not Waku surface UUID tabs / DevTools).
 Occupied slot URLs restore on relaunch. Inactive occupied slots park at 1×1 with `anchor = null` so

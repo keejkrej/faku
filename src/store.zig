@@ -2915,6 +2915,11 @@ test "browser_slots round-trips occupied URLs and active; legacy empty keeps slo
     try testing.expect(panes[1].anchor == null);
     try testing.expect(panes[3].anchor == null);
 
+    browser_pane.selectSession(&loaded, 1);
+    try testing.expectEqualStrings("a.example", loaded.browser_url());
+    try testing.expectEqualStrings("https://a.example", browser_pane.committedUrlAt(&loaded, 0));
+    try testing.expectEqualStrings("https://a.example", browser_pane.currentUrl(&loaded));
+
     try writeRaw(io, dir,
         \\{"version":1,"selected":1,"next_id":2,"next_turn_id":2,"next_queued_id":1,"browser_url":"legacy.com","browser_slots":[],"browser_active":3,"sessions":[{"id":1,"title":"legacy","provider":"fx","untitled":false,"has_started":true,"turns":[{"id":1,"role":"user","body":"hi"}],"queued_messages":[]}]}
     );
