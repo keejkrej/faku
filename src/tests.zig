@@ -12032,7 +12032,7 @@ test "cmd-r / cmd-l / cmd-[ / cmd-] route by Browser-tab keyboard gate" {
     try testing.expect(model.right_panel_showing_browser());
     main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://a.example" } }, &fx);
     main.update(&model, .browser_navigate, &fx);
-    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://b.example" } }, &fx);
+    model.setBrowserUrlDraft("https://b.example");
     main.update(&model, .browser_navigate, &fx);
     try testing.expectEqualStrings("https://b.example", browser_pane.currentUrl(&model));
 
