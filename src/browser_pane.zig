@@ -9,6 +9,8 @@
 //! `sessions.json` extras still persist that draft (`browser_url`); history,
 //! back/forward, and `reload_token` are runtime-only. Empty history uses
 //! the scene placeholder `https://example.com` until Navigate/Enter.
+//! Enter/Navigate uses Safari/Waku omnibox resolve (explicit schemes,
+//! localhost/IPv4 → `http`, host-like → `https`, else Google search).
 //!
 //! Native `applyWebPane` keeps the last frame when the anchor is missing
 //! or width/height < 1 (`ui_app.zig`). Public `WebViewPane` has no
@@ -56,12 +58,151 @@ pub fn forwardDisabled(model: *const Model) bool {
     return model.browser_history_count == 0 or model.browser_history_index + 1 >= model.browser_history_count;
 }
 
-/// Commit the address-bar draft: normalize (bare host → `https://`),
-/// drop the forward tail, append, and point the pane at it. Empty /
-/// overflow is a no-op (history unchanged).
+const google_search_prefix = "https://www.google.com/search?q=";
+const form_url_hex = "0123456789ABCDEF";
+
+/// Safari/Waku omnibox resolve (egoist/waku `src/browser.rs`
+/// `resolve_address` + `search_url`, read-only). Empty / whitespace-only
+/// and dest overflow are misses. Explicit schemes pass through; host-like
+/// text gets `http` (localhost / IPv4) or `https`; anything else is a
+/// Google search URL.
+pub fn resolveAddress(raw: []const u8, dest: []u8) ?[]const u8 {
+    const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+    if (trimmed.len == 0) return null;
+    if (hasExplicitScheme(trimmed)) return copyInto(trimmed, dest);
+    if (hasInternalWhitespace(trimmed)) return writeSearchUrl(trimmed, dest);
+
+    const authority = authorityOf(trimmed);
+    const parsed = splitHostPort(authority) orelse return writeSearchUrl(trimmed, dest);
+    const is_ip = isIpv4Like(parsed.host);
+    const is_local = std.ascii.eqlIgnoreCase(parsed.host, "localhost") or is_ip;
+    const host_like = is_local or isHostLikeName(parsed.host);
+    if (!host_like) return writeSearchUrl(trimmed, dest);
+    const scheme: []const u8 = if (is_local or (parsed.has_port and std.ascii.eqlIgnoreCase(parsed.host, "localhost")))
+        "http"
+    else
+        "https";
+    return std.fmt.bufPrint(dest, "{s}://{s}", .{ scheme, trimmed }) catch null;
+}
+
+fn copyInto(text: []const u8, dest: []u8) ?[]const u8 {
+    if (text.len > dest.len) return null;
+    @memcpy(dest[0..text.len], text);
+    return dest[0..text.len];
+}
+
+fn hasExplicitScheme(trimmed: []const u8) bool {
+    const colon = std.mem.indexOfScalar(u8, trimmed, ':') orelse return false;
+    const scheme = trimmed[0..colon];
+    const rest = trimmed[colon + 1 ..];
+    if (scheme.len == 0 or !std.ascii.isAlphabetic(scheme[0])) return false;
+    for (scheme) |c| {
+        if (!std.ascii.isAlphanumeric(c) and c != '+' and c != '-' and c != '.') return false;
+    }
+    if (std.mem.startsWith(u8, rest, "//")) return true;
+    return std.mem.eql(u8, scheme, "about") or
+        std.mem.eql(u8, scheme, "data") or
+        std.mem.eql(u8, scheme, "mailto") or
+        std.mem.eql(u8, scheme, "file");
+}
+
+fn hasInternalWhitespace(text: []const u8) bool {
+    for (text) |c| {
+        if (std.ascii.isWhitespace(c)) return true;
+    }
+    return false;
+}
+
+fn authorityOf(trimmed: []const u8) []const u8 {
+    const end = std.mem.indexOfAny(u8, trimmed, "/?#") orelse return trimmed;
+    return trimmed[0..end];
+}
+
+const HostPort = struct {
+    host: []const u8,
+    has_port: bool,
+};
+
+/// Host plus whether a numeric port was present. `null` when a colon is
+/// present but the tail is not an all-digit port (Waku treats that as search).
+fn splitHostPort(authority: []const u8) ?HostPort {
+    const colon = std.mem.lastIndexOfScalar(u8, authority, ':') orelse {
+        return .{ .host = authority, .has_port = false };
+    };
+    const port = authority[colon + 1 ..];
+    if (port.len == 0 or !isAllAsciiDigits(port)) return null;
+    return .{ .host = authority[0..colon], .has_port = true };
+}
+
+fn isAllAsciiDigits(text: []const u8) bool {
+    for (text) |c| {
+        if (!std.ascii.isDigit(c)) return false;
+    }
+    return true;
+}
+
+fn isIpv4Like(host: []const u8) bool {
+    if (host.len == 0) return false;
+    var parts: usize = 1;
+    for (host) |c| {
+        if (c == '.') {
+            parts += 1;
+            if (parts > 4) return false;
+        } else if (!std.ascii.isDigit(c)) {
+            return false;
+        }
+    }
+    return parts == 4;
+}
+
+fn isHostLikeName(host: []const u8) bool {
+    if (host.len == 0 or host[0] == '.' or host[host.len - 1] == '.') return false;
+    var saw_dot = false;
+    for (host) |c| {
+        if (c == '.') {
+            saw_dot = true;
+        } else if (!std.ascii.isAlphanumeric(c) and c != '-') {
+            return false;
+        }
+    }
+    return saw_dot;
+}
+
+fn writeSearchUrl(query: []const u8, dest: []u8) ?[]const u8 {
+    if (google_search_prefix.len > dest.len) return null;
+    @memcpy(dest[0..google_search_prefix.len], google_search_prefix);
+    var i: usize = google_search_prefix.len;
+    for (query) |byte| {
+        switch (byte) {
+            'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => {
+                if (i >= dest.len) return null;
+                dest[i] = byte;
+                i += 1;
+            },
+            ' ' => {
+                if (i >= dest.len) return null;
+                dest[i] = '+';
+                i += 1;
+            },
+            else => {
+                if (i + 3 > dest.len) return null;
+                dest[i] = '%';
+                dest[i + 1] = form_url_hex[byte >> 4];
+                dest[i + 2] = form_url_hex[byte & 0x0F];
+                i += 3;
+            },
+        }
+    }
+    return dest[0..i];
+}
+
+/// Commit the address-bar draft: Safari/Waku omnibox resolve, drop the
+/// forward tail, append, and point the pane at it. Empty / overflow
+/// is a no-op (history unchanged). Open-in-OS still uses
+/// `open_url.normalizeUrl`.
 pub fn commitNavigation(model: *Model) void {
-    var normalized: [open_url.max_spawn_url]u8 = undefined;
-    const url = open_url.normalizeUrl(model.browser_url(), &normalized) orelse return;
+    var resolved: [open_url.max_spawn_url]u8 = undefined;
+    const url = resolveAddress(model.browser_url(), &resolved) orelse return;
     if (model.browser_history_count > 0) {
         model.browser_history_index += 1;
     }
@@ -246,4 +387,61 @@ test "history ring shifts the oldest entry once full" {
     try std.testing.expectEqualStrings("https://n33.example", currentUrl(&model));
     goBack(&model);
     try std.testing.expectEqualStrings("https://n32.example", currentUrl(&model));
+}
+
+fn expectResolved(raw: []const u8, expected: []const u8) !void {
+    var dest: [open_url.max_spawn_url]u8 = undefined;
+    const got = resolveAddress(raw, &dest) orelse return error.ResolveMiss;
+    try std.testing.expectEqualStrings(expected, got);
+}
+
+test "resolveAddress matches Waku omnibox cases" {
+    try expectResolved("https://example.com", "https://example.com");
+    try expectResolved("localhost:3000", "http://localhost:3000");
+    try expectResolved("127.0.0.1:8080/api", "http://127.0.0.1:8080/api");
+    try expectResolved("example.com/docs?q=1", "https://example.com/docs?q=1");
+    try expectResolved("about:blank", "about:blank");
+    try expectResolved("rust borrow checker", "https://www.google.com/search?q=rust+borrow+checker");
+    try expectResolved("what is wry", "https://www.google.com/search?q=what+is+wry");
+    try expectResolved("readme", "https://www.google.com/search?q=readme");
+    try expectResolved("a&b=c", "https://www.google.com/search?q=a%26b%3Dc");
+    try expectResolved("  example.com/path  ", "https://example.com/path");
+    try expectResolved("http://localhost:3000", "http://localhost:3000");
+    try expectResolved("mailto:hi@example.com", "mailto:hi@example.com");
+    try expectResolved("data:text/plain,hi", "data:text/plain,hi");
+    try expectResolved("file:///tmp/a", "file:///tmp/a");
+    var dest: [open_url.max_spawn_url]u8 = undefined;
+    try std.testing.expect(resolveAddress("", &dest) == null);
+    try std.testing.expect(resolveAddress("   ", &dest) == null);
+    try std.testing.expect(resolveAddress("   \t  ", &dest) == null);
+    var tiny: [8]u8 = undefined;
+    try std.testing.expect(resolveAddress("example.com", &tiny) == null);
+    try std.testing.expect(resolveAddress("rust borrow checker", &tiny) == null);
+}
+
+test "commitNavigation resolves localhost http and search queries" {
+    var model: Model = .{};
+    model.browser_url_buffer.set("localhost:3000");
+    commitNavigation(&model);
+    try std.testing.expectEqualStrings("http://localhost:3000", currentUrl(&model));
+    try std.testing.expectEqualStrings("http://localhost:3000", model.browser_url());
+
+    model.browser_url_buffer.set("127.0.0.1:8080/api");
+    commitNavigation(&model);
+    try std.testing.expectEqualStrings("http://127.0.0.1:8080/api", currentUrl(&model));
+
+    model.browser_url_buffer.set("rust borrow checker");
+    commitNavigation(&model);
+    try std.testing.expectEqualStrings("https://www.google.com/search?q=rust+borrow+checker", currentUrl(&model));
+    try std.testing.expectEqualStrings("https://www.google.com/search?q=rust+borrow+checker", model.browser_url());
+}
+
+test "search overflow is a no-op" {
+    var model: Model = .{};
+    var raw: [open_url.max_url]u8 = undefined;
+    @memset(&raw, '&');
+    model.browser_url_buffer.set(&raw);
+    commitNavigation(&model);
+    try std.testing.expectEqual(@as(usize, 0), model.browser_history_count);
+    try std.testing.expectEqualStrings(home_url, currentUrl(&model));
 }

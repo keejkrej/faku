@@ -10025,6 +10025,27 @@ test "Browser Navigate commits a normalized URL; hidden tab parks the web pane" 
     try testing.expectEqualStrings("https://example.com/ok", panes[0].url);
 }
 
+test "Browser Navigate resolves localhost to http and search text to Google" {
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    var panes: [1]browser_pane.WebViewPane = undefined;
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "localhost:3000" } }, &fx);
+    main.update(&model, .browser_navigate, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expectEqualStrings("http://localhost:3000", panes[0].url);
+
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "what is wry" } }, &fx);
+    main.update(&model, .browser_navigate, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expectEqualStrings("https://www.google.com/search?q=what+is+wry", panes[0].url);
+    try testing.expectEqualStrings("https://www.google.com/search?q=what+is+wry", model.browser_url());
+}
+
 fn findOpenUrlSpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
     var i: usize = 0;
     while (fx.pendingSpawnAt(i)) |spawn| : (i += 1) {

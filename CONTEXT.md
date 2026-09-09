@@ -306,8 +306,8 @@ Do not invent Native APIs. Documented gaps this cut works around:
 - No `fx.revealPath`. Reveal folder is `open` / `xdg-open` / Windows
   `explorer.exe PATH`.
 - No `fx.maximizeWindow`. Maximize is an OS zoom sidecar.
-- No window-focus observation, caret API, PTY, FS watcher, or debounce
-  timer.
+- No window-focus observation, caret API, FS watcher, or debounce
+  timer. Terminal uses documented `fx.ptySpawn`.
 
 Every git flag and operand is its own **argv slot**. Never interpolate
 user strings into the chdir `-c` script or a PowerShell `-Command` body.
@@ -692,7 +692,7 @@ snapped to a markup `browser-pane` column; scene `.webview` parented to
 `main-canvas`; workbench / Native 0.10.1). Address draft persists
 (`browser_url`, raw, cap 2048); committed history / back / forward /
 `reload_token` are runtime-only (typing does not navigate; Enter or
-Navigate commits via `open_url.normalizeUrl`). **Open in browser** stays
+Navigate commits via Safari/Waku-style omnibox resolve). **Open in browser** stays
 the OS fallback (`open` / `xdg-open` / Windows
 `cmd.exe /c start "" <url>`, effect key 25). When the Browser tab is
 not showing, the pane parks at a 1×1 frame with `anchor = null` because
