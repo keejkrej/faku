@@ -10,12 +10,15 @@
 //!
 //! First-cut multi-session lives **inside** the existing Browser tab:
 //! up to four slots (chips + New + Close; Close keeps at least one).
-//! Each occupied slot keeps its own address-bar draft, committed
-//! history ring, history index, and `reload_token`. Inactive occupied
-//! slots park at 1×1 with `anchor = null` so they do not overlay
-//! Files/Diff/Terminal but keep the webview process/state. Unopened
-//! slots stay parked at the home placeholder. Hidden Browser parks
-//! **all** panes the same way.
+//! Occupied chips show host, else truncated Waku `display_url`, from
+//! the committed history URL (Waku `tab_label` without `page_title`;
+//! Native `WebViewPane` has no title callback). Empty history keeps
+//! occupancy-order `1`..`4`. Each occupied slot keeps its own
+//! address-bar draft, committed history ring, history index, and
+//! `reload_token`. Inactive occupied slots park at 1×1 with
+//! `anchor = null` so they do not overlay Files/Diff/Terminal but keep
+//! the webview process/state. Unopened slots stay parked at the home
+//! placeholder. Hidden Browser parks **all** panes the same way.
 //!
 //! Pane URL is the committed history entry, never the address-bar draft.
 //! `sessions.json` extras persist the **active** slot's address draft
@@ -61,8 +64,14 @@ pub const web_view_labels = [_][]const u8{
     "browser-web-2",
     "browser-web-3",
 };
-/// Occupancy-order chip labels (`1`..`n`), matching Terminal.
+/// Occupancy-order chip labels (`1`..`n`) when a slot has no committed
+/// URL. Matching Terminal's empty-session chips.
 pub const slot_labels = [_][]const u8{ "1", "2", "3", "4" };
+/// Visible chip prefix before ellipsis. Hosts usually fit; long
+/// `display_url` fallbacks truncate for chrome. Persist still stores
+/// the full committed URL.
+pub const chip_label_max_chars: usize = 24;
+const chip_label_ellipsis = "…";
 /// Markup semantics label the **active** pane snaps to
 /// (`<column label="browser-pane">`).
 pub const web_pane_anchor = "browser-pane";
@@ -170,7 +179,9 @@ pub fn can_close_browser(model: *const Model) bool {
     return occupiedCount(model) > 1 and activeSlotConst(model).occupied;
 }
 
-/// Occupancy-order chips (`1`..`n`) with stable 1-based slot ids.
+/// Occupied chips with stable 1-based slot ids. Label is host, else
+/// Waku `display_url`, from the committed URL (truncated); empty
+/// history keeps occupancy-order `1`..`n`. Not Waku `page_title`.
 pub fn sessionRows(model: *const Model, arena: std.mem.Allocator) []const BrowserSessionRow {
     const count = occupiedCount(model);
     if (count == 0) return &.{};
@@ -181,12 +192,65 @@ pub fn sessionRows(model: *const Model, arena: std.mem.Allocator) []const Browse
         if (!slot.occupied) continue;
         out[n] = .{
             .id = slotId(i),
-            .label = slot_labels[n],
+            .label = allocChipLabel(arena, committedUrlAt(model, i), n),
             .selected = i == active,
         };
         n += 1;
     }
     return out[0..n];
+}
+
+/// Host when the committed URL has a usable hostname; otherwise Waku
+/// `display_url`. Empty committed stays empty so chips keep `1`..`n`.
+/// Same source as lock/globe / persist (`committedUrlAt`), never the
+/// live home placeholder and never a page title.
+pub fn chipLabelSource(url: []const u8) []const u8 {
+    if (url.len == 0) return "";
+    if (hostOfUrl(url)) |host| return host;
+    return displayUrl(url);
+}
+
+fn allocChipLabel(arena: std.mem.Allocator, committed: []const u8, occupancy: usize) []const u8 {
+    const fallback = slot_labels[occupancy];
+    const source = chipLabelSource(committed);
+    if (source.len == 0) return fallback;
+    return allocTruncatedChipLabel(arena, source) catch fallback;
+}
+
+fn allocTruncatedChipLabel(arena: std.mem.Allocator, text: []const u8) error{OutOfMemory}![]const u8 {
+    if (text.len <= chip_label_max_chars) return arena.dupe(u8, text);
+    const prefix = utf8Prefix(text, chip_label_max_chars);
+    return std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, chip_label_ellipsis });
+}
+
+fn utf8Prefix(text: []const u8, max_bytes: usize) []const u8 {
+    if (text.len <= max_bytes) return text;
+    var end = max_bytes;
+    while (end > 0 and (text[end] & 0xC0) == 0x80) end -= 1;
+    return text[0..end];
+}
+
+/// Authority hostname without userinfo or port. Opaque schemes
+/// (`about:`, `mailto:`, `data:`) and `file:///path` have no usable
+/// host. IPv6 `[::1]` keeps the inner address.
+fn hostOfUrl(url: []const u8) ?[]const u8 {
+    const sep = std.mem.indexOf(u8, url, "://") orelse return null;
+    const rest = url[sep + 3 ..];
+    if (rest.len == 0) return null;
+    const authority = authorityOf(rest);
+    if (authority.len == 0) return null;
+    const hostport = if (std.mem.lastIndexOfScalar(u8, authority, '@')) |at|
+        authority[at + 1 ..]
+    else
+        authority;
+    if (hostport.len == 0) return null;
+    if (hostport[0] == '[') {
+        const close = std.mem.indexOfScalar(u8, hostport, ']') orelse return null;
+        const host = hostport[1..close];
+        return if (host.len == 0) null else host;
+    }
+    const parsed = splitHostPort(hostport) orelse return null;
+    return if (parsed.host.len == 0) null else parsed.host;
 }
 
 pub fn setDraft(model: *Model, url: []const u8) void {
@@ -908,6 +972,103 @@ test "New / switch / Close host four Browser slots; toolbar targets the active s
     try expectParked(panes[1]);
 }
 
+test "chipLabelSource prefers host then display_url; empty stays empty" {
+    try std.testing.expectEqualStrings("", chipLabelSource(""));
+    try std.testing.expectEqualStrings("example.com", chipLabelSource("https://example.com"));
+    try std.testing.expectEqualStrings("example.com", chipLabelSource("https://example.com/x"));
+    try std.testing.expectEqualStrings("localhost", chipLabelSource("http://localhost:3000"));
+    try std.testing.expectEqualStrings("127.0.0.1", chipLabelSource("http://127.0.0.1:8080/api"));
+    try std.testing.expectEqualStrings("::1", chipLabelSource("http://[::1]/"));
+    try std.testing.expectEqualStrings("example.com", chipLabelSource("https://user:pass@example.com/x"));
+    try std.testing.expectEqualStrings("about:blank", chipLabelSource("about:blank"));
+    try std.testing.expectEqualStrings("file:///tmp/a", chipLabelSource("file:///tmp/a"));
+    try std.testing.expectEqualStrings("mailto:hi@example.com", chipLabelSource("mailto:hi@example.com"));
+    try std.testing.expectEqualStrings("data:text/plain,hi", chipLabelSource("data:text/plain,hi"));
+    try std.testing.expectEqualStrings("www.google.com", chipLabelSource("https://www.google.com/search?q=what+is+wry"));
+}
+
+test "sessionRows chips use host or truncated display_url; empty history keeps index" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model: Model = .{};
+    var rows = sessionRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 1), rows.len);
+    try std.testing.expectEqualStrings("1", rows[0].label);
+    try std.testing.expect(rows[0].selected);
+    try std.testing.expectEqualStrings("", committedUrlAt(&model, 0));
+    try std.testing.expectEqualStrings(home_url, currentUrl(&model));
+
+    setDraft(&model, "https://example.com/docs");
+    commitNavigation(&model);
+    rows = sessionRows(&model, arena);
+    try std.testing.expectEqualStrings("example.com", rows[0].label);
+    try std.testing.expectEqualStrings("https://example.com/docs", committedUrlAt(&model, 0));
+
+    setDraft(&model, "http://localhost:3000");
+    commitNavigation(&model);
+    rows = sessionRows(&model, arena);
+    try std.testing.expectEqualStrings("localhost", rows[0].label);
+
+    setDraft(&model, "about:blank");
+    commitNavigation(&model);
+    rows = sessionRows(&model, arena);
+    try std.testing.expectEqualStrings("about:blank", rows[0].label);
+
+    setDraft(&model, "file:///tmp/abcdefghijklmnopqrstuvwxyz");
+    commitNavigation(&model);
+    rows = sessionRows(&model, arena);
+    const long_file = "file:///tmp/abcdefghijklmnopqrstuvwxyz";
+    try std.testing.expect(long_file.len > chip_label_max_chars);
+    try std.testing.expectEqualStrings("file:///tmp/abcdefghijkl…", rows[0].label);
+    try std.testing.expectEqual(chip_label_max_chars + "…".len, rows[0].label.len);
+    try std.testing.expectEqualStrings(long_file, committedUrlAt(&model, 0));
+
+    setDraft(&model, "https://this-is-a-very-long-subdomain.example.com/path");
+    commitNavigation(&model);
+    rows = sessionRows(&model, arena);
+    try std.testing.expectEqualStrings("this-is-a-very-long-subd…", rows[0].label);
+    try std.testing.expectEqualStrings(
+        "https://this-is-a-very-long-subdomain.example.com/path",
+        committedUrlAt(&model, 0),
+    );
+
+    var persisted: [max_sessions]PersistedSlot = undefined;
+    capturePersisted(&model, &persisted);
+    try std.testing.expectEqualStrings(
+        "https://this-is-a-very-long-subdomain.example.com/path",
+        persisted[0].url,
+    );
+}
+
+test "sessionRows multi-slot labels follow each committed URL" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model: Model = .{};
+    setDraft(&model, "https://a.example");
+    commitNavigation(&model);
+    newSession(&model);
+    setDraft(&model, "http://127.0.0.1:8080/api");
+    commitNavigation(&model);
+    newSession(&model);
+
+    const rows = sessionRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 3), rows.len);
+    try std.testing.expectEqualStrings("a.example", rows[0].label);
+    try std.testing.expectEqual(@as(u32, 1), rows[0].id);
+    try std.testing.expect(!rows[0].selected);
+    try std.testing.expectEqualStrings("127.0.0.1", rows[1].label);
+    try std.testing.expectEqual(@as(u32, 2), rows[1].id);
+    try std.testing.expect(!rows[1].selected);
+    try std.testing.expectEqualStrings("3", rows[2].label);
+    try std.testing.expectEqual(@as(u32, 3), rows[2].id);
+    try std.testing.expect(rows[2].selected);
+    try std.testing.expect(!std.mem.eql(u8, rows[0].label, rows[1].label));
+}
+
 test "restoreFromPersist rebuilds occupancy, committed URLs, and active snap" {
     var model: Model = .{};
     var panes: [max_sessions]WebViewPane = undefined;
@@ -964,6 +1125,8 @@ test "CONTEXT and README describe first-cut Browser multi-session inside the tab
     try std.testing.expect(std.mem.indexOf(u8, context, "occupied slot URLs") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "is_secure_url") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "lock/globe") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "display_url/host first-cut") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "page_title") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "Lock-icon") == null);
     try std.testing.expect(std.mem.indexOf(u8, context, "Not Waku tabs / DevTools / multi-session.") == null);
     const browser_cut = std.mem.indexOf(u8, readme, "First-cut embedded Browser tab") orelse return error.MissingBrowserReadme;

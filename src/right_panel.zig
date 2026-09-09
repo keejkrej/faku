@@ -23,7 +23,9 @@
 //! seam) plus **Open in browser** as the OS-host fallback via
 //! `open_url`. First-cut multi-session inside that tab (cap 4, scene
 //! `browser-web-0`..`browser-web-3`, chips + New + Close; occupied
-//! slot URLs persist; not Waku surface UUID tabs / DevTools). When the Browser
+//! chips show host or truncated `display_url` from the committed URL;
+//! slot URLs persist; not Waku `page_title` / surface UUID tabs /
+//! DevTools). When the Browser
 //! tab is hidden every pane parks at 1×1 with no anchor so Native does
 //! not keep the last webview frame over Files/Diff/Terminal. Inactive
 //! occupied slots park the same way. Terminal

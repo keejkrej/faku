@@ -10120,7 +10120,7 @@ test "Browser New / switch / Close host four sessions; toolbar targets the activ
     var tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "New", .new_browser);
     try testing.expect(findByText(tree.root, .button, "Close") == null);
-    try testing.expect((try expectButtonMsg(tree, "1", .{ .select_browser_session = 1 })).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "a.example", .{ .select_browser_session = 1 })).state.selected);
 
     main.update(&model, .new_browser, &fx);
     try testing.expectEqual(@as(u8, 1), model.browser_active);
@@ -10132,7 +10132,7 @@ test "Browser New / switch / Close host four sessions; toolbar targets the activ
     try testing.expectEqualStrings("https://a.example", panes[0].url);
 
     tree = try buildTree(arena, &model);
-    try testing.expect(!(try expectButtonMsg(tree, "1", .{ .select_browser_session = 1 })).state.selected);
+    try testing.expect(!(try expectButtonMsg(tree, "a.example", .{ .select_browser_session = 1 })).state.selected);
     try testing.expect((try expectButtonMsg(tree, "2", .{ .select_browser_session = 2 })).state.selected);
     _ = try expectButtonMsg(tree, "Close", .close_browser);
 
@@ -10167,7 +10167,7 @@ test "Browser New / switch / Close host four sessions; toolbar targets the activ
     try testing.expectEqualStrings(browser_pane.web_pane_anchor, panes[1].anchor orelse "");
 
     tree = try buildTree(arena, &model);
-    try testing.expect((try expectButtonMsg(tree, "1", .{ .select_browser_session = 2 })).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "b.example", .{ .select_browser_session = 2 })).state.selected);
     try testing.expect(findByText(tree.root, .button, "2") == null);
     try testing.expect(findByText(tree.root, .button, "Close") == null);
 
