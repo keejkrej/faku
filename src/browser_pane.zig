@@ -25,6 +25,9 @@
 //! placeholder `https://example.com` until Navigate/Enter.
 //! Enter/Navigate uses Safari/Waku omnibox resolve (explicit schemes,
 //! localhost/IPv4 → `http`, host-like → `https`, else Google search).
+//! The address field hides a leading `https://` (Waku `display_url`);
+//! `http://` and other schemes stay visible. History, pane URLs, and
+//! `browser_slots` persist stay full.
 //!
 //! Native `applyWebPane` keeps the last frame when the anchor is missing
 //! or width/height < 1 (`ui_app.zig`). Public `WebViewPane` has no
@@ -200,6 +203,25 @@ pub fn draft(model: *const Model) []const u8 {
     return activeSlotConst(model).url_buffer.text();
 }
 
+/// Safari/Waku address display (egoist/waku `src/browser.rs`
+/// `display_url`). Hide a leading `https://` the way Safari does;
+/// leave `http://` and every other scheme/path visible. Empty stays
+/// empty. Lock-icon `is_secure_url` is out of scope this cut.
+pub fn displayUrl(url: []const u8) []const u8 {
+    const https_prefix = "https://";
+    if (std.mem.startsWith(u8, url, https_prefix)) return url[https_prefix.len..];
+    return url;
+}
+
+fn committedText(slot: *const Slot) []const u8 {
+    if (slot.history_count == 0) return "";
+    return slot.history[slot.history_index].text();
+}
+
+fn syncDraftFromCommitted(slot: *Slot) void {
+    slot.url_buffer.set(displayUrl(committedText(slot)));
+}
+
 fn currentUrlAt(model: *const Model, index: usize) []const u8 {
     const slot = slotConst(model, index);
     if (!slot.occupied or slot.history_count == 0) return home_url;
@@ -256,7 +278,7 @@ fn restoreOccupied(slot: *Slot, url: []const u8) void {
     slot.history[0].set(url);
     slot.history_count = 1;
     slot.history_index = 0;
-    slot.url_buffer.set(url);
+    syncDraftFromCommitted(slot);
 }
 
 pub fn currentUrl(model: *const Model) []const u8 {
@@ -304,7 +326,9 @@ pub fn newSession(model: *Model) void {
 pub fn selectSession(model: *Model, id: u32) void {
     const index = slotIndexForId(id) orelse return;
     if (!slotConst(model, index).occupied) return;
+    const switching = activeIndex(model) != index;
     model.browser_active = @intCast(index);
+    if (switching) syncDraftFromCommitted(activeSlot(model));
 }
 
 /// Close the active slot and select the previous occupied neighbor,
@@ -477,21 +501,21 @@ pub fn commitNavigation(model: *Model) void {
     }
     live.history[live.history_index].set(url);
     live.history_count = live.history_index + 1;
-    live.url_buffer.set(url);
+    syncDraftFromCommitted(live);
 }
 
 pub fn goBack(model: *Model) void {
     const slot = activeSlot(model);
     if (slot.history_index == 0) return;
     slot.history_index -= 1;
-    slot.url_buffer.set(slot.history[slot.history_index].text());
+    syncDraftFromCommitted(slot);
 }
 
 pub fn goForward(model: *Model) void {
     const slot = activeSlot(model);
     if (slot.history_count == 0 or slot.history_index + 1 >= slot.history_count) return;
     slot.history_index += 1;
-    slot.url_buffer.set(slot.history[slot.history_index].text());
+    syncDraftFromCommitted(slot);
 }
 
 pub fn reload(model: *Model) void {
@@ -593,7 +617,7 @@ test "address keystrokes do not navigate; Enter/Navigate commits a normalized UR
     commitNavigation(&model);
     _ = webPanes(&model, &panes);
     try std.testing.expectEqualStrings("https://example.com/path", panes[0].url);
-    try std.testing.expectEqualStrings("https://example.com/path", draft(&model));
+    try std.testing.expectEqualStrings("example.com/path", draft(&model));
     try std.testing.expectEqualStrings("https://example.com/path", currentUrl(&model));
     try std.testing.expect(backDisabled(&model));
     try std.testing.expect(forwardDisabled(&model));
@@ -628,11 +652,12 @@ test "back and forward walk the app-owned history; a new navigation drops the ta
 
     goBack(&model);
     try std.testing.expectEqualStrings("https://a.example", currentUrl(&model));
-    try std.testing.expectEqualStrings("https://a.example", draft(&model));
+    try std.testing.expectEqualStrings("a.example", draft(&model));
     try std.testing.expect(!forwardDisabled(&model));
 
     goForward(&model);
     try std.testing.expectEqualStrings("https://b.example", currentUrl(&model));
+    try std.testing.expectEqualStrings("b.example", draft(&model));
     try std.testing.expect(forwardDisabled(&model));
 
     goBack(&model);
@@ -684,6 +709,30 @@ fn expectResolved(raw: []const u8, expected: []const u8) !void {
     try std.testing.expectEqualStrings(expected, got);
 }
 
+test "displayUrl hides a leading https:// only" {
+    try std.testing.expectEqualStrings("example.com/x", displayUrl("https://example.com/x"));
+    try std.testing.expectEqualStrings("http://localhost:3000", displayUrl("http://localhost:3000"));
+    try std.testing.expectEqualStrings("", displayUrl(""));
+    try std.testing.expectEqualStrings("about:blank", displayUrl("about:blank"));
+    try std.testing.expectEqualStrings("file:///tmp/a", displayUrl("file:///tmp/a"));
+    try std.testing.expectEqualStrings("mailto:hi@example.com", displayUrl("mailto:hi@example.com"));
+    try std.testing.expectEqualStrings("HTTPS://EXAMPLE.COM", displayUrl("HTTPS://EXAMPLE.COM"));
+}
+
+test "commitNavigation draft is display form while history stays full" {
+    var model: Model = .{};
+    setDraft(&model, "https://example.com/x");
+    commitNavigation(&model);
+    try std.testing.expectEqualStrings("https://example.com/x", currentUrl(&model));
+    try std.testing.expectEqualStrings("https://example.com/x", activeSlotConst(&model).history[0].text());
+    try std.testing.expectEqualStrings("example.com/x", draft(&model));
+
+    setDraft(&model, "http://localhost:3000");
+    commitNavigation(&model);
+    try std.testing.expectEqualStrings("http://localhost:3000", currentUrl(&model));
+    try std.testing.expectEqualStrings("http://localhost:3000", draft(&model));
+}
+
 test "resolveAddress matches Waku omnibox cases" {
     try expectResolved("https://example.com", "https://example.com");
     try expectResolved("localhost:3000", "http://localhost:3000");
@@ -722,7 +771,7 @@ test "commitNavigation resolves localhost http and search queries" {
     setDraft(&model, "rust borrow checker");
     commitNavigation(&model);
     try std.testing.expectEqualStrings("https://www.google.com/search?q=rust+borrow+checker", currentUrl(&model));
-    try std.testing.expectEqualStrings("https://www.google.com/search?q=rust+borrow+checker", draft(&model));
+    try std.testing.expectEqualStrings("www.google.com/search?q=rust+borrow+checker", draft(&model));
 }
 
 test "search overflow is a no-op" {
@@ -768,7 +817,7 @@ test "New / switch / Close host four Browser slots; toolbar targets the active s
     selectSession(&model, 1);
     try std.testing.expectEqual(@as(u8, 0), model.browser_active);
     try std.testing.expectEqualStrings("https://a.example", currentUrl(&model));
-    try std.testing.expectEqualStrings("https://a.example", draft(&model));
+    try std.testing.expectEqualStrings("a.example", draft(&model));
     try std.testing.expect(backDisabled(&model));
     _ = webPanes(&model, &panes);
     try std.testing.expectEqualStrings(web_pane_anchor, panes[0].anchor orelse "");
@@ -831,6 +880,7 @@ test "restoreFromPersist rebuilds occupancy, committed URLs, and active snap" {
     try std.testing.expectEqual(@as(u8, 2), model.browser_active);
     try std.testing.expectEqualStrings("https://a.example", committedUrlAt(&model, 0));
     try std.testing.expectEqualStrings("https://c.example", currentUrl(&model));
+    try std.testing.expectEqualStrings("c.example", draft(&model));
     try std.testing.expectEqualStrings("", committedUrlAt(&model, 3));
     try std.testing.expect(backDisabled(&model));
     try std.testing.expectEqual(@as(u64, 0), model.browser_slots[0].reload_token);
@@ -845,6 +895,11 @@ test "restoreFromPersist rebuilds occupancy, committed URLs, and active snap" {
     try std.testing.expectEqualStrings("https://c.example", panes[2].url);
     try expectParked(panes[3]);
     try std.testing.expectEqualStrings(home_url, panes[3].url);
+
+    selectSession(&model, 1);
+    try std.testing.expectEqualStrings("https://a.example", currentUrl(&model));
+    try std.testing.expectEqualStrings("a.example", draft(&model));
+    try std.testing.expectEqualStrings("https://a.example", committedUrlAt(&model, 0));
 
     restoreFromPersist(&model, &[_]PersistedSlot{}, 3);
     try std.testing.expectEqual(@as(usize, 1), occupiedCount(&model));

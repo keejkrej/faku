@@ -10073,7 +10073,7 @@ test "Browser Navigate commits a normalized URL; hidden tab parks the web pane" 
     main.update(&model, tree.msgForPointer(navigate.id, .up).?, &fx);
     _ = browser_pane.webPanes(&model, &panes);
     try testing.expectEqualStrings("https://example.com/ok", panes[0].url);
-    try testing.expectEqualStrings("https://example.com/ok", model.browser_url());
+    try testing.expectEqualStrings("example.com/ok", model.browser_url());
 
     main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://b.example" } }, &fx);
     main.update(&model, .browser_navigate, &fx);
@@ -10082,6 +10082,7 @@ test "Browser Navigate commits a normalized URL; hidden tab parks the web pane" 
     try testing.expect(!back.state.disabled);
     main.update(&model, tree.msgForPointer(back.id, .up).?, &fx);
     try testing.expectEqualStrings("https://example.com/ok", browser_pane.currentUrl(&model));
+    try testing.expectEqualStrings("example.com/ok", model.browser_url());
 
     const reload = try expectButtonMsg(tree, "Reload", .browser_reload);
     const before = panes[0].reload_token;
@@ -10142,7 +10143,7 @@ test "Browser New / switch / Close host four sessions; toolbar targets the activ
     try testing.expectEqual(@as(u64, 0), panes[0].reload_token);
 
     main.update(&model, .{ .select_browser_session = 1 }, &fx);
-    try testing.expectEqualStrings("https://a.example", model.browser_url());
+    try testing.expectEqualStrings("a.example", model.browser_url());
     try testing.expectEqualStrings("https://a.example", browser_pane.currentUrl(&model));
     _ = browser_pane.webPanes(&model, &panes);
     try testing.expectEqualStrings(browser_pane.web_pane_anchor, panes[0].anchor orelse "");
@@ -10208,7 +10209,7 @@ test "Browser Navigate resolves localhost to http and search text to Google" {
     main.update(&search_model, .browser_navigate, &fx);
     _ = browser_pane.webPanes(&search_model, &panes);
     try testing.expectEqualStrings("https://www.google.com/search?q=what+is+wry", panes[0].url);
-    try testing.expectEqualStrings("https://www.google.com/search?q=what+is+wry", search_model.browser_url());
+    try testing.expectEqualStrings("www.google.com/search?q=what+is+wry", search_model.browser_url());
 }
 
 fn findOpenUrlSpawn(fx: *Effects) ?@TypeOf(fx.pendingSpawnAt(0).?) {
