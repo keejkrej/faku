@@ -99,11 +99,13 @@
 <template name="files-tree-header">
   <!-- Waku working-tree chrome: ~42px border-b row, folder icon,
        truncated project display name (basename of project_path). -->
-  <row height="42" gap="8" cross="center" padding="8">
-    <icon name="folder" />
-    <text wrap="false" overflow="ellipsis" grow="1">{right_panel_files_project_name}</text>
-  </row>
-  <separator />
+  <column>
+    <row height="42" gap="8" cross="center" padding="8">
+      <icon name="folder" />
+      <text wrap="false" overflow="ellipsis" grow="1">{right_panel_files_project_name}</text>
+    </row>
+    <separator />
+  </column>
 </template>
 <template name="files-tree-rows">
   <column>
