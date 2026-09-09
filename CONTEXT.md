@@ -622,8 +622,11 @@ header (Native `folder` icon + truncated `project_path` basename, same
 scheme as the sidebar subtitle / Settings Usage `projectBasename`) above
 the loaded tree — both the full-height list and the nested tree pane when
 a preview is open; not the no-project empty state and not Loading.
-Directory vs file rows paint Native `folder` / `file-text` (same as Diff;
-not per-extension). Files
+Directory rows paint Native `folder-open` when expanded and `folder` when
+collapsed (chevrons stay). File rows pick a first-cut Native built-in from
+the basename/extension (`terminal` / `settings` / `archive` / `music` /
+`git-branch`, else `file-text`) — not Waku's SVG file-type pack, not Diff
+(Diff stays `folder` / `file-text`). Files
 lists the same bounded `file_mention` cache used by composer `@`
 mentions (git ls-files, then a bounded walk; Windows `git.exe -C` /
 PowerShell walk with `-Args`; first-cut daemon
@@ -1150,7 +1153,7 @@ live watch.
 | Daemon sidecar | `src/daemon_proxy.zig`, `src/protocol.zig` |
 | Send / stream | `src/spawn.zig`, `src/stream.zig`, `src/lines.zig` |
 | Environment Summary | `src/environment_summary.zig` |
-| Right panel | `src/right_panel.zig`, `src/review_diff.zig`, `src/open_url.zig` |
+| Right panel | `src/right_panel.zig`, `src/review_diff.zig`, `src/open_url.zig`, `src/file_icon.zig` |
 | Skills scan | `src/skills.zig` |
 | Providers catalog | `src/providers.zig`, `src/cli_probe.zig` |
 | Composer / attach | `src/composer.zig`, `src/attach.zig`, `src/slash_commands.zig` |

@@ -526,6 +526,7 @@ test {
     _ = @import("browser_pane.zig");
     _ = @import("open_editor.zig");
     _ = @import("code_language.zig");
+    _ = @import("file_icon.zig");
     _ = @import("right_panel.zig");
     _ = @import("file_preview_find.zig");
     _ = @import("file_preview_regex.zig");
