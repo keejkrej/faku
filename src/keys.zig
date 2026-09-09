@@ -8,6 +8,8 @@
 //! (not a global bind). Shift-Enter FindPrevious stays unbound
 //! (`onKey` has no focus/model; composer Shift-Enter newline).
 //! Prev remains the chevron / Cmd-Shift-G.
+//! Browser first-cut: Cmd/Ctrl-R/L/[/] emit model-gated Msgs (`onKey`
+//! has no focus). Hard Reload / DevTools / Stop stay unbound.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -53,7 +55,10 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
         return if (keyboard.modifiers.shift) .find_prev else .find_next;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "l")) {
-        return .focus_composer;
+        // Waku Browser `secondary-l` FocusBrowserAddress when the
+        // Browser tab is showing. `onKey` has no model; update routes
+        // to the address field or today's Focus composer.
+        return .focus_browser_or_composer;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "m")) {
         // Cmd/Ctrl-M stays Minimize. Shift-M is Maximize so the
@@ -90,10 +95,14 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
         return .toggle_usage_meter;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "r")) {
-        // Waku secondary-alt-r ToggleFindRegex. No bare Cmd/Ctrl-R bind.
+        // Waku secondary-alt-r ToggleFindRegex. Bare Cmd/Ctrl-R is
+        // BrowserReload (handler no-ops unless the Browser tab is the
+        // active right-panel surface). Cmd/Ctrl-Shift-R Hard Reload
+        // stays unbound (Native `web_panes` has no hard-reload API).
         if (hasAltModifier(keyboard.modifiers) and !keyboard.modifiers.shift) {
             return .toggle_file_preview_find_regex;
         }
+        if (!keyboard.modifiers.shift) return .browser_reload;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.ascii.eqlIgnoreCase(keyboard.key, "s")) {
         // Waku `cmd-s` SaveFile / Files preview Save.
@@ -103,10 +112,13 @@ pub fn onKey(keyboard: canvas.WidgetKeyboardEvent) ?Msg {
         return .toggle_settings;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.mem.eql(u8, keyboard.key, "[")) {
-        return .history_back;
+        // Waku Browser `secondary-[` BrowserBack when the Browser tab
+        // is showing; else today's palette/session history back.
+        // Sidebar Back stays `history_back`.
+        return .navigate_back;
     }
     if (keyboard.modifiers.hasNavigationModifier() and std.mem.eql(u8, keyboard.key, "]")) {
-        return .history_forward;
+        return .navigate_forward;
     }
     if (keyboard.modifiers.hasNavigationModifier() and isEnterKey(keyboard.key)) {
         // Waku secondary-alt-enter ReplaceAllMatches. Cmd/Ctrl-Enter stays

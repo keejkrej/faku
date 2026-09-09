@@ -64,6 +64,22 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .select => |id| session_actions.handleSelect(model, fx, id),
         .history_back => palette_run.goHistory(-1, model, fx),
         .history_forward => palette_run.goHistory(1, model, fx),
+        .navigate_back => {
+            if (model.browser_keyboard_active()) {
+                browser_pane.goBack(model);
+                store.persistLayoutIfPossible(model);
+            } else {
+                palette_run.goHistory(-1, model, fx);
+            }
+        },
+        .navigate_forward => {
+            if (model.browser_keyboard_active()) {
+                browser_pane.goForward(model);
+                store.persistLayoutIfPossible(model);
+            } else {
+                palette_run.goHistory(1, model, fx);
+            }
+        },
         .new_folder => session_actions.handleNewFolder(model),
         .toggle_folder => |folder_id| session_actions.handleToggleFolder(model, folder_id),
         .collapse_all_folders => session_actions.handleCollapseAllFolders(model),
@@ -120,7 +136,19 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 model.stepFindMatch(true);
             }
         },
-        .focus_composer => model.composer_active = true,
+        .focus_composer => {
+            model.browser_address_active = false;
+            model.composer_active = true;
+        },
+        .focus_browser_or_composer => {
+            if (model.browser_keyboard_active()) {
+                model.composer_active = false;
+                model.browser_address_active = true;
+            } else {
+                model.browser_address_active = false;
+                model.composer_active = true;
+            }
+        },
         .search_edit => |edit| {
             model.search_buffer.apply(edit);
             model.palette_highlight = 0;
@@ -332,7 +360,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             browser_pane.commitNavigation(model);
             store.persistLayoutIfPossible(model);
         },
-        .browser_reload => browser_pane.reload(model),
+        .browser_reload => {
+            if (!model.browser_keyboard_active()) return;
+            browser_pane.reload(model);
+        },
         .browser_back => {
             browser_pane.goBack(model);
             store.persistLayoutIfPossible(model);

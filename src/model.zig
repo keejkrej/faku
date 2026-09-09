@@ -405,6 +405,10 @@ pub const Msg = union(enum) {
     palette_cancel,
     palette_pick: u32,
     focus_composer,
+    /// Cmd/Ctrl-L: Browser address when the Browser tab is the active
+    /// right-panel surface (settings closed); else Focus composer.
+    /// Palette "Focus composer" stays `focus_composer`.
+    focus_browser_or_composer,
     /// Cmd/Ctrl-F: Files preview find when a preview is open, else
     /// transcript find (keep query if already open). Opening one
     /// closes the other (Waku OpenFind parity).
@@ -720,7 +724,9 @@ pub const Msg = union(enum) {
     browser_url_edit: canvas.TextInputEvent,
     /// Commit the address draft into the embedded webview (Enter / Navigate).
     browser_navigate,
-    /// Reload the committed pane URL (`reload_token` bump).
+    /// Reload the committed pane URL (`reload_token` bump). Cmd/Ctrl-R
+    /// (no alt/shift). Handler no-ops unless the Browser tab is the
+    /// active right-panel surface (settings closed).
     browser_reload,
     /// Walk the app-owned Browser history backward.
     browser_back,
@@ -758,6 +764,14 @@ pub const Msg = union(enum) {
     fork_turn: u32,
     history_back,
     history_forward,
+    /// Cmd/Ctrl-[: Browser back when the Browser tab is the active
+    /// right-panel surface (settings closed); else session history.
+    /// Sidebar Back stays `history_back`.
+    navigate_back,
+    /// Cmd/Ctrl-]: Browser forward when the Browser tab is showing
+    /// (settings closed); else session history. Sidebar Forward stays
+    /// `history_forward`.
+    navigate_forward,
     new_folder,
     toggle_folder: u32,
     collapse_all_folders,
@@ -799,7 +813,7 @@ pub const Msg = union(enum) {
     fx_probe_exit: native_sdk.EffectExit,
     cli_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "term_pty", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "term_pty", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "focus_browser_or_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel", "navigate_back", "navigate_forward" };
 };
 
 pub const Model = struct {
@@ -964,6 +978,9 @@ pub const Model = struct {
     /// 0-based index among matching turns for the selected session.
     find_match_index: u32 = 0,
     composer_active: bool = false,
+    /// Runtime-only Browser address-field autofocus (Cmd/Ctrl-L). Not
+    /// persisted. Markup binds `browser_address_autofocus`.
+    browser_address_active: bool = false,
     mode: Mode = .demo,
     phase: Phase = .idle,
     stream_cursor: u32 = 0,
@@ -1989,6 +2006,8 @@ pub const Model = struct {
         "open_url_len",
         "browser_slots",
         "browser_active",
+        "browser_address_active",
+        "browser_keyboard_active",
         "applyBrowserUrl",
         "setBrowserUrlDraft",
         "open_terminal_live",
@@ -2800,6 +2819,20 @@ pub const Model = struct {
 
     pub fn right_panel_showing_browser(model: *const Model) bool {
         return model.right_panel_open and model.right_panel_tab == .browser;
+    }
+
+    /// Proxy for Waku Browser focus: right panel open, Browser tab
+    /// selected, settings closed. `onKey` has no GPUI focus context.
+    pub fn browser_keyboard_active(model: *const Model) bool {
+        return model.right_panel_showing_browser() and !model.settings_open;
+    }
+
+    /// Address-field autofocus only while Browser chords are live so
+    /// Cmd/Ctrl-L can raise it the way `composer_active` raises the
+    /// composer. Settings open or other tabs keep the flag from
+    /// stealing focus.
+    pub fn browser_address_autofocus(model: *const Model) bool {
+        return model.browser_address_active and model.browser_keyboard_active() and !model.composer_active;
     }
 
     pub fn right_panel_showing_terminal(model: *const Model) bool {

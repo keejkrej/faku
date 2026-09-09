@@ -1569,7 +1569,7 @@
               <else>
                 <icon name="app:globe" width="11" height="11" foreground="text_muted" label="Not secure" />
               </else>
-              <text-field grow="1" placeholder="https://example.com" text="{browser_url}" on-input="browser_url_edit" on-submit="browser_navigate" label="Address" />
+              <text-field grow="1" placeholder="https://example.com" text="{browser_url}" on-input="browser_url_edit" on-submit="browser_navigate" autofocus="{browser_address_autofocus}" label="Address" />
               <button variant="ghost" size="sm" on-press="browser_navigate">Navigate</button>
               <button variant="ghost" size="sm" on-press="open_url">Open in browser</button>
             </row>
