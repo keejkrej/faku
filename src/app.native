@@ -96,6 +96,57 @@
   </for>
   </column>
 </template>
+<template name="files-tree-header">
+  <!-- Waku working-tree chrome: ~42px border-b row, folder icon,
+       truncated project display name (basename of project_path). -->
+  <column>
+    <row height="42" gap="8" cross="center" padding="8">
+      <icon name="folder" />
+      <text wrap="false" overflow="ellipsis" grow="1">{right_panel_files_project_name}</text>
+    </row>
+    <separator />
+  </column>
+</template>
+<template name="files-tree-rows">
+  <column>
+    <for each="right_panel_file_rows" key="id" as="f">
+      <if test="{f.is_file}">
+        <list-item height="32" padding="8" gap="4" cross="center" selected="{f.selected}" on-press="open_right_panel_file:{f.id}" label="{f.path}">
+          <if test="{f.has_indent}">
+            <spacer width="{f.indent}" />
+          </if>
+          <icon name="file-text" />
+          <column gap="2">
+            <text wrap="false" overflow="ellipsis">{f.name}</text>
+            <if test="{f.has_parent}">
+              <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
+            </if>
+          </column>
+        </list-item>
+      </if>
+      <else>
+        <list-item height="32" padding="8" gap="4" cross="center" on-press="toggle_right_panel_dir:{f.id}" label="{f.path}">
+          <if test="{f.has_indent}">
+            <spacer width="{f.indent}" />
+          </if>
+          <if test="{f.expanded}">
+            <icon name="chevron-down" />
+          </if>
+          <else>
+            <icon name="chevron-right" />
+          </else>
+          <icon name="folder" />
+          <column gap="2">
+            <text wrap="false" overflow="ellipsis">{f.name}</text>
+            <if test="{f.has_parent}">
+              <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
+            </if>
+          </column>
+        </list-item>
+      </else>
+    </for>
+  </column>
+</template>
 <column background="background">
   <split grow="1" value="{sidebar_split}" on-resize="sidebar_resized">
     <column min-width="{sidebar_pane_min}" background="surface_subtle">
@@ -1816,85 +1867,17 @@
                 </else>
               </column>
               <column grow="1" min-width="140">
+                <use template="files-tree-header" />
                 <scroll grow="1">
-                  <column>
-                    <for each="right_panel_file_rows" key="id" as="f">
-                      <if test="{f.is_file}">
-                        <list-item height="32" padding="8" gap="4" cross="center" selected="{f.selected}" on-press="open_right_panel_file:{f.id}" label="{f.path}">
-                          <if test="{f.has_indent}">
-                            <spacer width="{f.indent}" />
-                          </if>
-                          <column gap="2">
-                            <text wrap="false" overflow="ellipsis">{f.name}</text>
-                            <if test="{f.has_parent}">
-                              <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
-                            </if>
-                          </column>
-                        </list-item>
-                      </if>
-                      <else>
-                        <list-item height="32" padding="8" gap="4" cross="center" on-press="toggle_right_panel_dir:{f.id}" label="{f.path}">
-                          <if test="{f.has_indent}">
-                            <spacer width="{f.indent}" />
-                          </if>
-                          <if test="{f.expanded}">
-                            <icon name="chevron-down" />
-                          </if>
-                          <else>
-                            <icon name="chevron-right" />
-                          </else>
-                          <column gap="2">
-                            <text wrap="false" overflow="ellipsis">{f.name}</text>
-                            <if test="{f.has_parent}">
-                              <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
-                            </if>
-                          </column>
-                        </list-item>
-                      </else>
-                    </for>
-                  </column>
+                  <use template="files-tree-rows" />
                 </scroll>
               </column>
               </split>
             </if>
             <else>
+              <use template="files-tree-header" />
               <scroll grow="1">
-                <column>
-                  <for each="right_panel_file_rows" key="id" as="f">
-                    <if test="{f.is_file}">
-                      <list-item height="32" padding="8" gap="4" cross="center" selected="{f.selected}" on-press="open_right_panel_file:{f.id}" label="{f.path}">
-                        <if test="{f.has_indent}">
-                          <spacer width="{f.indent}" />
-                        </if>
-                        <column gap="2">
-                          <text wrap="false" overflow="ellipsis">{f.name}</text>
-                          <if test="{f.has_parent}">
-                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
-                          </if>
-                        </column>
-                      </list-item>
-                    </if>
-                    <else>
-                      <list-item height="32" padding="8" gap="4" cross="center" on-press="toggle_right_panel_dir:{f.id}" label="{f.path}">
-                        <if test="{f.has_indent}">
-                          <spacer width="{f.indent}" />
-                        </if>
-                        <if test="{f.expanded}">
-                          <icon name="chevron-down" />
-                        </if>
-                        <else>
-                          <icon name="chevron-right" />
-                        </else>
-                        <column gap="2">
-                          <text wrap="false" overflow="ellipsis">{f.name}</text>
-                          <if test="{f.has_parent}">
-                            <text wrap="false" overflow="ellipsis" foreground="text_muted">{f.parent}</text>
-                          </if>
-                        </column>
-                      </list-item>
-                    </else>
-                  </for>
-                </column>
+                <use template="files-tree-rows" />
               </scroll>
             </else>
           </column>

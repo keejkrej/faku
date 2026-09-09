@@ -9695,6 +9695,84 @@ test "right panel Files list stays empty without a project" {
     const tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "No project open");
     try testing.expect(findByText(tree.root, .text, "invented.zig") == null);
+    try testing.expect(!model.right_panel_files_tree_header());
+    try testing.expectEqual(@as(usize, 0), model.right_panel_files_project_name().len);
+}
+
+test "Files tree header shows project basename on a loaded tree" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-files-header-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(testing.io, project);
+    const display_name = std.fs.path.basename(project);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("files header", .fx);
+    model.selected = id;
+    defer right_panel.clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
+
+    try testing.expectEqual(@as(usize, 0), model.right_panel_files_project_name().len);
+    try testing.expect(!model.right_panel_files_tree_header());
+
+    model.setSelectedProjectPath(project);
+    try testing.expectEqualStrings(display_name, model.right_panel_files_project_name());
+    try testing.expect(!model.right_panel_files_tree_header());
+
+    main.update(&model, .show_right_panel, &fx);
+    try testing.expect(model.right_panel_open);
+    try testing.expect(model.right_panel_loading());
+    try testing.expect(!model.right_panel_files_tree_header());
+    {
+        const tree = try buildTree(arena, &model);
+        _ = try expectByText(tree.root, .text, "Loading files…");
+        try testing.expect(findNthByText(tree.root, .text, display_name, 0) != null);
+        try testing.expect(findNthByText(tree.root, .text, display_name, 1) == null);
+        try testing.expect(findByText(tree.root, .text, "No project open") == null);
+    }
+
+    file_mention.applyStdoutPaths(&model, "README.md\n");
+    try testing.expect(!model.right_panel_loading());
+    try testing.expect(model.right_panel_files_tree_header());
+    {
+        const tree = try buildTree(arena, &model);
+        try testing.expect(findNthByText(tree.root, .text, display_name, 1) != null);
+        _ = try expectByText(tree.root, .text, "README.md");
+        try testing.expect(findByText(tree.root, .text, "Loading files…") == null);
+        try testing.expect(findByText(tree.root, .text, "No project open") == null);
+    }
+
+    var readme_buf: [320]u8 = undefined;
+    const readme = try std.fmt.bufPrint(&readme_buf, "{s}/README.md", .{project});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = readme, .data = "# hi\n" });
+    main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
+    try testing.expect(model.right_panel_file_preview_open());
+    try testing.expect(model.right_panel_files_tree_header());
+    {
+        const tree = try buildTree(arena, &model);
+        try testing.expect(findNthByText(tree.root, .text, display_name, 1) != null);
+        _ = try expectByText(tree.root, .text, "README.md");
+        _ = try expectButton(tree.root, "Close");
+    }
+
+    main.update(&model, .set_right_panel_tab_diff, &fx);
+    try testing.expect(!model.right_panel_files_tree_header());
+    try testing.expectEqualStrings(display_name, model.right_panel_files_project_name());
+
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "{right_panel_files_project_name}") != null);
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "template=\"files-tree-header\""));
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "template=\"files-tree-rows\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "height=\"42\"") != null);
 }
 
 test "palette Show right panel and Hide right panel toggle the Files pane" {
@@ -24167,7 +24245,7 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{review_diff_hunk_file_additions_label}"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{review_diff_hunk_file_deletions_label}"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "height=\"36\""));
-    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "<icon name=\"file-text\""));
+    try testing.expectEqual(@as(usize, 5), std.mem.count(u8, main.app_markup, "<icon name=\"file-text\""));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{r.has_status}"));
     try testing.expectEqual(@as(usize, 6), std.mem.count(u8, main.app_markup, "{r.status_label}"));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"right-panel-diff-filter\"") != null);

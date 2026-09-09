@@ -102,6 +102,10 @@
 //! same cache (`git.exe -C` then a PowerShell walk; still not a
 //! Native FS watcher).
 //!
+//! Loaded Files tree chrome (not no-project / Loading) paints a compact
+//! ~42px header: Native `folder` icon + truncated `project_path`
+//! basename (`right_panel_files_project_name`). Directory vs file rows
+//! paint Native `folder` / `file-text` like Diff (not per-extension).
 //! Files tab ships a bounded inline file preview (prefer daemon
 //! `ReadTextFile` when an address is set, else Faku-side
 //! `readFileAlloc`; 256KB cap, truncated label when larger, binary /
