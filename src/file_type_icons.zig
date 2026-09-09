@@ -58,6 +58,19 @@ const pdf_icon = parse("pdf");
 const svg_icon = parse("svg");
 const terraform_icon = parse("terraform");
 const webassembly_icon = parse("webassembly");
+const bun_icon = parse("bun");
+const npm_icon = parse("npm");
+const yarn_icon = parse("yarn");
+const pnpm_icon = parse("pnpm");
+const deno_icon = parse("deno");
+const console_icon = parse("console");
+const powershell_icon = parse("powershell");
+const vite_icon = parse("vite");
+const vitest_icon = parse("vitest");
+const eslint_icon = parse("eslint");
+const biome_icon = parse("biome");
+const babel_icon = parse("babel");
+const webpack_icon = parse("webpack");
 
 /// Bare names (no `app:` prefix). `file_icon` returns `app:` + these.
 pub const app_icons = [_]canvas.icons.Entry{
@@ -106,6 +119,19 @@ pub const app_icons = [_]canvas.icons.Entry{
     .{ .name = "svg", .icon = &svg_icon },
     .{ .name = "terraform", .icon = &terraform_icon },
     .{ .name = "webassembly", .icon = &webassembly_icon },
+    .{ .name = "bun", .icon = &bun_icon },
+    .{ .name = "npm", .icon = &npm_icon },
+    .{ .name = "yarn", .icon = &yarn_icon },
+    .{ .name = "pnpm", .icon = &pnpm_icon },
+    .{ .name = "deno", .icon = &deno_icon },
+    .{ .name = "console", .icon = &console_icon },
+    .{ .name = "powershell", .icon = &powershell_icon },
+    .{ .name = "vite", .icon = &vite_icon },
+    .{ .name = "vitest", .icon = &vitest_icon },
+    .{ .name = "eslint", .icon = &eslint_icon },
+    .{ .name = "biome", .icon = &biome_icon },
+    .{ .name = "babel", .icon = &babel_icon },
+    .{ .name = "webpack", .icon = &webpack_icon },
 };
 
 pub fn contains(name: []const u8) bool {
@@ -116,7 +142,7 @@ pub fn contains(name: []const u8) bool {
 }
 
 test "file-type app_icons names are unique and parse to shapes" {
-    try std.testing.expectEqual(@as(usize, 45), app_icons.len);
+    try std.testing.expectEqual(@as(usize, 58), app_icons.len);
     var i: usize = 0;
     while (i < app_icons.len) : (i += 1) {
         try std.testing.expect(app_icons[i].icon.shapes.len > 0);
@@ -130,8 +156,12 @@ test "file-type app_icons names are unique and parse to shapes" {
     try std.testing.expect(contains("ruby"));
     try std.testing.expect(contains("webassembly"));
     try std.testing.expect(contains("svg"));
+    try std.testing.expect(contains("bun"));
+    try std.testing.expect(contains("console"));
+    try std.testing.expect(contains("webpack"));
     try std.testing.expect(!contains("kotlin"));
     try std.testing.expect(!contains("graphql"));
+    try std.testing.expect(!contains("prettier"));
     try std.testing.expect(!contains("app:zig"));
     try std.testing.expect(!contains("file-text"));
 }

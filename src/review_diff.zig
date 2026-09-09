@@ -99,8 +99,9 @@
 //! directories. Empty / whitespace-only query is today's collapsed
 //! tree. File rows paint a Material app icon from `file_icon`
 //! (same Files map: basename/extension → `app:zig` / `app:rust` /
-//! `app:ruby` / … plus built-in `terminal` / `settings` / `archive` /
-//! `music`, else `file-text`) + basename (no status prefix) + a separate colored
+//! `app:ruby` / … plus built-in `settings` / `archive` /
+//! `music`, else `file-text`; shells `app:console` /
+//! `app:powershell`) + basename (no status prefix) + a separate colored
 //! status letter (`A` success, `D` destructive, `B`/`M` warning) and
 //! Waku-style `+N` / `-M` (success / destructive) from numstat when
 //! those counts are non-zero (daemon CollectReviewDiff and local
@@ -4102,7 +4103,7 @@ test "reviewDiffRows bind first-cut Native file-type icons" {
         try std.testing.expect(rows[3].expanded);
         try std.testing.expectEqualStrings("folder-open", rows[3].icon);
         try expectFileRow(rows[4], "M", "setup.sh");
-        try std.testing.expectEqualStrings("terminal", rows[4].icon);
+        try std.testing.expectEqualStrings("app:console", rows[4].icon);
     }
 }
 
@@ -6235,7 +6236,7 @@ test "selected-file hunk header binds file_icon from the path" {
     try std.testing.expectEqualStrings("app:zig", reviewDiffHunkFileIcon(&model));
 
     writeFixed(&model.review_diff_hunk_path_storage, &model.review_diff_hunk_path_len, "scripts/setup.sh");
-    try std.testing.expectEqualStrings("terminal", reviewDiffHunkFileIcon(&model));
+    try std.testing.expectEqualStrings("app:console", reviewDiffHunkFileIcon(&model));
 
     writeFixed(&model.review_diff_hunk_path_storage, &model.review_diff_hunk_path_len, "package.json");
     try std.testing.expectEqualStrings("app:nodejs", reviewDiffHunkFileIcon(&model));

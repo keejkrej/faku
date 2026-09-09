@@ -625,8 +625,9 @@ a preview is open; not the no-project empty state and not Loading.
 Directory rows paint Native `folder-open` when expanded and `folder` when
 collapsed (chevrons stay). File rows pick a Material app icon
 (`app:zig`, `app:rust`, `app:ruby`, … MIT subset under `src/icons/file-types/`) or a
-Native built-in (`terminal` / `settings` / `archive` / `music`, else
-`file-text`). Diff tree rows, the selected-file Diff header, and composer
+Native built-in (`settings` / `archive` / `music`, else
+`file-text`; shells bind Material `app:console` / `app:powershell`).
+Diff tree rows, the selected-file Diff header, and composer
 `@` mention rows reuse this same `file_icon` map (mention dirs stay
 `folder`, collapsed; no expand chevron). Browser / Terminal stay
 unchanged. Files
@@ -697,8 +698,8 @@ rows paint a first-cut nested directory tree matching Waku
 `review_diff_tree_rows` (collapsible Directory + File, default
 collapsed, basename leaves, Material app icon from the same
 Files `file_icon` map — dirs `folder` / `folder-open`, files `app:zig` /
-`app:rust` / `app:ruby` / … plus built-in `terminal` / `settings` / `archive` /
-`music` else `file-text` — colored status letter `A`/`D`/`B`/`M`/`?` separate from
+`app:rust` / `app:ruby` / … plus built-in `settings` / `archive` /
+`music` else `file-text` (shells `app:console` / `app:powershell`) — colored status letter `A`/`D`/`B`/`M`/`?` separate from
 the basename, optional `+N` / `-M` from
 numstat; zeros omitted; numstat `-` is Binary `B`; daemon CollectReviewDiff and local
 `--numstat`). A Native search-field above that tree is Waku
@@ -1172,9 +1173,10 @@ live watch.
 
 Honest gaps this cut does not implement:
 
-- Remaining Material / Waku file-type SVGs (bun, npm, console,
-  kotlin/graphql Native-dialect skips, tooling frameworks, …) stay
-  later PRs; this cut vendors a second-cut language/data subset
+- Remaining Material / Waku file-type SVGs (frameworks like
+  next/nuxt/nest, zip/audio/video/settings Material swaps,
+  kotlin/graphql/prettier Native-dialect skips, …) stay later
+  PRs; this cut vendors a third-cut tooling subset
 - Full onboarding / OAuth / auto-install (fx install/login copy
   ships; other CLIs get a PATH hint only)
 - Native Pi ACP / `--mode rpc` (json-mode one-shot
