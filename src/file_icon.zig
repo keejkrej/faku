@@ -1,4 +1,5 @@
-//! First-cut Native built-in icon names for Files and Diff tree rows.
+//! First-cut Native built-in icon names for Files, Diff, and composer
+//! `@` mention rows.
 //!
 //! Behavior follows Waku `file_icon_for_path` / `file_icon_for_name`
 //! (basename specials, then extension) but maps onto Native's
@@ -6,12 +7,13 @@
 //! file-type pack. Directories paint `folder-open` when expanded and
 //! `folder` when collapsed. Unknown files stay `file-text`. Diff
 //! tree rows and the selected-file Diff header reuse this same map.
-//! Browser, Terminal, and composer `@` do not.
+//! Composer `@` mention rows reuse it too (dirs stay `folder`; the
+//! list has no expand chevron). Browser and Terminal do not.
 
 const std = @import("std");
 const composer = @import("composer.zig");
 
-/// Native built-in `icon name=` for a Files or Diff tree row.
+/// Native built-in `icon name=` for a Files, Diff, or composer `@` row.
 pub fn filesTreeIcon(path: []const u8, is_file: bool, expanded: bool) []const u8 {
     if (!is_file) {
         return if (expanded) "folder-open" else "folder";
