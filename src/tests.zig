@@ -8747,7 +8747,7 @@ test "new task and cmd-n focus the composer via the same autofocus edge" {
         .key = "l",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.focus_composer, keys.onKey(cmd_l).?);
+    try testing.expectEqual(Msg.focus_browser_or_composer, keys.onKey(cmd_l).?);
 }
 
 test "selecting a session focuses the composer; rename and search do not" {
@@ -8902,7 +8902,7 @@ test "cmd-[ / cmd-] and ctrl-[ / ctrl-] walk session history via onKey" {
         .key = "[",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.history_back, keys.onKey(cmd_back).?);
+    try testing.expectEqual(Msg.navigate_back, keys.onKey(cmd_back).?);
     main.update(&model, keys.onKey(cmd_back).?, &fx);
     try testing.expectEqualStrings("port waku to zig", model.selected_title());
     try testing.expect(!model.can_go_back());
@@ -8917,7 +8917,7 @@ test "cmd-[ / cmd-] and ctrl-[ / ctrl-] walk session history via onKey" {
         .key = "]",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.history_forward, keys.onKey(cmd_forward).?);
+    try testing.expectEqual(Msg.navigate_forward, keys.onKey(cmd_forward).?);
     main.update(&model, keys.onKey(cmd_forward).?, &fx);
     try testing.expectEqualStrings("fix auth listener", model.selected_title());
     try testing.expect(model.can_go_back());
@@ -8932,7 +8932,7 @@ test "cmd-[ / cmd-] and ctrl-[ / ctrl-] walk session history via onKey" {
         .key = "[",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.history_back, keys.onKey(ctrl_back).?);
+    try testing.expectEqual(Msg.navigate_back, keys.onKey(ctrl_back).?);
     main.update(&model, keys.onKey(ctrl_back).?, &fx);
     try testing.expectEqualStrings("port waku to zig", model.selected_title());
 
@@ -8941,7 +8941,7 @@ test "cmd-[ / cmd-] and ctrl-[ / ctrl-] walk session history via onKey" {
         .key = "]",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.history_forward, keys.onKey(ctrl_forward).?);
+    try testing.expectEqual(Msg.navigate_forward, keys.onKey(ctrl_forward).?);
     main.update(&model, keys.onKey(ctrl_forward).?, &fx);
     try testing.expectEqualStrings("fix auth listener", model.selected_title());
 
@@ -9166,7 +9166,7 @@ test "cmd-b and ctrl-b toggle sidebar collapse via onKey" {
         .key = "[",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.history_back, keys.onKey(cmd_back).?);
+    try testing.expectEqual(Msg.navigate_back, keys.onKey(cmd_back).?);
 }
 
 test "cmd-b persist extras stay merge-only" {
@@ -10702,13 +10702,13 @@ test "cmd-c and ctrl-c copy the last non-empty turn via writeClipboard" {
         .key = "[",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.history_back, keys.onKey(cmd_back).?);
+    try testing.expectEqual(Msg.navigate_back, keys.onKey(cmd_back).?);
     const cmd_forward = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
         .key = "]",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.history_forward, keys.onKey(cmd_forward).?);
+    try testing.expectEqual(Msg.navigate_forward, keys.onKey(cmd_forward).?);
 }
 
 fn expectLaidOutHeight(root: canvas.Widget, id: canvas.ObjectId, height: f32) !void {
@@ -11885,7 +11885,7 @@ test "cmd-l and ctrl-l focus the composer via onKey" {
         .key = "l",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.focus_composer, keys.onKey(cmd_l).?);
+    try testing.expectEqual(Msg.focus_browser_or_composer, keys.onKey(cmd_l).?);
     main.update(&model, keys.onKey(cmd_l).?, &fx);
     try testing.expect(model.composer_active);
     try testing.expectEqualStrings("", model.draft());
@@ -11920,7 +11920,7 @@ test "cmd-l and ctrl-l focus the composer via onKey" {
         .key = "L",
         .modifiers = .{ .control = true },
     };
-    try testing.expectEqual(Msg.focus_composer, keys.onKey(ctrl_l).?);
+    try testing.expectEqual(Msg.focus_browser_or_composer, keys.onKey(ctrl_l).?);
     main.update(&model, keys.onKey(ctrl_l).?, &fx);
     try testing.expect(model.composer_active);
     try testing.expect(model.palette_open);
@@ -11946,6 +11946,144 @@ test "cmd-l and ctrl-l focus the composer via onKey" {
         .modifiers = .{ .super = true },
     };
     try testing.expectEqual(Msg.copy_last_turn, keys.onKey(cmd_c).?);
+}
+
+test "cmd-r / cmd-l / cmd-[ / cmd-] route by Browser-tab keyboard gate" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    const cmd_r = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "r",
+        .modifiers = .{ .super = true },
+    };
+    const ctrl_r = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "R",
+        .modifiers = .{ .control = true },
+    };
+    const cmd_shift_r = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "r",
+        .modifiers = .{ .super = true, .shift = true },
+    };
+    const cmd_l = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "l",
+        .modifiers = .{ .super = true },
+    };
+    const cmd_back = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "[",
+        .modifiers = .{ .super = true },
+    };
+    const cmd_forward = canvas.WidgetKeyboardEvent{
+        .phase = .key_down,
+        .key = "]",
+        .modifiers = .{ .super = true },
+    };
+    try testing.expectEqual(Msg.browser_reload, keys.onKey(cmd_r).?);
+    try testing.expectEqual(Msg.browser_reload, keys.onKey(ctrl_r).?);
+    try testing.expectEqual(@as(?Msg, null), keys.onKey(cmd_shift_r));
+    try testing.expectEqual(Msg.focus_browser_or_composer, keys.onKey(cmd_l).?);
+    try testing.expectEqual(Msg.navigate_back, keys.onKey(cmd_back).?);
+    try testing.expectEqual(Msg.navigate_forward, keys.onKey(cmd_forward).?);
+
+    var model = main.initialModel();
+    var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
+    const port_title = model.selected_title();
+    const auth_id = model.session_store[1].id;
+    try testing.expect(!model.browser_keyboard_active());
+    try testing.expect(!model.browser_address_autofocus());
+
+    main.update(&model, keys.onKey(cmd_l).?, &fx);
+    try testing.expect(model.composer_active);
+    try testing.expect(!model.browser_address_active);
+
+    main.update(&model, .{ .select = auth_id }, &fx);
+    try testing.expectEqualStrings("fix auth listener", model.selected_title());
+    try testing.expect(model.can_go_back());
+
+    _ = browser_pane.webPanes(&model, &panes);
+    const idle_token = panes[0].reload_token;
+    main.update(&model, keys.onKey(cmd_r).?, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expectEqual(idle_token, panes[0].reload_token);
+
+    main.update(&model, keys.onKey(cmd_back).?, &fx);
+    try testing.expectEqualStrings(port_title, model.selected_title());
+    try testing.expect(model.can_go_forward());
+    main.update(&model, keys.onKey(cmd_forward).?, &fx);
+    try testing.expectEqualStrings("fix auth listener", model.selected_title());
+
+    main.update(&model, .set_right_panel_tab_files, &fx);
+    try testing.expect(!model.browser_keyboard_active());
+    main.update(&model, keys.onKey(cmd_r).?, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expectEqual(idle_token, panes[0].reload_token);
+
+    main.update(&model, .set_right_panel_tab_browser, &fx);
+    try testing.expect(model.browser_keyboard_active());
+    try testing.expect(model.right_panel_showing_browser());
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://a.example" } }, &fx);
+    main.update(&model, .browser_navigate, &fx);
+    main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://b.example" } }, &fx);
+    main.update(&model, .browser_navigate, &fx);
+    try testing.expectEqualStrings("https://b.example", browser_pane.currentUrl(&model));
+
+    model.composer_active = false;
+    main.update(&model, keys.onKey(cmd_l).?, &fx);
+    try testing.expect(model.browser_address_active);
+    try testing.expect(!model.composer_active);
+    try testing.expect(model.browser_address_autofocus());
+    var tree = try buildTree(arena, &model);
+    const address = try expectByText(tree.root, .text_field, "Address");
+    try testing.expect(address.autofocus);
+    if (findByKind(tree.root, .textarea)) |composer| {
+        try testing.expect(!composer.autofocus);
+    } else return error.WidgetNotFound;
+
+    _ = browser_pane.webPanes(&model, &panes);
+    const before_reload = panes[0].reload_token;
+    main.update(&model, keys.onKey(cmd_r).?, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expect(panes[0].reload_token != before_reload);
+
+    main.update(&model, keys.onKey(cmd_back).?, &fx);
+    try testing.expectEqualStrings("https://a.example", browser_pane.currentUrl(&model));
+    try testing.expectEqualStrings("fix auth listener", model.selected_title());
+    main.update(&model, keys.onKey(cmd_forward).?, &fx);
+    try testing.expectEqualStrings("https://b.example", browser_pane.currentUrl(&model));
+
+    main.update(&model, .history_back, &fx);
+    try testing.expectEqualStrings(port_title, model.selected_title());
+    try testing.expectEqualStrings("https://b.example", browser_pane.currentUrl(&model));
+    main.update(&model, .{ .select = auth_id }, &fx);
+
+    main.update(&model, .focus_composer, &fx);
+    try testing.expect(model.composer_active);
+    try testing.expect(!model.browser_address_active);
+    try testing.expect(!model.browser_address_autofocus());
+
+    main.update(&model, .toggle_settings, &fx);
+    try testing.expect(model.settings_open);
+    try testing.expect(!model.browser_keyboard_active());
+    try testing.expect(model.right_panel_showing_browser());
+    const settings_token = panes[0].reload_token;
+    main.update(&model, keys.onKey(cmd_r).?, &fx);
+    _ = browser_pane.webPanes(&model, &panes);
+    try testing.expectEqual(settings_token, panes[0].reload_token);
+    main.update(&model, keys.onKey(cmd_l).?, &fx);
+    try testing.expect(model.composer_active);
+    try testing.expect(!model.browser_address_active);
+    main.update(&model, keys.onKey(cmd_back).?, &fx);
+    try testing.expectEqualStrings(port_title, model.selected_title());
+    try testing.expectEqualStrings("https://b.example", browser_pane.currentUrl(&model));
 }
 
 test "cmd-comma and ctrl-comma open settings via onKey" {
@@ -12386,7 +12524,7 @@ test "cmd-alt-c/w/r/enter map to Files preview find Waku chords" {
     try testing.expectEqual(Msg.copy_last_turn, keys.onKey(cmd_c).?);
     try testing.expectEqual(Msg.close_window, keys.onKey(cmd_w).?);
     try testing.expectEqual(Msg.steer, keys.onKey(cmd_enter).?);
-    try testing.expectEqual(@as(?Msg, null), keys.onKey(cmd_r));
+    try testing.expectEqual(Msg.browser_reload, keys.onKey(cmd_r).?);
     try testing.expectEqual(@as(?Msg, null), keys.onKey(shift_enter));
 
     if (comptime @hasField(@FieldType(canvas.WidgetKeyboardEvent, "modifiers"), "alt")) {
@@ -17008,7 +17146,7 @@ test "cmd-m and ctrl-m minimize the window via onKey" {
         .key = "l",
         .modifiers = .{ .super = true },
     };
-    try testing.expectEqual(Msg.focus_composer, keys.onKey(cmd_l).?);
+    try testing.expectEqual(Msg.focus_browser_or_composer, keys.onKey(cmd_l).?);
 
     const cmd_shift_m = canvas.WidgetKeyboardEvent{
         .phase = .key_down,
