@@ -19,20 +19,27 @@
 //! `anchor = null` so they do not overlay Files/Diff/Terminal but keep
 //! the webview process/state. Unopened slots stay parked at the home
 //! placeholder. Hidden Browser parks **all** panes the same way.
+//! Empty history (`history_count == 0`, Waku `has_page` / missing
+//! `current_url`) parks the **active** slot the same way even while the
+//! Browser tab is showing: `home_url` stays the parked scene URL so the
+//! process stays alive, but Faku paints a Native start page instead of
+//! snapping to `browser-pane`. First Navigate/Enter that commits history
+//! snaps the pane and hides the start page.
 //!
 //! Pane URL is the committed history entry, never the address-bar draft.
 //! `sessions.json` extras persist the **active** slot's address draft
 //! (`browser_url`) plus occupied slot committed URLs (`browser_slots`),
 //! history rings (`browser_histories`), and `browser_active`.
-//! `reload_token` stays runtime-only. Empty history uses the scene
-//! placeholder `https://example.com` until Navigate/Enter.
+//! `reload_token` stays runtime-only. Empty history still parks on the
+//! scene placeholder `https://example.com` and does not show it.
 //! Enter/Navigate uses Safari/Waku omnibox resolve (explicit schemes,
 //! localhost/IPv4 → `http`, host-like → `https`, else Google search).
 //! The address field hides a leading `https://` (Waku `display_url`);
 //! `http://` and other schemes stay visible. History, pane URLs, and
 //! `browser_slots` persist stay full. A muted lock/globe beside the
 //! field follows the committed pane URL (Waku `is_secure_url`), not
-//! the in-progress draft. Native has no text-field icon helper.
+//! the in-progress draft and not `home_url`. Empty history is globe.
+//! Native has no text-field icon helper.
 //!
 //! Native `applyWebPane` keeps the last frame when the anchor is missing
 //! or width/height < 1 (`ui_app.zig`). Public `WebViewPane` has no
@@ -75,7 +82,8 @@ const chip_label_ellipsis = "…";
 /// Markup semantics label the **active** pane snaps to
 /// (`<column label="browser-pane">`).
 pub const web_pane_anchor = "browser-pane";
-/// Scene placeholder and empty-history pane URL.
+/// Scene placeholder and parked empty-history pane URL. Empty history
+/// does not treat this as a committed page (no snap, globe not lock).
 pub const home_url = "https://example.com";
 /// Workbench `max_history` ring. Occupied rings persist; `reload_token`
 /// stays runtime-only.
@@ -316,7 +324,7 @@ fn currentUrlAt(model: *const Model, index: usize) []const u8 {
 }
 
 /// Committed pane URL for persist. Empty when the slot is unoccupied
-/// or has never navigated (the live pane still shows `home_url`).
+/// or has never navigated (the parked pane still uses `home_url`).
 pub fn committedUrlAt(model: *const Model, index: usize) []const u8 {
     const slot = slotConst(model, index);
     if (!slot.occupied or slot.history_count == 0) return "";
@@ -410,20 +418,42 @@ pub fn currentUrl(model: *const Model) []const u8 {
     return currentUrlAt(model, activeIndex(model));
 }
 
-/// Active slot's committed pane URL (same source as `currentUrl` /
-/// history tip). Empty history uses `home_url` (`https://example.com`
-/// → secure). Not the in-progress address draft.
+/// Waku `has_page`: the active slot has a committed history entry.
+/// Empty history is not a page (`home_url` is only the parked scene).
+pub fn hasPage(model: *const Model) bool {
+    return activeSlotConst(model).history_count > 0;
+}
+
+/// Native start page in the Browser tab body: tab is showing and the
+/// active occupied slot has never navigated. Inactive empty slots stay
+/// parked without this chrome.
+pub fn showingStartPage(model: *const Model) bool {
+    return model.right_panel_showing_browser() and !hasPage(model);
+}
+
+/// Active slot's committed URL security (Waku `is_secure_url`). Empty
+/// history is not secure (globe), even though the parked scene URL is
+/// `home_url`. Not the in-progress address draft.
 pub fn urlSecure(model: *const Model) bool {
-    return isSecureUrl(currentUrl(model));
+    return isSecureUrl(committedUrlAt(model, activeIndex(model)));
 }
 
 pub fn backDisabled(model: *const Model) bool {
-    return activeSlotConst(model).history_index == 0;
+    const slot = activeSlotConst(model);
+    return slot.history_count == 0 or slot.history_index == 0;
 }
 
 pub fn forwardDisabled(model: *const Model) bool {
     const slot = activeSlotConst(model);
     return slot.history_count == 0 or slot.history_index + 1 >= slot.history_count;
+}
+
+pub fn reloadDisabled(model: *const Model) bool {
+    return !hasPage(model);
+}
+
+pub fn openDisabled(model: *const Model) bool {
+    return !hasPage(model);
 }
 
 fn selectNeighbor(model: *Model, closed_index: usize) void {
@@ -651,26 +681,30 @@ pub fn goForward(model: *Model) void {
 }
 
 pub fn reload(model: *Model) void {
+    if (!hasPage(model)) return;
     activeSlot(model).reload_token +%= 1;
 }
 
 /// Model-derived webview panes. Always one pane per scene webview
 /// (Native `max_web_panes` = 4). The active occupied slot snaps to
-/// `browser-pane` when the Browser tab is showing; every other pane
-/// parks at 1×1 with no anchor. Unopened slots use the home URL.
+/// `browser-pane` when the Browser tab is showing **and** that slot
+/// has a committed page; empty history parks at 1×1 with no anchor
+/// (same as hidden / inactive) so the Native start page can paint.
+/// Unopened / empty slots keep the home URL as the parked scene.
 pub fn webPanes(model: *const Model, out: []WebViewPane) usize {
     const showing = model.right_panel_showing_browser();
     const active = activeIndex(model);
     var n: usize = 0;
     for (0..max_sessions) |i| {
-        const occupied = slotConst(model, i).occupied;
-        const snap = showing and occupied and i == active;
+        const slot = slotConst(model, i);
+        const occupied = slot.occupied;
+        const snap = showing and occupied and i == active and slot.history_count > 0;
         out[n] = .{
             .label = web_view_labels[i],
             .anchor = if (snap) web_pane_anchor else null,
             .frame = if (snap) geometry.RectF.init(0, 0, 0, 0) else parked_frame,
             .url = currentUrlAt(model, i),
-            .reload_token = if (occupied) slotConst(model, i).reload_token else 0,
+            .reload_token = if (occupied) slot.reload_token else 0,
         };
         n += 1;
     }
@@ -729,12 +763,79 @@ test "hidden Browser parks every pane 1x1 with no anchor; showing snaps only the
 
     model.right_panel_tab = .browser;
     try std.testing.expect(model.right_panel_showing_browser());
+    try std.testing.expect(showingStartPage(&model));
+    try std.testing.expect(!hasPage(&model));
+    try std.testing.expect(!urlSecure(&model));
     _ = webPanes(&model, &panes);
-    try std.testing.expectEqualStrings(web_pane_anchor, panes[0].anchor orelse "");
+    try expectParked(panes[0]);
     try std.testing.expectEqualStrings(home_url, panes[0].url);
     try expectParked(panes[1]);
     try expectParked(panes[2]);
     try expectParked(panes[3]);
+
+    setDraft(&model, "https://a.example");
+    commitNavigation(&model);
+    try std.testing.expect(!showingStartPage(&model));
+    try std.testing.expect(hasPage(&model));
+    _ = webPanes(&model, &panes);
+    try std.testing.expectEqualStrings(web_pane_anchor, panes[0].anchor orelse "");
+    try std.testing.expectEqualStrings("https://a.example", panes[0].url);
+    try expectParked(panes[1]);
+}
+
+test "empty active history parks even when Browser is showing; Navigate snaps" {
+    var model: Model = .{};
+    var panes: [max_sessions]WebViewPane = undefined;
+    model.right_panel_open = true;
+    model.right_panel_tab = .browser;
+
+    try std.testing.expect(showingStartPage(&model));
+    try std.testing.expect(!hasPage(&model));
+    try std.testing.expect(!urlSecure(&model));
+    try std.testing.expect(reloadDisabled(&model));
+    try std.testing.expect(openDisabled(&model));
+    try std.testing.expect(backDisabled(&model));
+    try std.testing.expect(forwardDisabled(&model));
+    _ = webPanes(&model, &panes);
+    try expectParked(panes[0]);
+    try std.testing.expectEqualStrings(home_url, panes[0].url);
+
+    const token = panes[0].reload_token;
+    reload(&model);
+    _ = webPanes(&model, &panes);
+    try std.testing.expectEqual(token, panes[0].reload_token);
+    try expectParked(panes[0]);
+
+    newSession(&model);
+    try std.testing.expect(showingStartPage(&model));
+    _ = webPanes(&model, &panes);
+    try expectParked(panes[0]);
+    try expectParked(panes[1]);
+    try std.testing.expectEqualStrings(home_url, panes[0].url);
+    try std.testing.expectEqualStrings(home_url, panes[1].url);
+
+    selectSession(&model, 1);
+    setDraft(&model, "https://a.example");
+    commitNavigation(&model);
+    try std.testing.expect(!showingStartPage(&model));
+    try std.testing.expect(hasPage(&model));
+    try std.testing.expect(urlSecure(&model));
+    try std.testing.expect(!reloadDisabled(&model));
+    try std.testing.expect(!openDisabled(&model));
+    _ = webPanes(&model, &panes);
+    try std.testing.expectEqualStrings(web_pane_anchor, panes[0].anchor orelse "");
+    try std.testing.expectEqualStrings("https://a.example", panes[0].url);
+    try expectParked(panes[1]);
+
+    selectSession(&model, 2);
+    try std.testing.expect(showingStartPage(&model));
+    try std.testing.expect(!hasPage(&model));
+    try std.testing.expect(!urlSecure(&model));
+    _ = webPanes(&model, &panes);
+    try expectParked(panes[0]);
+    try expectParked(panes[1]);
+    try std.testing.expectEqualStrings("https://a.example", panes[0].url);
+    try std.testing.expectEqualStrings(home_url, panes[1].url);
 }
 
 test "address keystrokes do not navigate; Enter/Navigate commits a normalized URL" {
@@ -880,13 +981,15 @@ test "isSecureUrl matches Waku starts_with https://" {
     try std.testing.expect(!isSecureUrl("HTTPS://EXAMPLE.COM"));
 }
 
-test "urlSecure follows committed currentUrl, not the address draft" {
+test "urlSecure follows committed URL, not home_url or the address draft" {
     var model: Model = .{};
     try std.testing.expectEqualStrings(home_url, currentUrl(&model));
-    try std.testing.expect(urlSecure(&model));
+    try std.testing.expectEqualStrings("", committedUrlAt(&model, 0));
+    try std.testing.expect(!hasPage(&model));
+    try std.testing.expect(!urlSecure(&model));
     setDraft(&model, "http://localhost:3000");
     try std.testing.expectEqualStrings("http://localhost:3000", draft(&model));
-    try std.testing.expect(urlSecure(&model));
+    try std.testing.expect(!urlSecure(&model));
     commitNavigation(&model);
     try std.testing.expectEqualStrings("http://localhost:3000", currentUrl(&model));
     try std.testing.expect(!urlSecure(&model));
@@ -983,6 +1086,13 @@ test "New / switch / Close host four Browser slots; toolbar targets the active s
     try std.testing.expect(can_close_browser(&model));
     try std.testing.expectEqualStrings("", draft(&model));
     try std.testing.expectEqualStrings(home_url, currentUrl(&model));
+    try std.testing.expect(showingStartPage(&model));
+    try std.testing.expect(!hasPage(&model));
+    _ = webPanes(&model, &panes);
+    try expectParked(panes[0]);
+    try expectParked(panes[1]);
+    try std.testing.expectEqualStrings("https://a.example", panes[0].url);
+    try std.testing.expectEqualStrings(home_url, panes[1].url);
     setDraft(&model, "https://b.example");
     commitNavigation(&model);
 
@@ -1303,6 +1413,9 @@ test "CONTEXT and README describe first-cut Browser multi-session inside the tab
     try std.testing.expect(std.mem.indexOf(u8, context, "lock/globe") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "display_url/host first-cut") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "page_title") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "start page") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "empty history is globe") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "empty history uses home `https://example.com` → lock") == null);
     try std.testing.expect(std.mem.indexOf(u8, context, "Lock-icon") == null);
     try std.testing.expect(std.mem.indexOf(u8, context, "Not Waku tabs / DevTools / multi-session.") == null);
     try std.testing.expect(std.mem.indexOf(u8, context, "History ring / back / forward / `reload_token` stay runtime-only") == null);
@@ -1313,5 +1426,6 @@ test "CONTEXT and README describe first-cut Browser multi-session inside the tab
     try std.testing.expect(std.mem.indexOf(u8, window, "occupied URLs persist") != null);
     try std.testing.expect(std.mem.indexOf(u8, window, "history rings persist") != null);
     try std.testing.expect(std.mem.indexOf(u8, window, "lock/globe") != null);
+    try std.testing.expect(std.mem.indexOf(u8, window, "start page") != null);
     try std.testing.expect(std.mem.indexOf(u8, readme, "not … multi-session") == null);
 }

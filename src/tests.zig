@@ -9830,8 +9830,10 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     try testing.expect(!(try expectButtonMsg(tree, "Terminal", .set_right_panel_tab_terminal)).state.selected);
     try testing.expect(findByText(tree.root, .text, "Native has no embedded browser. Open the system browser instead.") == null);
     _ = try expectButtonMsg(tree, "Navigate", .browser_navigate);
-    _ = try expectButtonMsg(tree, "Reload", .browser_reload);
-    _ = try expectButtonMsg(tree, "Open in browser", .open_url);
+    const reload = findByText(tree.root, .button, "Reload") orelse return error.WidgetNotFound;
+    try testing.expect(reload.state.disabled);
+    const open_browser = findByText(tree.root, .button, "Open in browser") orelse return error.WidgetNotFound;
+    try testing.expect(open_browser.state.disabled);
     _ = try expectButtonMsg(tree, "New", .new_browser);
     try testing.expect(findByText(tree.root, .button, "Close") == null);
     try testing.expect((try expectButtonMsg(tree, "1", .{ .select_browser_session = 1 })).state.selected);
@@ -9840,8 +9842,10 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     const forward = findByText(browser_col, .button, "Forward") orelse return error.WidgetNotFound;
     try testing.expect(back.state.disabled);
     try testing.expect(forward.state.disabled);
-    const browser_anchor = try expectByText(tree.root, .column, "browser-pane");
-    try testing.expectEqual(@as(usize, 0), browser_anchor.children.len);
+    try testing.expect(findByText(tree.root, .column, "browser-pane") == null);
+    _ = try expectByText(tree.root, .column, "browser-start");
+    _ = try expectByText(tree.root, .text, "Browse the web");
+    _ = try expectByText(tree.root, .text, "Cmd/Ctrl-L focuses the address.");
     try testing.expect(findByText(tree.root, .text, "No project open") == null);
     try testing.expect(findByText(tree.root, .text, "Review") == null);
     try testing.expect(findByText(tree.root, .text, "No background work") == null);
@@ -10014,8 +10018,16 @@ test "right panel Browser Open in browser spawns key-25 URL sidecar; empty URL i
     try testing.expectEqualStrings("  example.com/path  ", model.browser_url());
     var tree = try buildTree(arena, &model);
     _ = try expectButtonMsg(tree, "Navigate", .browser_navigate);
+    try testing.expect(findByText(tree.root, .column, "browser-pane") == null);
+    _ = try expectByText(tree.root, .text, "Browse the web");
+    const open_disabled = findByText(tree.root, .button, "Open in browser") orelse return error.WidgetNotFound;
+    try testing.expect(open_disabled.state.disabled);
+    main.update(&model, .browser_navigate, &fx);
+    tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .column, "browser-pane");
+    try testing.expect(findByText(tree.root, .text, "Browse the web") == null);
     const open_browser = try expectButtonMsg(tree, "Open in browser", .open_url);
+    try testing.expect(!open_browser.state.disabled);
     main.update(&model, tree.msgForPointer(open_browser.id, .up).?, &fx);
     if (open_url.hostBin() == null) {
         try testing.expectEqual(@as(usize, 0), fx.pendingSpawnCount());
@@ -10057,25 +10069,41 @@ test "Browser Navigate commits a normalized URL; hidden tab parks the web pane" 
 
     main.update(&model, .set_right_panel_tab_browser, &fx);
     try testing.expect(model.right_panel_showing_browser());
+    try testing.expect(model.browser_showing_start_page());
+    try testing.expect(!model.browser_url_secure());
+    try testing.expect(model.browser_reload_disabled());
+    try testing.expect(model.browser_open_disabled());
     _ = browser_pane.webPanes(&model, &panes);
-    try testing.expectEqualStrings(browser_pane.web_pane_anchor, panes[0].anchor orelse "");
+    try testing.expect(panes[0].anchor == null);
+    try testing.expectEqual(@as(f32, 1), panes[0].frame.width);
     try testing.expectEqualStrings(browser_pane.home_url, panes[0].url);
     try testing.expect(panes[1].anchor == null);
     try testing.expectEqual(@as(f32, 1), panes[1].frame.width);
 
     main.update(&model, .{ .browser_url_edit = .{ .insert_text = "example.com/ok" } }, &fx);
     _ = browser_pane.webPanes(&model, &panes);
+    try testing.expect(panes[0].anchor == null);
     try testing.expectEqualStrings(browser_pane.home_url, panes[0].url);
     try testing.expectEqualStrings("example.com/ok", model.browser_url());
-    try testing.expect(model.browser_url_secure());
+    try testing.expect(!model.browser_url_secure());
+    try testing.expect(model.browser_showing_start_page());
 
     var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Browse the web");
     const navigate = try expectButtonMsg(tree, "Navigate", .browser_navigate);
     main.update(&model, tree.msgForPointer(navigate.id, .up).?, &fx);
+    try testing.expect(!model.browser_showing_start_page());
     _ = browser_pane.webPanes(&model, &panes);
+    try testing.expectEqualStrings(browser_pane.web_pane_anchor, panes[0].anchor orelse "");
     try testing.expectEqualStrings("https://example.com/ok", panes[0].url);
     try testing.expectEqualStrings("example.com/ok", model.browser_url());
     try testing.expect(model.browser_url_secure());
+    try testing.expect(!model.browser_reload_disabled());
+    try testing.expect(!model.browser_open_disabled());
+
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .text, "Browse the web") == null);
+    _ = try expectByText(tree.root, .column, "browser-pane");
 
     main.update(&model, .{ .browser_url_edit = .{ .insert_text = "https://b.example" } }, &fx);
     main.update(&model, .browser_navigate, &fx);
@@ -10125,13 +10153,17 @@ test "Browser New / switch / Close host four sessions; toolbar targets the activ
     main.update(&model, .new_browser, &fx);
     try testing.expectEqual(@as(u8, 1), model.browser_active);
     try testing.expectEqualStrings("", model.browser_url());
+    try testing.expect(model.browser_showing_start_page());
     _ = browser_pane.webPanes(&model, &panes);
     try testing.expectEqualStrings(browser_pane.web_view_labels[1], panes[1].label);
-    try testing.expectEqualStrings(browser_pane.web_pane_anchor, panes[1].anchor orelse "");
+    try testing.expect(panes[1].anchor == null);
+    try testing.expectEqual(@as(f32, 1), panes[1].frame.width);
     try testing.expect(panes[0].anchor == null);
     try testing.expectEqualStrings("https://a.example", panes[0].url);
 
     tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Browse the web");
+    try testing.expect(findByText(tree.root, .column, "browser-pane") == null);
     try testing.expect(!(try expectButtonMsg(tree, "a.example", .{ .select_browser_session = 1 })).state.selected);
     try testing.expect((try expectButtonMsg(tree, "2", .{ .select_browser_session = 2 })).state.selected);
     _ = try expectButtonMsg(tree, "Close", .close_browser);

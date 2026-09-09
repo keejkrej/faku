@@ -726,7 +726,8 @@ pub const Msg = union(enum) {
     browser_navigate,
     /// Reload the committed pane URL (`reload_token` bump). Cmd/Ctrl-R
     /// (no alt/shift). Handler no-ops unless the Browser tab is the
-    /// active right-panel surface (settings closed).
+    /// active right-panel surface (settings closed) and history is
+    /// non-empty.
     browser_reload,
     /// Walk the app-owned Browser history backward.
     browser_back,
@@ -1252,7 +1253,8 @@ pub const Model = struct {
     /// Occupancy, committed pane URLs, history rings, and `browser_active`
     /// persist; the **active** slot's address draft still persists as
     /// `browser_url`. `reload_token` stays runtime-only. Slot 0 starts
-    /// occupied. `browser_active` is the snapped `web_panes` slot.
+    /// occupied. `browser_active` is the active `web_panes` slot (snapped
+    /// only when that slot has a committed page).
     browser_slots: [browser_pane.max_sessions]browser_pane.Slot = browser_pane.default_slots,
     browser_active: u8 = 0,
     open_terminal_live: bool = false,
@@ -2846,9 +2848,15 @@ pub const Model = struct {
     }
 
     /// Committed pane URL security for the address-bar lock/globe.
-    /// Same source as `currentUrl` / history tip, not the draft.
+    /// Same source as the committed history tip, not the draft and not
+    /// parked `home_url`. Empty history is globe.
     pub fn browser_url_secure(model: *const Model) bool {
         return browser_pane.urlSecure(model);
+    }
+
+    /// Native start page in the Browser tab body (empty active history).
+    pub fn browser_showing_start_page(model: *const Model) bool {
+        return browser_pane.showingStartPage(model);
     }
 
     pub fn applyBrowserUrl(model: *Model, edit: canvas.TextInputEvent) void {
@@ -2869,6 +2877,14 @@ pub const Model = struct {
 
     pub fn browser_forward_disabled(model: *const Model) bool {
         return browser_pane.forwardDisabled(model);
+    }
+
+    pub fn browser_reload_disabled(model: *const Model) bool {
+        return browser_pane.reloadDisabled(model);
+    }
+
+    pub fn browser_open_disabled(model: *const Model) bool {
+        return browser_pane.openDisabled(model);
     }
 
     pub fn can_new_browser(model: *const Model) bool {

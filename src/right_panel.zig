@@ -28,7 +28,8 @@
 //! not Waku `page_title` / surface UUID tabs / DevTools). When the Browser
 //! tab is hidden every pane parks at 1×1 with no anchor so Native does
 //! not keep the last webview frame over Files/Diff/Terminal. Inactive
-//! occupied slots park the same way. Terminal
+//! occupied slots park the same way. Empty history parks the **active**
+//! pane too and paints a Native start page in the tab body. Terminal
 //! is a first-cut Native `<terminal>` (`fx.ptySpawn` + bound emulator)
 //! with Open in Terminal as the OS-host fallback — first-cut
 //! multi-session inside the Terminal tab (cap 4, keys 700..703;
