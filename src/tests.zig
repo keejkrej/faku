@@ -9333,7 +9333,7 @@ test "right panel Files list reads file_mention cache and derived dirs" {
         try testing.expectEqualStrings("README.md", rows[0].path);
         try testing.expect(rows[0].is_file);
         try testing.expect(!rows[0].expanded);
-        try testing.expectEqualStrings("file-text", rows[0].icon);
+        try testing.expectEqualStrings("app:readme", rows[0].icon);
         try testing.expectEqualStrings("src/", rows[1].path);
         try testing.expect(!rows[1].is_file);
         try testing.expect(!rows[1].expanded);
@@ -9360,7 +9360,7 @@ test "right panel Files list reads file_mention cache and derived dirs" {
         try testing.expectEqualStrings("src/composer.zig", rows[2].path);
         try testing.expectEqualStrings("src/main.zig", rows[3].path);
         try testing.expect(rows[3].is_file);
-        try testing.expectEqualStrings("file-text", rows[3].icon);
+        try testing.expectEqualStrings("app:zig", rows[3].icon);
         try testing.expectEqual(@as(u32, 1), rows[3].id);
     }
 
@@ -21844,7 +21844,7 @@ test "composer @ mention card filters tracked files; insert replaces last token;
         try testing.expectEqualStrings("main.zig", rows[1].name);
         try testing.expectEqualStrings("src", rows[1].parent);
         try testing.expect(rows[1].has_parent);
-        try testing.expectEqualStrings("file-text", rows[1].icon);
+        try testing.expectEqualStrings("app:zig", rows[1].icon);
         try testing.expectEqual(@as(u32, 1), rows[1].id);
         try testing.expectEqualStrings("src/composer.zig", rows[2].path);
         try testing.expectEqualStrings("src/file_mention.zig", rows[3].path);
@@ -22022,7 +22022,7 @@ test "composer @ mention rows rank basename prefix above path contains" {
     try testing.expectEqual(Msg{ .insert_mention = 4 }, tree.msgForPointer(main_row.id, .up).?);
 }
 
-test "composer @ mention rows bind first-cut Native file-type icons" {
+test "composer @ mention rows bind first-cut Material file-type icons" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -22052,7 +22052,7 @@ test "composer @ mention rows bind first-cut Native file-type icons" {
         const rows = model.mention_rows(arena);
         try testing.expectEqual(@as(usize, 1), rows.len);
         try testing.expectEqualStrings("package.json", rows[0].path);
-        try testing.expectEqualStrings("settings", rows[0].icon);
+        try testing.expectEqualStrings("app:nodejs", rows[0].icon);
     }
 
     model.draft_buffer.set("@src");
@@ -22062,7 +22062,7 @@ test "composer @ mention rows bind first-cut Native file-type icons" {
         try testing.expectEqualStrings("src/", rows[0].path);
         try testing.expectEqualStrings("folder", rows[0].icon);
         try testing.expectEqualStrings("src/main.zig", rows[1].path);
-        try testing.expectEqualStrings("file-text", rows[1].icon);
+        try testing.expectEqualStrings("app:zig", rows[1].icon);
     }
 
     model.draft_buffer.set("@README");
@@ -22070,7 +22070,7 @@ test "composer @ mention rows bind first-cut Native file-type icons" {
         const rows = model.mention_rows(arena);
         try testing.expectEqual(@as(usize, 1), rows.len);
         try testing.expectEqualStrings("README.md", rows[0].path);
-        try testing.expectEqualStrings("file-text", rows[0].icon);
+        try testing.expectEqualStrings("app:readme", rows[0].icon);
     }
 
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<icon name=\"{m.icon}\""));

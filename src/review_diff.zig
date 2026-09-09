@@ -97,10 +97,10 @@
 //! matches Waku `right_panel_diff_filter`: trim + ascii-lowercase
 //! contains on the full path; a non-empty query auto-expands ancestor
 //! directories. Empty / whitespace-only query is today's collapsed
-//! tree. File rows paint a Native built-in from `file_icon`
-//! (same Files map: basename/extension → `terminal` / `settings` /
-//! `archive` / `music` / `git-branch`, else `file-text`; not Waku's
-//! SVG pack) + basename (no status prefix) + a separate colored
+//! tree. File rows paint a first-cut Material app icon from `file_icon`
+//! (same Files map: basename/extension → `app:zig` / `app:rust` / …
+//! plus built-in `terminal` / `settings` / `archive` / `music`, else
+//! `file-text`) + basename (no status prefix) + a separate colored
 //! status letter (`A` success, `D` destructive, `B`/`M` warning) and
 //! Waku-style `+N` / `-M` (success / destructive) from numstat when
 //! those counts are non-zero (daemon CollectReviewDiff and local
@@ -431,9 +431,9 @@ pub const binary_file_changed = "Binary file changed";
 /// `D` / `B` / `M` / `?`). Directory `label` is the path segment
 /// (`has_status` false). Optional `+N` / `-M` live in
 /// `additions_label` / `deletions_label` (empty when the count is 0,
-/// and empty on directory rows). `icon` is a Native built-in name
-/// for `icon name="{r.icon}"` (`file_icon.filesTreeIcon` /
-/// `fileIconForPath`; not Waku's SVG pack).
+/// and empty on directory rows). `icon` is a Native built-in or
+/// `app:` Material name for `icon name="{r.icon}"`
+/// (`file_icon.filesTreeIcon` / `fileIconForPath`).
 pub const ReviewDiffRow = struct {
     id: u32,
     label: []const u8,
@@ -1612,8 +1612,8 @@ pub fn reviewDiffHunkFilePath(model: *const Model) []const u8 {
     return file.path();
 }
 
-/// Native built-in for the selected-file Diff header. Same
-/// `file_icon` map as tree file rows (not Waku's SVG pack).
+/// Native built-in or `app:` Material name for the selected-file
+/// Diff header. Same `file_icon` map as tree file rows.
 pub fn reviewDiffHunkFileIcon(model: *const Model) []const u8 {
     return file_icon.fileIconForPath(reviewDiffHunkFilePath(model));
 }
@@ -4081,11 +4081,11 @@ test "reviewDiffRows bind first-cut Native file-type icons" {
         const rows = reviewDiffRows(&model, arena);
         try std.testing.expectEqual(@as(usize, 4), rows.len);
         try expectFileRow(rows[0], "M", ".gitignore");
-        try std.testing.expectEqualStrings("git-branch", rows[0].icon);
+        try std.testing.expectEqualStrings("app:git", rows[0].icon);
         try expectFileRow(rows[1], "M", "package.json");
-        try std.testing.expectEqualStrings("settings", rows[1].icon);
+        try std.testing.expectEqualStrings("app:nodejs", rows[1].icon);
         try expectFileRow(rows[2], "M", "README.md");
-        try std.testing.expectEqualStrings("file-text", rows[2].icon);
+        try std.testing.expectEqualStrings("app:readme", rows[2].icon);
         try std.testing.expectEqualStrings("scripts", rows[3].label);
         try std.testing.expect(rows[3].is_directory);
         try std.testing.expect(!rows[3].expanded);
@@ -6232,14 +6232,14 @@ test "selected-file hunk header binds file_icon from the path" {
     model.review_diff_file_store[0].setCounts('M', "src/a.zig", 1, 0);
     model.review_diff_file_count = 1;
     model.review_diff_selected_id = 1;
-    try std.testing.expectEqualStrings("file-text", reviewDiffHunkFileIcon(&model));
+    try std.testing.expectEqualStrings("app:zig", reviewDiffHunkFileIcon(&model));
 
     writeFixed(&model.review_diff_hunk_path_storage, &model.review_diff_hunk_path_len, "scripts/setup.sh");
     try std.testing.expectEqualStrings("terminal", reviewDiffHunkFileIcon(&model));
 
     writeFixed(&model.review_diff_hunk_path_storage, &model.review_diff_hunk_path_len, "package.json");
-    try std.testing.expectEqualStrings("settings", reviewDiffHunkFileIcon(&model));
+    try std.testing.expectEqualStrings("app:nodejs", reviewDiffHunkFileIcon(&model));
 
     writeFixed(&model.review_diff_hunk_path_storage, &model.review_diff_hunk_path_len, ".gitignore");
-    try std.testing.expectEqualStrings("git-branch", reviewDiffHunkFileIcon(&model));
+    try std.testing.expectEqualStrings("app:git", reviewDiffHunkFileIcon(&model));
 }
