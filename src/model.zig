@@ -30,6 +30,7 @@ const git_commit_mod = @import("git_commit.zig");
 const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
+const file_icon = @import("file_icon.zig");
 const skills = @import("skills.zig");
 const slash_commands = @import("slash_commands.zig");
 const providers = @import("providers.zig");
@@ -291,6 +292,9 @@ pub const CommandRow = struct {
 /// filtered click still inserts that path, not a neighbor.
 /// `name` / `parent` are slices of `path` for scanable labels. Dir
 /// paths keep a trailing slash (`src/`).
+/// `icon` is a Native built-in name for `icon name="{m.icon}"`
+/// (`file_icon.filesTreeIcon`; dirs stay `folder` — the list has
+/// no expand chevron; not Waku's SVG pack).
 pub const MentionRow = struct {
     id: u32,
     path: []const u8,
@@ -298,6 +302,7 @@ pub const MentionRow = struct {
     parent: []const u8,
     has_parent: bool,
     selected: bool = false,
+    icon: []const u8,
 };
 
 /// Files-pane row. `id` is a 1-based file-mention cache index or
@@ -3291,6 +3296,7 @@ pub const Model = struct {
         for (scored_buf[0..take], 0..) |item, i| {
             const name = composer.fileMentionBasename(item.path);
             const parent = composer.fileMentionParent(item.path);
+            const is_file = !file_mention.isDirSentinel(item.path);
             out[i] = .{
                 .id = item.id,
                 .path = item.path,
@@ -3298,6 +3304,7 @@ pub const Model = struct {
                 .parent = parent,
                 .has_parent = parent.len > 0,
                 .selected = i == model.clampedAutocompleteHighlight(take),
+                .icon = file_icon.filesTreeIcon(item.path, is_file, false),
             };
         }
         return out;

@@ -626,8 +626,9 @@ Directory rows paint Native `folder-open` when expanded and `folder` when
 collapsed (chevrons stay). File rows pick a first-cut Native built-in from
 the basename/extension (`terminal` / `settings` / `archive` / `music` /
 `git-branch`, else `file-text`) — not Waku's SVG file-type pack. Diff tree
-rows and the selected-file Diff header reuse this same `file_icon` map
-(Browser / Terminal / composer `@` stay unchanged). Files
+rows and the selected-file Diff header reuse this same `file_icon` map.
+Composer `@` mention rows reuse it too (dirs `folder`, collapsed; no
+expand chevron). Browser / Terminal stay unchanged. Files
 lists the same bounded `file_mention` cache used by composer `@`
 mentions (git ls-files, then a bounded walk; Windows `git.exe -C` /
 PowerShell walk with `-Args`; first-cut daemon

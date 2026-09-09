@@ -21838,11 +21838,13 @@ test "composer @ mention card filters tracked files; insert replaces last token;
         try testing.expectEqualStrings("src", rows[0].name);
         try testing.expectEqualStrings("", rows[0].parent);
         try testing.expect(!rows[0].has_parent);
+        try testing.expectEqualStrings("folder", rows[0].icon);
         try testing.expectEqual(@as(u32, file_mention.file_mention_dir_id_base), rows[0].id);
         try testing.expectEqualStrings("src/main.zig", rows[1].path);
         try testing.expectEqualStrings("main.zig", rows[1].name);
         try testing.expectEqualStrings("src", rows[1].parent);
         try testing.expect(rows[1].has_parent);
+        try testing.expectEqualStrings("file-text", rows[1].icon);
         try testing.expectEqual(@as(u32, 1), rows[1].id);
         try testing.expectEqualStrings("src/composer.zig", rows[2].path);
         try testing.expectEqualStrings("src/file_mention.zig", rows[3].path);
@@ -22018,6 +22020,61 @@ test "composer @ mention rows rank basename prefix above path contains" {
     _ = try expectByText(tree.root, .text, "notes");
     const main_row = try expectButton(tree.root, "src/main.zig");
     try testing.expectEqual(Msg{ .insert_mention = 4 }, tree.msgForPointer(main_row.id, .up).?);
+}
+
+test "composer @ mention rows bind first-cut Native file-type icons" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    const id = model.addSession("mention icons", .fx);
+    model.selected = id;
+    file_mention.applyStdoutPaths(&model,
+        \\run.sh
+        \\package.json
+        \\src/main.zig
+        \\README.md
+    );
+
+    model.draft_buffer.set("@run");
+    try testing.expect(model.mentions_list_open());
+    {
+        const rows = model.mention_rows(arena);
+        try testing.expectEqual(@as(usize, 1), rows.len);
+        try testing.expectEqualStrings("run.sh", rows[0].path);
+        try testing.expectEqualStrings("terminal", rows[0].icon);
+    }
+
+    model.draft_buffer.set("@package");
+    {
+        const rows = model.mention_rows(arena);
+        try testing.expectEqual(@as(usize, 1), rows.len);
+        try testing.expectEqualStrings("package.json", rows[0].path);
+        try testing.expectEqualStrings("settings", rows[0].icon);
+    }
+
+    model.draft_buffer.set("@src");
+    {
+        const rows = model.mention_rows(arena);
+        try testing.expectEqual(@as(usize, 2), rows.len);
+        try testing.expectEqualStrings("src/", rows[0].path);
+        try testing.expectEqualStrings("folder", rows[0].icon);
+        try testing.expectEqualStrings("src/main.zig", rows[1].path);
+        try testing.expectEqualStrings("file-text", rows[1].icon);
+    }
+
+    model.draft_buffer.set("@README");
+    {
+        const rows = model.mention_rows(arena);
+        try testing.expectEqual(@as(usize, 1), rows.len);
+        try testing.expectEqualStrings("README.md", rows[0].path);
+        try testing.expectEqualStrings("file-text", rows[0].icon);
+    }
+
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, main.app_markup, "<icon name=\"{m.icon}\""));
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "each=\"mention_rows\"") != null);
 }
 
 test "composer Enter confirms first @ mention; Esc dismisses; Send button still sends" {

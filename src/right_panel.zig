@@ -109,8 +109,9 @@
 //! (chevrons stay). File rows pick a first-cut Native built-in from
 //! `file_icon` (basename/extension → `terminal` / `settings` /
 //! `archive` / `music` / `git-branch`, else `file-text`) — not Waku's
-//! SVG file-type pack. Diff tree rows and the selected-file Diff
-//! header reuse this same map.
+//! SVG file-type pack. Diff tree rows, the selected-file Diff
+//! header, and composer `@` mention rows reuse this same map
+//! (mention dirs stay `folder`; Browser / Terminal do not).
 //! Files tab ships a bounded inline file preview (prefer daemon
 //! `ReadTextFile` when an address is set, else Faku-side
 //! `readFileAlloc`; 256KB cap, truncated label when larger, binary /
