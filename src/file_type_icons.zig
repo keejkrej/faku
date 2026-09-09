@@ -71,6 +71,17 @@ const eslint_icon = parse("eslint");
 const biome_icon = parse("biome");
 const babel_icon = parse("babel");
 const webpack_icon = parse("webpack");
+const next_icon = parse("next");
+const nuxt_icon = parse("nuxt");
+const angular_icon = parse("angular");
+const prisma_icon = parse("prisma");
+const turborepo_icon = parse("turborepo");
+const storybook_icon = parse("storybook");
+const tailwindcss_icon = parse("tailwindcss");
+const firebase_icon = parse("firebase");
+const supabase_icon = parse("supabase");
+const rollup_icon = parse("rollup");
+const stylelint_icon = parse("stylelint");
 
 /// Bare names (no `app:` prefix). `file_icon` returns `app:` + these.
 pub const app_icons = [_]canvas.icons.Entry{
@@ -132,6 +143,17 @@ pub const app_icons = [_]canvas.icons.Entry{
     .{ .name = "biome", .icon = &biome_icon },
     .{ .name = "babel", .icon = &babel_icon },
     .{ .name = "webpack", .icon = &webpack_icon },
+    .{ .name = "next", .icon = &next_icon },
+    .{ .name = "nuxt", .icon = &nuxt_icon },
+    .{ .name = "angular", .icon = &angular_icon },
+    .{ .name = "prisma", .icon = &prisma_icon },
+    .{ .name = "turborepo", .icon = &turborepo_icon },
+    .{ .name = "storybook", .icon = &storybook_icon },
+    .{ .name = "tailwindcss", .icon = &tailwindcss_icon },
+    .{ .name = "firebase", .icon = &firebase_icon },
+    .{ .name = "supabase", .icon = &supabase_icon },
+    .{ .name = "rollup", .icon = &rollup_icon },
+    .{ .name = "stylelint", .icon = &stylelint_icon },
 };
 
 pub fn contains(name: []const u8) bool {
@@ -142,7 +164,7 @@ pub fn contains(name: []const u8) bool {
 }
 
 test "file-type app_icons names are unique and parse to shapes" {
-    try std.testing.expectEqual(@as(usize, 58), app_icons.len);
+    try std.testing.expectEqual(@as(usize, 69), app_icons.len);
     var i: usize = 0;
     while (i < app_icons.len) : (i += 1) {
         try std.testing.expect(app_icons[i].icon.shapes.len > 0);
@@ -159,9 +181,12 @@ test "file-type app_icons names are unique and parse to shapes" {
     try std.testing.expect(contains("bun"));
     try std.testing.expect(contains("console"));
     try std.testing.expect(contains("webpack"));
+    try std.testing.expect(contains("next"));
+    try std.testing.expect(contains("stylelint"));
     try std.testing.expect(!contains("kotlin"));
     try std.testing.expect(!contains("graphql"));
     try std.testing.expect(!contains("prettier"));
+    try std.testing.expect(!contains("nest"));
     try std.testing.expect(!contains("app:zig"));
     try std.testing.expect(!contains("file-text"));
 }
