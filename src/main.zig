@@ -236,7 +236,8 @@ pub const open_url_key = open_url.open_url_key;
 /// Effects revision.
 pub const open_terminal_key = open_terminal.open_terminal_key;
 /// Dedicated pty occupancy for the right-panel `<terminal>` binding.
-/// Distinct from Open in Terminal (27) and litellm (650). Fixed key 700.
+/// Distinct from Open in Terminal (27) and litellm (650). Fixed band
+/// 700..703 (first-cut multi-session, cap 4).
 pub const pty_shell_key = pty_terminal.pty_shell_key;
 /// One-shot OS editor sidecar (`cursor` / `code`, macOS `open -a`, Windows `cursor.cmd` / `code.cmd`).
 /// Distinct from open_terminal (27), reveal_folder (28), pick_folder (29),

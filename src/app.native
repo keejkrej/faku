@@ -1565,6 +1565,15 @@
         <if test="{right_panel_showing_terminal}">
           <column grow="1" gap="6" padding="8" label="Terminal">
             <row gap="8" cross="center">
+              <for each="term_session_rows" key="id" as="t">
+                <button variant="ghost" size="sm" selected="{t.selected}" on-press="select_term_session:{t.id}">{t.label}</button>
+              </for>
+              <if test="{can_new_terminal}">
+                <button variant="ghost" size="sm" on-press="new_terminal">New</button>
+              </if>
+              <if test="{can_close_terminal}">
+                <button variant="ghost" size="sm" on-press="close_terminal">Close</button>
+              </if>
               <if test="{can_restart_terminal}">
                 <button variant="ghost" size="sm" on-press="restart_terminal">Restart</button>
               </if>

@@ -26,8 +26,9 @@
 //! anchor so Native does not keep the last webview frame over
 //! Files/Diff/Terminal. Terminal
 //! is a first-cut Native `<terminal>` (`fx.ptySpawn` + bound emulator)
-//! with Open in Terminal as the OS-host fallback — not Waku terminal
-//! chrome (tabs, multiple sessions, persist).
+//! with Open in Terminal as the OS-host fallback — first-cut
+//! multi-session inside the Terminal tab (cap 4, keys 700..703,
+//! runtime-only; not Waku surface UUID tabs / persist).
 //! Claude CLI TaskStop (Faku-side Monitor and
 //! Subagent Stop on one-shot `claude -p` ships; live Stop dismisses
 //! that live row and does not invoke TaskStop mid-turn; settled
@@ -733,9 +734,10 @@ pub fn selectBrowser(model: *Model, fx: *Effects) void {
 /// width toward 460 when still file-tree-narrow (same 280–1000 clamp
 /// as Diff; open bump stays 460, not `REVIEW_INITIAL_WIDTH`).
 /// Spawns the interactive login shell when no session is live
-/// (`pty_terminal.spawnShell`; no-op while occupying key 700).
-/// Open in Terminal stays the OS-host fallback. Tab persists via
-/// layout extras. Not Waku tabs / multiple sessions / persist.
+/// (`pty_terminal.spawnShell`; no-op while any of keys 700..703 is
+/// live). Open in Terminal stays the OS-host fallback. Tab persists via
+/// layout extras. First-cut multi-session (cap 4, runtime-only); not
+/// Waku surface UUID tabs / persist.
 pub fn selectTerminal(model: *Model, fx: *Effects) void {
     leaveDiffSurfaceIfNeeded(model);
     const was_open = model.right_panel_open;

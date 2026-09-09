@@ -15,8 +15,9 @@
 //! Native PTY exists (`fx.ptySpawn` + `<terminal>` in the Terminal tab).
 //! This sidecar is the OS-host fallback: it opens at `project_path`
 //! when the embedded session cannot (or when the user wants a real
-//! Terminal.app / x-terminal-emulator / wt window). Not Waku terminal
-//! chrome. Spawn stdin is unused (write-once then close).
+//! Terminal.app / x-terminal-emulator / wt window). Embedded
+//! multi-session lives in `pty_terminal.zig`. Spawn stdin is unused
+//! (write-once then close).
 
 const std = @import("std");
 const builtin = @import("builtin");

@@ -702,8 +702,14 @@ pub const Msg = union(enum) {
     /// Composer Open in Terminal: one-shot OS terminal sidecar. Secondary to
     /// the embedded `<terminal>` pty session.
     open_terminal,
-    /// Terminal tab Restart after the pty exit. Re-spawns the shell.
+    /// Terminal tab Restart after the pty exit. Re-spawns the active ended shell.
     restart_terminal,
+    /// Allocate the next free Terminal slot (cap 4) and spawn it.
+    new_terminal,
+    /// Close the active Terminal slot (ptyKill if live) and select a neighbor.
+    close_terminal,
+    /// Terminal session chip. Payload is the 1-based slot index (1..4).
+    select_term_session: u32,
     /// `<terminal on-terminal>` scrollback echo (workbench pattern).
     term_state: canvas.TerminalState,
     /// Dedicated pty `on_event` (output batches + exactly-one exit).
@@ -1231,15 +1237,11 @@ pub const Model = struct {
     open_terminal_tried_fallback: bool = false,
     open_terminal_wd_storage: [open_terminal.wd_arg_len]u8 = [_]u8{0} ** open_terminal.wd_arg_len,
     open_terminal_wd_len: usize = 0,
-    /// First-cut embedded Terminal tab. Runtime-owned emulator behind
-    /// `pty_shell_key`; these fields are occupancy + scrollback echo.
-    term_pty_live: bool = false,
-    term_ended: bool = false,
-    term_scrollback: u32 = 0,
-    term_status_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
-    term_status_len: usize = 0,
-    term_windows_cd_storage: [pty_terminal.windows_cd_arg_len]u8 = [_]u8{0} ** pty_terminal.windows_cd_arg_len,
-    term_windows_cd_len: usize = 0,
+    /// First-cut Terminal multi-session (cap 4, keys 700..703). Runtime-only;
+    /// occupancy / scrollback / status live on each slot. `term_active`
+    /// is the bound `<terminal>` slot.
+    term_slots: [pty_terminal.max_sessions]pty_terminal.Slot = [_]pty_terminal.Slot{.{}} ** pty_terminal.max_sessions,
+    term_active: u8 = 0,
     open_editor_live: bool = false,
     open_editor_stage: open_editor.Stage = .first,
     open_editor_path_storage: [open_editor.max_open_path]u8 = [_]u8{0} ** open_editor.max_open_path,
@@ -1987,12 +1989,8 @@ pub const Model = struct {
         "open_terminal_tried_fallback",
         "open_terminal_wd_storage",
         "open_terminal_wd_len",
-        "term_pty_live",
-        "term_ended",
-        "term_status_storage",
-        "term_status_len",
-        "term_windows_cd_storage",
-        "term_windows_cd_len",
+        "term_slots",
+        "term_active",
         "open_editor_live",
         "open_editor_stage",
         "open_editor_path_storage",
@@ -2821,7 +2819,7 @@ pub const Model = struct {
     }
 
     /// Dedicated PTY effect key for the right-panel `<terminal>` binding.
-    /// Model data, never a markup literal.
+    /// Model data, never a markup literal. Active slot in 700..703.
     pub fn shell_key(model: *const Model) u64 {
         return pty_terminal.shell_key(model);
     }
@@ -2834,12 +2832,28 @@ pub const Model = struct {
         return pty_terminal.can_restart_terminal(model);
     }
 
+    pub fn can_new_terminal(model: *const Model) bool {
+        return pty_terminal.can_new_terminal(model);
+    }
+
+    pub fn can_close_terminal(model: *const Model) bool {
+        return pty_terminal.can_close_terminal(model);
+    }
+
     pub fn has_term_status(model: *const Model) bool {
         return pty_terminal.has_term_status(model);
     }
 
     pub fn term_status(model: *const Model) []const u8 {
         return pty_terminal.term_status(model);
+    }
+
+    pub fn term_scrollback(model: *const Model) u32 {
+        return pty_terminal.term_scrollback(model);
+    }
+
+    pub fn term_session_rows(model: *const Model, arena: std.mem.Allocator) []const pty_terminal.TermSessionRow {
+        return pty_terminal.sessionRows(model, arena);
     }
 
     /// Open in Terminal's "no project" nag. Hidden while the embedded
