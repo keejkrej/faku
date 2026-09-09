@@ -22044,7 +22044,7 @@ test "composer @ mention rows bind first-cut Material file-type icons" {
         const rows = model.mention_rows(arena);
         try testing.expectEqual(@as(usize, 1), rows.len);
         try testing.expectEqualStrings("run.sh", rows[0].path);
-        try testing.expectEqualStrings("terminal", rows[0].icon);
+        try testing.expectEqualStrings("app:console", rows[0].icon);
     }
 
     model.draft_buffer.set("@package");

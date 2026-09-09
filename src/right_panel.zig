@@ -108,7 +108,8 @@
 //! Native `folder-open` when expanded and `folder` when collapsed
 //! (chevrons stay). File rows pick a Material app icon
 //! (`app:zig`, `app:rust`, `app:ruby`, … MIT subset) or a Native built-in
-//! (`terminal` / `settings` / `archive` / `music`, else `file-text`).
+//! (`settings` / `archive` / `music`, else `file-text`; shells bind
+//! Material `app:console` / `app:powershell`).
 //! Diff tree rows, the selected-file Diff
 //! header, and composer `@` mention rows reuse this same map
 //! (mention dirs stay `folder`; Browser / Terminal do not).
@@ -2528,7 +2529,7 @@ test "Files tree rows bind first-cut Native file-type icons" {
         try std.testing.expectEqualStrings("package.json", visible[4].path);
         try std.testing.expectEqualStrings("app:nodejs", visible[4].icon);
         try std.testing.expectEqualStrings("run.sh", visible[5].path);
-        try std.testing.expectEqualStrings("terminal", visible[5].icon);
+        try std.testing.expectEqualStrings("app:console", visible[5].icon);
         try std.testing.expectEqualStrings("src/", visible[6].path);
         try std.testing.expect(!visible[6].is_file);
         try std.testing.expect(!visible[6].expanded);

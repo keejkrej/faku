@@ -5,10 +5,11 @@
 //! (basename specials, then extension) and maps onto a curated MIT
 //! Material app-icon subset (`app:zig`, `app:rust`, `app:ruby`, … from
 //! `src/icons/file-types/`) plus Native built-ins for directories
-//! (`folder` / `folder-open`), shells (`terminal`), archives
-//! (`archive`), audio (`music`), leftover config (`settings`), and
-//! unknown files (`file-text`). Diff tree rows, the selected-file
-//! Diff header, and composer `@` mention rows reuse this same map
+//! (`folder` / `folder-open`), shells (`app:console` /
+//! `app:powershell`), archives (`archive`), audio (`music`), leftover
+//! config (`settings`), and unknown files (`file-text`). Diff tree
+//! rows, the selected-file Diff header, and composer `@` mention
+//! rows reuse this same map
 //! (dirs stay `folder` in `@`; the list has no expand chevron).
 //! Browser and Terminal do not.
 
@@ -40,7 +41,8 @@ pub fn fileIconForName(name: []const u8) []const u8 {
     if (basenameSpecial(name)) |icon| return icon;
 
     const ext = extensionOf(name);
-    if (extensionIs(ext, &.{ "sh", "bash", "zsh", "fish", "ps1", "psm1" })) return "terminal";
+    if (extensionIs(ext, &.{ "sh", "bash", "zsh", "fish" })) return app("console");
+    if (extensionIs(ext, &.{ "ps1", "psm1" })) return app("powershell");
     if (extensionIs(ext, &.{ "zip", "tar", "gz", "tgz", "7z", "rar" })) return "archive";
     if (extensionIs(ext, &.{ "mp3", "wav", "ogg", "flac", "m4a" })) return "music";
     if (extensionIs(ext, &.{ "zig" })) return app("zig");
@@ -97,7 +99,15 @@ fn basenameSpecial(name: []const u8) ?[]const u8 {
     if (std.ascii.eqlIgnoreCase(name, "go.mod") or
         std.ascii.eqlIgnoreCase(name, "go.sum") or
         std.ascii.eqlIgnoreCase(name, "go.work")) return app("go");
+    if (std.ascii.eqlIgnoreCase(name, "bun.lock") or
+        std.ascii.eqlIgnoreCase(name, "bun.lockb") or
+        std.ascii.eqlIgnoreCase(name, "bunfig.toml")) return app("bun");
+    if (startsWithIgnoreCase(name, "pnpm-") or
+        std.ascii.eqlIgnoreCase(name, ".pnpmfile.cjs")) return app("pnpm");
+    if (std.ascii.eqlIgnoreCase(name, "yarn.lock") or
+        startsWithIgnoreCase(name, ".yarnrc")) return app("yarn");
     if (std.ascii.eqlIgnoreCase(name, "package.json")) return app("nodejs");
+    if (std.ascii.eqlIgnoreCase(name, "package-lock.json")) return app("npm");
     if (startsWithIgnoreCase(name, "tsconfig.") or std.ascii.eqlIgnoreCase(name, "tsconfig.json"))
         return app("typescript");
     if (startsWithIgnoreCase(name, ".git")) return app("git");
@@ -106,6 +116,17 @@ fn basenameSpecial(name: []const u8) ?[]const u8 {
     if (std.ascii.eqlIgnoreCase(name, "composer.json") or
         std.ascii.eqlIgnoreCase(name, "composer.lock")) return app("php");
     if (startsWithIgnoreCase(name, "astro.config.")) return app("astro");
+    if (startsWithIgnoreCase(name, ".eslint") or startsWithIgnoreCase(name, "eslint.config."))
+        return app("eslint");
+    if (startsWithIgnoreCase(name, "biome.json")) return app("biome");
+    if (startsWithIgnoreCase(name, ".babel") or startsWithIgnoreCase(name, "babel.config."))
+        return app("babel");
+    if (startsWithIgnoreCase(name, "vite.config.")) return app("vite");
+    if (startsWithIgnoreCase(name, "vitest.config.") or startsWithIgnoreCase(name, "vitest.workspace."))
+        return app("vitest");
+    if (startsWithIgnoreCase(name, "webpack.")) return app("webpack");
+    if (startsWithIgnoreCase(name, "deno.json") or std.ascii.eqlIgnoreCase(name, "deno.lock"))
+        return app("deno");
     if (isSettingsName(name)) return "settings";
     return null;
 }
@@ -163,12 +184,12 @@ test "filesTreeIcon uses folder-open when expanded and folder when collapsed" {
 }
 
 test "fileIconForName maps shells, archives, audio, leftover config" {
-    try std.testing.expectEqualStrings("terminal", fileIconForName("run.sh"));
-    try std.testing.expectEqualStrings("terminal", fileIconForName("setup.BASH"));
-    try std.testing.expectEqualStrings("terminal", fileIconForName("rc.zsh"));
-    try std.testing.expectEqualStrings("terminal", fileIconForName("config.fish"));
-    try std.testing.expectEqualStrings("terminal", fileIconForName("build.ps1"));
-    try std.testing.expectEqualStrings("terminal", fileIconForName("Tools.psm1"));
+    try std.testing.expectEqualStrings("app:console", fileIconForName("run.sh"));
+    try std.testing.expectEqualStrings("app:console", fileIconForName("setup.BASH"));
+    try std.testing.expectEqualStrings("app:console", fileIconForName("rc.zsh"));
+    try std.testing.expectEqualStrings("app:console", fileIconForName("config.fish"));
+    try std.testing.expectEqualStrings("app:powershell", fileIconForName("build.ps1"));
+    try std.testing.expectEqualStrings("app:powershell", fileIconForName("Tools.psm1"));
 
     try std.testing.expectEqualStrings("settings", fileIconForName("php.ini"));
     try std.testing.expectEqualStrings("settings", fileIconForName("app.cfg"));
@@ -266,6 +287,30 @@ test "fileIconForName maps high-value basename specials" {
     try std.testing.expectEqualStrings("app:php", fileIconForName("composer.json"));
     try std.testing.expectEqualStrings("app:php", fileIconForName("composer.lock"));
     try std.testing.expectEqualStrings("app:astro", fileIconForName("astro.config.mjs"));
+    try std.testing.expectEqualStrings("app:bun", fileIconForName("bun.lock"));
+    try std.testing.expectEqualStrings("app:bun", fileIconForName("bun.lockb"));
+    try std.testing.expectEqualStrings("app:bun", fileIconForName("bunfig.toml"));
+    try std.testing.expectEqualStrings("app:pnpm", fileIconForName("pnpm-lock.yaml"));
+    try std.testing.expectEqualStrings("app:pnpm", fileIconForName("pnpm-workspace.yaml"));
+    try std.testing.expectEqualStrings("app:pnpm", fileIconForName(".pnpmfile.cjs"));
+    try std.testing.expectEqualStrings("app:yarn", fileIconForName("yarn.lock"));
+    try std.testing.expectEqualStrings("app:yarn", fileIconForName(".yarnrc"));
+    try std.testing.expectEqualStrings("app:yarn", fileIconForName(".yarnrc.yml"));
+    try std.testing.expectEqualStrings("app:npm", fileIconForName("package-lock.json"));
+    try std.testing.expectEqualStrings("app:deno", fileIconForName("deno.json"));
+    try std.testing.expectEqualStrings("app:deno", fileIconForName("deno.jsonc"));
+    try std.testing.expectEqualStrings("app:deno", fileIconForName("deno.lock"));
+    try std.testing.expectEqualStrings("app:vite", fileIconForName("vite.config.ts"));
+    try std.testing.expectEqualStrings("app:vite", fileIconForName("vite.config.mjs"));
+    try std.testing.expectEqualStrings("app:vitest", fileIconForName("vitest.config.ts"));
+    try std.testing.expectEqualStrings("app:vitest", fileIconForName("vitest.workspace.ts"));
+    try std.testing.expectEqualStrings("app:eslint", fileIconForName(".eslintrc.json"));
+    try std.testing.expectEqualStrings("app:eslint", fileIconForName("eslint.config.js"));
+    try std.testing.expectEqualStrings("app:biome", fileIconForName("biome.json"));
+    try std.testing.expectEqualStrings("app:biome", fileIconForName("biome.jsonc"));
+    try std.testing.expectEqualStrings("app:babel", fileIconForName(".babelrc"));
+    try std.testing.expectEqualStrings("app:babel", fileIconForName("babel.config.js"));
+    try std.testing.expectEqualStrings("app:webpack", fileIconForName("webpack.config.js"));
 }
 
 test "fileIconForName unknown files stay file-text" {
@@ -278,7 +323,7 @@ test "fileIconForName unknown files stay file-text" {
 }
 
 test "fileIconForPath uses the basename of a repo-relative path" {
-    try std.testing.expectEqualStrings("terminal", fileIconForPath("scripts/setup.sh"));
+    try std.testing.expectEqualStrings("app:console", fileIconForPath("scripts/setup.sh"));
     try std.testing.expectEqualStrings("app:nodejs", fileIconForPath("src/package.json"));
     try std.testing.expectEqualStrings("app:git", fileIconForPath(".gitignore"));
     try std.testing.expectEqualStrings("app:zig", fileIconForPath("src/main.zig"));
@@ -287,8 +332,8 @@ test "fileIconForPath uses the basename of a repo-relative path" {
 }
 
 test "filesTreeIcon file rows ignore expand state" {
-    try std.testing.expectEqualStrings("terminal", filesTreeIcon("run.sh", true, true));
-    try std.testing.expectEqualStrings("terminal", filesTreeIcon("run.sh", true, false));
+    try std.testing.expectEqualStrings("app:console", filesTreeIcon("run.sh", true, true));
+    try std.testing.expectEqualStrings("app:console", filesTreeIcon("run.sh", true, false));
     try std.testing.expectEqualStrings("app:readme", filesTreeIcon("README.md", true, true));
 }
 
@@ -297,7 +342,11 @@ test "files tree icons stay in Native built-ins or registered app: names" {
         filesTreeIcon("src/", false, false),
         filesTreeIcon("src/", false, true),
         fileIconForName("run.sh"),
+        fileIconForName("build.ps1"),
         fileIconForName("package.json"),
+        fileIconForName("package-lock.json"),
+        fileIconForName("bun.lock"),
+        fileIconForName("vite.config.ts"),
         fileIconForName("out.zip"),
         fileIconForName("track.mp3"),
         fileIconForName(".gitignore"),
