@@ -9,7 +9,9 @@
 //! (`onKey` has no focus/model; composer Shift-Enter newline).
 //! Prev remains the chevron / Cmd-Shift-G.
 //! Browser first-cut: Cmd/Ctrl-R/L/[/] emit model-gated Msgs (`onKey`
-//! has no focus). Hard Reload / DevTools / Stop stay unbound.
+//! has no focus). Escape stays `.stop`; handleStop restores the
+//! address draft when that field is active (Waku BrowserAddressCancel).
+//! Hard Reload / DevTools / loading Stop stay unbound.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");

@@ -95,7 +95,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         // Chromeless titlebar has no OS close. This is the documented
         // window-action effect (`examples/deck`): last-window close
         // follows the host exit path. Esc stays `.stop` so the session
-        // switcher / Environment dropdown / Review card / command palette / settings / transcript-find / Files-preview-find / project-edit /
+        // switcher / Environment dropdown / Review card / command palette / settings / Browser address cancel / transcript-find / Files-preview-find / project-edit /
         // daemon BrowseDirectory browser / image-attach / commands / typing-triggered @ / slash card /
         // folder-title-edit / session-title-edit / a live turn keep it.
         .close_window => fx.closeWindow(main_window_label),
@@ -354,6 +354,8 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .term_pty => |event| pty_terminal.handlePtyEvent(model, event),
         .browser_url_edit => |edit| {
             model.applyBrowserUrl(edit);
+            model.browser_address_active = true;
+            model.composer_active = false;
             store.persistLayoutIfPossible(model);
         },
         .browser_navigate => {

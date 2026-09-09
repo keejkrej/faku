@@ -302,6 +302,13 @@ fn syncDraftFromCommitted(slot: *Slot) void {
     slot.url_buffer.set(displayUrl(committedText(slot)));
 }
 
+/// Echo the committed history URL into the active slot's address draft
+/// (Waku `restore_address` / `BrowserAddressCancel`). Empty history
+/// clears the draft the same way `syncDraftFromCommitted` does.
+pub fn restoreAddressFromCommitted(model: *Model) void {
+    syncDraftFromCommitted(activeSlot(model));
+}
+
 fn currentUrlAt(model: *const Model, index: usize) []const u8 {
     const slot = slotConst(model, index);
     if (!slot.occupied or slot.history_count == 0) return home_url;
@@ -842,6 +849,25 @@ test "displayUrl hides a leading https:// only" {
     try std.testing.expectEqualStrings("file:///tmp/a", displayUrl("file:///tmp/a"));
     try std.testing.expectEqualStrings("mailto:hi@example.com", displayUrl("mailto:hi@example.com"));
     try std.testing.expectEqualStrings("HTTPS://EXAMPLE.COM", displayUrl("HTTPS://EXAMPLE.COM"));
+}
+
+test "restoreAddressFromCommitted echoes display_url of committed history" {
+    var model: Model = .{};
+    setDraft(&model, "https://example.com/x");
+    commitNavigation(&model);
+    try std.testing.expectEqualStrings("example.com/x", draft(&model));
+    setDraft(&model, "dirty-draft");
+    restoreAddressFromCommitted(&model);
+    try std.testing.expectEqualStrings("example.com/x", draft(&model));
+    try std.testing.expectEqualStrings("https://example.com/x", currentUrl(&model));
+}
+
+test "restoreAddressFromCommitted empty history is empty display draft" {
+    var model: Model = .{};
+    setDraft(&model, "half-typed");
+    try std.testing.expectEqualStrings("half-typed", draft(&model));
+    restoreAddressFromCommitted(&model);
+    try std.testing.expectEqualStrings("", draft(&model));
 }
 
 test "isSecureUrl matches Waku starts_with https://" {

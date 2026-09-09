@@ -978,8 +978,10 @@ pub const Model = struct {
     /// 0-based index among matching turns for the selected session.
     find_match_index: u32 = 0,
     composer_active: bool = false,
-    /// Runtime-only Browser address-field autofocus (Cmd/Ctrl-L). Not
-    /// persisted. Markup binds `browser_address_autofocus`.
+    /// Runtime-only Browser address-field autofocus (Cmd/Ctrl-L or
+    /// typing in the address field). Not persisted. Markup binds
+    /// `browser_address_autofocus`. Escape restores the committed
+    /// display draft when this is set and Browser chords are live.
     browser_address_active: bool = false,
     mode: Mode = .demo,
     phase: Phase = .idle,
