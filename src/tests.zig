@@ -12041,7 +12041,7 @@ test "cmd-r / cmd-l / cmd-[ / cmd-] route by Browser-tab keyboard gate" {
     try testing.expect(model.browser_address_active);
     try testing.expect(!model.composer_active);
     try testing.expect(model.browser_address_autofocus());
-    var tree = try buildTree(arena, &model);
+    const tree = try buildTree(arena, &model);
     const address = try expectByText(tree.root, .text_field, "Address");
     try testing.expect(address.autofocus);
     if (findByKind(tree.root, .textarea)) |composer| {
