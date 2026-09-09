@@ -108,6 +108,9 @@
   </column>
 </template>
 <template name="files-tree-rows">
+  <!-- First-cut Native built-in from `f.icon` (`file_icon.filesTreeIcon`):
+       dirs `folder` / `folder-open`, files terminal/settings/archive/music/
+       git-branch else file-text. Not Waku's SVG pack. Chevrons stay. -->
   <column>
     <for each="right_panel_file_rows" key="id" as="f">
       <if test="{f.is_file}">
@@ -115,7 +118,7 @@
           <if test="{f.has_indent}">
             <spacer width="{f.indent}" />
           </if>
-          <icon name="file-text" />
+          <icon name="{f.icon}" />
           <column gap="2">
             <text wrap="false" overflow="ellipsis">{f.name}</text>
             <if test="{f.has_parent}">
@@ -135,7 +138,7 @@
           <else>
             <icon name="chevron-right" />
           </else>
-          <icon name="folder" />
+          <icon name="{f.icon}" />
           <column gap="2">
             <text wrap="false" overflow="ellipsis">{f.name}</text>
             <if test="{f.has_parent}">

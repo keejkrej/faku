@@ -304,6 +304,8 @@ pub const MentionRow = struct {
 /// `file_mention_dir_id_base + dir_index` so Native
 /// `open_right_panel_file:{f.id}` never binds 0. Dir rows toggle
 /// `toggle_right_panel_dir:{f.id}`; `expanded` is false for files.
+/// `icon` is a Native built-in name for `icon name="{f.icon}"`
+/// (`file_icon.filesTreeIcon`; not Waku's SVG pack).
 pub const RightPanelFileRow = struct {
     id: u32,
     path: []const u8,
@@ -316,6 +318,7 @@ pub const RightPanelFileRow = struct {
     has_indent: bool,
     indent: f32,
     selected: bool = false,
+    icon: []const u8,
 };
 
 /// Settings Skills row. `id` is a 1-based index into the runtime

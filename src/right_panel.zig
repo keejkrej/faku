@@ -104,8 +104,12 @@
 //!
 //! Loaded Files tree chrome (not no-project / Loading) paints a compact
 //! ~42px header: Native `folder` icon + truncated `project_path`
-//! basename (`right_panel_files_project_name`). Directory vs file rows
-//! paint Native `folder` / `file-text` like Diff (not per-extension).
+//! basename (`right_panel_files_project_name`). Directory rows paint
+//! Native `folder-open` when expanded and `folder` when collapsed
+//! (chevrons stay). File rows pick a first-cut Native built-in from
+//! `file_icon` (basename/extension → `terminal` / `settings` /
+//! `archive` / `music` / `git-branch`, else `file-text`) — not Waku's
+//! SVG file-type pack, not Diff.
 //! Files tab ships a bounded inline file preview (prefer daemon
 //! `ReadTextFile` when an address is set, else Faku-side
 //! `readFileAlloc`; 256KB cap, truncated label when larger, binary /
@@ -247,6 +251,7 @@ const main = @import("main.zig");
 const file_mention = @import("file_mention.zig");
 const composer = @import("composer.zig");
 const code_language = @import("code_language.zig");
+const file_icon = @import("file_icon.zig");
 const open_editor = @import("open_editor.zig");
 const open_url = @import("open_url.zig");
 const pty_terminal = @import("pty_terminal.zig");
@@ -636,6 +641,7 @@ fn makeRow(path: []const u8, id: u32, is_file: bool, expanded: bool, selected: b
         .has_indent = depth > 0,
         .indent = @as(f32, @floatFromInt(depth)) * indent_step,
         .selected = selected,
+        .icon = file_icon.filesTreeIcon(path, is_file, expanded),
     };
 }
 
@@ -2398,10 +2404,12 @@ test "collapsed default, expand shows children, collapse hides descendants" {
         try std.testing.expectEqual(@as(usize, 2), visible.len);
         try std.testing.expectEqualStrings("README.md", visible[0].path);
         try std.testing.expect(visible[0].is_file);
+        try std.testing.expectEqualStrings("file-text", visible[0].icon);
         try std.testing.expectEqual(@as(u32, 0), visible[0].depth);
         try std.testing.expectEqualStrings("src/", visible[1].path);
         try std.testing.expect(!visible[1].is_file);
         try std.testing.expect(!visible[1].expanded);
+        try std.testing.expectEqualStrings("folder", visible[1].icon);
         try std.testing.expectEqual(src_id, visible[1].id);
         try std.testing.expectEqual(@as(u32, 0), visible[1].depth);
     }
@@ -2414,8 +2422,10 @@ test "collapsed default, expand shows children, collapse hides descendants" {
         try std.testing.expectEqualStrings("README.md", visible[0].path);
         try std.testing.expectEqualStrings("src/", visible[1].path);
         try std.testing.expect(visible[1].expanded);
+        try std.testing.expectEqualStrings("folder-open", visible[1].icon);
         try std.testing.expectEqualStrings("src/lib/", visible[2].path);
         try std.testing.expect(!visible[2].expanded);
+        try std.testing.expectEqualStrings("folder", visible[2].icon);
         try std.testing.expectEqual(src_lib_id, visible[2].id);
         try std.testing.expectEqual(@as(u32, 1), visible[2].depth);
         try std.testing.expect(visible[2].has_indent);
@@ -2423,6 +2433,7 @@ test "collapsed default, expand shows children, collapse hides descendants" {
         try std.testing.expectEqualStrings("src/main.zig", visible[3].path);
         try std.testing.expect(visible[3].is_file);
         try std.testing.expect(!visible[3].expanded);
+        try std.testing.expectEqualStrings("file-text", visible[3].icon);
     }
 
     toggleDir(&model, &fx, src_lib_id);
@@ -2466,6 +2477,77 @@ test "collapsed default, expand shows children, collapse hides descendants" {
     try std.testing.expectEqual(@as(u32, 1), model.right_panel_expanded_count);
     file_mention.clearCache(&model);
     try std.testing.expectEqual(@as(u32, 0), model.right_panel_expanded_count);
+}
+
+test "Files tree rows bind first-cut Native file-type icons" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-files-icons-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    model.store_io = std.testing.io;
+    const id = model.addSession("tree icons", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(&model,
+        \\.gitignore
+        \\Makefile
+        \\README.md
+        \\archive.zip
+        \\package.json
+        \\run.sh
+        \\src/main.zig
+        \\track.mp3
+    );
+
+    {
+        const visible = rows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 8), visible.len);
+        try std.testing.expectEqualStrings(".gitignore", visible[0].path);
+        try std.testing.expectEqualStrings("git-branch", visible[0].icon);
+        try std.testing.expectEqualStrings("Makefile", visible[1].path);
+        try std.testing.expectEqualStrings("settings", visible[1].icon);
+        try std.testing.expectEqualStrings("README.md", visible[2].path);
+        try std.testing.expectEqualStrings("file-text", visible[2].icon);
+        try std.testing.expectEqualStrings("archive.zip", visible[3].path);
+        try std.testing.expectEqualStrings("archive", visible[3].icon);
+        try std.testing.expectEqualStrings("package.json", visible[4].path);
+        try std.testing.expectEqualStrings("settings", visible[4].icon);
+        try std.testing.expectEqualStrings("run.sh", visible[5].path);
+        try std.testing.expectEqualStrings("terminal", visible[5].icon);
+        try std.testing.expectEqualStrings("src/", visible[6].path);
+        try std.testing.expect(!visible[6].is_file);
+        try std.testing.expect(!visible[6].expanded);
+        try std.testing.expectEqualStrings("folder", visible[6].icon);
+        try std.testing.expectEqualStrings("track.mp3", visible[7].path);
+        try std.testing.expectEqualStrings("music", visible[7].icon);
+    }
+
+    const src_id = file_mention.dirMentionId(0);
+    toggleDir(&model, &fx, src_id);
+    {
+        const visible = rows(&model, arena);
+        try std.testing.expectEqual(@as(usize, 9), visible.len);
+        try std.testing.expectEqualStrings("src/", visible[6].path);
+        try std.testing.expect(visible[6].expanded);
+        try std.testing.expectEqualStrings("folder-open", visible[6].icon);
+        try std.testing.expectEqualStrings("src/main.zig", visible[7].path);
+        try std.testing.expectEqualStrings("file-text", visible[7].icon);
+        try std.testing.expectEqualStrings("track.mp3", visible[8].path);
+        try std.testing.expectEqualStrings("music", visible[8].icon);
+    }
 }
 
 fn writePreviewFile(io: std.Io, abs: []const u8, data: []const u8) !void {

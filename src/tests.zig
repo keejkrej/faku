@@ -9333,9 +9333,11 @@ test "right panel Files list reads file_mention cache and derived dirs" {
         try testing.expectEqualStrings("README.md", rows[0].path);
         try testing.expect(rows[0].is_file);
         try testing.expect(!rows[0].expanded);
+        try testing.expectEqualStrings("file-text", rows[0].icon);
         try testing.expectEqualStrings("src/", rows[1].path);
         try testing.expect(!rows[1].is_file);
         try testing.expect(!rows[1].expanded);
+        try testing.expectEqualStrings("folder", rows[1].icon);
         try testing.expectEqual(file_mention.file_mention_dir_id_base, rows[1].id);
     }
 
@@ -9354,9 +9356,11 @@ test "right panel Files list reads file_mention cache and derived dirs" {
         try testing.expectEqualStrings("README.md", rows[0].path);
         try testing.expectEqualStrings("src/", rows[1].path);
         try testing.expect(rows[1].expanded);
+        try testing.expectEqualStrings("folder-open", rows[1].icon);
         try testing.expectEqualStrings("src/composer.zig", rows[2].path);
         try testing.expectEqualStrings("src/main.zig", rows[3].path);
         try testing.expect(rows[3].is_file);
+        try testing.expectEqualStrings("file-text", rows[3].icon);
         try testing.expectEqual(@as(u32, 1), rows[3].id);
     }
 
@@ -9773,6 +9777,7 @@ test "Files tree header shows project basename on a loaded tree" {
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "template=\"files-tree-header\""));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "template=\"files-tree-rows\""));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "height=\"42\"") != null);
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "<icon name=\"{f.icon}\""));
 }
 
 test "palette Show right panel and Hide right panel toggle the Files pane" {
@@ -24245,7 +24250,7 @@ test "Environment Compare closes the dropdown and opens a Review file-list card"
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{review_diff_hunk_file_additions_label}"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{review_diff_hunk_file_deletions_label}"));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "height=\"36\""));
-    try testing.expectEqual(@as(usize, 5), std.mem.count(u8, main.app_markup, "<icon name=\"file-text\""));
+    try testing.expectEqual(@as(usize, 4), std.mem.count(u8, main.app_markup, "<icon name=\"file-text\""));
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, main.app_markup, "{r.has_status}"));
     try testing.expectEqual(@as(usize, 6), std.mem.count(u8, main.app_markup, "{r.status_label}"));
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "label=\"right-panel-diff-filter\"") != null);
