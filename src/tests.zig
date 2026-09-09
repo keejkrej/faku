@@ -9858,6 +9858,9 @@ test "right panel Files, Diff, Browser, Terminal, and Background tabs switch sur
     try testing.expect(findByText(tree.root, .button, "Open in Terminal") == null);
     try testing.expect(findByText(tree.root, .text, open_terminal.no_project_status) == null);
     try testing.expect(findByText(tree.root, .text, "No project open") == null);
+    _ = try expectButtonMsg(tree, "New", .new_terminal);
+    _ = try expectButtonMsg(tree, "Close", .close_terminal);
+    try testing.expect((try expectButtonMsg(tree, "1", .{ .select_term_session = 1 })).state.selected);
 
     main.update(&model, .hide_right_panel, &fx);
     try testing.expect(!model.right_panel_open);
@@ -9894,9 +9897,12 @@ test "Terminal tab binds <terminal> to pty 700; exit shows Restart and re-spawns
     try testing.expectEqual(pty_terminal.pty_shell_key, term.terminal.pty);
     try testing.expectEqual(@as(u32, 0), term.terminal.scrollback);
     try testing.expect(findByText(tree.root, .button, "Restart") == null);
+    _ = try expectButtonMsg(tree, "New", .new_terminal);
+    _ = try expectButtonMsg(tree, "Close", .close_terminal);
+    try testing.expect((try expectButtonMsg(tree, "1", .{ .select_term_session = 1 })).state.selected);
 
     main.update(&model, .{ .term_state = .{ .scrollback = 12, .history = 400, .cols = 80, .rows = 24 } }, &fx);
-    try testing.expectEqual(@as(u32, 12), model.term_scrollback);
+    try testing.expectEqual(@as(u32, 12), model.term_scrollback());
 
     try fx.feedPtyExit(pty_terminal.pty_shell_key, 0, 0, .exited, 0);
     drainEffects(&model, &fx);
@@ -9909,6 +9915,7 @@ test "Terminal tab binds <terminal> to pty 700; exit shows Restart and re-spawns
     _ = try expectByText(tree.root, .text, pty_terminal.ended_status);
     _ = try expectButtonMsg(tree, "Restart", .restart_terminal);
     _ = try expectByText(tree.root, .text, open_terminal.no_project_status);
+    try testing.expect((try expectButtonMsg(tree, "1", .{ .select_term_session = 1 })).state.selected);
 
     main.update(&model, .restart_terminal, &fx);
     try testing.expect(model.term_session_live());
@@ -9918,6 +9925,67 @@ test "Terminal tab binds <terminal> to pty 700; exit shows Restart and re-spawns
     try testing.expect(findByKind(tree.root, .terminal) != null);
     try testing.expect(findByText(tree.root, .button, "Restart") == null);
     try testing.expect(findByText(tree.root, .text, pty_terminal.ended_status) == null);
+}
+
+test "Terminal New / switch / Close host four runtime-only shells" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = main.initialModel();
+    main.update(&model, .set_right_panel_tab_terminal, &fx);
+    try testing.expectEqual(pty_terminal.pty_shell_key, model.shell_key());
+
+    main.update(&model, .new_terminal, &fx);
+    try testing.expectEqual(pty_terminal.pty_shell_key + 1, model.shell_key());
+    try testing.expectEqual(@as(usize, 2), fx.pendingPtyCount());
+    try testing.expect(model.term_slots[0].live);
+    try testing.expect(model.term_slots[1].live);
+
+    var tree = try buildTree(arena, &model);
+    const term = findByKind(tree.root, .terminal) orelse return error.WidgetNotFound;
+    try testing.expectEqual(pty_terminal.pty_shell_key + 1, term.terminal.pty);
+    try testing.expect(!(try expectButtonMsg(tree, "1", .{ .select_term_session = 1 })).state.selected);
+    try testing.expect((try expectButtonMsg(tree, "2", .{ .select_term_session = 2 })).state.selected);
+    _ = try expectButtonMsg(tree, "New", .new_terminal);
+    _ = try expectButtonMsg(tree, "Close", .close_terminal);
+
+    main.update(&model, .{ .select_term_session = 1 }, &fx);
+    try testing.expectEqual(pty_terminal.pty_shell_key, model.shell_key());
+    try testing.expect(model.term_slots[1].live);
+    tree = try buildTree(arena, &model);
+    try testing.expectEqual(pty_terminal.pty_shell_key, findByKind(tree.root, .terminal).?.terminal.pty);
+    try testing.expect((try expectButtonMsg(tree, "1", .{ .select_term_session = 1 })).state.selected);
+
+    main.update(&model, .close_terminal, &fx);
+    try testing.expect(fx.ptyKillRequested(pty_terminal.pty_shell_key));
+    try testing.expectEqual(pty_terminal.pty_shell_key + 1, model.shell_key());
+    try testing.expect(model.term_slots[0].closing);
+    try fx.feedPtyExit(pty_terminal.pty_shell_key, 0, 0, .cancelled, 0);
+    drainEffects(&model, &fx);
+    try testing.expect(!model.term_slots[0].closing);
+    try testing.expect(!model.term_slots[0].live);
+    try testing.expect(model.term_slots[1].live);
+
+    tree = try buildTree(arena, &model);
+    try testing.expectEqual(pty_terminal.pty_shell_key + 1, findByKind(tree.root, .terminal).?.terminal.pty);
+    try testing.expect((try expectButtonMsg(tree, "1", .{ .select_term_session = 2 })).state.selected);
+    try testing.expect(findByText(tree.root, .button, "2") == null);
+
+    main.update(&model, .new_terminal, &fx);
+    main.update(&model, .new_terminal, &fx);
+    main.update(&model, .new_terminal, &fx);
+    try testing.expectEqual(@as(usize, 4), pty_terminal.reservedCount(&model));
+    try testing.expect(!model.can_new_terminal());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "New") == null);
+    _ = try expectButtonMsg(tree, "4", .{ .select_term_session = 4 });
+    main.update(&model, .new_terminal, &fx);
+    try testing.expectEqual(@as(u8, 3), model.term_active);
 }
 
 test "right panel Browser Open in browser spawns key-25 URL sidecar; empty URL is a status" {

@@ -310,6 +310,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .reveal_folder => reveal_folder.startRevealFolder(model, fx),
         .open_terminal => open_terminal.startOpenTerminal(model, fx),
         .restart_terminal => pty_terminal.restartShell(model, fx),
+        .new_terminal => pty_terminal.newShell(model, fx),
+        .close_terminal => pty_terminal.closeActive(model, fx),
+        .select_term_session => |id| pty_terminal.selectSession(model, id),
         .term_state => |state| pty_terminal.applyTermState(model, state),
         .term_pty => |event| pty_terminal.handlePtyEvent(model, event),
         .browser_url_edit => |edit| {

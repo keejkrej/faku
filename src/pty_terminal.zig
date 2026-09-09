@@ -2,11 +2,13 @@
 //! a bound `<terminal>` element (workbench pattern).
 //!
 //! Native PTY exists (`docs/src/app/docs/terminal/page.mdx`). The
-//! runtime owns the emulator behind the pty key; this module only
-//! picks argv, names the dedicated effect key, and accounts for
-//! spawn / exit / Restart. Not Waku terminal chrome (tabs, multiple
-//! sessions, persist). Open in Terminal (`open_terminal.zig`, key 27)
-//! stays the OS-host fallback.
+//! runtime owns the emulator behind each pty key; this module picks
+//! argv, names the dedicated effect-key band, and accounts for spawn /
+//! exit / Restart / New / Close. First-cut multi-session: up to four
+//! runtime-only shells on keys `700..703` inside the existing Terminal
+//! tab (chips + New + Close). Not Waku right-panel surface UUID tabs,
+//! and sessions do not persist across restart. Open in Terminal
+//! (`open_terminal.zig`, key 27) stays the OS-host fallback.
 //!
 //! `ptySpawn` has no documented cwd field; the child inherits the host
 //! environment plus `TERM`. When the selected session's `project_path`
@@ -27,10 +29,12 @@ const open_terminal = @import("open_terminal.zig");
 const Model = main.Model;
 const Effects = main.Effects;
 
-/// Dedicated pty occupancy. Outside stream (1), fx_ask (2), probe (3),
+/// Dedicated pty occupancy band. Outside stream (1), fx_ask (2), probe (3),
 /// daemon 4+, OS sidecars 25–32, attach preview 33–63, overlap 64+,
 /// git / mention / skills / cli_probe 200–608, litellm 650.
 pub const pty_shell_key: u64 = 700;
+pub const max_sessions: usize = 4;
+pub const pty_shell_key_last: u64 = pty_shell_key + max_sessions - 1;
 
 pub const default_cols: u16 = 80;
 pub const default_rows: u16 = 24;
@@ -45,6 +49,8 @@ pub const interactive_flag = "-i";
 pub const login_flag = "-l";
 pub const windows_k_flag = "/K";
 pub const windows_cd_prefix = "cd /d ";
+
+pub const slot_labels = [_][]const u8{ "1", "2", "3", "4" };
 
 /// Interactive login shell argv (workbench's deterministic pick, with
 /// documented `-l` so profile scripts run). Replay-stable: no `$SHELL`.
@@ -62,33 +68,164 @@ pub const ArgvScratch = struct {
     slots: [argv_cap][]const u8 = [_][]const u8{""} ** argv_cap,
 };
 
+/// Per-slot occupancy. Live PTYs keep running when another slot is
+/// bound; Close `ptyKill`s a live slot and waits for the cancelled
+/// exit before the key may be reused. Ended slots stay until Close or
+/// Restart. Runtime-only — not `sessions.json`.
+pub const Slot = struct {
+    live: bool = false,
+    ended: bool = false,
+    closing: bool = false,
+    scrollback: u32 = 0,
+    status_storage: [main.max_attach_status]u8 = [_]u8{0} ** main.max_attach_status,
+    status_len: usize = 0,
+    windows_cd_storage: [windows_cd_arg_len]u8 = [_]u8{0} ** windows_cd_arg_len,
+    windows_cd_len: usize = 0,
+};
+
+pub const TermSessionRow = struct {
+    id: u32,
+    label: []const u8,
+    selected: bool,
+};
+
+pub fn shellKeyAt(index: usize) u64 {
+    return pty_shell_key + index;
+}
+
+pub fn slotIndexForKey(key: u64) ?usize {
+    if (key < pty_shell_key or key > pty_shell_key_last) return null;
+    return @intCast(key - pty_shell_key);
+}
+
+pub fn slotIndexForId(id: u32) ?usize {
+    if (id == 0 or id > max_sessions) return null;
+    return id - 1;
+}
+
+fn slotId(index: usize) u32 {
+    return @intCast(index + 1);
+}
+
+pub fn activeIndex(model: *const Model) usize {
+    if (model.term_active >= max_sessions) return 0;
+    return model.term_active;
+}
+
+fn slotConst(model: *const Model, index: usize) *const Slot {
+    return &model.term_slots[index];
+}
+
+fn slotPtr(model: *Model, index: usize) *Slot {
+    return &model.term_slots[index];
+}
+
+fn activeSlotConst(model: *const Model) *const Slot {
+    return slotConst(model, activeIndex(model));
+}
+
+fn activeSlot(model: *Model) *Slot {
+    return slotPtr(model, activeIndex(model));
+}
+
+fn isVisible(slot: *const Slot) bool {
+    return (slot.live or slot.ended) and !slot.closing;
+}
+
+fn isReserved(slot: *const Slot) bool {
+    return slot.live or slot.ended or slot.closing;
+}
+
+pub fn reservedCount(model: *const Model) usize {
+    var n: usize = 0;
+    for (&model.term_slots) |*slot| {
+        if (isReserved(slot)) n += 1;
+    }
+    return n;
+}
+
+pub fn visibleCount(model: *const Model) usize {
+    var n: usize = 0;
+    for (&model.term_slots) |*slot| {
+        if (isVisible(slot)) n += 1;
+    }
+    return n;
+}
+
+pub fn anyLive(model: *const Model) bool {
+    for (&model.term_slots) |*slot| {
+        if (slot.live and !slot.closing) return true;
+    }
+    return false;
+}
+
+fn findFreeIndex(model: *const Model) ?usize {
+    for (model.term_slots, 0..) |slot, i| {
+        if (!isReserved(&slot)) return i;
+    }
+    return null;
+}
+
 pub fn shell_key(model: *const Model) u64 {
-    _ = model;
-    return pty_shell_key;
+    return shellKeyAt(activeIndex(model));
 }
 
 pub fn term_session_live(model: *const Model) bool {
-    return model.term_pty_live;
+    const slot = activeSlotConst(model);
+    return slot.live and !slot.closing;
 }
 
 pub fn can_restart_terminal(model: *const Model) bool {
-    return model.term_ended and !model.term_pty_live;
+    const slot = activeSlotConst(model);
+    return slot.ended and !slot.live and !slot.closing;
+}
+
+pub fn can_new_terminal(model: *const Model) bool {
+    return reservedCount(model) < max_sessions;
+}
+
+pub fn can_close_terminal(model: *const Model) bool {
+    return isVisible(activeSlotConst(model));
 }
 
 pub fn has_term_status(model: *const Model) bool {
-    return model.term_status_len > 0;
+    return activeSlotConst(model).status_len > 0;
 }
 
 pub fn term_status(model: *const Model) []const u8 {
-    return model.term_status_storage[0..model.term_status_len];
+    const slot = activeSlotConst(model);
+    return slot.status_storage[0..slot.status_len];
 }
 
-pub fn setTermStatus(model: *Model, text: []const u8) void {
-    main.writeFixed(&model.term_status_storage, &model.term_status_len, std.mem.trim(u8, text, " \t\r\n"));
+pub fn term_scrollback(model: *const Model) u32 {
+    return activeSlotConst(model).scrollback;
 }
 
-pub fn clearTermStatus(model: *Model) void {
-    model.term_status_len = 0;
+fn setSlotStatus(slot: *Slot, text: []const u8) void {
+    main.writeFixed(&slot.status_storage, &slot.status_len, std.mem.trim(u8, text, " \t\r\n"));
+}
+
+fn clearSlotStatus(slot: *Slot) void {
+    slot.status_len = 0;
+}
+
+/// Occupancy-order chips (`1`..`n`) with stable 1-based slot ids.
+pub fn sessionRows(model: *const Model, arena: std.mem.Allocator) []const TermSessionRow {
+    const count = visibleCount(model);
+    if (count == 0) return &.{};
+    const out = arena.alloc(TermSessionRow, count) catch return &.{};
+    var n: usize = 0;
+    const active = activeIndex(model);
+    for (model.term_slots, 0..) |slot, i| {
+        if (!isVisible(&slot)) continue;
+        out[n] = .{
+            .id = slotId(i),
+            .label = slot_labels[n],
+            .selected = i == active,
+        };
+        n += 1;
+    }
+    return out[0..n];
 }
 
 /// Bytes cmd.exe's reparse could reinterpret. Native ConPTY docs refuse
@@ -168,24 +305,27 @@ fn resolvePtyCwd(model: *const Model) []const u8 {
     return model.resolveSpawnCwd(session);
 }
 
-pub fn spawnShell(model: *Model, fx: *Effects) void {
-    if (model.term_pty_live) return;
+fn spawnAt(model: *Model, fx: *Effects, index: usize) void {
+    const slot = slotPtr(model, index);
+    if (slot.live) return;
     const cwd = resolvePtyCwd(model);
     var windows_cd: []const u8 = "";
     if (builtin.os.tag == .windows and cwd.len > 0) {
-        windows_cd = writeWindowsCdArg(cwd, &model.term_windows_cd_storage) orelse "";
-        model.term_windows_cd_len = windows_cd.len;
+        windows_cd = writeWindowsCdArg(cwd, &slot.windows_cd_storage) orelse "";
+        slot.windows_cd_len = windows_cd.len;
     } else {
-        model.term_windows_cd_len = 0;
+        slot.windows_cd_len = 0;
     }
     var scratch: ArgvScratch = .{};
     const argv = argvFor(cwd, windows_cd, &scratch);
-    model.term_pty_live = true;
-    model.term_ended = false;
-    model.term_scrollback = 0;
-    clearTermStatus(model);
+    slot.live = true;
+    slot.ended = false;
+    slot.closing = false;
+    slot.scrollback = 0;
+    clearSlotStatus(slot);
+    model.term_active = @intCast(index);
     fx.ptySpawn(.{
-        .key = pty_shell_key,
+        .key = shellKeyAt(index),
         .argv = argv,
         .cols = default_cols,
         .rows = default_rows,
@@ -193,22 +333,91 @@ pub fn spawnShell(model: *Model, fx: *Effects) void {
     });
 }
 
+fn selectNeighbor(model: *Model, closed_index: usize) void {
+    var i = closed_index;
+    while (i > 0) {
+        i -= 1;
+        if (isVisible(slotConst(model, i))) {
+            model.term_active = @intCast(i);
+            return;
+        }
+    }
+    i = closed_index + 1;
+    while (i < max_sessions) : (i += 1) {
+        if (isVisible(slotConst(model, i))) {
+            model.term_active = @intCast(i);
+            return;
+        }
+    }
+    model.term_active = 0;
+}
+
+/// Lazy spawn for Terminal tab open: no-op while any slot is live;
+/// otherwise Restart the active ended slot (today's re-select) or
+/// allocate slot 0 when nothing is occupied.
+pub fn spawnShell(model: *Model, fx: *Effects) void {
+    if (anyLive(model)) return;
+    const active = activeIndex(model);
+    const slot = slotConst(model, active);
+    if (slot.ended and !slot.closing) {
+        spawnAt(model, fx, active);
+        return;
+    }
+    const index = findFreeIndex(model) orelse return;
+    spawnAt(model, fx, index);
+}
+
 pub fn restartShell(model: *Model, fx: *Effects) void {
-    if (model.term_pty_live) return;
-    spawnShell(model, fx);
+    if (!can_restart_terminal(model)) return;
+    spawnAt(model, fx, activeIndex(model));
+}
+
+pub fn newShell(model: *Model, fx: *Effects) void {
+    const index = findFreeIndex(model) orelse return;
+    spawnAt(model, fx, index);
+}
+
+pub fn selectSession(model: *Model, id: u32) void {
+    const index = slotIndexForId(id) orelse return;
+    if (!isVisible(slotConst(model, index))) return;
+    model.term_active = @intCast(index);
+}
+
+/// Close the active slot. Live shells use documented `ptyKill` (exit
+/// reports `.cancelled`); the key stays reserved until that exit so
+/// New cannot collide. Ended slots free immediately. Active moves to
+/// the previous visible neighbor, else the next, else slot 0 empty.
+pub fn closeActive(model: *Model, fx: *Effects) void {
+    if (!can_close_terminal(model)) return;
+    const index = activeIndex(model);
+    const slot = slotPtr(model, index);
+    if (slot.live) {
+        slot.closing = true;
+        slot.live = false;
+        fx.ptyKill(shellKeyAt(index));
+    } else {
+        slot.* = .{};
+    }
+    selectNeighbor(model, index);
 }
 
 pub fn handlePtyEvent(model: *Model, event: native_sdk.EffectPtyEvent) void {
-    if (event.key != pty_shell_key) return;
+    const index = slotIndexForKey(event.key) orelse return;
+    const slot = slotPtr(model, index);
     switch (event.kind) {
         .output => {},
         .exit => {
-            model.term_pty_live = false;
-            model.term_ended = true;
+            if (slot.closing or (!slot.live and !slot.ended)) {
+                slot.* = .{};
+                return;
+            }
+            if (!slot.live) return;
+            slot.live = false;
+            slot.ended = true;
             if (event.reason == .exited) {
-                setTermStatus(model, ended_status);
+                setSlotStatus(slot, ended_status);
             } else {
-                setTermStatus(model, failed_status);
+                setSlotStatus(slot, failed_status);
             }
         },
         .write => unreachable,
@@ -216,17 +425,21 @@ pub fn handlePtyEvent(model: *Model, event: native_sdk.EffectPtyEvent) void {
 }
 
 pub fn applyTermState(model: *Model, state: native_sdk.canvas.TerminalState) void {
-    model.term_scrollback = state.scrollback;
+    activeSlot(model).scrollback = state.scrollback;
 }
 
 test "terminal_sessions_enabled is opted in by this ejected build" {
     try std.testing.expect(native_sdk.runtime.terminal_sessions_enabled);
 }
 
-test "pty_shell_key is 700 and outside occupied bands" {
+test "pty_shell_key band is 700..703 and outside occupied bands" {
     const litellm_rates = @import("litellm_rates.zig");
     const cli_probe = @import("cli_probe.zig");
     try std.testing.expectEqual(@as(u64, 700), pty_shell_key);
+    try std.testing.expectEqual(@as(usize, 4), max_sessions);
+    try std.testing.expectEqual(@as(u64, 703), pty_shell_key_last);
+    try std.testing.expectEqual(pty_shell_key, shellKeyAt(0));
+    try std.testing.expectEqual(pty_shell_key + 3, shellKeyAt(3));
     try std.testing.expect(pty_shell_key != main.stream_timer_key);
     try std.testing.expect(pty_shell_key != main.fx_ask_key);
     try std.testing.expect(pty_shell_key != main.fx_probe_key);
@@ -236,6 +449,7 @@ test "pty_shell_key is 700 and outside occupied bands" {
     try std.testing.expect(pty_shell_key != cli_probe.cli_probe_key_first);
     try std.testing.expect(pty_shell_key != litellm_rates.litellm_rates_key);
     try std.testing.expect(pty_shell_key > litellm_rates.litellm_rates_key);
+    try std.testing.expect(pty_shell_key_last != cli_probe.probeKey(.kimi));
 }
 
 test "default shell argv is the documented interactive login pick" {
@@ -289,19 +503,19 @@ test "argvFor wraps chdir when cwd is usable and is not Open in Terminal argv" {
 
 test "handlePtyEvent exit sets muted ended or failed status" {
     var model = Model{};
-    model.term_pty_live = true;
+    model.term_slots[0].live = true;
     handlePtyEvent(&model, .{
         .key = pty_shell_key,
         .kind = .exit,
         .reason = .exited,
         .code = 0,
     });
-    try std.testing.expect(!model.term_pty_live);
-    try std.testing.expect(model.term_ended);
+    try std.testing.expect(!model.term_slots[0].live);
+    try std.testing.expect(model.term_slots[0].ended);
     try std.testing.expectEqualStrings(ended_status, term_status(&model));
     try std.testing.expect(can_restart_terminal(&model));
 
-    model.term_pty_live = true;
+    model.term_slots[0].live = true;
     handlePtyEvent(&model, .{
         .key = pty_shell_key,
         .kind = .exit,
@@ -311,10 +525,11 @@ test "handlePtyEvent exit sets muted ended or failed status" {
     try std.testing.expectEqualStrings(failed_status, term_status(&model));
 }
 
-test "applyTermState echoes scrollback" {
+test "applyTermState echoes scrollback onto the active slot" {
     var model = Model{};
     applyTermState(&model, .{ .scrollback = 12, .history = 400, .cols = 80, .rows = 24 });
-    try std.testing.expectEqual(@as(u32, 12), model.term_scrollback);
+    try std.testing.expectEqual(@as(u32, 12), term_scrollback(&model));
+    try std.testing.expectEqual(@as(u32, 12), model.term_slots[0].scrollback);
 }
 
 test "spawnShell on fake executor occupies the bound key" {
@@ -323,7 +538,8 @@ test "spawnShell on fake executor occupies the bound key" {
     fx.executor = .fake;
     var model = Model{};
     spawnShell(&model, &fx);
-    try std.testing.expect(model.term_pty_live);
+    try std.testing.expect(model.term_slots[0].live);
+    try std.testing.expectEqual(@as(u8, 0), model.term_active);
     try std.testing.expectEqual(@as(usize, 1), fx.pendingPtyCount());
     const request = fx.pendingPtyAt(0) orelse return error.MissingPtySpawn;
     try std.testing.expectEqual(pty_shell_key, request.key);
@@ -350,7 +566,144 @@ test "restartShell re-spawns after fake pty exit" {
     _ = fx.takeMsg();
     try std.testing.expect(can_restart_terminal(&model));
     restartShell(&model, &fx);
-    try std.testing.expect(model.term_pty_live);
+    try std.testing.expect(model.term_slots[0].live);
     try std.testing.expectEqual(@as(usize, 1), fx.pendingPtyCount());
     try std.testing.expectEqual(pty_shell_key, fx.pendingPtyAt(0).?.key);
+}
+
+test "newShell allocates the next free slot up to the cap of 4" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    spawnShell(&model, &fx);
+    newShell(&model, &fx);
+    newShell(&model, &fx);
+    newShell(&model, &fx);
+    try std.testing.expectEqual(@as(usize, 4), fx.pendingPtyCount());
+    try std.testing.expectEqual(@as(u8, 3), model.term_active);
+    try std.testing.expect(model.term_slots[1].live);
+    try std.testing.expect(model.term_slots[2].live);
+    try std.testing.expect(model.term_slots[3].live);
+    try std.testing.expectEqual(pty_shell_key + 1, shellKeyAt(1));
+    try std.testing.expectEqual(pty_shell_key + 3, shell_key(&model));
+    try std.testing.expect(!can_new_terminal(&model));
+    newShell(&model, &fx);
+    try std.testing.expectEqual(@as(usize, 4), fx.pendingPtyCount());
+    try std.testing.expectEqual(@as(u8, 3), model.term_active);
+}
+
+test "selectSession switches the bound key while inactive PTYs stay live" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    spawnShell(&model, &fx);
+    newShell(&model, &fx);
+    try std.testing.expectEqual(pty_shell_key + 1, shell_key(&model));
+    applyTermState(&model, .{ .scrollback = 4, .history = 400, .cols = 80, .rows = 24 });
+    selectSession(&model, 1);
+    try std.testing.expectEqual(@as(u8, 0), model.term_active);
+    try std.testing.expectEqual(pty_shell_key, shell_key(&model));
+    try std.testing.expectEqual(@as(u32, 0), term_scrollback(&model));
+    try std.testing.expectEqual(@as(u32, 4), model.term_slots[1].scrollback);
+    try std.testing.expect(model.term_slots[0].live);
+    try std.testing.expect(model.term_slots[1].live);
+    try std.testing.expectEqual(@as(usize, 2), fx.pendingPtyCount());
+    selectSession(&model, 0);
+    try std.testing.expectEqual(@as(u8, 0), model.term_active);
+    selectSession(&model, 9);
+    try std.testing.expectEqual(@as(u8, 0), model.term_active);
+}
+
+test "closeActive ptyKills the live slot and selects a neighbor" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    spawnShell(&model, &fx);
+    newShell(&model, &fx);
+    newShell(&model, &fx);
+    try std.testing.expectEqual(@as(u8, 2), model.term_active);
+    closeActive(&model, &fx);
+    try std.testing.expect(model.term_slots[2].closing);
+    try std.testing.expect(!model.term_slots[2].live);
+    try std.testing.expect(fx.ptyKillRequested(pty_shell_key + 2));
+    try std.testing.expectEqual(@as(u8, 1), model.term_active);
+    try std.testing.expectEqual(pty_shell_key + 1, shell_key(&model));
+    try std.testing.expectEqual(@as(usize, 3), reservedCount(&model));
+    try fx.feedPtyExit(pty_shell_key + 2, 0, 0, .cancelled, 0);
+    handlePtyEvent(&model, .{
+        .key = pty_shell_key + 2,
+        .kind = .exit,
+        .reason = .cancelled,
+        .code = -1,
+    });
+    _ = fx.takeMsg();
+    try std.testing.expect(!model.term_slots[2].closing);
+    try std.testing.expect(!model.term_slots[2].live);
+    try std.testing.expect(!model.term_slots[2].ended);
+    try std.testing.expectEqual(@as(usize, 2), reservedCount(&model));
+    try std.testing.expect(can_new_terminal(&model));
+}
+
+test "close compaction reuses the freed slot and prefers the previous neighbor" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    spawnShell(&model, &fx);
+    newShell(&model, &fx);
+    newShell(&model, &fx);
+    selectSession(&model, 2);
+    try std.testing.expectEqual(@as(u8, 1), model.term_active);
+    closeActive(&model, &fx);
+    try std.testing.expectEqual(@as(u8, 0), model.term_active);
+    try fx.feedPtyExit(pty_shell_key + 1, 0, 0, .cancelled, 0);
+    handlePtyEvent(&model, .{
+        .key = pty_shell_key + 1,
+        .kind = .exit,
+        .reason = .cancelled,
+        .code = -1,
+    });
+    _ = fx.takeMsg();
+    const rows = sessionRows(&model, arena);
+    try std.testing.expectEqual(@as(usize, 2), rows.len);
+    try std.testing.expectEqual(@as(u32, 1), rows[0].id);
+    try std.testing.expectEqualStrings("1", rows[0].label);
+    try std.testing.expect(rows[0].selected);
+    try std.testing.expectEqual(@as(u32, 3), rows[1].id);
+    try std.testing.expectEqualStrings("2", rows[1].label);
+    newShell(&model, &fx);
+    try std.testing.expectEqual(@as(u8, 1), model.term_active);
+    try std.testing.expect(model.term_slots[1].live);
+    try std.testing.expectEqual(pty_shell_key + 1, shell_key(&model));
+}
+
+test "close of the last slot leaves an empty pane until New" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    spawnShell(&model, &fx);
+    closeActive(&model, &fx);
+    try std.testing.expect(!can_close_terminal(&model));
+    try std.testing.expect(!term_session_live(&model));
+    try fx.feedPtyExit(pty_shell_key, 0, 0, .cancelled, 0);
+    handlePtyEvent(&model, .{
+        .key = pty_shell_key,
+        .kind = .exit,
+        .reason = .cancelled,
+        .code = -1,
+    });
+    _ = fx.takeMsg();
+    try std.testing.expectEqual(@as(usize, 0), reservedCount(&model));
+    try std.testing.expect(can_new_terminal(&model));
+    newShell(&model, &fx);
+    try std.testing.expect(model.term_slots[0].live);
+    try std.testing.expectEqual(pty_shell_key, shell_key(&model));
 }

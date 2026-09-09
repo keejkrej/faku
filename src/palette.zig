@@ -65,8 +65,9 @@ pub const PaletteAction = enum(u32) {
     /// Right-panel Browser tab. First-cut embedded canvas webview;
     /// Open in browser stays the OS fallback.
     show_browser_tab = 17,
-    /// Right-panel Terminal tab. First-cut Native `<terminal>`;
-    /// Open in Terminal stays the OS fallback. Not Waku tabs.
+    /// Right-panel Terminal tab. First-cut Native `<terminal>` with
+    /// up to 4 runtime-only shells; Open in Terminal stays the OS
+    /// fallback. Not Waku surface UUID tabs / persist.
     show_terminal_tab = 18,
 };
 
