@@ -21,10 +21,12 @@
 //! "No background work". Browser is a first-cut Native canvas webview
 //! (`web_panes` snapped to a markup `browser-pane` anchor; workbench
 //! seam) plus **Open in browser** as the OS-host fallback via
-//! `open_url`. Not Waku BrowserView (tabs, DevTools, multi-session).
-//! When the Browser tab is hidden the pane parks at 1×1 with no
-//! anchor so Native does not keep the last webview frame over
-//! Files/Diff/Terminal. Terminal
+//! `open_url`. First-cut multi-session inside that tab (cap 4, scene
+//! `browser-web-0`..`browser-web-3`, runtime-only chips + New + Close;
+//! not Waku surface UUID tabs / persist / DevTools). When the Browser
+//! tab is hidden every pane parks at 1×1 with no anchor so Native does
+//! not keep the last webview frame over Files/Diff/Terminal. Inactive
+//! occupied slots park the same way. Terminal
 //! is a first-cut Native `<terminal>` (`fx.ptySpawn` + bound emulator)
 //! with Open in Terminal as the OS-host fallback — first-cut
 //! multi-session inside the Terminal tab (cap 4, keys 700..703,
@@ -151,8 +153,9 @@
 //! TEA `update` tick (same `now_ms` piggyback as Background's 100ms
 //! render cache; Native has no FS watcher / dedicated timer). Dirty
 //! buffers are never auto-reloaded. Not a real FS watcher / Native
-//! watch API, not Waku BrowserView chrome (that tab is a first-cut
-//! embedded `web_panes` webview plus OS-open fallback), or autosave. Terminal is a first-cut
+//! watch API, not Waku BrowserView UUID-tab chrome (that tab is a
+//! first-cut embedded `web_panes` webview plus OS-open fallback, with
+//! runtime-only chips inside the tab), or autosave. Terminal is a first-cut
 //! Native `<terminal>`, not Waku terminal chrome.
 //! First-cut Files preview find/replace ships (Native bar above the
 //! preview body: query, `n of m` / `0` / `m+` cap note / `invalid`, prev/next,
@@ -717,8 +720,10 @@ pub fn selectBackground(model: *Model, fx: *Effects, row_id: u32) void {
 /// width toward 460 when still file-tree-narrow (same 280–1000 clamp
 /// as Diff; open bump stays 460, not `REVIEW_INITIAL_WIDTH`).
 /// First-cut embedded canvas webview (`web_panes`); Open in browser
-/// stays the OS-host fallback. Tab and draft URL persist via layout
-/// extras. Committed history is runtime-only.
+/// stays the OS-host fallback. Tab and the **active** slot's draft URL
+/// persist via layout extras. First-cut multi-session (cap 4,
+/// runtime-only chips + New + Close); occupancy / history /
+/// reload_token do not persist. Not Waku surface UUID tabs.
 pub fn selectBrowser(model: *Model, fx: *Effects) void {
     leaveDiffSurfaceIfNeeded(model);
     const was_open = model.right_panel_open;

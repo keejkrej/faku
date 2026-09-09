@@ -37,6 +37,7 @@ const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
 const pty_terminal = @import("pty_terminal.zig");
 const open_url = @import("open_url.zig");
+const browser_pane = @import("browser_pane.zig");
 const copy_helpers = @import("copy.zig");
 const open_editor = @import("open_editor.zig");
 const right_panel = @import("right_panel.zig");
@@ -518,8 +519,9 @@ pub const Msg = union(enum) {
     set_right_panel_tab_files,
     /// Right-panel Diff tab. Opens the pane if closed and starts Compare.
     set_right_panel_tab_diff,
-    /// Right-panel Browser tab. First-cut embedded canvas webview.
-    /// Tab and address draft persist.
+    /// Right-panel Browser tab. First-cut embedded canvas webview
+    /// with runtime-only multi-session inside the tab. Tab and the
+    /// active slot's address draft persist.
     set_right_panel_tab_browser,
     /// Right-panel Terminal tab. First-cut embedded `<terminal>`. Tab persists.
     set_right_panel_tab_terminal,
@@ -724,6 +726,12 @@ pub const Msg = union(enum) {
     browser_back,
     /// Walk the app-owned Browser history forward.
     browser_forward,
+    /// Allocate the next free Browser slot (cap 4). Empty draft / history.
+    new_browser,
+    /// Close the active Browser slot and select a neighbor. No-op at 1 slot.
+    close_browser,
+    /// Browser session chip. Payload is the 1-based slot index (1..4).
+    select_browser_session: u32,
     /// Right-panel Browser: one-shot OS URL-open sidecar. Fallback beside
     /// the embedded webview.
     open_url,
@@ -1221,18 +1229,12 @@ pub const Model = struct {
     open_url_live: bool = false,
     open_url_storage: [open_url.max_spawn_url]u8 = [_]u8{0} ** open_url.max_spawn_url,
     open_url_len: usize = 0,
-    /// Browser tab URL draft. Persisted on sessions.json extras
-    /// (`browser_url`, raw, cap `open_url.max_url`). Missing / empty →
-    /// empty draft. Typing does not navigate; Navigate/Enter commits.
-    browser_url_buffer: canvas.TextBuffer(open_url.max_url) = .{},
-    /// App-owned Browser history (workbench ring). Runtime-only; the
-    /// pane URL is `history[index]`, never the in-progress draft.
-    /// Cap matches `browser_pane.max_history`.
-    browser_history: [32]canvas.TextBuffer(open_url.max_spawn_url) = [_]canvas.TextBuffer(open_url.max_spawn_url){.{}} ** 32,
-    browser_history_count: usize = 0,
-    browser_history_index: usize = 0,
-    /// Bumped by Reload: the pane re-navigates the same committed URL.
-    browser_reload_token: u64 = 0,
+    /// First-cut Browser multi-session (cap 4, scene `browser-web-0`..`3`).
+    /// Runtime-only occupancy / history / reload_token; the **active**
+    /// slot's address draft still persists as `browser_url`. Slot 0
+    /// starts occupied. `browser_active` is the snapped `web_panes` slot.
+    browser_slots: [browser_pane.max_sessions]browser_pane.Slot = browser_pane.default_slots,
+    browser_active: u8 = 0,
     open_terminal_live: bool = false,
     open_terminal_tried_fallback: bool = false,
     open_terminal_wd_storage: [open_terminal.wd_arg_len]u8 = [_]u8{0} ** open_terminal.wd_arg_len,
@@ -1979,12 +1981,10 @@ pub const Model = struct {
         "open_url_live",
         "open_url_storage",
         "open_url_len",
-        "browser_url_buffer",
+        "browser_slots",
+        "browser_active",
         "applyBrowserUrl",
-        "browser_history",
-        "browser_history_count",
-        "browser_history_index",
-        "browser_reload_token",
+        "setBrowserUrlDraft",
         "open_terminal_live",
         "open_terminal_tried_fallback",
         "open_terminal_wd_storage",
@@ -2798,19 +2798,39 @@ pub const Model = struct {
     }
 
     pub fn browser_url(model: *const Model) []const u8 {
-        return model.browser_url_buffer.text();
+        return browser_pane.draft(model);
     }
 
     pub fn applyBrowserUrl(model: *Model, edit: canvas.TextInputEvent) void {
-        model.browser_url_buffer.apply(edit);
+        browser_pane.applyDraft(model, edit);
+    }
+
+    pub fn setBrowserUrlDraft(model: *Model, url: []const u8) void {
+        if (url.len == 0) {
+            browser_pane.clearDraft(model);
+            return;
+        }
+        browser_pane.setDraft(model, url);
     }
 
     pub fn browser_back_disabled(model: *const Model) bool {
-        return model.browser_history_index == 0;
+        return browser_pane.backDisabled(model);
     }
 
     pub fn browser_forward_disabled(model: *const Model) bool {
-        return model.browser_history_count == 0 or model.browser_history_index + 1 >= model.browser_history_count;
+        return browser_pane.forwardDisabled(model);
+    }
+
+    pub fn can_new_browser(model: *const Model) bool {
+        return browser_pane.can_new_browser(model);
+    }
+
+    pub fn can_close_browser(model: *const Model) bool {
+        return browser_pane.can_close_browser(model);
+    }
+
+    pub fn browser_session_rows(model: *const Model, arena: std.mem.Allocator) []const browser_pane.BrowserSessionRow {
+        return browser_pane.sessionRows(model, arena);
     }
 
     pub fn open_terminal_no_project_status(model: *const Model) []const u8 {

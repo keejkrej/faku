@@ -24,9 +24,10 @@
 //! missing or 0 keep Model 184 then FILE_TREE clamp; Diff open may
 //! persist Waku `REVIEW_INITIAL_WIDTH` 820; tab is
 //! `files` / `diff` / `browser` / `terminal` / `background`, missing or
-//! unknown → `files`; Browser address-bar draft URL is raw text capped at
-//! `open_url.max_url`, missing / empty / overflow-refused → empty
-//! (committed pane history / reload_token stay runtime-only);
+//! unknown → `files`; Browser address-bar draft URL is the **active**
+//! slot's raw text capped at `open_url.max_url`, missing / empty /
+//! overflow-refused → empty (first-cut multi-session occupancy /
+//! committed pane history / reload_token stay runtime-only);
 //! Background row, Files preview, and directory expands stay
 //! runtime-only),
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
@@ -1646,14 +1647,11 @@ fn persistedBrowserUrl(raw: []const u8) []const u8 {
     return raw;
 }
 
-/// Restore the address-bar draft into `browser_url_buffer`. Empty
-/// clears. Does not commit the embedded pane URL (history is runtime-only).
+/// Restore the address-bar draft into the **active** Browser slot.
+/// Empty clears. Does not commit the embedded pane URL (history is
+/// runtime-only). Does not restore occupancy / other slots.
 fn applyPersistedBrowserUrl(model: *Model, url: []const u8) void {
-    if (url.len == 0) {
-        model.browser_url_buffer.clear();
-        return;
-    }
-    model.browser_url_buffer.set(url);
+    model.setBrowserUrlDraft(url);
 }
 
 fn jsonBool(value: ?std.json.Value) ?bool {
@@ -2710,7 +2708,7 @@ test "browser_url round-trips raw draft including bare host; overflow is refused
     source.right_panel_tab = .browser;
     source.right_panel_width = 460;
     source.syncRightPanelSplit();
-    source.browser_url_buffer.set("  example.com/path  ");
+    source.setBrowserUrlDraft("  example.com/path  ");
     persistLayoutIfPossible(&source);
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;

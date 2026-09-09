@@ -226,7 +226,7 @@ pub const reveal_folder_key = reveal_folder.reveal_folder_key;
 /// One-shot OS URL-open sidecar (`open` / `xdg-open` / Windows
 /// `cmd.exe /c start`). Distinct from open_editor (26), open_terminal
 /// (27), reveal_folder (28). OS-host fallback beside the embedded
-/// Browser `web_panes` webview.
+/// Browser `web_panes` webviews (up to four scene slots).
 pub const open_url_key = open_url.open_url_key;
 /// One-shot OS terminal sidecar (`open -a Terminal` / `x-terminal-emulator` /
 /// Windows `wt.exe -d` then `cmd.exe /c start "" /D`). Distinct from
