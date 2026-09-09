@@ -22,9 +22,9 @@
 //!
 //! Pane URL is the committed history entry, never the address-bar draft.
 //! `sessions.json` extras persist the **active** slot's address draft
-//! (`browser_url`) plus occupied slot committed URLs (`browser_slots`)
-//! and `browser_active`. Full history rings, back/forward index, and
-//! `reload_token` stay runtime-only. Empty history uses the scene
+//! (`browser_url`) plus occupied slot committed URLs (`browser_slots`),
+//! history rings (`browser_histories`), and `browser_active`.
+//! `reload_token` stays runtime-only. Empty history uses the scene
 //! placeholder `https://example.com` until Navigate/Enter.
 //! Enter/Navigate uses Safari/Waku omnibox resolve (explicit schemes,
 //! localhost/IPv4 → `http`, host-like → `https`, else Google search).
@@ -77,7 +77,8 @@ const chip_label_ellipsis = "…";
 pub const web_pane_anchor = "browser-pane";
 /// Scene placeholder and empty-history pane URL.
 pub const home_url = "https://example.com";
-/// Workbench `max_history` ring. Runtime-only.
+/// Workbench `max_history` ring. Occupied rings persist; `reload_token`
+/// stays runtime-only.
 pub const max_history = 32;
 /// Parking frame: positive size so `applyWebPane` does not keep the last
 /// content-sized snapshot when the Browser tab is hidden or the slot is
@@ -85,10 +86,10 @@ pub const max_history = 32;
 pub const parked_frame = geometry.RectF.init(0, 0, 1, 1);
 
 /// Per-slot Browser state. Occupied slots keep a live scene webview.
-/// Occupancy, the committed pane URL, and the active index persist on
-/// `sessions.json` extras (`browser_slots` / `browser_active`); the
-/// active address draft still persists as `browser_url`. History rings
-/// and `reload_token` stay runtime-only.
+/// Occupancy, the committed pane URL, history rings, and the active
+/// index persist on `sessions.json` extras (`browser_slots` /
+/// `browser_histories` / `browser_active`); the active address draft
+/// still persists as `browser_url`. `reload_token` stays runtime-only.
 pub const Slot = struct {
     occupied: bool = false,
     url_buffer: canvas.TextBuffer(open_url.max_url) = .{},
@@ -105,11 +106,17 @@ pub const BrowserSessionRow = struct {
 };
 
 /// Occupied slot persist row. `url` is the committed history entry
-/// (empty when the slot has never navigated). Unoccupied slots are
-/// `occupied = false` and encode as JSON `null`.
+/// (empty when the slot has never navigated) and stays the
+/// `browser_slots` tip string. Occupied rings go on `browser_histories`
+/// (`urls` + `index`). Unoccupied slots are `occupied = false` and encode
+/// as JSON `null`. `history_present` is false for legacy tip-only rows.
 pub const PersistedSlot = struct {
     occupied: bool = false,
     url: []const u8 = "",
+    history_urls: [max_history][]const u8 = [_][]const u8{""} ** max_history,
+    history_count: usize = 0,
+    history_index: usize = 0,
+    history_present: bool = false,
 };
 
 /// Slot 0 starts occupied so the first-cut Browser tab still has a
@@ -311,16 +318,29 @@ pub fn committedUrlAt(model: *const Model, index: usize) []const u8 {
 
 pub fn capturePersisted(model: *const Model, out: *[max_sessions]PersistedSlot) void {
     for (0..max_sessions) |i| {
-        const occupied = slotConst(model, i).occupied;
-        out[i] = .{
-            .occupied = occupied,
-            .url = if (occupied) committedUrlAt(model, i) else "",
+        const slot = slotConst(model, i);
+        if (!slot.occupied) {
+            out[i] = .{};
+            continue;
+        }
+        var persisted = PersistedSlot{
+            .occupied = true,
+            .url = committedUrlAt(model, i),
+            .history_present = true,
         };
+        const count = @min(slot.history_count, max_history);
+        var j: usize = 0;
+        while (j < count) : (j += 1) {
+            persisted.history_urls[j] = slot.history[j].text();
+        }
+        persisted.history_count = count;
+        persisted.history_index = clampedHistoryIndex(count, slot.history_index);
+        out[i] = persisted;
     }
 }
 
-/// Rebuild occupancy, a single-entry history for each committed URL,
-/// and the active index. Does not restore back/forward rings or
+/// Rebuild occupancy, history rings + index when present, otherwise a
+/// single-entry history from each committed tip. Does not restore
 /// `reload_token`. Zero occupied slots keep today's slot-0 session.
 pub fn restoreFromPersist(model: *Model, slots: []const PersistedSlot, active: u8) void {
     model.browser_slots = [_]Slot{.{}} ** max_sessions;
@@ -330,7 +350,7 @@ pub fn restoreFromPersist(model: *Model, slots: []const PersistedSlot, active: u
     while (i < n) : (i += 1) {
         if (!slots[i].occupied) continue;
         any = true;
-        restoreOccupied(&model.browser_slots[i], slots[i].url);
+        restoreOccupied(&model.browser_slots[i], slots[i]);
     }
     if (!any) model.browser_slots[0].occupied = true;
     if (active < max_sessions and model.browser_slots[active].occupied) {
@@ -345,12 +365,37 @@ pub fn restoreFromPersist(model: *Model, slots: []const PersistedSlot, active: u
     }
 }
 
-fn restoreOccupied(slot: *Slot, url: []const u8) void {
+fn clampedHistoryIndex(count: usize, index: usize) usize {
+    if (count == 0) return 0;
+    return @min(index, count - 1);
+}
+
+fn restoreOccupied(slot: *Slot, persisted: PersistedSlot) void {
     slot.* = .{ .occupied = true };
-    if (url.len == 0) return;
-    slot.history[0].set(url);
+    if (persisted.history_present) {
+        restoreHistory(slot, persisted);
+        return;
+    }
+    if (persisted.url.len == 0) return;
+    slot.history[0].set(persisted.url);
     slot.history_count = 1;
     slot.history_index = 0;
+    syncDraftFromCommitted(slot);
+}
+
+fn restoreHistory(slot: *Slot, persisted: PersistedSlot) void {
+    const count = @min(persisted.history_count, max_history);
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        const url = persisted.history_urls[i];
+        if (url.len == 0 or url.len > open_url.max_spawn_url) continue;
+        slot.history[n].set(url);
+        n += 1;
+    }
+    slot.history_count = n;
+    slot.history_index = clampedHistoryIndex(n, persisted.history_index);
+    if (n == 0) return;
     syncDraftFromCommitted(slot);
 }
 
@@ -1114,6 +1159,108 @@ test "restoreFromPersist rebuilds occupancy, committed URLs, and active snap" {
     try std.testing.expectEqual(@as(u8, 0), model.browser_active);
 }
 
+test "restoreFromPersist rebuilds history rings so back and forward work" {
+    var model: Model = .{};
+    setDraft(&model, "https://a1.example");
+    commitNavigation(&model);
+    setDraft(&model, "https://a2.example");
+    commitNavigation(&model);
+    setDraft(&model, "https://a3.example");
+    commitNavigation(&model);
+    goBack(&model);
+    try std.testing.expect(!backDisabled(&model));
+    try std.testing.expect(!forwardDisabled(&model));
+    try std.testing.expectEqualStrings("https://a2.example", currentUrl(&model));
+    reload(&model);
+    try std.testing.expect(model.browser_slots[0].reload_token != 0);
+
+    newSession(&model);
+    setDraft(&model, "https://b1.example");
+    commitNavigation(&model);
+    setDraft(&model, "https://b2.example");
+    commitNavigation(&model);
+    try std.testing.expect(!backDisabled(&model));
+    try std.testing.expect(forwardDisabled(&model));
+
+    var persisted: [max_sessions]PersistedSlot = undefined;
+    capturePersisted(&model, &persisted);
+    try std.testing.expect(persisted[0].history_present);
+    try std.testing.expectEqual(@as(usize, 3), persisted[0].history_count);
+    try std.testing.expectEqual(@as(usize, 1), persisted[0].history_index);
+    try std.testing.expectEqualStrings("https://a1.example", persisted[0].history_urls[0]);
+    try std.testing.expectEqualStrings("https://a2.example", persisted[0].history_urls[1]);
+    try std.testing.expectEqualStrings("https://a3.example", persisted[0].history_urls[2]);
+    try std.testing.expectEqualStrings("https://a2.example", persisted[0].url);
+    try std.testing.expectEqual(@as(usize, 2), persisted[1].history_count);
+    try std.testing.expectEqual(@as(usize, 1), persisted[1].history_index);
+    try std.testing.expectEqualStrings("https://b2.example", persisted[1].url);
+
+    var restored: Model = .{};
+    restored.browser_slots[0].reload_token = 99;
+    restoreFromPersist(&restored, &persisted, 1);
+    try std.testing.expectEqual(@as(u8, 1), restored.browser_active);
+    try std.testing.expectEqual(@as(u64, 0), restored.browser_slots[0].reload_token);
+    try std.testing.expectEqual(@as(u64, 0), restored.browser_slots[1].reload_token);
+    try std.testing.expectEqual(@as(usize, 3), restored.browser_slots[0].history_count);
+    try std.testing.expectEqual(@as(usize, 1), restored.browser_slots[0].history_index);
+    try std.testing.expectEqualStrings("https://a2.example", committedUrlAt(&restored, 0));
+    try std.testing.expectEqualStrings("https://b2.example", currentUrl(&restored));
+    try std.testing.expectEqualStrings("b2.example", draft(&restored));
+    try std.testing.expect(!backDisabled(&restored));
+    try std.testing.expect(forwardDisabled(&restored));
+    goBack(&restored);
+    try std.testing.expectEqualStrings("https://b1.example", currentUrl(&restored));
+    try std.testing.expect(backDisabled(&restored));
+    goForward(&restored);
+    try std.testing.expectEqualStrings("https://b2.example", currentUrl(&restored));
+
+    selectSession(&restored, 1);
+    try std.testing.expectEqualStrings("https://a2.example", currentUrl(&restored));
+    try std.testing.expect(!backDisabled(&restored));
+    try std.testing.expect(!forwardDisabled(&restored));
+    goBack(&restored);
+    try std.testing.expectEqualStrings("https://a1.example", currentUrl(&restored));
+    try std.testing.expect(backDisabled(&restored));
+    goForward(&restored);
+    goForward(&restored);
+    try std.testing.expectEqualStrings("https://a3.example", currentUrl(&restored));
+    try std.testing.expect(forwardDisabled(&restored));
+}
+
+test "restoreFromPersist clamps history_index; legacy tip-only stays single-entry" {
+    var slots = [_]PersistedSlot{.{}} ** max_sessions;
+    slots[0] = .{
+        .occupied = true,
+        .url = "https://b.example",
+        .history_present = true,
+        .history_count = 2,
+        .history_index = 99,
+    };
+    slots[0].history_urls[0] = "https://a.example";
+    slots[0].history_urls[1] = "https://b.example";
+    var model: Model = .{};
+    restoreFromPersist(&model, &slots, 0);
+    try std.testing.expectEqual(@as(usize, 2), model.browser_slots[0].history_count);
+    try std.testing.expectEqual(@as(usize, 1), model.browser_slots[0].history_index);
+    try std.testing.expectEqualStrings("https://b.example", currentUrl(&model));
+    try std.testing.expect(!backDisabled(&model));
+    try std.testing.expect(forwardDisabled(&model));
+
+    const legacy = [_]PersistedSlot{
+        .{ .occupied = true, .url = "https://legacy.example" },
+        .{},
+        .{},
+        .{},
+    };
+    restoreFromPersist(&model, &legacy, 0);
+    try std.testing.expectEqual(@as(usize, 1), model.browser_slots[0].history_count);
+    try std.testing.expectEqual(@as(usize, 0), model.browser_slots[0].history_index);
+    try std.testing.expectEqualStrings("https://legacy.example", currentUrl(&model));
+    try std.testing.expect(backDisabled(&model));
+    try std.testing.expect(forwardDisabled(&model));
+    try std.testing.expectEqual(@as(u64, 0), model.browser_slots[0].reload_token);
+}
+
 test "CONTEXT and README describe first-cut Browser multi-session inside the tab" {
     const context = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, "CONTEXT.md", std.testing.allocator, .limited(512 * 1024));
     defer std.testing.allocator.free(context);
@@ -1123,16 +1270,22 @@ test "CONTEXT and README describe first-cut Browser multi-session inside the tab
     try std.testing.expect(std.mem.indexOf(u8, context, "browser-web-0") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "not Waku surface UUID tabs") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "occupied slot URLs") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "history rings") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "browser_histories") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "`reload_token` stays runtime-only") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "is_secure_url") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "lock/globe") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "display_url/host first-cut") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "page_title") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "Lock-icon") == null);
     try std.testing.expect(std.mem.indexOf(u8, context, "Not Waku tabs / DevTools / multi-session.") == null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "History ring / back / forward / `reload_token` stay runtime-only") == null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "Full history rings / back / forward / `reload_token` stay runtime-only") == null);
     const browser_cut = std.mem.indexOf(u8, readme, "First-cut embedded Browser tab") orelse return error.MissingBrowserReadme;
     const window = readme[browser_cut..@min(readme.len, browser_cut + 240)];
     try std.testing.expect(std.mem.indexOf(u8, window, "up to 4 sessions") != null);
     try std.testing.expect(std.mem.indexOf(u8, window, "occupied URLs persist") != null);
+    try std.testing.expect(std.mem.indexOf(u8, window, "history rings persist") != null);
     try std.testing.expect(std.mem.indexOf(u8, window, "lock/globe") != null);
     try std.testing.expect(std.mem.indexOf(u8, readme, "not … multi-session") == null);
 }

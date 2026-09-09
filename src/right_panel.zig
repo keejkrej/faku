@@ -24,8 +24,8 @@
 //! `open_url`. First-cut multi-session inside that tab (cap 4, scene
 //! `browser-web-0`..`browser-web-3`, chips + New + Close; occupied
 //! chips show host or truncated `display_url` from the committed URL;
-//! slot URLs persist; not Waku `page_title` / surface UUID tabs /
-//! DevTools). When the Browser
+//! slot URLs and history rings persist; `reload_token` stays runtime-only;
+//! not Waku `page_title` / surface UUID tabs / DevTools). When the Browser
 //! tab is hidden every pane parks at 1×1 with no anchor so Native does
 //! not keep the last webview frame over Files/Diff/Terminal. Inactive
 //! occupied slots park the same way. Terminal
@@ -194,15 +194,15 @@
 //! `DEFAULT_RIGHT_PANEL_WIDTH` (460) when the pane is still
 //! file-tree-narrow; min is Waku `RIGHT_PANEL_MIN_WIDTH` (280); max is
 //! Waku `RIGHT_PANEL_MAX_WIDTH` (1000).
-//! Selected tab, occupied Browser slot URLs, the active draft URL,
-//! occupied Terminal slots, and the active Terminal index
+//! Selected tab, occupied Browser slot URLs, occupied history rings, the
+//! active draft URL, occupied Terminal slots, and the active Terminal index
 //! persist on `sessions.json` extras (`right_panel_tab` / `browser_url` /
-//! `browser_slots` / `browser_active` / `terminal_slots` /
+//! `browser_slots` / `browser_histories` / `browser_active` / `terminal_slots` /
 //! `terminal_active`; missing / unknown tab → `files`,
 //! missing / empty URL → empty draft; missing / empty `browser_slots`
 //! keeps today's one occupied slot 0; missing / empty `terminal_slots`
-//! keeps today's lazy single spawn). Full history rings / back /
-//! forward / reload_token stay runtime-only. Terminal scrollback /
+//! keeps today's lazy single spawn). Occupied Browser history rings
+//! persist; `reload_token` stays runtime-only. Terminal scrollback /
 //! status / live PTY process state stay runtime-only.
 //! Nested Files-tree width (`right_panel_file_tree_width`, default 184)
 //! and nested Diff file-list width (`right_panel_diff_file_list_width`,
@@ -729,10 +729,10 @@ pub fn selectBackground(model: *Model, fx: *Effects, row_id: u32) void {
 /// width toward 460 when still file-tree-narrow (same 280–1000 clamp
 /// as Diff; open bump stays 460, not `REVIEW_INITIAL_WIDTH`).
 /// First-cut embedded canvas webview (`web_panes`); Open in browser
-/// stays the OS-host fallback. Tab, occupied slot URLs, and the
+/// stays the OS-host fallback. Tab, occupied slot URLs, history rings, and the
 /// **active** slot's draft URL persist via layout extras. First-cut
-/// multi-session (cap 4, chips + New + Close); full history rings /
-/// reload_token do not persist. Not Waku surface UUID tabs.
+/// multi-session (cap 4, chips + New + Close); `reload_token` does not
+/// persist. Not Waku surface UUID tabs.
 pub fn selectBrowser(model: *Model, fx: *Effects) void {
     leaveDiffSurfaceIfNeeded(model);
     const was_open = model.right_panel_open;

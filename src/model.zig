@@ -1230,9 +1230,9 @@ pub const Model = struct {
     open_url_storage: [open_url.max_spawn_url]u8 = [_]u8{0} ** open_url.max_spawn_url,
     open_url_len: usize = 0,
     /// First-cut Browser multi-session (cap 4, scene `browser-web-0`..`3`).
-    /// Occupancy, committed pane URLs, and `browser_active` persist;
-    /// the **active** slot's address draft still persists as `browser_url`.
-    /// History rings / `reload_token` stay runtime-only. Slot 0 starts
+    /// Occupancy, committed pane URLs, history rings, and `browser_active`
+    /// persist; the **active** slot's address draft still persists as
+    /// `browser_url`. `reload_token` stays runtime-only. Slot 0 starts
     /// occupied. `browser_active` is the snapped `web_panes` slot.
     browser_slots: [browser_pane.max_sessions]browser_pane.Slot = browser_pane.default_slots,
     browser_active: u8 = 0,
