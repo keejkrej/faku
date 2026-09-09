@@ -1240,11 +1240,16 @@ pub const Model = struct {
     open_terminal_tried_fallback: bool = false,
     open_terminal_wd_storage: [open_terminal.wd_arg_len]u8 = [_]u8{0} ** open_terminal.wd_arg_len,
     open_terminal_wd_len: usize = 0,
-    /// First-cut Terminal multi-session (cap 4, keys 700..703). Runtime-only;
-    /// occupancy / scrollback / status live on each slot. `term_active`
-    /// is the bound `<terminal>` slot.
+    /// First-cut Terminal multi-session (cap 4, keys 700..703). Occupied
+    /// slots and `term_active` persist; scrollback / status / live PTY
+    /// process state stay runtime-only. `term_active` is the bound
+    /// `<terminal>` slot. Pending restore is occupancy remembered from
+    /// `sessions.json` until `spawnShell` re-spawns fresh shells.
     term_slots: [pty_terminal.max_sessions]pty_terminal.Slot = [_]pty_terminal.Slot{.{}} ** pty_terminal.max_sessions,
     term_active: u8 = 0,
+    term_restore_pending: bool = false,
+    term_restore_slots: [pty_terminal.max_sessions]bool = [_]bool{false} ** pty_terminal.max_sessions,
+    term_restore_active: u8 = 0,
     open_editor_live: bool = false,
     open_editor_stage: open_editor.Stage = .first,
     open_editor_path_storage: [open_editor.max_open_path]u8 = [_]u8{0} ** open_editor.max_open_path,
@@ -1992,6 +1997,9 @@ pub const Model = struct {
         "open_terminal_wd_len",
         "term_slots",
         "term_active",
+        "term_restore_pending",
+        "term_restore_slots",
+        "term_restore_active",
         "open_editor_live",
         "open_editor_stage",
         "open_editor_path_storage",

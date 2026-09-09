@@ -38,7 +38,7 @@ send circle.
 | **saveTaskState** | Best-effort daemon mirror of one started-session skeleton. Does not replace the local catalog. |
 | **hydrateSession** | Daemon transcript fill when the local transcript is empty. Local turns win. |
 | **argv slot** | Every flag and operand is its own spawn argument. Never interpolate into the chdir `-c` script. |
-| **right panel** | First-cut Files + Diff + Browser + Terminal + Background pane to the right of the conversation. Default closed. Browser is a first-cut Native canvas webview (`web_panes` snapped to a markup `browser-pane` anchor; scene `browser-web-0`..`browser-web-3`) plus **Open in browser** as OS fallback (`open` / `xdg-open` / `cmd.exe /c start`). First-cut multi-session inside the Browser tab (cap 4, chips + New + Close; occupied chips show host or truncated Waku `display_url` from the committed URL, empty history keeps occupancy `1`..`4`; occupied slot URLs and the active index persist; not Waku `page_title` / surface UUID tabs / DevTools / Hard Reload). Address-bar lock/globe follows the committed pane URL (Waku `is_secure_url`: lock when it starts with `https://`, else globe; empty history uses home `https://example.com` → lock; not the in-progress draft). History ring / back / forward / `reload_token` stay runtime-only. Hidden Browser parks every pane at 1×1 so they do not overlay Files/Diff/Terminal; inactive occupied slots park the same way. Terminal is a first-cut Native `<terminal>` (`fx.ptySpawn` + bound emulator) plus **Open in Terminal** as OS fallback; first-cut multi-session inside that tab (cap 4, keys 700..703, runtime-only chips + New + Close; not Waku surface UUID tabs / persist). |
+| **right panel** | First-cut Files + Diff + Browser + Terminal + Background pane to the right of the conversation. Default closed. Browser is a first-cut Native canvas webview (`web_panes` snapped to a markup `browser-pane` anchor; scene `browser-web-0`..`browser-web-3`) plus **Open in browser** as OS fallback (`open` / `xdg-open` / `cmd.exe /c start`). First-cut multi-session inside the Browser tab (cap 4, chips + New + Close; occupied chips show host or truncated Waku `display_url` from the committed URL, empty history keeps occupancy `1`..`4`; occupied slot URLs and the active index persist; not Waku `page_title` / surface UUID tabs / DevTools / Hard Reload). Address-bar lock/globe follows the committed pane URL (Waku `is_secure_url`: lock when it starts with `https://`, else globe; empty history uses home `https://example.com` → lock; not the in-progress draft). History ring / back / forward / `reload_token` stay runtime-only. Hidden Browser parks every pane at 1×1 so they do not overlay Files/Diff/Terminal; inactive occupied slots park the same way. Terminal is a first-cut Native `<terminal>` (`fx.ptySpawn` + bound emulator) plus **Open in Terminal** as OS fallback; first-cut multi-session inside that tab (cap 4, keys 700..703, chips + New + Close; occupied slots and the active index persist; scrollback/status/live process state stay runtime-only; not Waku surface UUID tabs). |
 | **Settings Providers** | Settings page listing `protocol.ProviderId` catalog rows. fx probe status is live (`fx_available` / `fxPath()`); other ids `--help`-probe PATH `defaultBinary()` (Available / Not found). Apply sets the selected session's `provider`. First-cut Enable/Disable persists `disabled_providers` (wire names) on `sessions.json` extras (default empty = all enabled; Enable/Disable chip is disable-flag-only; `providerEnabled` is `!disabled && isAvailable`; boot starts non-fx PATH `--help` probes alongside fx). Live Send for probed ACP stdio providers (cursor / opencode / kimi `acp`, grok `agent stdio`) uses the same one-shot acp-proxy as fx (first-cut official ACP v1 image content blocks on `session/prompt` when a composer image is attached: base64 + mimeType, ~256KB raw, fail-closed on overflow / bad file; fx still `fx ask --image`, no ACP image blocks); Available Claude is one-shot `claude -p --output-format stream-json --verbose --include-partial-messages --forward-subagent-text` (not ACP; later Sends pass documented `--resume {fx_session_id}` when that field is non-empty; first Send and Fork omit it; not `--continue`; documented image path inside that `-p` prompt when a composer image is attached; stdout is NDJSON with live `text_delta`; live Subagent Background from `parent_tool_use_id` plus a bounded 512KB last-window from forwarded `parent_tool_use_id` text (Environment Summary stays a one-line preview; right-panel Background shows the stored log with CSI stripped for display); live Monitor Background from Claude `Monitor` `tool_use` plus a bounded 512KB last-window log from matching user `tool_result` (Environment Summary stays a one-line preview; right-panel Background shows the stored log with CSI stripped for display); first-cut settled Monitor / Subagent stay in the runtime registry after the turn (status from Process settle; Monitor / Subagent last-window kept; Faku-side Dismiss, not Claude TaskStop; not live / Running / Monitoring after `-p` exits); Available Codex is one-shot `codex exec {prompt}` (not ACP; documented `--image {path}` after the prompt when a composer image is attached); Available Amp is one-shot `amp -x {prompt}` (not ACP; documented `@{path}` in the `-x` prompt when a composer image is attached); Available Pi is one-shot `pi --mode json {prompt}` (not ACP, not `--mode rpc`; documented `@{path}` after json when a composer image is attached; stdout is JSON events with live `text_delta`). fx Not found copies the verified keejkrej/fx Unix install script (`curl -fsSL https://github.com/keejkrej/fx/releases/latest/download/install | bash` into `~/.fx/bin`; not fx.sh); fx Available copies `fx login` (convenience; `--help` is not auth). Other missing CLIs get a PATH hint only. Not Waku onboarding / OAuth / auto-install. |
 | **Settings Appearance** | Settings page for chrome theme and language. Theme: System (follow OS `on_appearance`), Light, or Dark. Default System. Language: System / English / 简体中文 / 日本語. Default System. System language follows process `LC_ALL` / `LC_MESSAGES` / `LANG` (Native has no locale API). Explicit language chips are autonyms in every locale. Persists `theme_preference` and `language_preference` on `sessions.json` extras (same bag as model/access/effort/project/daemon). Missing / unknown → System. High contrast / reduce motion still follow the OS. Settings chrome strings (title, nav, Appearance Theme / Language), first-cut sidebar date-bucket titles, and the chrome unassign Today list-item follow the resolved locale this cut. |
 | **Settings Skills** | Settings page that scans project `SKILL.md` files. Runtime-only. Composer `$name` insert; not body auto-prepend and not enable toggles. |
@@ -608,7 +608,10 @@ Browser draft URL persists (`browser_url`, raw, cap 2048; missing / empty /
 overflow → empty draft) for the **active** slot. Occupied slot committed
 URLs and the active index persist (`browser_slots` string-or-null array,
 cap 4, plus `browser_active`; missing / empty `browser_slots` keeps
-today's one occupied slot 0 + `browser_url` draft). Full history rings /
+today's one occupied slot 0 + `browser_url` draft). Occupied Terminal
+slots and the active index persist (`terminal_slots` boolean array,
+cap 4, plus `terminal_active`; missing / empty `terminal_slots` keeps
+today's lazy single spawn). Full history rings /
 back / forward / `reload_token` stay runtime-only (typing the address bar
 does not navigate). Background row selection, Files preview content,
 and directory expands stay runtime-only. Files
@@ -722,20 +725,23 @@ not showing, **all** panes park at a 1×1 frame with `anchor = null` because
 Native `applyWebPane` keeps the last frame if the anchor is missing or
 width/height < 1 (no public `visible` field on `WebViewPane`). Terminal is a first-cut
 Native `<terminal>`: `fx.ptySpawn` an interactive login shell on
-keys 700..703 (cap 4 concurrent runtime-only sessions), bound
+keys 700..703 (cap 4 concurrent sessions), bound
 `pty="{shell_key}"` to the active slot (model data, never a
 literal), `on-terminal` scrollback echo, muted ended/failed status
 plus **Restart**. Session chips + **New** + **Close** (active)
 live inside the existing Terminal tab; Close `ptyKill`s a live
-slot. Inactive live PTYs keep running. `ptySpawn` has no cwd field;
+slot. Inactive live PTYs keep running. Occupied slots and the
+active index persist (`terminal_slots` boolean array, cap 4, plus
+`terminal_active`; missing / empty `terminal_slots` keeps today's
+lazy single spawn). Scrollback/status/live process state stay
+runtime-only (restore re-spawns fresh shells). `ptySpawn` has no cwd field;
 Unix argv reuses `fx_ask_chdir_script` when `project_path` is a
 usable directory, Windows uses documented `cmd.exe /K` + `cd /d
 PATH`. **Open in Terminal** stays the OS-host fallback (`open -a
 Terminal` / `x-terminal-emulator` else `gnome-terminal` / Windows
 `wt.exe -d` else `cmd.exe /c start "" /D <path> cmd.exe`; effect
 key 27; empty `start` title so `/D` is not eaten). Not Waku
-right-panel surface UUID tabs, and sessions do not persist across
-restart. Background is the
+right-panel surface UUID tabs. Background is the
 Environment Summary Process / Monitor / Subagent row surface (kind,
 title, live-or-settled status, Monitor / Subagent 512KB last-window log).
 Not a full BackgroundWorkRegistry. Faku-side Monitor and Subagent Stop
@@ -1344,8 +1350,9 @@ Honest gaps this cut does not implement:
   not the draft; Native has no text-field icon helper).
   Terminal first-cut is Native `<terminal>` + `fx.ptySpawn`, not
   alacritty. First-cut multi-session inside the Terminal tab (cap 4,
-  keys 700..703, runtime-only chips + New + Close; not Waku surface
-  UUID tabs / persist).
+  keys 700..703, chips + New + Close; occupied slots and the active
+  index persist; scrollback/status/live process state stay runtime-only;
+  not Waku surface UUID tabs).
   **Open in Terminal** remains the OS fallback (`open -a Terminal` /
   `x-terminal-emulator` / Windows `wt.exe -d` then
   `cmd.exe /c start "" /D`). Compact File editor:

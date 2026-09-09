@@ -31,8 +31,9 @@
 //! occupied slots park the same way. Terminal
 //! is a first-cut Native `<terminal>` (`fx.ptySpawn` + bound emulator)
 //! with Open in Terminal as the OS-host fallback — first-cut
-//! multi-session inside the Terminal tab (cap 4, keys 700..703,
-//! runtime-only; not Waku surface UUID tabs / persist).
+//! multi-session inside the Terminal tab (cap 4, keys 700..703;
+//! occupied slots and the active index persist; scrollback / status /
+//! live process state stay runtime-only; not Waku surface UUID tabs).
 //! Claude CLI TaskStop (Faku-side Monitor and
 //! Subagent Stop on one-shot `claude -p` ships; live Stop dismisses
 //! that live row and does not invoke TaskStop mid-turn; settled
@@ -193,12 +194,16 @@
 //! `DEFAULT_RIGHT_PANEL_WIDTH` (460) when the pane is still
 //! file-tree-narrow; min is Waku `RIGHT_PANEL_MIN_WIDTH` (280); max is
 //! Waku `RIGHT_PANEL_MAX_WIDTH` (1000).
-//! Selected tab, occupied Browser slot URLs, and the active draft URL
+//! Selected tab, occupied Browser slot URLs, the active draft URL,
+//! occupied Terminal slots, and the active Terminal index
 //! persist on `sessions.json` extras (`right_panel_tab` / `browser_url` /
-//! `browser_slots` / `browser_active`; missing / unknown tab → `files`,
+//! `browser_slots` / `browser_active` / `terminal_slots` /
+//! `terminal_active`; missing / unknown tab → `files`,
 //! missing / empty URL → empty draft; missing / empty `browser_slots`
-//! keeps today's one occupied slot 0). Full history rings / back /
-//! forward / reload_token stay runtime-only.
+//! keeps today's one occupied slot 0; missing / empty `terminal_slots`
+//! keeps today's lazy single spawn). Full history rings / back /
+//! forward / reload_token stay runtime-only. Terminal scrollback /
+//! status / live PTY process state stay runtime-only.
 //! Nested Files-tree width (`right_panel_file_tree_width`, default 184)
 //! and nested Diff file-list width (`right_panel_diff_file_list_width`,
 //! default 184; FILE_TREE clamps, not a Waku REVIEW_* list width) persist
@@ -744,9 +749,12 @@ pub fn selectBrowser(model: *Model, fx: *Effects) void {
 /// as Diff; open bump stays 460, not `REVIEW_INITIAL_WIDTH`).
 /// Spawns the interactive login shell when no session is live
 /// (`pty_terminal.spawnShell`; no-op while any of keys 700..703 is
-/// live). Open in Terminal stays the OS-host fallback. Tab persists via
-/// layout extras. First-cut multi-session (cap 4, runtime-only); not
-/// Waku surface UUID tabs / persist.
+/// live). When occupied slots were persisted, that spawn restores one
+/// fresh shell per `true` slot then selects `terminal_active`. Open in
+/// Terminal stays the OS-host fallback. Tab, occupied slots, and the
+/// active index persist via layout extras. First-cut multi-session
+/// (cap 4); scrollback / status / live process state do not persist.
+/// Not Waku surface UUID tabs.
 pub fn selectTerminal(model: *Model, fx: *Effects) void {
     leaveDiffSurfaceIfNeeded(model);
     const was_open = model.right_panel_open;

@@ -67,8 +67,8 @@ pub const PaletteAction = enum(u32) {
     /// the OS fallback. Not Waku surface UUID tabs.
     show_browser_tab = 17,
     /// Right-panel Terminal tab. First-cut Native `<terminal>` with
-    /// up to 4 runtime-only shells; Open in Terminal stays the OS
-    /// fallback. Not Waku surface UUID tabs / persist.
+    /// up to 4 shells (occupied slots persist); Open in Terminal stays
+    /// the OS fallback. Not Waku surface UUID tabs.
     show_terminal_tab = 18,
 };
 
