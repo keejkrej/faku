@@ -4354,6 +4354,19 @@ pub const Model = struct {
         return "choose a project";
     }
 
+    /// Files tree header. Basename of the selected session
+    /// `project_path` (Waku `project.display_name()` / sidebar subtitle /
+    /// Settings Usage `projectBasename`). Empty path stays empty.
+    pub fn right_panel_files_project_name(model: *const Model) []const u8 {
+        return usage_history.projectBasename(model.selectedProjectPath());
+    }
+
+    /// Compact Files tree header: loaded project tree only, not the
+    /// no-project empty state and not Loading files….
+    pub fn right_panel_files_tree_header(model: *const Model) bool {
+        return model.right_panel_showing_files() and right_panel.hasProject(model) and !right_panel.isLoading(model);
+    }
+
     pub fn project_is_local(model: *const Model) bool {
         return model.selectedProjectPath().len == 0;
     }
