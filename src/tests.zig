@@ -9625,7 +9625,7 @@ test "Files markdown preview details expand via on-details; default collapsed; n
     const readme = try std.fmt.bufPrint(&readme_buf, "{s}/README.md", .{project});
     try std.Io.Dir.cwd().writeFile(testing.io, .{
         .sub_path = readme,
-        .data = "# Hello\n\n<details>\n<summary>More</summary>\n\nHidden body\n</details>\n",
+        .data = "# Hello\n\n<details>\n<summary>More</summary>\n\nHidden body\n\n</details>\n",
     });
 
     main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
@@ -9635,7 +9635,8 @@ test "Files markdown preview details expand via on-details; default collapsed; n
     var tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Hello");
     _ = try expectByText(tree.root, .text, "More");
-    try testing.expect(findByText(tree.root, .text, "Hidden body") == null);
+    try testing.expect(findTextContaining(tree.root, "Hidden body") == null);
+    try testing.expect(findPressableContaining(tree.root, "▸ More") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{file_preview_details_expanded}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"file_preview_toggle_details\"") != null);
 
@@ -9650,11 +9651,13 @@ test "Files markdown preview details expand via on-details; default collapsed; n
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "More");
     _ = try expectByText(tree.root, .text, "Hidden body");
+    try testing.expect(findPressableContaining(tree.root, "▾ More") != null);
 
     main.update(&model, .{ .file_preview_toggle_details = 0 }, &fx);
     try testing.expect(!model.file_preview_details_expanded()[0]);
     tree = try buildTree(arena, &model);
-    try testing.expect(findByText(tree.root, .text, "Hidden body") == null);
+    try testing.expect(findTextContaining(tree.root, "Hidden body") == null);
+    try testing.expect(findPressableContaining(tree.root, "▸ More") != null);
 
     main.update(&model, .{ .file_preview_toggle_details = 99 }, &fx);
     try testing.expect(!model.file_preview_details_expanded()[0]);

@@ -75,7 +75,7 @@ test "drop clears all flags on close / Source chip / file switch" {
     const readme = try std.fmt.bufPrint(&readme_buf, "{s}/README.md", .{project});
     try std.Io.Dir.cwd().writeFile(std.testing.io, .{
         .sub_path = readme,
-        .data = "# Hello\n\n<details>\n<summary>More</summary>\n\nHidden\n</details>\n",
+        .data = "# Hello\n\n<details>\n<summary>More</summary>\n\nHidden\n\n</details>\n",
     });
     var other_buf: [300]u8 = undefined;
     const other = try std.fmt.bufPrint(&other_buf, "{s}/other.md", .{project});
