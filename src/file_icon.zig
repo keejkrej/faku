@@ -10,7 +10,8 @@
 //! `app:gradle` / `app:kubernetes` / `app:tex` / `app:crystal` /
 //! `app:elm` / `app:erlang` / `app:haxe` / `app:jinja` / `app:xaml` /
 //! `app:diff` / `app:file` / `app:julia` / `app:prettier` /
-//! `app:kotlin`) plus Native built-ins for directories
+//! `app:kotlin` / `app:clojure` / `app:helm` / `app:editorconfig`)
+//! plus Native built-ins for directories
 //! (`folder` / `folder-open`) and unknown files (`app:file`). Diff tree
 //! rows, the selected-file Diff header, and composer `@` mention
 //! rows reuse this same map
@@ -102,6 +103,7 @@ pub fn fileIconForName(name: []const u8) []const u8 {
     if (extensionIs(ext, &.{ "hx", "hxml" })) return app("haxe");
     if (extensionIs(ext, &.{ "jinja", "jinja2", "j2" })) return app("jinja");
     if (extensionIs(ext, &.{ "jl" })) return app("julia");
+    if (extensionIs(ext, &.{ "clj", "cljs", "cljc", "edn" })) return app("clojure");
     if (extensionIs(ext, &.{ "xaml" })) return app("xaml");
     if (extensionIs(ext, &.{ "diff", "patch" })) return app("diff");
     if (extensionIs(ext, &.{ "ini", "cfg", "conf", "config", "toml" })) return app("settings");
@@ -175,8 +177,10 @@ fn basenameSpecial(name: []const u8) ?[]const u8 {
         return app("deno");
     if (std.ascii.eqlIgnoreCase(name, "kustomization.yaml") or
         std.ascii.eqlIgnoreCase(name, "kustomization.yml")) return app("kubernetes");
+    if (isHelmName(name)) return app("helm");
     if (isGradleName(name)) return app("gradle");
     if (std.ascii.eqlIgnoreCase(name, "nginx.conf")) return app("nginx");
+    if (std.ascii.eqlIgnoreCase(name, ".editorconfig")) return app("editorconfig");
     if (isSettingsName(name)) return app("settings");
     return null;
 }
@@ -206,9 +210,17 @@ fn isDockerfileName(name: []const u8) bool {
         startsWithIgnoreCase(name, "compose.");
 }
 
+fn isHelmName(name: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(name, "Chart.yaml") or
+        std.ascii.eqlIgnoreCase(name, "Chart.yml") or
+        std.ascii.eqlIgnoreCase(name, "values.yaml") or
+        std.ascii.eqlIgnoreCase(name, "values.yml") or
+        std.ascii.eqlIgnoreCase(name, "helmfile.yaml") or
+        std.ascii.eqlIgnoreCase(name, "helmfile.yml");
+}
+
 fn isSettingsName(name: []const u8) bool {
-    return startsWithIgnoreCase(name, ".env") or
-        std.ascii.eqlIgnoreCase(name, ".editorconfig");
+    return startsWithIgnoreCase(name, ".env");
 }
 
 fn extensionOf(name: []const u8) []const u8 {
@@ -275,7 +287,7 @@ test "fileIconForName maps shells, archives, audio, leftover config" {
     try std.testing.expectEqualStrings("app:settings", fileIconForName("other.toml"));
     try std.testing.expectEqualStrings("app:settings", fileIconForName(".env"));
     try std.testing.expectEqualStrings("app:settings", fileIconForName(".env.local"));
-    try std.testing.expectEqualStrings("app:settings", fileIconForName(".editorconfig"));
+    try std.testing.expectEqualStrings("app:editorconfig", fileIconForName(".editorconfig"));
 
     try std.testing.expectEqualStrings("app:zip", fileIconForName("out.zip"));
     try std.testing.expectEqualStrings("app:zip", fileIconForName("lib.jar"));
@@ -480,8 +492,8 @@ test "fileIconForName maps seventh-cut cmake coffee gitlab gradle kubernetes tex
     try std.testing.expectEqualStrings("app:kubernetes", fileIconForName("kustomization.yml"));
     try std.testing.expectEqualStrings("app:kubernetes", fileIconForName("Kustomization.yaml"));
     try std.testing.expectEqualStrings("app:yaml", fileIconForName("deployment.yaml"));
-    try std.testing.expectEqualStrings("app:yaml", fileIconForName("chart.yaml"));
-    try std.testing.expectEqualStrings("app:yaml", fileIconForName("values.yaml"));
+    try std.testing.expectEqualStrings("app:helm", fileIconForName("chart.yaml"));
+    try std.testing.expectEqualStrings("app:helm", fileIconForName("values.yaml"));
 
     try std.testing.expectEqualStrings("app:tex", fileIconForName("paper.tex"));
     try std.testing.expectEqualStrings("app:tex", fileIconForName("macro.sty"));
@@ -571,6 +583,34 @@ test "fileIconForName maps ninth-cut julia prettier kotlin" {
     try std.testing.expectEqualStrings("app:javascript", fileIconForName("prettier.js"));
 }
 
+test "fileIconForName maps tenth-cut clojure helm editorconfig" {
+    try std.testing.expectEqualStrings("app:clojure", fileIconForName("core.clj"));
+    try std.testing.expectEqualStrings("app:clojure", fileIconForName("main.cljs"));
+    try std.testing.expectEqualStrings("app:clojure", fileIconForName("lib.cljc"));
+    try std.testing.expectEqualStrings("app:clojure", fileIconForName("deps.edn"));
+    try std.testing.expectEqualStrings("app:clojure", fileIconForName("CORE.CLJ"));
+    try std.testing.expectEqualStrings("app:clojure", fileIconForName("DEPS.EDN"));
+
+    try std.testing.expectEqualStrings("app:helm", fileIconForName("Chart.yaml"));
+    try std.testing.expectEqualStrings("app:helm", fileIconForName("Chart.yml"));
+    try std.testing.expectEqualStrings("app:helm", fileIconForName("values.yaml"));
+    try std.testing.expectEqualStrings("app:helm", fileIconForName("values.yml"));
+    try std.testing.expectEqualStrings("app:helm", fileIconForName("helmfile.yaml"));
+    try std.testing.expectEqualStrings("app:helm", fileIconForName("helmfile.yml"));
+    try std.testing.expectEqualStrings("app:helm", fileIconForName("CHART.YAML"));
+    try std.testing.expectEqualStrings("app:helm", fileIconForName("VALUES.YML"));
+    try std.testing.expectEqualStrings("app:helm", fileIconForName("HELMFILE.YAML"));
+    try std.testing.expectEqualStrings("app:kubernetes", fileIconForName("kustomization.yaml"));
+    try std.testing.expectEqualStrings("app:yaml", fileIconForName("deployment.yaml"));
+    try std.testing.expectEqualStrings("app:yaml", fileIconForName("app.yaml"));
+    try std.testing.expectEqualStrings("app:file", fileIconForName("chart.helm"));
+
+    try std.testing.expectEqualStrings("app:editorconfig", fileIconForName(".editorconfig"));
+    try std.testing.expectEqualStrings("app:editorconfig", fileIconForName(".EDITORCONFIG"));
+    try std.testing.expectEqualStrings("app:settings", fileIconForName(".env"));
+    try std.testing.expectEqualStrings("app:settings", fileIconForName(".env.local"));
+}
+
 test "fileIconForName skipped nest and unmatched stories stay generic" {
     try std.testing.expectEqualStrings("app:json", fileIconForName("nest-cli.json"));
     try std.testing.expectEqualStrings("app:json", fileIconForName("nest-cli.dev.json"));
@@ -615,6 +655,12 @@ test "fileIconForPath uses the basename of a repo-relative path" {
     try std.testing.expectEqualStrings("app:kotlin", fileIconForPath("src/build.kts"));
     try std.testing.expectEqualStrings("app:prettier", fileIconForPath(".prettierrc"));
     try std.testing.expectEqualStrings("app:prettier", fileIconForPath("prettier.config.mjs"));
+    try std.testing.expectEqualStrings("app:clojure", fileIconForPath("src/core.clj"));
+    try std.testing.expectEqualStrings("app:clojure", fileIconForPath("src/deps.edn"));
+    try std.testing.expectEqualStrings("app:helm", fileIconForPath("charts/app/Chart.yaml"));
+    try std.testing.expectEqualStrings("app:helm", fileIconForPath("charts/app/values.yml"));
+    try std.testing.expectEqualStrings("app:helm", fileIconForPath("helmfile.yaml"));
+    try std.testing.expectEqualStrings("app:editorconfig", fileIconForPath(".editorconfig"));
     try std.testing.expectEqualStrings("app:file", fileIconForPath("notes.txt"));
 }
 
@@ -712,6 +758,12 @@ test "files tree icons stay in Native built-ins or registered app: names" {
         fileIconForName(".prettierrc.json"),
         fileIconForName(".prettierignore"),
         fileIconForName("prettier.config.js"),
+        fileIconForName("core.clj"),
+        fileIconForName("deps.edn"),
+        fileIconForName("Chart.yaml"),
+        fileIconForName("values.yml"),
+        fileIconForName("helmfile.yaml"),
+        fileIconForName(".editorconfig"),
         fileIconForName("unknown.data"),
         fileIconForName("notes.txt"),
     };

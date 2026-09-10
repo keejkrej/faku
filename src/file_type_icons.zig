@@ -4,7 +4,8 @@
 //! `lockfile` / `exe` / `nginx` / `cmake` / `coffee` / `gitlab` /
 //! `gradle` / `kubernetes` / `tex` / `crystal` / `elm` / `erlang` /
 //! `haxe` / `jinja` / `xaml` / `diff` / `file` / `julia` /
-//! `prettier` / `kotlin` / … strings;
+//! `prettier` / `kotlin` / `clojure` / `helm` / `editorconfig` /
+//! … strings;
 //! (`lockfile` is the Material lockfile glyph from `lock.svg`; chrome
 //! Browser address `app:lock` stays a separate `src/icons/lock.svg`.)
 //! markup and `file_icon` return `app:<name>`. Combined with shell
@@ -114,6 +115,9 @@ const file_icon = parse("file");
 const julia_icon = parse("julia");
 const prettier_icon = parse("prettier");
 const kotlin_icon = parse("kotlin");
+const clojure_icon = parse("clojure");
+const helm_icon = parse("helm");
+const editorconfig_icon = parse("editorconfig");
 
 /// Bare names (no `app:` prefix). `file_icon` returns `app:` + these.
 pub const app_icons = [_]canvas.icons.Entry{
@@ -210,6 +214,9 @@ pub const app_icons = [_]canvas.icons.Entry{
     .{ .name = "julia", .icon = &julia_icon },
     .{ .name = "prettier", .icon = &prettier_icon },
     .{ .name = "kotlin", .icon = &kotlin_icon },
+    .{ .name = "clojure", .icon = &clojure_icon },
+    .{ .name = "helm", .icon = &helm_icon },
+    .{ .name = "editorconfig", .icon = &editorconfig_icon },
     .{ .name = "file", .icon = &file_icon },
 };
 
@@ -221,7 +228,7 @@ pub fn contains(name: []const u8) bool {
 }
 
 test "file-type app_icons names are unique and parse to shapes" {
-    try std.testing.expectEqual(@as(usize, 94), app_icons.len);
+    try std.testing.expectEqual(@as(usize, 97), app_icons.len);
     var i: usize = 0;
     while (i < app_icons.len) : (i += 1) {
         try std.testing.expect(app_icons[i].icon.shapes.len > 0);
@@ -266,11 +273,11 @@ test "file-type app_icons names are unique and parse to shapes" {
     try std.testing.expect(contains("julia"));
     try std.testing.expect(contains("prettier"));
     try std.testing.expect(contains("kotlin"));
+    try std.testing.expect(contains("clojure"));
+    try std.testing.expect(contains("helm"));
+    try std.testing.expect(contains("editorconfig"));
     try std.testing.expect(!contains("graphql"));
     try std.testing.expect(!contains("nest"));
-    try std.testing.expect(!contains("clojure"));
-    try std.testing.expect(!contains("editorconfig"));
-    try std.testing.expect(!contains("helm"));
     try std.testing.expect(!contains("pug"));
     try std.testing.expect(!contains("app:zig"));
     try std.testing.expect(!contains("file-text"));
