@@ -1005,6 +1005,9 @@ pub const Model = struct {
     sidebar_collapsed: bool = false,
     sidebar_last_width: f32 = sidebar_default_width,
     /// Default closed (Waku `default_right_panel_visibility` is false).
+    /// Boot persist is the global `sessions.json` extra; session switch
+    /// / New Task / remove restore from `right_panel_session` (missing
+    /// key → closed). Nested list widths stay global extras.
     right_panel_open: bool = false,
     right_panel_split: f32 = default_right_panel_split,
     /// Last pane width in pixels. Files tab clamps to the file-tree
@@ -1032,15 +1035,17 @@ pub const Model = struct {
     /// `file_mention.clearCache` frees this live table; per-session
     /// memory is `right_panel_session_store` (Waku
     /// `RightPanelSessionState::take_or_closed` on switch: expand,
-    /// tab, Files selected path, dirty/editing Files preview, Diff
-    /// selected file). Not persisted to sessions.json this cut.
+    /// tab, panel open/closed, Files selected path, dirty/editing Files
+    /// preview, Diff selected file). Nested `file_tree_width` stays
+    /// the global sessions.json extra. Not persisted to sessions.json
+    /// this cut.
     right_panel_expanded_store: []file_mention.CachedPath = &.{},
     right_panel_expanded_count: u32 = 0,
-    /// Bounded in-memory Files + Diff expand / tab / selection /
-    /// Files preview editor stash keyed by session id. Cap
+    /// Bounded in-memory Files + Diff expand / tab / open/closed /
+    /// selection / Files preview editor stash keyed by session id. Cap
     /// `right_panel_session.max_states` with LRU eviction; missing
-    /// key restores Files + collapsed + empty selection. Not
-    /// sessions.json.
+    /// key restores closed + Files + collapsed + empty selection.
+    /// Not sessions.json.
     right_panel_session_store: [right_panel_session.max_states]right_panel_session.State = [_]right_panel_session.State{.{}} ** right_panel_session.max_states,
     right_panel_session_stamp: u32 = 0,
     /// Pending Files preview relpath when restore ran before the
