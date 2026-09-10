@@ -380,8 +380,11 @@ today's ACP path). First-cut daemon
 `WorkspaceOperation::CreateProjectlessWorkspace` ships on New Task
 when there is no ordinary project (empty `last_project_path`, or
 the selected session's `project_path` is already a projectless path
-under `~/.waku/projects` / legacy `~/.waku/<date>/…`) and a daemon
-address is set (ok is nested `projectlessWorkspace` + `cwd`; paints
+under `~/.waku/projects` / legacy `~/.waku/<date>/…`) and no
+unstarted non-legacy projectless draft exists (Waku
+`create_projectless_session` selects that draft instead of creating
+a row; bare `~/.waku` is not reused) and a daemon address is set
+(ok is nested `projectlessWorkspace` + `cwd`; paints
 the new session `project_path` and `last_project_path`; Native 4 KiB
 stdin overflow / error / unusable parse / empty cwd fall back to
 local mkdir under `~/.waku/projects/<YYYY-MM-DD>/<slug>` with
@@ -1519,7 +1522,8 @@ Honest gaps this cut does not implement:
   `WorkspaceOperation::CreateProjectlessWorkspace` ships on New Task
   when there is no ordinary project (empty `last_project_path`, or
   the selected session's `project_path` is already a projectless path
-  under `~/.waku/projects`); ok is nested `projectlessWorkspace` +
+  under `~/.waku/projects`) and no unstarted non-legacy projectless
+  draft exists to select; ok is nested `projectlessWorkspace` +
   `cwd`; Native 4 KiB stdin overflow / error / unusable parse / empty
   cwd fall back to local mkdir under `~/.waku/projects/<date>/<slug>`;
   no address keeps that local mkdir. First-cut
@@ -1657,7 +1661,11 @@ Honest gaps this cut does not implement:
   createProjectlessWorkspace on New Task when there is no ordinary
   project (empty `last_project_path`, or the selected session's
   `project_path` is already a projectless path under
-  `~/.waku/projects` and legacy `~/.waku/<date>/…`); ok is nested
+  `~/.waku/projects` and legacy `~/.waku/<date>/…`) and no
+  unstarted non-legacy projectless draft exists to select (Waku
+  `create_projectless_session`; bare `~/.waku` is not reused; dated
+  `~/.waku/<date>/…` is; local `sessions.json` stays canonical;
+  sidecar only on actual create); ok is nested
   `projectlessWorkspace.cwd` (not Ack, not Bool, not a bare
   object; empty cwd rejected); `prompt` is JSON null on this
   first-cut; Native 4 KiB stdin overflow / miss / non-ok fall back
@@ -1678,9 +1686,9 @@ Honest gaps this cut does not implement:
   fresh mkdir like Create when the path is bare `~/.waku`;
   already-under-projects is a no-op; home / failure must not
   toast-block session select; ordinary real project paths do not
-  spawn migrate. Leftover: reusing an unstarted projectless
-  draft is skipped this cut. Amend/force and remote `--track`
-  stay local (not daemon WorkspaceOperation variants)
+  spawn migrate. New Task reuses an unstarted non-legacy
+  projectless draft instead of always creating. Amend/force and
+  remote `--track` stay local (not daemon WorkspaceOperation variants)
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size
