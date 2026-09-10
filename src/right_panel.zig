@@ -107,9 +107,10 @@
 //! basename (`right_panel_files_project_name`). Directory rows paint
 //! Native `folder-open` when expanded and `folder` when collapsed
 //! (chevrons stay). File rows pick a Material app icon
-//! (`app:zig`, `app:rust`, `app:ruby`, … MIT subset) or a Native built-in
-//! (`settings` / `archive` / `music`, else `file-text`; shells bind
-//! Material `app:console` / `app:powershell`).
+//! (`app:zig`, `app:rust`, `app:ruby`, … MIT subset) or Native
+//! `file-text` for unknown files (archives/audio/video/config bind
+//! Material `app:zip` / `app:audio` / `app:video` / `app:settings`;
+//! shells bind Material `app:console` / `app:powershell`).
 //! Diff tree rows, the selected-file Diff
 //! header, and composer `@` mention rows reuse this same map
 //! (mention dirs stay `folder`; Browser / Terminal do not).
@@ -2525,7 +2526,7 @@ test "Files tree rows bind first-cut Native file-type icons" {
         try std.testing.expectEqualStrings("README.md", visible[2].path);
         try std.testing.expectEqualStrings("app:readme", visible[2].icon);
         try std.testing.expectEqualStrings("archive.zip", visible[3].path);
-        try std.testing.expectEqualStrings("archive", visible[3].icon);
+        try std.testing.expectEqualStrings("app:zip", visible[3].icon);
         try std.testing.expectEqualStrings("package.json", visible[4].path);
         try std.testing.expectEqualStrings("app:nodejs", visible[4].icon);
         try std.testing.expectEqualStrings("run.sh", visible[5].path);
@@ -2535,7 +2536,7 @@ test "Files tree rows bind first-cut Native file-type icons" {
         try std.testing.expect(!visible[6].expanded);
         try std.testing.expectEqualStrings("folder", visible[6].icon);
         try std.testing.expectEqualStrings("track.mp3", visible[7].path);
-        try std.testing.expectEqualStrings("music", visible[7].icon);
+        try std.testing.expectEqualStrings("app:audio", visible[7].icon);
     }
 
     const src_id = file_mention.dirMentionId(0);
@@ -2549,7 +2550,7 @@ test "Files tree rows bind first-cut Native file-type icons" {
         try std.testing.expectEqualStrings("src/main.zig", visible[7].path);
         try std.testing.expectEqualStrings("app:zig", visible[7].icon);
         try std.testing.expectEqualStrings("track.mp3", visible[8].path);
-        try std.testing.expectEqualStrings("music", visible[8].icon);
+        try std.testing.expectEqualStrings("app:audio", visible[8].icon);
     }
 }
 

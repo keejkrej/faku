@@ -99,8 +99,8 @@
 //! directories. Empty / whitespace-only query is today's collapsed
 //! tree. File rows paint a Material app icon from `file_icon`
 //! (same Files map: basename/extension → `app:zig` / `app:rust` /
-//! `app:ruby` / … plus built-in `settings` / `archive` /
-//! `music`, else `file-text`; shells `app:console` /
+//! `app:ruby` / … plus `app:zip` / `app:audio` / `app:video` /
+//! `app:settings`, else `file-text`; shells `app:console` /
 //! `app:powershell`) + basename (no status prefix) + a separate colored
 //! status letter (`A` success, `D` destructive, `B`/`M` warning) and
 //! Waku-style `+N` / `-M` (success / destructive) from numstat when

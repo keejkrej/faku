@@ -1,8 +1,9 @@
 //! Material file-type app icons (MIT SVGs under
 //! `src/icons/file-types/`). Registry names are the bare `zig` /
-//! `rust` / … strings; markup and `file_icon` return `app:<name>`.
-//! Combined with shell chrome icons in `shell.app_icons` so the
-//! model contract / `native check` see one table.
+//! `rust` / `zip` / `audio` / `video` / `settings` / … strings;
+//! markup and `file_icon` return `app:<name>`. Combined with shell
+//! chrome icons in `shell.app_icons` so the model contract /
+//! `native check` see one table.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -82,6 +83,10 @@ const firebase_icon = parse("firebase");
 const supabase_icon = parse("supabase");
 const rollup_icon = parse("rollup");
 const stylelint_icon = parse("stylelint");
+const zip_icon = parse("zip");
+const audio_icon = parse("audio");
+const video_icon = parse("video");
+const settings_icon = parse("settings");
 
 /// Bare names (no `app:` prefix). `file_icon` returns `app:` + these.
 pub const app_icons = [_]canvas.icons.Entry{
@@ -154,6 +159,10 @@ pub const app_icons = [_]canvas.icons.Entry{
     .{ .name = "supabase", .icon = &supabase_icon },
     .{ .name = "rollup", .icon = &rollup_icon },
     .{ .name = "stylelint", .icon = &stylelint_icon },
+    .{ .name = "zip", .icon = &zip_icon },
+    .{ .name = "audio", .icon = &audio_icon },
+    .{ .name = "video", .icon = &video_icon },
+    .{ .name = "settings", .icon = &settings_icon },
 };
 
 pub fn contains(name: []const u8) bool {
@@ -164,7 +173,7 @@ pub fn contains(name: []const u8) bool {
 }
 
 test "file-type app_icons names are unique and parse to shapes" {
-    try std.testing.expectEqual(@as(usize, 69), app_icons.len);
+    try std.testing.expectEqual(@as(usize, 73), app_icons.len);
     var i: usize = 0;
     while (i < app_icons.len) : (i += 1) {
         try std.testing.expect(app_icons[i].icon.shapes.len > 0);
@@ -183,6 +192,10 @@ test "file-type app_icons names are unique and parse to shapes" {
     try std.testing.expect(contains("webpack"));
     try std.testing.expect(contains("next"));
     try std.testing.expect(contains("stylelint"));
+    try std.testing.expect(contains("zip"));
+    try std.testing.expect(contains("audio"));
+    try std.testing.expect(contains("video"));
+    try std.testing.expect(contains("settings"));
     try std.testing.expect(!contains("kotlin"));
     try std.testing.expect(!contains("graphql"));
     try std.testing.expect(!contains("prettier"));
