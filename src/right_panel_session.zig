@@ -456,7 +456,6 @@ test "Files and Diff expand round-trip across session switch" {
 
 test "restored stale Files keys stay in the store and are ignored by the tree" {
     const palette_run = @import("palette_run.zig");
-    const right_panel = @import("right_panel.zig");
     var fx = main.Effects.init(std.testing.allocator);
     defer fx.deinit();
     fx.executor = .fake;
