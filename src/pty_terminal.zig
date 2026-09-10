@@ -7,11 +7,16 @@
 //! exit / Restart / New / Close. First-cut multi-session: up to four
 //! shells on keys `700..703` inside the existing Terminal tab (chips +
 //! New + Close). Occupied slots and the active index persist on
-//! `sessions.json` extras (`terminal_slots` / `terminal_active`);
-//! scrollback, status, and live PTY process state stay runtime-only
-//! (restore re-spawns fresh shells). Not Waku right-panel surface UUID
-//! tabs. Open in Terminal (`open_terminal.zig`, key 27) stays the
-//! OS-host fallback.
+//! `sessions.json` extras (`terminal_slots` / `terminal_active`) as
+//! last-live cold-start; session switch / New Task / remove restore
+//! occupancy + active from the in-memory `right_panel_session` stash
+//! (`capturePersisted` / `restoreFromPersist`; missing / empty →
+//! today's lazy single spawn, no pending). First-cut session switch
+//! `ptyKill`s the leaving session's live shells (keys 700..703 cannot
+//! hold 4×N processes) and re-spawns fresh shells like cold restore;
+//! scrollback, status, and live PTY process state stay runtime-only.
+//! Not Waku right-panel surface UUID tabs. Open in Terminal
+//! (`open_terminal.zig`, key 27) stays the OS-host fallback.
 //!
 //! `ptySpawn` has no documented cwd field; the child inherits the host
 //! environment plus `TERM`. When the selected session's `project_path`
@@ -430,14 +435,72 @@ fn applyPendingRestore(model: *Model, fx: *Effects) bool {
     return true;
 }
 
+/// True when a persist restore can spawn: wanted keys are not still
+/// reserved from a Close or session-switch `ptyKill` (cancelled exit
+/// has not landed yet). Missing / empty persist does not arm pending.
+fn pendingRestoreReady(model: *const Model) bool {
+    if (!model.term_restore_pending) return true;
+    for (0..max_sessions) |i| {
+        if (!model.term_restore_slots[i]) continue;
+        if (isReserved(slotConst(model, i))) return false;
+    }
+    return true;
+}
+
+/// Tear down live shells so keys 700..703 can be reused for a
+/// destination restore. Close waits for cancelled before New; session
+/// switch first-cut `ptyKill`s every live slot the same way, keeps the
+/// key reserved (`closing`) until that exit, and zeros ended /
+/// scrollback immediately so occupancy is not claimed across chat
+/// sessions. `restoreFromPersist` then arms occupancy; `spawnShell`
+/// waits until wanted keys are free, then re-spawns like cold restore.
+pub fn releaseLive(model: *Model, fx: *Effects) void {
+    for (0..max_sessions) |i| {
+        const slot = slotPtr(model, i);
+        if (slot.live) {
+            slot.closing = true;
+            slot.live = false;
+            slot.ended = false;
+            slot.scrollback = 0;
+            clearSlotStatus(slot);
+            fx.ptyKill(shellKeyAt(i));
+            continue;
+        }
+        if (slot.closing) {
+            slot.ended = false;
+            slot.scrollback = 0;
+            clearSlotStatus(slot);
+            continue;
+        }
+        slot.* = .{};
+    }
+}
+
+/// After a cancelled PTY exit, finish a pending persist restore when
+/// the Terminal tab is showing. Does not Restart an ended shell or
+/// lazy-spawn slot 0 (those stay `spawnShell` / tab-open). No-op while
+/// wanted keys are still reserved, when persist is not pending, or
+/// when Terminal is hidden (pending stays until `selectTerminal`).
+pub fn maybeFinishRestore(model: *Model, fx: *Effects) void {
+    if (!model.term_restore_pending) return;
+    if (!model.right_panel_open or model.right_panel_tab != .terminal) return;
+    if (anyLive(model)) return;
+    if (!pendingRestoreReady(model)) return;
+    _ = applyPendingRestore(model, fx);
+}
+
 /// Lazy spawn for Terminal tab open: no-op while any slot is live.
-/// When a persist restore is pending and nothing is live yet, spawn
-/// one fresh shell per persisted occupied slot (stable indices) and
-/// select `terminal_active` (or the nearest occupied). Otherwise
-/// Restart the active ended slot (today's re-select) or allocate
-/// slot 0 when nothing is occupied.
+/// When a persist restore is pending and wanted keys are still
+/// reserved (`closing` after Close or session-switch `ptyKill`),
+/// wait. When pending and keys are free, spawn one fresh shell per
+/// persisted occupied slot (stable indices) and select
+/// `terminal_active` (or the nearest occupied). Otherwise Restart the
+/// active ended slot (today's re-select) or allocate slot 0 when
+/// nothing is occupied. Missing / empty persist does not arm restore,
+/// so this stays today's lazy single spawn.
 pub fn spawnShell(model: *Model, fx: *Effects) void {
     if (anyLive(model)) return;
+    if (!pendingRestoreReady(model)) return;
     if (applyPendingRestore(model, fx)) return;
     const active = activeIndex(model);
     const slot = slotConst(model, active);
@@ -892,4 +955,59 @@ test "CONTEXT describes occupied Terminal slots persist, not Waku UUID tabs" {
     try std.testing.expect(std.mem.indexOf(u8, context, "scrollback/status/live process state stay runtime-only") != null);
     try std.testing.expect(std.mem.indexOf(u8, context, "sessions do not persist across") == null);
     try std.testing.expect(std.mem.indexOf(u8, context, "runtime-only chips + New + Close; not Waku surface UUID tabs / persist") == null);
+}
+
+test "releaseLive ptyKills live slots and zeros ended occupancy" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = Model{};
+    spawnShell(&model, &fx);
+    newShell(&model, &fx);
+    model.term_slots[2].ended = true;
+    model.term_slots[2].scrollback = 9;
+    model.term_slots[0].scrollback = 4;
+    releaseLive(&model, &fx);
+    try std.testing.expect(model.term_slots[0].closing);
+    try std.testing.expect(!model.term_slots[0].live);
+    try std.testing.expectEqual(@as(u32, 0), model.term_slots[0].scrollback);
+    try std.testing.expect(model.term_slots[1].closing);
+    try std.testing.expect(!model.term_slots[2].ended);
+    try std.testing.expectEqual(@as(u32, 0), model.term_slots[2].scrollback);
+    try std.testing.expect(fx.ptyKillRequested(pty_shell_key));
+    try std.testing.expect(fx.ptyKillRequested(pty_shell_key + 1));
+    try std.testing.expectEqual(@as(usize, 2), reservedCount(&model));
+
+    const slots = [_]bool{ true, false, true, false };
+    restoreFromPersist(&model, &slots, 2);
+    spawnShell(&model, &fx);
+    try std.testing.expect(model.term_restore_pending);
+    try std.testing.expect(!model.term_slots[0].live);
+    try std.testing.expect(!model.term_slots[2].live);
+
+    try fx.feedPtyExit(pty_shell_key, 0, 0, .cancelled, 0);
+    handlePtyEvent(&model, .{
+        .key = pty_shell_key,
+        .kind = .exit,
+        .reason = .cancelled,
+        .code = -1,
+    });
+    _ = fx.takeMsg();
+    try std.testing.expect(model.term_restore_pending);
+    try fx.feedPtyExit(pty_shell_key + 1, 0, 0, .cancelled, 0);
+    handlePtyEvent(&model, .{
+        .key = pty_shell_key + 1,
+        .kind = .exit,
+        .reason = .cancelled,
+        .code = -1,
+    });
+    _ = fx.takeMsg();
+    model.right_panel_open = true;
+    model.right_panel_tab = .terminal;
+    maybeFinishRestore(&model, &fx);
+    try std.testing.expect(!model.term_restore_pending);
+    try std.testing.expect(model.term_slots[0].live);
+    try std.testing.expect(!model.term_slots[1].live);
+    try std.testing.expect(model.term_slots[2].live);
+    try std.testing.expectEqual(@as(u8, 2), model.term_active);
 }

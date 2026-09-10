@@ -1041,7 +1041,8 @@ pub const Model = struct {
     /// Files selected path, dirty/editing Files preview editors
     /// (bounded table, cap `right_panel_session.max_file_editors`),
     /// Diff selected file, Background selected row, Browser occupancy /
-    /// histories / active). Nested widths and Browser occupancy still
+    /// histories / active, Terminal occupancy / active). Nested widths,
+    /// Browser occupancy, and Terminal occupancy still
     /// persist globally on sessions.json extras for cold start; the
     /// stash overrides them on session switch. Not persisted
     /// per-session to sessions.json this cut.
@@ -1050,11 +1051,11 @@ pub const Model = struct {
     /// Bounded in-memory Files + Diff expand / tab / open/closed /
     /// nested Files-tree / Diff list widths / selection / Files
     /// preview editors (cap `right_panel_session.max_file_editors`) /
-    /// Background selected row / Browser occupancy stash keyed by
-    /// session id. Cap `right_panel_session.max_states` with LRU
-    /// eviction; missing key restores closed + Files + collapsed +
-    /// empty selection + nested widths 184 + Background row 0 +
-    /// default Browser. Not sessions.json.
+    /// Background selected row / Browser occupancy / Terminal occupancy
+    /// stash keyed by session id. Cap `right_panel_session.max_states`
+    /// with LRU eviction; missing key restores closed + Files +
+    /// collapsed + empty selection + nested widths 184 + Background
+    /// row 0 + default Browser + empty Terminal. Not sessions.json.
     right_panel_session_store: [right_panel_session.max_states]right_panel_session.State = [_]right_panel_session.State{.{}} ** right_panel_session.max_states,
     right_panel_session_stamp: u32 = 0,
     /// Pending Files preview relpath when restore ran before the
@@ -1316,10 +1317,13 @@ pub const Model = struct {
     open_terminal_wd_storage: [open_terminal.wd_arg_len]u8 = [_]u8{0} ** open_terminal.wd_arg_len,
     open_terminal_wd_len: usize = 0,
     /// First-cut Terminal multi-session (cap 4, keys 700..703). Occupied
-    /// slots and `term_active` persist; scrollback / status / live PTY
-    /// process state stay runtime-only. `term_active` is the bound
-    /// `<terminal>` slot. Pending restore is occupancy remembered from
-    /// `sessions.json` until `spawnShell` re-spawns fresh shells.
+    /// slots and `term_active` persist globally as last-live
+    /// `sessions.json` extras; session switch restores occupancy from
+    /// `right_panel_session` (missing → empty persist, today's lazy
+    /// single spawn). Scrollback / status / live PTY process state stay
+    /// runtime-only. `term_active` is the bound `<terminal>` slot. Pending
+    /// restore is occupancy remembered from `sessions.json` or the
+    /// per-session stash until `spawnShell` re-spawns fresh shells.
     term_slots: [pty_terminal.max_sessions]pty_terminal.Slot = [_]pty_terminal.Slot{.{}} ** pty_terminal.max_sessions,
     term_active: u8 = 0,
     term_restore_pending: bool = false,
