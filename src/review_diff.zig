@@ -2365,7 +2365,9 @@ fn probeStillCurrent(model: *const Model) bool {
     return std.mem.eql(u8, path, probed);
 }
 
-/// Cancel any in-flight probe, drop files / status / hunks, and close the card.
+/// Cancel any in-flight probe, drop files / status / hunks / live
+/// Diff expand, and close the card. Per-session expand memory is
+/// `right_panel_session` (take before this on session switch).
 pub fn close(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     cancelHunkInFlight(model, fx);
@@ -2396,7 +2398,13 @@ fn prepareCard(model: *Model, fx: *Effects) void {
     git_checkout.closeDelete(model);
     git_checkout.closePushConfirm(model);
     model.closeProjectEdit();
+    // `close` zeroes live Diff expand; keep the current session's set
+    // so session-switch restore (and a later Diff reopen) is not wiped.
+    const expand_n = model.review_diff_expanded_count;
+    const expand_copy = model.review_diff_expanded_store;
     close(model, fx);
+    model.review_diff_expanded_store = expand_copy;
+    model.review_diff_expanded_count = expand_n;
 }
 
 fn startProbe(model: *Model, fx: *Effects) void {

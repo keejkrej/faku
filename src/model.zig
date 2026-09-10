@@ -42,6 +42,7 @@ const browser_pane = @import("browser_pane.zig");
 const copy_helpers = @import("copy.zig");
 const open_editor = @import("open_editor.zig");
 const right_panel = @import("right_panel.zig");
+const right_panel_session = @import("right_panel_session.zig");
 const i18n = @import("i18n.zig");
 const session_workspace = @import("session_workspace.zig");
 const pick_folder = @import("pick_folder.zig");
@@ -1024,15 +1025,21 @@ pub const Model = struct {
     /// Runtime-only selected Environment Summary Background row id.
     /// 0 = none. Not persisted to sessions.json this cut.
     right_panel_background_row_id: u32 = 0,
-    /// Runtime-only expanded Files-tree dirs. Keys match
-    /// `file_mention.derivedDirParents` (no trailing slash). Empty =
-    /// Runtime-only expanded Files-tree dirs. Heap last-window
-    /// (cap `max_file_mention_dirs`) so `Model` / `initialModel()` stay
-    /// return-by-value safe. Keys are relative dir paths (no trailing
-    /// slash). Empty set = collapsed (depth-0 only). Not persisted
-    /// to sessions.json this cut.
+    /// Live Files-tree expand keys. Heap last-window (cap
+    /// `max_file_mention_dirs`) so `Model` / `initialModel()` stay
+    /// return-by-value safe. Keys match `file_mention.derivedDirParents`
+    /// (no trailing slash). Empty set = collapsed (depth-0 only).
+    /// `file_mention.clearCache` frees this live table; per-session
+    /// memory is `right_panel_session_store` (Waku
+    /// `RightPanelSessionState::take_or_closed` on switch). Not
+    /// persisted to sessions.json this cut.
     right_panel_expanded_store: []file_mention.CachedPath = &.{},
     right_panel_expanded_count: u32 = 0,
+    /// Bounded in-memory Files + Diff expand stash keyed by session
+    /// id. Cap `right_panel_session.max_states` with LRU eviction;
+    /// missing key restores collapsed. Not sessions.json.
+    right_panel_session_store: [right_panel_session.max_states]right_panel_session.State = [_]right_panel_session.State{.{}} ** right_panel_session.max_states,
+    right_panel_session_stamp: u32 = 0,
     /// Nested Files-tree width while a preview is open. Waku
     /// `DEFAULT_FILE_TREE_WIDTH` 184. Fitted at layout/resize via
     /// `fittedFileTreeWidth`. Persisted on sessions.json extras
@@ -1562,12 +1569,14 @@ pub const Model = struct {
     /// Not persisted to sessions.json.
     review_diff_file_store: [review_diff.max_review_diff_files]review_diff.ChangedFile = [_]review_diff.ChangedFile{.{}} ** review_diff.max_review_diff_files,
     review_diff_file_count: u32 = 0,
-    /// Runtime-only expanded Diff file-list dirs. Keys are
-    /// repo-relative directory paths (no trailing slash), matching
-    /// Waku `right_panel_diff_expanded_paths`. Empty = collapsed
+    /// Live Diff file-list expand keys. Repo-relative directory
+    /// paths (no trailing slash), matching Waku
+    /// `right_panel_diff_expanded_paths`. Empty = collapsed
     /// (Files-like default). A non-empty runtime path filter
     /// auto-expands ancestors (Waku `right_panel_diff_filter`). Cap
-    /// `max_review_diff_dirs`. Not persisted.
+    /// `max_review_diff_dirs`. `review_diff.close` zeroes the live
+    /// count; per-session memory is `right_panel_session_store`.
+    /// Not persisted.
     review_diff_expanded_store: [review_diff.max_review_diff_dirs]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** review_diff.max_review_diff_dirs,
     review_diff_expanded_count: u32 = 0,
     /// Runtime-only Diff file-list path filter (Waku
@@ -2090,6 +2099,8 @@ pub const Model = struct {
         "clearRightPanelExpanded",
         "right_panel_expanded_store",
         "right_panel_expanded_count",
+        "right_panel_session_store",
+        "right_panel_session_stamp",
         "right_panel_file_tree_width",
         "right_panel_diff_file_list_width",
         "applyRightPanelResize",
@@ -6101,6 +6112,7 @@ pub const Model = struct {
     }
 
     pub fn dropSession(model: *Model, session_id: u32) void {
+        right_panel_session.drop(model, session_id);
         model.dropTurnsForSession(session_id);
         model.dropQueuedForSession(session_id);
         model.dropSelectionHistory(session_id);

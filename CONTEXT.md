@@ -617,7 +617,9 @@ slots and the active index persist (`terminal_slots` boolean array,
 cap 4, plus `terminal_active`; missing / empty `terminal_slots` keeps
 today's lazy single spawn). `reload_token` stays runtime-only (typing the address bar
 does not navigate). Background row selection, Files preview content,
-and directory expands stay runtime-only. Files paints a compact ~42px
+and directory expands stay runtime-only (in-memory per session,
+Waku `RightPanelSessionState::take_or_closed` on switch / New Task /
+remove; cap last 16 session ids with LRU; not `sessions.json`). Files paints a compact ~42px
 header (Native `folder` icon + truncated `project_path` basename, same
 scheme as the sidebar subtitle / Settings Usage `projectBasename`) above
 the loaded tree — both the full-height list and the nested tree pane when

@@ -253,9 +253,11 @@
 //! paths matching `file_mention.derivedDirParents` (no trailing
 //! slash), cap `max_file_mention_dirs`. Empty set = collapsed tree
 //! (Waku empty `expanded_paths` HashSet): only depth-0 files and
-//! top-level dirs. Not persisted to `sessions.json` this cut (Waku
-//! keeps `expanded_paths` on in-memory per-session
-//! `RightPanelSessionState`).
+//! top-level dirs. Live keys sit on `right_panel_expanded_store`;
+//! session switch / New Task / remove take-or-closed through
+//! `right_panel_session` (Waku in-memory `RightPanelSessionState`,
+//! not `sessions.json`). `file_mention.clearCache` still frees the
+//! live table; restore re-applies remembered keys afterward.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");

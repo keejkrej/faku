@@ -26,6 +26,7 @@ const projectless = @import("projectless.zig");
 const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const right_panel = @import("right_panel.zig");
+const right_panel_session = @import("right_panel_session.zig");
 const session_fork = @import("fork.zig");
 const pick_folder = @import("pick_folder.zig");
 
@@ -104,6 +105,7 @@ pub fn confirmPalette(model: *Model, fx: *Effects) void {
 pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     if (model.sessionById(id) == null) return;
     if (!right_panel.beginDiscardOrPark(model, .{ .switch_session = id })) return;
+    right_panel_session.take(model);
     store.persistDraftIfPossible(model);
     environment_summary.close(model);
     review_diff.close(model, fx);
@@ -128,6 +130,7 @@ pub fn applySessionSelection(model: *Model, fx: *Effects, id: u32) void {
     git_toplevel.refresh(model, fx);
     git_common_dir.refresh(model, fx);
     file_mention.refresh(model, fx);
+    right_panel_session.restore(model);
     git_checkout.refresh(model, fx);
     session_fork.cancelDaemonCaptureTurnStart(model, fx);
     session_fork.cancelDaemonCaptureTurn(model, fx);
