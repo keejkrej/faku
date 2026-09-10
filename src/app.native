@@ -110,7 +110,7 @@
 <template name="files-tree-rows">
   <!-- Material app icon from `f.icon` (`file_icon.filesTreeIcon`):
        dirs `folder` / `folder-open`, files `app:zig` / `app:rust` / `app:ruby` / … (MIT)
-       plus built-in settings/archive/music else file-text (shells
+       plus built-in settings/archive/music else `app:file` (shells
        `app:console` / `app:powershell`).
        Chevrons stay. -->
   <column>
@@ -1170,7 +1170,7 @@
                 <column gap="2">
                   <!-- Material app icon from `m.icon` (`file_icon.filesTreeIcon`):
                        dirs folder (collapsed; no chevron), files `app:zig` / `app:ruby` / …
-                       plus built-in settings/archive/music else file-text
+                       plus built-in settings/archive/music else `app:file`
                        (shells `app:console` / `app:powershell`). -->
                   <for each="mention_rows" key="id" as="m">
                     <list-item height="44" gap="4" cross="center" selected="{m.selected}" on-press="insert_mention:{m.id}" label="{m.path}">
@@ -1478,7 +1478,7 @@
                       <!-- Diff tree reuses Files `file_icon` (`r.icon`): dirs
                            folder / folder-open, files Material `app:`
                            names plus built-in settings/archive/music else
-                           file-text (shells `app:console` / `app:powershell`).
+                           `app:file` (shells `app:console` / `app:powershell`).
                            Chevrons stay. -->
                       <for each="review_diff_rows" key="id" as="r">
                         <if test="{r.is_directory}">

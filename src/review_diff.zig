@@ -102,7 +102,9 @@
 //! `app:ruby` / … plus `app:zip` / `app:audio` / `app:video` /
 //! `app:settings` / `app:certificate` / `app:lockfile` / `app:exe` /
 //! `app:nginx` / `app:cmake` / `app:coffee` / `app:gitlab` /
-//! `app:gradle` / `app:kubernetes` / `app:tex`, else `file-text`; shells `app:console` /
+//! `app:gradle` / `app:kubernetes` / `app:tex` / `app:crystal` /
+//! `app:elm` / `app:erlang` / `app:haxe` / `app:jinja` / `app:xaml` /
+//! `app:diff`, else `app:file`; shells `app:console` /
 //! `app:powershell`) + basename (no status prefix) + a separate colored
 //! status letter (`A` success, `D` destructive, `B`/`M` warning) and
 //! Waku-style `+N` / `-M` (success / destructive) from numstat when
@@ -454,7 +456,7 @@ pub const ReviewDiffRow = struct {
     depth: u32 = 0,
     has_indent: bool = false,
     indent: f32 = 0,
-    icon: []const u8 = "file-text",
+    icon: []const u8 = "app:file",
 };
 
 /// Waku `LineKind`. Highlighting is Native `<code>` on paint, not
@@ -6230,7 +6232,7 @@ test "selected-file hunk header path, +/- omit zeros, and hide until hunk surfac
 
 test "selected-file hunk header binds file_icon from the path" {
     var model = Model{};
-    try std.testing.expectEqualStrings("file-text", reviewDiffHunkFileIcon(&model));
+    try std.testing.expectEqualStrings("app:file", reviewDiffHunkFileIcon(&model));
 
     model.review_diff_file_store[0].setCounts('M', "src/a.zig", 1, 0);
     model.review_diff_file_count = 1;

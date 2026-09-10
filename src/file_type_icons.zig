@@ -2,7 +2,8 @@
 //! `src/icons/file-types/`). Registry names are the bare `zig` /
 //! `rust` / `zip` / `audio` / `video` / `settings` / `certificate` /
 //! `lockfile` / `exe` / `nginx` / `cmake` / `coffee` / `gitlab` /
-//! `gradle` / `kubernetes` / `tex` / … strings;
+//! `gradle` / `kubernetes` / `tex` / `crystal` / `elm` / `erlang` /
+//! `haxe` / `jinja` / `xaml` / `diff` / `file` / … strings;
 //! (`lockfile` is the Material lockfile glyph from `lock.svg`; chrome
 //! Browser address `app:lock` stays a separate `src/icons/lock.svg`.)
 //! markup and `file_icon` return `app:<name>`. Combined with shell
@@ -101,6 +102,14 @@ const gitlab_icon = parse("gitlab");
 const gradle_icon = parse("gradle");
 const kubernetes_icon = parse("kubernetes");
 const tex_icon = parse("tex");
+const crystal_icon = parse("crystal");
+const elm_icon = parse("elm");
+const erlang_icon = parse("erlang");
+const haxe_icon = parse("haxe");
+const jinja_icon = parse("jinja");
+const xaml_icon = parse("xaml");
+const diff_icon = parse("diff");
+const file_icon = parse("file");
 
 /// Bare names (no `app:` prefix). `file_icon` returns `app:` + these.
 pub const app_icons = [_]canvas.icons.Entry{
@@ -187,6 +196,14 @@ pub const app_icons = [_]canvas.icons.Entry{
     .{ .name = "gradle", .icon = &gradle_icon },
     .{ .name = "kubernetes", .icon = &kubernetes_icon },
     .{ .name = "tex", .icon = &tex_icon },
+    .{ .name = "crystal", .icon = &crystal_icon },
+    .{ .name = "elm", .icon = &elm_icon },
+    .{ .name = "erlang", .icon = &erlang_icon },
+    .{ .name = "haxe", .icon = &haxe_icon },
+    .{ .name = "jinja", .icon = &jinja_icon },
+    .{ .name = "xaml", .icon = &xaml_icon },
+    .{ .name = "diff", .icon = &diff_icon },
+    .{ .name = "file", .icon = &file_icon },
 };
 
 pub fn contains(name: []const u8) bool {
@@ -197,7 +214,7 @@ pub fn contains(name: []const u8) bool {
 }
 
 test "file-type app_icons names are unique and parse to shapes" {
-    try std.testing.expectEqual(@as(usize, 83), app_icons.len);
+    try std.testing.expectEqual(@as(usize, 91), app_icons.len);
     var i: usize = 0;
     while (i < app_icons.len) : (i += 1) {
         try std.testing.expect(app_icons[i].icon.shapes.len > 0);
@@ -231,6 +248,14 @@ test "file-type app_icons names are unique and parse to shapes" {
     try std.testing.expect(contains("gradle"));
     try std.testing.expect(contains("kubernetes"));
     try std.testing.expect(contains("tex"));
+    try std.testing.expect(contains("crystal"));
+    try std.testing.expect(contains("elm"));
+    try std.testing.expect(contains("erlang"));
+    try std.testing.expect(contains("haxe"));
+    try std.testing.expect(contains("jinja"));
+    try std.testing.expect(contains("xaml"));
+    try std.testing.expect(contains("diff"));
+    try std.testing.expect(contains("file"));
     try std.testing.expect(!contains("kotlin"));
     try std.testing.expect(!contains("graphql"));
     try std.testing.expect(!contains("prettier"));
@@ -238,6 +263,8 @@ test "file-type app_icons names are unique and parse to shapes" {
     try std.testing.expect(!contains("clojure"));
     try std.testing.expect(!contains("editorconfig"));
     try std.testing.expect(!contains("helm"));
+    try std.testing.expect(!contains("julia"));
+    try std.testing.expect(!contains("pug"));
     try std.testing.expect(!contains("app:zig"));
     try std.testing.expect(!contains("file-text"));
 }
