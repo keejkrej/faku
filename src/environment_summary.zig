@@ -2161,6 +2161,14 @@ pub fn findBackgroundRow(model: *const Model, row_id: u32) ?BackgroundRow {
     return null;
 }
 
+/// Native `background_rows` id if that row is currently visible for
+/// the selected session (Process / Monitor / Subagent / daemon
+/// slots), else 0. Stale / unknown ids match a Diff pending-path miss.
+pub fn visibleBackgroundRowId(model: *const Model, row_id: u32) u32 {
+    if (findBackgroundRow(model, row_id) == null) return 0;
+    return row_id;
+}
+
 pub fn selectedBackgroundRow(model: *const Model) ?BackgroundRow {
     return findBackgroundRow(model, model.right_panel_background_row_id);
 }

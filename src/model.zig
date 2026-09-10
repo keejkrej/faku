@@ -1025,8 +1025,10 @@ pub const Model = struct {
     /// `files` when the panel opens. Persisted on sessions.json extras
     /// (`right_panel_tab`); missing / unknown → `files`.
     right_panel_tab: right_panel.Tab = .files,
-    /// Runtime-only selected Environment Summary Background row id.
-    /// 0 = none. Not persisted to sessions.json this cut.
+    /// Selected Environment Summary Background row id. 0 = none.
+    /// Not persisted to sessions.json. Session switch / New Task /
+    /// remove restore from `right_panel_session` (missing / empty /
+    /// stale → 0).
     right_panel_background_row_id: u32 = 0,
     /// Live Files-tree expand keys. Heap last-window (cap
     /// `max_file_mention_dirs`) so `Model` / `initialModel()` stay
@@ -1037,18 +1039,19 @@ pub const Model = struct {
     /// `RightPanelSessionState::take_or_closed` on switch: expand,
     /// tab, panel open/closed, nested Files-tree / Diff list widths,
     /// Files selected path, dirty/editing Files preview, Diff
-    /// selected file). Nested widths still persist globally on
-    /// sessions.json extras for cold start; the stash overrides them
-    /// on session switch. Not persisted per-session to sessions.json
-    /// this cut.
+    /// selected file, Background selected row). Nested widths still
+    /// persist globally on sessions.json extras for cold start; the
+    /// stash overrides them on session switch. Not persisted
+    /// per-session to sessions.json this cut.
     right_panel_expanded_store: []file_mention.CachedPath = &.{},
     right_panel_expanded_count: u32 = 0,
     /// Bounded in-memory Files + Diff expand / tab / open/closed /
     /// nested Files-tree / Diff list widths / selection / Files
-    /// preview editor stash keyed by session id. Cap
-    /// `right_panel_session.max_states` with LRU eviction; missing
-    /// key restores closed + Files + collapsed + empty selection +
-    /// nested widths 184. Not sessions.json.
+    /// preview editor / Background selected row stash keyed by
+    /// session id. Cap `right_panel_session.max_states` with LRU
+    /// eviction; missing key restores closed + Files + collapsed +
+    /// empty selection + nested widths 184 + Background row 0.
+    /// Not sessions.json.
     right_panel_session_store: [right_panel_session.max_states]right_panel_session.State = [_]right_panel_session.State{.{}} ** right_panel_session.max_states,
     right_panel_session_stamp: u32 = 0,
     /// Pending Files preview relpath when restore ran before the

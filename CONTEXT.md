@@ -616,14 +616,14 @@ single-entry restore). Occupied Terminal
 slots and the active index persist (`terminal_slots` boolean array,
 cap 4, plus `terminal_active`; missing / empty `terminal_slots` keeps
 today's lazy single spawn). `reload_token` stays runtime-only (typing the address bar
-does not navigate). Background row selection stays runtime-only this cut. Directory expands, the live tab,
-panel open/closed, nested Files-tree width and Diff file-list width, Files selected preview path, dirty/editing Files preview buffers, and Diff selected file (plus `diff_source`
-when Compare was active or Diff was showing) restore from an in-memory
+does not navigate). Directory expands, the live tab,
+panel open/closed, nested Files-tree width and Diff file-list width, Files selected preview path, dirty/editing Files preview buffers, Diff selected file (plus `diff_source`
+when Compare was active or Diff was showing), and Background selected row restore from an in-memory
 per-session stash (Waku `RightPanelSessionState::take_or_closed` on
-switch / New Task / remove; missing key → closed + `DEFAULT_FILE_TREE_WIDTH` 184; cap last 16 session ids with LRU; not
-`sessions.json`). Selected tab, `right_panel_open`, and nested widths still persist globally on
+switch / New Task / remove; missing key → closed + `DEFAULT_FILE_TREE_WIDTH` 184 + Background row 0; cap last 16 session ids with LRU; not
+`sessions.json`; stale Background row ids that are gone from the selected session's registry clear to 0). Selected tab, `right_panel_open`, and nested widths still persist globally on
 `sessions.json` extras for boot; the stash overrides them on session
-switch. Diff snapshot bodies re-fetch; selection re-applies when the
+switch. Background row is not written to `sessions.json`. Diff snapshot bodies re-fetch; selection re-applies when the
 Review tree is populated, or on the next Files/Diff probe-exit fill.
 Files paints a compact ~42px
 header (Native `folder` icon + truncated `project_path` basename, same
