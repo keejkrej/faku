@@ -138,11 +138,13 @@
 //! header chip (ghost sm, like Settings Usage Cost | Tokens). Default
 //! Preview paints Native `<markdown source="{file_preview_body}"
 //! images="{file_preview_images}" details-expanded="{file_preview_details_expanded}"
+//! issue-link-base="{file_preview_issue_link_base}"
 //! on-details="file_preview_toggle_details" on-link="file_preview_open_url" />`
 //! (GFM subset; in-project local images via `images=` + `fx.loadImage`;
 //! http(s) / `data:` / outside-project stay alt-text; `<details>` via
 //! documented `details-expanded` + `on-details`, runtime-only flags,
-//! default collapsed). Source keeps today's
+//! default collapsed; bare `#N` via documented `issue-link-base` when
+//! the session project has a usable GitHub/GitLab remote). Source keeps today's
 //! highlighted `<code language="markdown">`. http(s) / bare-host links
 //! reuse `open_url` OS browser spawn; relative / `file:` / absolute
 //! project paths open the Files preview (same as a tree click);
@@ -313,6 +315,7 @@ const protocol = @import("protocol.zig");
 const file_preview_find = @import("file_preview_find.zig");
 const file_preview_images = @import("file_preview_images.zig");
 const file_preview_details = @import("file_preview_details.zig");
+const file_preview_issue_link = @import("file_preview_issue_link.zig");
 const right_panel_session = @import("right_panel_session.zig");
 
 const canvas = native_sdk.canvas;
@@ -994,6 +997,7 @@ pub fn acceptPendingDiscard(model: *Model) PendingDiscard {
 /// Close preview. Parks a confirm when dirty instead of discarding.
 pub fn closeFilePreview(model: *Model) void {
     if (!beginDiscardOrPark(model, .close_preview)) return;
+    file_preview_issue_link.drop(model, null);
     clearFilePreview(model);
 }
 
@@ -1311,6 +1315,7 @@ fn finishPreviewLoad(model: *Model, fx: ?*Effects) void {
     recomputeFilePreviewFind(model, .content);
     file_preview_details.drop(model);
     file_preview_images.refresh(model, fx);
+    file_preview_issue_link.refresh(model, fx);
 }
 
 fn cancelDaemonRead(model: *Model, fx: *Effects) void {
@@ -1488,6 +1493,7 @@ pub fn selectCachedFile(model: *Model, fx: *Effects, id: u32) void {
     right_panel_session.applyOpenedFilesEditor(model);
     file_preview_details.drop(model);
     file_preview_images.refresh(model, fx);
+    file_preview_issue_link.refresh(model, fx);
 }
 
 /// Files-pane preview header: Open in editor at the stored absolute path.
@@ -1813,6 +1819,7 @@ fn adoptSavedPreview(model: *Model, fx: *Effects, bytes: []const u8) void {
     right_panel_session.syncOpenedFilesEditor(model);
     file_preview_details.drop(model);
     file_preview_images.refresh(model, fx);
+    file_preview_issue_link.refresh(model, fx);
 }
 
 fn saveFilePreviewLocal(model: *Model, fx: *Effects, bytes: []const u8) void {
@@ -1939,6 +1946,7 @@ pub fn reloadFilePreview(model: *Model, fx: *Effects) void {
     right_panel_session.syncOpenedFilesEditor(model);
     file_preview_details.drop(model);
     file_preview_images.refresh(model, fx);
+    file_preview_issue_link.refresh(model, fx);
 }
 
 const PreviewDiskFingerprint = struct {

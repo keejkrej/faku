@@ -45,6 +45,7 @@ const right_panel = @import("right_panel.zig");
 const right_panel_session = @import("right_panel_session.zig");
 const file_preview_images_mod = @import("file_preview_images.zig");
 const file_preview_details_mod = @import("file_preview_details.zig");
+const file_preview_issue_link_mod = @import("file_preview_issue_link.zig");
 const i18n = @import("i18n.zig");
 const session_workspace = @import("session_workspace.zig");
 const pick_folder = @import("pick_folder.zig");
@@ -1148,6 +1149,22 @@ pub const Model = struct {
     /// `max_markdown_details_per_document`. Default collapsed. Not persisted.
     file_preview_details_expanded_flags: [file_preview_details_mod.max_details]bool =
         [_]bool{false} ** file_preview_details_mod.max_details,
+    /// Runtime-only Files markdown Preview `issue-link-base`. One-shot
+    /// `git remote` + `git remote get-url` for the selected session
+    /// `project_path`. Empty when missing / non-forge. Not sessions.json.
+    file_preview_issue_link_base_storage: [file_preview_issue_link_mod.max_issue_link_base]u8 =
+        [_]u8{0} ** file_preview_issue_link_mod.max_issue_link_base,
+    file_preview_issue_link_base_len: usize = 0,
+    file_preview_issue_link_key: u64 = 0,
+    next_file_preview_issue_link_key: u64 = file_preview_issue_link_mod.key_first,
+    file_preview_issue_link_probe_session: u32 = 0,
+    file_preview_issue_link_probe_path_storage: [max_project_path]u8 = [_]u8{0} ** max_project_path,
+    file_preview_issue_link_probe_path_len: usize = 0,
+    file_preview_issue_link_remote_storage: [file_preview_issue_link_mod.max_remote_name]u8 =
+        [_]u8{0} ** file_preview_issue_link_mod.max_remote_name,
+    file_preview_issue_link_remote_len: usize = 0,
+    file_preview_issue_link_phase: file_preview_issue_link_mod.ProbePhase = .list,
+    file_preview_issue_link_ready: bool = false,
     right_panel_file_preview_status_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
     right_panel_file_preview_status_len: usize = 0,
     /// Runtime-only parked discard for a dirty Files preview. Not persisted.
@@ -2139,6 +2156,17 @@ pub const Model = struct {
         "file_preview_image_slots",
         "next_file_preview_image_id",
         "file_preview_details_expanded_flags",
+        "file_preview_issue_link_base_storage",
+        "file_preview_issue_link_base_len",
+        "file_preview_issue_link_key",
+        "next_file_preview_issue_link_key",
+        "file_preview_issue_link_probe_session",
+        "file_preview_issue_link_probe_path_storage",
+        "file_preview_issue_link_probe_path_len",
+        "file_preview_issue_link_remote_storage",
+        "file_preview_issue_link_remote_len",
+        "file_preview_issue_link_phase",
+        "file_preview_issue_link_ready",
         "right_panel_file_preview_status_storage",
         "right_panel_file_preview_status_len",
         "file_preview_pending_kind",
@@ -3213,6 +3241,13 @@ pub const Model = struct {
     /// Document order; default all false (collapsed).
     pub fn file_preview_details_expanded(model: *const Model) []const bool {
         return file_preview_details_mod.expanded(model);
+    }
+
+    /// Files Preview `#N` prefix for
+    /// `<markdown issue-link-base="{file_preview_issue_link_base}">`.
+    /// Empty when missing / non-forge so Native leaves `#N` unlinked.
+    pub fn file_preview_issue_link_base(model: *const Model) []const u8 {
+        return file_preview_issue_link_mod.base(model);
     }
 
     pub fn file_preview_dirty(model: *const Model) bool {

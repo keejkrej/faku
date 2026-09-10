@@ -41,6 +41,7 @@ const git_common_dir = @import("git_common_dir.zig");
 const git_commit = @import("git_commit.zig");
 const review_diff = @import("review_diff.zig");
 const file_mention = @import("file_mention.zig");
+const file_preview_issue_link = @import("file_preview_issue_link.zig");
 const skills = @import("skills.zig");
 const slash_commands = @import("slash_commands.zig");
 const usage_history = @import("usage_history.zig");
@@ -109,6 +110,10 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
     }
     if (model.git_remotes_key != 0 and line.key == model.git_remotes_key) {
         git_remotes.applyLine(model, line);
+        return;
+    }
+    if (model.file_preview_issue_link_key != 0 and line.key == model.file_preview_issue_link_key) {
+        file_preview_issue_link.applyLine(model, line);
         return;
     }
     if (model.git_toplevel_key != 0 and line.key == model.git_toplevel_key) {
@@ -1122,6 +1127,10 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.git_remotes_key != 0 and exit.key == model.git_remotes_key) {
         git_remotes.handleExit(model, exit);
+        return;
+    }
+    if (model.file_preview_issue_link_key != 0 and exit.key == model.file_preview_issue_link_key) {
+        file_preview_issue_link.handleExit(model, fx, exit);
         return;
     }
     if (model.git_toplevel_key != 0 and exit.key == model.git_toplevel_key) {
