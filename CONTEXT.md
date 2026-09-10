@@ -679,7 +679,9 @@ links reuse `open_url` OS browser spawn; relative / `file:` / absolute
 project paths open in Files preview; outside-project paths reveal via
 `reveal_folder`; anchors / mailto stay a muted status; in-project local
 images via `images=` + `fx.loadImage` (http(s) / `data:` /
-outside-project stay alt-text; no `details-expanded`); mode resets when the preview
+outside-project stay alt-text; `<details>` via documented
+`details-expanded` + `on-details`, runtime-only flags, default
+collapsed); mode resets when the preview
 closes / file switches / session clears); first-cut Edit switches a full
 text window to `<textarea>`, Save (or Cmd/Ctrl-S when dirty-editing) prefers hello + daemon
 `WorkspaceOperation::WriteTextFile` when a daemon address is set
@@ -1199,7 +1201,7 @@ live watch.
 | Daemon sidecar | `src/daemon_proxy.zig`, `src/protocol.zig` |
 | Send / stream | `src/spawn.zig`, `src/stream.zig`, `src/lines.zig` |
 | Environment Summary | `src/environment_summary.zig` |
-| Right panel | `src/right_panel.zig`, `src/review_diff.zig`, `src/open_url.zig`, `src/file_icon.zig`, `src/file_type_icons.zig`, `src/file_preview_images.zig` |
+| Right panel | `src/right_panel.zig`, `src/review_diff.zig`, `src/open_url.zig`, `src/file_icon.zig`, `src/file_type_icons.zig`, `src/file_preview_images.zig`, `src/file_preview_details.zig` |
 | Skills scan | `src/skills.zig` |
 | Providers catalog | `src/providers.zig`, `src/cli_probe.zig` |
 | Composer / attach | `src/composer.zig`, `src/attach.zig`, `src/slash_commands.zig` |
@@ -1460,7 +1462,9 @@ Honest gaps this cut does not implement:
   paths open in Files preview; outside-project paths reveal via
   `reveal_folder`; anchors / mailto stay muted; in-project local
   images via `images=` + `fx.loadImage`, http(s) / `data:` /
-  outside-project stay alt-text; no `details-expanded`). First-cut: opening the first Files preview widens the pane
+  outside-project stay alt-text; `<details>` via documented
+  `details-expanded` + `on-details`, runtime-only flags, default
+  collapsed). First-cut: opening the first Files preview widens the pane
   with Waku `FILE_EDITOR_INITIAL_WIDTH` 500 (wide clamp 280–1000 while
   that preview is open). First-cut: opening Diff / Review widens the pane
   with Waku `REVIEW_INITIAL_WIDTH` 820 (wide clamp 280–1000; Browser /
@@ -1695,10 +1699,11 @@ Honest gaps this cut does not implement:
   spawn migrate. New Task reuses an unstarted non-legacy
   projectless draft instead of always creating. Amend/force and
   remote `--track` stay local (not daemon WorkspaceOperation variants)
-- Files Preview markdown `details-expanded` / `on-details`,
-  `issue-link-base`, remote http(s) / `data:` image fetch, and
-  transcript markdown `images=` (this cut maps in-project local
-  Preview images via documented `images=` + `fx.loadImage`)
+- Files Preview markdown `issue-link-base`, remote http(s) / `data:`
+  image fetch, and transcript markdown `images=` (this cut maps
+  in-project local Preview images via documented `images=` +
+  `fx.loadImage`, and Preview `<details>` via documented
+  `details-expanded` + `on-details`)
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size

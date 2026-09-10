@@ -44,6 +44,7 @@ const open_editor = @import("open_editor.zig");
 const right_panel = @import("right_panel.zig");
 const right_panel_session = @import("right_panel_session.zig");
 const file_preview_images_mod = @import("file_preview_images.zig");
+const file_preview_details_mod = @import("file_preview_details.zig");
 const i18n = @import("i18n.zig");
 const session_workspace = @import("session_workspace.zig");
 const pick_folder = @import("pick_folder.zig");
@@ -527,6 +528,9 @@ pub const Msg = union(enum) {
     /// http(s) / bare hosts reuse `open_url` OS browser spawn; relative /
     /// file links are a muted preview status, not filesystem navigation.
     file_preview_open_url: []const u8,
+    /// Native `<markdown on-details>`: payload is the details-block
+    /// document-order index (`usize`). Runtime-only flags.
+    file_preview_toggle_details: usize,
     /// Files-pane dir click. Payload is `file_mention_dir_id_base + index`.
     toggle_right_panel_dir: u32,
     /// Right-panel Files tab. Default when the panel opens. Persisted.
@@ -1140,6 +1144,10 @@ pub const Model = struct {
     file_preview_image_slots: [file_preview_images_mod.max_images]file_preview_images_mod.Slot =
         [_]file_preview_images_mod.Slot{.{}} ** file_preview_images_mod.max_images,
     next_file_preview_image_id: u64 = file_preview_images_mod.id_first,
+    /// Runtime-only Files markdown Preview `<details>` flags. Cap Native
+    /// `max_markdown_details_per_document`. Default collapsed. Not persisted.
+    file_preview_details_expanded_flags: [file_preview_details_mod.max_details]bool =
+        [_]bool{false} ** file_preview_details_mod.max_details,
     right_panel_file_preview_status_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
     right_panel_file_preview_status_len: usize = 0,
     /// Runtime-only parked discard for a dirty Files preview. Not persisted.
@@ -2130,6 +2138,7 @@ pub const Model = struct {
         "right_panel_file_preview_markdown_source",
         "file_preview_image_slots",
         "next_file_preview_image_id",
+        "file_preview_details_expanded_flags",
         "right_panel_file_preview_status_storage",
         "right_panel_file_preview_status_len",
         "file_preview_pending_kind",
@@ -3197,6 +3206,13 @@ pub const Model = struct {
     /// `<markdown images="{file_preview_images}">`. Arena fn.
     pub fn file_preview_images(model: *const Model, arena: std.mem.Allocator) []const canvas.markdown.ResolvedImage {
         return file_preview_images_mod.resolved(model, arena);
+    }
+
+    /// Files Preview `<details>` expansion flags for
+    /// `<markdown details-expanded="{file_preview_details_expanded}">`.
+    /// Document order; default all false (collapsed).
+    pub fn file_preview_details_expanded(model: *const Model) []const bool {
+        return file_preview_details_mod.expanded(model);
     }
 
     pub fn file_preview_dirty(model: *const Model) bool {

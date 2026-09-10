@@ -101,6 +101,7 @@ const open_url = @import("open_url.zig");
 const browser_pane = @import("browser_pane.zig");
 const open_editor = @import("open_editor.zig");
 const file_preview_images = @import("file_preview_images.zig");
+const file_preview_details = @import("file_preview_details.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -537,6 +538,7 @@ test {
     _ = @import("right_panel.zig");
     _ = @import("right_panel_session.zig");
     _ = @import("file_preview_images.zig");
+    _ = @import("file_preview_details.zig");
     _ = @import("file_preview_find.zig");
     _ = @import("file_preview_regex.zig");
     _ = @import("maximize_window.zig");

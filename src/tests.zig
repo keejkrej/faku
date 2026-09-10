@@ -262,6 +262,19 @@ fn findFilePreviewOpenUrl(tree: AppUi.Tree, widget: canvas.Widget) ?struct { wid
     return null;
 }
 
+fn findFilePreviewToggleDetails(tree: AppUi.Tree, widget: canvas.Widget) ?struct { widget: canvas.Widget, index: usize } {
+    if (pointerMsg(tree, widget)) |msg| {
+        switch (msg) {
+            .file_preview_toggle_details => |index| return .{ .widget = widget, .index = index },
+            else => {},
+        }
+    }
+    for (widget.children) |child| {
+        if (findFilePreviewToggleDetails(tree, child)) |hit| return hit;
+    }
+    return null;
+}
+
 fn findBoldSpanText(widget: canvas.Widget, text: []const u8) ?canvas.Widget {
     if (widget.kind == .text) {
         for (widget.spans) |span| {
@@ -9422,6 +9435,8 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "text=\"{file_preview_draft}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<markdown source=\"{file_preview_body}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "images=\"{file_preview_images}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{file_preview_details_expanded}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"file_preview_toggle_details\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-link=\"file_preview_open_url\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"set_file_preview_markdown_preview\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"set_file_preview_markdown_source\"") != null);
@@ -9533,6 +9548,8 @@ test "Files markdown preview defaults to rendered Preview; Source chip flips; ht
     } else {
         try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-link=\"file_preview_open_url\"") != null);
     }
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{file_preview_details_expanded}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"file_preview_toggle_details\"") != null);
 
     main.update(&model, .set_file_preview_markdown_source, &fx);
     try testing.expect(model.file_preview_markdown_source());
@@ -9578,6 +9595,72 @@ test "Files markdown preview defaults to rendered Preview; Source chip flips; ht
     try testing.expect(findByText(tree.root, .button, "Source") == null);
     main.update(&model, .set_file_preview_markdown_source, &fx);
     try testing.expect(!model.file_preview_markdown_source());
+}
+
+test "Files markdown preview details expand via on-details; default collapsed; no panic" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try absCopyProjectDir(tmp, "files-md-details", &project_buf);
+
+    var fx = Effects.init(testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = testing.io;
+    const id = model.addSession("files md details", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    defer right_panel.clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
+
+    main.update(&model, .show_right_panel, &fx);
+    file_mention.applyStdoutPaths(&model, "README.md\n");
+    var readme_buf: [320]u8 = undefined;
+    const readme = try std.fmt.bufPrint(&readme_buf, "{s}/README.md", .{project});
+    try std.Io.Dir.cwd().writeFile(testing.io, .{
+        .sub_path = readme,
+        .data = "# Hello\n\n<details>\n<summary>More</summary>\n\nHidden body\n\n</details>\n",
+    });
+
+    main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
+    try testing.expect(model.file_preview_shows_rendered_markdown());
+    try testing.expect(!model.file_preview_details_expanded()[0]);
+
+    var tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "Hello");
+    _ = try expectByText(tree.root, .text, "More");
+    try testing.expect(findTextContaining(tree.root, "Hidden body") == null);
+    try testing.expect(findPressableContaining(tree.root, "▸ More") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{file_preview_details_expanded}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"file_preview_toggle_details\"") != null);
+
+    if (findFilePreviewToggleDetails(tree, tree.root)) |hit| {
+        try testing.expectEqual(@as(usize, 0), hit.index);
+        main.update(&model, pointerMsg(tree, hit.widget).?, &fx);
+    } else {
+        main.update(&model, .{ .file_preview_toggle_details = 0 }, &fx);
+    }
+    try testing.expect(model.file_preview_details_expanded()[0]);
+
+    tree = try buildTree(arena, &model);
+    _ = try expectByText(tree.root, .text, "More");
+    _ = try expectByText(tree.root, .text, "Hidden body");
+    try testing.expect(findPressableContaining(tree.root, "▾ More") != null);
+
+    main.update(&model, .{ .file_preview_toggle_details = 0 }, &fx);
+    try testing.expect(!model.file_preview_details_expanded()[0]);
+    tree = try buildTree(arena, &model);
+    try testing.expect(findTextContaining(tree.root, "Hidden body") == null);
+    try testing.expect(findPressableContaining(tree.root, "▸ More") != null);
+
+    main.update(&model, .{ .file_preview_toggle_details = 99 }, &fx);
+    try testing.expect(!model.file_preview_details_expanded()[0]);
 }
 
 test "Files preview dirty Close shows discard confirm; Keep editing and Discard" {
