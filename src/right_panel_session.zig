@@ -1,7 +1,8 @@
 //! In-memory per-session right-panel restore (expand + tab +
 //! open/closed + nested Files/Diff list widths + Files/Diff
 //! selection + bounded Files preview editors + Background selected
-//! row + Browser occupancy/histories/active).
+//! row + Browser occupancy/histories/active + Terminal
+//! occupancy/active).
 //!
 //! Waku keeps `expanded_paths` / `diff_expanded_paths`,
 //! `active_surface`, `files_selected_path`, `diff_source`,
@@ -26,17 +27,24 @@
 //! stash; missing / empty is `DEFAULT_FILE_TREE_WIDTH` 184. Outer
 //! `right_panel_width` stays global. `sessions.json` extras remain
 //! the last-live global fallback for cold start — not per-session
-//! nested widths or Browser occupancy. Background selected row
+//! nested widths, Browser occupancy, or Terminal occupancy. Background selected row
 //! (`right_panel_background_row_id`) restores from this stash;
 //! missing / empty / stale → 0. Browser occupancy, committed URLs,
 //! history rings/index, and the active index restore from this stash
 //! via `browser_pane.capturePersisted` / `restoreFromPersist` (same
 //! `PersistedSlot` shape as the global extras); missing / cleared is
 //! today's `default_slots` (slot 0 occupied, empty history).
-//! `reload_token` stays runtime-only. Every restore (including
-//! missing-key empty) resets Files preview find/replace (Waku
-//! `reset_file_search_for_session`): close the bar, clear matches, and
-//! clear find + replace buffers.
+//! `reload_token` stays runtime-only. Occupied Terminal slots and the
+//! active index restore from this stash via `pty_terminal.capturePersisted`
+//! / `restoreFromPersist` (bool occupancy + active, same shape as the
+//! global extras); missing / cleared is today's empty persist (no
+//! pending, lazy single spawn on Terminal tab open). Live PTY
+//! process / scrollback are not claimed across chat sessions: restore
+//! `ptyKill`s the leaving session's live shells (keys 700..703 stay
+//! reserved until cancelled, then `spawnShell` re-spawns). Every
+//! restore (including missing-key empty) resets Files preview
+//! find/replace (Waku `reset_file_search_for_session`): close the bar,
+//! clear matches, and clear find + replace buffers.
 //!
 //! Live Files expand still lives on `right_panel_expanded_store` (heap
 //! last-window; `file_mention.clearCache` frees it). Live Diff expand
@@ -63,6 +71,7 @@ const file_mention = @import("file_mention.zig");
 const review_diff = @import("review_diff.zig");
 const right_panel = @import("right_panel.zig");
 const browser_pane = @import("browser_pane.zig");
+const pty_terminal = @import("pty_terminal.zig");
 const open_url = @import("open_url.zig");
 
 const Model = main.Model;
@@ -132,18 +141,29 @@ pub const State = struct {
     browser_history_store: [browser_pane.max_sessions][browser_pane.max_history][]u8 = [_][browser_pane.max_history][]u8{
         [_][]u8{&.{}} ** browser_pane.max_history,
     } ** browser_pane.max_sessions,
+    /// Occupied Terminal slots + active index (Waku Terminal
+    /// `surfaces`). Same bool occupancy shape as `sessions.json`
+    /// extras `terminal_slots` / `terminal_active`; not written
+    /// per-session. No heap stores — persist is occupancy only.
+    /// Missing / cleared → empty persist (no pending, today's lazy
+    /// single spawn).
+    terminal_slots: [pty_terminal.max_sessions]bool = [_]bool{false} ** pty_terminal.max_sessions,
+    terminal_active: u8 = 0,
+    terminal_present: bool = false,
 };
 
 /// Copy the live Files + Diff expand sets, tab, panel open/closed,
 /// nested Files-tree / Diff list widths, Files preview path, Diff
 /// selection, dirty/editing Files preview editors, Background selected
-/// row, and Browser occupancy / histories / active under
-/// `model.selected`. No-op when nothing is selected. Evicts the
-/// least-recently-taken slot when the table is full of other session
-/// ids. The editor table is the whole bounded map (not a single
-/// `files_editor`); take upserts the live preview without dropping
-/// other parked paths. Browser uses `browser_pane.capturePersisted`
-/// (+ active); `reload_token` is not stashed.
+/// row, Browser occupancy / histories / active, and Terminal
+/// occupancy / active under `model.selected`. No-op when nothing is
+/// selected. Evicts the least-recently-taken slot when the table is
+/// full of other session ids. The editor table is the whole bounded
+/// map (not a single `files_editor`); take upserts the live preview
+/// without dropping other parked paths. Browser uses
+/// `browser_pane.capturePersisted` (+ active); `reload_token` is not
+/// stashed. Terminal uses `pty_terminal.capturePersisted` (+ active);
+/// scrollback / status / live PTY are not stashed.
 pub fn take(model: *Model) void {
     const session_id = model.selected;
     if (session_id == 0) return;
@@ -175,26 +195,32 @@ pub fn take(model: *Model) void {
     slot.diff_source_set = model.review_diff_active or model.right_panel_tab == .diff;
     takeFilesEditor(slot, model);
     takeBrowser(slot, model);
+    takeTerminal(slot, model);
 }
 
 /// Restore panel open/closed, nested Files-tree / Diff list widths,
 /// tab, Files + Diff expand, Files preview path, Diff selection,
-/// dirty/editing Files preview editors, Background selected row, and
-/// Browser occupancy / histories / active for `model.selected`.
-/// Missing key is Waku `take_or_closed`: closed panel, Files tab,
-/// collapsed trees, closed preview, empty editor table, no Diff
-/// selection, nested widths 184, Background row 0, default Browser
-/// (slot 0 occupied, empty history). Re-applies expand into the live
-/// stores so `clearCache` / `review_diff.close` on the way in cannot
-/// keep the leaving session's keys. Visibility is applied first via
-/// `setOpen` so an open restore paints through the existing select
-/// helpers. Nested widths land before `applyTab` so Files preview /
-/// Diff hunk layouts use this session's splits. Background row is
-/// applied before `applyTab` so a Background-tab restore can pass that
-/// id into `selectBackground` (including 0, which `selectBackground`
-/// itself does not clear). Browser `restoreFromPersist` lands before
-/// `applyTab` so a Browser-tab restore parks/snaps the same way a
-/// tab click does. Every restore resets Files preview find/replace.
+/// dirty/editing Files preview editors, Background selected row, Browser
+/// occupancy / histories / active, and Terminal occupancy / active
+/// for `model.selected`. Missing key is Waku `take_or_closed`: closed
+/// panel, Files tab, collapsed trees, closed preview, empty editor
+/// table, no Diff selection, nested widths 184, Background row 0,
+/// default Browser (slot 0 occupied, empty history), empty Terminal
+/// (no pending, today's lazy single spawn). Re-applies expand into
+/// the live stores so `clearCache` / `review_diff.close` on the way
+/// in cannot keep the leaving session's keys. Visibility is applied
+/// first via `setOpen` so an open restore paints through the existing
+/// select helpers. Nested widths land before `applyTab` so Files
+/// preview / Diff hunk layouts use this session's splits. Background
+/// row is applied before `applyTab` so a Background-tab restore can
+/// pass that id into `selectBackground` (including 0, which
+/// `selectBackground` itself does not clear). Browser
+/// `restoreFromPersist` lands before `applyTab` so a Browser-tab
+/// restore parks/snaps the same way a tab click does. Terminal
+/// `releaseLive` then `restoreFromPersist` land before `applyTab` so
+/// a Terminal-tab restore parks/snaps the same way a tab click does
+/// (fresh shells; live PTY / scrollback from the leaving session are
+/// torn down first). Every restore resets Files preview find/replace.
 pub fn restore(model: *Model, fx: *Effects) void {
     const session_id = model.selected;
     if (session_id == 0) {
@@ -215,6 +241,7 @@ pub fn restore(model: *Model, fx: *Effects) void {
     model.right_panel_session_pending_diff_source_set = slot.diff_source_set;
     right_panel.applyBackgroundRow(model, slot.background_row_id);
     restoreBrowser(model, slot);
+    restoreTerminal(model, fx, slot);
     right_panel.resetFilePreviewFindForSession(model);
     applyTab(model, fx, slot.tab);
     afterFilesIndexReady(model, fx);
@@ -348,6 +375,7 @@ fn clearSlot(slot: *State) void {
     slot.background_row_id = 0;
     clearFilesEditor(slot);
     clearBrowser(slot);
+    clearTerminal(slot);
     slot.session_id = 0;
     slot.stamp = 0;
 }
@@ -366,6 +394,7 @@ fn restoreEmpty(model: *Model, fx: *Effects) void {
     clearPending(model);
     right_panel.applyBackgroundRow(model, 0);
     restoreBrowser(model, null);
+    restoreTerminal(model, fx, null);
     right_panel.resetFilePreviewFindForSession(model);
     applyTab(model, fx, .files);
 }
@@ -503,6 +532,31 @@ fn clearBrowser(slot: *State) void {
     slot.browser_slots = [_]browser_pane.PersistedSlot{.{}} ** browser_pane.max_sessions;
     slot.browser_active = 0;
     slot.browser_present = false;
+}
+
+fn takeTerminal(slot: *State, model: *const Model) void {
+    pty_terminal.capturePersisted(model, &slot.terminal_slots);
+    slot.terminal_active = @intCast(pty_terminal.activeIndex(model));
+    slot.terminal_present = true;
+}
+
+fn restoreTerminal(model: *Model, fx: *Effects, slot: ?*const State) void {
+    pty_terminal.releaseLive(model, fx);
+    const stashed = slot orelse {
+        pty_terminal.restoreFromPersist(model, &.{}, 0);
+        return;
+    };
+    if (!stashed.terminal_present) {
+        pty_terminal.restoreFromPersist(model, &.{}, 0);
+        return;
+    }
+    pty_terminal.restoreFromPersist(model, &stashed.terminal_slots, stashed.terminal_active);
+}
+
+fn clearTerminal(slot: *State) void {
+    slot.terminal_slots = [_]bool{false} ** pty_terminal.max_sessions;
+    slot.terminal_active = 0;
+    slot.terminal_present = false;
 }
 
 fn cloneUrl(dest: *[]u8, src: []const u8) bool {
@@ -2032,5 +2086,161 @@ test "Files preview find is inactive and empty after session restore" {
     refillPreviewNote(&model, &fx, project);
     try expectFindReset(&model);
     try std.testing.expectEqualStrings("note.txt", model.file_preview_path());
+}
+
+fn occupyEnded(model: *Model, slots: *const [pty_terminal.max_sessions]bool, active: u8) void {
+    for (0..pty_terminal.max_sessions) |i| {
+        model.term_slots[i] = .{};
+        if (slots[i]) model.term_slots[i].ended = true;
+    }
+    model.term_active = active;
+}
+
+fn expectCapturedTerminal(model: *const Model, slots: *const [pty_terminal.max_sessions]bool, active: u8) !void {
+    var captured: [pty_terminal.max_sessions]bool = undefined;
+    pty_terminal.capturePersisted(model, &captured);
+    try std.testing.expectEqualSlices(bool, slots, &captured);
+    if (model.term_restore_pending) {
+        try std.testing.expectEqual(active, model.term_restore_active);
+    }
+    try std.testing.expectEqual(active, model.term_active);
+}
+
+fn expectEmptyTerminalPersist(model: *const Model) !void {
+    try std.testing.expect(!model.term_restore_pending);
+    try std.testing.expectEqual(@as(usize, 0), pty_terminal.visibleCount(model));
+    var captured: [pty_terminal.max_sessions]bool = undefined;
+    pty_terminal.capturePersisted(model, &captured);
+    try std.testing.expect(!captured[0]);
+    try std.testing.expect(!captured[1]);
+    try std.testing.expect(!captured[2]);
+    try std.testing.expect(!captured[3]);
+}
+
+test "Terminal slots and active round-trip across session switch" {
+    const palette_run = @import("palette_run.zig");
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer freeStores(&model);
+
+    const session_a = model.addSession("term a", .fx);
+    const session_b = model.addSession("term b", .fx);
+    model.selected = session_a;
+    model.showRightPanel();
+    model.right_panel_tab = .terminal;
+    occupyEnded(&model, &.{ true, false, true, false }, 2);
+    model.term_slots[0].scrollback = 11;
+    try std.testing.expectEqual(@as(u8, 2), model.term_active);
+    try std.testing.expectEqual(@as(usize, 2), pty_terminal.visibleCount(&model));
+
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    try std.testing.expectEqual(session_b, model.selected);
+    try std.testing.expect(!hasState(&model, session_b));
+    try expectEmptyTerminalPersist(&model);
+    try std.testing.expectEqual(@as(u32, 0), model.term_slots[0].scrollback);
+    try std.testing.expect(!model.term_slots[0].ended);
+    try std.testing.expect(!model.term_slots[2].ended);
+
+    occupyEnded(&model, &.{ true, false, false, false }, 0);
+
+    palette_run.applySessionSelection(&model, &fx, session_a);
+    try std.testing.expectEqual(session_a, model.selected);
+    try expectCapturedTerminal(&model, &.{ true, false, true, false }, 2);
+    try std.testing.expectEqual(@as(u32, 0), model.term_slots[0].scrollback);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.terminal, model.right_panel_tab);
+    try std.testing.expect(model.term_slots[0].live);
+    try std.testing.expect(!model.term_slots[1].live);
+    try std.testing.expect(model.term_slots[2].live);
+    try std.testing.expect(!model.term_slots[3].live);
+    try std.testing.expectEqual(@as(u8, 2), model.term_active);
+    try std.testing.expectEqual(@as(usize, 2), fx.pendingPtyCount());
+
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    try std.testing.expect(model.term_restore_pending);
+    try expectCapturedTerminal(&model, &.{ true, false, false, false }, 0);
+    try std.testing.expect(model.term_slots[0].closing);
+    try std.testing.expect(fx.ptyKillRequested(pty_terminal.pty_shell_key));
+    try std.testing.expect(fx.ptyKillRequested(pty_terminal.pty_shell_key + 2));
+}
+
+test "missing Terminal stash restores empty persist (today's lazy single)" {
+    const palette_run = @import("palette_run.zig");
+    const session_actions = @import("session_actions.zig");
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer freeStores(&model);
+
+    const session_a = model.addSession("term miss a", .fx);
+    const session_b = model.addSession("term miss b", .fx);
+    model.selected = session_a;
+    occupyEnded(&model, &.{ true, true, false, false }, 1);
+    try std.testing.expectEqual(@as(usize, 2), pty_terminal.visibleCount(&model));
+
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    try std.testing.expect(!hasState(&model, session_b));
+    try expectEmptyTerminalPersist(&model);
+
+    session_actions.handleNewSession(&model, &fx);
+    try expectEmptyTerminalPersist(&model);
+
+    palette_run.applySessionSelection(&model, &fx, session_a);
+    try std.testing.expect(model.term_restore_pending);
+    try expectCapturedTerminal(&model, &.{ true, true, false, false }, 1);
+
+    drop(&model, session_a);
+    try std.testing.expect(!hasState(&model, session_a));
+    restore(&model, &fx);
+    try expectEmptyTerminalPersist(&model);
+}
+
+test "New Task and remove restore empty Terminal occupancy" {
+    const session_actions = @import("session_actions.zig");
+    const palette_run = @import("palette_run.zig");
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer freeStores(&model);
+
+    const session_a = model.addSession("term new a", .fx);
+    const session_b = model.addSession("term new b", .fx);
+    model.selected = session_a;
+    pty_terminal.spawnShell(&model, &fx);
+    pty_terminal.newShell(&model, &fx);
+    try std.testing.expect(model.term_slots[0].live);
+    try std.testing.expect(model.term_slots[1].live);
+    try std.testing.expectEqual(@as(u8, 1), model.term_active);
+
+    session_actions.handleNewSession(&model, &fx);
+    const session_new = model.selected;
+    try std.testing.expect(session_new != session_a);
+    try std.testing.expect(!hasState(&model, session_new));
+    try expectEmptyTerminalPersist(&model);
+    try std.testing.expect(model.term_slots[0].closing);
+    try std.testing.expect(model.term_slots[1].closing);
+    try std.testing.expect(fx.ptyKillRequested(pty_terminal.pty_shell_key));
+    try std.testing.expect(fx.ptyKillRequested(pty_terminal.pty_shell_key + 1));
+    try std.testing.expect(hasState(&model, session_a));
+
+    palette_run.applySessionSelection(&model, &fx, session_a);
+    try std.testing.expect(model.term_restore_pending);
+    try expectCapturedTerminal(&model, &.{ true, true, false, false }, 1);
+
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    occupyEnded(&model, &.{ true, false, false, false }, 0);
+    session_actions.handleRemoveSession(&model, &fx, session_a);
+    try std.testing.expect(!hasState(&model, session_a));
+    try expectCapturedTerminal(&model, &.{ true, false, false, false }, 0);
 }
 

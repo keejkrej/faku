@@ -351,7 +351,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistLayoutIfPossible(model);
         },
         .term_state => |state| pty_terminal.applyTermState(model, state),
-        .term_pty => |event| pty_terminal.handlePtyEvent(model, event),
+        .term_pty => |event| {
+            pty_terminal.handlePtyEvent(model, event);
+            pty_terminal.maybeFinishRestore(model, fx);
+        },
         .browser_url_edit => |edit| {
             model.applyBrowserUrl(edit);
             model.browser_address_active = true;

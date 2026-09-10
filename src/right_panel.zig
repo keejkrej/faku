@@ -241,7 +241,9 @@
 //! row restores from that same stash (missing / empty / stale → 0;
 //! not `sessions.json`). Browser occupancy / histories / active restore
 //! from that stash too (missing → `default_slots`); the extras stay
-//! last-live cold-start, not per-session JSON. Files preview, directory
+//! last-live cold-start, not per-session JSON. Terminal occupancy /
+//! active restore from that stash too (missing → empty persist);
+//! `sessions.json` extras stay last-live cold-start. Files preview, directory
 //! expands, and output stay runtime-only (preview / expand also stash;
 //! output does not). Default `files` when the panel opens.
 //!
@@ -271,13 +273,14 @@
 //! not `sessions.json`): expand keys, live tab, panel open/closed,
 //! Files selected preview path, dirty/editing Files preview editors
 //! (bounded table, cap 4), Diff selected file, nested Files-tree
-//! width, Diff file-list width, Background selected row, and Browser
-//! occupancy / histories / active. Missing stash key restores closed
-//! (Waku `take_or_closed` empty), nested widths 184, Background row 0,
-//! an empty editor table, and default Browser (`default_slots`). Every
-//! restore resets Files preview find/replace. `sessions.json` extras
-//! remain the last-live global fallback for nested widths and Browser
-//! occupancy on cold start.
+//! width, Diff file-list width, Background selected row, Browser
+//! occupancy / histories / active, and Terminal occupancy / active.
+//! Missing stash key restores closed (Waku `take_or_closed` empty),
+//! nested widths 184, Background row 0, an empty editor table, default
+//! Browser (`default_slots`), and empty Terminal (no pending, today's
+//! lazy single spawn). Every restore resets Files preview find/replace.
+//! `sessions.json` extras remain the last-live global fallback for
+//! nested widths, Browser occupancy, and Terminal occupancy on cold start.
 //! `file_mention.clearCache` still frees the live expand table; restore
 //! re-applies remembered keys afterward. Files preview / Diff
 //! selection re-apply when the
@@ -831,9 +834,10 @@ pub fn selectBrowser(model: *Model, fx: *Effects) void {
 /// live). When occupied slots were persisted, that spawn restores one
 /// fresh shell per `true` slot then selects `terminal_active`. Open in
 /// Terminal stays the OS-host fallback. Tab, occupied slots, and the
-/// active index persist via layout extras. First-cut multi-session
-/// (cap 4); scrollback / status / live process state do not persist.
-/// Not Waku surface UUID tabs.
+/// active index persist via layout extras as last-live cold-start;
+/// session switch restores occupancy from `right_panel_session`.
+/// First-cut multi-session (cap 4); scrollback / status / live process
+/// state do not persist. Not Waku surface UUID tabs.
 pub fn selectTerminal(model: *Model, fx: *Effects) void {
     leaveDiffSurfaceIfNeeded(model);
     const was_open = model.right_panel_open;
