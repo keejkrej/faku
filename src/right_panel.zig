@@ -256,8 +256,11 @@
 //! top-level dirs. Live keys sit on `right_panel_expanded_store`;
 //! session switch / New Task / remove take-or-closed through
 //! `right_panel_session` (Waku in-memory `RightPanelSessionState`,
-//! not `sessions.json`). `file_mention.clearCache` still frees the
-//! live table; restore re-applies remembered keys afterward.
+//! not `sessions.json`): expand keys, live tab, Files selected
+//! preview path, and Diff selected file. `file_mention.clearCache`
+//! still frees the live expand table; restore re-applies remembered
+//! keys afterward. Files preview / Diff selection re-apply when the
+//! index or Review tree next fills if it was empty at restore.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -828,6 +831,7 @@ pub fn clearFilePreview(model: *Model) void {
     clearPreviewDiskFingerprint(model);
     model.file_preview_disk_poll_ms = null;
     clearPendingDiscard(model);
+    model.right_panel_session_pending_files = .{};
 }
 
 pub fn clearPendingDiscard(model: *Model) void {

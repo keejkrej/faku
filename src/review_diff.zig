@@ -2366,8 +2366,8 @@ fn probeStillCurrent(model: *const Model) bool {
 }
 
 /// Cancel any in-flight probe, drop files / status / hunks / live
-/// Diff expand, and close the card. Per-session expand memory is
-/// `right_panel_session` (take before this on session switch).
+/// Diff expand, and close the card. Per-session expand / selection
+/// memory is `right_panel_session` (take before this on session switch).
 pub fn close(model: *Model, fx: *Effects) void {
     cancelInFlight(model, fx);
     cancelHunkInFlight(model, fx);
@@ -2537,6 +2537,8 @@ pub fn open(model: *Model, fx: *Effects) void {
 
 /// Diff tab / Environment Compare: start Uncommitted when no compare
 /// is active; keep the current source and refresh when it is.
+/// Session-switch restore may arm `right_panel_session_pending_diff_source`
+/// so the first inactive start uses that source instead of Uncommitted.
 /// Same streaming / git-mutation gate as `open`.
 pub fn ensureDiff(model: *Model, fx: *Effects) void {
     if (git_checkout.gitMutationInFlight(model)) return;
@@ -2547,7 +2549,12 @@ pub fn ensureDiff(model: *Model, fx: *Effects) void {
     }
     prepareCard(model, fx);
     model.review_diff_active = true;
-    model.review_diff_source = .uncommitted;
+    if (model.right_panel_session_pending_diff_source_set) {
+        model.review_diff_source = model.right_panel_session_pending_diff_source;
+        model.right_panel_session_pending_diff_source_set = false;
+    } else {
+        model.review_diff_source = .uncommitted;
+    }
     startProbe(model, fx);
 }
 
@@ -2648,6 +2655,7 @@ pub fn selectFile(model: *Model, fx: *Effects, id: u32) void {
     clearHunkBody(model);
     clearHunkStatus(model);
     model.review_diff_selected_id = id;
+    model.right_panel_session_pending_diff = .{};
     if (model.review_diff_last_via_daemon) {
         paintDaemonHunk(model, file.path());
         return;

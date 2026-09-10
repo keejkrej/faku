@@ -616,10 +616,17 @@ single-entry restore). Occupied Terminal
 slots and the active index persist (`terminal_slots` boolean array,
 cap 4, plus `terminal_active`; missing / empty `terminal_slots` keeps
 today's lazy single spawn). `reload_token` stays runtime-only (typing the address bar
-does not navigate). Background row selection, Files preview content,
-and directory expands stay runtime-only (in-memory per session,
-Waku `RightPanelSessionState::take_or_closed` on switch / New Task /
-remove; cap last 16 session ids with LRU; not `sessions.json`). Files paints a compact ~42px
+does not navigate). Background row selection and dirty Files preview
+buffers stay runtime-only this cut. Directory expands, the live tab,
+Files selected preview path, and Diff selected file (plus `diff_source`
+when Compare was active or Diff was showing) restore from an in-memory
+per-session stash (Waku `RightPanelSessionState::take_or_closed` on
+switch / New Task / remove; cap last 16 session ids with LRU; not
+`sessions.json`). Selected tab still persists globally on
+`sessions.json` extras for boot; the stash overrides it on session
+switch. Diff snapshot bodies re-fetch; selection re-applies when the
+Review tree is populated, or on the next Files/Diff probe-exit fill.
+Files paints a compact ~42px
 header (Native `folder` icon + truncated `project_path` basename, same
 scheme as the sidebar subtitle / Settings Usage `projectBasename`) above
 the loaded tree — both the full-height list and the nested tree pane when

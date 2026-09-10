@@ -51,6 +51,7 @@ const projectless = @import("projectless.zig");
 const environment_summary = @import("environment_summary.zig");
 const pick_folder = @import("pick_folder.zig");
 const right_panel = @import("right_panel.zig");
+const right_panel_session = @import("right_panel_session.zig");
 const reveal_folder = @import("reveal_folder.zig");
 const open_terminal = @import("open_terminal.zig");
 const open_url = @import("open_url.zig");
@@ -1133,6 +1134,7 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.review_diff_key != 0 and exit.key == model.review_diff_key) {
         review_diff.handleExit(model, fx, exit);
+        right_panel_session.afterDiffTreeReady(model, fx);
         return;
     }
     if (model.review_diff_hunk_key != 0 and exit.key == model.review_diff_hunk_key) {
@@ -1141,6 +1143,7 @@ pub fn handleFxExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) vo
     }
     if (model.file_mention_key != 0 and exit.key == model.file_mention_key) {
         file_mention.handleExit(model, fx, exit);
+        right_panel_session.afterFilesIndexReady(model, fx);
         return;
     }
     if (model.daemon_dir_browser_key != 0 and exit.key == model.daemon_dir_browser_key) {
