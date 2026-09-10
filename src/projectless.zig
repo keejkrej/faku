@@ -4,9 +4,11 @@
 //! When New Task has no usable ordinary project — empty
 //! `last_project_path`, or the selected session's `project_path` is
 //! already a projectless path under `~/.waku/projects` (and
-//! legacy `~/.waku/<YYYY-MM-DD>/…` / bare `~/.waku`) — Faku prefers
-//! hello + `createProjectlessWorkspace` `{ prompt: null }` when
-//! `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is set.
+//! legacy `~/.waku/<YYYY-MM-DD>/…` / bare `~/.waku`) — and no
+//! unstarted non-legacy projectless draft exists to select, Faku
+//! prefers hello + `createProjectlessWorkspace` `{ prompt: null }`
+//! when `WAKU_DAEMON_ADDRESS` or persisted `last_daemon_address` is
+//! set.
 //! Ok nested `projectlessWorkspace.cwd` becomes the new session
 //! cwd and `last_project_path`. Native 4 KiB stdin overflow /
 //! sidecar failure / non-ok / unusable parse / empty cwd fall back
@@ -32,10 +34,16 @@
 //! distinct from Create. Cancel in-flight zeros the key so a
 //! cancelled sidecar cannot paint a later session. Local
 //! `sessions.json` stays canonical. Best-effort sidecar only.
-//! Leftover: reusing an unstarted projectless draft (Waku
-//! `create_projectless_session` selects the draft) is skipped this
-//! cut so New Task still always creates a row. Amend/force and
-//! remote `--track` stay local.
+//! When New Task would be projectless, an existing unstarted
+//! non-legacy projectless draft is selected (Waku
+//! `create_projectless_session`) instead of `addSession` /
+//! `beginForNewSession`. CreateProjectlessWorkspace stays
+//! best-effort only on actual create. The draft filter matches
+//! Waku: `isProjectlessPath` and skip bare `{home}/.waku`
+//! (`is_legacy_root_path`). Dated `~/.waku/<date>/…` drafts are
+//! still projectless and reusable — Waku does not prefer
+//! `~/.waku/projects` over them; first catalog match wins.
+//! Amend/force and remote `--track` stay local.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -143,12 +151,32 @@ pub fn beginMigrateForSelected(model: *Model, fx: *Effects) void {
     applyMigrateLocalFallback(model, fx, session.id, path);
 }
 
-fn wantsProjectlessWorkspace(model: *const Model, prior_project_path: []const u8) bool {
+/// True when this New Task should open a projectless workspace:
+/// prior cwd or `last_project_path` is already projectless, or
+/// `last_project_path` is empty. Ordinary real-project New Task is
+/// false so it still copies `last_project_path`.
+pub fn wantsProjectlessWorkspace(model: *const Model, prior_project_path: []const u8) bool {
     const home = model.homeDir();
     const last = model.lastProjectPath();
     if (isProjectlessPath(home, prior_project_path)) return true;
     if (isProjectlessPath(home, last)) return true;
     return last.len == 0;
+}
+
+/// First unstarted projectless session whose cwd is not the bare
+/// legacy root `{home}/.waku`. Matches Waku
+/// `create_projectless_session`: `!has_started() && is_projectless
+/// && !is_legacy_root_path`. Dated `~/.waku/<date>/…` is reusable.
+pub fn reusableUnstartedDraftId(model: *const Model) ?u32 {
+    const home = model.homeDir();
+    for (model.sessions()) |session| {
+        if (session.hasStarted()) continue;
+        const path = session.projectPath();
+        if (!isProjectlessPath(home, path)) continue;
+        if (isBareLegacyRoot(home, path)) continue;
+        return session.id;
+    }
+    return null;
 }
 
 fn trySpawn(model: *Model, fx: *Effects, session_id: u32) bool {
@@ -482,6 +510,24 @@ test "isProjectlessPath recognizes ~/.waku/projects, legacy dated, and bare ~/.w
     try std.testing.expect(!needsMigration(home, "/home/me/.waku/worktrees/abc/slug"));
     try std.testing.expect(!needsMigration(home, "/tmp/faku"));
     try std.testing.expect(!needsMigration(home, ""));
+}
+
+test "reusableUnstartedDraftId skips started and bare ~/.waku, keeps dated legacy" {
+    var model = Model{};
+    model.setHome("/home/me");
+
+    try std.testing.expectEqual(@as(?u32, null), reusableUnstartedDraftId(&model));
+
+    model.setLastProjectPath("/home/me/.waku");
+    _ = model.addSession("bare", .fx);
+    try std.testing.expectEqual(@as(?u32, null), reusableUnstartedDraftId(&model));
+
+    model.setLastProjectPath("/home/me/.waku/2026-09-06/legacy-chat");
+    const dated = model.addSession("dated", .fx);
+    try std.testing.expectEqual(dated, reusableUnstartedDraftId(&model).?);
+
+    if (model.sessionById(dated)) |session| session.has_started = true;
+    try std.testing.expectEqual(@as(?u32, null), reusableUnstartedDraftId(&model));
 }
 
 test "New Task with a daemon address spawns createProjectlessWorkspace" {
