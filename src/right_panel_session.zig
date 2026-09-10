@@ -1628,7 +1628,9 @@ test "session take/restore copies multiple file editors" {
     dirtyLetter(&model, &fx, 1, "x");
     right_panel.selectCachedFile(&model, &fx, 2);
     dirtyLetter(&model, &fx, 2, "y");
-    try std.testing.expectEqual(@as(u32, 2), filesEditorCountFor(&model, session_a));
+    try std.testing.expectEqual(@as(u32, 1), filesEditorCountFor(&model, session_a));
+    try std.testing.expect(hasFilesEditorPath(&model, session_a, "a.txt"));
+    try std.testing.expect(!hasFilesEditorPath(&model, session_a, "b.txt"));
 
     palette_run.applySessionSelection(&model, &fx, session_b);
     try std.testing.expectEqual(@as(u32, 2), filesEditorCountFor(&model, session_a));
