@@ -1299,6 +1299,11 @@ pub const Model = struct {
     daemon_dir_browser_store: [pick_folder.max_dir_entries]pick_folder.CachedDirEntry = [_]pick_folder.CachedDirEntry{.{}} ** pick_folder.max_dir_entries,
     daemon_dir_browser_count: u32 = 0,
     reveal_folder_live: bool = false,
+    /// Runtime-only absolute path for `startRevealPath` (markdown Preview
+    /// outside-project reveal). `startRevealFolder` still uses
+    /// `selectedProjectPath`.
+    reveal_folder_path_storage: [reveal_folder.max_reveal_path]u8 = [_]u8{0} ** reveal_folder.max_reveal_path,
+    reveal_folder_path_len: usize = 0,
     open_url_live: bool = false,
     open_url_storage: [open_url.max_spawn_url]u8 = [_]u8{0} ** open_url.max_spawn_url,
     open_url_len: usize = 0,
@@ -2065,6 +2070,8 @@ pub const Model = struct {
         "daemon_dir_browser_store",
         "daemon_dir_browser_count",
         "reveal_folder_live",
+        "reveal_folder_path_storage",
+        "reveal_folder_path_len",
         "open_url_live",
         "open_url_storage",
         "open_url_len",

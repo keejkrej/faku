@@ -140,8 +140,10 @@
 //! on-link="file_preview_open_url" />` (GFM subset; no `images=` this
 //! cut — alt-text fallback; no details-expanded). Source keeps today's
 //! highlighted `<code language="markdown">`. http(s) / bare-host links
-//! reuse `open_url` OS browser spawn; relative / file links are a short
-//! muted preview status, not filesystem navigation or a webview. Mode
+//! reuse `open_url` OS browser spawn; relative / `file:` / absolute
+//! project paths open the Files preview (same as a tree click);
+//! outside-project paths reveal via `reveal_folder`; anchors / mailto
+//! stay a short muted preview status. Mode
 //! resets to Preview when the preview closes / file switches / session
 //! clears. Edit keeps the textarea (chips hide; rendered preview is
 //! read-only). `previewLineRows` remains for tests.
@@ -298,6 +300,7 @@ const code_language = @import("code_language.zig");
 const file_icon = @import("file_icon.zig");
 const open_editor = @import("open_editor.zig");
 const open_url = @import("open_url.zig");
+const reveal_folder = @import("reveal_folder.zig");
 const pty_terminal = @import("pty_terminal.zig");
 const review_diff = @import("review_diff.zig");
 const store = @import("store.zig");
@@ -1094,21 +1097,71 @@ pub fn setFilePreviewMarkdownSource(model: *Model) void {
 }
 
 /// Native `<markdown on-link>`: http(s) / bare hosts go through `open_url`
-/// OS browser spawn. Relative / file links are a muted status.
+/// OS browser spawn. Relative / `file:` / absolute project paths open
+/// Files preview; outside-project paths reveal via `reveal_folder`.
 pub fn openFilePreviewMarkdownUrl(model: *Model, fx: *Effects, url: []const u8) void {
     if (!isMarkdownPreviewLanguage(model)) return;
-    if (open_url.isRelativeOrFileUrl(url)) {
-        setPreviewStatus(model, open_url.relative_link_status);
+    if (!open_url.isRelativeOrFileUrl(url)) {
+        switch (open_url.startOpenUrlText(model, fx, url)) {
+            .spawned => {
+                model.right_panel_file_preview_status_len = 0;
+            },
+            .live => {},
+            .empty, .overflow => setPreviewStatus(model, open_url.relative_link_status),
+            .missing_bin => setPreviewStatus(model, open_url.hostMissingStatus()),
+        }
         return;
     }
-    switch (open_url.startOpenUrlText(model, fx, url)) {
+
+    const preview_abs = model.right_panel_file_preview_abs_storage[0..model.right_panel_file_preview_abs_len];
+    var path_buf: [open_url.max_file_link_path]u8 = undefined;
+    const resolved = open_url.resolveMarkdownFilePath(url, preview_abs, &path_buf) orelse {
+        setPreviewStatus(model, open_url.relative_link_status);
+        return;
+    };
+
+    var rel_buf: [file_mention.max_file_mention_path]u8 = undefined;
+    if (open_url.workspaceRelativeFilePath(model.selectedProjectPath(), resolved, &rel_buf)) |rel| {
+        openProjectPreviewFile(model, fx, rel);
+        return;
+    }
+
+    switch (reveal_folder.startRevealPath(model, fx, resolved)) {
         .spawned => {
             model.right_panel_file_preview_status_len = 0;
         },
         .live => {},
-        .empty, .overflow => setPreviewStatus(model, open_url.relative_link_status),
-        .missing_bin => setPreviewStatus(model, open_url.hostMissingStatus()),
+        .missing_bin => setPreviewStatus(model, reveal_folder.hostMissingStatus()),
+        .no_path => setPreviewStatus(model, open_url.relative_link_status),
     }
+}
+
+fn ensureDirExpanded(model: *Model, key: []const u8) void {
+    const dir = dirKey(key);
+    if (dir.len == 0) return;
+    if (indexOfExpanded(model, dir) != null) return;
+    if (model.right_panel_expanded_count >= file_mention.max_file_mention_dirs) return;
+    if (!file_mention.ensureRightPanelExpandedStore(model)) return;
+    model.right_panel_expanded_store[model.right_panel_expanded_count].set(dir);
+    model.right_panel_expanded_count += 1;
+}
+
+fn ensureAncestorsExpanded(model: *Model, rel: []const u8) void {
+    var parent = composer.fileMentionParent(rel);
+    while (parent.len > 0) {
+        ensureDirExpanded(model, parent);
+        parent = composer.fileMentionParent(parent);
+    }
+}
+
+fn openProjectPreviewFile(model: *Model, fx: *Effects, rel: []const u8) void {
+    const id = file_mention.fileIdForRelpath(model, rel) orelse {
+        setPreviewStatus(model, open_url.relative_link_status);
+        return;
+    };
+    selectFiles(model, fx);
+    ensureAncestorsExpanded(model, rel);
+    selectCachedFile(model, fx, id);
 }
 
 fn setPreviewError(model: *Model, message: []const u8) void {
@@ -3089,15 +3142,31 @@ test "markdown Files preview defaults to Preview; Source chip flips; non-markdow
     try std.testing.expect(!model.file_preview_markdown_source());
 }
 
-test "markdown Preview http(s) link reuses open_url spawn; relative is muted status" {
+test "markdown Preview project-file links open Files; outside reveals; http(s) stays OS browser" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     var project_buf: [256]u8 = undefined;
     const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-preview-md-link-{s}", .{tmp.sub_path});
     try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
-    var md_buf: [300]u8 = undefined;
-    const md_abs = try std.fmt.bufPrint(&md_buf, "{s}/NOTES.md", .{project});
-    try writePreviewFile(std.testing.io, md_abs, "[ex](https://example.com)\n");
+    var docs_buf: [280]u8 = undefined;
+    const docs = try std.fmt.bufPrint(&docs_buf, "{s}/docs", .{project});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, docs);
+    var readme_buf: [300]u8 = undefined;
+    const readme_abs = try std.fmt.bufPrint(&readme_buf, "{s}/docs/README.md", .{project});
+    try writePreviewFile(std.testing.io, readme_abs, "[other](./other.md)\n");
+    var other_buf: [300]u8 = undefined;
+    const other_abs = try std.fmt.bufPrint(&other_buf, "{s}/docs/other.md", .{project});
+    try writePreviewFile(std.testing.io, other_abs, "other file\n");
+    var notes_buf: [300]u8 = undefined;
+    const notes_abs = try std.fmt.bufPrint(&notes_buf, "{s}/NOTES.md", .{project});
+    try writePreviewFile(std.testing.io, notes_abs, "notes\n");
+
+    var outside_dir_buf: [256]u8 = undefined;
+    const outside_dir = try std.fmt.bufPrint(&outside_dir_buf, "/tmp/faku-preview-md-outside-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, outside_dir);
+    var outside_buf: [300]u8 = undefined;
+    const outside_abs = try std.fmt.bufPrint(&outside_buf, "{s}/secret.md", .{outside_dir});
+    try writePreviewFile(std.testing.io, outside_abs, "secret\n");
 
     var fx = Effects.init(std.testing.allocator);
     defer fx.deinit();
@@ -3109,15 +3178,65 @@ test "markdown Preview http(s) link reuses open_url spawn; relative is muted sta
     model.selected = id;
     model.setSelectedProjectPath(project);
     model.right_panel_open = true;
-    file_mention.applyStdoutPaths(&model, "NOTES.md\n");
+    file_mention.applyStdoutPaths(&model, "NOTES.md\ndocs/README.md\ndocs/other.md\n");
     defer clearFilePreview(&model);
     defer file_mention.clearCache(&model);
 
-    selectCachedFile(&model, &fx, 1);
+    selectCachedFile(&model, &fx, 2);
+    try std.testing.expectEqualStrings("docs/README.md", model.file_preview_path());
+
     openFilePreviewMarkdownUrl(&model, &fx, "./other.md");
+    try std.testing.expectEqualStrings("docs/other.md", model.file_preview_path());
+    try std.testing.expectEqualStrings("other file\n", model.file_preview_body());
+    try std.testing.expect(isDirExpanded(&model, "docs"));
+    try std.testing.expectEqual(Tab.files, model.right_panel_tab);
+    try std.testing.expect(pendingSpawnKey(&fx, open_url.open_url_key) == null);
+    try std.testing.expect(pendingSpawnKey(&fx, reveal_folder.reveal_folder_key) == null);
+
+    selectCachedFile(&model, &fx, 2);
+    openFilePreviewMarkdownUrl(&model, &fx, "../NOTES.md");
+    try std.testing.expectEqualStrings("NOTES.md", model.file_preview_path());
+    try std.testing.expectEqualStrings("notes\n", model.file_preview_body());
+
+    selectCachedFile(&model, &fx, 2);
+    var abs_link_buf: [320]u8 = undefined;
+    const abs_link = try std.fmt.bufPrint(&abs_link_buf, "{s}/docs/other.md", .{project});
+    openFilePreviewMarkdownUrl(&model, &fx, abs_link);
+    try std.testing.expectEqualStrings("docs/other.md", model.file_preview_path());
+
+    selectCachedFile(&model, &fx, 2);
+    var file_link_buf: [340]u8 = undefined;
+    const file_link = try std.fmt.bufPrint(&file_link_buf, "file://{s}/docs/other.md#L12", .{project});
+    openFilePreviewMarkdownUrl(&model, &fx, file_link);
+    try std.testing.expectEqualStrings("docs/other.md", model.file_preview_path());
+    try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_status_len);
+
+    model.right_panel_tab = .browser;
+    openFilePreviewMarkdownUrl(&model, &fx, "./other.md");
+    try std.testing.expectEqual(Tab.files, model.right_panel_tab);
+    try std.testing.expectEqualStrings("docs/other.md", model.file_preview_path());
+
+    openFilePreviewMarkdownUrl(&model, &fx, outside_abs);
+    try std.testing.expectEqualStrings("docs/other.md", model.file_preview_path());
+    if (reveal_folder.hostBin() == null) {
+        try std.testing.expectEqualStrings(reveal_folder.hostMissingStatus(), model.file_preview_status());
+        try std.testing.expect(!model.reveal_folder_live);
+    } else {
+        try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_status_len);
+        try std.testing.expect(model.reveal_folder_live);
+        const reveal = pendingSpawnKey(&fx, reveal_folder.reveal_folder_key) orelse return error.MissingRevealSpawn;
+        try std.testing.expect(reveal_folder.isRevealArgv(reveal.argv));
+        try std.testing.expectEqualStrings(outside_dir, reveal.argv[reveal.argv.len - 1]);
+    }
+
+    openFilePreviewMarkdownUrl(&model, &fx, "#anchor");
+    try std.testing.expectEqualStrings(open_url.relative_link_status, model.file_preview_status());
+    try std.testing.expectEqualStrings("docs/other.md", model.file_preview_path());
+    try std.testing.expect(pendingSpawnKey(&fx, open_url.open_url_key) == null);
+
+    openFilePreviewMarkdownUrl(&model, &fx, "mailto:hi@example.com");
     try std.testing.expectEqualStrings(open_url.relative_link_status, model.file_preview_status());
     try std.testing.expect(pendingSpawnKey(&fx, open_url.open_url_key) == null);
-    try std.testing.expect(!model.open_url_live);
 
     openFilePreviewMarkdownUrl(&model, &fx, "https://example.com");
     if (open_url.hostBin() == null) {
