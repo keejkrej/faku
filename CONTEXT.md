@@ -630,7 +630,9 @@ Native built-in (`file-text` for unknown files; directories stay
 `app:zip` / `app:audio` / `app:video` / `app:settings`; LICENSE-like
 names / lockfiles / binaries / nginx bind Material `app:certificate` /
 `app:lockfile` / `app:exe` / `app:nginx` (chrome address lock stays
-`app:lock`); shells bind
+`app:lock`); cmake / CoffeeScript / GitLab CI / Gradle / Kubernetes
+kustomization / TeX bind Material `app:cmake` / `app:coffee` /
+`app:gitlab` / `app:gradle` / `app:kubernetes` / `app:tex`; shells bind
 Material `app:console` / `app:powershell`).
 Diff tree rows, the selected-file Diff header, and composer
 `@` mention rows reuse this same `file_icon` map (mention dirs stay
@@ -705,7 +707,8 @@ collapsed, basename leaves, Material app icon from the same
 Files `file_icon` map — dirs `folder` / `folder-open`, files `app:zig` /
 `app:rust` / `app:ruby` / … plus `app:zip` / `app:audio` /
 `app:video` / `app:settings` / `app:certificate` / `app:lockfile` /
-`app:exe` / `app:nginx` else `file-text` (shells `app:console` / `app:powershell`) — colored status letter `A`/`D`/`B`/`M`/`?` separate from
+`app:exe` / `app:nginx` / `app:cmake` / `app:coffee` / `app:gitlab` /
+`app:gradle` / `app:kubernetes` / `app:tex` else `file-text` (shells `app:console` / `app:powershell`) — colored status letter `A`/`D`/`B`/`M`/`?` separate from
 the basename, optional `+N` / `-M` from
 numstat; zeros omitted; numstat `-` is Binary `B`; daemon CollectReviewDiff and local
 `--numstat`). A Native search-field above that tree is Waku
@@ -1180,8 +1183,8 @@ live watch.
 Honest gaps this cut does not implement:
 
 - Remaining Material / Waku file-type SVGs (nest/kotlin/graphql/prettier
-  Native-dialect skips, cmake/coffee/clojure/editorconfig/gitlab/gradle/helm/kubernetes/tex, …)
-  stay later PRs; this cut vendors a sixth-cut cert/lock/exe/nginx swap
+  Native-dialect skips, clojure/editorconfig/helm transform= skips, …)
+  stay later PRs; this cut vendors a seventh-cut cmake/coffee/gitlab/gradle/kubernetes/tex swap
 - Full onboarding / OAuth / auto-install (fx install/login copy
   ships; other CLIs get a PATH hint only)
 - Native Pi ACP / `--mode rpc` (json-mode one-shot

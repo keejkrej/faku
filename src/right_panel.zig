@@ -112,6 +112,9 @@
 //! Material `app:zip` / `app:audio` / `app:video` / `app:settings`;
 //! LICENSE-like names / lockfiles / binaries / nginx bind Material
 //! `app:certificate` / `app:lockfile` / `app:exe` / `app:nginx`;
+//! cmake / CoffeeScript / GitLab CI / Gradle / Kubernetes kustomization /
+//! TeX bind Material `app:cmake` / `app:coffee` / `app:gitlab` /
+//! `app:gradle` / `app:kubernetes` / `app:tex`;
 //! shells bind Material `app:console` / `app:powershell`).
 //! Diff tree rows, the selected-file Diff
 //! header, and composer `@` mention rows reuse this same map
