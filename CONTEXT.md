@@ -627,7 +627,9 @@ collapsed (chevrons stay). File rows pick a Material app icon
 (`app:zig`, `app:rust`, `app:ruby`, … MIT subset under `src/icons/file-types/`) or a
 Native built-in (`file-text` for unknown files; directories stay
 `folder` / `folder-open`; archives/audio/video/config bind Material
-`app:zip` / `app:audio` / `app:video` / `app:settings`; shells bind
+`app:zip` / `app:audio` / `app:video` / `app:settings`; LICENSE-like
+names / lockfiles / binaries / nginx bind Material `app:certificate` /
+`app:lock` / `app:exe` / `app:nginx`; shells bind
 Material `app:console` / `app:powershell`).
 Diff tree rows, the selected-file Diff header, and composer
 `@` mention rows reuse this same `file_icon` map (mention dirs stay
@@ -701,7 +703,8 @@ rows paint a first-cut nested directory tree matching Waku
 collapsed, basename leaves, Material app icon from the same
 Files `file_icon` map — dirs `folder` / `folder-open`, files `app:zig` /
 `app:rust` / `app:ruby` / … plus `app:zip` / `app:audio` /
-`app:video` / `app:settings` else `file-text` (shells `app:console` / `app:powershell`) — colored status letter `A`/`D`/`B`/`M`/`?` separate from
+`app:video` / `app:settings` / `app:certificate` / `app:lock` /
+`app:exe` / `app:nginx` else `file-text` (shells `app:console` / `app:powershell`) — colored status letter `A`/`D`/`B`/`M`/`?` separate from
 the basename, optional `+N` / `-M` from
 numstat; zeros omitted; numstat `-` is Binary `B`; daemon CollectReviewDiff and local
 `--numstat`). A Native search-field above that tree is Waku
@@ -1175,9 +1178,9 @@ live watch.
 
 Honest gaps this cut does not implement:
 
-- Remaining Material / Waku file-type SVGs (certificate/lock/exe/nginx,
-  nest/kotlin/graphql/prettier Native-dialect skips, …)
-  stay later PRs; this cut vendors a fifth-cut media/config swap
+- Remaining Material / Waku file-type SVGs (nest/kotlin/graphql/prettier
+  Native-dialect skips, cmake/coffee/clojure/editorconfig/gitlab/gradle/helm/kubernetes/tex, …)
+  stay later PRs; this cut vendors a sixth-cut cert/lock/exe/nginx swap
 - Full onboarding / OAuth / auto-install (fx install/login copy
   ships; other CLIs get a PATH hint only)
 - Native Pi ACP / `--mode rpc` (json-mode one-shot

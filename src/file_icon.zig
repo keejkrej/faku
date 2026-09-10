@@ -5,7 +5,8 @@
 //! (basename specials, then extension) and maps onto a curated MIT
 //! Material app-icon subset (`app:zig`, `app:rust`, `app:ruby`, … from
 //! `src/icons/file-types/`, including `app:zip` / `app:audio` /
-//! `app:video` / `app:settings`) plus Native built-ins for directories
+//! `app:video` / `app:settings` / `app:certificate` / `app:lock` /
+//! `app:exe` / `app:nginx`) plus Native built-ins for directories
 //! (`folder` / `folder-open`) and unknown files (`file-text`). Diff tree
 //! rows, the selected-file Diff header, and composer `@` mention
 //! rows reuse this same map
@@ -86,12 +87,17 @@ pub fn fileIconForName(name: []const u8) []const u8 {
     if (extensionIs(ext, &.{ "svg" })) return app("svg");
     if (extensionIs(ext, &.{ "tf", "tfvars" })) return app("terraform");
     if (extensionIs(ext, &.{ "wasm" })) return app("webassembly");
+    if (extensionIs(ext, &.{ "exe", "dll", "so", "dylib" })) return app("exe");
+    if (extensionIs(ext, &.{ "lock" })) return app("lock");
     if (extensionIs(ext, &.{ "ini", "cfg", "conf", "config", "toml" })) return app("settings");
     return "file-text";
 }
 
 fn basenameSpecial(name: []const u8) ?[]const u8 {
     if (startsWithIgnoreCase(name, "readme")) return app("readme");
+    if (startsWithIgnoreCase(name, "license") or
+        startsWithIgnoreCase(name, "licence") or
+        startsWithIgnoreCase(name, "copying")) return app("certificate");
     if (isDockerfileName(name)) return app("docker");
     if (isMakefileName(name)) return app("makefile");
     if (std.ascii.eqlIgnoreCase(name, "Cargo.toml") or
@@ -147,6 +153,7 @@ fn basenameSpecial(name: []const u8) ?[]const u8 {
         return app("storybook");
     if (startsWithIgnoreCase(name, "deno.json") or std.ascii.eqlIgnoreCase(name, "deno.lock"))
         return app("deno");
+    if (std.ascii.eqlIgnoreCase(name, "nginx.conf")) return app("nginx");
     if (isSettingsName(name)) return app("settings");
     return null;
 }
@@ -228,7 +235,7 @@ test "fileIconForName maps shells, archives, audio, leftover config" {
 
     try std.testing.expectEqualStrings("app:settings", fileIconForName("php.ini"));
     try std.testing.expectEqualStrings("app:settings", fileIconForName("app.cfg"));
-    try std.testing.expectEqualStrings("app:settings", fileIconForName("nginx.conf"));
+    try std.testing.expectEqualStrings("app:nginx", fileIconForName("nginx.conf"));
     try std.testing.expectEqualStrings("app:settings", fileIconForName("app.config"));
     try std.testing.expectEqualStrings("app:settings", fileIconForName("other.toml"));
     try std.testing.expectEqualStrings("app:settings", fileIconForName(".env"));
@@ -385,6 +392,28 @@ test "fileIconForName maps high-value basename specials" {
     try std.testing.expectEqualStrings("app:storybook", fileIconForName("foo.story.js"));
 }
 
+test "fileIconForName maps sixth-cut certificate lock exe nginx" {
+    try std.testing.expectEqualStrings("app:certificate", fileIconForName("LICENSE"));
+    try std.testing.expectEqualStrings("app:certificate", fileIconForName("licence"));
+    try std.testing.expectEqualStrings("app:certificate", fileIconForName("COPYING"));
+    try std.testing.expectEqualStrings("app:certificate", fileIconForName("LICENSE.md"));
+    try std.testing.expectEqualStrings("app:nginx", fileIconForName("nginx.conf"));
+    try std.testing.expectEqualStrings("app:nginx", fileIconForName("NGINX.CONF"));
+    try std.testing.expectEqualStrings("app:exe", fileIconForName("a.exe"));
+    try std.testing.expectEqualStrings("app:exe", fileIconForName("lib.dll"));
+    try std.testing.expectEqualStrings("app:exe", fileIconForName("lib.so"));
+    try std.testing.expectEqualStrings("app:exe", fileIconForName("lib.dylib"));
+    try std.testing.expectEqualStrings("app:lock", fileIconForName("foo.lock"));
+    try std.testing.expectEqualStrings("app:rust", fileIconForName("Cargo.lock"));
+    try std.testing.expectEqualStrings("app:npm", fileIconForName("package-lock.json"));
+    try std.testing.expectEqualStrings("app:bun", fileIconForName("bun.lock"));
+    try std.testing.expectEqualStrings("app:yarn", fileIconForName("yarn.lock"));
+    try std.testing.expectEqualStrings("app:ruby", fileIconForName("Gemfile.lock"));
+    try std.testing.expectEqualStrings("app:php", fileIconForName("composer.lock"));
+    try std.testing.expectEqualStrings("app:deno", fileIconForName("deno.lock"));
+    try std.testing.expectEqualStrings("app:settings", fileIconForName("other.conf"));
+}
+
 test "fileIconForName framework mappings are case-insensitive" {
     try std.testing.expectEqualStrings("app:next", fileIconForName("NEXT.CONFIG.MJS"));
     try std.testing.expectEqualStrings("app:next", fileIconForName("Next-Env.d.ts"));
@@ -434,6 +463,10 @@ test "fileIconForPath uses the basename of a repo-relative path" {
     try std.testing.expectEqualStrings("app:audio", fileIconForPath("assets/track.mp3"));
     try std.testing.expectEqualStrings("app:video", fileIconForPath("assets/clip.mp4"));
     try std.testing.expectEqualStrings("app:settings", fileIconForPath("config/php.ini"));
+    try std.testing.expectEqualStrings("app:certificate", fileIconForPath("LICENSE"));
+    try std.testing.expectEqualStrings("app:nginx", fileIconForPath("deploy/nginx.conf"));
+    try std.testing.expectEqualStrings("app:exe", fileIconForPath("bin/a.exe"));
+    try std.testing.expectEqualStrings("app:lock", fileIconForPath("foo.lock"));
     try std.testing.expectEqualStrings("app:next", fileIconForPath("apps/web/next.config.ts"));
     try std.testing.expectEqualStrings("app:prisma", fileIconForPath("prisma/schema.prisma"));
     try std.testing.expectEqualStrings("app:storybook", fileIconForPath("src/Button.stories.tsx"));
@@ -463,6 +496,17 @@ test "files tree icons stay in Native built-ins or registered app: names" {
         fileIconForName("clip.mkv"),
         fileIconForName("php.ini"),
         fileIconForName("other.toml"),
+        fileIconForName("LICENSE"),
+        fileIconForName("licence"),
+        fileIconForName("COPYING"),
+        fileIconForName("nginx.conf"),
+        fileIconForName("a.exe"),
+        fileIconForName("lib.dll"),
+        fileIconForName("lib.so"),
+        fileIconForName("lib.dylib"),
+        fileIconForName("foo.lock"),
+        fileIconForName("Cargo.lock"),
+        fileIconForName("package-lock.json"),
         fileIconForName(".gitignore"),
         fileIconForName("README.md"),
         fileIconForName("Makefile"),
