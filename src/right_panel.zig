@@ -257,10 +257,12 @@
 //! session switch / New Task / remove take-or-closed through
 //! `right_panel_session` (Waku in-memory `RightPanelSessionState`,
 //! not `sessions.json`): expand keys, live tab, Files selected
-//! preview path, and Diff selected file. `file_mention.clearCache`
-//! still frees the live expand table; restore re-applies remembered
-//! keys afterward. Files preview / Diff selection re-apply when the
-//! index or Review tree next fills if it was empty at restore.
+//! preview path, dirty/editing Files preview buffer, and Diff selected
+//! file. `file_mention.clearCache` still frees the live expand table;
+//! restore re-applies remembered keys afterward. Files preview / Diff
+//! selection re-apply when the index or Review tree next fills if it
+//! was empty at restore; a stashed dirty/editing buffer is re-applied
+//! after that path reopens.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -880,12 +882,23 @@ pub fn discardConfirmOpen(model: *const Model) bool {
     return model.file_preview_pending_kind != .none;
 }
 
-/// Park `intent` when the preview is dirty; otherwise clear any stale
-/// park and tell the caller to proceed. Returns false when the dirty
-/// editor must stay open.
+/// Session leave / New Task / remove already `take` the live Files
+/// preview into `right_panel_session`, so dirty need not park.
+fn sessionStashPreservesPreview(intent: PendingDiscard) bool {
+    return switch (intent) {
+        .switch_session, .new_session, .remove_session => true,
+        else => false,
+    };
+}
+
+/// Park `intent` when the preview is dirty and the action would drop
+/// the buffer with no stash destination (switch file / close / hide).
+/// Session switch / New Task / remove stash-and-proceed (Waku
+/// `file_editors` take). Returns false when the dirty editor must stay
+/// open.
 pub fn beginDiscardOrPark(model: *Model, intent: PendingDiscard) bool {
     if (intent == .none) return true;
-    if (!isPreviewDirty(model)) {
+    if (sessionStashPreservesPreview(intent) or !isPreviewDirty(model)) {
         clearPendingDiscard(model);
         return true;
     }
@@ -945,6 +958,34 @@ pub fn previewTextOk(model: *const Model) bool {
 pub fn isPreviewDirty(model: *const Model) bool {
     if (!model.right_panel_file_preview_editing) return false;
     return !std.mem.eql(u8, model.file_preview_edit_buffer.text(), model.file_preview_body());
+}
+
+/// Dirty or editing text preview that can be copied into the
+/// per-session stash (Waku `file_editors`). Truncated / binary / error
+/// windows are not recoverable.
+pub fn previewEditorStashable(model: *const Model) bool {
+    if (!model.right_panel_file_preview_editing) return false;
+    return previewTextOk(model) and !model.right_panel_file_preview_truncated;
+}
+
+/// Re-apply a stashed Files preview draft (and optional disk baseline)
+/// after `selectCachedFile` reopened the path. No-op when the live
+/// preview is not a full text window.
+pub fn applyRestoredPreviewEditor(model: *Model, draft: []const u8, disk: ?[]const u8) void {
+    if (model.right_panel_file_preview_id == 0) return;
+    if (disk) |bytes| {
+        const n = @min(bytes.len, max_file_preview_bytes);
+        replacePreviewBody(model, bytes[0..n]);
+        model.right_panel_file_preview_truncated = false;
+        model.right_panel_file_preview_binary = false;
+        model.right_panel_file_preview_error_len = 0;
+    }
+    if (!previewTextOk(model) or model.right_panel_file_preview_truncated) return;
+    const d = @min(draft.len, max_file_preview_bytes);
+    model.file_preview_edit_buffer.set(draft[0..d]);
+    model.right_panel_file_preview_editing = true;
+    model.right_panel_file_preview_status_len = 0;
+    recomputeFilePreviewFind(model, .content);
 }
 
 /// Edit is offered for a full text window with an abs path. Truncated
@@ -3467,7 +3508,7 @@ test "dirty preview discard switches file; save and reload clear pending confirm
     try std.testing.expect(pendingDiscard(&model) == .none);
 }
 
-test "dirty preview parks session switch until discard" {
+test "dirty preview stash-and-switches session without discard park" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     var project_buf: [256]u8 = undefined;
@@ -3478,6 +3519,7 @@ test "dirty preview parks session switch until discard" {
     defer fx.deinit();
     fx.executor = .fake;
 
+    const right_panel_session = @import("right_panel_session.zig");
     var model = Model{};
     const first = model.addSession("preview discard first", .fx);
     const second = model.addSession("preview discard second", .fx);
@@ -3485,26 +3527,16 @@ test "dirty preview parks session switch until discard" {
     try loadTwoPreviewNotes(&model, project);
     defer clearFilePreview(&model);
     defer file_mention.clearCache(&model);
+    defer right_panel_session.freeStores(&model);
 
     dirtyFirstPreview(&model);
     const palette_run = @import("palette_run.zig");
     palette_run.applySessionSelection(&model, &fx, second);
-    try std.testing.expectEqual(first, model.selected);
-    try std.testing.expectEqual(PendingDiscard{ .switch_session = second }, pendingDiscard(&model));
-    try std.testing.expect(model.file_preview_dirty());
-    try std.testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
-
-    cancelPendingDiscard(&model);
-    try std.testing.expectEqual(first, model.selected);
-    try std.testing.expect(model.file_preview_dirty());
-
-    palette_run.applySessionSelection(&model, &fx, second);
-    const intent = acceptPendingDiscard(&model);
-    try std.testing.expectEqual(PendingDiscard{ .switch_session = second }, intent);
-    palette_run.applySessionSelection(&model, &fx, second);
     try std.testing.expectEqual(second, model.selected);
     try std.testing.expect(!model.right_panel_file_preview_open());
+    try std.testing.expect(!model.file_preview_dirty());
     try std.testing.expect(pendingDiscard(&model) == .none);
+    try std.testing.expect(right_panel_session.hasState(&model, first));
 }
 
 test "clean preview still switches and closes without confirm" {

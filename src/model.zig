@@ -1032,14 +1032,15 @@ pub const Model = struct {
     /// `file_mention.clearCache` frees this live table; per-session
     /// memory is `right_panel_session_store` (Waku
     /// `RightPanelSessionState::take_or_closed` on switch: expand,
-    /// tab, Files selected path, Diff selected file). Not
-    /// persisted to sessions.json this cut.
+    /// tab, Files selected path, dirty/editing Files preview, Diff
+    /// selected file). Not persisted to sessions.json this cut.
     right_panel_expanded_store: []file_mention.CachedPath = &.{},
     right_panel_expanded_count: u32 = 0,
-    /// Bounded in-memory Files + Diff expand / tab / selection stash
-    /// keyed by session id. Cap `right_panel_session.max_states` with
-    /// LRU eviction; missing key restores Files + collapsed + empty
-    /// selection. Not sessions.json.
+    /// Bounded in-memory Files + Diff expand / tab / selection /
+    /// Files preview editor stash keyed by session id. Cap
+    /// `right_panel_session.max_states` with LRU eviction; missing
+    /// key restores Files + collapsed + empty selection. Not
+    /// sessions.json.
     right_panel_session_store: [right_panel_session.max_states]right_panel_session.State = [_]right_panel_session.State{.{}} ** right_panel_session.max_states,
     right_panel_session_stamp: u32 = 0,
     /// Pending Files preview relpath when restore ran before the
