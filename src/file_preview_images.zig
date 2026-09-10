@@ -62,12 +62,12 @@ pub fn resolveInProjectImagePath(
     if (open_url.isHttpUrl(source)) return null;
     if (std.ascii.startsWithIgnoreCase(source, "data:")) return null;
     var path_buf: [open_url.max_file_link_path]u8 = undefined;
-    const resolved = open_url.resolveMarkdownFilePath(source, preview_abs, &path_buf) orelse return null;
+    const abs_path = open_url.resolveMarkdownFilePath(source, preview_abs, &path_buf) orelse return null;
     var rel_buf: [open_url.max_file_link_path]u8 = undefined;
-    if (open_url.workspaceRelativeFilePath(project, resolved, &rel_buf) == null) return null;
-    if (resolved.len > dest.len) return null;
-    @memcpy(dest[0..resolved.len], resolved);
-    return dest[0..resolved.len];
+    if (open_url.workspaceRelativeFilePath(project, abs_path, &rel_buf) == null) return null;
+    if (abs_path.len > dest.len) return null;
+    @memcpy(dest[0..abs_path.len], abs_path);
+    return dest[0..abs_path.len];
 }
 
 fn nextId(model: *Model) u64 {
