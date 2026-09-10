@@ -33,6 +33,7 @@ const palette_run = @import("palette_run.zig");
 const environment_summary = @import("environment_summary.zig");
 const review_diff = @import("review_diff.zig");
 const right_panel = @import("right_panel.zig");
+const right_panel_session = @import("right_panel_session.zig");
 const session_fork = @import("fork.zig");
 const pick_folder = @import("pick_folder.zig");
 
@@ -45,6 +46,7 @@ const canvas = native_sdk.canvas;
 
 pub fn handleNewSession(model: *Model, fx: *Effects) void {
     if (!right_panel.beginDiscardOrPark(model, .new_session)) return;
+    right_panel_session.take(model);
     store.persistDraftIfPossible(model);
     environment_summary.close(model);
     review_diff.close(model, fx);
@@ -76,6 +78,7 @@ pub fn handleNewSession(model: *Model, fx: *Effects) void {
     git_dirty.refresh(model, fx);
     git_numstat.refresh(model, fx);
     file_mention.refresh(model, fx);
+    right_panel_session.restore(model);
     git_checkout.refresh(model, fx);
     session_fork.cancelDaemonCaptureTurnStart(model, fx);
     session_fork.cancelDaemonCaptureTurn(model, fx);
@@ -166,6 +169,7 @@ pub fn handleSessionTitleEdit(model: *Model, fx: *Effects, edit: canvas.TextInpu
 
 pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
     if (!right_panel.beginDiscardOrPark(model, .{ .remove_session = id })) return;
+    right_panel_session.take(model);
     if (model.editing_session_id == id) model.closeSessionTitleEdit();
     model.closeCommands();
     right_panel.clearFilePreview(model);
@@ -178,6 +182,7 @@ pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
     git_dirty.refresh(model, fx);
     git_numstat.refresh(model, fx);
     file_mention.refresh(model, fx);
+    right_panel_session.restore(model);
     git_checkout.refresh(model, fx);
     session_fork.cancelDaemonCaptureTurnStart(model, fx);
     session_fork.cancelDaemonCaptureTurn(model, fx);

@@ -529,6 +529,7 @@ test {
     _ = @import("file_icon.zig");
     _ = @import("file_type_icons.zig");
     _ = @import("right_panel.zig");
+    _ = @import("right_panel_session.zig");
     _ = @import("file_preview_find.zig");
     _ = @import("file_preview_regex.zig");
     _ = @import("maximize_window.zig");
