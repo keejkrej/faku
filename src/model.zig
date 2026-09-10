@@ -43,6 +43,7 @@ const copy_helpers = @import("copy.zig");
 const open_editor = @import("open_editor.zig");
 const right_panel = @import("right_panel.zig");
 const right_panel_session = @import("right_panel_session.zig");
+const file_preview_images_mod = @import("file_preview_images.zig");
 const i18n = @import("i18n.zig");
 const session_workspace = @import("session_workspace.zig");
 const pick_folder = @import("pick_folder.zig");
@@ -817,13 +818,16 @@ pub const Msg = union(enum) {
     switcher_pick: u32,
     clipboard_done: native_sdk.EffectClipboardResult,
     attach_preview_done: native_sdk.EffectImageResult,
+    /// Files Preview markdown `fx.loadImage` result. Distinct from composer
+    /// `attach_preview_done` so attach ids 33–63 stay on that arm.
+    file_preview_image_done: native_sdk.EffectImageResult,
     tick: native_sdk.EffectTimer,
     fx_line: native_sdk.EffectLine,
     fx_exit: native_sdk.EffectExit,
     fx_probe_exit: native_sdk.EffectExit,
     cli_probe_exit: native_sdk.EffectExit,
 
-    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "term_pty", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "focus_browser_or_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel", "navigate_back", "navigate_forward" };
+    pub const view_unbound = .{ "tick", "stop", "steer", "assign_folder", "fx_line", "fx_exit", "fx_probe_exit", "cli_probe_exit", "term_pty", "copy_last_turn", "copy_session_id", "copy_fx_session_id", "appearance_changed", "focus_composer", "focus_browser_or_composer", "open_find", "open_file_preview_find_replace", "clipboard_done", "attach_preview_done", "file_preview_image_done", "switcher_forward", "switcher_backward", "file_drop", "cycle_access", "cycle_effort", "quit_app", "start_image_attach", "show_right_panel", "navigate_back", "navigate_forward" };
 };
 
 pub const Model = struct {
@@ -1131,6 +1135,11 @@ pub const Model = struct {
     /// Preview (`<markdown>`); true is Source (`<code>`). Reset when
     /// the preview closes / file switches / session clears. Not persisted.
     right_panel_file_preview_markdown_source: bool = false,
+    /// Runtime-only Files markdown Preview image slots. Cap Native
+    /// `max_markdown_images`. Not persisted.
+    file_preview_image_slots: [file_preview_images_mod.max_images]file_preview_images_mod.Slot =
+        [_]file_preview_images_mod.Slot{.{}} ** file_preview_images_mod.max_images,
+    next_file_preview_image_id: u64 = file_preview_images_mod.id_first,
     right_panel_file_preview_status_storage: [max_attach_status]u8 = [_]u8{0} ** max_attach_status,
     right_panel_file_preview_status_len: usize = 0,
     /// Runtime-only parked discard for a dirty Files preview. Not persisted.
@@ -2119,6 +2128,8 @@ pub const Model = struct {
         "file_preview_edit_buffer",
         "right_panel_file_preview_editing",
         "right_panel_file_preview_markdown_source",
+        "file_preview_image_slots",
+        "next_file_preview_image_id",
         "right_panel_file_preview_status_storage",
         "right_panel_file_preview_status_len",
         "file_preview_pending_kind",
@@ -3180,6 +3191,12 @@ pub const Model = struct {
     /// not editing. Source / Edit keep today's `<code>` / textarea.
     pub fn file_preview_shows_rendered_markdown(model: *const Model) bool {
         return right_panel.showsRenderedMarkdown(model);
+    }
+
+    /// Successful in-project markdown Preview image mappings for
+    /// `<markdown images="{file_preview_images}">`. Arena fn.
+    pub fn file_preview_images(model: *const Model, arena: std.mem.Allocator) []const canvas.markdown.ResolvedImage {
+        return file_preview_images_mod.resolved(model, arena);
     }
 
     pub fn file_preview_dirty(model: *const Model) bool {

@@ -70,6 +70,7 @@ const main = @import("main.zig");
 const file_mention = @import("file_mention.zig");
 const review_diff = @import("review_diff.zig");
 const right_panel = @import("right_panel.zig");
+const file_preview_images = @import("file_preview_images.zig");
 const browser_pane = @import("browser_pane.zig");
 const pty_terminal = @import("pty_terminal.zig");
 const open_url = @import("open_url.zig");
@@ -262,10 +263,12 @@ pub fn afterFilesIndexReady(model: *Model, fx: *Effects) void {
     const path = path_buf[0..n];
     const id = fileIdForRelpath(model, path) orelse {
         model.right_panel_session_pending_files = .{};
+        file_preview_images.drop(model, fx);
         right_panel.clearFilePreview(model);
         dropEditorForPath(model, path);
         return;
     };
+    file_preview_images.drop(model, fx);
     right_panel.clearFilePreview(model);
     copyPath(&model.right_panel_session_pending_files, path);
     right_panel.selectCachedFile(model, fx, id);
@@ -274,6 +277,8 @@ pub fn afterFilesIndexReady(model: *Model, fx: *Effects) void {
         return;
     }
     applyOpenedFilesEditor(model);
+    // Restore-to-edit can land after `selectCachedFile`'s refresh.
+    file_preview_images.refresh(model, fx);
 }
 
 /// Re-select a pending Diff file after the Review tree fills

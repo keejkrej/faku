@@ -1865,7 +1865,7 @@
                           </if>
                           <if test="{file_preview_language == 'markdown'}">
                             <if test="{file_preview_shows_rendered_markdown}">
-                              <markdown source="{file_preview_body}" on-link="file_preview_open_url" />
+                              <markdown source="{file_preview_body}" images="{file_preview_images}" on-link="file_preview_open_url" />
                             </if>
                             <else>
                               <code source="{file_preview_body}" language="markdown" line-numbers wrap="false" grow="1" label="File preview source" />

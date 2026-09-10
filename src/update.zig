@@ -51,6 +51,7 @@ const browser_pane = @import("browser_pane.zig");
 const open_editor = @import("open_editor.zig");
 const copy_helpers = @import("copy.zig");
 const right_panel = @import("right_panel.zig");
+const file_preview_images = @import("file_preview_images.zig");
 
 const Model = main.Model;
 const Msg = main.Msg;
@@ -441,11 +442,13 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistLayoutIfPossible(model);
         },
         .hide_right_panel => {
+            file_preview_images.drop(model, fx);
             model.hideRightPanel();
             store.persistLayoutIfPossible(model);
         },
         .toggle_right_panel => {
             const opening = !model.right_panel_open;
+            if (!opening) file_preview_images.drop(model, fx);
             model.toggleRightPanel();
             if (opening) file_mention.refresh(model, fx);
             store.persistLayoutIfPossible(model);
@@ -463,9 +466,15 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             store.persistLayoutIfPossible(model);
         },
         .open_right_panel_file => |id| right_panel.selectCachedFile(model, fx, id),
-        .close_right_panel_file_preview => right_panel.closeFilePreview(model),
+        .close_right_panel_file_preview => {
+            file_preview_images.drop(model, fx);
+            right_panel.closeFilePreview(model);
+        },
         .open_right_panel_file_editor => right_panel.openPreviewInEditor(model, fx),
-        .open_right_panel_file_edit => right_panel.startFilePreviewEdit(model),
+        .open_right_panel_file_edit => {
+            right_panel.startFilePreviewEdit(model);
+            if (model.file_preview_editing()) file_preview_images.drop(model, fx);
+        },
         .file_preview_edit => |edit| right_panel.applyFilePreviewEdit(model, edit),
         .file_preview_save => right_panel.saveFilePreview(model, fx),
         .file_preview_reload => right_panel.reloadFilePreview(model, fx),
@@ -474,8 +483,12 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             switch (intent) {
                 .none => {},
                 .switch_file => |id| right_panel.selectCachedFile(model, fx, id),
-                .close_preview => right_panel.clearFilePreview(model),
+                .close_preview => {
+                    file_preview_images.drop(model, fx);
+                    right_panel.clearFilePreview(model);
+                },
                 .hide_panel => {
+                    file_preview_images.drop(model, fx);
                     model.hideRightPanel();
                     store.persistLayoutIfPossible(model);
                 },
@@ -493,10 +506,16 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .toggle_file_preview_find_case => right_panel.toggleFilePreviewFindCase(model),
         .toggle_file_preview_find_whole_word => right_panel.toggleFilePreviewFindWholeWord(model),
         .toggle_file_preview_find_regex => right_panel.toggleFilePreviewFindRegex(model),
-        .file_preview_find_replace_one => right_panel.replaceFilePreviewFindCurrent(model),
-        .file_preview_find_replace_all => right_panel.replaceFilePreviewFindAll(model),
-        .set_file_preview_markdown_preview => right_panel.setFilePreviewMarkdownPreview(model),
-        .set_file_preview_markdown_source => right_panel.setFilePreviewMarkdownSource(model),
+        .file_preview_find_replace_one => right_panel.replaceFilePreviewFindCurrent(model, fx),
+        .file_preview_find_replace_all => right_panel.replaceFilePreviewFindAll(model, fx),
+        .set_file_preview_markdown_preview => {
+            right_panel.setFilePreviewMarkdownPreview(model);
+            file_preview_images.refresh(model, fx);
+        },
+        .set_file_preview_markdown_source => {
+            right_panel.setFilePreviewMarkdownSource(model);
+            file_preview_images.drop(model, fx);
+        },
         .file_preview_open_url => |url| right_panel.openFilePreviewMarkdownUrl(model, fx, url),
         .toggle_right_panel_dir => |id| right_panel.toggleDir(model, fx, id),
         .set_right_panel_tab_files => {
@@ -539,6 +558,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .copy_fx_session_id => copy_helpers.copyFxSessionId(model, fx),
         .clipboard_done => {},
         .attach_preview_done => |result| attach_helpers.applyAttachPreviewResult(model, fx, result),
+        .file_preview_image_done => |result| file_preview_images.applyResult(model, fx, result),
         .tick => |timer| {
             if (timer.outcome != .fired) return;
             turn_stream.tickStream(model, fx);

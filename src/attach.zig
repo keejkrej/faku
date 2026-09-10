@@ -27,7 +27,8 @@ pub const pick_image_key: u64 = 31;
 /// uses this as the effect key (shared with spawn / clipboard / file).
 /// 0 is the no-image sentinel. Sits in the gap after `copy_turn_key`
 /// and before `fx_spawn_overlap`. Verified: Native 0.9.3
-/// `LoadImageOptions` + markup `<image image="{binding}">`.
+/// `LoadImageOptions` + markup `<image image="{binding}">`. Files
+/// markdown Preview images use 800–815.
 pub const attach_preview_id_first: u64 = 33;
 pub const attach_preview_id_last: u64 = 63;
 

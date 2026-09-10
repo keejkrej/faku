@@ -137,8 +137,9 @@
 //! Markdown (`.md` / `.markdown`) adds a runtime-only Preview | Source
 //! header chip (ghost sm, like Settings Usage Cost | Tokens). Default
 //! Preview paints Native `<markdown source="{file_preview_body}"
-//! on-link="file_preview_open_url" />` (GFM subset; no `images=` this
-//! cut — alt-text fallback; no details-expanded). Source keeps today's
+//! images="{file_preview_images}" on-link="file_preview_open_url" />`
+//! (GFM subset; in-project local images via `images=` + `fx.loadImage`;
+//! http(s) / `data:` / outside-project stay alt-text; no details-expanded). Source keeps today's
 //! highlighted `<code language="markdown">`. http(s) / bare-host links
 //! reuse `open_url` OS browser spawn; relative / `file:` / absolute
 //! project paths open the Files preview (same as a tree click);
@@ -307,6 +308,7 @@ const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const protocol = @import("protocol.zig");
 const file_preview_find = @import("file_preview_find.zig");
+const file_preview_images = @import("file_preview_images.zig");
 const right_panel_session = @import("right_panel_session.zig");
 
 const canvas = native_sdk.canvas;
@@ -871,6 +873,7 @@ fn bumpWideTabWidth(model: *Model) void {
 }
 
 pub fn clearFilePreview(model: *Model) void {
+    file_preview_images.drop(model, null);
     freePreviewBody(model);
     model.right_panel_file_preview_id = 0;
     model.right_panel_file_preview_relpath_len = 0;
@@ -1286,10 +1289,10 @@ fn loadFilePreviewBody(model: *Model, fx: ?*Effects) void {
         }
     }
     loadFilePreviewBodyLocal(model);
-    finishPreviewLoad(model);
+    finishPreviewLoad(model, fx);
 }
 
-fn finishPreviewLoad(model: *Model) void {
+fn finishPreviewLoad(model: *Model, fx: ?*Effects) void {
     if (model.file_preview_restore_editing and previewTextOk(model) and !model.right_panel_file_preview_truncated) {
         model.file_preview_edit_buffer.set(model.file_preview_body());
         model.right_panel_file_preview_editing = true;
@@ -1301,6 +1304,7 @@ fn finishPreviewLoad(model: *Model) void {
     model.right_panel_file_preview_status_len = 0;
     clearPendingIfClean(model);
     recomputeFilePreviewFind(model, .content);
+    file_preview_images.refresh(model, fx);
 }
 
 fn cancelDaemonRead(model: *Model, fx: *Effects) void {
@@ -1354,7 +1358,7 @@ fn trySpawnDaemonReadTextFile(model: *Model, fx: *Effects) bool {
     return true;
 }
 
-pub fn applyDaemonLine(model: *Model, line: native_sdk.EffectLine) void {
+pub fn applyDaemonLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
     if (line.key != model.file_preview_key or model.file_preview_key == 0) return;
     if (!model.file_preview_via_daemon) return;
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -1363,7 +1367,7 @@ pub fn applyDaemonLine(model: *Model, line: native_sdk.EffectLine) void {
     if (!parsed.ok) return;
     paintPreviewContent(model, parsed.content);
     model.file_preview_daemon_ok = true;
-    finishPreviewLoad(model);
+    finishPreviewLoad(model, fx);
 }
 
 pub fn handleDaemonExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
@@ -1376,8 +1380,7 @@ pub fn handleDaemonExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit
     if (!via or ok) return;
     if (model.right_panel_file_preview_id == 0) return;
     loadFilePreviewBodyLocal(model);
-    finishPreviewLoad(model);
-    _ = fx;
+    finishPreviewLoad(model, fx);
 }
 
 /// Numbered preview rows for Native bind. Slices `text` from the
@@ -1459,6 +1462,7 @@ pub fn selectCachedFile(model: *Model, fx: *Effects, id: u32) void {
     const keep_find = model.file_preview_find_active;
     cancelDaemonRead(model, fx);
     cancelDaemonSave(model, fx);
+    file_preview_images.drop(model, fx);
     clearFilePreview(model);
     model.right_panel_file_preview_id = id;
     if (first_preview) ensureInitialRightPanelFileEditorWidth(model);
@@ -1475,6 +1479,7 @@ pub fn selectCachedFile(model: *Model, fx: *Effects, id: u32) void {
     if (keep_find) model.file_preview_find_active = true;
     loadFilePreviewBody(model, fx);
     right_panel_session.applyOpenedFilesEditor(model);
+    file_preview_images.refresh(model, fx);
 }
 
 /// Files-pane preview header: Open in editor at the stored absolute path.
@@ -1673,10 +1678,11 @@ pub fn canFilePreviewFindReplace(model: *const Model) bool {
     return model.right_panel_file_preview_editing or canStartPreviewEdit(model);
 }
 
-fn ensureFilePreviewFindEditable(model: *Model) bool {
+fn ensureFilePreviewFindEditable(model: *Model, fx: ?*Effects) bool {
     if (model.right_panel_file_preview_editing) return previewTextOk(model) and !model.right_panel_file_preview_truncated;
     if (!canStartPreviewEdit(model)) return false;
     startFilePreviewEdit(model);
+    if (model.right_panel_file_preview_editing) file_preview_images.drop(model, fx);
     return model.right_panel_file_preview_editing;
 }
 
@@ -1685,13 +1691,13 @@ fn applyReplacedDraft(model: *Model, bytes: []const u8) void {
     clearPendingIfClean(model);
 }
 
-pub fn replaceFilePreviewFindCurrent(model: *Model) void {
+pub fn replaceFilePreviewFindCurrent(model: *Model, fx: ?*Effects) void {
     if (!canFilePreviewFindReplace(model)) return;
     if (model.file_preview_find_invalid) return;
     if (model.file_preview_find_match_count == 0) return;
     const query = model.file_preview_find_buffer.text();
     if (query.len == 0) return;
-    if (!ensureFilePreviewFindEditable(model)) return;
+    if (!ensureFilePreviewFindEditable(model, fx)) return;
 
     var idx = model.file_preview_find_match_index;
     if (idx >= model.file_preview_find_match_count) idx = 0;
@@ -1734,12 +1740,12 @@ pub fn replaceFilePreviewFindCurrent(model: *Model) void {
     }
 }
 
-pub fn replaceFilePreviewFindAll(model: *Model) void {
+pub fn replaceFilePreviewFindAll(model: *Model, fx: ?*Effects) void {
     if (!canFilePreviewFindReplace(model)) return;
     if (model.file_preview_find_invalid) return;
     const query = model.file_preview_find_buffer.text();
     if (query.len == 0) return;
-    if (!ensureFilePreviewFindEditable(model)) return;
+    if (!ensureFilePreviewFindEditable(model, fx)) return;
     const haystack = filePreviewFindHaystack(model);
     const replacement = model.file_preview_find_replace_buffer.text();
     const dest = std.heap.page_allocator.alloc(u8, max_file_preview_bytes) catch return;
@@ -1782,7 +1788,7 @@ fn replacePreviewBody(model: *Model, bytes: []const u8) void {
     model.right_panel_file_preview_len = bytes.len;
 }
 
-fn adoptSavedPreview(model: *Model, bytes: []const u8) void {
+fn adoptSavedPreview(model: *Model, fx: *Effects, bytes: []const u8) void {
     replacePreviewBody(model, bytes);
     model.right_panel_file_preview_truncated = false;
     model.right_panel_file_preview_binary = false;
@@ -1794,9 +1800,10 @@ fn adoptSavedPreview(model: *Model, bytes: []const u8) void {
     clearPendingDiscard(model);
     recomputeFilePreviewFind(model, .content);
     right_panel_session.syncOpenedFilesEditor(model);
+    file_preview_images.refresh(model, fx);
 }
 
-fn saveFilePreviewLocal(model: *Model, bytes: []const u8) void {
+fn saveFilePreviewLocal(model: *Model, fx: *Effects, bytes: []const u8) void {
     const io = model.store_io orelse {
         setPreviewStatus(model, cannot_save_label);
         return;
@@ -1806,7 +1813,7 @@ fn saveFilePreviewLocal(model: *Model, bytes: []const u8) void {
         setPreviewStatus(model, cannot_save_label);
         return;
     };
-    adoptSavedPreview(model, bytes);
+    adoptSavedPreview(model, fx, bytes);
 }
 
 /// Best-effort hello + `WorkspaceOperation::WriteTextFile` when a
@@ -1851,7 +1858,7 @@ fn trySpawnDaemonWriteTextFile(model: *Model, fx: *Effects, content: []const u8)
     return true;
 }
 
-pub fn applyDaemonSaveLine(model: *Model, line: native_sdk.EffectLine) void {
+pub fn applyDaemonSaveLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) void {
     if (line.key != model.file_preview_save_key or model.file_preview_save_key == 0) return;
     if (!model.file_preview_save_via_daemon) return;
     if (model.file_preview_save_daemon_ok) return;
@@ -1860,7 +1867,7 @@ pub fn applyDaemonSaveLine(model: *Model, line: native_sdk.EffectLine) void {
     if (!protocol.isWorkspaceAck(arena_state.allocator(), line.line)) return;
     model.file_preview_save_daemon_ok = true;
     if (!model.right_panel_file_preview_editing) return;
-    adoptSavedPreview(model, model.file_preview_edit_buffer.text());
+    adoptSavedPreview(model, fx, model.file_preview_edit_buffer.text());
 }
 
 pub fn handleDaemonSaveExit(model: *Model, fx: *Effects, exit: native_sdk.EffectExit) void {
@@ -1873,8 +1880,7 @@ pub fn handleDaemonSaveExit(model: *Model, fx: *Effects, exit: native_sdk.Effect
     if (!via or ok) return;
     if (model.right_panel_file_preview_id == 0) return;
     if (!model.right_panel_file_preview_editing or !isPreviewDirty(model)) return;
-    saveFilePreviewLocal(model, model.file_preview_edit_buffer.text());
-    _ = fx;
+    saveFilePreviewLocal(model, fx, model.file_preview_edit_buffer.text());
 }
 
 /// Write the edit buffer to the stored abs path. Prefers hello +
@@ -1902,7 +1908,7 @@ pub fn saveFilePreview(model: *Model, fx: *Effects) void {
 
     const bytes = model.file_preview_edit_buffer.text();
     if (trySpawnDaemonWriteTextFile(model, fx, bytes)) return;
-    saveFilePreviewLocal(model, bytes);
+    saveFilePreviewLocal(model, fx, bytes);
 }
 
 /// Re-read the stored abs path into the preview. Prefers daemon
@@ -1914,9 +1920,11 @@ pub fn reloadFilePreview(model: *Model, fx: *Effects) void {
     model.file_preview_restore_editing = model.right_panel_file_preview_editing;
     cancelDaemonRead(model, fx);
     cancelDaemonSave(model, fx);
+    file_preview_images.drop(model, fx);
     freePreviewBody(model);
     loadFilePreviewBody(model, fx);
     right_panel_session.syncOpenedFilesEditor(model);
+    file_preview_images.refresh(model, fx);
 }
 
 const PreviewDiskFingerprint = struct {
@@ -3363,13 +3371,13 @@ test "Files preview find collect/navigate/replace; read-only replace is a no-op"
     try std.testing.expect(canFilePreviewFindReplace(&model));
     try std.testing.expect(!model.file_preview_editing());
 
-    replaceFilePreviewFindCurrent(&model);
+    replaceFilePreviewFindCurrent(&model, null);
     try std.testing.expect(model.file_preview_editing());
     try std.testing.expect(model.file_preview_dirty());
     try std.testing.expectEqualStrings("alpha bar\nbeta foo\n", model.file_preview_draft());
     try std.testing.expectEqual(@as(u32, 1), model.file_preview_find_match_count);
 
-    replaceFilePreviewFindAll(&model);
+    replaceFilePreviewFindAll(&model, null);
     try std.testing.expectEqualStrings("alpha bar\nbeta bar\n", model.file_preview_draft());
     try std.testing.expectEqual(@as(u32, 0), model.file_preview_find_match_count);
 
@@ -3385,8 +3393,8 @@ test "Files preview find collect/navigate/replace; read-only replace is a no-op"
     try std.testing.expect(model.file_preview_find_replace_visible);
     try std.testing.expect(!canFilePreviewFindReplace(&model));
     const before = model.file_preview_body();
-    replaceFilePreviewFindCurrent(&model);
-    replaceFilePreviewFindAll(&model);
+    replaceFilePreviewFindCurrent(&model, null);
+    replaceFilePreviewFindAll(&model, null);
     try std.testing.expectEqualStrings(before, model.file_preview_body());
     try std.testing.expect(!model.file_preview_editing());
 }
@@ -3424,7 +3432,7 @@ test "Files preview find whole-word toggle filters matches and replaceAll" {
     try std.testing.expectEqual(@as(u32, 19), model.file_preview_find_match_starts[1]);
 
     applyFilePreviewFindReplaceEdit(&model, .{ .insert_text = "bar" });
-    replaceFilePreviewFindAll(&model);
+    replaceFilePreviewFindAll(&model, null);
     try std.testing.expectEqualStrings("bar foobar foo_bar bar\n", model.file_preview_draft());
     try std.testing.expectEqual(@as(u32, 0), model.file_preview_find_match_count);
 
@@ -3484,7 +3492,7 @@ test "Files preview find regex toggle matches, invalid, replace expand, keep-on-
     try std.testing.expect(!model.file_preview_find_invalid);
     try std.testing.expectEqual(@as(u32, 1), model.file_preview_find_match_count);
     applyFilePreviewFindReplaceEdit(&model, .{ .insert_text = "$2 = $1" });
-    replaceFilePreviewFindAll(&model);
+    replaceFilePreviewFindAll(&model, null);
     try std.testing.expectEqualStrings("id: 12, id: 345\nlet 1 = alpha;\n", model.file_preview_draft());
 
     closeFilePreviewFind(&model);
@@ -4012,9 +4020,9 @@ test "ReadTextFile sidecar paints Files preview from textFile content" {
 
     selectCachedFile(&model, &fx, 1);
     const sidecar = pendingSpawnKey(&fx, model.file_preview_key) orelse return error.MissingDaemonReadTextFileFill;
-    applyDaemonLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"hello\"}" });
+    applyDaemonLine(&model, &fx, .{ .key = sidecar.key, .line = "{\"type\":\"hello\"}" });
     try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_len);
-    applyDaemonLine(&model, .{ .key = sidecar.key, .line = text_file_ok_line });
+    applyDaemonLine(&model, &fx, .{ .key = sidecar.key, .line = text_file_ok_line });
     try std.testing.expect(model.file_preview_daemon_ok);
     try std.testing.expectEqualStrings("from daemon\n", model.file_preview_body());
     try std.testing.expect(!model.file_preview_binary());
@@ -4030,7 +4038,7 @@ test "ReadTextFile sidecar paints Files preview from textFile content" {
     try std.testing.expect(daemon_proxy.isSidecarArgv(second.argv));
     try std.testing.expect(second.key != sidecar.key);
     try std.testing.expect(std.mem.indexOf(u8, second.stdin, "\"type\":\"readTextFile\"") != null);
-    applyDaemonLine(&model, .{ .key = second.key, .line = text_file_empty_line });
+    applyDaemonLine(&model, &fx, .{ .key = second.key, .line = text_file_empty_line });
     handleDaemonExit(&model, &fx, .{ .key = second.key, .reason = .exited, .code = 0 });
     try std.testing.expect(previewTextOk(&model));
     try std.testing.expectEqualStrings("", model.file_preview_body());
@@ -4064,7 +4072,7 @@ test "ReadTextFile sidecar non-ok falls back to local readFileAlloc" {
 
     selectCachedFile(&model, &fx, 1);
     const sidecar = pendingSpawnKey(&fx, model.file_preview_key) orelse return error.MissingDaemonReadTextFileFallback;
-    applyDaemonLine(&model, .{ .key = sidecar.key, .line = text_file_ack_line });
+    applyDaemonLine(&model, &fx, .{ .key = sidecar.key, .line = text_file_ack_line });
     try std.testing.expect(!model.file_preview_daemon_ok);
     try std.testing.expectEqual(@as(usize, 0), model.right_panel_file_preview_len);
     handleDaemonExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
@@ -4111,7 +4119,7 @@ test "ReadTextFile sidecar content over 256KB is truncated client-side" {
         .{blob},
     );
     defer std.testing.allocator.free(line);
-    applyDaemonLine(&model, .{ .key = sidecar.key, .line = line });
+    applyDaemonLine(&model, &fx, .{ .key = sidecar.key, .line = line });
     try std.testing.expect(model.file_preview_daemon_ok);
     try std.testing.expect(model.file_preview_truncated());
     try std.testing.expectEqual(max_file_preview_bytes, model.right_panel_file_preview_len);
@@ -4199,13 +4207,13 @@ test "WriteTextFile sidecar Ack adopts the saved buffer without a local write" {
     model.setLastDaemonAddress("127.0.0.1:8787");
     saveFilePreview(&model, &fx);
     const sidecar = pendingSpawnKey(&fx, model.file_preview_save_key) orelse return error.MissingDaemonWriteTextFileAck;
-    applyDaemonSaveLine(&model, .{ .key = sidecar.key, .line = "{\"type\":\"hello\"}" });
+    applyDaemonSaveLine(&model, &fx, .{ .key = sidecar.key, .line = "{\"type\":\"hello\"}" });
     try std.testing.expect(model.file_preview_editing());
     try std.testing.expectEqualStrings("hello\n", model.file_preview_body());
-    applyDaemonSaveLine(&model, .{ .key = sidecar.key, .line = text_file_ok_line });
+    applyDaemonSaveLine(&model, &fx, .{ .key = sidecar.key, .line = text_file_ok_line });
     try std.testing.expect(!model.file_preview_save_daemon_ok);
     try std.testing.expect(model.file_preview_editing());
-    applyDaemonSaveLine(&model, .{ .key = sidecar.key, .line = text_file_ack_line });
+    applyDaemonSaveLine(&model, &fx, .{ .key = sidecar.key, .line = text_file_ack_line });
     try std.testing.expect(model.file_preview_save_daemon_ok);
     try std.testing.expect(!model.file_preview_editing());
     try std.testing.expect(!model.file_preview_dirty());
@@ -4245,7 +4253,7 @@ test "WriteTextFile sidecar non-ack falls back to local atomic write" {
     model.setLastDaemonAddress("127.0.0.1:8787");
     saveFilePreview(&model, &fx);
     const sidecar = pendingSpawnKey(&fx, model.file_preview_save_key) orelse return error.MissingDaemonWriteTextFileFallback;
-    applyDaemonSaveLine(&model, .{ .key = sidecar.key, .line = text_file_ok_line });
+    applyDaemonSaveLine(&model, &fx, .{ .key = sidecar.key, .line = text_file_ok_line });
     try std.testing.expect(!model.file_preview_save_daemon_ok);
     handleDaemonSaveExit(&model, &fx, .{ .key = sidecar.key, .reason = .exited, .code = 1 });
     try std.testing.expectEqual(@as(u64, 0), model.file_preview_save_key);
