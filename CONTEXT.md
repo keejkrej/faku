@@ -678,8 +678,8 @@ a runtime-only Preview | Source chip (default Preview paints Native
 links reuse `open_url` OS browser spawn; relative / `file:` / absolute
 project paths open in Files preview; outside-project paths reveal via
 `reveal_folder`; anchors / mailto stay a muted status; in-project local
-images via `images=` + `fx.loadImage` `.path` and remote http(s) via
-`.url` (`data:` / outside-project stay alt-text; `<details>` via documented
+images via `images=` + `fx.loadImage` `.path`, remote http(s) via
+`.url`, and Preview `data:` via `fx.registerImageBytes` (outside-project stay alt-text; `<details>` via documented
 `details-expanded` + `on-details`, runtime-only flags, default
 collapsed; bare `#N` via documented `issue-link-base` when the
 session project has a usable GitHub/GitLab remote, empty/missing
@@ -1463,8 +1463,9 @@ Honest gaps this cut does not implement:
   `open_url` OS browser spawn; relative / `file:` / absolute project
   paths open in Files preview; outside-project paths reveal via
   `reveal_folder`; anchors / mailto stay muted; in-project local
-  images via `images=` + `fx.loadImage` `.path` and remote http(s)
-  via `.url`; `data:` / outside-project stay alt-text; `<details>` via documented
+  images via `images=` + `fx.loadImage` `.path`, remote http(s)
+  via `.url`, and Preview `data:` via `fx.registerImageBytes`;
+  outside-project stay alt-text; `<details>` via documented
   `details-expanded` + `on-details`, runtime-only flags, default
   collapsed; bare `#N` via documented `issue-link-base` when the
   session project has a usable GitHub/GitLab remote, empty/missing
@@ -1703,12 +1704,12 @@ Honest gaps this cut does not implement:
   spawn migrate. New Task reuses an unstarted non-legacy
   projectless draft instead of always creating. Amend/force and
   remote `--track` stay local (not daemon WorkspaceOperation variants)
-- Files Preview markdown `data:` image fetch, and transcript markdown
-  `images=` (this cut maps in-project local Preview images via
-  documented `images=` + `fx.loadImage` `.path`, remote http(s) via
-  `.url`, Preview `<details>` via documented `details-expanded` +
-  `on-details`, and Preview `#N` via documented `issue-link-base` when
-  a usable GitHub / GitLab remote exists)
+- Transcript markdown `images=` (this cut maps Files Preview in-project
+  local images via documented `images=` + `fx.loadImage` `.path`, remote
+  http(s) via `.url`, Preview `data:` via `fx.registerImageBytes`, Preview
+  `<details>` via documented `details-expanded` + `on-details`, and
+  Preview `#N` via documented `issue-link-base` when a usable GitHub /
+  GitLab remote exists)
 - Long-lived ACP or daemon socket in the update loop
 - fx ACP still rejects image blocks (`fx ask --image`). First-cut
   ACP image content blocks (base64 + mimeType, ~256KB raw, size

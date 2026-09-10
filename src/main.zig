@@ -372,8 +372,8 @@ pub const no_provider_session_id_status = copy_helpers.no_provider_session_id_st
 /// `<image image="{binding}">`.
 pub const attach_preview_id_first = attach_helpers.attach_preview_id_first;
 pub const attach_preview_id_last = attach_helpers.attach_preview_id_last;
-/// Files Preview markdown `fx.loadImage` ids. Cap Native
-/// `max_markdown_images`. Distinct from attach preview 33–63.
+/// Files Preview markdown image ids (`fx.loadImage` / `registerImageBytes`).
+/// Cap Native `max_markdown_images`. Distinct from attach preview 33–63.
 pub const file_preview_image_id_first = file_preview_images.id_first;
 pub const file_preview_image_id_last = file_preview_images.id_last;
 pub const demo_ticks_complete: u32 = 12;
