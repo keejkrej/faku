@@ -638,7 +638,8 @@ Elm / Erlang / Haxe / Jinja / XAML / unified diffs bind Material
 `app:xaml` / `app:diff`; Julia / Prettier / Kotlin bind Material
 `app:julia` / `app:prettier` / `app:kotlin`; Clojure / Helm /
 EditorConfig bind Material `app:clojure` / `app:helm` /
-`app:editorconfig`; shells bind
+`app:editorconfig`; GraphQL / Nest / Pug bind Material `app:graphql` /
+`app:nest` / `app:pug`; shells bind
 Material `app:console` / `app:powershell`).
 Diff tree rows, the selected-file Diff header, and composer
 `@` mention rows reuse this same `file_icon` map (mention dirs stay
@@ -1190,13 +1191,11 @@ live watch.
 
 Honest gaps this cut does not implement:
 
-- Remaining Material / Waku file-type SVGs (nest path `transform=` skip,
-  graphql rotate / pug group-translate+ellipse-rotate skips, …)
-  stay later PRs; this cut vendors a tenth-cut clojure/helm/editorconfig
-  dialect-workaround swap (promoted fills; clojure near-identity
-  transform dropped; helm viewBox retuned to pre-transform bounds;
-  editorconfig shared translate+scale dropped; graphql/nest/pug
-  dropped rather than inventing path markup)
+- Remaining Material catalog beyond Waku's 100 file-type SVGs stays
+  later PRs; this cut vendors an eleventh-cut graphql/nest/pug
+  dialect-workaround swap (upstream Material graphql/nest already
+  transform-free; pug group translate + ellipse rotates dropped;
+  Waku's 100-icon file-type set now matches)
 - Full onboarding / OAuth / auto-install (fx install/login copy
   ships; other CLIs get a PATH hint only)
 - Native Pi ACP / `--mode rpc` (json-mode one-shot

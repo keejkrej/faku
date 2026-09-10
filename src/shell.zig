@@ -136,6 +136,9 @@ test "registerIcons resolves chrome and file-type app names" {
     try std.testing.expect(canvas.icons.resolve("app:clojure") != null);
     try std.testing.expect(canvas.icons.resolve("app:helm") != null);
     try std.testing.expect(canvas.icons.resolve("app:editorconfig") != null);
+    try std.testing.expect(canvas.icons.resolve("app:graphql") != null);
+    try std.testing.expect(canvas.icons.resolve("app:nest") != null);
+    try std.testing.expect(canvas.icons.resolve("app:pug") != null);
     try std.testing.expect(canvas.icons.find("app:zig") == null);
 }
 

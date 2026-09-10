@@ -2,15 +2,16 @@
 
 This directory contains a curated subset of the
 [Material Icon Theme](https://github.com/PKief/vscode-material-icon-theme)
-file icons (97 SVGs: first-cut coding-agent languages, a
+file icons (100 SVGs: first-cut coding-agent languages, a
 second-cut language/data expansion, a third-cut tooling
 subset, a fourth-cut frameworks/meta subset, a fifth-cut
 media/config swap, a sixth-cut cert/lock/exe/nginx, a
 seventh-cut cmake/coffee/gitlab/gradle/kubernetes/tex, an
 eighth-cut crystal/elm/erlang/haxe/jinja/xaml/diff/file, a
-ninth-cut julia/prettier/kotlin dialect-workaround swap, plus
-a tenth-cut clojure/helm/editorconfig dialect-workaround
-swap). That project is MIT; see its
+ninth-cut julia/prettier/kotlin dialect-workaround swap, a
+tenth-cut clojure/helm/editorconfig dialect-workaround
+swap, plus an eleventh-cut graphql/nest/pug dialect-workaround
+swap that closes the last Waku file-type gaps). That project is MIT; see its
 [upstream license](https://github.com/PKief/vscode-material-icon-theme/blob/main/LICENSE).
 
 SVG bytes come from the already-curated Waku subset (`egoist/waku`
@@ -33,16 +34,20 @@ scale(2.1985)` (viewBox retuned to pre-transform content bounds
 `editorconfig` late-path `style="fill:…"` plus shared
 `translate(124.37 282.35) scale(.89449)` dropped so early untransformed
 face paths and the silhouette still compose in the original
-`0 0 3473 3473` viewBox. Paths are otherwise unchanged. `lock.svg`
-registers as `lockfile` (`app:lockfile`) so it does not collide with
-chrome Browser address `app:lock`. Waku `nest` stays omitted: stripping
-the root `style="enable-background:…"` still leaves a path
-`transform="translate(…) scale(…)"` (and a path `style="fill:…"`)
-that Native ignores; baking that path would invent markup. `graphql`
-(many `rotate` transforms on connector bars), `nest` (path
-translate+scale + style), and `pug` (group translate + ellipse rotates)
-stay omitted — Native ignores those transforms; baking would invent
-markup.
+`0 0 3473 3473` viewBox. Paths are otherwise unchanged. Eleventh-cut
+workarounds prefer Native-safe geometry from the same Material pack
+over inventing path `d`: `graphql` uses upstream Material
+`icons/graphql.svg` (presentation `fill="#ec407a"`, connector bars
+already baked as path `d` — Waku's copy still has `style="fill:…"` and
+many `rect` `transform="… rotate(…)"`); `nest` uses upstream Material
+`icons/nest.svg` (`fill="#ff1744"`, viewBox `0 0 300 300`, path data
+already baked — Waku's copy still has root `style="enable-background:…"`,
+path `style="fill:#ea2845"`, and path `transform="translate(…) scale(…)"`);
+`pug` keeps Waku/Material path `d` and presentation fills, drops the
+near-identity group `translate(-.25 -1.71)`, and drops tiny eye
+`ellipse` `rotate(…)` transforms (unrotated `cx`/`cy`/`rx`/`ry` stay).
+`lock.svg` registers as `lockfile` (`app:lockfile`) so it does not collide with
+chrome Browser address `app:lock`.
 
 Faku mapping and registration code stays GPL-3.0-only; these SVG
 files remain MIT.
