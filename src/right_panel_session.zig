@@ -2202,7 +2202,7 @@ test "missing Terminal stash restores empty persist (today's lazy single)" {
     try expectEmptyTerminalPersist(&model);
 }
 
-test "New Task and remove restore empty Terminal occupancy" {
+test "New Task restores empty Terminal occupancy; drop clears stash" {
     const session_actions = @import("session_actions.zig");
     const palette_run = @import("palette_run.zig");
     var fx = main.Effects.init(std.testing.allocator);
@@ -2214,7 +2214,6 @@ test "New Task and remove restore empty Terminal occupancy" {
     defer freeStores(&model);
 
     const session_a = model.addSession("term new a", .fx);
-    const session_b = model.addSession("term new b", .fx);
     model.selected = session_a;
     pty_terminal.spawnShell(&model, &fx);
     pty_terminal.newShell(&model, &fx);
@@ -2237,10 +2236,11 @@ test "New Task and remove restore empty Terminal occupancy" {
     try std.testing.expect(model.term_restore_pending);
     try expectCapturedTerminal(&model, &.{ true, true, false, false }, 1);
 
-    palette_run.applySessionSelection(&model, &fx, session_b);
-    occupyEnded(&model, &.{ true, false, false, false }, 0);
-    session_actions.handleRemoveSession(&model, &fx, session_a);
+    drop(&model, session_a);
     try std.testing.expect(!hasState(&model, session_a));
-    try expectCapturedTerminal(&model, &.{ true, false, false, false }, 0);
+    restore(&model, &fx);
+    try expectEmptyTerminalPersist(&model);
+    try std.testing.expect(model.term_slots[0].closing);
+    try std.testing.expect(model.term_slots[1].closing);
 }
 

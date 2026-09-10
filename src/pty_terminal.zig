@@ -477,12 +477,16 @@ pub fn releaseLive(model: *Model, fx: *Effects) void {
 }
 
 /// After a cancelled PTY exit, finish a pending persist restore when
-/// the Terminal tab is showing. No-op while wanted keys are still
-/// reserved, when persist is not pending, or when Terminal is hidden
-/// (pending stays until `selectTerminal` / `spawnShell`).
+/// the Terminal tab is showing. Does not Restart an ended shell or
+/// lazy-spawn slot 0 (those stay `spawnShell` / tab-open). No-op while
+/// wanted keys are still reserved, when persist is not pending, or
+/// when Terminal is hidden (pending stays until `selectTerminal`).
 pub fn maybeFinishRestore(model: *Model, fx: *Effects) void {
+    if (!model.term_restore_pending) return;
     if (!model.right_panel_open or model.right_panel_tab != .terminal) return;
-    spawnShell(model, fx);
+    if (anyLive(model)) return;
+    if (!pendingRestoreReady(model)) return;
+    _ = applyPendingRestore(model, fx);
 }
 
 /// Lazy spawn for Terminal tab open: no-op while any slot is live.
