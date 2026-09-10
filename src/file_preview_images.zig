@@ -3,17 +3,19 @@
 //! Rendered Files `<markdown>` discovers leading image sources with
 //! Native `canvas.markdown.collectImageSources` (cap
 //! `max_markdown_images`), then `fx.loadImage`s **in-project local**
-//! paths (`.path`) and **http(s)** URLs (`.url` only; omit path).
+//! paths (`.path`) and **http(s)** URLs (`.url` only; omit path), and
+//! registers a practical `data:image/<subtype>;base64,…` subset via
+//! `fx.registerImageBytes` (sync; same registry as `loadImage`).
 //! Canonical source bytes stay the markdown `src` so `images=`
-//! mappings match the renderer. `data:` / outside-project /
-//! unresolved stay unmapped (alt-text). Composer attach preview
-//! (ids 33–63) is untouched.
+//! mappings match the renderer. Outside-project / unresolved /
+//! malformed `data:` stay unmapped (alt-text). Composer attach preview
+//! (ids 33–63) is untouched. Transcript markdown `images=` is leftover.
 //!
 //! Path rules reuse `open_url.resolveMarkdownFilePath` (strip location
 //! fragment, percent-decode, lexical normalize; relative vs preview abs
 //! dir) plus `workspaceRelativeFilePath` for the in-project gate.
 //! Verified: Native markdown `images=` + `fx.loadImage` local `.path`
-//! and network `.url`.
+//! and network `.url`, plus `fx.registerImageBytes` for encoded bytes.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -31,6 +33,10 @@ pub const id_first: u64 = 800;
 pub const id_last: u64 = id_first + canvas.markdown.max_markdown_images - 1;
 pub const max_images: usize = canvas.markdown.max_markdown_images;
 pub const max_source_bytes: usize = canvas.markdown.max_markdown_image_source_bytes;
+/// Decoded `data:` payload cap. Markdown sources are already gated at
+/// `max_markdown_image_source_bytes`; never exceed Native's encoded
+/// source bound (`max_effect_image_bytes`, 8 MiB).
+pub const max_data_decoded_bytes: usize = max_source_bytes;
 
 pub const Slot = struct {
     source_storage: [max_source_bytes]u8 = undefined,
@@ -54,7 +60,8 @@ pub const Slot = struct {
 /// Local in-project filesystem path for a collected markdown image
 /// source, or `null` to leave alt-text (`data:` / non-file /
 /// outside-project / unresolved / over-long). http(s) sources use
-/// `isRemoteHttpImageSource` + `fx.loadImage` `.url` instead.
+/// `isRemoteHttpImageSource` + `fx.loadImage` `.url`; `data:` uses
+/// `isDataImageSource` + `fx.registerImageBytes`.
 pub fn resolveInProjectImagePath(
     source: []const u8,
     preview_abs: []const u8,
@@ -79,6 +86,72 @@ pub fn isRemoteHttpImageSource(source: []const u8) bool {
     if (source.len == 0 or source.len > max_source_bytes) return false;
     if (source.len > native_sdk.max_effect_url_bytes) return false;
     return open_url.isHttpUrl(source);
+}
+
+fn acceptedImageSubtype(subtype: []const u8) bool {
+    if (subtype.len == 0) return false;
+    const accepted = [_][]const u8{ "png", "jpeg", "jpg", "gif", "webp", "svg+xml" };
+    for (accepted) |name| {
+        if (std.ascii.eqlIgnoreCase(subtype, name)) return true;
+    }
+    return false;
+}
+
+const DataImageForm = struct {
+    payload: []const u8,
+};
+
+/// Practical first-cut: `data:image/<subtype>;base64,<payload>`
+/// (case-insensitive `data:` / `base64`). Extra params such as
+/// `;charset=` without this exact shape stay alt-text.
+fn parseDataImageForm(source: []const u8) ?DataImageForm {
+    if (source.len == 0 or source.len > max_source_bytes) return null;
+    if (!std.ascii.startsWithIgnoreCase(source, "data:")) return null;
+    const rest = source["data:".len..];
+    if (!std.ascii.startsWithIgnoreCase(rest, "image/")) return null;
+    const after_image = rest["image/".len..];
+    const semi = std.mem.indexOfScalar(u8, after_image, ';') orelse return null;
+    if (!acceptedImageSubtype(after_image[0..semi])) return null;
+    const after_semi = after_image[semi + 1 ..];
+    if (!std.ascii.startsWithIgnoreCase(after_semi, "base64,")) return null;
+    const payload = after_semi["base64,".len..];
+    if (payload.len == 0) return null;
+    return .{ .payload = payload };
+}
+
+/// `data:` markdown image source eligible for `fx.registerImageBytes`.
+/// Empty, over-long, non-image, and non-base64 forms stay alt-text.
+pub fn isDataImageSource(source: []const u8) bool {
+    return parseDataImageForm(source) != null;
+}
+
+/// Base64-decode a first-cut `data:` image source into `dest`.
+/// Fail closed (null) on empty payload, invalid base64, or over-bound.
+pub fn decodeDataImageSource(source: []const u8, dest: []u8) ?[]const u8 {
+    const form = parseDataImageForm(source) orelse return null;
+    const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(form.payload) catch return null;
+    if (decoded_len == 0 or decoded_len > dest.len) return null;
+    if (decoded_len > native_sdk.max_effect_image_bytes) return null;
+    std.base64.standard.Decoder.decode(dest[0..decoded_len], form.payload) catch return null;
+    return dest[0..decoded_len];
+}
+
+/// Decode + register encoded bytes. Fake executor without a bound
+/// image registry (the usual unit-test seam) synthesizes 1×1 so
+/// tests stay hermetic — mirror of `loadImage` parking under `.fake`.
+fn registerPreviewImageBytes(fx: *Effects, id: u64, bytes: []const u8) ?native_sdk.RegisteredImage {
+    if (bytes.len == 0 or bytes.len > native_sdk.max_effect_image_bytes) return null;
+    const registered = fx.registerImageBytes(id, bytes) catch |err| {
+        if (fx.executor == .fake and err == error.UnsupportedService) {
+            return .{ .width = 1, .height = 1 };
+        }
+        return null;
+    };
+    if (registered.width == 0 or registered.height == 0) {
+        _ = fx.unregisterImage(id);
+        return null;
+    }
+    return registered;
 }
 
 fn nextId(model: *Model) u64 {
@@ -196,6 +269,12 @@ pub fn refresh(model: *Model, fx: ?*Effects) void {
             wanted_len += 1;
             continue;
         }
+        if (isDataImageSource(source)) {
+            wanted_storage[wanted_len] = source;
+            wanted_path_lens[wanted_len] = 0;
+            wanted_len += 1;
+            continue;
+        }
         var path_buf: [open_url.max_file_link_path]u8 = undefined;
         const path = resolveInProjectImagePath(source, preview_abs, project, &path_buf) orelse continue;
         wanted_storage[wanted_len] = source;
@@ -229,21 +308,36 @@ pub fn refresh(model: *Model, fx: ?*Effects) void {
             const path = wanted_paths[index][0..path_len];
             @memcpy(slot.path_storage[0..path.len], path);
             slot.path_len = path.len;
-        }
-        slot.id = nextId(model);
-        if (slot.path_len > 0) {
+            slot.id = nextId(model);
             effects.loadImage(.{
                 .id = slot.id,
                 .path = slot.path(),
                 .on_result = Effects.imageMsg(.file_preview_image_done),
             });
-        } else {
+            continue;
+        }
+        if (isRemoteHttpImageSource(source)) {
+            slot.id = nextId(model);
             effects.loadImage(.{
                 .id = slot.id,
                 .url = slot.source(),
                 .on_result = Effects.imageMsg(.file_preview_image_done),
             });
+            continue;
         }
+        var decoded_buf: [max_data_decoded_bytes]u8 = undefined;
+        const decoded = decodeDataImageSource(source, &decoded_buf) orelse {
+            slot.* = .{};
+            continue;
+        };
+        slot.id = nextId(model);
+        const registered = registerPreviewImageBytes(effects, slot.id, decoded) orelse {
+            slot.* = .{};
+            continue;
+        };
+        slot.loaded = true;
+        slot.width = registered.width;
+        slot.height = registered.height;
     }
 }
 
@@ -330,6 +424,39 @@ test "isRemoteHttpImageSource accepts http(s); skips data empty overlong and loc
     @memset(overlong, 'a');
     @memcpy(overlong[0..8], "https://");
     try std.testing.expect(!isRemoteHttpImageSource(overlong));
+}
+
+/// 1×1 PNG (standard 68-byte fixture).
+const tiny_png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+const tiny_png_data_url = "data:image/png;base64," ++ tiny_png_b64;
+
+test "isDataImageSource accepts image/base64 form; rejects charset empty and non-image" {
+    try std.testing.expect(isDataImageSource(tiny_png_data_url));
+    try std.testing.expect(isDataImageSource("DATA:IMAGE/PNG;BASE64," ++ tiny_png_b64));
+    try std.testing.expect(isDataImageSource("data:image/jpeg;base64," ++ tiny_png_b64));
+    try std.testing.expect(isDataImageSource("data:image/jpg;base64," ++ tiny_png_b64));
+    try std.testing.expect(isDataImageSource("data:image/gif;base64," ++ tiny_png_b64));
+    try std.testing.expect(isDataImageSource("data:image/webp;base64," ++ tiny_png_b64));
+    try std.testing.expect(isDataImageSource("data:image/svg+xml;base64," ++ tiny_png_b64));
+    try std.testing.expect(!isDataImageSource("data:image/png;base64,"));
+    try std.testing.expect(!isDataImageSource("data:image/png," ++ tiny_png_b64));
+    try std.testing.expect(!isDataImageSource("data:image/png;charset=utf-8;base64," ++ tiny_png_b64));
+    try std.testing.expect(!isDataImageSource("data:text/plain;base64," ++ tiny_png_b64));
+    try std.testing.expect(!isDataImageSource("https://example.com/a.png"));
+    try std.testing.expect(!isDataImageSource(""));
+}
+
+test "decodeDataImageSource decodes valid png; rejects malformed non-base64" {
+    var dest: [max_data_decoded_bytes]u8 = undefined;
+    const decoded = decodeDataImageSource(tiny_png_data_url, &dest).?;
+    try std.testing.expect(decoded.len > 0);
+    try std.testing.expectEqual(@as(u8, 0x89), decoded[0]);
+    try std.testing.expectEqualStrings("PNG", decoded[1..4]);
+
+    try std.testing.expect(decodeDataImageSource("data:image/png;base64,aaa", &dest) == null);
+    try std.testing.expect(decodeDataImageSource("data:image/png;base64,$$$$", &dest) == null);
+    try std.testing.expect(decodeDataImageSource("data:image/png;base64,", &dest) == null);
+    try std.testing.expect(decodeDataImageSource("data:image/png;charset=utf-8;base64," ++ tiny_png_b64, &dest) == null);
 }
 
 fn pendingLoadWithPath(fx: *Effects) !Effects.ImageLoadRequest {
@@ -500,6 +627,82 @@ test "refresh skips data empty and outside-project; http(s) stays url-only" {
     try std.testing.expectEqual(@as(usize, 1), mapped.len);
     try std.testing.expectEqualStrings("http://example.com/a.png", mapped[0].source);
     try std.testing.expectEqual(load.id, mapped[0].image);
+}
+
+test "refresh registers valid data: via registerImageBytes; malformed stays alt-text" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-md-data-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var docs_buf: [280]u8 = undefined;
+    const docs = try std.fmt.bufPrint(&docs_buf, "{s}/docs", .{project});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, docs);
+    var readme_buf: [300]u8 = undefined;
+    const readme = try std.fmt.bufPrint(&readme_buf, "{s}/docs/README.md", .{project});
+    const body = "![ok](" ++ tiny_png_data_url ++ ")\n\n![bad](data:image/png;base64,aaa)\n\n![plain](data:text/plain;base64,aaaa)\n\n![http](https://example.com/x.png)\n";
+    try std.Io.Dir.cwd().writeFile(std.testing.io, .{
+        .sub_path = readme,
+        .data = body,
+    });
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("md data", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    const file_mention = @import("file_mention.zig");
+    const right_panel = @import("right_panel.zig");
+    file_mention.applyStdoutPaths(&model, "docs/README.md\n");
+    defer right_panel.clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
+
+    right_panel.selectCachedFile(&model, &fx, 1);
+    try std.testing.expect(model.file_preview_shows_rendered_markdown());
+    try std.testing.expectEqual(@as(usize, 2), occupiedCount(&model));
+    try std.testing.expectEqual(@as(usize, 1), loadedCount(&model));
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingImageLoadCount());
+
+    try std.testing.expectEqualStrings(tiny_png_data_url, model.file_preview_image_slots[0].source());
+    try std.testing.expect(model.file_preview_image_slots[0].loaded);
+    try std.testing.expect(model.file_preview_image_slots[0].id >= id_first);
+    try std.testing.expect(model.file_preview_image_slots[0].id <= id_last);
+    try std.testing.expectEqual(@as(usize, 1), model.file_preview_image_slots[0].width);
+    try std.testing.expectEqual(@as(usize, 1), model.file_preview_image_slots[0].height);
+
+    const remote_load = try pendingLoadWithUrl(&fx);
+    try std.testing.expectEqualStrings("https://example.com/x.png", remote_load.url);
+    try std.testing.expect(remote_load.id != model.file_preview_image_slots[0].id);
+
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const mapped = resolved(&model, arena_state.allocator());
+    try std.testing.expectEqual(@as(usize, 1), mapped.len);
+    try std.testing.expectEqualStrings(tiny_png_data_url, mapped[0].source);
+    try std.testing.expectEqual(model.file_preview_image_slots[0].id, mapped[0].image);
+
+    const data_id = model.file_preview_image_slots[0].id;
+    refresh(&model, &fx);
+    try std.testing.expectEqual(@as(usize, 2), occupiedCount(&model));
+    try std.testing.expectEqual(@as(usize, 1), loadedCount(&model));
+    try std.testing.expectEqual(data_id, model.file_preview_image_slots[0].id);
+
+    main.update(&model, .set_file_preview_markdown_source, &fx);
+    try std.testing.expectEqual(@as(usize, 0), occupiedCount(&model));
+    try std.testing.expectEqual(@as(usize, 0), loadedCount(&model));
+
+    main.update(&model, .set_file_preview_markdown_preview, &fx);
+    try std.testing.expectEqual(@as(usize, 2), occupiedCount(&model));
+    try std.testing.expectEqual(@as(usize, 1), loadedCount(&model));
+    try std.testing.expectEqualStrings(tiny_png_data_url, model.file_preview_image_slots[0].source());
+    drop(&model, &fx);
+    try std.testing.expectEqual(@as(usize, 0), occupiedCount(&model));
+    try std.testing.expectEqual(@as(usize, 0), loadedCount(&model));
 }
 
 test "applyResult unregisters stray loaded pixels outside the id band" {

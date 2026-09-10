@@ -90,7 +90,7 @@ Build from source: clone https://github.com/keejkrej/fx, Zig 0.16.0,
 - One-shot Send via `fx acp` (acp-proxy) when fx is installed
 - Other probed providers when their CLIs are on PATH
 - Demo fallback if fx is missing
-- First-cut Files Preview markdown in-project local images (`images=` + `fx.loadImage` `.path`) and remote http(s) images (`.url`; `data:` / outside-project stay alt-text)
+- First-cut Files Preview markdown in-project local images (`images=` + `fx.loadImage` `.path`), remote http(s) images (`.url`), and Preview `data:` images (`fx.registerImageBytes`; outside-project stay alt-text)
 - First-cut Files Preview markdown `<details>` expand/collapse (`details-expanded` + `on-details`; runtime-only flags, cap 16)
 - First-cut Files Preview markdown `#N` issue links (`issue-link-base` from a usable GitHub/GitLab remote; empty/missing leaves `#N` unlinked)
 - First-cut embedded Terminal tab (`fx.ptySpawn` + `<terminal>`, up to 4 sessions; occupied slots persist)

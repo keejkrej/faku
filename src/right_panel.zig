@@ -141,8 +141,8 @@
 //! issue-link-base="{file_preview_issue_link_base}"
 //! on-details="file_preview_toggle_details" on-link="file_preview_open_url" />`
 //! (GFM subset; in-project local images via `images=` + `fx.loadImage`
-//! `.path`; remote http(s) via `.url`; `data:` / outside-project stay
-//! alt-text; `<details>` via
+//! `.path`; remote http(s) via `.url`; Preview `data:` via
+//! `fx.registerImageBytes`; outside-project stay alt-text; `<details>` via
 //! documented `details-expanded` + `on-details`, runtime-only flags,
 //! default collapsed; bare `#N` via documented `issue-link-base` when
 //! the session project has a usable GitHub/GitLab remote). Source keeps today's

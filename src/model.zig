@@ -3230,8 +3230,9 @@ pub const Model = struct {
         return right_panel.showsRenderedMarkdown(model);
     }
 
-    /// Successful in-project markdown Preview image mappings for
-    /// `<markdown images="{file_preview_images}">`. Arena fn.
+    /// Successful Files Preview markdown image mappings for
+    /// `<markdown images="{file_preview_images}">` (in-project local,
+    /// remote http(s), and first-cut `data:`). Arena fn.
     pub fn file_preview_images(model: *const Model, arena: std.mem.Allocator) []const canvas.markdown.ResolvedImage {
         return file_preview_images_mod.resolved(model, arena);
     }
