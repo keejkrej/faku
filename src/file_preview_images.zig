@@ -1,17 +1,19 @@
-//! Files Preview markdown local images (first-cut).
+//! Files Preview markdown images (first-cut).
 //!
 //! Rendered Files `<markdown>` discovers leading image sources with
 //! Native `canvas.markdown.collectImageSources` (cap
 //! `max_markdown_images`), then `fx.loadImage`s **in-project local**
-//! paths only. Canonical source bytes stay the markdown `src` so
-//! `images=` mappings match the renderer. http(s) / `data:` /
-//! outside-project / unresolved stay unmapped (alt-text). Composer
-//! attach preview (ids 33–63) is untouched.
+//! paths (`.path`) and **http(s)** URLs (`.url` only; omit path).
+//! Canonical source bytes stay the markdown `src` so `images=`
+//! mappings match the renderer. `data:` / outside-project /
+//! unresolved stay unmapped (alt-text). Composer attach preview
+//! (ids 33–63) is untouched.
 //!
 //! Path rules reuse `open_url.resolveMarkdownFilePath` (strip location
 //! fragment, percent-decode, lexical normalize; relative vs preview abs
 //! dir) plus `workspaceRelativeFilePath` for the in-project gate.
-//! Verified: Native markdown `images=` + `fx.loadImage` local-path.
+//! Verified: Native markdown `images=` + `fx.loadImage` local `.path`
+//! and network `.url`.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -50,8 +52,9 @@ pub const Slot = struct {
 };
 
 /// Local in-project filesystem path for a collected markdown image
-/// source, or `null` to leave alt-text (http(s) / `data:` / non-file /
-/// outside-project / unresolved / over-long).
+/// source, or `null` to leave alt-text (`data:` / non-file /
+/// outside-project / unresolved / over-long). http(s) sources use
+/// `isRemoteHttpImageSource` + `fx.loadImage` `.url` instead.
 pub fn resolveInProjectImagePath(
     source: []const u8,
     preview_abs: []const u8,
@@ -68,6 +71,14 @@ pub fn resolveInProjectImagePath(
     if (abs_path.len > dest.len) return null;
     @memcpy(dest[0..abs_path.len], abs_path);
     return dest[0..abs_path.len];
+}
+
+/// http(s) markdown image source eligible for url-only `fx.loadImage`.
+/// Empty, over-long, `data:`, and non-http(s) stay alt-text.
+pub fn isRemoteHttpImageSource(source: []const u8) bool {
+    if (source.len == 0 or source.len > max_source_bytes) return false;
+    if (source.len > native_sdk.max_effect_url_bytes) return false;
+    return open_url.isHttpUrl(source);
 }
 
 fn nextId(model: *Model) u64 {
@@ -179,6 +190,12 @@ pub fn refresh(model: *Model, fx: ?*Effects) void {
     var wanted_len: usize = 0;
     for (discovered) |*collected| {
         const source = collected.value();
+        if (isRemoteHttpImageSource(source)) {
+            wanted_storage[wanted_len] = source;
+            wanted_path_lens[wanted_len] = 0;
+            wanted_len += 1;
+            continue;
+        }
         var path_buf: [open_url.max_file_link_path]u8 = undefined;
         const path = resolveInProjectImagePath(source, preview_abs, project, &path_buf) orelse continue;
         wanted_storage[wanted_len] = source;
@@ -207,15 +224,26 @@ pub fn refresh(model: *Model, fx: ?*Effects) void {
         const slot = freeSlot(model) orelse break;
         @memcpy(slot.source_storage[0..source.len], source);
         slot.source_len = source.len;
-        const path = wanted_paths[index][0..wanted_path_lens[index]];
-        @memcpy(slot.path_storage[0..path.len], path);
-        slot.path_len = path.len;
+        const path_len = wanted_path_lens[index];
+        if (path_len > 0) {
+            const path = wanted_paths[index][0..path_len];
+            @memcpy(slot.path_storage[0..path.len], path);
+            slot.path_len = path.len;
+        }
         slot.id = nextId(model);
-        effects.loadImage(.{
-            .id = slot.id,
-            .path = slot.path(),
-            .on_result = Effects.imageMsg(.file_preview_image_done),
-        });
+        if (slot.path_len > 0) {
+            effects.loadImage(.{
+                .id = slot.id,
+                .path = slot.path(),
+                .on_result = Effects.imageMsg(.file_preview_image_done),
+            });
+        } else {
+            effects.loadImage(.{
+                .id = slot.id,
+                .url = slot.source(),
+                .on_result = Effects.imageMsg(.file_preview_image_done),
+            });
+        }
     }
 }
 
@@ -288,7 +316,41 @@ test "resolveInProjectImagePath accepts in-project local; rejects remote and out
     try std.testing.expect(resolveInProjectImagePath("../../etc/passwd", preview, project, &dest) == null);
 }
 
-test "refresh loads in-project local sources; drop and file switch clear mappings" {
+test "isRemoteHttpImageSource accepts http(s); skips data empty overlong and local" {
+    try std.testing.expect(isRemoteHttpImageSource("https://example.com/a.png"));
+    try std.testing.expect(isRemoteHttpImageSource("http://example.com/a.png"));
+    try std.testing.expect(isRemoteHttpImageSource("HTTPS://cdn.example.com/art.png"));
+    try std.testing.expect(!isRemoteHttpImageSource("data:image/png;base64,aaa"));
+    try std.testing.expect(!isRemoteHttpImageSource(""));
+    try std.testing.expect(!isRemoteHttpImageSource("./shot.png"));
+    try std.testing.expect(!isRemoteHttpImageSource("file:///tmp/proj/docs/shot.png"));
+
+    const overlong = try std.testing.allocator.alloc(u8, native_sdk.max_effect_url_bytes + 8);
+    defer std.testing.allocator.free(overlong);
+    @memset(overlong, 'a');
+    @memcpy(overlong[0..8], "https://");
+    try std.testing.expect(!isRemoteHttpImageSource(overlong));
+}
+
+fn pendingLoadWithPath(fx: *Effects) !Effects.ImageLoadRequest {
+    var index: usize = 0;
+    while (index < fx.pendingImageLoadCount()) : (index += 1) {
+        const load = fx.pendingImageLoadAt(index) orelse return error.MissingImageLoad;
+        if (load.path.len > 0 and load.url.len == 0) return load;
+    }
+    return error.MissingImageLoad;
+}
+
+fn pendingLoadWithUrl(fx: *Effects) !Effects.ImageLoadRequest {
+    var index: usize = 0;
+    while (index < fx.pendingImageLoadCount()) : (index += 1) {
+        const load = fx.pendingImageLoadAt(index) orelse return error.MissingImageLoad;
+        if (load.url.len > 0 and load.path.len == 0) return load;
+    }
+    return error.MissingImageLoad;
+}
+
+test "refresh loads in-project local path and http(s) url; drop and file switch clear mappings" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     var project_buf: [256]u8 = undefined;
@@ -328,25 +390,41 @@ test "refresh loads in-project local sources; drop and file switch clear mapping
 
     right_panel.selectCachedFile(&model, &fx, 1);
     try std.testing.expect(model.file_preview_shows_rendered_markdown());
-    try std.testing.expectEqual(@as(usize, 1), occupiedCount(&model));
-    try std.testing.expectEqual(@as(usize, 1), fx.pendingImageLoadCount());
-    const load = fx.pendingImageLoadAt(0) orelse return error.MissingImageLoad;
-    try std.testing.expect(std.mem.endsWith(u8, load.path, "/docs/shot.png"));
-    try std.testing.expect(std.mem.startsWith(u8, load.path, project));
-    try std.testing.expect(load.id >= id_first);
-    try std.testing.expect(load.id <= id_last);
+    try std.testing.expectEqual(@as(usize, 2), occupiedCount(&model));
+    try std.testing.expectEqual(@as(usize, 2), fx.pendingImageLoadCount());
+
+    const local_load = try pendingLoadWithPath(&fx);
+    try std.testing.expect(std.mem.endsWith(u8, local_load.path, "/docs/shot.png"));
+    try std.testing.expect(std.mem.startsWith(u8, local_load.path, project));
+    try std.testing.expectEqual(@as(usize, 0), local_load.url.len);
+    try std.testing.expect(local_load.id >= id_first);
+    try std.testing.expect(local_load.id <= id_last);
     try std.testing.expectEqualStrings("./shot.png", model.file_preview_image_slots[0].source());
 
-    try fx.feedImageResult(load.id, .loaded, 8, 8, 0, "");
+    const remote_load = try pendingLoadWithUrl(&fx);
+    try std.testing.expectEqualStrings("https://example.com/x.png", remote_load.url);
+    try std.testing.expectEqual(@as(usize, 0), remote_load.path.len);
+    try std.testing.expect(remote_load.id >= id_first);
+    try std.testing.expect(remote_load.id <= id_last);
+    try std.testing.expect(remote_load.id != local_load.id);
+    try std.testing.expectEqualStrings("https://example.com/x.png", model.file_preview_image_slots[1].source());
+
+    try fx.feedImageResult(local_load.id, .loaded, 8, 8, 0, "");
     while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
     try std.testing.expectEqual(@as(usize, 1), loadedCount(&model));
+
+    try fx.feedImageResult(remote_load.id, .loaded, 16, 12, 0, "");
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+    try std.testing.expectEqual(@as(usize, 2), loadedCount(&model));
 
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const mapped = resolved(&model, arena_state.allocator());
-    try std.testing.expectEqual(@as(usize, 1), mapped.len);
+    try std.testing.expectEqual(@as(usize, 2), mapped.len);
     try std.testing.expectEqualStrings("./shot.png", mapped[0].source);
-    try std.testing.expectEqual(load.id, mapped[0].image);
+    try std.testing.expectEqual(local_load.id, mapped[0].image);
+    try std.testing.expectEqualStrings("https://example.com/x.png", mapped[1].source);
+    try std.testing.expectEqual(remote_load.id, mapped[1].image);
 
     main.update(&model, .set_file_preview_markdown_source, &fx);
     try std.testing.expect(!model.file_preview_shows_rendered_markdown());
@@ -354,18 +432,89 @@ test "refresh loads in-project local sources; drop and file switch clear mapping
     try std.testing.expectEqual(@as(usize, 0), loadedCount(&model));
 
     main.update(&model, .set_file_preview_markdown_preview, &fx);
-    try std.testing.expectEqual(@as(usize, 1), occupiedCount(&model));
-    const reload = fx.pendingImageLoadAt(0) orelse return error.MissingImageLoad;
-    try fx.feedImageResult(reload.id, .loaded, 8, 8, 0, "");
+    try std.testing.expectEqual(@as(usize, 2), occupiedCount(&model));
+    const reload_local = try pendingLoadWithPath(&fx);
+    const reload_remote = try pendingLoadWithUrl(&fx);
+    try fx.feedImageResult(reload_local.id, .loaded, 8, 8, 0, "");
+    try fx.feedImageResult(reload_remote.id, .loaded, 16, 12, 0, "");
     while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
-    try std.testing.expectEqual(@as(usize, 1), loadedCount(&model));
+    try std.testing.expectEqual(@as(usize, 2), loadedCount(&model));
 
     right_panel.selectCachedFile(&model, &fx, 2);
     try std.testing.expectEqual(@as(usize, 0), occupiedCount(&model));
     try std.testing.expectEqual(@as(usize, 0), loadedCount(&model));
 
     right_panel.selectCachedFile(&model, &fx, 1);
-    try std.testing.expectEqual(@as(usize, 1), occupiedCount(&model));
+    try std.testing.expectEqual(@as(usize, 2), occupiedCount(&model));
     drop(&model, &fx);
     try std.testing.expectEqual(@as(usize, 0), occupiedCount(&model));
+}
+
+test "refresh skips data empty and outside-project; http(s) stays url-only" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-md-remote-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+    var docs_buf: [280]u8 = undefined;
+    const docs = try std.fmt.bufPrint(&docs_buf, "{s}/docs", .{project});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, docs);
+    var readme_buf: [300]u8 = undefined;
+    const readme = try std.fmt.bufPrint(&readme_buf, "{s}/docs/README.md", .{project});
+    try std.Io.Dir.cwd().writeFile(std.testing.io, .{
+        .sub_path = readme,
+        .data = "![http](http://example.com/a.png)\n\n![data](data:image/png;base64,aaa)\n\n![]()\n\n![out](file:///tmp/outside.png)\n",
+    });
+
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    model.store_io = std.testing.io;
+    const id = model.addSession("md remote", .fx);
+    model.selected = id;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    const file_mention = @import("file_mention.zig");
+    const right_panel = @import("right_panel.zig");
+    file_mention.applyStdoutPaths(&model, "docs/README.md\n");
+    defer right_panel.clearFilePreview(&model);
+    defer file_mention.clearCache(&model);
+
+    right_panel.selectCachedFile(&model, &fx, 1);
+    try std.testing.expectEqual(@as(usize, 1), occupiedCount(&model));
+    try std.testing.expectEqual(@as(usize, 1), fx.pendingImageLoadCount());
+    const load = try pendingLoadWithUrl(&fx);
+    try std.testing.expectEqualStrings("http://example.com/a.png", load.url);
+    try std.testing.expectEqual(@as(usize, 0), load.path.len);
+    try std.testing.expectEqualStrings("http://example.com/a.png", model.file_preview_image_slots[0].source());
+
+    try fx.feedImageResult(load.id, .loaded, 4, 4, 200, "");
+    while (fx.takeMsg()) |msg| main.update(&model, msg, &fx);
+    try std.testing.expectEqual(@as(usize, 1), loadedCount(&model));
+
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const mapped = resolved(&model, arena_state.allocator());
+    try std.testing.expectEqual(@as(usize, 1), mapped.len);
+    try std.testing.expectEqualStrings("http://example.com/a.png", mapped[0].source);
+    try std.testing.expectEqual(load.id, mapped[0].image);
+}
+
+test "applyResult unregisters stray loaded pixels outside the id band" {
+    var fx = Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    applyResult(&model, &fx, .{
+        .id = 33,
+        .outcome = .loaded,
+        .width = 8,
+        .height = 8,
+        .status = 0,
+    });
+    try std.testing.expectEqual(@as(usize, 0), occupiedCount(&model));
+    try std.testing.expectEqual(@as(usize, 0), loadedCount(&model));
 }
