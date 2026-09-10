@@ -199,7 +199,9 @@
 //! substring until `.*` is on; optional ASCII case-sensitivity and whole-word
 //! (`[A-Za-z0-9_]` boundaries). Regex is a self-contained Zig subset (not
 //! the Rust crate). No GPUI match washes. Cap `file_preview_find_max_matches`
-//! (20000; Waku FileSearch is 20k). Runtime-only.
+//! (20000; Waku FileSearch is 20k). Runtime-only. Session restore resets
+//! the bar (Waku `reset_file_search_for_session`): close, clear matches,
+//! clear find + replace buffers.
 //!
 //! Default closed: Waku `RightPanelSessionState::take_or_closed` uses
 //! `empty(false)` and persistence `default_right_panel_visibility` is
@@ -237,9 +239,11 @@
 //! missing / 0 keep 184 then FILE_TREE clamp). Session switch restores
 //! them from `right_panel_session` (missing → 184). Selected Background
 //! row restores from that same stash (missing / empty / stale → 0;
-//! not `sessions.json`). Files preview, directory expands, and output
-//! stay runtime-only (preview / expand also stash; output does not).
-//! Default `files` when the panel opens.
+//! not `sessions.json`). Browser occupancy / histories / active restore
+//! from that stash too (missing → `default_slots`); the extras stay
+//! last-live cold-start, not per-session JSON. Files preview, directory
+//! expands, and output stay runtime-only (preview / expand also stash;
+//! output does not). Default `files` when the panel opens.
 //!
 //! When a Files preview is open, the Files tab is a nested horizontal
 //! split: preview/editor on the left (grow) and the working tree on
@@ -267,11 +271,13 @@
 //! not `sessions.json`): expand keys, live tab, panel open/closed,
 //! Files selected preview path, dirty/editing Files preview editors
 //! (bounded table, cap 4), Diff selected file, nested Files-tree
-//! width, Diff file-list width, and Background selected row. Missing
-//! stash key restores closed (Waku `take_or_closed` empty), nested
-//! widths 184, Background row 0, and an empty editor table.
-//! `sessions.json` extras remain the last-live
-//! global fallback for those nested widths on cold start.
+//! width, Diff file-list width, Background selected row, and Browser
+//! occupancy / histories / active. Missing stash key restores closed
+//! (Waku `take_or_closed` empty), nested widths 184, Background row 0,
+//! an empty editor table, and default Browser (`default_slots`). Every
+//! restore resets Files preview find/replace. `sessions.json` extras
+//! remain the last-live global fallback for nested widths and Browser
+//! occupancy on cold start.
 //! `file_mention.clearCache` still frees the live expand table; restore
 //! re-applies remembered keys afterward. Files preview / Diff
 //! selection re-apply when the
@@ -1518,6 +1524,21 @@ pub fn closeFilePreviewFind(model: *Model) void {
     model.file_preview_find_match_index = 0;
     model.file_preview_find_limited = false;
     model.file_preview_find_invalid = false;
+}
+
+/// Waku `reset_file_search_for_session` on `restore_right_panel_state`.
+/// Close the bar, clear matches, and clear find + replace buffers so a
+/// session switch cannot keep matches pointed at another session's
+/// preview. Toggles reset to defaults. Query/toggles still survive a
+/// same-session close of the bar via `closeFilePreviewFind`.
+pub fn resetFilePreviewFindForSession(model: *Model) void {
+    closeFilePreviewFind(model);
+    model.file_preview_find_buffer.clear();
+    model.file_preview_find_replace_buffer.clear();
+    model.file_preview_find_replace_visible = false;
+    model.file_preview_find_case_sensitive = false;
+    model.file_preview_find_whole_word = false;
+    model.file_preview_find_use_regex = false;
 }
 
 pub fn applyFilePreviewFindEdit(model: *Model, edit: canvas.TextInputEvent) void {

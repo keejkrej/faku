@@ -12141,6 +12141,8 @@ test "cmd-r / cmd-l / cmd-[ / cmd-] route by Browser-tab keyboard gate" {
     try testing.expectEqual(Msg.stop, keys.onKey(escape).?);
 
     var model = main.initialModel();
+    const right_panel_session = @import("right_panel_session.zig");
+    defer right_panel_session.freeStores(&model);
     var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
     const port_title = model.selected_title();
     const auth_id = model.session_store[1].id;
@@ -12210,8 +12212,11 @@ test "cmd-r / cmd-l / cmd-[ / cmd-] route by Browser-tab keyboard gate" {
 
     main.update(&model, .history_back, &fx);
     try testing.expectEqualStrings(port_title, model.selected_title());
-    try testing.expectEqualStrings("https://b.example", browser_pane.currentUrl(&model));
+    try testing.expectEqual(@as(usize, 1), browser_pane.occupiedCount(&model));
+    try testing.expectEqualStrings("", browser_pane.committedUrlAt(&model, 0));
     main.update(&model, .{ .select = auth_id }, &fx);
+    try testing.expectEqualStrings("https://b.example", browser_pane.currentUrl(&model));
+    _ = browser_pane.webPanes(&model, &panes);
 
     main.update(&model, .focus_composer, &fx);
     try testing.expect(model.composer_active);
@@ -12231,7 +12236,8 @@ test "cmd-r / cmd-l / cmd-[ / cmd-] route by Browser-tab keyboard gate" {
     try testing.expect(!model.browser_address_active);
     main.update(&model, keys.onKey(cmd_back).?, &fx);
     try testing.expectEqualStrings(port_title, model.selected_title());
-    try testing.expectEqualStrings("https://b.example", browser_pane.currentUrl(&model));
+    try testing.expectEqual(@as(usize, 1), browser_pane.occupiedCount(&model));
+    try testing.expectEqualStrings("", browser_pane.committedUrlAt(&model, 0));
 }
 
 test "escape restores Browser address draft without stopping a live turn" {

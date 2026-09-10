@@ -1,33 +1,42 @@
 //! In-memory per-session right-panel restore (expand + tab +
 //! open/closed + nested Files/Diff list widths + Files/Diff
 //! selection + bounded Files preview editors + Background selected
-//! row).
+//! row + Browser occupancy/histories/active).
 //!
 //! Waku keeps `expanded_paths` / `diff_expanded_paths`,
 //! `active_surface`, `files_selected_path`, `diff_source`,
-//! `diff_selected_file`, `file_editors`, `file_tree_width`, and
-//! `RightPanelSurface::BackgroundWork { key, title }` on
-//! `RightPanelSessionState` and restores via `take_or_closed`
-//! (missing key → empty/collapsed/closed + `DEFAULT_FILE_TREE_WIDTH`
-//! 184). Faku matches that on session switch / New Task / remove:
-//! take the leaving session's live sets into a bounded table keyed
-//! by session id, then restore the destination (or empty). Not
-//! written to `sessions.json`. Cap `max_states` (last-N / LRU when
-//! full) so Zig stays bounded — no HashMap growth. First-cut Files
-//! preview editors are a bounded in-session table keyed by relpath
-//! (cap `max_file_editors` 4, same order of magnitude as Browser /
-//! Terminal slots — not an unbounded HashMap). Each entry is relpath
-//! + draft + disk baseline, capped at the Files preview read window.
-//! Same-session switch-file while dirty/editing upserts the leaving
-//! buffer and restores a stashed path on reopen, without Discard.
-//! Close / hide still park Discard for the active buffer only.
-//! Nested `file_tree_width` (Waku) and Diff file-list
+//! `diff_selected_file`, `file_editors`, `file_tree_width`,
+//! `RightPanelSurface::BackgroundWork { key, title }`, and Browser
+//! / Terminal `surfaces` on `RightPanelSessionState` and restores via
+//! `take_or_closed` (missing key → empty/collapsed/closed +
+//! `DEFAULT_FILE_TREE_WIDTH` 184). Faku matches that on session switch
+//! / New Task / remove: take the leaving session's live sets into a
+//! bounded table keyed by session id, then restore the destination
+//! (or empty). Not written to `sessions.json`. Cap `max_states`
+//! (last-N / LRU when full) so Zig stays bounded — no HashMap growth.
+//! First-cut Files preview editors are a bounded in-session table
+//! keyed by relpath (cap `max_file_editors` 4, same order of magnitude
+//! as Browser / Terminal slots — not an unbounded HashMap). Each
+//! entry is relpath + draft + disk baseline, capped at the Files
+//! preview read window. Same-session switch-file while dirty/editing
+//! upserts the leaving buffer and restores a stashed path on reopen,
+//! without Discard. Close / hide still park Discard for the active
+//! buffer only. Nested `file_tree_width` (Waku) and Diff file-list
 //! width (Faku parallel, same FILE_TREE clamps) restore from this
 //! stash; missing / empty is `DEFAULT_FILE_TREE_WIDTH` 184. Outer
 //! `right_panel_width` stays global. `sessions.json` extras remain
 //! the last-live global fallback for cold start — not per-session
-//! nested widths. Background selected row (`right_panel_background_row_id`)
-//! restores from this stash; missing / empty / stale → 0.
+//! nested widths or Browser occupancy. Background selected row
+//! (`right_panel_background_row_id`) restores from this stash;
+//! missing / empty / stale → 0. Browser occupancy, committed URLs,
+//! history rings/index, and the active index restore from this stash
+//! via `browser_pane.capturePersisted` / `restoreFromPersist` (same
+//! `PersistedSlot` shape as the global extras); missing / cleared is
+//! today's `default_slots` (slot 0 occupied, empty history).
+//! `reload_token` stays runtime-only. Every restore (including
+//! missing-key empty) resets Files preview find/replace (Waku
+//! `reset_file_search_for_session`): close the bar, clear matches, and
+//! clear find + replace buffers.
 //!
 //! Live Files expand still lives on `right_panel_expanded_store` (heap
 //! last-window; `file_mention.clearCache` frees it). Live Diff expand
@@ -53,6 +62,8 @@ const main = @import("main.zig");
 const file_mention = @import("file_mention.zig");
 const review_diff = @import("review_diff.zig");
 const right_panel = @import("right_panel.zig");
+const browser_pane = @import("browser_pane.zig");
+const open_url = @import("open_url.zig");
 
 const Model = main.Model;
 const Effects = main.Effects;
@@ -109,16 +120,30 @@ pub const State = struct {
     /// (`right_panel_background_row_id`). 0 = none. Missing /
     /// cleared slot is 0. Not sessions.json.
     background_row_id: u32 = 0,
+    /// Occupied Browser slots + committed URLs + history rings/index
+    /// (Waku Browser `surfaces`). Same `PersistedSlot` shape as
+    /// `sessions.json` extras `browser_slots` / `browser_histories`;
+    /// not written per-session. Slices point at `browser_url_store` /
+    /// `browser_history_store`. Missing / cleared → `default_slots`.
+    browser_slots: [browser_pane.max_sessions]browser_pane.PersistedSlot = [_]browser_pane.PersistedSlot{.{}} ** browser_pane.max_sessions,
+    browser_active: u8 = 0,
+    browser_present: bool = false,
+    browser_url_store: [browser_pane.max_sessions][]u8 = [_][]u8{&.{}} ** browser_pane.max_sessions,
+    browser_history_store: [browser_pane.max_sessions][browser_pane.max_history][]u8 = [_][browser_pane.max_history][]u8{
+        [_][]u8{&.{}} ** browser_pane.max_history,
+    } ** browser_pane.max_sessions,
 };
 
 /// Copy the live Files + Diff expand sets, tab, panel open/closed,
 /// nested Files-tree / Diff list widths, Files preview path, Diff
-/// selection, dirty/editing Files preview editors, and Background
-/// selected row under `model.selected`. No-op when nothing is
-/// selected. Evicts the least-recently-taken slot when the table is
-/// full of other session ids. The editor table is the whole bounded
-/// map (not a single `files_editor`); take upserts the live preview
-/// without dropping other parked paths.
+/// selection, dirty/editing Files preview editors, Background selected
+/// row, and Browser occupancy / histories / active under
+/// `model.selected`. No-op when nothing is selected. Evicts the
+/// least-recently-taken slot when the table is full of other session
+/// ids. The editor table is the whole bounded map (not a single
+/// `files_editor`); take upserts the live preview without dropping
+/// other parked paths. Browser uses `browser_pane.capturePersisted`
+/// (+ active); `reload_token` is not stashed.
 pub fn take(model: *Model) void {
     const session_id = model.selected;
     if (session_id == 0) return;
@@ -149,23 +174,27 @@ pub fn take(model: *Model) void {
     slot.diff_source = model.review_diff_source;
     slot.diff_source_set = model.review_diff_active or model.right_panel_tab == .diff;
     takeFilesEditor(slot, model);
+    takeBrowser(slot, model);
 }
 
 /// Restore panel open/closed, nested Files-tree / Diff list widths,
 /// tab, Files + Diff expand, Files preview path, Diff selection,
-/// dirty/editing Files preview editors, and Background selected row
-/// for `model.selected`. Missing key is Waku `take_or_closed`:
-/// closed panel, Files tab, collapsed trees, closed preview, empty
-/// editor table, no Diff selection, nested widths 184, Background
-/// row 0. Re-applies expand into the live stores so `clearCache` /
-/// `review_diff.close` on the way in cannot keep the leaving session's
-/// keys. Visibility is applied first via `setOpen` so an open
-/// restore paints through the existing select helpers. Nested
-/// widths land before `applyTab` so Files preview / Diff hunk layouts
-/// use this session's splits. Background row is applied before
-/// `applyTab` so a Background-tab restore can pass that id into
-/// `selectBackground` (including 0, which `selectBackground` itself
-/// does not clear).
+/// dirty/editing Files preview editors, Background selected row, and
+/// Browser occupancy / histories / active for `model.selected`.
+/// Missing key is Waku `take_or_closed`: closed panel, Files tab,
+/// collapsed trees, closed preview, empty editor table, no Diff
+/// selection, nested widths 184, Background row 0, default Browser
+/// (slot 0 occupied, empty history). Re-applies expand into the live
+/// stores so `clearCache` / `review_diff.close` on the way in cannot
+/// keep the leaving session's keys. Visibility is applied first via
+/// `setOpen` so an open restore paints through the existing select
+/// helpers. Nested widths land before `applyTab` so Files preview /
+/// Diff hunk layouts use this session's splits. Background row is
+/// applied before `applyTab` so a Background-tab restore can pass that
+/// id into `selectBackground` (including 0, which `selectBackground`
+/// itself does not clear). Browser `restoreFromPersist` lands before
+/// `applyTab` so a Browser-tab restore parks/snaps the same way a
+/// tab click does. Every restore resets Files preview find/replace.
 pub fn restore(model: *Model, fx: *Effects) void {
     const session_id = model.selected;
     if (session_id == 0) {
@@ -185,6 +214,8 @@ pub fn restore(model: *Model, fx: *Effects) void {
     model.right_panel_session_pending_diff_source = slot.diff_source;
     model.right_panel_session_pending_diff_source_set = slot.diff_source_set;
     right_panel.applyBackgroundRow(model, slot.background_row_id);
+    restoreBrowser(model, slot);
+    right_panel.resetFilePreviewFindForSession(model);
     applyTab(model, fx, slot.tab);
     afterFilesIndexReady(model, fx);
     afterDiffTreeReady(model, fx);
@@ -316,6 +347,7 @@ fn clearSlot(slot: *State) void {
     slot.diff_file_list_width = main.right_panel_default_width;
     slot.background_row_id = 0;
     clearFilesEditor(slot);
+    clearBrowser(slot);
     slot.session_id = 0;
     slot.stamp = 0;
 }
@@ -333,6 +365,8 @@ fn restoreEmpty(model: *Model, fx: *Effects) void {
     applyLiveDiff(model, &.{}, 0);
     clearPending(model);
     right_panel.applyBackgroundRow(model, 0);
+    restoreBrowser(model, null);
+    right_panel.resetFilePreviewFindForSession(model);
     applyTab(model, fx, .files);
 }
 
@@ -406,6 +440,83 @@ fn takeFilesEditor(slot: *State, model: *const Model) void {
         return;
     }
     if (path.len != 0) dropEditorPath(slot, path);
+}
+
+fn takeBrowser(slot: *State, model: *const Model) void {
+    var captured: [browser_pane.max_sessions]browser_pane.PersistedSlot = undefined;
+    browser_pane.capturePersisted(model, &captured);
+    ownBrowserPersisted(slot, &captured);
+    slot.browser_active = @intCast(browser_pane.activeIndex(model));
+    slot.browser_present = true;
+}
+
+fn restoreBrowser(model: *Model, slot: ?*const State) void {
+    const stashed = slot orelse {
+        browser_pane.restoreFromPersist(model, &.{}, 0);
+        return;
+    };
+    if (!stashed.browser_present) {
+        browser_pane.restoreFromPersist(model, &.{}, 0);
+        return;
+    }
+    browser_pane.restoreFromPersist(model, &stashed.browser_slots, stashed.browser_active);
+}
+
+fn ownBrowserPersisted(slot: *State, src: *const [browser_pane.max_sessions]browser_pane.PersistedSlot) void {
+    clearBrowserHeaps(slot);
+    slot.browser_slots = [_]browser_pane.PersistedSlot{.{}} ** browser_pane.max_sessions;
+    for (0..browser_pane.max_sessions) |i| {
+        const src_slot = src[i];
+        if (!src_slot.occupied) continue;
+        var owned = browser_pane.PersistedSlot{
+            .occupied = true,
+            .history_present = src_slot.history_present,
+        };
+        if (cloneUrl(&slot.browser_url_store[i], src_slot.url)) {
+            owned.url = slot.browser_url_store[i];
+        }
+        const count = @min(src_slot.history_count, browser_pane.max_history);
+        var n: usize = 0;
+        var j: usize = 0;
+        while (j < count) : (j += 1) {
+            if (!cloneUrl(&slot.browser_history_store[i][n], src_slot.history_urls[j])) continue;
+            owned.history_urls[n] = slot.browser_history_store[i][n];
+            n += 1;
+        }
+        owned.history_count = n;
+        owned.history_index = if (n == 0) 0 else @min(src_slot.history_index, n - 1);
+        slot.browser_slots[i] = owned;
+    }
+}
+
+fn clearBrowserHeaps(slot: *State) void {
+    for (0..browser_pane.max_sessions) |i| {
+        freeBytes(&slot.browser_url_store[i]);
+        for (0..browser_pane.max_history) |j| {
+            freeBytes(&slot.browser_history_store[i][j]);
+        }
+    }
+}
+
+fn clearBrowser(slot: *State) void {
+    clearBrowserHeaps(slot);
+    slot.browser_slots = [_]browser_pane.PersistedSlot{.{}} ** browser_pane.max_sessions;
+    slot.browser_active = 0;
+    slot.browser_present = false;
+}
+
+fn cloneUrl(dest: *[]u8, src: []const u8) bool {
+    const n = @min(src.len, open_url.max_spawn_url);
+    if (n == 0) {
+        freeBytes(dest);
+        return true;
+    }
+    if (dest.len != n) {
+        freeBytes(dest);
+        dest.* = std.heap.page_allocator.alloc(u8, n) catch return false;
+    }
+    @memcpy(dest.*, src[0..n]);
+    return true;
 }
 
 fn slotForSelected(model: *Model) ?*State {
@@ -1732,5 +1843,194 @@ test "new session and missing key restore empty file editor table" {
     try std.testing.expect(!hasState(&model, session_c));
     try std.testing.expectEqual(@as(u32, 0), filesEditorCountFor(&model, session_c));
     try std.testing.expect(!model.right_panel_file_preview_editing);
+}
+
+fn expectDefaultEmptyBrowser(model: *const Model) !void {
+    try std.testing.expectEqual(@as(usize, 1), browser_pane.occupiedCount(model));
+    try std.testing.expect(model.browser_slots[0].occupied);
+    try std.testing.expect(!model.browser_slots[1].occupied);
+    try std.testing.expect(!model.browser_slots[2].occupied);
+    try std.testing.expect(!model.browser_slots[3].occupied);
+    try std.testing.expectEqual(@as(u8, 0), model.browser_active);
+    try std.testing.expectEqual(@as(usize, 0), model.browser_slots[0].history_count);
+    try std.testing.expectEqualStrings("", browser_pane.committedUrlAt(model, 0));
+}
+
+fn expectFindReset(model: *const Model) !void {
+    try std.testing.expect(!model.file_preview_find_active);
+    try std.testing.expectEqual(@as(u32, 0), model.file_preview_find_match_count);
+    try std.testing.expectEqual(@as(u32, 0), model.file_preview_find_match_index);
+    try std.testing.expectEqual(@as(usize, 0), model.file_preview_find_query().len);
+    try std.testing.expectEqual(@as(usize, 0), model.file_preview_find_replace().len);
+    try std.testing.expect(!model.file_preview_find_replace_visible);
+    try std.testing.expect(!model.file_preview_find_case_sensitive);
+    try std.testing.expect(!model.file_preview_find_whole_word);
+    try std.testing.expect(!model.file_preview_find_use_regex);
+}
+
+test "Browser slots and active round-trip across session switch" {
+    const palette_run = @import("palette_run.zig");
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer freeStores(&model);
+
+    const session_a = model.addSession("browser a", .fx);
+    const session_b = model.addSession("browser b", .fx);
+    model.selected = session_a;
+    model.showRightPanel();
+    model.right_panel_tab = .browser;
+    browser_pane.setDraft(&model, "https://a1.example");
+    browser_pane.commitNavigation(&model);
+    browser_pane.setDraft(&model, "https://a2.example");
+    browser_pane.commitNavigation(&model);
+    browser_pane.reload(&model);
+    try std.testing.expect(model.browser_slots[0].reload_token != 0);
+    browser_pane.newSession(&model);
+    browser_pane.setDraft(&model, "https://b.example");
+    browser_pane.commitNavigation(&model);
+    try std.testing.expectEqual(@as(u8, 1), model.browser_active);
+    try std.testing.expectEqual(@as(usize, 2), browser_pane.occupiedCount(&model));
+    try std.testing.expectEqualStrings("https://a2.example", browser_pane.committedUrlAt(&model, 0));
+    try std.testing.expectEqual(@as(usize, 2), model.browser_slots[0].history_count);
+    try std.testing.expectEqual(@as(usize, 1), model.browser_slots[0].history_index);
+
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    try std.testing.expectEqual(session_b, model.selected);
+    try std.testing.expect(!hasState(&model, session_b));
+    try expectDefaultEmptyBrowser(&model);
+    try std.testing.expectEqual(@as(u64, 0), model.browser_slots[0].reload_token);
+    {
+        var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
+        _ = browser_pane.webPanes(&model, &panes);
+        try std.testing.expect(panes[0].anchor == null);
+        try std.testing.expectEqualStrings(browser_pane.home_url, panes[0].url);
+        try std.testing.expect(panes[1].anchor == null);
+        try std.testing.expectEqualStrings(browser_pane.home_url, panes[1].url);
+    }
+
+    model.showRightPanel();
+    model.right_panel_tab = .browser;
+    browser_pane.setDraft(&model, "https://c.example");
+    browser_pane.commitNavigation(&model);
+    try std.testing.expectEqualStrings("https://c.example", browser_pane.currentUrl(&model));
+
+    palette_run.applySessionSelection(&model, &fx, session_a);
+    try std.testing.expectEqual(session_a, model.selected);
+    try std.testing.expectEqual(@as(u8, 1), model.browser_active);
+    try std.testing.expectEqual(@as(usize, 2), browser_pane.occupiedCount(&model));
+    try std.testing.expect(model.browser_slots[0].occupied);
+    try std.testing.expect(model.browser_slots[1].occupied);
+    try std.testing.expect(!model.browser_slots[2].occupied);
+    try std.testing.expectEqualStrings("https://a2.example", browser_pane.committedUrlAt(&model, 0));
+    try std.testing.expectEqualStrings("https://b.example", browser_pane.currentUrl(&model));
+    try std.testing.expectEqual(@as(usize, 2), model.browser_slots[0].history_count);
+    try std.testing.expectEqual(@as(usize, 1), model.browser_slots[0].history_index);
+    try std.testing.expectEqual(@as(u64, 0), model.browser_slots[0].reload_token);
+    try std.testing.expectEqual(@as(u64, 0), model.browser_slots[1].reload_token);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.browser, model.right_panel_tab);
+    {
+        var panes: [browser_pane.max_sessions]browser_pane.WebViewPane = undefined;
+        _ = browser_pane.webPanes(&model, &panes);
+        try std.testing.expect(panes[0].anchor == null);
+        try std.testing.expectEqualStrings("https://a2.example", panes[0].url);
+        try std.testing.expectEqualStrings(browser_pane.web_pane_anchor, panes[1].anchor orelse "");
+        try std.testing.expectEqualStrings("https://b.example", panes[1].url);
+        try std.testing.expect(panes[2].anchor == null);
+        try std.testing.expectEqualStrings(browser_pane.home_url, panes[2].url);
+    }
+
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    try std.testing.expectEqualStrings("https://c.example", browser_pane.currentUrl(&model));
+    try std.testing.expectEqual(@as(usize, 1), browser_pane.occupiedCount(&model));
+    try std.testing.expectEqual(@as(u8, 0), model.browser_active);
+}
+
+test "missing Browser stash restores default empty slot 0" {
+    const palette_run = @import("palette_run.zig");
+    const session_actions = @import("session_actions.zig");
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer freeStores(&model);
+
+    const session_a = model.addSession("browser miss a", .fx);
+    const session_b = model.addSession("browser miss b", .fx);
+    model.selected = session_a;
+    browser_pane.setDraft(&model, "https://keep.example");
+    browser_pane.commitNavigation(&model);
+    browser_pane.newSession(&model);
+    browser_pane.setDraft(&model, "https://other.example");
+    browser_pane.commitNavigation(&model);
+    try std.testing.expectEqual(@as(usize, 2), browser_pane.occupiedCount(&model));
+
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    try std.testing.expect(!hasState(&model, session_b));
+    try expectDefaultEmptyBrowser(&model);
+    try std.testing.expectEqualStrings("", browser_pane.committedUrlAt(&model, 0));
+    try std.testing.expect(!std.mem.eql(u8, browser_pane.committedUrlAt(&model, 0), "https://keep.example"));
+
+    session_actions.handleNewSession(&model, &fx);
+    try expectDefaultEmptyBrowser(&model);
+
+    palette_run.applySessionSelection(&model, &fx, session_a);
+    try std.testing.expectEqual(@as(usize, 2), browser_pane.occupiedCount(&model));
+    try std.testing.expectEqualStrings("https://other.example", browser_pane.currentUrl(&model));
+
+    drop(&model, session_a);
+    try std.testing.expect(!hasState(&model, session_a));
+    restore(&model, &fx);
+    try expectDefaultEmptyBrowser(&model);
+}
+
+test "Files preview find is inactive and empty after session restore" {
+    const palette_run = @import("palette_run.zig");
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-rps-find-reset-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer right_panel.clearFilePreview(&model);
+    defer freeStores(&model);
+
+    const session_a = model.addSession("find a", .fx);
+    const session_b = model.addSession("find b", .fx);
+    model.selected = session_a;
+    try loadPreviewNote(&model, &fx, project, "foo bar foo\n");
+    right_panel.openFilePreviewFind(&model, true);
+    right_panel.applyFilePreviewFindEdit(&model, .{ .insert_text = "foo" });
+    right_panel.applyFilePreviewFindReplaceEdit(&model, .{ .insert_text = "baz" });
+    right_panel.toggleFilePreviewFindCase(&model);
+    right_panel.toggleFilePreviewFindWholeWord(&model);
+    try std.testing.expect(model.file_preview_find_active);
+    try std.testing.expectEqual(@as(u32, 2), model.file_preview_find_match_count);
+    try std.testing.expectEqualStrings("foo", model.file_preview_find_query());
+    try std.testing.expectEqualStrings("baz", model.file_preview_find_replace());
+    try std.testing.expect(model.file_preview_find_replace_visible);
+    try std.testing.expect(model.file_preview_find_case_sensitive);
+
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    try expectFindReset(&model);
+    try std.testing.expect(!hasState(&model, session_b));
+
+    palette_run.applySessionSelection(&model, &fx, session_a);
+    try expectFindReset(&model);
+    refillPreviewNote(&model, &fx, project);
+    try expectFindReset(&model);
+    try std.testing.expectEqualStrings("note.txt", model.file_preview_path());
 }
 

@@ -29,8 +29,12 @@
 //! Pane URL is the committed history entry, never the address-bar draft.
 //! `sessions.json` extras persist the **active** slot's address draft
 //! (`browser_url`) plus occupied slot committed URLs (`browser_slots`),
-//! history rings (`browser_histories`), and `browser_active`.
-//! `reload_token` stays runtime-only. Empty history still parks on the
+//! history rings (`browser_histories`), and `browser_active` as last-live
+//! cold-start fallback. Session switch / New Task / remove restore
+//! occupancy + histories + active from the in-memory
+//! `right_panel_session` stash (`capturePersisted` / `restoreFromPersist`;
+//! missing → `default_slots`). `reload_token` stays runtime-only. Empty
+//! history still parks on the
 //! scene placeholder `https://example.com` and does not show it.
 //! Enter/Navigate uses Safari/Waku omnibox resolve (explicit schemes,
 //! localhost/IPv4 → `http`, host-like → `https`, else Google search).
@@ -96,8 +100,10 @@ pub const parked_frame = geometry.RectF.init(0, 0, 1, 1);
 /// Per-slot Browser state. Occupied slots keep a live scene webview.
 /// Occupancy, the committed pane URL, history rings, and the active
 /// index persist on `sessions.json` extras (`browser_slots` /
-/// `browser_histories` / `browser_active`); the active address draft
-/// still persists as `browser_url`. `reload_token` stays runtime-only.
+/// `browser_histories` / `browser_active`) as last-live cold-start;
+/// session switch restores them from `right_panel_session`. The active
+/// address draft still persists as `browser_url`. `reload_token` stays
+/// runtime-only.
 pub const Slot = struct {
     occupied: bool = false,
     url_buffer: canvas.TextBuffer(open_url.max_url) = .{},

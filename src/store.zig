@@ -42,9 +42,10 @@
 //! PTY process state stay runtime-only);
 //! Background row is not `sessions.json` (session-switch restore is
 //! the in-memory `right_panel_session` stash, same as Files preview /
-//! directory expands); session-switch panel open/closed and nested
-//! Files-tree / Diff list widths are that same stash, not per-session
-//! JSON; those nested widths still persist as last-live global extras
+//! directory expands / Browser occupancy); session-switch panel
+//! open/closed, nested Files-tree / Diff list widths, and Browser
+//! occupancy are that same stash, not per-session JSON; those nested
+//! widths and Browser extras still persist as last-live global extras
 //! for cold start),
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
