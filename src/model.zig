@@ -1040,7 +1040,8 @@ pub const Model = struct {
     /// tab, panel open/closed, nested Files-tree / Diff list widths,
     /// Files selected path, dirty/editing Files preview editors
     /// (bounded table, cap `right_panel_session.max_file_editors`),
-    /// Diff selected file, Background selected row). Nested widths still
+    /// Diff selected file, Background selected row, Browser occupancy /
+    /// histories / active). Nested widths and Browser occupancy still
     /// persist globally on sessions.json extras for cold start; the
     /// stash overrides them on session switch. Not persisted
     /// per-session to sessions.json this cut.
@@ -1049,11 +1050,11 @@ pub const Model = struct {
     /// Bounded in-memory Files + Diff expand / tab / open/closed /
     /// nested Files-tree / Diff list widths / selection / Files
     /// preview editors (cap `right_panel_session.max_file_editors`) /
-    /// Background selected row stash keyed by
+    /// Background selected row / Browser occupancy stash keyed by
     /// session id. Cap `right_panel_session.max_states` with LRU
     /// eviction; missing key restores closed + Files + collapsed +
-    /// empty selection + nested widths 184 + Background row 0.
-    /// Not sessions.json.
+    /// empty selection + nested widths 184 + Background row 0 +
+    /// default Browser. Not sessions.json.
     right_panel_session_store: [right_panel_session.max_states]right_panel_session.State = [_]right_panel_session.State{.{}} ** right_panel_session.max_states,
     right_panel_session_stamp: u32 = 0,
     /// Pending Files preview relpath when restore ran before the
@@ -1145,8 +1146,11 @@ pub const Model = struct {
     /// poll. Throttles to `file_preview_disk_poll_interval_ms`.
     file_preview_disk_poll_ms: ?i64 = null,
     /// Runtime-only Files preview find/replace. Not sessions.json.
-    /// Query/toggles survive closing the bar (Waku FileSearch); matches
-    /// clear on close, session switch, and file switch (recomputed).
+    /// Query/toggles survive closing the bar (Waku FileSearch). Session
+    /// restore (Waku `reset_file_search_for_session`) closes the bar,
+    /// clears matches, and clears find + replace buffers (toggles reset
+    /// to defaults). Matches also clear on close and file switch
+    /// (recomputed).
     file_preview_find_buffer: canvas.TextBuffer(max_search) = .{},
     file_preview_find_replace_buffer: canvas.TextBuffer(max_search) = .{},
     file_preview_find_active: bool = false,
@@ -1299,8 +1303,10 @@ pub const Model = struct {
     open_url_len: usize = 0,
     /// First-cut Browser multi-session (cap 4, scene `browser-web-0`..`3`).
     /// Occupancy, committed pane URLs, history rings, and `browser_active`
-    /// persist; the **active** slot's address draft still persists as
-    /// `browser_url`. `reload_token` stays runtime-only. Slot 0 starts
+    /// persist globally as last-live `sessions.json` extras; the **active**
+    /// slot's address draft still persists as `browser_url`. Session
+    /// switch restores occupancy from `right_panel_session` (missing →
+    /// `default_slots`). `reload_token` stays runtime-only. Slot 0 starts
     /// occupied. `browser_active` is the active `web_panes` slot (snapped
     /// only when that slot has a committed page).
     browser_slots: [browser_pane.max_sessions]browser_pane.Slot = browser_pane.default_slots,
