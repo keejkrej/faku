@@ -616,9 +616,8 @@ single-entry restore). Occupied Terminal
 slots and the active index persist (`terminal_slots` boolean array,
 cap 4, plus `terminal_active`; missing / empty `terminal_slots` keeps
 today's lazy single spawn). `reload_token` stays runtime-only (typing the address bar
-does not navigate). Background row selection and dirty Files preview
-buffers stay runtime-only this cut. Directory expands, the live tab,
-Files selected preview path, and Diff selected file (plus `diff_source`
+does not navigate). Background row selection stays runtime-only this cut. Directory expands, the live tab,
+Files selected preview path, dirty/editing Files preview buffers, and Diff selected file (plus `diff_source`
 when Compare was active or Diff was showing) restore from an in-memory
 per-session stash (Waku `RightPanelSessionState::take_or_closed` on
 switch / New Task / remove; cap last 16 session ids with LRU; not

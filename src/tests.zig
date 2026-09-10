@@ -9651,19 +9651,34 @@ test "Files preview dirty Close shows discard confirm; Keep editing and Discard"
     try testing.expect(model.file_preview_discard_confirm());
     main.update(&model, .file_preview_keep_editing, &fx);
 
+    const right_panel_session = @import("right_panel_session.zig");
+    defer right_panel_session.freeStores(&model);
+
     main.update(&model, .{ .select = second }, &fx);
+    try testing.expectEqual(second, model.selected);
+    try testing.expect(!model.file_preview_discard_confirm());
+    try testing.expect(!model.right_panel_file_preview_open());
+
+    main.update(&model, .{ .select = first }, &fx);
+    file_mention.applyStdoutPaths(&model, "a.txt\nb.txt\n");
+    right_panel_session.afterFilesIndexReady(&model, &fx);
     try testing.expectEqual(first, model.selected);
-    try testing.expect(model.file_preview_discard_confirm());
-    main.update(&model, .file_preview_keep_editing, &fx);
-    try testing.expectEqual(first, model.selected);
+    try testing.expect(model.file_preview_dirty());
+    try testing.expectEqualStrings("aaa\nx", model.file_preview_draft());
 
     main.update(&model, .new_session, &fx);
-    try testing.expectEqual(first, model.selected);
-    try testing.expectEqual(@as(u32, 2), model.session_count);
-    try testing.expect(model.file_preview_discard_confirm());
-    main.update(&model, .file_preview_keep_editing, &fx);
+    try testing.expect(model.selected != first);
+    try testing.expectEqual(@as(u32, 3), model.session_count);
+    try testing.expect(!model.file_preview_discard_confirm());
+    try testing.expect(!model.right_panel_file_preview_open());
 
+    main.update(&model, .{ .select = first }, &fx);
+    file_mention.applyStdoutPaths(&model, "a.txt\nb.txt\n");
+    right_panel_session.afterFilesIndexReady(&model, &fx);
+    try testing.expect(model.file_preview_dirty());
     main.update(&model, .close_right_panel_file_preview, &fx);
+    try testing.expect(model.right_panel_file_preview_open());
+    try testing.expect(model.file_preview_discard_confirm());
     main.update(&model, .file_preview_discard, &fx);
     try testing.expect(!model.right_panel_file_preview_open());
     try testing.expect(!model.file_preview_dirty());
