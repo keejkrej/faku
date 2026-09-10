@@ -38,6 +38,10 @@ pub const macos_bin = "open";
 pub const linux_bin = "xdg-open";
 pub const windows_bin = "explorer.exe";
 
+/// Absolute reveal target: session `project_path` or an outside-project
+/// markdown-link path / its parent directory. Matches `open_editor.max_open_path`.
+pub const max_reveal_path = main.max_project_path + 256;
+
 pub const Tool = enum { open, xdg_open, explorer };
 
 const argv_len: usize = 2;
@@ -137,6 +141,49 @@ pub fn startRevealFolder(model: *Model, fx: *Effects) void {
         .argv = argvFor(path, &argv_buf),
         .on_exit = Effects.exitMsg(.fx_exit),
     });
+}
+
+pub const RevealPathOutcome = enum { spawned, live, missing_bin, no_path };
+
+fn parentDirectory(path: []const u8) []const u8 {
+    const trimmed = std.mem.trimEnd(u8, path, "/\\");
+    if (trimmed.len == 0) return "";
+    if (std.mem.lastIndexOfAny(u8, trimmed, "/\\")) |idx| {
+        if (idx == 0) return trimmed[0..1];
+        return trimmed[0..idx];
+    }
+    return "";
+}
+
+/// Directory `open` / `xdg-open` / Explorer can show. Files reveal their
+/// parent directory. Missing local parents are a miss (daemon-only).
+fn revealTargetDir(io: std.Io, path: []const u8) ?[]const u8 {
+    if (main.directoryExists(io, path)) return path;
+    const parent = parentDirectory(path);
+    if (parent.len == 0) return null;
+    if (!main.directoryExists(io, parent)) return null;
+    return parent;
+}
+
+/// One-shot OS file-manager reveal of an absolute path (or its parent
+/// directory). Same sidecar as `startRevealFolder`. Does not set window
+/// status — callers (markdown Preview) paint their own muted line.
+pub fn startRevealPath(model: *Model, fx: *Effects, path: []const u8) RevealPathOutcome {
+    if (model.reveal_folder_live) return .live;
+    const trimmed = std.mem.trim(u8, path, " \t\r\n");
+    if (trimmed.len == 0 or !std.fs.path.isAbsolute(trimmed)) return .no_path;
+    const io = model.store_io orelse return .no_path;
+    const target = revealTargetDir(io, trimmed) orelse return .no_path;
+    if (hostBin() == null) return .missing_bin;
+    main.writeFixed(&model.reveal_folder_path_storage, &model.reveal_folder_path_len, target);
+    model.reveal_folder_live = true;
+    var argv_buf: [argv_len][]const u8 = undefined;
+    fx.spawn(.{
+        .key = reveal_folder_key,
+        .argv = argvFor(model.reveal_folder_path_storage[0..model.reveal_folder_path_len], &argv_buf),
+        .on_exit = Effects.exitMsg(.fx_exit),
+    });
+    return .spawned;
 }
 
 fn isMissingRevealExit(exit: native_sdk.EffectExit) bool {

@@ -212,6 +212,23 @@ fn storePath(model: *Model, path: []const u8) void {
     model.file_mention_count += 1;
 }
 
+/// Cached file id for a workspace-relative path, inserting when missing
+/// so Files preview can open a markdown link the tree has not listed yet.
+pub fn fileIdForRelpath(model: *Model, relpath: []const u8) ?u32 {
+    const rel = std.mem.trim(u8, relpath, "/");
+    if (rel.len == 0 or rel.len >= max_file_mention_path) return null;
+    var i: usize = 0;
+    while (i < model.file_mention_count) : (i += 1) {
+        const path = cachedPath(model, i);
+        if (isDirSentinel(path)) continue;
+        if (std.mem.eql(u8, path, rel)) return fileMentionId(i);
+    }
+    const before = model.file_mention_count;
+    storePath(model, rel);
+    if (model.file_mention_count == before) return null;
+    return fileMentionId(model.file_mention_count - 1);
+}
+
 pub fn ensureRightPanelExpandedStore(model: *Model) bool {
     return ensureExpandedStore(model);
 }

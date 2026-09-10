@@ -675,8 +675,10 @@ Cargo.toml → `plain`; Native numbered mode omits the gutter above 128
 logical lines but keeps the source; markdown `.md` / `.markdown` adds
 a runtime-only Preview | Source chip (default Preview paints Native
 `<markdown source>` GFM, Source keeps highlighted `<code>`; http(s)
-links reuse `open_url` OS browser spawn; relative / file links are a
-muted status; no `images=` this cut; mode resets when the preview
+links reuse `open_url` OS browser spawn; relative / `file:` / absolute
+project paths open in Files preview; outside-project paths reveal via
+`reveal_folder`; anchors / mailto stay a muted status; no `images=` this
+cut; mode resets when the preview
 closes / file switches / session clears); first-cut Edit switches a full
 text window to `<textarea>`, Save (or Cmd/Ctrl-S when dirty-editing) prefers hello + daemon
 `WorkspaceOperation::WriteTextFile` when a daemon address is set
@@ -1453,7 +1455,9 @@ Honest gaps this cut does not implement:
   plain. Markdown `.md` / `.markdown` first-cut: runtime-only Preview |
   Source chips (default Preview is Native `<markdown>`; Source is
   highlighted `<code language="markdown">`; http(s) on-link reuses
-  `open_url` OS browser spawn; relative / file links muted; no
+  `open_url` OS browser spawn; relative / `file:` / absolute project
+  paths open in Files preview; outside-project paths reveal via
+  `reveal_folder`; anchors / mailto stay muted; no
   `images=` this cut). First-cut: opening the first Files preview widens the pane
   with Waku `FILE_EDITOR_INITIAL_WIDTH` 500 (wide clamp 280–1000 while
   that preview is open). First-cut: opening Diff / Review widens the pane
