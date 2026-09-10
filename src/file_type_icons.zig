@@ -1,6 +1,9 @@
 //! Material file-type app icons (MIT SVGs under
 //! `src/icons/file-types/`). Registry names are the bare `zig` /
-//! `rust` / `zip` / `audio` / `video` / `settings` / … strings;
+//! `rust` / `zip` / `audio` / `video` / `settings` / `certificate` /
+//! `lockfile` / `exe` / `nginx` / … strings;
+//! (`lockfile` is the Material lockfile glyph from `lock.svg`; chrome
+//! Browser address `app:lock` stays a separate `src/icons/lock.svg`.)
 //! markup and `file_icon` return `app:<name>`. Combined with shell
 //! chrome icons in `shell.app_icons` so the model contract /
 //! `native check` see one table.
@@ -87,6 +90,10 @@ const zip_icon = parse("zip");
 const audio_icon = parse("audio");
 const video_icon = parse("video");
 const settings_icon = parse("settings");
+const certificate_icon = parse("certificate");
+const lockfile_icon = parse("lock");
+const exe_icon = parse("exe");
+const nginx_icon = parse("nginx");
 
 /// Bare names (no `app:` prefix). `file_icon` returns `app:` + these.
 pub const app_icons = [_]canvas.icons.Entry{
@@ -163,6 +170,10 @@ pub const app_icons = [_]canvas.icons.Entry{
     .{ .name = "audio", .icon = &audio_icon },
     .{ .name = "video", .icon = &video_icon },
     .{ .name = "settings", .icon = &settings_icon },
+    .{ .name = "certificate", .icon = &certificate_icon },
+    .{ .name = "lockfile", .icon = &lockfile_icon },
+    .{ .name = "exe", .icon = &exe_icon },
+    .{ .name = "nginx", .icon = &nginx_icon },
 };
 
 pub fn contains(name: []const u8) bool {
@@ -173,7 +184,7 @@ pub fn contains(name: []const u8) bool {
 }
 
 test "file-type app_icons names are unique and parse to shapes" {
-    try std.testing.expectEqual(@as(usize, 73), app_icons.len);
+    try std.testing.expectEqual(@as(usize, 77), app_icons.len);
     var i: usize = 0;
     while (i < app_icons.len) : (i += 1) {
         try std.testing.expect(app_icons[i].icon.shapes.len > 0);
@@ -196,6 +207,11 @@ test "file-type app_icons names are unique and parse to shapes" {
     try std.testing.expect(contains("audio"));
     try std.testing.expect(contains("video"));
     try std.testing.expect(contains("settings"));
+    try std.testing.expect(contains("certificate"));
+    try std.testing.expect(contains("lockfile"));
+    try std.testing.expect(!contains("lock"));
+    try std.testing.expect(contains("exe"));
+    try std.testing.expect(contains("nginx"));
     try std.testing.expect(!contains("kotlin"));
     try std.testing.expect(!contains("graphql"));
     try std.testing.expect(!contains("prettier"));

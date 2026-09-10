@@ -111,6 +111,11 @@ test "registerIcons resolves chrome and file-type app names" {
     try std.testing.expect(canvas.icons.resolve("app:audio") != null);
     try std.testing.expect(canvas.icons.resolve("app:video") != null);
     try std.testing.expect(canvas.icons.resolve("app:settings") != null);
+    try std.testing.expect(canvas.icons.resolve("app:certificate") != null);
+    try std.testing.expect(canvas.icons.resolve("app:lock") != null);
+    try std.testing.expect(canvas.icons.resolve("app:lockfile") != null);
+    try std.testing.expect(canvas.icons.resolve("app:exe") != null);
+    try std.testing.expect(canvas.icons.resolve("app:nginx") != null);
     try std.testing.expect(canvas.icons.find("app:zig") == null);
 }
 
@@ -123,7 +128,7 @@ test "app_icons names and shell window" {
     try std.testing.expectEqualStrings("lock", app_icons[3].name);
     try std.testing.expectEqualStrings("globe", app_icons[4].name);
     try std.testing.expectEqualStrings("zig", app_icons[5].name);
-    try std.testing.expectEqualStrings("settings", app_icons[app_icons.len - 1].name);
+    try std.testing.expectEqualStrings("nginx", app_icons[app_icons.len - 1].name);
     try std.testing.expectEqual(@as(usize, 1), shell_scene.windows.len);
     try std.testing.expectEqualStrings(main_window_label, shell_scene.windows[0].label);
     try std.testing.expectEqual(@as(usize, 5), shell_scene.windows[0].views.len);
@@ -133,4 +138,14 @@ test "app_icons names and shell window" {
     try std.testing.expectEqualStrings(canvas_label, shell_scene.windows[0].views[1].parent.?);
     try std.testing.expectEqualStrings("browser-web-3", shell_scene.windows[0].views[4].label);
     try std.testing.expect(shell_scene.windows[0].views[4].kind == .webview);
+}
+
+test "app_icons chrome and file-type names are unique" {
+    var i: usize = 0;
+    while (i < app_icons.len) : (i += 1) {
+        var j: usize = i + 1;
+        while (j < app_icons.len) : (j += 1) {
+            try std.testing.expect(!std.mem.eql(u8, app_icons[i].name, app_icons[j].name));
+        }
+    }
 }

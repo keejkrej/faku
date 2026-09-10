@@ -2,10 +2,10 @@
 
 This directory contains a curated subset of the
 [Material Icon Theme](https://github.com/PKief/vscode-material-icon-theme)
-file icons (73 SVGs: first-cut coding-agent languages, a
+file icons (77 SVGs: first-cut coding-agent languages, a
 second-cut language/data expansion, a third-cut tooling
-subset, a fourth-cut frameworks/meta subset, plus a fifth-cut
-media/config swap). That project is MIT; see its
+subset, a fourth-cut frameworks/meta subset, a fifth-cut
+media/config swap, plus a sixth-cut cert/lock/exe/nginx). That project is MIT; see its
 [upstream license](https://github.com/PKief/vscode-material-icon-theme/blob/main/LICENSE).
 
 SVG bytes come from the already-curated Waku subset (`egoist/waku`
@@ -13,7 +13,9 @@ SVG bytes come from the already-curated Waku subset (`egoist/waku`
 the full Material catalog. Native's comptime SVG dialect has no
 `style=""`; CSS `fill` / `stroke-width` on those files were promoted
 to presentation attributes so the Material colors still paint. Paths
-and viewBoxes are otherwise unchanged. Waku `kotlin` (gradient
+and viewBoxes are otherwise unchanged. `lock.svg` registers as
+`lockfile` (`app:lockfile`) so it does not collide with chrome Browser
+address `app:lock`. Waku `kotlin` (gradient
 `fill="url(#…)"`), `graphql` (`transform=` on connecting bars),
 `prettier` (`transform=` on the wrapping group), and `nest`
 (`transform=` on the path) are omitted — Native rejects those paints
