@@ -53,6 +53,7 @@ const copy_helpers = @import("copy.zig");
 const right_panel = @import("right_panel.zig");
 const file_preview_images = @import("file_preview_images.zig");
 const file_preview_details = @import("file_preview_details.zig");
+const file_preview_issue_link = @import("file_preview_issue_link.zig");
 
 const Model = main.Model;
 const Msg = main.Msg;
@@ -445,6 +446,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .hide_right_panel => {
             file_preview_images.drop(model, fx);
             file_preview_details.drop(model);
+            file_preview_issue_link.drop(model, fx);
             model.hideRightPanel();
             store.persistLayoutIfPossible(model);
         },
@@ -453,6 +455,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             if (!opening) {
                 file_preview_images.drop(model, fx);
                 file_preview_details.drop(model);
+                file_preview_issue_link.drop(model, fx);
             }
             model.toggleRightPanel();
             if (opening) file_mention.refresh(model, fx);
@@ -474,6 +477,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .close_right_panel_file_preview => {
             file_preview_images.drop(model, fx);
             file_preview_details.drop(model);
+            file_preview_issue_link.drop(model, fx);
             right_panel.closeFilePreview(model);
         },
         .open_right_panel_file_editor => right_panel.openPreviewInEditor(model, fx),
@@ -495,11 +499,13 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 .close_preview => {
                     file_preview_images.drop(model, fx);
                     file_preview_details.drop(model);
+                    file_preview_issue_link.drop(model, fx);
                     right_panel.clearFilePreview(model);
                 },
                 .hide_panel => {
                     file_preview_images.drop(model, fx);
                     file_preview_details.drop(model);
+                    file_preview_issue_link.drop(model, fx);
                     model.hideRightPanel();
                     store.persistLayoutIfPossible(model);
                 },
@@ -523,6 +529,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             right_panel.setFilePreviewMarkdownPreview(model);
             file_preview_details.drop(model);
             file_preview_images.refresh(model, fx);
+            file_preview_issue_link.refresh(model, fx);
         },
         .set_file_preview_markdown_source => {
             right_panel.setFilePreviewMarkdownSource(model);

@@ -102,6 +102,7 @@ const browser_pane = @import("browser_pane.zig");
 const open_editor = @import("open_editor.zig");
 const file_preview_images = @import("file_preview_images.zig");
 const file_preview_details = @import("file_preview_details.zig");
+const file_preview_issue_link = @import("file_preview_issue_link.zig");
 
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
@@ -349,6 +350,10 @@ pub const review_diff_hunk_key_first = review_diff.review_diff_hunk_key_first;
 /// review hunk (520+). Band is 530+. Incremented per scan from
 /// `skills_key_first`.
 pub const skills_key_first = skills.skills_key_first;
+/// One-shot Files Preview `git remote` / `git remote get-url` for
+/// markdown `issue-link-base`. Distinct from skills (530+). Band is
+/// 540+. Incremented per spawn from `file_preview_issue_link_key_first`.
+pub const file_preview_issue_link_key_first = file_preview_issue_link.key_first;
 /// One-shot Settings Providers non-fx `{binary} --help` probes.
 /// Distinct from skills (530+). Band is 600+ `@intFromEnum(id)`
 /// so claude=601 … kimi=608. fx stays on `fx_probe_key` (3).
@@ -539,6 +544,7 @@ test {
     _ = @import("right_panel_session.zig");
     _ = @import("file_preview_images.zig");
     _ = @import("file_preview_details.zig");
+    _ = @import("file_preview_issue_link.zig");
     _ = @import("file_preview_find.zig");
     _ = @import("file_preview_regex.zig");
     _ = @import("maximize_window.zig");

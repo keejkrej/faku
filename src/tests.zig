@@ -9436,6 +9436,7 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<markdown source=\"{file_preview_body}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "images=\"{file_preview_images}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{file_preview_details_expanded}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "issue-link-base=\"{file_preview_issue_link_base}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"file_preview_toggle_details\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-link=\"file_preview_open_url\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"set_file_preview_markdown_preview\"") != null);
@@ -9549,6 +9550,7 @@ test "Files markdown preview defaults to rendered Preview; Source chip flips; ht
         try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-link=\"file_preview_open_url\"") != null);
     }
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{file_preview_details_expanded}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "issue-link-base=\"{file_preview_issue_link_base}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"file_preview_toggle_details\"") != null);
 
     main.update(&model, .set_file_preview_markdown_source, &fx);
@@ -9638,6 +9640,7 @@ test "Files markdown preview details expand via on-details; default collapsed; n
     try testing.expect(findTextContaining(tree.root, "Hidden body") == null);
     try testing.expect(findPressableContaining(tree.root, "▸ More") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "details-expanded=\"{file_preview_details_expanded}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "issue-link-base=\"{file_preview_issue_link_base}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-details=\"file_preview_toggle_details\"") != null);
 
     if (findFilePreviewToggleDetails(tree, tree.root)) |hit| {
