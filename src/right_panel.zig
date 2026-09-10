@@ -167,10 +167,15 @@
 //! unsaved edits (the click is the confirm; no extra dialog chrome).
 //! Open in editor and Close stay. First-cut unsaved discard confirm
 //! ships as inline preview-header chrome (ghost sm buttons, same class
-//! as git commit/branch confirm rows — not a Native modal): switching
-//! files / Close / hide / session switch while dirty parks that action,
-//! keeps the dirty editor open, and asks Discard vs Keep editing.
-//! Discard runs the parked action; Keep editing clears the park.
+//! as git commit/branch confirm rows — not a Native modal): Close /
+//! hide while the active preview is dirty parks that action, keeps
+//! the dirty editor open, and asks Discard vs Keep editing. Same-session
+//! switch-file while dirty/editing stashes the leaving buffer into
+//! the bounded `file_editors` table (cap 4) and opens the new file
+//! without Discard; reopening a stashed path restores that draft.
+//! Session switch / New Task / remove stash-and-proceed the whole
+//! table (Waku `file_editors` take). Discard runs the parked action
+//! and drops only the active buffer; Keep editing clears the park.
 //! Successful Save, Reload, or the buffer matching the loaded body
 //! (dirty becomes false) clears the pending confirm. First-cut live
 //! reload polls the open preview file's `stat` size + mtime on the
@@ -260,17 +265,20 @@
 //! session switch / New Task / remove take-or-closed through
 //! `right_panel_session` (Waku in-memory `RightPanelSessionState`,
 //! not `sessions.json`): expand keys, live tab, panel open/closed,
-//! Files selected preview path, dirty/editing Files preview buffer,
-//! Diff selected file, nested Files-tree width, Diff file-list
-//! width, and Background selected row. Missing stash key restores
-//! closed (Waku `take_or_closed` empty), nested widths 184, and
-//! Background row 0. `sessions.json` extras remain the last-live
+//! Files selected preview path, dirty/editing Files preview editors
+//! (bounded table, cap 4), Diff selected file, nested Files-tree
+//! width, Diff file-list width, and Background selected row. Missing
+//! stash key restores closed (Waku `take_or_closed` empty), nested
+//! widths 184, Background row 0, and an empty editor table.
+//! `sessions.json` extras remain the last-live
 //! global fallback for those nested widths on cold start.
 //! `file_mention.clearCache` still frees the live expand table; restore
 //! re-applies remembered keys afterward. Files preview / Diff
 //! selection re-apply when the
 //! index or Review tree next fills if it was empty at restore; a
-//! stashed dirty/editing buffer is re-applied after that path reopens.
+//! stashed dirty/editing buffer for that path is re-applied after
+//! it reopens. Same-session switch-file parks dirty/editing buffers
+//! in the table without Discard. Active preview stays single-pane.
 
 const std = @import("std");
 const native_sdk = @import("native_sdk");
@@ -287,6 +295,7 @@ const store = @import("store.zig");
 const daemon_proxy = @import("daemon_proxy.zig");
 const protocol = @import("protocol.zig");
 const file_preview_find = @import("file_preview_find.zig");
+const right_panel_session = @import("right_panel_session.zig");
 
 const canvas = native_sdk.canvas;
 
@@ -917,19 +926,22 @@ pub fn discardConfirmOpen(model: *const Model) bool {
 }
 
 /// Session leave / New Task / remove already `take` the live Files
-/// preview into `right_panel_session`, so dirty need not park.
+/// preview into `right_panel_session`. Same-session switch-file
+/// stashes the leaving buffer into the bounded `file_editors`
+/// table. Dirty need not park for those intents.
 fn sessionStashPreservesPreview(intent: PendingDiscard) bool {
     return switch (intent) {
-        .switch_session, .new_session, .remove_session => true,
+        .switch_session, .new_session, .remove_session, .switch_file => true,
         else => false,
     };
 }
 
 /// Park `intent` when the preview is dirty and the action would drop
-/// the buffer with no stash destination (switch file / close / hide).
-/// Session switch / New Task / remove stash-and-proceed (Waku
-/// `file_editors` take). Returns false when the dirty editor must stay
-/// open.
+/// the active buffer with no stash destination (close / hide).
+/// Session switch / New Task / remove stash-and-proceed the table
+/// (Waku `file_editors` take). Same-session switch-file stashes the
+/// leaving editor and proceeds. Returns false when the dirty editor
+/// must stay open.
 pub fn beginDiscardOrPark(model: *Model, intent: PendingDiscard) bool {
     if (intent == .none) return true;
     if (sessionStashPreservesPreview(intent) or !isPreviewDirty(model)) {
@@ -945,11 +957,13 @@ pub fn cancelPendingDiscard(model: *Model) void {
     clearPendingDiscard(model);
 }
 
-/// Discard: drop the dirty buffer so nested paths proceed, and return
-/// the parked intent for the caller to perform. No-op when none is parked.
+/// Discard: drop the active dirty buffer so nested paths proceed, and
+/// return the parked intent for the caller to perform. Other stashed
+/// editors remain. No-op when none is parked.
 pub fn acceptPendingDiscard(model: *Model) PendingDiscard {
     const intent = pendingDiscard(model);
     if (intent == .none) return .none;
+    right_panel_session.dropOpenedFilesEditor(model);
     clearPendingDiscard(model);
     model.right_panel_file_preview_editing = false;
     model.file_preview_edit_buffer.clear();
@@ -995,8 +1009,8 @@ pub fn isPreviewDirty(model: *const Model) bool {
 }
 
 /// Dirty or editing text preview that can be copied into the
-/// per-session stash (Waku `file_editors`). Truncated / binary / error
-/// windows are not recoverable.
+/// per-session `file_editors` table (Waku `file_editors`). Truncated /
+/// binary / error windows are not recoverable.
 pub fn previewEditorStashable(model: *const Model) bool {
     if (!model.right_panel_file_preview_editing) return false;
     return previewTextOk(model) and !model.right_panel_file_preview_truncated;
@@ -1376,6 +1390,8 @@ pub fn selectCachedFile(model: *Model, fx: *Effects, id: u32) void {
 
     if (!beginDiscardOrPark(model, .{ .switch_file = id })) return;
 
+    right_panel_session.stashLivePreview(model, rel);
+
     const first_preview = model.right_panel_file_preview_id == 0;
     const keep_find = model.file_preview_find_active;
     cancelDaemonRead(model, fx);
@@ -1395,6 +1411,7 @@ pub fn selectCachedFile(model: *Model, fx: *Effects, id: u32) void {
     );
     if (keep_find) model.file_preview_find_active = true;
     loadFilePreviewBody(model, fx);
+    right_panel_session.applyOpenedFilesEditor(model);
 }
 
 /// Files-pane preview header: Open in editor at the stored absolute path.
@@ -1698,6 +1715,7 @@ fn adoptSavedPreview(model: *Model, bytes: []const u8) void {
     refreshPreviewDiskFingerprint(model);
     clearPendingDiscard(model);
     recomputeFilePreviewFind(model, .content);
+    right_panel_session.syncOpenedFilesEditor(model);
 }
 
 fn saveFilePreviewLocal(model: *Model, bytes: []const u8) void {
@@ -1820,6 +1838,7 @@ pub fn reloadFilePreview(model: *Model, fx: *Effects) void {
     cancelDaemonSave(model, fx);
     freePreviewBody(model);
     loadFilePreviewBody(model, fx);
+    right_panel_session.syncOpenedFilesEditor(model);
 }
 
 const PreviewDiskFingerprint = struct {
@@ -3423,7 +3442,7 @@ fn dirtyFirstPreview(model: *Model) void {
     applyFilePreviewEdit(model, .{ .insert_text = "x" });
 }
 
-test "dirty preview parks switch / close / hide / keep-editing / discard" {
+test "dirty preview parks close / hide / keep-editing / discard; switch-file stashes" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     var project_buf: [256]u8 = undefined;
@@ -3436,26 +3455,27 @@ test "dirty preview parks switch / close / hide / keep-editing / discard" {
     try loadTwoPreviewNotes(&model, project);
     defer clearFilePreview(&model);
     defer file_mention.clearCache(&model);
+    defer right_panel_session.freeStores(&model);
 
     dirtyFirstPreview(&model);
     try std.testing.expect(model.file_preview_dirty());
     try std.testing.expect(!model.file_preview_discard_confirm());
 
     pickFile(&model, 2);
-    try std.testing.expect(model.file_preview_discard_confirm());
-    try std.testing.expectEqual(PendingDiscard{ .switch_file = 2 }, pendingDiscard(&model));
+    try std.testing.expect(!model.file_preview_discard_confirm());
+    try std.testing.expect(pendingDiscard(&model) == .none);
+    try std.testing.expectEqual(@as(u32, 2), model.right_panel_file_preview_id);
+    try std.testing.expectEqualStrings("bbb\n", model.file_preview_body());
+    try std.testing.expect(!model.file_preview_dirty());
+    try std.testing.expect(right_panel_session.hasFilesEditorPath(&model, id, "a.txt"));
+
+    pickFile(&model, 1);
     try std.testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
+    try std.testing.expect(model.file_preview_dirty());
     try std.testing.expectEqualStrings("aaa\nx", model.file_preview_draft());
     try std.testing.expectEqualStrings("aaa\n", model.file_preview_body());
-
-    cancelPendingDiscard(&model);
     try std.testing.expect(!model.file_preview_discard_confirm());
-    try std.testing.expect(model.file_preview_dirty());
-    try std.testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
-    try std.testing.expectEqualStrings("aaa\nx", model.file_preview_draft());
 
-    pickFile(&model, 2);
-    try std.testing.expectEqual(PendingDiscard{ .switch_file = 2 }, pendingDiscard(&model));
     closeFilePreview(&model);
     try std.testing.expectEqual(PendingDiscard.close_preview, pendingDiscard(&model));
     try std.testing.expect(model.right_panel_file_preview_open());
@@ -3465,6 +3485,7 @@ test "dirty preview parks switch / close / hide / keep-editing / discard" {
     try std.testing.expectEqual(PendingDiscard.close_preview, intent);
     try std.testing.expect(!model.file_preview_dirty());
     try std.testing.expect(!model.file_preview_discard_confirm());
+    try std.testing.expect(!right_panel_session.hasFilesEditorPath(&model, id, "a.txt"));
     closeFilePreview(&model);
     try std.testing.expect(!model.right_panel_file_preview_open());
 
@@ -3488,7 +3509,7 @@ test "dirty preview parks switch / close / hide / keep-editing / discard" {
     try std.testing.expect(!model.right_panel_file_preview_open());
 }
 
-test "dirty preview discard switches file; save and reload clear pending confirm" {
+test "dirty preview switch-file stashes; save and reload clear close confirm" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     var project_buf: [256]u8 = undefined;
@@ -3501,44 +3522,45 @@ test "dirty preview discard switches file; save and reload clear pending confirm
     try loadTwoPreviewNotes(&model, project);
     defer clearFilePreview(&model);
     defer file_mention.clearCache(&model);
+    defer right_panel_session.freeStores(&model);
 
     dirtyFirstPreview(&model);
     pickFile(&model, 2);
-    try std.testing.expectEqual(PendingDiscard{ .switch_file = 2 }, pendingDiscard(&model));
-    const intent = acceptPendingDiscard(&model);
-    try std.testing.expectEqual(PendingDiscard{ .switch_file = 2 }, intent);
-    pickFile(&model, 2);
+    try std.testing.expect(pendingDiscard(&model) == .none);
     try std.testing.expectEqual(@as(u32, 2), model.right_panel_file_preview_id);
     try std.testing.expect(!model.file_preview_dirty());
     try std.testing.expectEqualStrings("bbb\n", model.file_preview_body());
-    try std.testing.expect(pendingDiscard(&model) == .none);
+    try std.testing.expect(right_panel_session.hasFilesEditorPath(&model, id, "a.txt"));
 
     pickFile(&model, 1);
+    try std.testing.expect(model.file_preview_dirty());
+    try std.testing.expectEqualStrings("aaa\nx", model.file_preview_draft());
     startFilePreviewEdit(&model);
     applyFilePreviewEdit(&model, .{ .insert_text = "y" });
-    pickFile(&model, 2);
+    closeFilePreview(&model);
     try std.testing.expect(model.file_preview_discard_confirm());
     savePreview(&model);
     try std.testing.expect(!model.file_preview_dirty());
     try std.testing.expect(!model.file_preview_discard_confirm());
     try std.testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
-    try std.testing.expectEqualStrings("aaa\ny", model.file_preview_body());
+    try std.testing.expectEqualStrings("aaa\nxy", model.file_preview_body());
     try std.testing.expect(pendingDiscard(&model) == .none);
+    try std.testing.expect(!right_panel_session.hasFilesEditorPath(&model, id, "a.txt"));
 
     startFilePreviewEdit(&model);
     applyFilePreviewEdit(&model, .{ .insert_text = "z" });
-    pickFile(&model, 2);
+    closeFilePreview(&model);
     try std.testing.expect(model.file_preview_discard_confirm());
     reloadPreview(&model);
     try std.testing.expect(!model.file_preview_dirty());
     try std.testing.expect(!model.file_preview_discard_confirm());
     try std.testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
-    try std.testing.expectEqualStrings("aaa\ny", model.file_preview_body());
+    try std.testing.expectEqualStrings("aaa\nxy", model.file_preview_body());
     try std.testing.expect(pendingDiscard(&model) == .none);
 
     applyFilePreviewEdit(&model, .{ .insert_text = "q" });
     try std.testing.expect(model.file_preview_dirty());
-    pickFile(&model, 2);
+    closeFilePreview(&model);
     try std.testing.expect(model.file_preview_discard_confirm());
     model.file_preview_edit_buffer.set(model.file_preview_body());
     applyFilePreviewEdit(&model, .{ .insert_text = "" });
@@ -3558,7 +3580,7 @@ test "dirty preview stash-and-switches session without discard park" {
     defer fx.deinit();
     fx.executor = .fake;
 
-    const right_panel_session = @import("right_panel_session.zig");
+    const palette_run = @import("palette_run.zig");
     var model = Model{};
     const first = model.addSession("preview discard first", .fx);
     const second = model.addSession("preview discard second", .fx);
@@ -3569,7 +3591,6 @@ test "dirty preview stash-and-switches session without discard park" {
     defer right_panel_session.freeStores(&model);
 
     dirtyFirstPreview(&model);
-    const palette_run = @import("palette_run.zig");
     palette_run.applySessionSelection(&model, &fx, second);
     try std.testing.expectEqual(second, model.selected);
     try std.testing.expect(!model.right_panel_file_preview_open());
@@ -3591,6 +3612,7 @@ test "clean preview still switches and closes without confirm" {
     try loadTwoPreviewNotes(&model, project);
     defer clearFilePreview(&model);
     defer file_mention.clearCache(&model);
+    defer right_panel_session.freeStores(&model);
 
     pickFile(&model, 1);
     startFilePreviewEdit(&model);
@@ -3598,6 +3620,12 @@ test "clean preview still switches and closes without confirm" {
     pickFile(&model, 2);
     try std.testing.expect(!model.file_preview_discard_confirm());
     try std.testing.expectEqual(@as(u32, 2), model.right_panel_file_preview_id);
+    try std.testing.expect(right_panel_session.hasFilesEditorPath(&model, id, "a.txt"));
+
+    pickFile(&model, 1);
+    try std.testing.expect(model.right_panel_file_preview_editing);
+    try std.testing.expect(!model.file_preview_dirty());
+    try std.testing.expectEqualStrings("aaa\n", model.file_preview_draft());
 
     closeFilePreview(&model);
     try std.testing.expect(!model.right_panel_file_preview_open());

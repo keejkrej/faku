@@ -1,6 +1,7 @@
 //! In-memory per-session right-panel restore (expand + tab +
 //! open/closed + nested Files/Diff list widths + Files/Diff
-//! selection + one Files preview editor + Background selected row).
+//! selection + bounded Files preview editors + Background selected
+//! row).
 //!
 //! Waku keeps `expanded_paths` / `diff_expanded_paths`,
 //! `active_surface`, `files_selected_path`, `diff_source`,
@@ -12,10 +13,15 @@
 //! take the leaving session's live sets into a bounded table keyed
 //! by session id, then restore the destination (or empty). Not
 //! written to `sessions.json`. Cap `max_states` (last-N / LRU when
-//! full) so Zig stays bounded — no HashMap growth. Faku's single
-//! Files preview stashes at most one dirty/editing editor per slot
-//! (relpath + draft + disk baseline), capped at the Files preview
-//! read window. Nested `file_tree_width` (Waku) and Diff file-list
+//! full) so Zig stays bounded — no HashMap growth. First-cut Files
+//! preview editors are a bounded in-session table keyed by relpath
+//! (cap `max_file_editors` 4, same order of magnitude as Browser /
+//! Terminal slots — not an unbounded HashMap). Each entry is relpath
+//! + draft + disk baseline, capped at the Files preview read window.
+//! Same-session switch-file while dirty/editing upserts the leaving
+//! buffer and restores a stashed path on reopen, without Discard.
+//! Close / hide still park Discard for the active buffer only.
+//! Nested `file_tree_width` (Waku) and Diff file-list
 //! width (Faku parallel, same FILE_TREE clamps) restore from this
 //! stash; missing / empty is `DEFAULT_FILE_TREE_WIDTH` 184. Outer
 //! `right_panel_width` stays global. `sessions.json` extras remain
@@ -36,10 +42,11 @@
 //! `refresh` / `review_diff.close` empty those indexes before
 //! restore, so a miss at restore time arms a pending path and
 //! `afterFilesIndexReady` / `afterDiffTreeReady` re-apply when the
-//! next fill lands. A stashed dirty/editing Files preview is re-applied
-//! after that path reopens. Stale / missing path → closed / no
-//! selection (Waku missing-key empty). Diff snapshot bodies stay today's
-//! re-fetch; only selection is re-applied.
+//! next fill lands. A stashed dirty/editing Files preview for that
+//! relpath is re-applied after it reopens; other table entries stay
+//! parked. Stale / missing path drops that entry and closes (Waku
+//! missing-key empty). Diff snapshot bodies stay today's re-fetch;
+//! only selection is re-applied.
 
 const std = @import("std");
 const main = @import("main.zig");
@@ -53,6 +60,20 @@ const CachedPath = file_mention.CachedPath;
 
 /// Matches `model.max_sessions`. Fixed table, not an unbounded map.
 pub const max_states: usize = 16;
+
+/// In-session dirty/editing Files preview editors (Waku
+/// `file_editors`). Cap 4 — same order of magnitude as Browser /
+/// Terminal slots. Not an unbounded HashMap. Heap last-window per
+/// entry (`right_panel.max_file_preview_bytes`). Not sessions.json.
+pub const max_file_editors: usize = 4;
+
+pub const FileEditor = struct {
+    path: CachedPath = .{},
+    stamp: u32 = 0,
+    has_disk: bool = false,
+    draft: []u8 = &.{},
+    disk: []u8 = &.{},
+};
 
 pub const State = struct {
     session_id: u32 = 0,
@@ -72,13 +93,12 @@ pub const State = struct {
     /// default `.branch` from a never-opened Review is not restored
     /// over Diff-tab `ensureDiff`'s Uncommitted default.
     diff_source_set: bool = false,
-    /// Dirty/editing Files preview editor (Waku `file_editors`, one
-    /// buffer in Faku). Heap last-window, cap
-    /// `right_panel.max_file_preview_bytes`. Not sessions.json.
-    files_editor: bool = false,
-    files_editor_has_disk: bool = false,
-    files_editor_draft: []u8 = &.{},
-    files_editor_disk: []u8 = &.{},
+    /// Dirty/editing Files preview editors (Waku `file_editors`).
+    /// Bounded table keyed by relpath, cap `max_file_editors`.
+    /// Heap last-window, cap `right_panel.max_file_preview_bytes`.
+    /// Not sessions.json.
+    files_editors: [max_file_editors]FileEditor = [_]FileEditor{.{}} ** max_file_editors,
+    files_editor_stamp: u32 = 0,
     /// Nested Files-tree width (Waku `file_tree_width`). Default
     /// `DEFAULT_FILE_TREE_WIDTH` 184. Missing / cleared slot is 184.
     file_tree_width: f32 = main.right_panel_default_width,
@@ -93,10 +113,12 @@ pub const State = struct {
 
 /// Copy the live Files + Diff expand sets, tab, panel open/closed,
 /// nested Files-tree / Diff list widths, Files preview path, Diff
-/// selection, dirty/editing Files preview editor, and Background
+/// selection, dirty/editing Files preview editors, and Background
 /// selected row under `model.selected`. No-op when nothing is
 /// selected. Evicts the least-recently-taken slot when the table is
-/// full of other session ids.
+/// full of other session ids. The editor table is the whole bounded
+/// map (not a single `files_editor`); take upserts the live preview
+/// without dropping other parked paths.
 pub fn take(model: *Model) void {
     const session_id = model.selected;
     if (session_id == 0) return;
@@ -131,18 +153,19 @@ pub fn take(model: *Model) void {
 
 /// Restore panel open/closed, nested Files-tree / Diff list widths,
 /// tab, Files + Diff expand, Files preview path, Diff selection,
-/// dirty/editing Files preview editor, and Background selected row
+/// dirty/editing Files preview editors, and Background selected row
 /// for `model.selected`. Missing key is Waku `take_or_closed`:
-/// closed panel, Files tab, collapsed trees, closed preview, no
-/// Diff selection, nested widths 184, Background row 0. Re-applies
-/// expand into the live stores so `clearCache` / `review_diff.close`
-/// on the way in cannot keep the leaving session's keys. Visibility
-/// is applied first via `setOpen` so an open restore paints through
-/// the existing select helpers. Nested widths land before `applyTab`
-/// so Files preview / Diff hunk layouts use this session's splits.
-/// Background row is applied before `applyTab` so a Background-tab
-/// restore can pass that id into `selectBackground` (including 0,
-/// which `selectBackground` itself does not clear).
+/// closed panel, Files tab, collapsed trees, closed preview, empty
+/// editor table, no Diff selection, nested widths 184, Background
+/// row 0. Re-applies expand into the live stores so `clearCache` /
+/// `review_diff.close` on the way in cannot keep the leaving session's
+/// keys. Visibility is applied first via `setOpen` so an open
+/// restore paints through the existing select helpers. Nested
+/// widths land before `applyTab` so Files preview / Diff hunk layouts
+/// use this session's splits. Background row is applied before
+/// `applyTab` so a Background-tab restore can pass that id into
+/// `selectBackground` (including 0, which `selectBackground` itself
+/// does not clear).
 pub fn restore(model: *Model, fx: *Effects) void {
     const session_id = model.selected;
     if (session_id == 0) {
@@ -182,7 +205,7 @@ pub fn afterFilesIndexReady(model: *Model, fx: *Effects) void {
     const id = fileIdForRelpath(model, path) orelse {
         model.right_panel_session_pending_files = .{};
         right_panel.clearFilePreview(model);
-        clearFilesEditorForSelected(model);
+        dropEditorForPath(model, path);
         return;
     };
     right_panel.clearFilePreview(model);
@@ -192,7 +215,7 @@ pub fn afterFilesIndexReady(model: *Model, fx: *Effects) void {
         model.right_panel_session_pending_files = .{};
         return;
     }
-    applyStashedFilesEditor(model);
+    applyOpenedFilesEditor(model);
 }
 
 /// Re-select a pending Diff file after the Review tree fills
@@ -323,39 +346,179 @@ fn applyNestedListWidths(model: *Model, file_tree_width: f32, diff_file_list_wid
     model.right_panel_diff_file_list_width = fittedNestedListWidth(model, diff_file_list_width);
 }
 
-fn takeFilesEditor(slot: *State, model: *const Model) void {
-    clearFilesEditor(slot);
+/// Upsert the live dirty/editing preview into the current session's
+/// table. Same-session switch-file calls this before opening the
+/// destination so Discard is not required. Evicts the oldest other
+/// path when the table is full — never drops `protect_path`.
+pub fn stashLivePreview(model: *Model, protect_path: []const u8) void {
     if (!right_panel.previewEditorStashable(model)) return;
-    if (!cloneBytes(&slot.files_editor_draft, model.file_preview_draft())) return;
-    slot.files_editor_has_disk = cloneBytes(&slot.files_editor_disk, model.file_preview_body());
-    slot.files_editor = true;
+    const path = model.file_preview_path();
+    if (path.len == 0) return;
+    const slot = slotForSelected(model) orelse return;
+    upsertEditor(slot, path, model.file_preview_draft(), model.file_preview_body(), protect_path);
 }
 
-fn applyStashedFilesEditor(model: *Model) void {
+/// Re-apply a table entry for the open preview path. No-op when that
+/// relpath is missing (Waku HashMap miss → today's disk load).
+pub fn applyOpenedFilesEditor(model: *Model) void {
     const slot = slotById(model, model.selected) orelse return;
-    if (!slot.files_editor) return;
     const opened = model.file_preview_path();
-    const remembered = slot.files_selected.text();
-    if (opened.len == 0 or !std.mem.eql(u8, opened, remembered)) return;
-    const disk: ?[]const u8 = if (slot.files_editor_has_disk) slot.files_editor_disk else null;
-    right_panel.applyRestoredPreviewEditor(model, slot.files_editor_draft, disk);
+    const ed = editorByPath(slot, opened) orelse return;
+    const disk: ?[]const u8 = if (ed.has_disk) ed.disk else null;
+    right_panel.applyRestoredPreviewEditor(model, ed.draft, disk);
+    ed.stamp = bumpEditorStamp(slot);
 }
 
-fn clearFilesEditorForSelected(model: *Model) void {
+/// Drop the open preview's table entry. Discard of the active buffer
+/// uses this so other parked editors remain.
+pub fn dropOpenedFilesEditor(model: *Model) void {
+    dropEditorForPath(model, model.file_preview_path());
+}
+
+/// After Save / Reload: upsert when still stashable, else drop this
+/// path so a stale dirty draft cannot resurrect.
+pub fn syncOpenedFilesEditor(model: *Model) void {
+    if (right_panel.previewEditorStashable(model)) {
+        stashLivePreview(model, model.file_preview_path());
+        return;
+    }
+    dropOpenedFilesEditor(model);
+}
+
+pub fn hasFilesEditor(model: *const Model, session_id: u32) bool {
+    return filesEditorCountFor(model, session_id) != 0;
+}
+
+pub fn hasFilesEditorPath(model: *const Model, session_id: u32, path: []const u8) bool {
+    const slot = slotByIdConst(model, session_id) orelse return false;
+    return editorByPathConst(slot, path) != null;
+}
+
+pub fn filesEditorCountFor(model: *const Model, session_id: u32) u32 {
+    const slot = slotByIdConst(model, session_id) orelse return 0;
+    return filesEditorCount(slot);
+}
+
+fn takeFilesEditor(slot: *State, model: *const Model) void {
+    const path = liveFilesSelectedPath(model);
+    if (right_panel.previewEditorStashable(model)) {
+        upsertEditor(slot, path, model.file_preview_draft(), model.file_preview_body(), path);
+        return;
+    }
+    if (path.len != 0) dropEditorPath(slot, path);
+}
+
+fn slotForSelected(model: *Model) ?*State {
+    const session_id = model.selected;
+    if (session_id == 0) return null;
+    const slot = slotForTake(model, session_id) orelse return null;
+    if (slot.session_id != session_id) {
+        slot.session_id = session_id;
+        slot.stamp = bumpStamp(model);
+    }
+    return slot;
+}
+
+fn dropEditorForPath(model: *Model, path: []const u8) void {
     const slot = slotById(model, model.selected) orelse return;
-    clearFilesEditor(slot);
+    dropEditorPath(slot, path);
+}
+
+fn editorOccupied(ed: *const FileEditor) bool {
+    return ed.path.text().len != 0;
+}
+
+fn editorByPath(slot: *State, path: []const u8) ?*FileEditor {
+    if (path.len == 0) return null;
+    for (&slot.files_editors) |*ed| {
+        if (std.mem.eql(u8, ed.path.text(), path)) return ed;
+    }
+    return null;
+}
+
+fn editorByPathConst(slot: *const State, path: []const u8) ?*const FileEditor {
+    if (path.len == 0) return null;
+    for (&slot.files_editors) |*ed| {
+        if (std.mem.eql(u8, ed.path.text(), path)) return ed;
+    }
+    return null;
+}
+
+fn emptyEditor(slot: *State) ?*FileEditor {
+    for (&slot.files_editors) |*ed| {
+        if (!editorOccupied(ed)) return ed;
+    }
+    return null;
+}
+
+fn bumpEditorStamp(slot: *State) u32 {
+    slot.files_editor_stamp +%= 1;
+    if (slot.files_editor_stamp == 0) slot.files_editor_stamp = 1;
+    return slot.files_editor_stamp;
+}
+
+fn evictOldestEditor(slot: *State, protect_path: []const u8) ?*FileEditor {
+    var best: ?*FileEditor = null;
+    var best_stamp: u32 = std.math.maxInt(u32);
+    for (&slot.files_editors) |*ed| {
+        if (!editorOccupied(ed)) continue;
+        if (protect_path.len != 0 and std.mem.eql(u8, ed.path.text(), protect_path)) continue;
+        if (ed.stamp <= best_stamp) {
+            best_stamp = ed.stamp;
+            best = ed;
+        }
+    }
+    if (best) |ed| {
+        clearOneEditor(ed);
+        return ed;
+    }
+    return null;
+}
+
+fn upsertEditor(
+    slot: *State,
+    path: []const u8,
+    draft: []const u8,
+    disk: []const u8,
+    protect_path: []const u8,
+) void {
+    if (path.len == 0) return;
+    const ed = editorByPath(slot, path)
+        orelse emptyEditor(slot)
+        orelse evictOldestEditor(slot, protect_path)
+        orelse return;
+    copyPath(&ed.path, path);
+    if (!cloneBytes(&ed.draft, draft)) {
+        clearOneEditor(ed);
+        return;
+    }
+    ed.has_disk = cloneBytes(&ed.disk, disk);
+    ed.stamp = bumpEditorStamp(slot);
+}
+
+fn dropEditorPath(slot: *State, path: []const u8) void {
+    if (editorByPath(slot, path)) |ed| clearOneEditor(ed);
+}
+
+fn filesEditorCount(slot: *const State) u32 {
+    var n: u32 = 0;
+    for (&slot.files_editors) |*ed| {
+        if (editorOccupied(ed)) n += 1;
+    }
+    return n;
+}
+
+fn clearOneEditor(ed: *FileEditor) void {
+    freeBytes(&ed.draft);
+    freeBytes(&ed.disk);
+    ed.* = .{};
 }
 
 fn clearFilesEditor(slot: *State) void {
-    freeBytes(&slot.files_editor_draft);
-    freeBytes(&slot.files_editor_disk);
-    slot.files_editor = false;
-    slot.files_editor_has_disk = false;
-}
-
-fn hasFilesEditor(model: *const Model, session_id: u32) bool {
-    const slot = slotByIdConst(model, session_id) orelse return false;
-    return slot.files_editor;
+    for (&slot.files_editors) |*ed| {
+        clearOneEditor(ed);
+    }
+    slot.files_editor_stamp = 0;
 }
 
 fn copyPath(dest: *CachedPath, src: []const u8) void {
@@ -1289,5 +1452,283 @@ test "stale Background row id restores as 0" {
     palette_run.applySessionSelection(&model, &fx, session_b);
     palette_run.applySessionSelection(&model, &fx, session_a);
     try std.testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+}
+
+fn writeNamedPreview(project: []const u8, name: []const u8, body: []const u8) !void {
+    var abs_buf: [300]u8 = undefined;
+    const abs = try std.fmt.bufPrint(&abs_buf, "{s}/{s}", .{ project, name });
+    try std.Io.Dir.cwd().writeFile(std.testing.io, .{ .sub_path = abs, .data = body });
+}
+
+fn loadLetterPreviews(model: *Model, fx: *Effects, project: []const u8, n: u8) !void {
+    var listing: [80]u8 = undefined;
+    var list_len: usize = 0;
+    var i: u8 = 0;
+    while (i < n) : (i += 1) {
+        var name_buf: [8]u8 = undefined;
+        const name = try std.fmt.bufPrint(&name_buf, "{c}.txt", .{'a' + i});
+        var body_buf: [8]u8 = undefined;
+        const body = try std.fmt.bufPrint(&body_buf, "{c}\n", .{'a' + i});
+        try writeNamedPreview(project, name, body);
+        if (list_len != 0) {
+            listing[list_len] = '\n';
+            list_len += 1;
+        }
+        @memcpy(listing[list_len..][0..name.len], name);
+        list_len += name.len;
+    }
+    listing[list_len] = '\n';
+    list_len += 1;
+    model.store_io = std.testing.io;
+    model.setSelectedProjectPath(project);
+    model.right_panel_open = true;
+    file_mention.applyStdoutPaths(model, listing[0..list_len]);
+    _ = fx;
+}
+
+fn dirtyLetter(model: *Model, fx: *Effects, id: u32, insert: []const u8) void {
+    right_panel.selectCachedFile(model, fx, id);
+    right_panel.startFilePreviewEdit(model);
+    right_panel.applyFilePreviewEdit(model, .{ .insert_text = insert });
+}
+
+test "same-session switch-file stashes dirty editor without discard" {
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-rps-switch-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer right_panel.clearFilePreview(&model);
+    defer freeStores(&model);
+
+    const session = model.addSession("switch stash", .fx);
+    model.selected = session;
+    try loadLetterPreviews(&model, &fx, project, 2);
+    dirtyLetter(&model, &fx, 1, "x");
+    try std.testing.expect(model.file_preview_dirty());
+
+    right_panel.selectCachedFile(&model, &fx, 2);
+    try std.testing.expect(!model.file_preview_discard_confirm());
+    try std.testing.expect(right_panel.pendingDiscard(&model) == .none);
+    try std.testing.expectEqualStrings("b.txt", model.file_preview_path());
+    try std.testing.expect(!model.file_preview_dirty());
+    try std.testing.expect(hasFilesEditorPath(&model, session, "a.txt"));
+    try std.testing.expectEqual(@as(u32, 1), filesEditorCountFor(&model, session));
+}
+
+test "reopening a stashed path restores draft and editing" {
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-rps-reopen-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer right_panel.clearFilePreview(&model);
+    defer freeStores(&model);
+
+    const session = model.addSession("reopen stash", .fx);
+    model.selected = session;
+    try loadLetterPreviews(&model, &fx, project, 2);
+    dirtyLetter(&model, &fx, 1, "x");
+    right_panel.selectCachedFile(&model, &fx, 2);
+    dirtyLetter(&model, &fx, 2, "y");
+    right_panel.selectCachedFile(&model, &fx, 1);
+    try std.testing.expectEqualStrings("a.txt", model.file_preview_path());
+    try std.testing.expect(model.right_panel_file_preview_editing);
+    try std.testing.expect(model.file_preview_dirty());
+    try std.testing.expectEqualStrings("a\nx", model.file_preview_draft());
+    try std.testing.expectEqualStrings("a\n", model.file_preview_body());
+    try std.testing.expect(hasFilesEditorPath(&model, session, "b.txt"));
+}
+
+test "file editor table evicts oldest other path at cap" {
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-rps-editor-cap-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer right_panel.clearFilePreview(&model);
+    defer freeStores(&model);
+
+    const session = model.addSession("editor cap", .fx);
+    model.selected = session;
+    try loadLetterPreviews(&model, &fx, project, 5);
+    try std.testing.expectEqual(@as(usize, 4), max_file_editors);
+
+    dirtyLetter(&model, &fx, 1, "1");
+    right_panel.selectCachedFile(&model, &fx, 2);
+    dirtyLetter(&model, &fx, 2, "2");
+    right_panel.selectCachedFile(&model, &fx, 3);
+    dirtyLetter(&model, &fx, 3, "3");
+    right_panel.selectCachedFile(&model, &fx, 4);
+    dirtyLetter(&model, &fx, 4, "4");
+    right_panel.selectCachedFile(&model, &fx, 5);
+    try std.testing.expectEqual(@as(u32, 4), filesEditorCountFor(&model, session));
+    try std.testing.expect(hasFilesEditorPath(&model, session, "a.txt"));
+    try std.testing.expect(!hasFilesEditorPath(&model, session, "e.txt"));
+
+    dirtyLetter(&model, &fx, 5, "5");
+    right_panel.selectCachedFile(&model, &fx, 1);
+    try std.testing.expectEqualStrings("a.txt", model.file_preview_path());
+    try std.testing.expectEqualStrings("a\n1", model.file_preview_draft());
+    try std.testing.expect(hasFilesEditorPath(&model, session, "a.txt"));
+    try std.testing.expect(!hasFilesEditorPath(&model, session, "b.txt"));
+    try std.testing.expect(hasFilesEditorPath(&model, session, "c.txt"));
+    try std.testing.expect(hasFilesEditorPath(&model, session, "d.txt"));
+    try std.testing.expect(hasFilesEditorPath(&model, session, "e.txt"));
+    try std.testing.expectEqual(@as(u32, 4), filesEditorCountFor(&model, session));
+
+    right_panel.selectCachedFile(&model, &fx, 2);
+    try std.testing.expectEqualStrings("b.txt", model.file_preview_path());
+    try std.testing.expect(!model.file_preview_dirty());
+    try std.testing.expectEqualStrings("b\n", model.file_preview_body());
+}
+
+test "session take/restore copies multiple file editors" {
+    const palette_run = @import("palette_run.zig");
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-rps-multi-take-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer right_panel.clearFilePreview(&model);
+    defer freeStores(&model);
+
+    const session_a = model.addSession("multi a", .fx);
+    const session_b = model.addSession("multi b", .fx);
+    model.selected = session_a;
+    try loadLetterPreviews(&model, &fx, project, 2);
+    dirtyLetter(&model, &fx, 1, "x");
+    right_panel.selectCachedFile(&model, &fx, 2);
+    dirtyLetter(&model, &fx, 2, "y");
+    try std.testing.expectEqual(@as(u32, 2), filesEditorCountFor(&model, session_a));
+
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    try std.testing.expectEqual(@as(u32, 2), filesEditorCountFor(&model, session_a));
+    try std.testing.expect(hasFilesEditorPath(&model, session_a, "a.txt"));
+    try std.testing.expect(hasFilesEditorPath(&model, session_a, "b.txt"));
+    try std.testing.expectEqual(@as(u32, 0), filesEditorCountFor(&model, session_b));
+    try std.testing.expect(!hasFilesEditor(&model, session_b));
+
+    palette_run.applySessionSelection(&model, &fx, session_a);
+    file_mention.applyStdoutPaths(&model, "a.txt\nb.txt\n");
+    afterFilesIndexReady(&model, &fx);
+    try std.testing.expectEqualStrings("b.txt", model.file_preview_path());
+    try std.testing.expectEqualStrings("b\ny", model.file_preview_draft());
+    right_panel.selectCachedFile(&model, &fx, 1);
+    try std.testing.expectEqualStrings("a\nx", model.file_preview_draft());
+}
+
+test "close/hide discard drops active editor only" {
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-rps-discard-active-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer right_panel.clearFilePreview(&model);
+    defer freeStores(&model);
+
+    const session = model.addSession("discard active", .fx);
+    model.selected = session;
+    try loadLetterPreviews(&model, &fx, project, 2);
+    dirtyLetter(&model, &fx, 1, "x");
+    right_panel.selectCachedFile(&model, &fx, 2);
+    dirtyLetter(&model, &fx, 2, "y");
+    try std.testing.expect(hasFilesEditorPath(&model, session, "a.txt"));
+
+    right_panel.closeFilePreview(&model);
+    try std.testing.expectEqual(right_panel.PendingDiscard.close_preview, right_panel.pendingDiscard(&model));
+    try std.testing.expect(model.file_preview_dirty());
+    const intent = right_panel.acceptPendingDiscard(&model);
+    try std.testing.expectEqual(right_panel.PendingDiscard.close_preview, intent);
+    try std.testing.expect(!hasFilesEditorPath(&model, session, "b.txt"));
+    try std.testing.expect(hasFilesEditorPath(&model, session, "a.txt"));
+    right_panel.closeFilePreview(&model);
+    try std.testing.expect(!model.right_panel_file_preview_open());
+
+    right_panel.selectCachedFile(&model, &fx, 1);
+    try std.testing.expectEqualStrings("a\nx", model.file_preview_draft());
+    try std.testing.expect(model.file_preview_dirty());
+
+    model.hideRightPanel();
+    try std.testing.expectEqual(right_panel.PendingDiscard.hide_panel, right_panel.pendingDiscard(&model));
+    _ = right_panel.acceptPendingDiscard(&model);
+    model.hideRightPanel();
+    try std.testing.expect(!hasFilesEditorPath(&model, session, "a.txt"));
+    try std.testing.expectEqual(@as(u32, 0), filesEditorCountFor(&model, session));
+}
+
+test "new session and missing key restore empty file editor table" {
+    const session_actions = @import("session_actions.zig");
+    const palette_run = @import("palette_run.zig");
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var project_buf: [256]u8 = undefined;
+    const project = try std.fmt.bufPrint(&project_buf, "/tmp/faku-rps-editor-empty-{s}", .{tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, project);
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer right_panel.clearFilePreview(&model);
+    defer freeStores(&model);
+
+    const session_a = model.addSession("editor empty a", .fx);
+    model.selected = session_a;
+    try loadLetterPreviews(&model, &fx, project, 2);
+    dirtyLetter(&model, &fx, 1, "x");
+    right_panel.selectCachedFile(&model, &fx, 2);
+    dirtyLetter(&model, &fx, 2, "y");
+
+    session_actions.handleNewSession(&model, &fx);
+    const session_new = model.selected;
+    try std.testing.expect(session_new != session_a);
+    try std.testing.expect(!hasState(&model, session_new));
+    try std.testing.expectEqual(@as(u32, 0), filesEditorCountFor(&model, session_new));
+    try std.testing.expect(hasFilesEditorPath(&model, session_a, "a.txt"));
+    try std.testing.expect(hasFilesEditorPath(&model, session_a, "b.txt"));
+
+    const session_c = model.addSession("editor empty c", .fx);
+    palette_run.applySessionSelection(&model, &fx, session_c);
+    try std.testing.expect(!hasState(&model, session_c));
+    try std.testing.expectEqual(@as(u32, 0), filesEditorCountFor(&model, session_c));
+    try std.testing.expect(!model.right_panel_file_preview_editing);
 }
 

@@ -9608,6 +9608,8 @@ test "Files preview dirty Close shows discard confirm; Keep editing and Discard"
     model.setSelectedProjectPath(project);
     defer right_panel.clearFilePreview(&model);
     defer file_mention.clearCache(&model);
+    const right_panel_session = @import("right_panel_session.zig");
+    defer right_panel_session.freeStores(&model);
 
     main.update(&model, .show_right_panel, &fx);
     file_mention.applyStdoutPaths(&model, "a.txt\nb.txt\n");
@@ -9621,8 +9623,23 @@ test "Files preview dirty Close shows discard confirm; Keep editing and Discard"
     try testing.expect(findByText(tree.root, .text, "Discard unsaved changes?") == null);
 
     main.update(&model, .{ .open_right_panel_file = 2 }, &fx);
-    try testing.expect(model.file_preview_discard_confirm());
+    try testing.expect(!model.file_preview_discard_confirm());
+    try testing.expectEqual(@as(u32, 2), model.right_panel_file_preview_id);
+    try testing.expect(right_panel_session.hasFilesEditorPath(&model, first, "a.txt"));
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Discard") == null);
+    try testing.expect(findByText(tree.root, .text, "Discard unsaved changes?") == null);
+
+    main.update(&model, .{ .open_right_panel_file = 1 }, &fx);
     try testing.expectEqual(@as(u32, 1), model.right_panel_file_preview_id);
+    try testing.expect(model.file_preview_dirty());
+    try testing.expectEqualStrings("aaa\nx", model.file_preview_draft());
+    tree = try buildTree(arena, &model);
+    try testing.expect(findByText(tree.root, .button, "Discard") == null);
+
+    main.update(&model, .close_right_panel_file_preview, &fx);
+    try testing.expect(model.right_panel_file_preview_open());
+    try testing.expect(model.file_preview_discard_confirm());
     tree = try buildTree(arena, &model);
     _ = try expectByText(tree.root, .text, "Discard unsaved changes?");
     _ = try expectButtonMsg(tree, "Discard", .file_preview_discard);
@@ -9650,9 +9667,6 @@ test "Files preview dirty Close shows discard confirm; Keep editing and Discard"
     try testing.expect(model.right_panel_open);
     try testing.expect(model.file_preview_discard_confirm());
     main.update(&model, .file_preview_keep_editing, &fx);
-
-    const right_panel_session = @import("right_panel_session.zig");
-    defer right_panel_session.freeStores(&model);
 
     main.update(&model, .{ .select = second }, &fx);
     try testing.expectEqual(second, model.selected);

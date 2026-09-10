@@ -1038,8 +1038,9 @@ pub const Model = struct {
     /// memory is `right_panel_session_store` (Waku
     /// `RightPanelSessionState::take_or_closed` on switch: expand,
     /// tab, panel open/closed, nested Files-tree / Diff list widths,
-    /// Files selected path, dirty/editing Files preview, Diff
-    /// selected file, Background selected row). Nested widths still
+    /// Files selected path, dirty/editing Files preview editors
+    /// (bounded table, cap `right_panel_session.max_file_editors`),
+    /// Diff selected file, Background selected row). Nested widths still
     /// persist globally on sessions.json extras for cold start; the
     /// stash overrides them on session switch. Not persisted
     /// per-session to sessions.json this cut.
@@ -1047,7 +1048,8 @@ pub const Model = struct {
     right_panel_expanded_count: u32 = 0,
     /// Bounded in-memory Files + Diff expand / tab / open/closed /
     /// nested Files-tree / Diff list widths / selection / Files
-    /// preview editor / Background selected row stash keyed by
+    /// preview editors (cap `right_panel_session.max_file_editors`) /
+    /// Background selected row stash keyed by
     /// session id. Cap `right_panel_session.max_states` with LRU
     /// eviction; missing key restores closed + Files + collapsed +
     /// empty selection + nested widths 184 + Background row 0.
