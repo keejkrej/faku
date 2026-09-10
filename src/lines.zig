@@ -136,11 +136,11 @@ pub fn handleFxLine(model: *Model, fx: *Effects, line: native_sdk.EffectLine) vo
         return;
     }
     if (model.file_preview_save_key != 0 and line.key == model.file_preview_save_key) {
-        right_panel.applyDaemonSaveLine(model, line);
+        right_panel.applyDaemonSaveLine(model, fx, line);
         return;
     }
     if (model.file_preview_key != 0 and line.key == model.file_preview_key) {
-        right_panel.applyDaemonLine(model, line);
+        right_panel.applyDaemonLine(model, fx, line);
         return;
     }
     if (model.skill_key != 0 and line.key == model.skill_key) {

@@ -9421,6 +9421,7 @@ test "right panel Files list reads file_mention cache and derived dirs" {
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "file_preview_discard_confirm") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "text=\"{file_preview_draft}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "<markdown source=\"{file_preview_body}\"") != null);
+    try testing.expect(std.mem.indexOf(u8, main.app_markup, "images=\"{file_preview_images}\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-link=\"file_preview_open_url\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"set_file_preview_markdown_preview\"") != null);
     try testing.expect(std.mem.indexOf(u8, main.app_markup, "on-press=\"set_file_preview_markdown_source\"") != null);
