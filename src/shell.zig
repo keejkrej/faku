@@ -130,6 +130,9 @@ test "registerIcons resolves chrome and file-type app names" {
     try std.testing.expect(canvas.icons.resolve("app:xaml") != null);
     try std.testing.expect(canvas.icons.resolve("app:diff") != null);
     try std.testing.expect(canvas.icons.resolve("app:file") != null);
+    try std.testing.expect(canvas.icons.resolve("app:julia") != null);
+    try std.testing.expect(canvas.icons.resolve("app:prettier") != null);
+    try std.testing.expect(canvas.icons.resolve("app:kotlin") != null);
     try std.testing.expect(canvas.icons.find("app:zig") == null);
 }
 

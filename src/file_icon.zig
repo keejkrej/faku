@@ -9,7 +9,8 @@
 //! `app:exe` / `app:nginx` / `app:cmake` / `app:coffee` / `app:gitlab` /
 //! `app:gradle` / `app:kubernetes` / `app:tex` / `app:crystal` /
 //! `app:elm` / `app:erlang` / `app:haxe` / `app:jinja` / `app:xaml` /
-//! `app:diff` / `app:file`) plus Native built-ins for directories
+//! `app:diff` / `app:file` / `app:julia` / `app:prettier` /
+//! `app:kotlin`) plus Native built-ins for directories
 //! (`folder` / `folder-open`) and unknown files (`app:file`). Diff tree
 //! rows, the selected-file Diff header, and composer `@` mention
 //! rows reuse this same map
@@ -68,6 +69,7 @@ pub fn fileIconForName(name: []const u8) []const u8 {
     if (extensionIs(ext, &.{ "c", "h" })) return app("c");
     if (extensionIs(ext, &.{ "cc", "cpp", "cxx", "hh", "hpp", "hxx" })) return app("cpp");
     if (extensionIs(ext, &.{ "java" })) return app("java");
+    if (extensionIs(ext, &.{ "kt", "kts" })) return app("kotlin");
     if (extensionIs(ext, &.{ "rb" })) return app("ruby");
     if (extensionIs(ext, &.{ "php" })) return app("php");
     if (extensionIs(ext, &.{ "swift" })) return app("swift");
@@ -99,6 +101,7 @@ pub fn fileIconForName(name: []const u8) []const u8 {
     if (extensionIs(ext, &.{ "erl", "hrl" })) return app("erlang");
     if (extensionIs(ext, &.{ "hx", "hxml" })) return app("haxe");
     if (extensionIs(ext, &.{ "jinja", "jinja2", "j2" })) return app("jinja");
+    if (extensionIs(ext, &.{ "jl" })) return app("julia");
     if (extensionIs(ext, &.{ "xaml" })) return app("xaml");
     if (extensionIs(ext, &.{ "diff", "patch" })) return app("diff");
     if (extensionIs(ext, &.{ "ini", "cfg", "conf", "config", "toml" })) return app("settings");
@@ -140,6 +143,8 @@ fn basenameSpecial(name: []const u8) ?[]const u8 {
     if (startsWithIgnoreCase(name, "astro.config.")) return app("astro");
     if (startsWithIgnoreCase(name, ".eslint") or startsWithIgnoreCase(name, "eslint.config."))
         return app("eslint");
+    if (startsWithIgnoreCase(name, ".prettier") or startsWithIgnoreCase(name, "prettier.config."))
+        return app("prettier");
     if (startsWithIgnoreCase(name, "biome.json")) return app("biome");
     if (startsWithIgnoreCase(name, ".babel") or startsWithIgnoreCase(name, "babel.config."))
         return app("babel");
@@ -469,7 +474,7 @@ test "fileIconForName maps seventh-cut cmake coffee gitlab gradle kubernetes tex
     try std.testing.expectEqualStrings("app:gradle", fileIconForName("BUILD.GRADLE"));
     try std.testing.expectEqualStrings("app:file", fileIconForName("lib.gradle"));
     try std.testing.expectEqualStrings("app:file", fileIconForName("gradle.properties"));
-    try std.testing.expectEqualStrings("app:file", fileIconForName("settings.gradle.kts"));
+    try std.testing.expectEqualStrings("app:kotlin", fileIconForName("settings.gradle.kts"));
 
     try std.testing.expectEqualStrings("app:kubernetes", fileIconForName("kustomization.yaml"));
     try std.testing.expectEqualStrings("app:kubernetes", fileIconForName("kustomization.yml"));
@@ -511,11 +516,8 @@ test "fileIconForName framework mappings are case-insensitive" {
 test "fileIconForName unknown files use app:file" {
     try std.testing.expectEqualStrings("app:file", fileIconForName("unknown.data"));
     try std.testing.expectEqualStrings("app:file", fileIconForName("notes.txt"));
-    try std.testing.expectEqualStrings("app:file", fileIconForName("Main.kt"));
-    try std.testing.expectEqualStrings("app:file", fileIconForName("build.kts"));
     try std.testing.expectEqualStrings("app:file", fileIconForName("schema.graphql"));
     try std.testing.expectEqualStrings("app:file", fileIconForName("query.gql"));
-    try std.testing.expectEqualStrings("app:file", fileIconForName("main.jl"));
     try std.testing.expectEqualStrings("app:file", fileIconForName("index.pug"));
 }
 
@@ -548,8 +550,30 @@ test "fileIconForName maps eighth-cut crystal elm erlang haxe jinja xaml diff fi
     try std.testing.expectEqualStrings("app:diff", fileIconForName("CHANGES.DIFF"));
 }
 
+test "fileIconForName maps ninth-cut julia prettier kotlin" {
+    try std.testing.expectEqualStrings("app:julia", fileIconForName("main.jl"));
+    try std.testing.expectEqualStrings("app:julia", fileIconForName("MAIN.JL"));
+
+    try std.testing.expectEqualStrings("app:kotlin", fileIconForName("Main.kt"));
+    try std.testing.expectEqualStrings("app:kotlin", fileIconForName("build.kts"));
+    try std.testing.expectEqualStrings("app:kotlin", fileIconForName("MAIN.KT"));
+    try std.testing.expectEqualStrings("app:kotlin", fileIconForName("settings.gradle.kts"));
+
+    try std.testing.expectEqualStrings("app:prettier", fileIconForName(".prettierrc"));
+    try std.testing.expectEqualStrings("app:prettier", fileIconForName(".prettierrc.json"));
+    try std.testing.expectEqualStrings("app:prettier", fileIconForName(".prettierrc.yml"));
+    try std.testing.expectEqualStrings("app:prettier", fileIconForName(".prettierignore"));
+    try std.testing.expectEqualStrings("app:prettier", fileIconForName("prettier.config.js"));
+    try std.testing.expectEqualStrings("app:prettier", fileIconForName("prettier.config.mjs"));
+    try std.testing.expectEqualStrings("app:prettier", fileIconForName("prettier.config.ts"));
+    try std.testing.expectEqualStrings("app:prettier", fileIconForName(".PRETTIERRC"));
+    try std.testing.expectEqualStrings("app:prettier", fileIconForName("PRETTIER.CONFIG.JS"));
+    try std.testing.expectEqualStrings("app:javascript", fileIconForName("prettier.js"));
+}
+
 test "fileIconForName skipped nest and unmatched stories stay generic" {
     try std.testing.expectEqualStrings("app:json", fileIconForName("nest-cli.json"));
+    try std.testing.expectEqualStrings("app:json", fileIconForName("nest-cli.dev.json"));
     try std.testing.expectEqualStrings("app:typescript", fileIconForName("index.ts"));
     try std.testing.expectEqualStrings("app:javascript", fileIconForName("stories.js"));
     try std.testing.expectEqualStrings("app:settings", fileIconForName("other.toml"));
@@ -586,6 +610,11 @@ test "fileIconForPath uses the basename of a repo-relative path" {
     try std.testing.expectEqualStrings("app:jinja", fileIconForPath("templates/page.j2"));
     try std.testing.expectEqualStrings("app:xaml", fileIconForPath("ui/Window.xaml"));
     try std.testing.expectEqualStrings("app:diff", fileIconForPath("changes.patch"));
+    try std.testing.expectEqualStrings("app:julia", fileIconForPath("src/main.jl"));
+    try std.testing.expectEqualStrings("app:kotlin", fileIconForPath("src/Main.kt"));
+    try std.testing.expectEqualStrings("app:kotlin", fileIconForPath("src/build.kts"));
+    try std.testing.expectEqualStrings("app:prettier", fileIconForPath(".prettierrc"));
+    try std.testing.expectEqualStrings("app:prettier", fileIconForPath("prettier.config.mjs"));
     try std.testing.expectEqualStrings("app:file", fileIconForPath("notes.txt"));
 }
 
@@ -676,6 +705,13 @@ test "files tree icons stay in Native built-ins or registered app: names" {
         fileIconForName("Window.xaml"),
         fileIconForName("changes.diff"),
         fileIconForName("changes.patch"),
+        fileIconForName("main.jl"),
+        fileIconForName("Main.kt"),
+        fileIconForName("build.kts"),
+        fileIconForName(".prettierrc"),
+        fileIconForName(".prettierrc.json"),
+        fileIconForName(".prettierignore"),
+        fileIconForName("prettier.config.js"),
         fileIconForName("unknown.data"),
         fileIconForName("notes.txt"),
     };

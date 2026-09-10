@@ -635,7 +635,8 @@ kustomization / TeX bind Material `app:cmake` / `app:coffee` /
 `app:gitlab` / `app:gradle` / `app:kubernetes` / `app:tex`; Crystal /
 Elm / Erlang / Haxe / Jinja / XAML / unified diffs bind Material
 `app:crystal` / `app:elm` / `app:erlang` / `app:haxe` / `app:jinja` /
-`app:xaml` / `app:diff`; shells bind
+`app:xaml` / `app:diff`; Julia / Prettier / Kotlin bind Material
+`app:julia` / `app:prettier` / `app:kotlin`; shells bind
 Material `app:console` / `app:powershell`).
 Diff tree rows, the selected-file Diff header, and composer
 `@` mention rows reuse this same `file_icon` map (mention dirs stay
@@ -1187,9 +1188,11 @@ live watch.
 
 Honest gaps this cut does not implement:
 
-- Remaining Material / Waku file-type SVGs (nest/kotlin/graphql/prettier
-  Native-dialect skips, clojure/editorconfig/helm transform= skips, julia/pug, …)
-  stay later PRs; this cut vendors an eighth-cut crystal/elm/erlang/haxe/jinja/xaml/diff/file swap
+- Remaining Material / Waku file-type SVGs (nest path `transform=` skip,
+  graphql/clojure/editorconfig/helm/pug transform= skips, …)
+  stay later PRs; this cut vendors a ninth-cut julia/prettier/kotlin
+  dialect-workaround swap (baked group transforms; kotlin solid fills
+  instead of gradients; nest dropped rather than inventing path markup)
 - Full onboarding / OAuth / auto-install (fx install/login copy
   ships; other CLIs get a PATH hint only)
 - Native Pi ACP / `--mode rpc` (json-mode one-shot
