@@ -617,7 +617,7 @@ slots and the active index persist (`terminal_slots` boolean array,
 cap 4, plus `terminal_active`; missing / empty `terminal_slots` keeps
 today's lazy single spawn). `reload_token` stays runtime-only (typing the address bar
 does not navigate). Directory expands, the live tab,
-panel open/closed, nested Files-tree width and Diff file-list width, Files selected preview path, dirty/editing Files preview buffers, Diff selected file (plus `diff_source`
+panel open/closed, nested Files-tree width and Diff file-list width, Files selected preview path, dirty/editing Files preview editors (bounded table, cap 4; same-session switch-file stashes without Discard; Close / hide still park Discard for the active buffer), Diff selected file (plus `diff_source`
 when Compare was active or Diff was showing), and Background selected row restore from an in-memory
 per-session stash (Waku `RightPanelSessionState::take_or_closed` on
 switch / New Task / remove; missing key → closed + `DEFAULT_FILE_TREE_WIDTH` 184 + Background row 0; cap last 16 session ids with LRU; not
