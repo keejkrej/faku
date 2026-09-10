@@ -41,8 +41,10 @@
 //! lazy single spawn on Terminal tab open); scrollback / status / live
 //! PTY process state stay runtime-only);
 //! Background row, Files preview, and directory expands stay
-//! runtime-only; session-switch panel open/closed is the in-memory
-//! `right_panel_session` stash, not per-session JSON),
+//! runtime-only; session-switch panel open/closed and nested Files-tree /
+//! Diff list widths are the in-memory `right_panel_session` stash, not
+//! per-session JSON; those nested widths still persist as last-live
+//! global extras for cold start),
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
 //! `last_project_path` / `last_daemon_address` / `theme_preference` /

@@ -1,20 +1,25 @@
 //! In-memory per-session right-panel restore (expand + tab +
-//! open/closed + Files/Diff selection + one Files preview editor).
+//! open/closed + nested Files/Diff list widths + Files/Diff
+//! selection + one Files preview editor).
 //!
 //! Waku keeps `expanded_paths` / `diff_expanded_paths`,
 //! `active_surface`, `files_selected_path`, `diff_source`,
-//! `diff_selected_file`, and `file_editors` on
+//! `diff_selected_file`, `file_editors`, and `file_tree_width` on
 //! `RightPanelSessionState` and restores via `take_or_closed`
-//! (missing key → empty/collapsed/closed). Faku matches that on
-//! session switch / New Task / remove: take the leaving session's
-//! live sets into a bounded table keyed by session id, then restore
-//! the destination (or empty). Not written to `sessions.json`. Cap
-//! `max_states` (last-N / LRU when full) so Zig stays bounded — no
-//! HashMap growth. Faku's single Files preview stashes at most one
-//! dirty/editing editor per slot (relpath + draft + disk baseline),
-//! capped at the Files preview read window. Nested `file_tree_width`
-//! / Diff list width stay out of this stash (those remain the global
-//! `sessions.json` extras).
+//! (missing key → empty/collapsed/closed + `DEFAULT_FILE_TREE_WIDTH`
+//! 184). Faku matches that on session switch / New Task / remove:
+//! take the leaving session's live sets into a bounded table keyed
+//! by session id, then restore the destination (or empty). Not
+//! written to `sessions.json`. Cap `max_states` (last-N / LRU when
+//! full) so Zig stays bounded — no HashMap growth. Faku's single
+//! Files preview stashes at most one dirty/editing editor per slot
+//! (relpath + draft + disk baseline), capped at the Files preview
+//! read window. Nested `file_tree_width` (Waku) and Diff file-list
+//! width (Faku parallel, same FILE_TREE clamps) restore from this
+//! stash; missing / empty is `DEFAULT_FILE_TREE_WIDTH` 184. Outer
+//! `right_panel_width` stays global. `sessions.json` extras remain
+//! the last-live global fallback for cold start — not per-session
+//! nested widths.
 //!
 //! Live Files expand still lives on `right_panel_expanded_store` (heap
 //! last-window; `file_mention.clearCache` frees it). Live Diff expand
@@ -72,13 +77,20 @@ pub const State = struct {
     files_editor_has_disk: bool = false,
     files_editor_draft: []u8 = &.{},
     files_editor_disk: []u8 = &.{},
+    /// Nested Files-tree width (Waku `file_tree_width`). Default
+    /// `DEFAULT_FILE_TREE_WIDTH` 184. Missing / cleared slot is 184.
+    file_tree_width: f32 = main.right_panel_default_width,
+    /// Nested Diff file-list width (Faku parallel; same FILE_TREE
+    /// clamps). Default 184. Missing / cleared slot is 184.
+    diff_file_list_width: f32 = main.right_panel_default_width,
 };
 
 /// Copy the live Files + Diff expand sets, tab, panel open/closed,
-/// Files preview path, Diff selection, and dirty/editing Files preview
-/// editor under `model.selected`. No-op when nothing is selected.
-/// Evicts the least-recently-taken slot when the table is full of
-/// other session ids.
+/// nested Files-tree / Diff list widths, Files preview path, Diff
+/// selection, and dirty/editing Files preview editor under
+/// `model.selected`. No-op when nothing is selected. Evicts the
+/// least-recently-taken slot when the table is full of other session
+/// ids.
 pub fn take(model: *Model) void {
     const session_id = model.selected;
     if (session_id == 0) return;
@@ -87,6 +99,8 @@ pub fn take(model: *Model) void {
     slot.stamp = bumpStamp(model);
     slot.open = model.right_panel_open;
     slot.tab = model.right_panel_tab;
+    slot.file_tree_width = fittedNestedListWidth(model, model.right_panel_file_tree_width);
+    slot.diff_file_list_width = fittedNestedListWidth(model, model.right_panel_diff_file_list_width);
     clonePaths(
         &slot.files_store,
         &slot.files_count,
@@ -108,14 +122,17 @@ pub fn take(model: *Model) void {
     takeFilesEditor(slot, model);
 }
 
-/// Restore panel open/closed, tab, Files + Diff expand, Files preview
-/// path, Diff selection, and dirty/editing Files preview editor for
-/// `model.selected`. Missing key is Waku `take_or_closed`: closed
-/// panel, Files tab, collapsed trees, closed preview, no Diff
-/// selection. Re-applies expand into the live stores so `clearCache`
-/// / `review_diff.close` on the way in cannot keep the leaving
-/// session's keys. Visibility is applied first via `setOpen` so an
-/// open restore paints through the existing select helpers.
+/// Restore panel open/closed, nested Files-tree / Diff list widths,
+/// tab, Files + Diff expand, Files preview path, Diff selection, and
+/// dirty/editing Files preview editor for `model.selected`. Missing
+/// key is Waku `take_or_closed`: closed panel, Files tab, collapsed
+/// trees, closed preview, no Diff selection, nested widths 184.
+/// Re-applies expand into the live stores so `clearCache` /
+/// `review_diff.close` on the way in cannot keep the leaving session's
+/// keys. Visibility is applied first via `setOpen` so an open
+/// restore paints through the existing select helpers. Nested
+/// widths land before `applyTab` so Files preview / Diff hunk layouts
+/// use this session's splits.
 pub fn restore(model: *Model, fx: *Effects) void {
     const session_id = model.selected;
     if (session_id == 0) {
@@ -127,6 +144,7 @@ pub fn restore(model: *Model, fx: *Effects) void {
         return;
     };
     right_panel.setOpen(model, slot.open);
+    applyNestedListWidths(model, slot.file_tree_width, slot.diff_file_list_width);
     applyLiveFiles(model, slot.files_store, slot.files_count);
     applyLiveDiff(model, slot.diff_store, slot.diff_count);
     copyPath(&model.right_panel_session_pending_files, slot.files_selected.text());
@@ -260,6 +278,8 @@ fn clearSlot(slot: *State) void {
     slot.tab = .files;
     slot.diff_source = .branch;
     slot.diff_source_set = false;
+    slot.file_tree_width = main.right_panel_default_width;
+    slot.diff_file_list_width = main.right_panel_default_width;
     clearFilesEditor(slot);
     slot.session_id = 0;
     slot.stamp = 0;
@@ -273,10 +293,21 @@ fn clearPending(model: *Model) void {
 
 fn restoreEmpty(model: *Model, fx: *Effects) void {
     right_panel.setOpen(model, false);
+    applyNestedListWidths(model, main.right_panel_default_width, main.right_panel_default_width);
     applyLiveFiles(model, &.{}, 0);
     applyLiveDiff(model, &.{}, 0);
     clearPending(model);
     applyTab(model, fx, .files);
+}
+
+fn fittedNestedListWidth(model: *const Model, stored: f32) f32 {
+    const raw = if (stored > 0) stored else main.right_panel_default_width;
+    return right_panel.clampNestedListWidthForPersist(model.right_panel_width, raw);
+}
+
+fn applyNestedListWidths(model: *Model, file_tree_width: f32, diff_file_list_width: f32) void {
+    model.right_panel_file_tree_width = fittedNestedListWidth(model, file_tree_width);
+    model.right_panel_diff_file_list_width = fittedNestedListWidth(model, diff_file_list_width);
 }
 
 fn takeFilesEditor(slot: *State, model: *const Model) void {
@@ -735,7 +766,7 @@ test "panel open round-trip across session switch; missing key is closed" {
     try std.testing.expectEqual(right_panel.Tab.files, model.right_panel_tab);
     try std.testing.expect(!model.review_diff_active);
     try std.testing.expect(!hasState(&model, session_b));
-    try std.testing.expectEqual(@as(f32, 220), model.right_panel_file_tree_width);
+    try std.testing.expectEqual(@as(f32, 184), model.right_panel_file_tree_width);
 
     palette_run.applySessionSelection(&model, &fx, session_a);
     try std.testing.expect(model.right_panel_open);
@@ -794,6 +825,52 @@ test "remove session drops open stash; destination missing is closed" {
     session_actions.handleRemoveSession(&model, &fx, session_a);
     try std.testing.expect(!hasState(&model, session_a));
     try std.testing.expect(!model.right_panel_open);
+}
+
+test "nested Files tree and Diff list width round-trip across session switch" {
+    const palette_run = @import("palette_run.zig");
+    const session_actions = @import("session_actions.zig");
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer freeStores(&model);
+
+    const session_a = model.addSession("width a", .fx);
+    const session_b = model.addSession("width b", .fx);
+    model.selected = session_a;
+    model.right_panel_file_tree_width = 248;
+    model.right_panel_diff_file_list_width = 220;
+
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    try std.testing.expectEqual(session_b, model.selected);
+    try std.testing.expect(!hasState(&model, session_b));
+    try std.testing.expectEqual(@as(f32, 184), model.right_panel_file_tree_width);
+    try std.testing.expectEqual(@as(f32, 184), model.right_panel_diff_file_list_width);
+
+    palette_run.applySessionSelection(&model, &fx, session_a);
+    try std.testing.expectEqual(session_a, model.selected);
+    try std.testing.expectEqual(@as(f32, 248), model.right_panel_file_tree_width);
+    try std.testing.expectEqual(@as(f32, 220), model.right_panel_diff_file_list_width);
+
+    session_actions.handleNewSession(&model, &fx);
+    const session_new = model.selected;
+    try std.testing.expect(session_new != session_a);
+    try std.testing.expect(!hasState(&model, session_new));
+    try std.testing.expectEqual(@as(f32, 184), model.right_panel_file_tree_width);
+    try std.testing.expectEqual(@as(f32, 184), model.right_panel_diff_file_list_width);
+
+    palette_run.applySessionSelection(&model, &fx, session_a);
+    try std.testing.expectEqual(@as(f32, 248), model.right_panel_file_tree_width);
+    try std.testing.expectEqual(@as(f32, 220), model.right_panel_diff_file_list_width);
+
+    drop(&model, session_a);
+    try std.testing.expect(!hasState(&model, session_a));
+    restore(&model, &fx);
+    try std.testing.expectEqual(@as(f32, 184), model.right_panel_file_tree_width);
+    try std.testing.expectEqual(@as(f32, 184), model.right_panel_diff_file_list_width);
 }
 
 test "Files preview path round-trip; stale path closes" {
