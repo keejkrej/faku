@@ -1035,17 +1035,20 @@ pub const Model = struct {
     /// `file_mention.clearCache` frees this live table; per-session
     /// memory is `right_panel_session_store` (Waku
     /// `RightPanelSessionState::take_or_closed` on switch: expand,
-    /// tab, panel open/closed, Files selected path, dirty/editing Files
-    /// preview, Diff selected file). Nested `file_tree_width` stays
-    /// the global sessions.json extra. Not persisted to sessions.json
+    /// tab, panel open/closed, nested Files-tree / Diff list widths,
+    /// Files selected path, dirty/editing Files preview, Diff
+    /// selected file). Nested widths still persist globally on
+    /// sessions.json extras for cold start; the stash overrides them
+    /// on session switch. Not persisted per-session to sessions.json
     /// this cut.
     right_panel_expanded_store: []file_mention.CachedPath = &.{},
     right_panel_expanded_count: u32 = 0,
     /// Bounded in-memory Files + Diff expand / tab / open/closed /
-    /// selection / Files preview editor stash keyed by session id. Cap
+    /// nested Files-tree / Diff list widths / selection / Files
+    /// preview editor stash keyed by session id. Cap
     /// `right_panel_session.max_states` with LRU eviction; missing
-    /// key restores closed + Files + collapsed + empty selection.
-    /// Not sessions.json.
+    /// key restores closed + Files + collapsed + empty selection +
+    /// nested widths 184. Not sessions.json.
     right_panel_session_store: [right_panel_session.max_states]right_panel_session.State = [_]right_panel_session.State{.{}} ** right_panel_session.max_states,
     right_panel_session_stamp: u32 = 0,
     /// Pending Files preview relpath when restore ran before the
@@ -1062,15 +1065,20 @@ pub const Model = struct {
     right_panel_session_pending_diff_source_set: bool = false,
     /// Nested Files-tree width while a preview is open. Waku
     /// `DEFAULT_FILE_TREE_WIDTH` 184. Fitted at layout/resize via
-    /// `fittedFileTreeWidth`. Persisted on sessions.json extras
-    /// (`right_panel_file_tree_width`); missing / 0 keep 184 then
+    /// `fittedFileTreeWidth`. Session switch restores from
+    /// `right_panel_session` (Waku `file_tree_width`; missing → 184).
+    /// Persisted on sessions.json extras (`right_panel_file_tree_width`)
+    /// as last-live global fallback; missing / 0 keep 184 then
     /// FILE_TREE clamp.
     right_panel_file_tree_width: f32 = right_panel_default_width,
     /// Nested Diff file-list width while hunk content sits beside the
     /// list. Reuses FILE_TREE 184 / `fittedFileTreeWidth` (no Waku
-    /// REVIEW_* list-width constant). Persisted on sessions.json extras
-    /// (`right_panel_diff_file_list_width`); missing / 0 keep 184 then
-    /// FILE_TREE clamp.
+    /// REVIEW_* list-width constant; Faku parallel of Waku
+    /// `file_tree_width`). Session switch restores from
+    /// `right_panel_session` (missing → 184). Persisted on
+    /// sessions.json extras (`right_panel_diff_file_list_width`) as
+    /// last-live global fallback; missing / 0 keep 184 then FILE_TREE
+    /// clamp.
     right_panel_diff_file_list_width: f32 = right_panel_default_width,
     /// Runtime-only Files-tab inline preview. 1-based file-mention id;
     /// 0 = tree only. Not persisted to sessions.json this cut.

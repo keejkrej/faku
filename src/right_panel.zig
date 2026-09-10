@@ -228,10 +228,11 @@
 //! Nested Files-tree width (`right_panel_file_tree_width`, default 184)
 //! and nested Diff file-list width (`right_panel_diff_file_list_width`,
 //! default 184; FILE_TREE clamps, not a Waku REVIEW_* list width) persist
-//! on the same extras bag (u32 pixels; missing / 0 keep 184 then
-//! FILE_TREE clamp). Selected Background row, Files preview, directory
-//! expands, and output stay runtime-only. Default `files` when the
-//! panel opens.
+//! on the same extras bag as last-live global fallback (u32 pixels;
+//! missing / 0 keep 184 then FILE_TREE clamp). Session switch restores
+//! them from `right_panel_session` (missing → 184). Selected Background
+//! row, Files preview, directory expands, and output stay runtime-only.
+//! Default `files` when the panel opens.
 //!
 //! When a Files preview is open, the Files tab is a nested horizontal
 //! split: preview/editor on the left (grow) and the working tree on
@@ -257,12 +258,14 @@
 //! session switch / New Task / remove take-or-closed through
 //! `right_panel_session` (Waku in-memory `RightPanelSessionState`,
 //! not `sessions.json`): expand keys, live tab, panel open/closed,
-//! Files selected preview path, dirty/editing Files preview buffer, and
-//! Diff selected file. Missing stash key restores closed (Waku
-//! `take_or_closed` empty). Nested `file_tree_width` / Diff list width
-//! stay the global `sessions.json` extras this cut. `file_mention.clearCache`
-//! still frees the live expand table; restore re-applies remembered
-//! keys afterward. Files preview / Diff selection re-apply when the
+//! Files selected preview path, dirty/editing Files preview buffer,
+//! Diff selected file, nested Files-tree width, and Diff file-list
+//! width. Missing stash key restores closed (Waku `take_or_closed`
+//! empty) and nested widths 184. `sessions.json` extras remain the
+//! last-live global fallback for those nested widths on cold start.
+//! `file_mention.clearCache` still frees the live expand table; restore
+//! re-applies remembered keys afterward. Files preview / Diff
+//! selection re-apply when the
 //! index or Review tree next fills if it was empty at restore; a
 //! stashed dirty/editing buffer is re-applied after that path reopens.
 
