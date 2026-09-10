@@ -275,7 +275,7 @@ fn stripGitSuffix(path: []const u8) []const u8 {
     var p = std.mem.trim(u8, path, "/");
     if (endsWithIgnoreCase(p, ".git")) {
         p = p[0 .. p.len - ".git".len];
-        p = std.mem.trimRight(u8, p, "/");
+        p = std.mem.trimEnd(u8, p, "/");
     }
     return p;
 }
@@ -430,7 +430,7 @@ fn spawnGetUrl(model: *Model, fx: *Effects, cwd: []const u8) void {
 /// and this project has not already been probed. Empty / missing
 /// `project_path` clears the binding. Same-project Source / file
 /// switch keeps a ready (possibly empty) cache.
-pub fn refresh(model: *Model, fx: *Effects) void {
+pub fn refresh(model: *Model, fx: ?*Effects) void {
     if (!probeSupported()) {
         drop(model, fx);
         return;
@@ -452,9 +452,10 @@ pub fn refresh(model: *Model, fx: *Effects) void {
     if ((model.file_preview_issue_link_key != 0 or model.file_preview_issue_link_ready) and probeMatches(model, cwd)) {
         return;
     }
-    cancelInFlight(model, fx);
+    const effects = fx orelse return;
+    cancelInFlight(model, effects);
     clearCache(model);
-    spawnList(model, fx, cwd);
+    spawnList(model, effects, cwd);
 }
 
 fn probeStillCurrent(model: *const Model) bool {
