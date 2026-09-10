@@ -231,7 +231,9 @@
 //! on the same extras bag as last-live global fallback (u32 pixels;
 //! missing / 0 keep 184 then FILE_TREE clamp). Session switch restores
 //! them from `right_panel_session` (missing → 184). Selected Background
-//! row, Files preview, directory expands, and output stay runtime-only.
+//! row restores from that same stash (missing / empty / stale → 0;
+//! not `sessions.json`). Files preview, directory expands, and output
+//! stay runtime-only (preview / expand also stash; output does not).
 //! Default `files` when the panel opens.
 //!
 //! When a Files preview is open, the Files tab is a nested horizontal
@@ -259,10 +261,11 @@
 //! `right_panel_session` (Waku in-memory `RightPanelSessionState`,
 //! not `sessions.json`): expand keys, live tab, panel open/closed,
 //! Files selected preview path, dirty/editing Files preview buffer,
-//! Diff selected file, nested Files-tree width, and Diff file-list
-//! width. Missing stash key restores closed (Waku `take_or_closed`
-//! empty) and nested widths 184. `sessions.json` extras remain the
-//! last-live global fallback for those nested widths on cold start.
+//! Diff selected file, nested Files-tree width, Diff file-list
+//! width, and Background selected row. Missing stash key restores
+//! closed (Waku `take_or_closed` empty), nested widths 184, and
+//! Background row 0. `sessions.json` extras remain the last-live
+//! global fallback for those nested widths on cold start.
 //! `file_mention.clearCache` still frees the live expand table; restore
 //! re-applies remembered keys afterward. Files preview / Diff
 //! selection re-apply when the
@@ -754,13 +757,26 @@ pub fn selectDiff(model: *Model, fx: *Effects) void {
     review_diff.ensureDiff(model, fx);
 }
 
+/// Always write `right_panel_background_row_id`. `0` and ids that
+/// are no longer in the selected session's `background_rows` clear
+/// (same spirit as a Diff pending-path miss). Tab click still uses
+/// `selectBackground(..., 0)` to keep a live selection; session
+/// restore calls this so 0 actually clears a leftover from the
+/// previous session.
+pub fn applyBackgroundRow(model: *Model, row_id: u32) void {
+    const environment_summary = @import("environment_summary.zig");
+    model.right_panel_background_row_id = environment_summary.visibleBackgroundRowId(model, row_id);
+}
+
 /// Background tab. Opens the pane if closed, selects Background, and
 /// bumps width toward 460 when still file-tree-narrow (same 280–1000
 /// clamp as Diff; open bump stays 460, not `REVIEW_INITIAL_WIDTH`).
 /// Non-zero `row_id` stores the selected Environment Summary
 /// row; `0` is the tab click (keep the current selection, empty
-/// state when none / gone). Tab persists via layout extras; the
-/// selected row does not.
+/// state when none / gone). Session restore assigns the field first
+/// via `applyBackgroundRow` (including 0) then passes that id here.
+/// Tab persists via layout extras; the selected row is not
+/// `sessions.json` (per-session `right_panel_session` stash).
 pub fn selectBackground(model: *Model, fx: *Effects, row_id: u32) void {
     leaveDiffSurfaceIfNeeded(model);
     const was_open = model.right_panel_open;
@@ -2241,6 +2257,11 @@ test "tab defaults to files; Diff Background Browser Terminal open the panel; Fi
     try std.testing.expectEqual(@as(f32, 460), model.right_panel_width);
 
     selectBackground(&model, &fx, 0);
+    try std.testing.expectEqual(@as(u32, 1), model.right_panel_background_row_id);
+
+    applyBackgroundRow(&model, 0);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+    selectBackground(&model, &fx, 1);
     try std.testing.expectEqual(@as(u32, 1), model.right_panel_background_row_id);
 
     selectBrowser(&model, &fx);

@@ -1,10 +1,11 @@
 //! In-memory per-session right-panel restore (expand + tab +
 //! open/closed + nested Files/Diff list widths + Files/Diff
-//! selection + one Files preview editor).
+//! selection + one Files preview editor + Background selected row).
 //!
 //! Waku keeps `expanded_paths` / `diff_expanded_paths`,
 //! `active_surface`, `files_selected_path`, `diff_source`,
-//! `diff_selected_file`, `file_editors`, and `file_tree_width` on
+//! `diff_selected_file`, `file_editors`, `file_tree_width`, and
+//! `RightPanelSurface::BackgroundWork { key, title }` on
 //! `RightPanelSessionState` and restores via `take_or_closed`
 //! (missing key → empty/collapsed/closed + `DEFAULT_FILE_TREE_WIDTH`
 //! 184). Faku matches that on session switch / New Task / remove:
@@ -19,7 +20,8 @@
 //! stash; missing / empty is `DEFAULT_FILE_TREE_WIDTH` 184. Outer
 //! `right_panel_width` stays global. `sessions.json` extras remain
 //! the last-live global fallback for cold start — not per-session
-//! nested widths.
+//! nested widths. Background selected row (`right_panel_background_row_id`)
+//! restores from this stash; missing / empty / stale → 0.
 //!
 //! Live Files expand still lives on `right_panel_expanded_store` (heap
 //! last-window; `file_mention.clearCache` frees it). Live Diff expand
@@ -83,14 +85,18 @@ pub const State = struct {
     /// Nested Diff file-list width (Faku parallel; same FILE_TREE
     /// clamps). Default 184. Missing / cleared slot is 184.
     diff_file_list_width: f32 = main.right_panel_default_width,
+    /// Selected Environment Summary Background row
+    /// (`right_panel_background_row_id`). 0 = none. Missing /
+    /// cleared slot is 0. Not sessions.json.
+    background_row_id: u32 = 0,
 };
 
 /// Copy the live Files + Diff expand sets, tab, panel open/closed,
 /// nested Files-tree / Diff list widths, Files preview path, Diff
-/// selection, and dirty/editing Files preview editor under
-/// `model.selected`. No-op when nothing is selected. Evicts the
-/// least-recently-taken slot when the table is full of other session
-/// ids.
+/// selection, dirty/editing Files preview editor, and Background
+/// selected row under `model.selected`. No-op when nothing is
+/// selected. Evicts the least-recently-taken slot when the table is
+/// full of other session ids.
 pub fn take(model: *Model) void {
     const session_id = model.selected;
     if (session_id == 0) return;
@@ -101,6 +107,7 @@ pub fn take(model: *Model) void {
     slot.tab = model.right_panel_tab;
     slot.file_tree_width = fittedNestedListWidth(model, model.right_panel_file_tree_width);
     slot.diff_file_list_width = fittedNestedListWidth(model, model.right_panel_diff_file_list_width);
+    slot.background_row_id = model.right_panel_background_row_id;
     clonePaths(
         &slot.files_store,
         &slot.files_count,
@@ -123,16 +130,19 @@ pub fn take(model: *Model) void {
 }
 
 /// Restore panel open/closed, nested Files-tree / Diff list widths,
-/// tab, Files + Diff expand, Files preview path, Diff selection, and
-/// dirty/editing Files preview editor for `model.selected`. Missing
-/// key is Waku `take_or_closed`: closed panel, Files tab, collapsed
-/// trees, closed preview, no Diff selection, nested widths 184.
-/// Re-applies expand into the live stores so `clearCache` /
-/// `review_diff.close` on the way in cannot keep the leaving session's
-/// keys. Visibility is applied first via `setOpen` so an open
-/// restore paints through the existing select helpers. Nested
-/// widths land before `applyTab` so Files preview / Diff hunk layouts
-/// use this session's splits.
+/// tab, Files + Diff expand, Files preview path, Diff selection,
+/// dirty/editing Files preview editor, and Background selected row
+/// for `model.selected`. Missing key is Waku `take_or_closed`:
+/// closed panel, Files tab, collapsed trees, closed preview, no
+/// Diff selection, nested widths 184, Background row 0. Re-applies
+/// expand into the live stores so `clearCache` / `review_diff.close`
+/// on the way in cannot keep the leaving session's keys. Visibility
+/// is applied first via `setOpen` so an open restore paints through
+/// the existing select helpers. Nested widths land before `applyTab`
+/// so Files preview / Diff hunk layouts use this session's splits.
+/// Background row is applied before `applyTab` so a Background-tab
+/// restore can pass that id into `selectBackground` (including 0,
+/// which `selectBackground` itself does not clear).
 pub fn restore(model: *Model, fx: *Effects) void {
     const session_id = model.selected;
     if (session_id == 0) {
@@ -151,6 +161,7 @@ pub fn restore(model: *Model, fx: *Effects) void {
     copyPath(&model.right_panel_session_pending_diff, slot.diff_selected.text());
     model.right_panel_session_pending_diff_source = slot.diff_source;
     model.right_panel_session_pending_diff_source_set = slot.diff_source_set;
+    right_panel.applyBackgroundRow(model, slot.background_row_id);
     applyTab(model, fx, slot.tab);
     afterFilesIndexReady(model, fx);
     afterDiffTreeReady(model, fx);
@@ -280,6 +291,7 @@ fn clearSlot(slot: *State) void {
     slot.diff_source_set = false;
     slot.file_tree_width = main.right_panel_default_width;
     slot.diff_file_list_width = main.right_panel_default_width;
+    slot.background_row_id = 0;
     clearFilesEditor(slot);
     slot.session_id = 0;
     slot.stamp = 0;
@@ -297,6 +309,7 @@ fn restoreEmpty(model: *Model, fx: *Effects) void {
     applyLiveFiles(model, &.{}, 0);
     applyLiveDiff(model, &.{}, 0);
     clearPending(model);
+    right_panel.applyBackgroundRow(model, 0);
     applyTab(model, fx, .files);
 }
 
@@ -386,7 +399,9 @@ fn diffIdForPath(model: *const Model, relpath: []const u8) ?u32 {
 /// visibility first; when the panel is open, reuse the existing
 /// select helpers so Diff starts Compare (pending `diff_source` is
 /// consumed by `ensureDiff`), widths bump, and Terminal/Browser side
-/// effects match a tab click.
+/// effects match a tab click. Background passes the already-applied
+/// `right_panel_background_row_id` (0 after `applyBackgroundRow` is
+/// a real none, not a leftover from the previous session).
 fn applyTab(model: *Model, fx: *Effects, tab: right_panel.Tab) void {
     if (!model.right_panel_open) {
         if (model.right_panel_tab == .diff and tab != .diff) {
@@ -400,7 +415,7 @@ fn applyTab(model: *Model, fx: *Effects, tab: right_panel.Tab) void {
         .diff => right_panel.selectDiff(model, fx),
         .browser => right_panel.selectBrowser(model, fx),
         .terminal => right_panel.selectTerminal(model, fx),
-        .background => right_panel.selectBackground(model, fx, 0),
+        .background => right_panel.selectBackground(model, fx, model.right_panel_background_row_id),
     }
 }
 
@@ -669,6 +684,7 @@ test "new session starts collapsed; leaving session restores on return" {
     model.showRightPanel();
     setLiveFiles(&model, &.{"src"});
     setLiveDiff(&model, &.{"src"});
+    model.right_panel_background_row_id = 1;
 
     session_actions.handleNewSession(&model, &fx);
     const session_new = model.selected;
@@ -677,6 +693,7 @@ test "new session starts collapsed; leaving session restores on return" {
     try std.testing.expectEqual(@as(u32, 0), model.review_diff_expanded_count);
     try std.testing.expectEqual(right_panel.Tab.files, model.right_panel_tab);
     try std.testing.expect(!model.right_panel_open);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
     try std.testing.expect(hasState(&model, session_a));
     try std.testing.expect(!hasState(&model, session_new));
 
@@ -1193,5 +1210,84 @@ test "LRU eviction frees a stashed Files preview editor" {
     try std.testing.expect(!hasFilesEditor(&model, 1));
     try std.testing.expect(hasFilesEditor(&model, 2));
     try std.testing.expect(hasFilesEditor(&model, @intCast(max_states + 1)));
+}
+
+test "Background row round-trip across session switch; missing key is 0" {
+    const palette_run = @import("palette_run.zig");
+    const session_actions = @import("session_actions.zig");
+    const environment_summary = @import("environment_summary.zig");
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer freeStores(&model);
+
+    const session_a = model.addSession("bg a", .fx);
+    const session_b = model.addSession("bg b", .fx);
+    model.selected = session_a;
+    environment_summary.settle(&model, session_a, .completed);
+    right_panel.selectBackground(&model, &fx, environment_summary.process_row_id);
+    try std.testing.expectEqual(environment_summary.process_row_id, model.right_panel_background_row_id);
+    try std.testing.expect(model.right_panel_open);
+    try std.testing.expectEqual(right_panel.Tab.background, model.right_panel_tab);
+
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    try std.testing.expectEqual(session_b, model.selected);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+    try std.testing.expect(!hasState(&model, session_b));
+    try std.testing.expect(!model.right_panel_open);
+
+    palette_run.applySessionSelection(&model, &fx, session_a);
+    try std.testing.expectEqual(session_a, model.selected);
+    try std.testing.expectEqual(environment_summary.process_row_id, model.right_panel_background_row_id);
+    try std.testing.expectEqual(right_panel.Tab.background, model.right_panel_tab);
+    try std.testing.expect(model.right_panel_open);
+
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+
+    session_actions.handleNewSession(&model, &fx);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+
+    palette_run.applySessionSelection(&model, &fx, session_a);
+    try std.testing.expectEqual(environment_summary.process_row_id, model.right_panel_background_row_id);
+
+    drop(&model, session_a);
+    try std.testing.expect(!hasState(&model, session_a));
+    restore(&model, &fx);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+}
+
+test "stale Background row id restores as 0" {
+    const palette_run = @import("palette_run.zig");
+    const environment_summary = @import("environment_summary.zig");
+    var fx = main.Effects.init(std.testing.allocator);
+    defer fx.deinit();
+    fx.executor = .fake;
+
+    var model = Model{};
+    defer file_mention.clearCache(&model);
+    defer freeStores(&model);
+
+    const session_a = model.addSession("bg stale a", .fx);
+    const session_b = model.addSession("bg stale b", .fx);
+    model.selected = session_a;
+    environment_summary.settle(&model, session_a, .completed);
+    right_panel.selectBackground(&model, &fx, environment_summary.process_row_id);
+    try std.testing.expectEqual(environment_summary.process_row_id, model.right_panel_background_row_id);
+
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+    environment_summary.clearSettled(&model);
+
+    palette_run.applySessionSelection(&model, &fx, session_a);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
+
+    model.right_panel_background_row_id = 999;
+    palette_run.applySessionSelection(&model, &fx, session_b);
+    palette_run.applySessionSelection(&model, &fx, session_a);
+    try std.testing.expectEqual(@as(u32, 0), model.right_panel_background_row_id);
 }
 

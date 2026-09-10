@@ -40,11 +40,12 @@
 //! `terminal_active` (missing / empty `terminal_slots` keeps today's
 //! lazy single spawn on Terminal tab open); scrollback / status / live
 //! PTY process state stay runtime-only);
-//! Background row, Files preview, and directory expands stay
-//! runtime-only; session-switch panel open/closed and nested Files-tree /
-//! Diff list widths are the in-memory `right_panel_session` stash, not
-//! per-session JSON; those nested widths still persist as last-live
-//! global extras for cold start),
+//! Background row is not `sessions.json` (session-switch restore is
+//! the in-memory `right_panel_session` stash, same as Files preview /
+//! directory expands); session-switch panel open/closed and nested
+//! Files-tree / Diff list widths are that same stash, not per-session
+//! JSON; those nested widths still persist as last-live global extras
+//! for cold start),
 //! plus `last_model` / `last_access_mode` / `last_interaction_mode` /
 //! `last_reasoning_effort` /
 //! `last_project_path` / `last_daemon_address` / `theme_preference` /
