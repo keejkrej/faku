@@ -1,7 +1,8 @@
 //! Material file-type app icons (MIT SVGs under
 //! `src/icons/file-types/`). Registry names are the bare `zig` /
 //! `rust` / `zip` / `audio` / `video` / `settings` / `certificate` /
-//! `lockfile` / `exe` / `nginx` / … strings;
+//! `lockfile` / `exe` / `nginx` / `cmake` / `coffee` / `gitlab` /
+//! `gradle` / `kubernetes` / `tex` / … strings;
 //! (`lockfile` is the Material lockfile glyph from `lock.svg`; chrome
 //! Browser address `app:lock` stays a separate `src/icons/lock.svg`.)
 //! markup and `file_icon` return `app:<name>`. Combined with shell
@@ -94,6 +95,12 @@ const certificate_icon = parse("certificate");
 const lockfile_icon = parse("lock");
 const exe_icon = parse("exe");
 const nginx_icon = parse("nginx");
+const cmake_icon = parse("cmake");
+const coffee_icon = parse("coffee");
+const gitlab_icon = parse("gitlab");
+const gradle_icon = parse("gradle");
+const kubernetes_icon = parse("kubernetes");
+const tex_icon = parse("tex");
 
 /// Bare names (no `app:` prefix). `file_icon` returns `app:` + these.
 pub const app_icons = [_]canvas.icons.Entry{
@@ -174,6 +181,12 @@ pub const app_icons = [_]canvas.icons.Entry{
     .{ .name = "lockfile", .icon = &lockfile_icon },
     .{ .name = "exe", .icon = &exe_icon },
     .{ .name = "nginx", .icon = &nginx_icon },
+    .{ .name = "cmake", .icon = &cmake_icon },
+    .{ .name = "coffee", .icon = &coffee_icon },
+    .{ .name = "gitlab", .icon = &gitlab_icon },
+    .{ .name = "gradle", .icon = &gradle_icon },
+    .{ .name = "kubernetes", .icon = &kubernetes_icon },
+    .{ .name = "tex", .icon = &tex_icon },
 };
 
 pub fn contains(name: []const u8) bool {
@@ -184,7 +197,7 @@ pub fn contains(name: []const u8) bool {
 }
 
 test "file-type app_icons names are unique and parse to shapes" {
-    try std.testing.expectEqual(@as(usize, 77), app_icons.len);
+    try std.testing.expectEqual(@as(usize, 83), app_icons.len);
     var i: usize = 0;
     while (i < app_icons.len) : (i += 1) {
         try std.testing.expect(app_icons[i].icon.shapes.len > 0);
@@ -212,10 +225,19 @@ test "file-type app_icons names are unique and parse to shapes" {
     try std.testing.expect(!contains("lock"));
     try std.testing.expect(contains("exe"));
     try std.testing.expect(contains("nginx"));
+    try std.testing.expect(contains("cmake"));
+    try std.testing.expect(contains("coffee"));
+    try std.testing.expect(contains("gitlab"));
+    try std.testing.expect(contains("gradle"));
+    try std.testing.expect(contains("kubernetes"));
+    try std.testing.expect(contains("tex"));
     try std.testing.expect(!contains("kotlin"));
     try std.testing.expect(!contains("graphql"));
     try std.testing.expect(!contains("prettier"));
     try std.testing.expect(!contains("nest"));
+    try std.testing.expect(!contains("clojure"));
+    try std.testing.expect(!contains("editorconfig"));
+    try std.testing.expect(!contains("helm"));
     try std.testing.expect(!contains("app:zig"));
     try std.testing.expect(!contains("file-text"));
 }

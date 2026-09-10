@@ -6,7 +6,8 @@
 //! Material app-icon subset (`app:zig`, `app:rust`, `app:ruby`, … from
 //! `src/icons/file-types/`, including `app:zip` / `app:audio` /
 //! `app:video` / `app:settings` / `app:certificate` / `app:lockfile` /
-//! `app:exe` / `app:nginx`) plus Native built-ins for directories
+//! `app:exe` / `app:nginx` / `app:cmake` / `app:coffee` / `app:gitlab` /
+//! `app:gradle` / `app:kubernetes` / `app:tex`) plus Native built-ins for directories
 //! (`folder` / `folder-open`) and unknown files (`file-text`). Diff tree
 //! rows, the selected-file Diff header, and composer `@` mention
 //! rows reuse this same map
@@ -89,6 +90,8 @@ pub fn fileIconForName(name: []const u8) []const u8 {
     if (extensionIs(ext, &.{ "wasm" })) return app("webassembly");
     if (extensionIs(ext, &.{ "exe", "dll", "so", "dylib" })) return app("exe");
     if (extensionIs(ext, &.{ "lock" })) return app("lockfile");
+    if (extensionIs(ext, &.{ "coffee", "cson" })) return app("coffee");
+    if (extensionIs(ext, &.{ "tex", "sty", "cls" })) return app("tex");
     if (extensionIs(ext, &.{ "ini", "cfg", "conf", "config", "toml" })) return app("settings");
     return "file-text";
 }
@@ -99,6 +102,7 @@ fn basenameSpecial(name: []const u8) ?[]const u8 {
         startsWithIgnoreCase(name, "licence") or
         startsWithIgnoreCase(name, "copying")) return app("certificate");
     if (isDockerfileName(name)) return app("docker");
+    if (isCmakeName(name)) return app("cmake");
     if (isMakefileName(name)) return app("makefile");
     if (std.ascii.eqlIgnoreCase(name, "Cargo.toml") or
         std.ascii.eqlIgnoreCase(name, "Cargo.lock") or
@@ -117,6 +121,8 @@ fn basenameSpecial(name: []const u8) ?[]const u8 {
     if (std.ascii.eqlIgnoreCase(name, "package-lock.json")) return app("npm");
     if (startsWithIgnoreCase(name, "tsconfig.") or std.ascii.eqlIgnoreCase(name, "tsconfig.json"))
         return app("typescript");
+    if (std.ascii.eqlIgnoreCase(name, ".gitlab-ci.yml") or
+        std.ascii.eqlIgnoreCase(name, ".gitlab-ci.yaml")) return app("gitlab");
     if (startsWithIgnoreCase(name, ".git")) return app("git");
     if (std.ascii.eqlIgnoreCase(name, "Gemfile") or
         std.ascii.eqlIgnoreCase(name, "Gemfile.lock")) return app("ruby");
@@ -153,6 +159,9 @@ fn basenameSpecial(name: []const u8) ?[]const u8 {
         return app("storybook");
     if (startsWithIgnoreCase(name, "deno.json") or std.ascii.eqlIgnoreCase(name, "deno.lock"))
         return app("deno");
+    if (std.ascii.eqlIgnoreCase(name, "kustomization.yaml") or
+        std.ascii.eqlIgnoreCase(name, "kustomization.yml")) return app("kubernetes");
+    if (isGradleName(name)) return app("gradle");
     if (std.ascii.eqlIgnoreCase(name, "nginx.conf")) return app("nginx");
     if (isSettingsName(name)) return app("settings");
     return null;
@@ -163,6 +172,18 @@ fn isMakefileName(name: []const u8) bool {
         std.ascii.eqlIgnoreCase(name, "GNUmakefile") or
         std.ascii.eqlIgnoreCase(name, "justfile") or
         startsWithIgnoreCase(name, "makefile.");
+}
+
+fn isCmakeName(name: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(name, "CMakeLists.txt") or
+        startsWithIgnoreCase(name, "cmake.");
+}
+
+fn isGradleName(name: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(name, "build.gradle") or
+        std.ascii.eqlIgnoreCase(name, "settings.gradle") or
+        std.ascii.eqlIgnoreCase(name, "gradlew") or
+        std.ascii.eqlIgnoreCase(name, "gradlew.bat");
 }
 
 fn isDockerfileName(name: []const u8) bool {
@@ -414,6 +435,48 @@ test "fileIconForName maps sixth-cut certificate lock exe nginx" {
     try std.testing.expectEqualStrings("app:settings", fileIconForName("other.conf"));
 }
 
+test "fileIconForName maps seventh-cut cmake coffee gitlab gradle kubernetes tex" {
+    try std.testing.expectEqualStrings("app:cmake", fileIconForName("CMakeLists.txt"));
+    try std.testing.expectEqualStrings("app:cmake", fileIconForName("cmakelists.txt"));
+    try std.testing.expectEqualStrings("app:cmake", fileIconForName("cmake.in"));
+    try std.testing.expectEqualStrings("app:cmake", fileIconForName("CMake.user"));
+    try std.testing.expectEqualStrings("file-text", fileIconForName("FindFoo.cmake"));
+
+    try std.testing.expectEqualStrings("app:coffee", fileIconForName("app.coffee"));
+    try std.testing.expectEqualStrings("app:coffee", fileIconForName("data.cson"));
+    try std.testing.expectEqualStrings("app:coffee", fileIconForName("APP.COFFEE"));
+    try std.testing.expectEqualStrings("file-text", fileIconForName("Widget.cjsx"));
+
+    try std.testing.expectEqualStrings("app:gitlab", fileIconForName(".gitlab-ci.yml"));
+    try std.testing.expectEqualStrings("app:gitlab", fileIconForName(".gitlab-ci.yaml"));
+    try std.testing.expectEqualStrings("app:gitlab", fileIconForName(".GITLAB-CI.YML"));
+    try std.testing.expectEqualStrings("app:git", fileIconForName(".gitignore"));
+    try std.testing.expectEqualStrings("app:git", fileIconForName(".gitkeep"));
+
+    try std.testing.expectEqualStrings("app:gradle", fileIconForName("build.gradle"));
+    try std.testing.expectEqualStrings("app:gradle", fileIconForName("settings.gradle"));
+    try std.testing.expectEqualStrings("app:gradle", fileIconForName("gradlew"));
+    try std.testing.expectEqualStrings("app:gradle", fileIconForName("gradlew.bat"));
+    try std.testing.expectEqualStrings("app:gradle", fileIconForName("BUILD.GRADLE"));
+    try std.testing.expectEqualStrings("file-text", fileIconForName("lib.gradle"));
+    try std.testing.expectEqualStrings("file-text", fileIconForName("gradle.properties"));
+    try std.testing.expectEqualStrings("file-text", fileIconForName("settings.gradle.kts"));
+
+    try std.testing.expectEqualStrings("app:kubernetes", fileIconForName("kustomization.yaml"));
+    try std.testing.expectEqualStrings("app:kubernetes", fileIconForName("kustomization.yml"));
+    try std.testing.expectEqualStrings("app:kubernetes", fileIconForName("Kustomization.yaml"));
+    try std.testing.expectEqualStrings("app:yaml", fileIconForName("deployment.yaml"));
+    try std.testing.expectEqualStrings("app:yaml", fileIconForName("chart.yaml"));
+    try std.testing.expectEqualStrings("app:yaml", fileIconForName("values.yaml"));
+
+    try std.testing.expectEqualStrings("app:tex", fileIconForName("paper.tex"));
+    try std.testing.expectEqualStrings("app:tex", fileIconForName("macro.sty"));
+    try std.testing.expectEqualStrings("app:tex", fileIconForName("article.cls"));
+    try std.testing.expectEqualStrings("app:tex", fileIconForName("PAPER.TEX"));
+    try std.testing.expectEqualStrings("file-text", fileIconForName("paper.ltx"));
+    try std.testing.expectEqualStrings("file-text", fileIconForName("refs.bib"));
+}
+
 test "fileIconForName framework mappings are case-insensitive" {
     try std.testing.expectEqualStrings("app:next", fileIconForName("NEXT.CONFIG.MJS"));
     try std.testing.expectEqualStrings("app:next", fileIconForName("Next-Env.d.ts"));
@@ -470,6 +533,12 @@ test "fileIconForPath uses the basename of a repo-relative path" {
     try std.testing.expectEqualStrings("app:next", fileIconForPath("apps/web/next.config.ts"));
     try std.testing.expectEqualStrings("app:prisma", fileIconForPath("prisma/schema.prisma"));
     try std.testing.expectEqualStrings("app:storybook", fileIconForPath("src/Button.stories.tsx"));
+    try std.testing.expectEqualStrings("app:cmake", fileIconForPath("src/CMakeLists.txt"));
+    try std.testing.expectEqualStrings("app:gitlab", fileIconForPath(".gitlab-ci.yml"));
+    try std.testing.expectEqualStrings("app:gradle", fileIconForPath("android/build.gradle"));
+    try std.testing.expectEqualStrings("app:kubernetes", fileIconForPath("k8s/kustomization.yaml"));
+    try std.testing.expectEqualStrings("app:coffee", fileIconForPath("src/app.coffee"));
+    try std.testing.expectEqualStrings("app:tex", fileIconForPath("docs/paper.tex"));
 }
 
 test "filesTreeIcon file rows ignore expand state" {
@@ -533,6 +602,21 @@ test "files tree icons stay in Native built-ins or registered app: names" {
         fileIconForName(".stylelintrc"),
         fileIconForName("svelte.config.js"),
         fileIconForName("vue.config.js"),
+        fileIconForName("CMakeLists.txt"),
+        fileIconForName("cmake.in"),
+        fileIconForName("app.coffee"),
+        fileIconForName("data.cson"),
+        fileIconForName(".gitlab-ci.yml"),
+        fileIconForName(".gitlab-ci.yaml"),
+        fileIconForName("build.gradle"),
+        fileIconForName("settings.gradle"),
+        fileIconForName("gradlew"),
+        fileIconForName("gradlew.bat"),
+        fileIconForName("kustomization.yaml"),
+        fileIconForName("kustomization.yml"),
+        fileIconForName("paper.tex"),
+        fileIconForName("macro.sty"),
+        fileIconForName("article.cls"),
         fileIconForName("unknown.data"),
     };
     for (samples) |name| {
