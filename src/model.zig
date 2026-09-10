@@ -1031,15 +1031,29 @@ pub const Model = struct {
     /// (no trailing slash). Empty set = collapsed (depth-0 only).
     /// `file_mention.clearCache` frees this live table; per-session
     /// memory is `right_panel_session_store` (Waku
-    /// `RightPanelSessionState::take_or_closed` on switch). Not
+    /// `RightPanelSessionState::take_or_closed` on switch: expand,
+    /// tab, Files selected path, Diff selected file). Not
     /// persisted to sessions.json this cut.
     right_panel_expanded_store: []file_mention.CachedPath = &.{},
     right_panel_expanded_count: u32 = 0,
-    /// Bounded in-memory Files + Diff expand stash keyed by session
-    /// id. Cap `right_panel_session.max_states` with LRU eviction;
-    /// missing key restores collapsed. Not sessions.json.
+    /// Bounded in-memory Files + Diff expand / tab / selection stash
+    /// keyed by session id. Cap `right_panel_session.max_states` with
+    /// LRU eviction; missing key restores Files + collapsed + empty
+    /// selection. Not sessions.json.
     right_panel_session_store: [right_panel_session.max_states]right_panel_session.State = [_]right_panel_session.State{.{}} ** right_panel_session.max_states,
     right_panel_session_stamp: u32 = 0,
+    /// Pending Files preview relpath when restore ran before the
+    /// Files index filled. Cleared on preview close, stale miss, or
+    /// successful re-open. Not sessions.json.
+    right_panel_session_pending_files: file_mention.CachedPath = .{},
+    /// Pending Diff selected-file relpath when restore ran before
+    /// the Review tree filled. Cleared on user select, stale miss, or
+    /// successful re-select. Not sessions.json.
+    right_panel_session_pending_diff: file_mention.CachedPath = .{},
+    right_panel_session_pending_diff_source: review_diff.Source = .branch,
+    /// When true, the next inactive `ensureDiff` uses
+    /// `right_panel_session_pending_diff_source` instead of Uncommitted.
+    right_panel_session_pending_diff_source_set: bool = false,
     /// Nested Files-tree width while a preview is open. Waku
     /// `DEFAULT_FILE_TREE_WIDTH` 184. Fitted at layout/resize via
     /// `fittedFileTreeWidth`. Persisted on sessions.json extras
@@ -1575,8 +1589,8 @@ pub const Model = struct {
     /// (Files-like default). A non-empty runtime path filter
     /// auto-expands ancestors (Waku `right_panel_diff_filter`). Cap
     /// `max_review_diff_dirs`. `review_diff.close` zeroes the live
-    /// count; per-session memory is `right_panel_session_store`.
-    /// Not persisted.
+    /// count; per-session memory is `right_panel_session_store`
+    /// (expand keys plus Diff selected path / source). Not persisted.
     review_diff_expanded_store: [review_diff.max_review_diff_dirs]file_mention.CachedPath = [_]file_mention.CachedPath{.{}} ** review_diff.max_review_diff_dirs,
     review_diff_expanded_count: u32 = 0,
     /// Runtime-only Diff file-list path filter (Waku
@@ -2101,6 +2115,10 @@ pub const Model = struct {
         "right_panel_expanded_count",
         "right_panel_session_store",
         "right_panel_session_stamp",
+        "right_panel_session_pending_files",
+        "right_panel_session_pending_diff",
+        "right_panel_session_pending_diff_source",
+        "right_panel_session_pending_diff_source_set",
         "right_panel_file_tree_width",
         "right_panel_diff_file_list_width",
         "applyRightPanelResize",

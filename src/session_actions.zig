@@ -78,7 +78,7 @@ pub fn handleNewSession(model: *Model, fx: *Effects) void {
     git_dirty.refresh(model, fx);
     git_numstat.refresh(model, fx);
     file_mention.refresh(model, fx);
-    right_panel_session.restore(model);
+    right_panel_session.restore(model, fx);
     git_checkout.refresh(model, fx);
     session_fork.cancelDaemonCaptureTurnStart(model, fx);
     session_fork.cancelDaemonCaptureTurn(model, fx);
@@ -182,7 +182,7 @@ pub fn handleRemoveSession(model: *Model, fx: *Effects, id: u32) void {
     git_dirty.refresh(model, fx);
     git_numstat.refresh(model, fx);
     file_mention.refresh(model, fx);
-    right_panel_session.restore(model);
+    right_panel_session.restore(model, fx);
     git_checkout.refresh(model, fx);
     session_fork.cancelDaemonCaptureTurnStart(model, fx);
     session_fork.cancelDaemonCaptureTurn(model, fx);
