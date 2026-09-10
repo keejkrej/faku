@@ -107,14 +107,17 @@
 //! basename (`right_panel_files_project_name`). Directory rows paint
 //! Native `folder-open` when expanded and `folder` when collapsed
 //! (chevrons stay). File rows pick a Material app icon
-//! (`app:zig`, `app:rust`, `app:ruby`, … MIT subset) or Native
-//! `file-text` for unknown files (archives/audio/video/config bind
+//! (`app:zig`, `app:rust`, `app:ruby`, … MIT subset) or Material
+//! `app:file` for unknown files (archives/audio/video/config bind
 //! Material `app:zip` / `app:audio` / `app:video` / `app:settings`;
 //! LICENSE-like names / lockfiles / binaries / nginx bind Material
 //! `app:certificate` / `app:lockfile` / `app:exe` / `app:nginx`;
 //! cmake / CoffeeScript / GitLab CI / Gradle / Kubernetes kustomization /
 //! TeX bind Material `app:cmake` / `app:coffee` / `app:gitlab` /
 //! `app:gradle` / `app:kubernetes` / `app:tex`;
+//! Crystal / Elm / Erlang / Haxe / Jinja / XAML / unified diffs bind
+//! Material `app:crystal` / `app:elm` / `app:erlang` / `app:haxe` /
+//! `app:jinja` / `app:xaml` / `app:diff`;
 //! shells bind Material `app:console` / `app:powershell`).
 //! Diff tree rows, the selected-file Diff
 //! header, and composer `@` mention rows reuse this same map

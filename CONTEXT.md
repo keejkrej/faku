@@ -625,14 +625,17 @@ a preview is open; not the no-project empty state and not Loading.
 Directory rows paint Native `folder-open` when expanded and `folder` when
 collapsed (chevrons stay). File rows pick a Material app icon
 (`app:zig`, `app:rust`, `app:ruby`, … MIT subset under `src/icons/file-types/`) or a
-Native built-in (`file-text` for unknown files; directories stay
+Material `app:file` fallback for unknown files (directories stay
 `folder` / `folder-open`; archives/audio/video/config bind Material
 `app:zip` / `app:audio` / `app:video` / `app:settings`; LICENSE-like
 names / lockfiles / binaries / nginx bind Material `app:certificate` /
 `app:lockfile` / `app:exe` / `app:nginx` (chrome address lock stays
 `app:lock`); cmake / CoffeeScript / GitLab CI / Gradle / Kubernetes
 kustomization / TeX bind Material `app:cmake` / `app:coffee` /
-`app:gitlab` / `app:gradle` / `app:kubernetes` / `app:tex`; shells bind
+`app:gitlab` / `app:gradle` / `app:kubernetes` / `app:tex`; Crystal /
+Elm / Erlang / Haxe / Jinja / XAML / unified diffs bind Material
+`app:crystal` / `app:elm` / `app:erlang` / `app:haxe` / `app:jinja` /
+`app:xaml` / `app:diff`; shells bind
 Material `app:console` / `app:powershell`).
 Diff tree rows, the selected-file Diff header, and composer
 `@` mention rows reuse this same `file_icon` map (mention dirs stay
@@ -708,7 +711,9 @@ Files `file_icon` map — dirs `folder` / `folder-open`, files `app:zig` /
 `app:rust` / `app:ruby` / … plus `app:zip` / `app:audio` /
 `app:video` / `app:settings` / `app:certificate` / `app:lockfile` /
 `app:exe` / `app:nginx` / `app:cmake` / `app:coffee` / `app:gitlab` /
-`app:gradle` / `app:kubernetes` / `app:tex` else `file-text` (shells `app:console` / `app:powershell`) — colored status letter `A`/`D`/`B`/`M`/`?` separate from
+`app:gradle` / `app:kubernetes` / `app:tex` / `app:crystal` /
+`app:elm` / `app:erlang` / `app:haxe` / `app:jinja` / `app:xaml` /
+`app:diff` else `app:file` (shells `app:console` / `app:powershell`) — colored status letter `A`/`D`/`B`/`M`/`?` separate from
 the basename, optional `+N` / `-M` from
 numstat; zeros omitted; numstat `-` is Binary `B`; daemon CollectReviewDiff and local
 `--numstat`). A Native search-field above that tree is Waku
@@ -1183,8 +1188,8 @@ live watch.
 Honest gaps this cut does not implement:
 
 - Remaining Material / Waku file-type SVGs (nest/kotlin/graphql/prettier
-  Native-dialect skips, clojure/editorconfig/helm transform= skips, …)
-  stay later PRs; this cut vendors a seventh-cut cmake/coffee/gitlab/gradle/kubernetes/tex swap
+  Native-dialect skips, clojure/editorconfig/helm transform= skips, julia/pug, …)
+  stay later PRs; this cut vendors an eighth-cut crystal/elm/erlang/haxe/jinja/xaml/diff/file swap
 - Full onboarding / OAuth / auto-install (fx install/login copy
   ships; other CLIs get a PATH hint only)
 - Native Pi ACP / `--mode rpc` (json-mode one-shot

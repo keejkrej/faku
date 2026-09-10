@@ -7,8 +7,10 @@
 //! `src/icons/file-types/`, including `app:zip` / `app:audio` /
 //! `app:video` / `app:settings` / `app:certificate` / `app:lockfile` /
 //! `app:exe` / `app:nginx` / `app:cmake` / `app:coffee` / `app:gitlab` /
-//! `app:gradle` / `app:kubernetes` / `app:tex`) plus Native built-ins for directories
-//! (`folder` / `folder-open`) and unknown files (`file-text`). Diff tree
+//! `app:gradle` / `app:kubernetes` / `app:tex` / `app:crystal` /
+//! `app:elm` / `app:erlang` / `app:haxe` / `app:jinja` / `app:xaml` /
+//! `app:diff` / `app:file`) plus Native built-ins for directories
+//! (`folder` / `folder-open`) and unknown files (`app:file`). Diff tree
 //! rows, the selected-file Diff header, and composer `@` mention
 //! rows reuse this same map
 //! (dirs stay `folder` in `@`; the list has no expand chevron).
@@ -92,8 +94,15 @@ pub fn fileIconForName(name: []const u8) []const u8 {
     if (extensionIs(ext, &.{ "lock" })) return app("lockfile");
     if (extensionIs(ext, &.{ "coffee", "cson" })) return app("coffee");
     if (extensionIs(ext, &.{ "tex", "sty", "cls" })) return app("tex");
+    if (extensionIs(ext, &.{ "cr" })) return app("crystal");
+    if (extensionIs(ext, &.{ "elm" })) return app("elm");
+    if (extensionIs(ext, &.{ "erl", "hrl" })) return app("erlang");
+    if (extensionIs(ext, &.{ "hx", "hxml" })) return app("haxe");
+    if (extensionIs(ext, &.{ "jinja", "jinja2", "j2" })) return app("jinja");
+    if (extensionIs(ext, &.{ "xaml" })) return app("xaml");
+    if (extensionIs(ext, &.{ "diff", "patch" })) return app("diff");
     if (extensionIs(ext, &.{ "ini", "cfg", "conf", "config", "toml" })) return app("settings");
-    return "file-text";
+    return app("file");
 }
 
 fn basenameSpecial(name: []const u8) ?[]const u8 {
@@ -440,12 +449,12 @@ test "fileIconForName maps seventh-cut cmake coffee gitlab gradle kubernetes tex
     try std.testing.expectEqualStrings("app:cmake", fileIconForName("cmakelists.txt"));
     try std.testing.expectEqualStrings("app:cmake", fileIconForName("cmake.in"));
     try std.testing.expectEqualStrings("app:cmake", fileIconForName("CMake.user"));
-    try std.testing.expectEqualStrings("file-text", fileIconForName("FindFoo.cmake"));
+    try std.testing.expectEqualStrings("app:file", fileIconForName("FindFoo.cmake"));
 
     try std.testing.expectEqualStrings("app:coffee", fileIconForName("app.coffee"));
     try std.testing.expectEqualStrings("app:coffee", fileIconForName("data.cson"));
     try std.testing.expectEqualStrings("app:coffee", fileIconForName("APP.COFFEE"));
-    try std.testing.expectEqualStrings("file-text", fileIconForName("Widget.cjsx"));
+    try std.testing.expectEqualStrings("app:file", fileIconForName("Widget.cjsx"));
 
     try std.testing.expectEqualStrings("app:gitlab", fileIconForName(".gitlab-ci.yml"));
     try std.testing.expectEqualStrings("app:gitlab", fileIconForName(".gitlab-ci.yaml"));
@@ -458,9 +467,9 @@ test "fileIconForName maps seventh-cut cmake coffee gitlab gradle kubernetes tex
     try std.testing.expectEqualStrings("app:gradle", fileIconForName("gradlew"));
     try std.testing.expectEqualStrings("app:gradle", fileIconForName("gradlew.bat"));
     try std.testing.expectEqualStrings("app:gradle", fileIconForName("BUILD.GRADLE"));
-    try std.testing.expectEqualStrings("file-text", fileIconForName("lib.gradle"));
-    try std.testing.expectEqualStrings("file-text", fileIconForName("gradle.properties"));
-    try std.testing.expectEqualStrings("file-text", fileIconForName("settings.gradle.kts"));
+    try std.testing.expectEqualStrings("app:file", fileIconForName("lib.gradle"));
+    try std.testing.expectEqualStrings("app:file", fileIconForName("gradle.properties"));
+    try std.testing.expectEqualStrings("app:file", fileIconForName("settings.gradle.kts"));
 
     try std.testing.expectEqualStrings("app:kubernetes", fileIconForName("kustomization.yaml"));
     try std.testing.expectEqualStrings("app:kubernetes", fileIconForName("kustomization.yml"));
@@ -473,8 +482,8 @@ test "fileIconForName maps seventh-cut cmake coffee gitlab gradle kubernetes tex
     try std.testing.expectEqualStrings("app:tex", fileIconForName("macro.sty"));
     try std.testing.expectEqualStrings("app:tex", fileIconForName("article.cls"));
     try std.testing.expectEqualStrings("app:tex", fileIconForName("PAPER.TEX"));
-    try std.testing.expectEqualStrings("file-text", fileIconForName("paper.ltx"));
-    try std.testing.expectEqualStrings("file-text", fileIconForName("refs.bib"));
+    try std.testing.expectEqualStrings("app:file", fileIconForName("paper.ltx"));
+    try std.testing.expectEqualStrings("app:file", fileIconForName("refs.bib"));
 }
 
 test "fileIconForName framework mappings are case-insensitive" {
@@ -499,13 +508,44 @@ test "fileIconForName framework mappings are case-insensitive" {
     try std.testing.expectEqualStrings("app:vue", fileIconForName("VUE.CONFIG.JS"));
 }
 
-test "fileIconForName unknown files stay file-text" {
-    try std.testing.expectEqualStrings("file-text", fileIconForName("unknown.data"));
-    try std.testing.expectEqualStrings("file-text", fileIconForName("notes.txt"));
-    try std.testing.expectEqualStrings("file-text", fileIconForName("Main.kt"));
-    try std.testing.expectEqualStrings("file-text", fileIconForName("build.kts"));
-    try std.testing.expectEqualStrings("file-text", fileIconForName("schema.graphql"));
-    try std.testing.expectEqualStrings("file-text", fileIconForName("query.gql"));
+test "fileIconForName unknown files use app:file" {
+    try std.testing.expectEqualStrings("app:file", fileIconForName("unknown.data"));
+    try std.testing.expectEqualStrings("app:file", fileIconForName("notes.txt"));
+    try std.testing.expectEqualStrings("app:file", fileIconForName("Main.kt"));
+    try std.testing.expectEqualStrings("app:file", fileIconForName("build.kts"));
+    try std.testing.expectEqualStrings("app:file", fileIconForName("schema.graphql"));
+    try std.testing.expectEqualStrings("app:file", fileIconForName("query.gql"));
+    try std.testing.expectEqualStrings("app:file", fileIconForName("main.jl"));
+    try std.testing.expectEqualStrings("app:file", fileIconForName("index.pug"));
+}
+
+test "fileIconForName maps eighth-cut crystal elm erlang haxe jinja xaml diff file" {
+    try std.testing.expectEqualStrings("app:crystal", fileIconForName("shard.cr"));
+    try std.testing.expectEqualStrings("app:crystal", fileIconForName("SHARD.CR"));
+
+    try std.testing.expectEqualStrings("app:elm", fileIconForName("Main.elm"));
+    try std.testing.expectEqualStrings("app:elm", fileIconForName("MAIN.ELM"));
+
+    try std.testing.expectEqualStrings("app:erlang", fileIconForName("mod.erl"));
+    try std.testing.expectEqualStrings("app:erlang", fileIconForName("mod.hrl"));
+    try std.testing.expectEqualStrings("app:erlang", fileIconForName("MOD.ERL"));
+
+    try std.testing.expectEqualStrings("app:haxe", fileIconForName("Main.hx"));
+    try std.testing.expectEqualStrings("app:haxe", fileIconForName("build.hxml"));
+    try std.testing.expectEqualStrings("app:haxe", fileIconForName("MAIN.HX"));
+
+    try std.testing.expectEqualStrings("app:jinja", fileIconForName("page.jinja"));
+    try std.testing.expectEqualStrings("app:jinja", fileIconForName("page.jinja2"));
+    try std.testing.expectEqualStrings("app:jinja", fileIconForName("page.j2"));
+    try std.testing.expectEqualStrings("app:jinja", fileIconForName("PAGE.JINJA"));
+
+    try std.testing.expectEqualStrings("app:xaml", fileIconForName("Window.xaml"));
+    try std.testing.expectEqualStrings("app:xaml", fileIconForName("WINDOW.XAML"));
+    try std.testing.expectEqualStrings("app:xml", fileIconForName("pom.xml"));
+
+    try std.testing.expectEqualStrings("app:diff", fileIconForName("changes.diff"));
+    try std.testing.expectEqualStrings("app:diff", fileIconForName("changes.patch"));
+    try std.testing.expectEqualStrings("app:diff", fileIconForName("CHANGES.DIFF"));
 }
 
 test "fileIconForName skipped nest and unmatched stories stay generic" {
@@ -539,6 +579,14 @@ test "fileIconForPath uses the basename of a repo-relative path" {
     try std.testing.expectEqualStrings("app:kubernetes", fileIconForPath("k8s/kustomization.yaml"));
     try std.testing.expectEqualStrings("app:coffee", fileIconForPath("src/app.coffee"));
     try std.testing.expectEqualStrings("app:tex", fileIconForPath("docs/paper.tex"));
+    try std.testing.expectEqualStrings("app:crystal", fileIconForPath("src/shard.cr"));
+    try std.testing.expectEqualStrings("app:elm", fileIconForPath("src/Main.elm"));
+    try std.testing.expectEqualStrings("app:erlang", fileIconForPath("src/mod.erl"));
+    try std.testing.expectEqualStrings("app:haxe", fileIconForPath("src/Main.hx"));
+    try std.testing.expectEqualStrings("app:jinja", fileIconForPath("templates/page.j2"));
+    try std.testing.expectEqualStrings("app:xaml", fileIconForPath("ui/Window.xaml"));
+    try std.testing.expectEqualStrings("app:diff", fileIconForPath("changes.patch"));
+    try std.testing.expectEqualStrings("app:file", fileIconForPath("notes.txt"));
 }
 
 test "filesTreeIcon file rows ignore expand state" {
@@ -617,7 +665,19 @@ test "files tree icons stay in Native built-ins or registered app: names" {
         fileIconForName("paper.tex"),
         fileIconForName("macro.sty"),
         fileIconForName("article.cls"),
+        fileIconForName("shard.cr"),
+        fileIconForName("Main.elm"),
+        fileIconForName("mod.erl"),
+        fileIconForName("mod.hrl"),
+        fileIconForName("Main.hx"),
+        fileIconForName("build.hxml"),
+        fileIconForName("page.jinja"),
+        fileIconForName("page.j2"),
+        fileIconForName("Window.xaml"),
+        fileIconForName("changes.diff"),
+        fileIconForName("changes.patch"),
         fileIconForName("unknown.data"),
+        fileIconForName("notes.txt"),
     };
     for (samples) |name| {
         try std.testing.expect(iconIsResolvable(name));
