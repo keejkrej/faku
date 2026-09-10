@@ -10,7 +10,8 @@
 //! `app:gradle` / `app:kubernetes` / `app:tex` / `app:crystal` /
 //! `app:elm` / `app:erlang` / `app:haxe` / `app:jinja` / `app:xaml` /
 //! `app:diff` / `app:file` / `app:julia` / `app:prettier` /
-//! `app:kotlin` / `app:clojure` / `app:helm` / `app:editorconfig`)
+//! `app:kotlin` / `app:clojure` / `app:helm` / `app:editorconfig` /
+//! `app:graphql` / `app:nest` / `app:pug`)
 //! plus Native built-ins for directories
 //! (`folder` / `folder-open`) and unknown files (`app:file`). Diff tree
 //! rows, the selected-file Diff header, and composer `@` mention
@@ -104,6 +105,8 @@ pub fn fileIconForName(name: []const u8) []const u8 {
     if (extensionIs(ext, &.{ "jinja", "jinja2", "j2" })) return app("jinja");
     if (extensionIs(ext, &.{ "jl" })) return app("julia");
     if (extensionIs(ext, &.{ "clj", "cljs", "cljc", "edn" })) return app("clojure");
+    if (extensionIs(ext, &.{ "graphql", "gql" })) return app("graphql");
+    if (extensionIs(ext, &.{ "pug", "jade" })) return app("pug");
     if (extensionIs(ext, &.{ "xaml" })) return app("xaml");
     if (extensionIs(ext, &.{ "diff", "patch" })) return app("diff");
     if (extensionIs(ext, &.{ "ini", "cfg", "conf", "config", "toml" })) return app("settings");
@@ -163,6 +166,7 @@ fn basenameSpecial(name: []const u8) ?[]const u8 {
         return app("nuxt");
     if (std.ascii.eqlIgnoreCase(name, "angular.json") or endsWithIgnoreCase(name, ".component.ts"))
         return app("angular");
+    if (std.ascii.eqlIgnoreCase(name, "nest-cli.json")) return app("nest");
     if (startsWithIgnoreCase(name, "tailwind.config.")) return app("tailwindcss");
     if (startsWithIgnoreCase(name, "svelte.config.")) return app("svelte");
     if (startsWithIgnoreCase(name, "vue.config.")) return app("vue");
@@ -528,9 +532,6 @@ test "fileIconForName framework mappings are case-insensitive" {
 test "fileIconForName unknown files use app:file" {
     try std.testing.expectEqualStrings("app:file", fileIconForName("unknown.data"));
     try std.testing.expectEqualStrings("app:file", fileIconForName("notes.txt"));
-    try std.testing.expectEqualStrings("app:file", fileIconForName("schema.graphql"));
-    try std.testing.expectEqualStrings("app:file", fileIconForName("query.gql"));
-    try std.testing.expectEqualStrings("app:file", fileIconForName("index.pug"));
 }
 
 test "fileIconForName maps eighth-cut crystal elm erlang haxe jinja xaml diff file" {
@@ -611,9 +612,23 @@ test "fileIconForName maps tenth-cut clojure helm editorconfig" {
     try std.testing.expectEqualStrings("app:settings", fileIconForName(".env.local"));
 }
 
-test "fileIconForName skipped nest and unmatched stories stay generic" {
-    try std.testing.expectEqualStrings("app:json", fileIconForName("nest-cli.json"));
+test "fileIconForName maps eleventh-cut graphql nest pug" {
+    try std.testing.expectEqualStrings("app:graphql", fileIconForName("schema.graphql"));
+    try std.testing.expectEqualStrings("app:graphql", fileIconForName("query.gql"));
+    try std.testing.expectEqualStrings("app:graphql", fileIconForName("SCHEMA.GRAPHQL"));
+    try std.testing.expectEqualStrings("app:graphql", fileIconForName("QUERY.GQL"));
+
+    try std.testing.expectEqualStrings("app:nest", fileIconForName("nest-cli.json"));
+    try std.testing.expectEqualStrings("app:nest", fileIconForName("NEST-CLI.JSON"));
     try std.testing.expectEqualStrings("app:json", fileIconForName("nest-cli.dev.json"));
+
+    try std.testing.expectEqualStrings("app:pug", fileIconForName("index.pug"));
+    try std.testing.expectEqualStrings("app:pug", fileIconForName("layout.jade"));
+    try std.testing.expectEqualStrings("app:pug", fileIconForName("INDEX.PUG"));
+    try std.testing.expectEqualStrings("app:pug", fileIconForName("LAYOUT.JADE"));
+}
+
+test "fileIconForName unmatched stories stay generic" {
     try std.testing.expectEqualStrings("app:typescript", fileIconForName("index.ts"));
     try std.testing.expectEqualStrings("app:javascript", fileIconForName("stories.js"));
     try std.testing.expectEqualStrings("app:settings", fileIconForName("other.toml"));
@@ -661,6 +676,11 @@ test "fileIconForPath uses the basename of a repo-relative path" {
     try std.testing.expectEqualStrings("app:helm", fileIconForPath("charts/app/values.yml"));
     try std.testing.expectEqualStrings("app:helm", fileIconForPath("helmfile.yaml"));
     try std.testing.expectEqualStrings("app:editorconfig", fileIconForPath(".editorconfig"));
+    try std.testing.expectEqualStrings("app:graphql", fileIconForPath("schema.graphql"));
+    try std.testing.expectEqualStrings("app:graphql", fileIconForPath("api/query.gql"));
+    try std.testing.expectEqualStrings("app:nest", fileIconForPath("nest-cli.json"));
+    try std.testing.expectEqualStrings("app:pug", fileIconForPath("views/index.pug"));
+    try std.testing.expectEqualStrings("app:pug", fileIconForPath("views/layout.jade"));
     try std.testing.expectEqualStrings("app:file", fileIconForPath("notes.txt"));
 }
 
@@ -764,6 +784,11 @@ test "files tree icons stay in Native built-ins or registered app: names" {
         fileIconForName("values.yml"),
         fileIconForName("helmfile.yaml"),
         fileIconForName(".editorconfig"),
+        fileIconForName("schema.graphql"),
+        fileIconForName("query.gql"),
+        fileIconForName("nest-cli.json"),
+        fileIconForName("index.pug"),
+        fileIconForName("layout.jade"),
         fileIconForName("unknown.data"),
         fileIconForName("notes.txt"),
     };
