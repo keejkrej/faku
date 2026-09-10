@@ -1,7 +1,9 @@
 //! Material file-type app icons (MIT SVGs under
 //! `src/icons/file-types/`). Registry names are the bare `zig` /
 //! `rust` / `zip` / `audio` / `video` / `settings` / `certificate` /
-//! `lock` / `exe` / `nginx` / … strings;
+//! `lockfile` / `exe` / `nginx` / … strings;
+//! (`lockfile` is the Material lockfile glyph from `lock.svg`; chrome
+//! Browser address `app:lock` stays a separate `src/icons/lock.svg`.)
 //! markup and `file_icon` return `app:<name>`. Combined with shell
 //! chrome icons in `shell.app_icons` so the model contract /
 //! `native check` see one table.
@@ -89,7 +91,7 @@ const audio_icon = parse("audio");
 const video_icon = parse("video");
 const settings_icon = parse("settings");
 const certificate_icon = parse("certificate");
-const lock_icon = parse("lock");
+const lockfile_icon = parse("lock");
 const exe_icon = parse("exe");
 const nginx_icon = parse("nginx");
 
@@ -169,7 +171,7 @@ pub const app_icons = [_]canvas.icons.Entry{
     .{ .name = "video", .icon = &video_icon },
     .{ .name = "settings", .icon = &settings_icon },
     .{ .name = "certificate", .icon = &certificate_icon },
-    .{ .name = "lock", .icon = &lock_icon },
+    .{ .name = "lockfile", .icon = &lockfile_icon },
     .{ .name = "exe", .icon = &exe_icon },
     .{ .name = "nginx", .icon = &nginx_icon },
 };
@@ -206,7 +208,8 @@ test "file-type app_icons names are unique and parse to shapes" {
     try std.testing.expect(contains("video"));
     try std.testing.expect(contains("settings"));
     try std.testing.expect(contains("certificate"));
-    try std.testing.expect(contains("lock"));
+    try std.testing.expect(contains("lockfile"));
+    try std.testing.expect(!contains("lock"));
     try std.testing.expect(contains("exe"));
     try std.testing.expect(contains("nginx"));
     try std.testing.expect(!contains("kotlin"));

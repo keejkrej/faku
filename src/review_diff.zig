@@ -100,7 +100,7 @@
 //! tree. File rows paint a Material app icon from `file_icon`
 //! (same Files map: basename/extension → `app:zig` / `app:rust` /
 //! `app:ruby` / … plus `app:zip` / `app:audio` / `app:video` /
-//! `app:settings` / `app:certificate` / `app:lock` / `app:exe` /
+//! `app:settings` / `app:certificate` / `app:lockfile` / `app:exe` /
 //! `app:nginx`, else `file-text`; shells `app:console` /
 //! `app:powershell`) + basename (no status prefix) + a separate colored
 //! status letter (`A` success, `D` destructive, `B`/`M` warning) and

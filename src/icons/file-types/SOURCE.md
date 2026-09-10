@@ -13,7 +13,9 @@ SVG bytes come from the already-curated Waku subset (`egoist/waku`
 the full Material catalog. Native's comptime SVG dialect has no
 `style=""`; CSS `fill` / `stroke-width` on those files were promoted
 to presentation attributes so the Material colors still paint. Paths
-and viewBoxes are otherwise unchanged. Waku `kotlin` (gradient
+and viewBoxes are otherwise unchanged. `lock.svg` registers as
+`lockfile` (`app:lockfile`) so it does not collide with chrome Browser
+address `app:lock`. Waku `kotlin` (gradient
 `fill="url(#…)"`), `graphql` (`transform=` on connecting bars),
 `prettier` (`transform=` on the wrapping group), and `nest`
 (`transform=` on the path) are omitted — Native rejects those paints

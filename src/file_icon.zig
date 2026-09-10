@@ -5,7 +5,7 @@
 //! (basename specials, then extension) and maps onto a curated MIT
 //! Material app-icon subset (`app:zig`, `app:rust`, `app:ruby`, … from
 //! `src/icons/file-types/`, including `app:zip` / `app:audio` /
-//! `app:video` / `app:settings` / `app:certificate` / `app:lock` /
+//! `app:video` / `app:settings` / `app:certificate` / `app:lockfile` /
 //! `app:exe` / `app:nginx`) plus Native built-ins for directories
 //! (`folder` / `folder-open`) and unknown files (`file-text`). Diff tree
 //! rows, the selected-file Diff header, and composer `@` mention
@@ -88,7 +88,7 @@ pub fn fileIconForName(name: []const u8) []const u8 {
     if (extensionIs(ext, &.{ "tf", "tfvars" })) return app("terraform");
     if (extensionIs(ext, &.{ "wasm" })) return app("webassembly");
     if (extensionIs(ext, &.{ "exe", "dll", "so", "dylib" })) return app("exe");
-    if (extensionIs(ext, &.{ "lock" })) return app("lock");
+    if (extensionIs(ext, &.{ "lock" })) return app("lockfile");
     if (extensionIs(ext, &.{ "ini", "cfg", "conf", "config", "toml" })) return app("settings");
     return "file-text";
 }
@@ -403,7 +403,7 @@ test "fileIconForName maps sixth-cut certificate lock exe nginx" {
     try std.testing.expectEqualStrings("app:exe", fileIconForName("lib.dll"));
     try std.testing.expectEqualStrings("app:exe", fileIconForName("lib.so"));
     try std.testing.expectEqualStrings("app:exe", fileIconForName("lib.dylib"));
-    try std.testing.expectEqualStrings("app:lock", fileIconForName("foo.lock"));
+    try std.testing.expectEqualStrings("app:lockfile", fileIconForName("foo.lock"));
     try std.testing.expectEqualStrings("app:rust", fileIconForName("Cargo.lock"));
     try std.testing.expectEqualStrings("app:npm", fileIconForName("package-lock.json"));
     try std.testing.expectEqualStrings("app:bun", fileIconForName("bun.lock"));
@@ -466,7 +466,7 @@ test "fileIconForPath uses the basename of a repo-relative path" {
     try std.testing.expectEqualStrings("app:certificate", fileIconForPath("LICENSE"));
     try std.testing.expectEqualStrings("app:nginx", fileIconForPath("deploy/nginx.conf"));
     try std.testing.expectEqualStrings("app:exe", fileIconForPath("bin/a.exe"));
-    try std.testing.expectEqualStrings("app:lock", fileIconForPath("foo.lock"));
+    try std.testing.expectEqualStrings("app:lockfile", fileIconForPath("foo.lock"));
     try std.testing.expectEqualStrings("app:next", fileIconForPath("apps/web/next.config.ts"));
     try std.testing.expectEqualStrings("app:prisma", fileIconForPath("prisma/schema.prisma"));
     try std.testing.expectEqualStrings("app:storybook", fileIconForPath("src/Button.stories.tsx"));

@@ -629,7 +629,8 @@ Native built-in (`file-text` for unknown files; directories stay
 `folder` / `folder-open`; archives/audio/video/config bind Material
 `app:zip` / `app:audio` / `app:video` / `app:settings`; LICENSE-like
 names / lockfiles / binaries / nginx bind Material `app:certificate` /
-`app:lock` / `app:exe` / `app:nginx`; shells bind
+`app:lockfile` / `app:exe` / `app:nginx` (chrome address lock stays
+`app:lock`); shells bind
 Material `app:console` / `app:powershell`).
 Diff tree rows, the selected-file Diff header, and composer
 `@` mention rows reuse this same `file_icon` map (mention dirs stay
@@ -703,7 +704,7 @@ rows paint a first-cut nested directory tree matching Waku
 collapsed, basename leaves, Material app icon from the same
 Files `file_icon` map — dirs `folder` / `folder-open`, files `app:zig` /
 `app:rust` / `app:ruby` / … plus `app:zip` / `app:audio` /
-`app:video` / `app:settings` / `app:certificate` / `app:lock` /
+`app:video` / `app:settings` / `app:certificate` / `app:lockfile` /
 `app:exe` / `app:nginx` else `file-text` (shells `app:console` / `app:powershell`) — colored status letter `A`/`D`/`B`/`M`/`?` separate from
 the basename, optional `+N` / `-M` from
 numstat; zeros omitted; numstat `-` is Binary `B`; daemon CollectReviewDiff and local

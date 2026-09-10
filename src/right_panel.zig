@@ -111,7 +111,7 @@
 //! `file-text` for unknown files (archives/audio/video/config bind
 //! Material `app:zip` / `app:audio` / `app:video` / `app:settings`;
 //! LICENSE-like names / lockfiles / binaries / nginx bind Material
-//! `app:certificate` / `app:lock` / `app:exe` / `app:nginx`;
+//! `app:certificate` / `app:lockfile` / `app:exe` / `app:nginx`;
 //! shells bind Material `app:console` / `app:powershell`).
 //! Diff tree rows, the selected-file Diff
 //! header, and composer `@` mention rows reuse this same map

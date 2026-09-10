@@ -113,6 +113,7 @@ test "registerIcons resolves chrome and file-type app names" {
     try std.testing.expect(canvas.icons.resolve("app:settings") != null);
     try std.testing.expect(canvas.icons.resolve("app:certificate") != null);
     try std.testing.expect(canvas.icons.resolve("app:lock") != null);
+    try std.testing.expect(canvas.icons.resolve("app:lockfile") != null);
     try std.testing.expect(canvas.icons.resolve("app:exe") != null);
     try std.testing.expect(canvas.icons.resolve("app:nginx") != null);
     try std.testing.expect(canvas.icons.find("app:zig") == null);
@@ -137,4 +138,14 @@ test "app_icons names and shell window" {
     try std.testing.expectEqualStrings(canvas_label, shell_scene.windows[0].views[1].parent.?);
     try std.testing.expectEqualStrings("browser-web-3", shell_scene.windows[0].views[4].label);
     try std.testing.expect(shell_scene.windows[0].views[4].kind == .webview);
+}
+
+test "app_icons chrome and file-type names are unique" {
+    var i: usize = 0;
+    while (i < app_icons.len) : (i += 1) {
+        var j: usize = i + 1;
+        while (j < app_icons.len) : (j += 1) {
+            try std.testing.expect(!std.mem.eql(u8, app_icons[i].name, app_icons[j].name));
+        }
+    }
 }
