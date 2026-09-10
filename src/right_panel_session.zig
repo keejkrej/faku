@@ -768,23 +768,31 @@ test "remove session drops open stash; destination missing is closed" {
 
     palette_run.applySessionSelection(&model, &fx, session_b);
     try std.testing.expect(!model.right_panel_open);
-    model.showRightPanel();
-    try std.testing.expect(model.right_panel_open);
 
-    palette_run.applySessionSelection(&model, &fx, session_a);
-    try std.testing.expect(model.right_panel_open);
-    session_actions.handleRemoveSession(&model, &fx, session_b);
+    take(&model);
+    model.dropSession(session_b);
     try std.testing.expect(!hasState(&model, session_b));
     try std.testing.expectEqual(session_a, model.selected);
+    restore(&model, &fx);
     try std.testing.expect(model.right_panel_open);
 
-    palette_run.applySessionSelection(&model, &fx, session_a);
+    session_actions.handleRemoveSession(&model, &fx, session_b);
+    try std.testing.expect(!hasState(&model, session_b));
+    try std.testing.expect(model.right_panel_open);
+
     const session_c = model.addSession("vis drop c", .fx);
     palette_run.applySessionSelection(&model, &fx, session_c);
     try std.testing.expect(!model.right_panel_open);
-    session_actions.handleRemoveSession(&model, &fx, session_a);
+
+    take(&model);
+    model.dropSession(session_a);
     try std.testing.expect(!hasState(&model, session_a));
     try std.testing.expectEqual(session_c, model.selected);
+    restore(&model, &fx);
+    try std.testing.expect(!model.right_panel_open);
+
+    session_actions.handleRemoveSession(&model, &fx, session_a);
+    try std.testing.expect(!hasState(&model, session_a));
     try std.testing.expect(!model.right_panel_open);
 }
 
