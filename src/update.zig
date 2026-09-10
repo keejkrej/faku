@@ -52,6 +52,7 @@ const open_editor = @import("open_editor.zig");
 const copy_helpers = @import("copy.zig");
 const right_panel = @import("right_panel.zig");
 const file_preview_images = @import("file_preview_images.zig");
+const file_preview_details = @import("file_preview_details.zig");
 
 const Model = main.Model;
 const Msg = main.Msg;
@@ -443,12 +444,16 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .hide_right_panel => {
             file_preview_images.drop(model, fx);
+            file_preview_details.drop(model);
             model.hideRightPanel();
             store.persistLayoutIfPossible(model);
         },
         .toggle_right_panel => {
             const opening = !model.right_panel_open;
-            if (!opening) file_preview_images.drop(model, fx);
+            if (!opening) {
+                file_preview_images.drop(model, fx);
+                file_preview_details.drop(model);
+            }
             model.toggleRightPanel();
             if (opening) file_mention.refresh(model, fx);
             store.persistLayoutIfPossible(model);
@@ -468,12 +473,16 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .open_right_panel_file => |id| right_panel.selectCachedFile(model, fx, id),
         .close_right_panel_file_preview => {
             file_preview_images.drop(model, fx);
+            file_preview_details.drop(model);
             right_panel.closeFilePreview(model);
         },
         .open_right_panel_file_editor => right_panel.openPreviewInEditor(model, fx),
         .open_right_panel_file_edit => {
             right_panel.startFilePreviewEdit(model);
-            if (model.file_preview_editing()) file_preview_images.drop(model, fx);
+            if (model.file_preview_editing()) {
+                file_preview_images.drop(model, fx);
+                file_preview_details.drop(model);
+            }
         },
         .file_preview_edit => |edit| right_panel.applyFilePreviewEdit(model, edit),
         .file_preview_save => right_panel.saveFilePreview(model, fx),
@@ -485,10 +494,12 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 .switch_file => |id| right_panel.selectCachedFile(model, fx, id),
                 .close_preview => {
                     file_preview_images.drop(model, fx);
+                    file_preview_details.drop(model);
                     right_panel.clearFilePreview(model);
                 },
                 .hide_panel => {
                     file_preview_images.drop(model, fx);
+                    file_preview_details.drop(model);
                     model.hideRightPanel();
                     store.persistLayoutIfPossible(model);
                 },
@@ -510,13 +521,16 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .file_preview_find_replace_all => right_panel.replaceFilePreviewFindAll(model, fx),
         .set_file_preview_markdown_preview => {
             right_panel.setFilePreviewMarkdownPreview(model);
+            file_preview_details.drop(model);
             file_preview_images.refresh(model, fx);
         },
         .set_file_preview_markdown_source => {
             right_panel.setFilePreviewMarkdownSource(model);
             file_preview_images.drop(model, fx);
+            file_preview_details.drop(model);
         },
         .file_preview_open_url => |url| right_panel.openFilePreviewMarkdownUrl(model, fx, url),
+        .file_preview_toggle_details => |index| file_preview_details.toggle(model, index),
         .toggle_right_panel_dir => |id| right_panel.toggleDir(model, fx, id),
         .set_right_panel_tab_files => {
             right_panel.selectFiles(model, fx);

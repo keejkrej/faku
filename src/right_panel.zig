@@ -137,9 +137,12 @@
 //! Markdown (`.md` / `.markdown`) adds a runtime-only Preview | Source
 //! header chip (ghost sm, like Settings Usage Cost | Tokens). Default
 //! Preview paints Native `<markdown source="{file_preview_body}"
-//! images="{file_preview_images}" on-link="file_preview_open_url" />`
+//! images="{file_preview_images}" details-expanded="{file_preview_details_expanded}"
+//! on-details="file_preview_toggle_details" on-link="file_preview_open_url" />`
 //! (GFM subset; in-project local images via `images=` + `fx.loadImage`;
-//! http(s) / `data:` / outside-project stay alt-text; no details-expanded). Source keeps today's
+//! http(s) / `data:` / outside-project stay alt-text; `<details>` via
+//! documented `details-expanded` + `on-details`, runtime-only flags,
+//! default collapsed). Source keeps today's
 //! highlighted `<code language="markdown">`. http(s) / bare-host links
 //! reuse `open_url` OS browser spawn; relative / `file:` / absolute
 //! project paths open the Files preview (same as a tree click);
@@ -309,6 +312,7 @@ const daemon_proxy = @import("daemon_proxy.zig");
 const protocol = @import("protocol.zig");
 const file_preview_find = @import("file_preview_find.zig");
 const file_preview_images = @import("file_preview_images.zig");
+const file_preview_details = @import("file_preview_details.zig");
 const right_panel_session = @import("right_panel_session.zig");
 
 const canvas = native_sdk.canvas;
@@ -874,6 +878,7 @@ fn bumpWideTabWidth(model: *Model) void {
 
 pub fn clearFilePreview(model: *Model) void {
     file_preview_images.drop(model, null);
+    file_preview_details.drop(model);
     freePreviewBody(model);
     model.right_panel_file_preview_id = 0;
     model.right_panel_file_preview_relpath_len = 0;
@@ -1304,6 +1309,7 @@ fn finishPreviewLoad(model: *Model, fx: ?*Effects) void {
     model.right_panel_file_preview_status_len = 0;
     clearPendingIfClean(model);
     recomputeFilePreviewFind(model, .content);
+    file_preview_details.drop(model);
     file_preview_images.refresh(model, fx);
 }
 
@@ -1463,6 +1469,7 @@ pub fn selectCachedFile(model: *Model, fx: *Effects, id: u32) void {
     cancelDaemonRead(model, fx);
     cancelDaemonSave(model, fx);
     file_preview_images.drop(model, fx);
+    file_preview_details.drop(model);
     clearFilePreview(model);
     model.right_panel_file_preview_id = id;
     if (first_preview) ensureInitialRightPanelFileEditorWidth(model);
@@ -1479,6 +1486,7 @@ pub fn selectCachedFile(model: *Model, fx: *Effects, id: u32) void {
     if (keep_find) model.file_preview_find_active = true;
     loadFilePreviewBody(model, fx);
     right_panel_session.applyOpenedFilesEditor(model);
+    file_preview_details.drop(model);
     file_preview_images.refresh(model, fx);
 }
 
@@ -1682,7 +1690,10 @@ fn ensureFilePreviewFindEditable(model: *Model, fx: ?*Effects) bool {
     if (model.right_panel_file_preview_editing) return previewTextOk(model) and !model.right_panel_file_preview_truncated;
     if (!canStartPreviewEdit(model)) return false;
     startFilePreviewEdit(model);
-    if (model.right_panel_file_preview_editing) file_preview_images.drop(model, fx);
+    if (model.right_panel_file_preview_editing) {
+        file_preview_images.drop(model, fx);
+        file_preview_details.drop(model);
+    }
     return model.right_panel_file_preview_editing;
 }
 
@@ -1800,6 +1811,7 @@ fn adoptSavedPreview(model: *Model, fx: *Effects, bytes: []const u8) void {
     clearPendingDiscard(model);
     recomputeFilePreviewFind(model, .content);
     right_panel_session.syncOpenedFilesEditor(model);
+    file_preview_details.drop(model);
     file_preview_images.refresh(model, fx);
 }
 
@@ -1921,9 +1933,11 @@ pub fn reloadFilePreview(model: *Model, fx: *Effects) void {
     cancelDaemonRead(model, fx);
     cancelDaemonSave(model, fx);
     file_preview_images.drop(model, fx);
+    file_preview_details.drop(model);
     freePreviewBody(model);
     loadFilePreviewBody(model, fx);
     right_panel_session.syncOpenedFilesEditor(model);
+    file_preview_details.drop(model);
     file_preview_images.refresh(model, fx);
 }
 
